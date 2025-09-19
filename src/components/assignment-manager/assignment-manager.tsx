@@ -1,32 +1,56 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useMemo, useState, useTransition } from "react"
 import { AssignmentGrid } from "./assignment-grid"
 import { AssignmentSidebar } from "./assignment-sidebar"
 import { GroupSidebar } from "./group-sidebar"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Search, X } from "lucide-react"
-import type { Assignment, AssignmentChangeEvent, EducationalData } from "@/types/assignment"
-import { initialData } from "@/data/sample-data"
-import { createGroupAction, updateGroupAction, deleteGroupAction } from "@/lib/server-updates"
-import { Group, Groups } from "@/actions/groups/types";
+import type {
+  Assignment,
+  AssignmentChangeEvent,
+  Assignments,
+  Group,
+  Groups,
+  Subjects,
+  Unit,
+  Units,
+} from "@/types"
+import {
+  createAssignmentAction,
+  deleteAssignmentAction,
+  updateAssignmentAction,
+  createGroupAction,
+  updateGroupAction,
+  deleteGroupAction,
+} from "@/lib/server-updates"
 
-import { toast  } from "sonner"
+import { toast } from "sonner"
+
 
 export interface AssignmentManagerProps {
   groups?: Groups | null
+  subjects?: Subjects | null
+  assignments?: Assignments | null
+  units?: Units | null
   onChange?: (assignment: Assignment, eventType: AssignmentChangeEvent) => void
 }
 
-export function AssignmentManager({ groups: initialGroups, onChange }: AssignmentManagerProps) {
+export function AssignmentManager({ 
+    groups: initialGroups, 
+    subjects: initialSubjects, 
+    assignments: initialAssignments, 
+    units: initialUnits,
+    onChange }: AssignmentManagerProps) {
   const [groups, setGroups] = useState<Groups>(initialGroups ?? [])
-  const [data, setData] = useState<EducationalData>(initialData)
+  const subjects = initialSubjects ?? []
+  const units = useMemo(() => initialUnits ?? [], [initialUnits])
+  const [assignments, setAssignments] = useState<Assignments>(initialAssignments ?? [])
   const [, startTransition] = useTransition()
   //const { toast: showToast } = useToast()
-  const [isEditing, setIsEditing] = useState(false)
+  const [isEditing] = useState(false)
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isGroupSidebarOpen, setIsGroupSidebarOpen] = useState(false)
@@ -37,18 +61,24 @@ export function AssignmentManager({ groups: initialGroups, onChange }: Assignmen
 
   const [searchFilter, setSearchFilter] = useState<string>("")
 
+  const sidebarGroupId = selectedAssignment?.group_id ?? newAssignmentData?.groupId
+  const sidebarGroupSubject = useMemo(() => {
+    if (!sidebarGroupId) return undefined
+    return groups.find((group:Group) => group.group_id === sidebarGroupId)?.subject
+  }, [groups, sidebarGroupId])
+
   const getFilteredAssignments = () => {
     if (!searchFilter.trim()) {
-      return data.assignments
+      return assignments
     }
 
     const searchTerm = searchFilter.toLowerCase().trim()
 
-    return data.assignments.filter((assignment) => {
+    return assignments.filter((assignment: Assignment) => {
       const groupIdMatch = assignment.group_id.toLowerCase().includes(searchTerm)
 
       // Search in unit title
-      const unit = data.units.find((u) => u.unit_id === assignment.unit_id)
+      const unit = units.find((u: Unit) => u.unit_id === assignment.unit_id)
       const unitMatch = unit?.title.toLowerCase().includes(searchTerm) || false
 
       // Search in dates (formatted as readable strings)
@@ -71,34 +101,116 @@ export function AssignmentManager({ groups: initialGroups, onChange }: Assignmen
     return searchFilter.trim() !== ""
   }
 
+  const isSameAssignment = (a: Assignment, b: Assignment) =>
+    a.group_id === b.group_id && a.unit_id === b.unit_id && a.start_date === b.start_date
+
   const addAssignment = (newAssignment: Assignment) => {
-    setData((prev) => ({
-      ...prev,
-      assignments: [...prev.assignments, newAssignment],
-    }))
+    const previousAssignments = assignments.map((assignment) => ({ ...assignment }))
+
+    setAssignments((prev: Assignments) => [...prev, newAssignment])
     onChange?.(newAssignment, "create")
+
+    startTransition(async () => {
+      try {
+        const result = await createAssignmentAction(
+          newAssignment.group_id,
+          newAssignment.unit_id,
+          newAssignment.start_date,
+          newAssignment.end_date,
+        )
+
+        if (result.error || !result.data) {
+          throw new Error(result.error ?? "Unknown error")
+        }
+
+        setAssignments((prev: Assignments) =>
+          prev.map((assignment) => (isSameAssignment(assignment, newAssignment) ? result.data! : assignment)),
+        )
+
+        toast.success("Assignment saved to the database.")
+      } catch (error) {
+        console.error("[v0] Failed to create assignment:", error)
+        setAssignments(previousAssignments)
+        toast.error("Assignment creation failed", {
+          description: "We couldn't save the assignment. Please try again.",
+        })
+      }
+    })
   }
 
-  const updateAssignment = (index: number, updatedAssignment: Assignment) => {
-    const oldAssignment = data.assignments[index]
-    setData((prev) => ({
-      ...prev,
-      assignments: prev.assignments.map((assignment, i) => (i === index ? updatedAssignment : assignment)),
-    }))
+  const updateAssignment = (index: number, updatedAssignment: Assignment, originalAssignment: Assignment) => {
+    const previousAssignments = assignments.map((assignment) => ({ ...assignment }))
+
+    setAssignments((prev: Assignments) =>
+      prev.map((assignment: Assignment, i: number) => (i === index ? updatedAssignment : assignment)),
+    )
+
     onChange?.(updatedAssignment, "edit")
+
+    startTransition(async () => {
+      try {
+        const result = await updateAssignmentAction(
+          updatedAssignment.group_id,
+          updatedAssignment.unit_id,
+          updatedAssignment.start_date,
+          updatedAssignment.end_date,
+          {
+            originalUnitId: originalAssignment.unit_id,
+            originalStartDate: originalAssignment.start_date,
+          },
+        )
+
+        if (result.error || !result.data) {
+          throw new Error(result.error ?? "Unknown error")
+        }
+
+        setAssignments((prev: Assignments) =>
+          prev.map((assignment: Assignment, i: number) => (i === index ? result.data! : assignment)),
+        )
+
+        toast.success("Assignment updated in the database.")
+      } catch (error) {
+        console.error("[v0] Failed to update assignment:", error)
+        setAssignments(previousAssignments)
+        toast.error("Assignment update failed", {
+          description: "We couldn't update the assignment. Please try again.",
+        })
+      }
+    })
   }
 
   const deleteAssignment = (index: number) => {
-    const assignmentToDelete = data.assignments[index]
-    setData((prev) => ({
-      ...prev,
-      assignments: prev.assignments.filter((_, i) => i !== index),
-    }))
-    onChange?.(assignmentToDelete, "delete")
-  }
+    const assignmentToDelete = assignments[index]
+    if (!assignmentToDelete) {
+      return
+    }
 
-  const resetData = () => {
-    setData(initialData)
+    const previousAssignments = assignments.map((assignment) => ({ ...assignment }))
+
+    setAssignments((prev: Assignments) => prev.filter((_, i) => i !== index))
+    onChange?.(assignmentToDelete, "delete")
+
+    startTransition(async () => {
+      try {
+        const result = await deleteAssignmentAction(
+          assignmentToDelete.group_id,
+          assignmentToDelete.unit_id,
+          assignmentToDelete.start_date,
+        )
+
+        if (!result.success) {
+          throw new Error(result.error ?? "Unknown error")
+        }
+
+        toast.success("Assignment removed from the database.")
+      } catch (error) {
+        console.error("[v0] Failed to delete assignment:", error)
+        setAssignments(previousAssignments)
+        toast.error("Assignment deletion failed", {
+          description: "We couldn't remove the assignment. Please try again.",
+        })
+      }
+    })
   }
 
   const handleAssignmentClick = (assignment: Assignment) => {
@@ -122,21 +234,21 @@ export function AssignmentManager({ groups: initialGroups, onChange }: Assignmen
   }
 
   const handleSidebarSave = (updatedAssignment: Assignment) => {
-    const index = data.assignments.findIndex(
-      (a) =>
+    const index = assignments.findIndex(
+      (a:Assignment) =>
         a.group_id === selectedAssignment?.group_id &&
         a.unit_id === selectedAssignment?.unit_id &&
         a.start_date === selectedAssignment?.start_date &&
         a.end_date === selectedAssignment?.end_date,
     )
-    if (index !== -1) {
-      updateAssignment(index, updatedAssignment)
+    if (index !== -1 && selectedAssignment) {
+      updateAssignment(index, updatedAssignment, selectedAssignment)
     }
   }
 
   const handleSidebarDelete = () => {
-    const index = data.assignments.findIndex(
-      (a) =>
+    const index = assignments.findIndex(
+      (a:Assignment) =>
         a.group_id === selectedAssignment?.group_id &&
         a.unit_id === selectedAssignment?.unit_id &&
         a.start_date === selectedAssignment?.start_date &&
@@ -166,14 +278,17 @@ export function AssignmentManager({ groups: initialGroups, onChange }: Assignmen
       active: true,
     }
 
-    setGroups((prev) => [...prev.filter((group) => group.group_id !== groupName), optimisticGroup])
+    setGroups((prev:Groups) => [...prev.filter((group:Group) => group.group_id !== groupName), optimisticGroup])
 
+   
+      
     startTransition(async () => {
       try {
         const result = await createGroupAction(groupName, subject)
 
         if (result.error) {
-          throw new Error(result.error)
+          toast.error(`Group creation failed :: ${result.error}`);
+          return
         }
 
         const insertedGroup = result.data
@@ -184,37 +299,33 @@ export function AssignmentManager({ groups: initialGroups, onChange }: Assignmen
           active: insertedGroup?.active ?? true,
         }
 
-        setGroups((prev) =>
-          prev.map((group) => (group.group_id === finalGroup.group_id ? finalGroup : group)),
+        setGroups((prev:Groups) =>
+          prev.map((group:Group) => (group.group_id === finalGroup.group_id ? finalGroup : group)),
         )
 
         toast.success(`Group ${groupName} has been saved to the database.`)
       } catch (error) {
         console.error("[v0] Failed to create group:", error)
-        setGroups((prev) => prev.filter((group) => group.group_id !== groupName))
+        setGroups((prev:Groups) => prev.filter((group:Group) => group.group_id !== groupName))
         toast.error("Group creation failed", {
           description: "We couldn't save the group to Supabase. Try again shortly.",
         })
       }
     })
-
-    console.log("[v0] Added new group optimistically:", optimisticGroup)
+    
   }
 
   const removeGroup = async (groupId: string) => {
-    const groupToRemove = groups.find((group) => group.group_id === groupId)
+    const groupToRemove = groups.find((group:Group) => group.group_id === groupId)
     if (!groupToRemove) {
       return
     }
 
     const previousGroups = [...groups]
-    const previousAssignments = [...data.assignments]
+    const previousAssignments = [...assignments]
 
-    setGroups((prev) => prev.filter((group) => group.group_id !== groupId))
-    setData((prev) => ({
-      ...prev,
-      assignments: prev.assignments.filter((assignment) => assignment.group_id !== groupId),
-    }))
+    setGroups((prev: Groups) => prev.filter((group: Group) => group.group_id !== groupId))
+    setAssignments((prev: Assignments) => prev.filter((assignment: Assignment) => assignment.group_id !== groupId))
 
     try {
       const result = await deleteGroupAction(groupId)
@@ -227,10 +338,7 @@ export function AssignmentManager({ groups: initialGroups, onChange }: Assignmen
     } catch (error) {
       console.error("[v0] Failed to remove group:", error)
       setGroups(previousGroups)
-      setData((prev) => ({
-        ...prev,
-        assignments: previousAssignments,
-      }))
+      setAssignments(previousAssignments)
       toast.error("Failed to remove group", {
         description: "We couldn't deactivate the group. Please try again.",
       })
@@ -239,40 +347,33 @@ export function AssignmentManager({ groups: initialGroups, onChange }: Assignmen
   }
 
   const updateGroup = async (oldGroupId: string, newGroupId: string, subject: string) => {
-    
     startTransition(async () => {
+      const previousGroups = [...groups]
+      const previousAssignments = [...assignments]
 
-      setGroups((prev) => prev.map((group) =>
-          group.group_id === oldGroupId ? { ...group, group_id: newGroupId, subject: subject } : group,
-        ));
+      setGroups((prev) =>
+        prev.map((group) =>
+          group.group_id === oldGroupId ? { ...group, group_id: newGroupId, subject } : group,
+        ),
+      )
 
-      setData((prev) => ({
-        ...prev,
-        assignments: prev.assignments.map((assignment) =>
+      setAssignments((prev) =>
+        prev.map((assignment) =>
           assignment.group_id === oldGroupId ? { ...assignment, group_id: newGroupId } : assignment,
         ),
-      }))
+      )
 
       try {
         const result = await updateGroupAction(oldGroupId, newGroupId, subject)
 
         if (result.success) {
-         toast.success("Updated Group");
+          toast.success("Updated Group")
         }
       } catch (error) {
+        console.error("[v0] Failed to update group:", error)
         toast.error("Failed to update group in database. Please try again.")
-
-        setGroups((prev) => groups.map((group) =>
-            group.group_id === newGroupId ? { ...group, group_id: oldGroupId, subject: subject } : group,
-          ) );
-
-        setData((prev) => ({
-          ...prev,
-          
-          assignments: prev.assignments.map((assignment) =>
-            assignment.group_id === newGroupId ? { ...assignment, group_id: oldGroupId } : assignment,
-          ),
-        }))
+        setGroups(previousGroups)
+        setAssignments(previousAssignments)
       }
     })
 
@@ -361,16 +462,15 @@ export function AssignmentManager({ groups: initialGroups, onChange }: Assignmen
 
             {hasActiveFilter() && (
               <div className="text-sm text-muted-foreground">
-                Showing {filteredAssignments.length} of {data.assignments.length} assignments
+                Showing {filteredAssignments.length} of {assignments.length} assignments
               </div>
             )}
           </div>
         </div>
 
       <AssignmentGrid
-        subjects={data.subjects}
         groups={filteredGroups}
-        units={data.units}
+        units={units}
         assignments={filteredAssignments}
         onAssignmentClick={handleAssignmentClick}
         onEmptyCellClick={handleEmptyCellClick}
@@ -383,7 +483,8 @@ export function AssignmentManager({ groups: initialGroups, onChange }: Assignmen
         isOpen={isSidebarOpen}
         onClose={closeSidebar}
         assignment={selectedAssignment}
-        units={data.units}
+        units={units}
+        groupSubject={sidebarGroupSubject}
         onSave={handleSidebarSave}
         onDelete={handleSidebarDelete}
         onCreate={handleSidebarCreate}
@@ -393,7 +494,7 @@ export function AssignmentManager({ groups: initialGroups, onChange }: Assignmen
       <GroupSidebar
         isOpen={isGroupSidebarOpen}
         onClose={closeGroupSidebar}
-        subjects={data.subjects}
+        subjects={subjects}
         onSave={addGroup}
         editingGroup={editingGroup}
         onUpdate={updateGroup}
@@ -410,11 +511,11 @@ export function AssignmentManager({ groups: initialGroups, onChange }: Assignmen
               <div>
                 <h4 className="font-medium mb-2">Current Assignments:</h4>
                 <div className="space-y-2 max-h-60 overflow-y-auto">
-                  {data.assignments.map((assignment, index) => (
+                  {assignments.map((assignment, index) => (
                     <div key={index} className="flex items-center justify-between p-2 border rounded">
                       <div className="text-sm">
                         <span className="font-medium">{assignment.group_id}</span> →
-                        <span className="ml-1">{data.units.find((u) => u.unit_id === assignment.unit_id)?.title}</span>
+                        <span className="ml-1">{units.find((u) => u.unit_id === assignment.unit_id)?.title}</span>
                         <span className="ml-2 text-muted-foreground">
                           ({assignment.start_date} to {assignment.end_date})
                         </span>

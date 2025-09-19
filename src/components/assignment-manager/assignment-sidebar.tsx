@@ -1,19 +1,20 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { X } from "lucide-react"
-import type { Unit, Assignment } from "@/types/assignment"
+import type { Unit, Assignment } from "@/types"
 
 interface AssignmentSidebarProps {
   isOpen: boolean
   onClose: () => void
   assignment: Assignment | null
   units: Unit[]
+  groupSubject?: string
   onSave: (updatedAssignment: Assignment) => void
   onDelete: () => void
   onCreate?: (newAssignment: Assignment) => void
@@ -25,12 +26,18 @@ export function AssignmentSidebar({
   onClose,
   assignment,
   units,
+  groupSubject,
   onSave,
   onDelete,
   onCreate,
   newAssignmentData,
 }: AssignmentSidebarProps) {
   const [editedAssignment, setEditedAssignment] = useState<Assignment | null>(null)
+
+  const matchingUnits = useMemo(() => {
+    if (!groupSubject) return units
+    return units.filter((unit) => unit.subject === groupSubject)
+  }, [units, groupSubject])
 
   useEffect(() => {
     if (assignment) {
@@ -43,12 +50,13 @@ export function AssignmentSidebar({
 
       setEditedAssignment({
         group_id: newAssignmentData.groupId,
-        unit_id: units.length > 0 ? units[0].unit_id : "",
+        unit_id: matchingUnits.length > 0 ? matchingUnits[0].unit_id : "",
         start_date: newAssignmentData.startDate,
         end_date: endDate.toISOString().split("T")[0],
+        active: true,
       })
     }
-  }, [assignment, newAssignmentData, units])
+  }, [assignment, newAssignmentData, matchingUnits])
 
   const handleSave = () => {
     if (editedAssignment) {
@@ -72,7 +80,6 @@ export function AssignmentSidebar({
     return null
   }
 
-  const currentUnit = units.find((u) => u.unit_id === editedAssignment.unit_id)
   const isCreateMode = !assignment && newAssignmentData
 
   return (
@@ -97,6 +104,9 @@ export function AssignmentSidebar({
             <div className="space-y-2">
               <Label htmlFor="group-id">Group ID</Label>
               <Input id="group-id" value={editedAssignment.group_id} disabled className="bg-muted" />
+              {groupSubject && (
+                <div className="text-xs text-muted-foreground">Subject: {groupSubject}</div>
+              )}
             </div>
 
             {/* Unit Selection */}
@@ -105,30 +115,20 @@ export function AssignmentSidebar({
               <Select
                 value={editedAssignment.unit_id}
                 onValueChange={(value) => setEditedAssignment((prev) => (prev ? { ...prev, unit_id: value } : null))}
+                disabled={matchingUnits.length === 0}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select a unit" />
                 </SelectTrigger>
                 <SelectContent>
-                  {units.map((unit) => (
+                  {matchingUnits.map((unit) => (
                     <SelectItem key={unit.unit_id} value={unit.unit_id}>
-                      <div className="flex flex-col items-start">
-                        <span className="font-medium">{unit.title}</span>
-                        <span className="text-xs text-muted-foreground">{unit.subject}</span>
-                      </div>
+                      {unit.title}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-
-            {/* Current Unit Info */}
-            {currentUnit && (
-              <div className="p-3 bg-muted rounded-lg">
-                <div className="text-sm font-medium">{currentUnit.title}</div>
-                <div className="text-xs text-muted-foreground">{currentUnit.subject}</div>
-              </div>
-            )}
 
             {/* Start Date */}
             <div className="space-y-2">

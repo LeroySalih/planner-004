@@ -2,8 +2,9 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { initialData } from "@/data/sample-data"
-import type { Unit } from "@/types/assignment"
+import { sampleUnits } from "@/data/sample-data"
+import type { Unit } from "@/types"
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -12,13 +13,13 @@ import { ArrowLeft, Search, BookOpen } from "lucide-react"
 
 export default function UnitsPage() {
   console.log("[v0] Units page is rendering")
-  console.log("[v0] Available units:", initialData.units.length)
+  console.log("[v0] Available units:", sampleUnits.length)
 
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedSubject, setSelectedSubject] = useState<string | null>(null)
 
   // Filter units based on search term and selected subject
-  const filteredUnits = initialData.units.filter((unit) => {
+  const filteredUnits = sampleUnits.filter((unit) => {
     const matchesSearch =
       unit.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
       unit.subject.toLowerCase().includes(searchTerm.toLowerCase())
@@ -27,7 +28,7 @@ export default function UnitsPage() {
   })
 
   // Get unique subjects for filtering
-  const subjects = Array.from(new Set(initialData.units.map((unit) => unit.subject)))
+  const subjects = Array.from(new Set(sampleUnits.map((unit) => unit.subject)))
 
   // Get subject color based on subject name
   const getSubjectColor = (subject: string) => {

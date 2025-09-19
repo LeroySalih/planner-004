@@ -2,16 +2,41 @@ import AssignmentManager  from "@/components/assignment-manager"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { BookOpen } from "lucide-react"
-import { getGroups } from "@/actions/groups/get-groups"
+import { readGroupsAction } from "@/lib/server-actions/groups"
+import { readAssignmentsAction, readSubjectsAction, readUnitsAction } from "@/lib/server-updates"
 
 export default async function Home() {
 
-  const {data:groups, error: groupsError} = await getGroups();
+  const {data:groups, error: groupsError} = await readGroupsAction();
+  const {data:subjects, error: subjectsError} = await readSubjectsAction();
+  const {data:assignments, error: assignmentsError} = await readAssignmentsAction();
+  const {data:units, error: unitsError} = await readUnitsAction();
 
   if (groupsError)  {
     return <div className="container mx-auto p-6">
       <h1 className="text-2xl font-bold mb-4">Error Loading Groups</h1>
       <p className="text-red-600">There was an error loading the groups: {groupsError}</p>
+    </div>
+  }
+
+  if (subjectsError)  {
+    return <div className="container mx-auto p-6">
+      <h1 className="text-2xl font-bold mb-4">Error Loading Subjects</h1>
+      <p className="text-red-600">There was an error loading the subjects: {subjectsError}</p>
+    </div>
+  }
+
+  if (assignmentsError){
+    return <div className="container mx-auto p-6">
+      <h1 className="text-2xl font-bold mb-4">Error Loading Assignments</h1>
+      <p className="text-red-600">There was an error loading the assignments: {assignmentsError}</p>
+    </div>
+  }
+
+  if (unitsError){
+    return <div className="container mx-auto p-6">
+      <h1 className="text-2xl font-bold mb-4">Error Loading Units</h1>
+      <p className="text-red-600">There was an error loading the units: {unitsError}</p>
     </div>
   }
 
@@ -27,7 +52,7 @@ export default async function Home() {
           </Button>
         </Link>
       </div>
-      <AssignmentManager groups={groups}/>
+      <AssignmentManager groups={groups} subjects={subjects} assignments={assignments} units={units}/>
     </main>
   )
 }

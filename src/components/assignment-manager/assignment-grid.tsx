@@ -3,10 +3,10 @@
 import type React from "react"
 import { useMemo, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import type { Subject, Group, Unit, Assignment } from "@/types/assignment"
+import type { Group, Unit, Assignment } from "@/types"
+
 
 interface AssignmentGridProps {
-  subjects: Subject[]
   groups: Group[]
   units: Unit[]
   assignments: Assignment[]
@@ -79,7 +79,6 @@ function UnitTooltip({ assignment, onTitleClick, position }: UnitTooltipProps) {
 }
 
 export function AssignmentGrid({
-  subjects,
   groups,
   units,
   assignments,

@@ -7,12 +7,12 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { X } from "lucide-react"
-import type { Subject, Group } from "@/types/assignment"
+import type { Subjects, Group } from "@/types"
 
 interface GroupSidebarProps {
   isOpen: boolean
   onClose: () => void
-  subjects: Subject[]
+  subjects: Subjects
   onSave: (groupId: string, subjectId: string) => Promise<void>
   editingGroup?: Group | null
   onUpdate?: (oldGroupId: string, newGroupId: string, subjectId: string) => Promise<void>
