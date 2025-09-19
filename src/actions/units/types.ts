@@ -9,5 +9,5 @@ export const UnitSchema = z.object({
 
 export const UnitsSchema = z.array(UnitSchema);
 
-export type Group = z.infer<typeof UnitSchema>;
-export type Groups = z.infer<typeof UnitsSchema>;
+export type Unit = z.infer<typeof UnitSchema>;
+export type Units = z.infer<typeof UnitsSchema>;

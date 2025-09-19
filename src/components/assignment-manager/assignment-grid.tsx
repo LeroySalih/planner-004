@@ -337,6 +337,9 @@ export function AssignmentGrid({
                             >
                               {groupRow.groupId}
                             </button>
+                            <div className="text-xs text-muted-foreground mt-1">
+                              Join: {groups.find((g) => g.group_id === groupRow.groupId)?.join_code || "N/A"}
+                            </div>
                             {maxTracks > 1 && (
                               <span className="text-xs text-muted-foreground mt-1">
                                 {maxTracks} track{maxTracks > 1 ? "s" : ""}

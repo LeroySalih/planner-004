@@ -1,16 +1,14 @@
-import type { EducationalData } from "../types/assignment"
+import type { EducationalData } from "@/types/assignment"
 
 export const initialData: EducationalData = {
-  subjects: [
-    { subject: "Mathematics" },
-    { subject: "Science" },
-    { subject: "History" },
-  ],
+  subjects: [{ subject: "Mathematics" }, { subject: "Science" }, { subject: "History" }],
+  /*
   groups: [
-    { group_id: "25-10-MA", subject: "Mathematics" },
-    { group_id: "25-11-SC", subject: "Science" },
-    { group_id: "25-10-HI", subject: "History" },
+    { group_id: "25-10-MA", subject: "Mathematics", join_code: "ABC12" },
+    { group_id: "25-11-SC", subject: "Science", join_code: "DEF34" },
+    { group_id: "25-10-HI", subject: "History", join_code: "GHI56" },
   ],
+  */
   units: [
     { unit_id: "UNIT001", title: "Algebra Basics", subject: "Mathematics" },
     { unit_id: "UNIT002", title: "Introduction to Biology", subject: "Science" },

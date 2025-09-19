@@ -5,7 +5,14 @@ create table subjects (
   subject text primary key
 );
 
-INSERT INTO subjects (subject) VALUES
-('Mathematics'),
+INSERT INTO subjects (subject)
+VALUES ('Mathematics'),
 ('Science'),
-('History');
+('History'),
+('English'),
+('Art'),
+('Design Technology')
+ON CONFLICT (subject) DO UPDATE
+SET
+  subject = EXCLUDED.subject
+RETURNING *;

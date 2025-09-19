@@ -17,5 +17,5 @@ export const AssignmentSchema = z.object({
 
 export const AssignmentsSchema = z.array(AssignmentSchema);
 
-export type Group = z.infer<typeof AssignmentSchema>;
-export type Groups = z.infer<typeof AssignmentsSchema>;
+export type Assignment = z.infer<typeof AssignmentSchema>;
+export type Assignments = z.infer<typeof AssignmentsSchema>;

@@ -5,6 +5,8 @@ export interface Subject {
 export interface Group {
   group_id: string
   subject: string
+  join_code: string
+  active: boolean
 }
 
 export interface Unit {
@@ -22,13 +24,10 @@ export interface Assignment {
 
 export interface EducationalData {
   subjects: Subject[]
-  groups: Group[]
+  // groups: Group[]
   units: Unit[]
   assignments: Assignment[]
 }
 
 export type AssignmentChangeEvent = "create" | "edit" | "delete" | "unit-title-click"
 
-export interface AssignmentManagerProps {
-  onChange?: (assignment: Assignment, eventType: AssignmentChangeEvent) => void
-}

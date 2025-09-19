@@ -6,6 +6,6 @@ export const SubjectSchema = z.object({
 
 export const SubjectsSchema = z.array(SubjectSchema);
 
-export type Group = z.infer<typeof SubjectSchema>;
-export type Groups = z.infer<typeof SubjectsSchema>;
+export type Subject = z.infer<typeof SubjectSchema>;
+export type Subjects = z.infer<typeof SubjectsSchema>;
 

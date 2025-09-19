@@ -13,26 +13,18 @@ const ReturnValSchema = z.object({
 });
 
 export async function getGroups() {
-  
-    let data = null, error = null;
+  try {
+    const { data, error } = await supabaseServer
+      .from("groups")
+      .select("*")
+      .eq("active", true);
+      
+    if (error) throw new Error(error.message);
 
-    try {
-
-        const result = await supabaseServer
-                .from("groups")
-                .select("*")
-
-        if (result.error) throw new Error(result.error.message);
-
-        data = result.data;
-
-    } 
-    catch (error) {
-        error = (error as Error).message;
-        console.error("Error fetching groups:", error);
-    }
-    finally{
-        return ReturnValSchema.parse({data, error});
-    }
-  
+    return ReturnValSchema.parse({ data, error: null });
+  } catch (caught) {
+    const message = caught instanceof Error ? caught.message : "Unknown error";
+    console.error("Error fetching groups:", caught);
+    return ReturnValSchema.parse({ data: null, error: message });
+  }
 }
