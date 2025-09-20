@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react"
 import { AssignmentGrid } from "./assignment-grid"
 import { AssignmentSidebar } from "./assignment-sidebar"
 import { GroupSidebar } from "./group-sidebar"
+import { AssignmentGroupSelectorSidebar } from "./assignment-group-selector-sidebar"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -54,10 +55,12 @@ export function AssignmentManager({
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isGroupSidebarOpen, setIsGroupSidebarOpen] = useState(false)
+  const [isGroupSelectorOpen, setIsGroupSelectorOpen] = useState(false)
   const [newAssignmentData, setNewAssignmentData] = useState<{ groupId: string; startDate: string } | undefined>(
     undefined,
   )
   const [editingGroup, setEditingGroup] = useState<Group | null>(null)
+  const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([])
 
   const [searchFilter, setSearchFilter] = useState<string>("")
 
@@ -216,6 +219,7 @@ export function AssignmentManager({
   const handleAssignmentClick = (assignment: Assignment) => {
     setSelectedAssignment(assignment)
     setNewAssignmentData(undefined)
+    setSelectedGroupIds([assignment.group_id])
     setIsSidebarOpen(true)
   }
 
@@ -225,6 +229,7 @@ export function AssignmentManager({
       groupId,
       startDate: weekStart.toISOString().split("T")[0],
     })
+    setSelectedGroupIds([groupId])
     setIsSidebarOpen(true)
   }
 
@@ -260,7 +265,10 @@ export function AssignmentManager({
   }
 
   const handleSidebarCreate = (newAssignment: Assignment) => {
-    addAssignment(newAssignment)
+    const groupIds = selectedGroupIds.length ? Array.from(new Set(selectedGroupIds)) : [newAssignment.group_id]
+    groupIds.forEach((groupId) => {
+      addAssignment({ ...newAssignment, group_id: groupId })
+    })
   }
 
   const closeSidebar = () => {
@@ -489,6 +497,8 @@ export function AssignmentManager({
         onDelete={handleSidebarDelete}
         onCreate={handleSidebarCreate}
         newAssignmentData={newAssignmentData}
+        selectedGroups={selectedGroupIds}
+        onOpenGroupSelection={() => setIsGroupSelectorOpen(true)}
       />
 
       <GroupSidebar
@@ -499,6 +509,25 @@ export function AssignmentManager({
         editingGroup={editingGroup}
         onUpdate={updateGroup}
         onDeactivate={removeGroup}
+      />
+
+      <AssignmentGroupSelectorSidebar
+        isOpen={isGroupSelectorOpen}
+        groups={groups}
+        selectedGroupIds={selectedGroupIds}
+        onClose={() => setIsGroupSelectorOpen(false)}
+        onSave={(ids) => {
+          const baseGroupId = selectedAssignment?.group_id ?? newAssignmentData?.groupId
+          let normalized = ids
+          if (normalized.length === 0 && baseGroupId) {
+            normalized = [baseGroupId]
+          }
+          if (baseGroupId && !normalized.includes(baseGroupId)) {
+            normalized = [...normalized, baseGroupId]
+          }
+          setSelectedGroupIds(Array.from(new Set(normalized)))
+          setIsGroupSelectorOpen(false)
+        }}
       />
 
       {isEditing && (

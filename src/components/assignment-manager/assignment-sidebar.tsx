@@ -20,6 +20,8 @@ interface AssignmentSidebarProps {
   onDelete: () => void
   onCreate?: (newAssignment: Assignment) => void
   newAssignmentData?: { groupId: string; startDate: string }
+  selectedGroups?: string[]
+  onOpenGroupSelection?: () => void
 }
 
 export function AssignmentSidebar({
@@ -32,6 +34,8 @@ export function AssignmentSidebar({
   onDelete,
   onCreate,
   newAssignmentData,
+  selectedGroups,
+  onOpenGroupSelection,
 }: AssignmentSidebarProps) {
   const [editedAssignment, setEditedAssignment] = useState<Assignment | null>(null)
 
@@ -111,10 +115,22 @@ export function AssignmentSidebar({
           <CardContent className="space-y-6">
             {/* Group ID (read-only) */}
             <div className="space-y-2">
-              <Label htmlFor="group-id">Group ID</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="group-id">Group ID</Label>
+                {isCreateMode && (
+                  <Button variant="outline" size="sm" onClick={onOpenGroupSelection}>
+                    Select groups
+                  </Button>
+                )}
+              </div>
               <Input id="group-id" value={editedAssignment.group_id} disabled className="bg-muted" />
               {groupSubject && (
                 <div className="text-xs text-muted-foreground">Subject: {groupSubject}</div>
+              )}
+              {isCreateMode && selectedGroups && selectedGroups.length > 0 && (
+                <div className="text-xs text-muted-foreground">
+                  Assigning to {selectedGroups.length} group{selectedGroups.length > 1 ? "s" : ""}
+                </div>
               )}
             </div>
 
