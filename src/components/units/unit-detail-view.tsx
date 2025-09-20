@@ -69,6 +69,21 @@ export function UnitDetailView({
     ? "bg-emerald-100 text-emerald-700 border-emerald-200"
     : "bg-rose-100 text-rose-700 border-rose-200"
 
+  const objectiveLessonCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    lessons
+      .filter((lesson) => lesson.active !== false)
+      .forEach((lesson) => {
+        const seen = new Set<string>()
+        lesson.lesson_objectives?.forEach((objective) => {
+          if (!objective?.learning_objective_id || seen.has(objective.learning_objective_id)) return
+          counts[objective.learning_objective_id] = (counts[objective.learning_objective_id] ?? 0) + 1
+          seen.add(objective.learning_objective_id)
+        })
+      })
+    return counts
+  }, [lessons])
+
   const openCreateObjective = () => {
     setSelectedObjective(null)
     setIsObjectiveSidebarOpen(true)
@@ -155,8 +170,8 @@ export function UnitDetailView({
           {objectives.length > 0 ? (
             <div className="space-y-3">
               {objectives.map((objective) => {
-                const count = objective.success_criteria?.length ?? 0
-                const label = count === 1 ? "success criterion" : "success criteria"
+                const lessonCount = objectiveLessonCounts[objective.learning_objective_id] ?? 0
+                const label = lessonCount === 1 ? "lesson" : "lessons"
 
                 return (
                   <button
@@ -168,18 +183,12 @@ export function UnitDetailView({
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-medium">{objective.title}</span>
                       <span className="text-sm text-muted-foreground">
-                        {count} {label}
+                        {lessonCount} {label}
                       </span>
                     </div>
-                    {objective.success_criteria && objective.success_criteria.length > 0 ? (
-                      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                        {objective.success_criteria.map((criterion) => (
-                          <li key={criterion.success_criteria_id}>{criterion.title}</li>
-                        ))}
-                      </ul>
-                    ) : (
+                    {lessonCount === 0 && (
                       <p className="mt-2 text-sm text-muted-foreground">
-                        No success criteria yet. Click to add up to three.
+                        This objective is not linked to any lessons yet.
                       </p>
                     )}
                   </button>
