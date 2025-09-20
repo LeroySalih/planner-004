@@ -3,21 +3,18 @@
 import { useEffect, useMemo, useState } from "react"
 import { Calendar, Edit2, Plus, Target, Users } from "lucide-react"
 
+import type { Assignment, Group, Groups, Subjects, Unit } from "@/types"
 import type {
-  Assignment,
-  Group,
-  Groups,
-  Lesson,
-  Subjects,
-  Unit,
-} from "@/types"
-import type { LearningObjectiveWithCriteria } from "@/lib/server-updates"
+  LearningObjectiveWithCriteria,
+  LessonWithObjectives,
+} from "@/lib/server-updates"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { UnitEditSidebar } from "@/components/units/unit-edit-sidebar"
 import { LearningObjectiveSidebar } from "@/components/units/learning-objective-sidebar"
 import { LessonsPanel } from "@/components/units/lessons-panel"
+import { UnitFilesPanel } from "@/components/units/unit-files-panel"
 
 interface UnitDetailViewProps {
   unit: Unit
@@ -25,7 +22,8 @@ interface UnitDetailViewProps {
   groups: Groups
   subjects: Subjects
   learningObjectives: LearningObjectiveWithCriteria[]
-  lessons: Lesson[]
+  lessons: LessonWithObjectives[]
+  unitFiles: { name: string; path: string; created_at?: string; updated_at?: string; size?: number }[]
 }
 
 export function UnitDetailView({
@@ -35,6 +33,7 @@ export function UnitDetailView({
   subjects,
   learningObjectives,
   lessons,
+  unitFiles,
 }: UnitDetailViewProps) {
   const [isUnitSidebarOpen, setIsUnitSidebarOpen] = useState(false)
   const [currentUnit, setCurrentUnit] = useState<Unit>(unit)
@@ -138,8 +137,6 @@ export function UnitDetailView({
         </Card>
       </div>
 
-      <LessonsPanel unitId={currentUnit.unit_id} initialLessons={lessons} />
-
       <Card>
         <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-1">
@@ -196,6 +193,14 @@ export function UnitDetailView({
           )}
         </CardContent>
       </Card>
+
+      <LessonsPanel
+        unitId={currentUnit.unit_id}
+        initialLessons={lessons}
+        learningObjectives={objectives}
+      />
+
+      <UnitFilesPanel unitId={currentUnit.unit_id} initialFiles={unitFiles} />
 
       <Card>
         <CardHeader>

@@ -11,6 +11,7 @@ import {
   readGroupsAction,
   readSubjectsAction,
   readUnitAction,
+  listUnitFilesAction,
 } from "@/lib/server-updates"
 
 export default async function UnitDetailPage({
@@ -25,6 +26,7 @@ export default async function UnitDetailPage({
     subjectsResult,
     learningObjectivesResult,
     lessonsResult,
+    unitFilesResult,
   ] = await Promise.all([
     readUnitAction(params.unitId),
     readAssignmentsAction(),
@@ -32,6 +34,7 @@ export default async function UnitDetailPage({
     readSubjectsAction(),
     readLearningObjectivesByUnitAction(params.unitId),
     readLessonsByUnitAction(params.unitId),
+    listUnitFilesAction(params.unitId),
   ])
 
   if (unitResult.error) {
@@ -56,6 +59,10 @@ export default async function UnitDetailPage({
 
   if (lessonsResult.error) {
     throw new Error(lessonsResult.error)
+  }
+
+  if (unitFilesResult.error) {
+    throw new Error(unitFilesResult.error)
   }
 
   const unit = unitResult.data
@@ -84,6 +91,7 @@ export default async function UnitDetailPage({
         subjects={subjectsResult.data ?? []}
         learningObjectives={learningObjectivesResult.data ?? []}
         lessons={lessonsResult.data ?? []}
+        unitFiles={unitFilesResult.data ?? []}
       />
     </main>
   )

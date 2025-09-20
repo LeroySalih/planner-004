@@ -53,6 +53,7 @@ export const LessonSchema = z.object({
     lesson_id: z.string(),
     unit_id: z.string(),
     title: z.string().min(1).max(255),
+    order_by: z.number().default(0),
     active: z.boolean().default(true),
 });
 
@@ -60,6 +61,28 @@ export const LessonsSchema = z.array(LessonSchema);
 
 export type Lesson = z.infer<typeof LessonSchema>;
 export type Lessons = z.infer<typeof LessonsSchema>;
+
+export const LessonLearningObjectiveSchema = z.object({
+    learning_objective_id: z.string(),
+    lesson_id: z.string(),
+    order_by: z.number().default(0),
+    title: z.string().min(1),
+    active: z.boolean().default(true),
+    learning_objective: LearningObjectiveSchema.optional(),
+});
+
+export const LessonLearningObjectivesSchema = z.array(LessonLearningObjectiveSchema);
+
+export type LessonLearningObjective = z.infer<typeof LessonLearningObjectiveSchema>;
+export type LessonLearningObjectives = z.infer<typeof LessonLearningObjectivesSchema>;
+
+export const LessonWithObjectivesSchema = LessonSchema.extend({
+    lesson_objectives: LessonLearningObjectivesSchema.default([]),
+});
+
+export const LessonsWithObjectivesSchema = z.array(LessonWithObjectivesSchema);
+
+export type LessonWithObjectives = z.infer<typeof LessonWithObjectivesSchema>;
 
 export const SubjectSchema = z.object({
     subject: z.string().min(1).max(255),

@@ -3,21 +3,23 @@
 import { useEffect, useState, useTransition } from "react"
 import { toast } from "sonner"
 
-import type { Lesson } from "@/types"
+import type { LessonWithObjectives, LearningObjectiveWithCriteria } from "@/lib/server-updates"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
 import { X } from "lucide-react"
 import { createLessonAction, deactivateLessonAction, updateLessonAction } from "@/lib/server-updates"
 
 interface LessonSidebarProps {
   unitId: string
-  lesson: Lesson | null
+  lesson: LessonWithObjectives | null
   isOpen: boolean
   onClose: () => void
-  onCreateOrUpdate: (lesson: Lesson) => void
+  onCreateOrUpdate: (lesson: LessonWithObjectives) => void
   onDeactivate: (lessonId: string) => void
+  learningObjectives: LearningObjectiveWithCriteria[]
 }
 
 export function LessonSidebar({
@@ -27,17 +29,31 @@ export function LessonSidebar({
   onClose,
   onCreateOrUpdate,
   onDeactivate,
+  learningObjectives,
 }: LessonSidebarProps) {
   const [isPending, startTransition] = useTransition()
   const [title, setTitle] = useState("")
   const [isConfirmingDeactivate, setIsConfirmingDeactivate] = useState(false)
+  const [selectedObjectiveIds, setSelectedObjectiveIds] = useState<string[]>([])
+
+  const sortedObjectives = [...learningObjectives].sort((a, b) =>
+    a.title.localeCompare(b.title),
+  )
 
   useEffect(() => {
     if (!isOpen) return
 
     setTitle(lesson?.title ?? "")
     setIsConfirmingDeactivate(false)
-  }, [isOpen, lesson])
+    const availableIds = new Set(
+      learningObjectives.map((objective) => objective.learning_objective_id),
+    )
+    setSelectedObjectiveIds(
+      lesson?.lesson_objectives
+        ?.map((entry) => entry.learning_objective_id)
+        .filter((id) => availableIds.has(id)) ?? [],
+    )
+  }, [isOpen, lesson, learningObjectives])
 
   if (!isOpen) {
     return null
@@ -54,7 +70,12 @@ export function LessonSidebar({
     startTransition(async () => {
       try {
         if (lesson) {
-          const result = await updateLessonAction(lesson.lesson_id, unitId, title.trim())
+          const result = await updateLessonAction(
+            lesson.lesson_id,
+            unitId,
+            title.trim(),
+            selectedObjectiveIds,
+          )
 
           if (result.error || !result.data) {
             throw new Error(result.error ?? "Unknown error")
@@ -63,7 +84,7 @@ export function LessonSidebar({
           onCreateOrUpdate(result.data)
           toast.success("Lesson updated")
         } else {
-          const result = await createLessonAction(unitId, title.trim())
+          const result = await createLessonAction(unitId, title.trim(), selectedObjectiveIds)
 
           if (result.error || !result.data) {
             throw new Error(result.error ?? "Unknown error")
@@ -129,6 +150,41 @@ export function LessonSidebar({
                 placeholder="Lesson title"
                 disabled={isPending}
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Learning Objectives</Label>
+              <div className="space-y-2">
+                {sortedObjectives.length === 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    No learning objectives available for this unit yet.
+                  </p>
+                )}
+                {sortedObjectives.map((objective) => {
+                  const isChecked = selectedObjectiveIds.includes(objective.learning_objective_id)
+                  return (
+                    <label
+                      key={objective.learning_objective_id}
+                      className="flex items-start gap-2 text-sm"
+                    >
+                      <Checkbox
+                        checked={isChecked}
+                        onCheckedChange={(checked) => {
+                          setSelectedObjectiveIds((prev) => {
+                            if (checked === true) {
+                              if (prev.includes(objective.learning_objective_id)) return prev
+                              return [...prev, objective.learning_objective_id]
+                            }
+                            return prev.filter((id) => id !== objective.learning_objective_id)
+                          })
+                        }}
+                        disabled={isPending}
+                      />
+                      <span>{objective.title}</span>
+                    </label>
+                  )
+                })}
+              </div>
             </div>
 
             <div className="flex flex-col gap-3 pt-2">

@@ -29,7 +29,10 @@ export {
   createLessonAction,
   updateLessonAction,
   deactivateLessonAction,
+  reorderLessonsAction,
 } from "./server-actions/lessons"
+
+export type { LessonWithObjectives } from "@/types"
 
 export {
   createAssignmentAction,
@@ -42,3 +45,10 @@ export {
 } from "./server-actions/assignments"
 
 export { readSubjectsAction } from "./server-actions/subjects"
+
+export {
+  listUnitFilesAction,
+  uploadUnitFileAction,
+  deleteUnitFileAction,
+  getUnitFileDownloadUrlAction,
+} from "./server-actions/unit-files"

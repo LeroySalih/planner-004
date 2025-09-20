@@ -111,10 +111,17 @@ export function AssignmentGrid({
     const gridData: GroupRow[] = groups.map((group) => {
       const groupAssignments = assignments
         .filter((a) => a.group_id === group.group_id)
-        .map((a) => ({
-          ...a,
-          unit: units.find((u) => u.unit_id === a.unit_id)!,
-        }))
+        .map((a) => {
+          const unit = units.find((u) => u.unit_id === a.unit_id)
+          if (!unit) {
+            return null
+          }
+          return {
+            ...a,
+            unit,
+          }
+        })
+        .filter((assignment): assignment is Assignment & { unit: Unit } => assignment !== null)
         .sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime())
 
       if (groupAssignments.length === 0) {
