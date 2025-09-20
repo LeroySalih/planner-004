@@ -76,8 +76,21 @@ export const LessonLearningObjectivesSchema = z.array(LessonLearningObjectiveSch
 export type LessonLearningObjective = z.infer<typeof LessonLearningObjectiveSchema>;
 export type LessonLearningObjectives = z.infer<typeof LessonLearningObjectivesSchema>;
 
+export const LessonLinkSchema = z.object({
+    lesson_link_id: z.string(),
+    lesson_id: z.string(),
+    url: z.string().url(),
+    description: z.string().nullable(),
+});
+
+export const LessonLinksSchema = z.array(LessonLinkSchema);
+
+export type LessonLink = z.infer<typeof LessonLinkSchema>;
+export type LessonLinks = z.infer<typeof LessonLinksSchema>;
+
 export const LessonWithObjectivesSchema = LessonSchema.extend({
     lesson_objectives: LessonLearningObjectivesSchema.default([]),
+    lesson_links: LessonLinksSchema.default([]),
 });
 
 export const LessonsWithObjectivesSchema = z.array(LessonWithObjectivesSchema);

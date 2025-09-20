@@ -162,6 +162,22 @@ export function LessonsPanel({ unitId, initialLessons, learningObjectives }: Les
                     Drag the handle to reorder or click to edit this lesson.
                   </p>
                 )}
+                {lesson.lesson_links && lesson.lesson_links.length > 0 && (
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                    {lesson.lesson_links.map((link) => (
+                      <li key={link.lesson_link_id}>
+                        <a
+                          href={link.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary underline-offset-2 hover:underline"
+                        >
+                          {link.description || link.url}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </button>
             ))}
           </div>

@@ -52,3 +52,16 @@ export {
   deleteUnitFileAction,
   getUnitFileDownloadUrlAction,
 } from "./server-actions/unit-files"
+
+export {
+  listLessonFilesAction,
+  uploadLessonFileAction,
+  deleteLessonFileAction,
+  getLessonFileDownloadUrlAction,
+} from "./server-actions/lesson-files"
+
+export {
+  listLessonLinksAction,
+  createLessonLinkAction,
+  deleteLessonLinkAction,
+} from "./server-actions/lesson-links"

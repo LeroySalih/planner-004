@@ -26,7 +26,9 @@ export async function readLessonsByUnitAction(unitId: string) {
 
   const { data, error } = await supabaseServer
     .from("lessons")
-    .select("*, lessons_learning_objective(*, learning_objective:learning_objectives(*))")
+    .select(
+      "*, lessons_learning_objective(*, learning_objective:learning_objectives(*)), lesson_links(*)",
+    )
     .eq("unit_id", unitId)
     .order("order_by", { ascending: true })
     .order("title", { ascending: true })
@@ -37,13 +39,19 @@ export async function readLessonsByUnitAction(unitId: string) {
   }
 
   const normalized = (data ?? []).map((lesson) => {
-    const { lessons_learning_objective, ...rest } = lesson
+    const { lessons_learning_objective, lesson_links, ...rest } = lesson
     const filtered = (lessons_learning_objective ?? [])
       .filter((entry) => entry.active !== false)
       .sort((a, b) => (a.order_by ?? 0) - (b.order_by ?? 0))
     return {
       ...rest,
       lesson_objectives: filtered,
+      lesson_links: (lesson_links ?? []).map((link) => ({
+        lesson_link_id: link.lesson_link_id,
+        lesson_id: link.lesson_id,
+        url: link.url,
+        description: link.description,
+      })),
     }
   })
 
@@ -236,7 +244,9 @@ export async function reorderLessonsAction(
 async function readLessonWithObjectives(lessonId: string) {
   const { data, error } = await supabaseServer
     .from("lessons")
-    .select("*, lessons_learning_objective(*, learning_objective:learning_objectives(*))")
+    .select(
+      "*, lessons_learning_objective(*, learning_objective:learning_objectives(*)), lesson_links(*)",
+    )
     .eq("lesson_id", lessonId)
     .maybeSingle()
 
@@ -249,12 +259,18 @@ async function readLessonWithObjectives(lessonId: string) {
     return LessonReturnValue.parse({ data: null, error: null })
   }
 
-  const { lessons_learning_objective, ...rest } = data
+  const { lessons_learning_objective, lesson_links, ...rest } = data
   const normalized = {
     ...rest,
     lesson_objectives: (lessons_learning_objective ?? [])
       .filter((entry) => entry.active !== false)
       .sort((a, b) => (a.order_by ?? 0) - (b.order_by ?? 0)),
+    lesson_links: (lesson_links ?? []).map((link) => ({
+      lesson_link_id: link.lesson_link_id,
+      lesson_id: link.lesson_id,
+      url: link.url,
+      description: link.description,
+    })),
   }
 
   return LessonReturnValue.parse({ data: normalized, error: null })

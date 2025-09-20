@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { UnitCreateSidebar } from "@/components/units/unit-create-sidebar"
 
 interface UnitsPageClientProps {
   units: Unit[]
@@ -19,18 +20,20 @@ interface UnitsPageClientProps {
 
 export function UnitsPageClient({ units, subjects }: UnitsPageClientProps) {
   const router = useRouter()
+  const [allUnits, setAllUnits] = useState<Unit[]>(units)
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedSubject, setSelectedSubject] = useState<string | null>(null)
+  const [isCreateSidebarOpen, setIsCreateSidebarOpen] = useState(false)
 
   const subjectOptions = useMemo(() => {
-    const fromUnits = new Set(units.map((unit) => unit.subject))
+    const fromUnits = new Set(allUnits.map((unit) => unit.subject))
     subjects.forEach((subject) => fromUnits.add(subject.subject))
     return Array.from(fromUnits).sort((a, b) => a.localeCompare(b))
-  }, [subjects, units])
+  }, [subjects, allUnits])
 
   const filteredUnits = useMemo(() => {
     const term = searchTerm.toLowerCase().trim()
-    return units.filter((unit) => {
+    return allUnits.filter((unit) => {
       const matchesSubject = !selectedSubject || unit.subject === selectedSubject
       const matchesSearch =
         !term ||
@@ -39,7 +42,7 @@ export function UnitsPageClient({ units, subjects }: UnitsPageClientProps) {
         unit.unit_id.toLowerCase().includes(term)
       return matchesSubject && matchesSearch
     })
-  }, [units, searchTerm, selectedSubject])
+  }, [allUnits, searchTerm, selectedSubject])
 
   const handleCardClick = (unitId: string) => {
     router.push(`/units/${unitId}`)
@@ -58,6 +61,9 @@ export function UnitsPageClient({ units, subjects }: UnitsPageClientProps) {
           <div className="flex items-center gap-2">
             <BookOpen className="h-6 w-6 text-primary" />
             <h1 className="text-3xl font-bold text-balance">Units Overview</h1>
+          </div>
+          <div className="ml-auto">
+            <Button onClick={() => setIsCreateSidebarOpen(true)}>+ Add Unit</Button>
           </div>
         </div>
 
@@ -95,7 +101,7 @@ export function UnitsPageClient({ units, subjects }: UnitsPageClientProps) {
 
         {searchTerm && (
           <p className="text-sm text-muted-foreground">
-            Showing {filteredUnits.length} of {units.length} units
+            Showing {filteredUnits.length} of {allUnits.length} units
           </p>
         )}
       </div>
@@ -113,6 +119,17 @@ export function UnitsPageClient({ units, subjects }: UnitsPageClientProps) {
           <p className="text-muted-foreground">Try adjusting your search or subject filters.</p>
         </div>
       )}
+
+      <UnitCreateSidebar
+        isOpen={isCreateSidebarOpen}
+        onClose={() => setIsCreateSidebarOpen(false)}
+        subjects={subjects}
+        onCreate={(newUnit) => {
+          setAllUnits((prev) => [...prev, newUnit])
+          setIsCreateSidebarOpen(false)
+          router.refresh()
+        }}
+      />
     </main>
   )
 }
