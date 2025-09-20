@@ -47,7 +47,9 @@ export function LearningObjectiveSidebar({
 
     setTitle(learningObjective?.title ?? "")
 
-    const initialCriteria = new Array(MAX_SUCCESS_CRITERIA).fill(null).map(() => ({ title: "" }))
+    const initialCriteria: Array<{ id?: string; title: string }> = new Array(MAX_SUCCESS_CRITERIA)
+      .fill(null)
+      .map(() => ({ title: "" }))
 
     learningObjective?.success_criteria?.forEach((criterion, index) => {
       if (index < MAX_SUCCESS_CRITERIA) {

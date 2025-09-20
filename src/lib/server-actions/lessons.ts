@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
 import {
+  LessonLearningObjective,
+  LessonLink,
   LessonWithObjectivesSchema,
   LessonsWithObjectivesSchema,
 } from "@/types"
@@ -40,13 +42,13 @@ export async function readLessonsByUnitAction(unitId: string) {
 
   const normalized = (data ?? []).map((lesson) => {
     const { lessons_learning_objective, lesson_links, ...rest } = lesson
-    const filtered = (lessons_learning_objective ?? [])
+    const filtered = ((lessons_learning_objective ?? []) as LessonLearningObjective[])
       .filter((entry) => entry.active !== false)
       .sort((a, b) => (a.order_by ?? 0) - (b.order_by ?? 0))
     return {
       ...rest,
       lesson_objectives: filtered,
-      lesson_links: (lesson_links ?? []).map((link) => ({
+      lesson_links: ((lesson_links ?? []) as LessonLink[]).map((link) => ({
         lesson_link_id: link.lesson_link_id,
         lesson_id: link.lesson_id,
         url: link.url,
@@ -262,10 +264,10 @@ async function readLessonWithObjectives(lessonId: string) {
   const { lessons_learning_objective, lesson_links, ...rest } = data
   const normalized = {
     ...rest,
-    lesson_objectives: (lessons_learning_objective ?? [])
+    lesson_objectives: ((lessons_learning_objective ?? []) as LessonLearningObjective[])
       .filter((entry) => entry.active !== false)
       .sort((a, b) => (a.order_by ?? 0) - (b.order_by ?? 0)),
-    lesson_links: (lesson_links ?? []).map((link) => ({
+    lesson_links: ((lesson_links ?? []) as LessonLink[]).map((link) => ({
       lesson_link_id: link.lesson_link_id,
       lesson_id: link.lesson_id,
       url: link.url,
