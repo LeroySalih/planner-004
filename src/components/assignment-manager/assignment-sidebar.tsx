@@ -148,37 +148,35 @@ export function AssignmentSidebar({
               </div>
             )}
 
-            {/* Start Date */}
-            <div className="space-y-2">
-              <Label htmlFor="start-date">Start Date</Label>
-              <Input
-                id="start-date"
-                type="date"
-                value={editedAssignment.start_date}
-                onChange={(e) => setEditedAssignment((prev) => (prev ? { ...prev, start_date: e.target.value } : null))}
-              />
-            </div>
-
-            {/* End Date */}
-            <div className="space-y-2">
-              <Label htmlFor="end-date">End Date</Label>
-              <Input
-                id="end-date"
-                type="date"
-                value={editedAssignment.end_date}
-                onChange={(e) => setEditedAssignment((prev) => (prev ? { ...prev, end_date: e.target.value } : null))}
-              />
-            </div>
-
-            {/* Duration Info */}
-            <div className="p-3 bg-muted/50 rounded-lg">
-              <div className="text-sm text-muted-foreground">
-                Duration:{" "}
-                {Math.ceil(
-                  (new Date(editedAssignment.end_date).getTime() - new Date(editedAssignment.start_date).getTime()) /
-                    (1000 * 60 * 60 * 24),
-                )}{" "}
-                days
+            {/* Schedule */}
+            <div className="space-y-3">
+              <Label>Schedule</Label>
+              <div className="flex gap-3">
+                <div className="flex-1 space-y-1">
+                  <span className="text-xs uppercase tracking-wide text-muted-foreground">Start Date</span>
+                  <Input
+                    id="start-date"
+                    type="date"
+                    value={editedAssignment.start_date}
+                    onChange={(e) =>
+                      setEditedAssignment((prev) => (prev ? { ...prev, start_date: e.target.value } : null))
+                    }
+                  />
+                </div>
+                <div className="flex-1 space-y-1">
+                  <span className="text-xs uppercase tracking-wide text-muted-foreground">End Date</span>
+                  <Input
+                    id="end-date"
+                    type="date"
+                    value={editedAssignment.end_date}
+                    onChange={(e) =>
+                      setEditedAssignment((prev) => (prev ? { ...prev, end_date: e.target.value } : null))
+                    }
+                  />
+                </div>
+              </div>
+              <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
+                Duration: {calculateWeeks(editedAssignment.start_date, editedAssignment.end_date)} weeks
               </div>
             </div>
 
@@ -201,4 +199,15 @@ export function AssignmentSidebar({
       </div>
     </div>
   )
+}
+
+function calculateWeeks(startDate: string, endDate: string) {
+  const start = new Date(startDate)
+  const end = new Date(endDate)
+  const diffMs = end.getTime() - start.getTime()
+  if (Number.isNaN(diffMs) || diffMs < 0) {
+    return 0
+  }
+  const weeks = diffMs / (1000 * 60 * 60 * 24 * 7)
+  return Math.max(1, Math.ceil(weeks))
 }
