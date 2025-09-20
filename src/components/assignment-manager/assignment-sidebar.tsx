@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { X } from "lucide-react"
 import type { Unit, Assignment } from "@/types"
+import { truncateText } from "@/lib/utils"
 
 interface AssignmentSidebarProps {
   isOpen: boolean
@@ -38,6 +39,11 @@ export function AssignmentSidebar({
     if (!groupSubject) return units
     return units.filter((unit) => unit.subject === groupSubject)
   }, [units, groupSubject])
+
+  const selectedUnit = useMemo(() => {
+    if (!editedAssignment) return undefined
+    return units.find((unit) => unit.unit_id === editedAssignment.unit_id)
+  }, [editedAssignment, units])
 
   useEffect(() => {
     if (assignment) {
@@ -81,6 +87,9 @@ export function AssignmentSidebar({
   }
 
   const isCreateMode = !assignment && newAssignmentData
+  const unitDescriptionSnippet = selectedUnit?.description
+    ? truncateText(selectedUnit.description, 250)
+    : undefined
 
   return (
     <div className="fixed inset-0 z-50 flex">
@@ -129,6 +138,15 @@ export function AssignmentSidebar({
                 </SelectContent>
               </Select>
             </div>
+
+            {unitDescriptionSnippet && (
+              <div className="space-y-2">
+                <Label className="text-muted-foreground">Unit Description</Label>
+                <p className="rounded-lg border border-dashed bg-muted/30 p-3 text-sm text-muted-foreground">
+                  {unitDescriptionSnippet}
+                </p>
+              </div>
+            )}
 
             {/* Start Date */}
             <div className="space-y-2">

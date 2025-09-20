@@ -52,7 +52,12 @@ export default async function Home() {
           </Button>
         </Link>
       </div>
-      <AssignmentManager groups={groups} subjects={subjects} assignments={assignments} units={units}/>
+      <AssignmentManager
+        groups={groups}
+        subjects={subjects}
+        assignments={assignments}
+        units={(units ?? []).filter((unit) => unit.active ?? true)}
+      />
     </main>
   )
 }

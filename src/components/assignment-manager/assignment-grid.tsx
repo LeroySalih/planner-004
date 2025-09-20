@@ -2,6 +2,7 @@
 
 import type React from "react"
 import { useMemo, useState } from "react"
+import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { Group, Unit, Assignment } from "@/types"
 
@@ -88,6 +89,7 @@ export function AssignmentGrid({
   onAddGroupClick, // Updated prop name
   onGroupTitleClick, // Added onGroupTitleClick prop
 }: AssignmentGridProps) {
+  const router = useRouter()
   const [hoveredAssignment, setHoveredAssignment] = useState<(Assignment & { unit: Unit }) | null>(null)
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 })
   const [isTooltipHovered, setIsTooltipHovered] = useState(false)
@@ -282,6 +284,7 @@ export function AssignmentGrid({
 
   const handleUnitTitleClick = (assignment: Assignment & { unit: Unit }) => {
     setHoveredAssignment(null)
+    router.push(`/units/${assignment.unit.unit_id ?? assignment.unit_id}`)
     onUnitTitleClick?.({
       group_id: assignment.group_id,
       unit_id: assignment.unit_id,

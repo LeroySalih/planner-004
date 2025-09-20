@@ -16,6 +16,22 @@ export {
 } from "./server-actions/units"
 
 export {
+  readLearningObjectivesByUnitAction,
+  createLearningObjectiveAction,
+  updateLearningObjectiveAction,
+  deleteLearningObjectiveAction,
+  type LearningObjectiveWithCriteria,
+  type SuccessCriteriaInput,
+} from "./server-actions/learning-objectives"
+
+export {
+  readLessonsByUnitAction,
+  createLessonAction,
+  updateLessonAction,
+  deactivateLessonAction,
+} from "./server-actions/lessons"
+
+export {
   createAssignmentAction,
   readAssignmentAction,
   readAssignmentsAction,

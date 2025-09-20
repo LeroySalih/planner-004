@@ -6,9 +6,9 @@ import './globals.css'
 import { Toaster, toast } from 'sonner';
 
 export const metadata: Metadata = {
-  title: 'v0 App',
-  description: 'Created with v0',
-  generator: 'v0.app',
+  title: 'Planner',
+  description: 'mr-salih.org',
+  generator: 'open-ai & v0',
 }
 
 export default function RootLayout({

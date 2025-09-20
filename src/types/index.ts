@@ -18,6 +18,7 @@ export const UnitSchema = z.object({
     unit_id: z.string(),
     title: z.string().min(1).max(255),
     subject: z.string().min(1).max(255),
+    description: z.string().nullable(),
     active: z.boolean().optional(),
 });
 
@@ -25,6 +26,40 @@ export const UnitsSchema = z.array(UnitSchema);
 
 export type Unit = z.infer<typeof UnitSchema>;
 export type Units = z.infer<typeof UnitsSchema>;
+
+export const SuccessCriterionSchema = z.object({
+    success_criteria_id: z.string(),
+    learning_objective_id: z.string(),
+    title: z.string().min(1).max(255),
+});
+
+export const SuccessCriteriaSchema = z.array(SuccessCriterionSchema);
+
+export type SuccessCriterion = z.infer<typeof SuccessCriterionSchema>;
+export type SuccessCriteria = z.infer<typeof SuccessCriteriaSchema>;
+
+export const LearningObjectiveSchema = z.object({
+    learning_objective_id: z.string(),
+    unit_id: z.string(),
+    title: z.string().min(1).max(255),
+});
+
+export const LearningObjectivesSchema = z.array(LearningObjectiveSchema);
+
+export type LearningObjective = z.infer<typeof LearningObjectiveSchema>;
+export type LearningObjectives = z.infer<typeof LearningObjectivesSchema>;
+
+export const LessonSchema = z.object({
+    lesson_id: z.string(),
+    unit_id: z.string(),
+    title: z.string().min(1).max(255),
+    active: z.boolean().default(true),
+});
+
+export const LessonsSchema = z.array(LessonSchema);
+
+export type Lesson = z.infer<typeof LessonSchema>;
+export type Lessons = z.infer<typeof LessonsSchema>;
 
 export const SubjectSchema = z.object({
     subject: z.string().min(1).max(255),
