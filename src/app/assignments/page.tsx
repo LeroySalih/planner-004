@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic"
+
 import AssignmentManager  from "@/components/assignment-manager"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"

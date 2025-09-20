@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic"
+
 import { UnitsPageClient } from "@/components/units/units-page-client"
 import { readSubjectsAction, readUnitsAction } from "@/lib/server-updates"
 
