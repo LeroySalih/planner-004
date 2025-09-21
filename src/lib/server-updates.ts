@@ -47,6 +47,12 @@ export {
   batchDeleteAssignmentsAction,
 } from "./server-actions/assignments"
 
+export {
+  readLessonAssignmentsAction,
+  upsertLessonAssignmentAction,
+  deleteLessonAssignmentAction,
+} from "./server-actions/lesson-assignments"
+
 export { readSubjectsAction } from "./server-actions/subjects"
 
 export {

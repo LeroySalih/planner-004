@@ -4,13 +4,15 @@ import type React from "react"
 import { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import type { Group, Unit, Assignment } from "@/types"
+import type { Group, Unit, Assignment, Lesson, LessonAssignment } from "@/types"
 
 
 interface AssignmentGridProps {
   groups: Group[]
   units: Unit[]
   assignments: Assignment[]
+  lessons: Lesson[]
+  lessonAssignments: LessonAssignment[]
   onAssignmentClick?: (assignment: Assignment) => void
   onEmptyCellClick?: (groupId: string, weekStart: Date) => void
   onUnitTitleClick?: (assignment: Assignment) => void
@@ -83,6 +85,8 @@ export function AssignmentGrid({
   groups,
   units,
   assignments,
+  lessons,
+  lessonAssignments,
   onAssignmentClick,
   onEmptyCellClick,
   onUnitTitleClick,
@@ -264,12 +268,140 @@ export function AssignmentGrid({
     return { weekStarts, gridData }
   }, [assignments, groups, units])
 
+  const weekStartIndexLookup = useMemo(() => {
+    const map = new Map<number, number>()
+    weekStarts.forEach((weekStart, index) => {
+      map.set(weekStart.getTime(), index)
+    })
+    return map
+  }, [weekStarts])
+
+  const lessonsByUnit = useMemo(() => {
+    const map = new Map<string, Lesson[]>()
+    lessons.forEach((lesson) => {
+      if (!map.has(lesson.unit_id)) {
+        map.set(lesson.unit_id, [])
+      }
+      map.get(lesson.unit_id)!.push(lesson)
+    })
+
+    map.forEach((lessonList) => {
+      lessonList.sort((a, b) => (a.order_by ?? 0) - (b.order_by ?? 0))
+    })
+
+    return map
+  }, [lessons])
+
+  const lessonAssignmentsByGroup = useMemo(() => {
+    const map = new Map<string, Map<string, LessonAssignment>>()
+
+    lessonAssignments.forEach((lessonAssignment) => {
+      if (!map.has(lessonAssignment.group_id)) {
+        map.set(lessonAssignment.group_id, new Map())
+      }
+
+      map.get(lessonAssignment.group_id)!.set(lessonAssignment.lesson_id, lessonAssignment)
+    })
+
+    return map
+  }, [lessonAssignments])
+
   const formatWeekStart = (date: Date) => {
     return date.toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
       year: "numeric",
     })
+  }
+
+  const formatShortDate = (dateString: string) => {
+    const parsed = new Date(dateString)
+    if (Number.isNaN(parsed.getTime())) {
+      return dateString
+    }
+
+    return parsed.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    })
+  }
+
+  const getLessonsByWeekForCell = (cell: TrackCell) => {
+    if (!cell.assignment) {
+      return []
+    }
+
+    const { assignment } = cell
+    const unitId = assignment.unit.unit_id ?? assignment.unit_id
+    const unitLessons = lessonsByUnit.get(unitId) ?? []
+
+    if (unitLessons.length === 0) {
+      return []
+    }
+
+    const groupLessonAssignments = lessonAssignmentsByGroup.get(assignment.group_id)
+
+    if (!groupLessonAssignments) {
+      return []
+    }
+
+    const assignmentStart = new Date(assignment.start_date)
+    const assignmentEnd = new Date(assignment.end_date)
+
+    const scheduledLessons = unitLessons
+      .map((lesson) => {
+        const lessonAssignment = groupLessonAssignments.get(lesson.lesson_id)
+        if (!lessonAssignment) {
+          return null
+        }
+
+        const lessonDate = new Date(lessonAssignment.start_date)
+        if (Number.isNaN(lessonDate.getTime())) {
+          return null
+        }
+
+        if (lessonDate < assignmentStart || lessonDate > assignmentEnd) {
+          return null
+        }
+
+        return { lesson, assignment: lessonAssignment, date: lessonDate }
+      })
+      .filter(
+        (entry): entry is { lesson: Lesson; assignment: LessonAssignment; date: Date } => entry !== null,
+      )
+      .sort((a, b) => a.date.getTime() - b.date.getTime())
+
+    if (scheduledLessons.length === 0) {
+      return []
+    }
+
+    const startIndex = weekStartIndexLookup.get(cell.weekStart.getTime())
+
+    if (startIndex === undefined) {
+      return []
+    }
+
+    const lessonsByWeek: {
+      weekIndex: number
+      lessons: { lesson: Lesson; assignment: LessonAssignment; date: Date }[]
+    }[] = []
+
+    for (let offset = 0; offset < cell.colSpan; offset++) {
+      const weekIndex = startIndex + offset
+      const weekStart = weekStarts[weekIndex]
+
+      if (!weekStart) {
+        continue
+      }
+
+      const weekEnd = new Date(weekStart)
+      weekEnd.setDate(weekEnd.getDate() + 6)
+
+      const lessonsForWeek = scheduledLessons.filter(({ date }) => date >= weekStart && date <= weekEnd)
+      lessonsByWeek.push({ weekIndex, lessons: lessonsForWeek })
+    }
+
+    return lessonsByWeek
   }
 
   const handleMouseEnter = (assignment: Assignment & { unit: Unit }, event: React.MouseEvent) => {
@@ -360,11 +492,14 @@ export function AssignmentGrid({
                       {track.map((cell, cellIndex) => {
                         if (!cell.isStart && cell.assignment) return null
 
+                        const lessonsByWeek = cell.assignment ? getLessonsByWeekForCell(cell) : []
+                        const hasScheduledLessons = lessonsByWeek.some((entry) => entry.lessons.length > 0)
+
                         return (
                           <td
                             key={cellIndex}
                             colSpan={cell.colSpan}
-                            className={`p-2 border border-border h-16 ${
+                            className={`p-2 align-top border border-border min-h-20 ${
                               cell.assignment
                                 ? "bg-primary/10 hover:bg-primary/20 transition-colors cursor-pointer"
                                 : "bg-background hover:bg-muted/50 transition-colors cursor-pointer"
@@ -384,18 +519,37 @@ export function AssignmentGrid({
                             onMouseLeave={cell.assignment ? handleMouseLeave : undefined}
                           >
                             {cell.assignment && (
-                              <div className="flex items-center justify-center h-full">
-                                <div className="text-center">
-                                  <div
-                                    className="font-medium text-sm text-primary truncate cursor-pointer hover:text-primary/80 transition-colors"
-                                    onMouseEnter={(e) => handleMouseEnter(cell.assignment!, e)}
-                                  >
-                                    {cell.assignment.unit.title}
-                                  </div>
-                                  <div className="text-xs text-muted-foreground mt-1">
-                                    {cell.assignment.unit.subject}
+                              <div className="flex h-full flex-col">
+                                <div className="flex flex-1 items-center justify-center text-center">
+                                  <div className="w-full">
+                                    <div
+                                      className="font-medium text-sm text-primary truncate cursor-pointer hover:text-primary/80 transition-colors"
+                                      onMouseEnter={(e) => handleMouseEnter(cell.assignment!, e)}
+                                    >
+                                      {cell.assignment.unit.title}
+                                    </div>
                                   </div>
                                 </div>
+                                {hasScheduledLessons && (
+                                  <div
+                                    className="mt-2 grid gap-2"
+                                    style={{ gridTemplateColumns: `repeat(${cell.colSpan}, minmax(0, 1fr))` }}
+                                  >
+                                    {lessonsByWeek.map(({ lessons: weekLessons, weekIndex }) => (
+                                      <div key={weekIndex} className="flex flex-col gap-1">
+                                        {weekLessons.map(({ lesson, assignment: lessonAssignment }) => (
+                                          <div
+                                            key={lesson.lesson_id}
+                                            className="truncate rounded-full bg-primary px-2 py-1 text-xs font-medium text-primary-foreground shadow-sm"
+                                            title={`${lesson.title} • ${formatShortDate(lessonAssignment.start_date)}`}
+                                          >
+                                            <span>{lesson.title}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
                             )}
                             {!cell.assignment && (

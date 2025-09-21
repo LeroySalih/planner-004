@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState, useTransition } from "react"
+import { useCallback, useMemo, useState, useTransition } from "react"
 import { AssignmentGrid } from "./assignment-grid"
 import { AssignmentSidebar } from "./assignment-sidebar"
 import { GroupSidebar } from "./group-sidebar"
@@ -16,6 +16,9 @@ import type {
   Assignments,
   Group,
   Groups,
+  LessonAssignment,
+  LessonAssignments,
+  Lessons,
   Subjects,
   Unit,
   Units,
@@ -27,9 +30,13 @@ import {
   createGroupAction,
   updateGroupAction,
   deleteGroupAction,
+  upsertLessonAssignmentAction,
+  deleteLessonAssignmentAction,
 } from "@/lib/server-updates"
 
 import { toast } from "sonner"
+
+const lessonAssignmentKey = (groupId: string, lessonId: string) => `${groupId}__${lessonId}`
 
 
 export interface AssignmentManagerProps {
@@ -37,6 +44,8 @@ export interface AssignmentManagerProps {
   subjects?: Subjects | null
   assignments?: Assignments | null
   units?: Units | null
+  lessons?: Lessons | null
+  lessonAssignments?: LessonAssignments | null
   onChange?: (assignment: Assignment, eventType: AssignmentChangeEvent) => void
 }
 
@@ -45,11 +54,15 @@ export function AssignmentManager({
     subjects: initialSubjects, 
     assignments: initialAssignments, 
     units: initialUnits,
+    lessons: initialLessons,
+    lessonAssignments: initialLessonAssignments,
     onChange }: AssignmentManagerProps) {
   const [groups, setGroups] = useState<Groups>(initialGroups ?? [])
   const subjects = initialSubjects ?? []
   const units = useMemo(() => initialUnits ?? [], [initialUnits])
+  const lessons = useMemo(() => initialLessons ?? [], [initialLessons])
   const [assignments, setAssignments] = useState<Assignments>(initialAssignments ?? [])
+  const [lessonAssignments, setLessonAssignments] = useState<LessonAssignments>(initialLessonAssignments ?? [])
   const [, startTransition] = useTransition()
   //const { toast: showToast } = useToast()
   const [isEditing] = useState(false)
@@ -62,6 +75,26 @@ export function AssignmentManager({
   )
   const [editingGroup, setEditingGroup] = useState<Group | null>(null)
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([])
+  const [pendingLessonAssignmentKeys, setPendingLessonAssignmentKeys] = useState<Record<string, boolean>>({})
+  const updateLessonAssignmentState = useCallback(
+    (groupId: string, lessonId: string, startDate: string | null) => {
+      setLessonAssignments((prev: LessonAssignments) => {
+        const map = new Map(
+          prev.map((entry) => [lessonAssignmentKey(entry.group_id, entry.lesson_id), entry] as const),
+        )
+        const key = lessonAssignmentKey(groupId, lessonId)
+
+        if (startDate) {
+          map.set(key, { group_id: groupId, lesson_id: lessonId, start_date: startDate })
+        } else {
+          map.delete(key)
+        }
+
+        return Array.from(map.values())
+      })
+    },
+    [],
+  )
 
   const [searchFilter, setSearchFilter] = useState<string>("")
 
@@ -218,6 +251,81 @@ export function AssignmentManager({
     })
   }
 
+  const upsertLessonAssignment = (groupId: string, lessonId: string, startDate: string) => {
+    const previousLessonAssignments = lessonAssignments.map((entry) => ({ ...entry }))
+    const key = lessonAssignmentKey(groupId, lessonId)
+
+    updateLessonAssignmentState(groupId, lessonId, startDate)
+
+    setPendingLessonAssignmentKeys((prev) => ({ ...prev, [key]: true }))
+
+    startTransition(async () => {
+      try {
+        const result = await upsertLessonAssignmentAction(groupId, lessonId, startDate)
+
+        if (result.error || !result.data) {
+          throw new Error(result.error ?? "Unknown error")
+        }
+
+        updateLessonAssignmentState(groupId, lessonId, result.data.start_date)
+
+        toast.success("Lesson schedule saved to the database.")
+      } catch (error) {
+        console.error("[v0] Failed to upsert lesson assignment:", error)
+        setLessonAssignments(previousLessonAssignments)
+        toast.error("Lesson scheduling failed", {
+          description: "We couldn't save the lesson date. Please try again.",
+        })
+      } finally {
+        setPendingLessonAssignmentKeys((prev) => {
+          const updated = { ...prev }
+          delete updated[key]
+          return updated
+        })
+      }
+    })
+  }
+
+  const deleteLessonAssignment = (groupId: string, lessonId: string) => {
+    const existingIndex = lessonAssignments.findIndex(
+      (entry: LessonAssignment) => entry.group_id === groupId && entry.lesson_id === lessonId,
+    )
+
+    if (existingIndex === -1) {
+      return
+    }
+
+    const previousLessonAssignments = lessonAssignments.map((entry) => ({ ...entry }))
+    const key = lessonAssignmentKey(groupId, lessonId)
+
+    updateLessonAssignmentState(groupId, lessonId, null)
+    setPendingLessonAssignmentKeys((prev) => ({ ...prev, [key]: true }))
+
+    startTransition(async () => {
+      try {
+        const result = await deleteLessonAssignmentAction(groupId, lessonId)
+
+        if (!result.success) {
+          throw new Error(result.error ?? "Unknown error")
+        }
+
+        toast.success("Lesson date removed from the database.")
+      } catch (error) {
+        console.error("[v0] Failed to delete lesson assignment:", error)
+        setLessonAssignments(previousLessonAssignments)
+        toast.error("Lesson date removal failed", {
+          description: "We couldn't remove the lesson date. Please try again.",
+        })
+      } finally {
+        setPendingLessonAssignmentKeys((prev) => {
+          const updated = { ...prev }
+          delete updated[key]
+          return updated
+        })
+      }
+    })
+  }
+
   const handleAssignmentClick = (assignment: Assignment) => {
     setSelectedAssignment(assignment)
     setNewAssignmentData(undefined)
@@ -238,6 +346,19 @@ export function AssignmentManager({
   const handleUnitTitleClick = (assignment: Assignment) => {
     console.log("[v0] Unit title clicked from hover tooltip:", assignment)
     onChange?.(assignment, "unit-title-click")
+  }
+
+  const handleLessonDateChange = (lessonId: string, startDate: string | null) => {
+    if (!sidebarGroupId) {
+      return
+    }
+
+    if (!startDate) {
+      deleteLessonAssignment(sidebarGroupId, lessonId)
+      return
+    }
+
+    upsertLessonAssignment(sidebarGroupId, lessonId, startDate)
   }
 
   const handleSidebarSave = (updatedAssignment: Assignment) => {
@@ -482,6 +603,8 @@ export function AssignmentManager({
         groups={filteredGroups}
         units={units}
         assignments={filteredAssignments}
+        lessons={lessons}
+        lessonAssignments={lessonAssignments}
         onAssignmentClick={handleAssignmentClick}
         onEmptyCellClick={handleEmptyCellClick}
         onUnitTitleClick={handleUnitTitleClick}
@@ -501,6 +624,10 @@ export function AssignmentManager({
         newAssignmentData={newAssignmentData}
         selectedGroups={selectedGroupIds}
         onOpenGroupSelection={() => setIsGroupSelectorOpen(true)}
+        lessons={lessons}
+        lessonAssignments={lessonAssignments}
+        onLessonDateChange={handleLessonDateChange}
+        pendingLessonAssignmentKeys={pendingLessonAssignmentKeys}
       />
 
       <GroupSidebar

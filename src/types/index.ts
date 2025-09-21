@@ -63,6 +63,19 @@ export const LessonsSchema = z.array(LessonSchema);
 export type Lesson = z.infer<typeof LessonSchema>;
 export type Lessons = z.infer<typeof LessonsSchema>;
 
+export const LessonAssignmentSchema = z.object({
+    group_id: z.string(),
+    lesson_id: z.string(),
+    start_date: z.string().refine(date => !isNaN(Date.parse(date)), {
+        message: "Invalid date format"
+    }),
+});
+
+export const LessonAssignmentsSchema = z.array(LessonAssignmentSchema);
+
+export type LessonAssignment = z.infer<typeof LessonAssignmentSchema>;
+export type LessonAssignments = z.infer<typeof LessonAssignmentsSchema>;
+
 export const LessonLearningObjectiveSchema = z.object({
     learning_objective_id: z.string(),
     lesson_id: z.string(),

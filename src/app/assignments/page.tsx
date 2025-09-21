@@ -5,7 +5,13 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { BookOpen } from "lucide-react"
 import { readGroupsAction } from "@/lib/server-actions/groups"
-import { readAssignmentsAction, readSubjectsAction, readUnitsAction } from "@/lib/server-updates"
+import {
+  readAssignmentsAction,
+  readSubjectsAction,
+  readUnitsAction,
+  readLessonsAction,
+  readLessonAssignmentsAction,
+} from "@/lib/server-updates"
 
 export default async function Home() {
 
@@ -13,6 +19,8 @@ export default async function Home() {
   const {data:subjects, error: subjectsError} = await readSubjectsAction();
   const {data:assignments, error: assignmentsError} = await readAssignmentsAction();
   const {data:units, error: unitsError} = await readUnitsAction();
+  const {data:lessonsWithDetails, error: lessonsError} = await readLessonsAction();
+  const {data:lessonAssignments, error: lessonAssignmentsError} = await readLessonAssignmentsAction();
 
   if (groupsError)  {
     return <div className="container mx-auto p-6">
@@ -42,6 +50,29 @@ export default async function Home() {
     </div>
   }
 
+  if (lessonsError){
+    return <div className="container mx-auto p-6">
+      <h1 className="text-2xl font-bold mb-4">Error Loading Lessons</h1>
+      <p className="text-red-600">There was an error loading the lessons: {lessonsError}</p>
+    </div>
+  }
+
+  if (lessonAssignmentsError){
+    return <div className="container mx-auto p-6">
+      <h1 className="text-2xl font-bold mb-4">Error Loading Lesson Assignments</h1>
+      <p className="text-red-600">There was an error loading the lesson assignments: {lessonAssignmentsError}</p>
+    </div>
+  }
+
+
+  const lessons = (lessonsWithDetails ?? []).map((lesson) => ({
+    lesson_id: lesson.lesson_id,
+    unit_id: lesson.unit_id,
+    title: lesson.title,
+    order_by: lesson.order_by ?? 0,
+    active: lesson.active ?? true,
+  }))
+
 
   return (
     <main className="container mx-auto p-6">
@@ -59,6 +90,8 @@ export default async function Home() {
         subjects={subjects}
         assignments={assignments}
         units={(units ?? []).filter((unit) => unit.active ?? true)}
+        lessons={lessons.filter((lesson) => lesson.active ?? true)}
+        lessonAssignments={lessonAssignments}
       />
     </main>
   )
