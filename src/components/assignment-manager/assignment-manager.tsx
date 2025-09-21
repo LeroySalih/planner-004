@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Search, X } from "lucide-react"
+import { createWildcardRegExp } from "@/lib/utils"
 import type {
   Assignment,
   AssignmentChangeEvent,
@@ -71,26 +72,27 @@ export function AssignmentManager({
   }, [groups, sidebarGroupId])
 
   const getFilteredAssignments = () => {
-    if (!searchFilter.trim()) {
+    const term = searchFilter.trim()
+    if (!term) {
       return assignments
     }
 
-    const searchTerm = searchFilter.toLowerCase().trim()
+    const searchRegex = createWildcardRegExp(term)
+    if (!searchRegex) {
+      return assignments
+    }
 
     return assignments.filter((assignment: Assignment) => {
-      const groupIdMatch = assignment.group_id.toLowerCase().includes(searchTerm)
+      const groupIdMatch = searchRegex.test(assignment.group_id)
 
-      // Search in unit title
       const unit = units.find((u: Unit) => u.unit_id === assignment.unit_id)
-      const unitMatch = unit?.title.toLowerCase().includes(searchTerm) || false
+      const unitMatch = unit ? searchRegex.test(unit.title) : false
 
-      // Search in dates (formatted as readable strings)
-      const startDateMatch = assignment.start_date.includes(searchTerm)
-      const endDateMatch = assignment.end_date.includes(searchTerm)
+      const startDateMatch = searchRegex.test(assignment.start_date)
+      const endDateMatch = searchRegex.test(assignment.end_date)
 
-      // Search in subject
       const group = groups.find((g) => g.group_id === assignment.group_id)
-      const subjectMatch = group?.subject.toLowerCase().includes(searchTerm) || false
+      const subjectMatch = group ? searchRegex.test(group.subject) : false
 
       return groupIdMatch || unitMatch || startDateMatch || endDateMatch || subjectMatch
     })
@@ -407,24 +409,23 @@ export function AssignmentManager({
   }
 
   const getFilteredGroups = () => {
-    if (!searchFilter.trim()) {
+    const term = searchFilter.trim()
+    if (!term) {
       return groups
     }
 
     const filteredAssignments = getFilteredAssignments()
     const groupsWithMatchingAssignments = new Set(filteredAssignments.map((a) => a.group_id))
 
-    const searchTerm = searchFilter.toLowerCase().trim()
+    const searchRegex = createWildcardRegExp(term)
+    if (!searchRegex) {
+      return groups
+    }
 
     return groups.filter((group) => {
-      // Show group if it has matching assignments
       const hasMatchingAssignments = groupsWithMatchingAssignments.has(group.group_id)
-
-      // Also show group if the group ID itself matches the search
-      const groupIdMatch = group.group_id.toLowerCase().includes(searchTerm)
-
-      // Show group if subject matches
-      const subjectMatch = group.subject.toLowerCase().includes(searchTerm)
+      const groupIdMatch = searchRegex.test(group.group_id)
+      const subjectMatch = searchRegex.test(group.subject)
 
       return hasMatchingAssignments || groupIdMatch || subjectMatch
     })

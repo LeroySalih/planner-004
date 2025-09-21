@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { createWildcardRegExp } from "@/lib/utils"
 
 interface AssignmentGroupSelectorSidebarProps {
   isOpen: boolean
@@ -40,12 +41,16 @@ export function AssignmentGroupSelectorSidebar({
   }
 
   const filteredGroups = groups.filter((group) => {
-    const term = filter.trim().toLowerCase()
+    const term = filter.trim()
     if (!term) return true
+
+    const searchRegex = createWildcardRegExp(term)
+    if (!searchRegex) return true
+
     return (
-      group.group_id.toLowerCase().includes(term) ||
-      group.subject.toLowerCase().includes(term) ||
-      (group.join_code?.toLowerCase() ?? "").includes(term)
+      searchRegex.test(group.group_id) ||
+      searchRegex.test(group.subject) ||
+      searchRegex.test(group.join_code ?? "")
     )
   })
 

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { ArrowLeft, BookOpen, Search } from "lucide-react"
 
 import type { Subjects, Unit } from "@/types"
-import { truncateText } from "@/lib/utils"
+import { createWildcardRegExp, truncateText } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -32,14 +32,19 @@ export function UnitsPageClient({ units, subjects }: UnitsPageClientProps) {
   }, [subjects, allUnits])
 
   const filteredUnits = useMemo(() => {
-    const term = searchTerm.toLowerCase().trim()
+    const term = searchTerm.trim()
+    const searchRegex = term ? createWildcardRegExp(term) : null
+
     return allUnits.filter((unit) => {
       const matchesSubject = !selectedSubject || unit.subject === selectedSubject
+      if (!searchRegex) {
+        return matchesSubject
+      }
+
       const matchesSearch =
-        !term ||
-        unit.title.toLowerCase().includes(term) ||
-        unit.subject.toLowerCase().includes(term) ||
-        unit.unit_id.toLowerCase().includes(term)
+        searchRegex.test(unit.title) ||
+        searchRegex.test(unit.subject) ||
+        searchRegex.test(unit.unit_id)
       return matchesSubject && matchesSearch
     })
   }, [allUnits, searchTerm, selectedSubject])
