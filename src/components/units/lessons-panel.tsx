@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useState, useTransition } from "react"
 import { BookOpen, GripVertical, Plus } from "lucide-react"
 
@@ -9,6 +10,7 @@ import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"
 import { LessonSidebar } from "@/components/units/lesson-sidebar"
 import { toast } from "sonner"
 
@@ -143,7 +145,24 @@ export function LessonsPanel({ unitId, initialLessons, learningObjectives }: Les
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <GripVertical className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                    <span className="font-medium">{lesson.title}</span>
+                    <HoverCard>
+                      <HoverCardTrigger asChild>
+                        <span className="font-medium underline-offset-4 hover:underline cursor-pointer">
+                          {lesson.title}
+                        </span>
+                      </HoverCardTrigger>
+                      <HoverCardContent className="space-y-2" side="top" align="start">
+                        <Link
+                          href={`/lessons/${lesson.lesson_id}`}
+                          className="text-sm font-semibold text-primary underline-offset-2 hover:underline"
+                        >
+                          View {lesson.title}
+                        </Link>
+                        <p className="text-xs text-muted-foreground">
+                          Open the lesson details page in a new view while keeping this panel open.
+                        </p>
+                      </HoverCardContent>
+                    </HoverCard>
                   </div>
                   <Badge variant="outline" className="text-xs">
                     {lesson.active === false ? "Inactive" : "Active"}

@@ -69,7 +69,9 @@ export const LessonLearningObjectiveSchema = z.object({
     order_by: z.number().default(0),
     title: z.string().min(1),
     active: z.boolean().default(true),
-    learning_objective: LearningObjectiveSchema.optional(),
+    learning_objective: LearningObjectiveSchema.extend({
+        success_criteria: SuccessCriteriaSchema.optional(),
+    }).optional(),
 });
 
 export const LessonLearningObjectivesSchema = z.array(LessonLearningObjectiveSchema);

@@ -38,22 +38,51 @@ export async function createLessonLinkAction(
   url: string,
   description: string | null,
 ) {
-  const { error } = await supabaseServer.from("lesson_links").insert({
-    lesson_id: lessonId,
-    url,
-    description,
-  })
+  const { data, error } = await supabaseServer
+    .from("lesson_links")
+    .insert({
+      lesson_id: lessonId,
+      url,
+      description,
+    })
+    .select("*")
+    .single()
 
   if (error) {
     console.error("[v0] Failed to create lesson link:", error)
-    return { success: false, error: error.message }
+    return { success: false, error: error.message, data: null }
   }
 
   revalidatePath(`/units/${unitId}`)
-  return { success: true }
+  revalidatePath(`/lessons/${lessonId}`)
+  return { success: true, data }
 }
 
-export async function deleteLessonLinkAction(unitId: string, lessonLinkId: string) {
+export async function updateLessonLinkAction(
+  unitId: string,
+  lessonId: string,
+  lessonLinkId: string,
+  url: string,
+  description: string | null,
+) {
+  const { data, error } = await supabaseServer
+    .from("lesson_links")
+    .update({ url, description })
+    .eq("lesson_link_id", lessonLinkId)
+    .select("*")
+    .single()
+
+  if (error) {
+    console.error("[v0] Failed to update lesson link:", error)
+    return { success: false, error: error.message, data: null }
+  }
+
+  revalidatePath(`/units/${unitId}`)
+  revalidatePath(`/lessons/${lessonId}`)
+  return { success: true, data }
+}
+
+export async function deleteLessonLinkAction(unitId: string, lessonId: string, lessonLinkId: string) {
   const { error } = await supabaseServer
     .from("lesson_links")
     .delete()
@@ -65,5 +94,6 @@ export async function deleteLessonLinkAction(unitId: string, lessonLinkId: strin
   }
 
   revalidatePath(`/units/${unitId}`)
+  revalidatePath(`/lessons/${lessonId}`)
   return { success: true }
 }

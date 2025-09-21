@@ -27,6 +27,8 @@ export {
 
 export {
   readLessonsByUnitAction,
+  readLessonsAction,
+  readLessonAction,
   createLessonAction,
   updateLessonAction,
   deactivateLessonAction,
@@ -64,5 +66,8 @@ export {
 export {
   listLessonLinksAction,
   createLessonLinkAction,
+  updateLessonLinkAction,
   deleteLessonLinkAction,
 } from "./server-actions/lesson-links"
+
+export { fetchLessonLinkMetadataAction } from "./server-actions/link-metadata"

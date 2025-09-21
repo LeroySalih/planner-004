@@ -29,7 +29,7 @@ export async function readLessonsByUnitAction(unitId: string) {
   const { data, error } = await supabaseServer
     .from("lessons")
     .select(
-      "*, lessons_learning_objective(*, learning_objective:learning_objectives(*)), lesson_links(*)",
+      "*, lessons_learning_objective(*, learning_objective:learning_objectives(*, success_criteria(*))), lesson_links(*)",
     )
     .eq("unit_id", unitId)
     .order("order_by", { ascending: true })
@@ -37,6 +37,43 @@ export async function readLessonsByUnitAction(unitId: string) {
 
   if (error) {
     console.error("[v0] Failed to read lessons:", error)
+    return LessonsReturnValue.parse({ data: null, error: error.message })
+  }
+
+  const normalized = (data ?? []).map((lesson) => {
+    const { lessons_learning_objective, lesson_links, ...rest } = lesson
+    const filtered = ((lessons_learning_objective ?? []) as LessonLearningObjective[])
+      .filter((entry) => entry.active !== false)
+      .sort((a, b) => (a.order_by ?? 0) - (b.order_by ?? 0))
+    return {
+      ...rest,
+      lesson_objectives: filtered,
+      lesson_links: ((lesson_links ?? []) as LessonLink[]).map((link) => ({
+        lesson_link_id: link.lesson_link_id,
+        lesson_id: link.lesson_id,
+        url: link.url,
+        description: link.description,
+      })),
+    }
+  })
+
+  return LessonsReturnValue.parse({ data: normalized, error: null })
+}
+
+export async function readLessonsAction() {
+  console.log("[v0] Server action started for all lessons")
+
+  const { data, error } = await supabaseServer
+    .from("lessons")
+    .select(
+      "*, lessons_learning_objective(*, learning_objective:learning_objectives(*, success_criteria(*))), lesson_links(*)",
+    )
+    .order("unit_id", { ascending: true })
+    .order("order_by", { ascending: true, nullsFirst: true })
+    .order("title", { ascending: true })
+
+  if (error) {
+    console.error("[v0] Failed to read all lessons:", error)
     return LessonsReturnValue.parse({ data: null, error: error.message })
   }
 
@@ -247,7 +284,7 @@ async function readLessonWithObjectives(lessonId: string) {
   const { data, error } = await supabaseServer
     .from("lessons")
     .select(
-      "*, lessons_learning_objective(*, learning_objective:learning_objectives(*)), lesson_links(*)",
+      "*, lessons_learning_objective(*, learning_objective:learning_objectives(*, success_criteria(*))), lesson_links(*)",
     )
     .eq("lesson_id", lessonId)
     .maybeSingle()
@@ -276,4 +313,9 @@ async function readLessonWithObjectives(lessonId: string) {
   }
 
   return LessonReturnValue.parse({ data: normalized, error: null })
+}
+
+export async function readLessonAction(lessonId: string) {
+  console.log("[v0] Server action started for lesson read:", { lessonId })
+  return readLessonWithObjectives(lessonId)
 }

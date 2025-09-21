@@ -275,6 +275,15 @@ export function UnitDetailView({
                         This objective is not linked to any lessons yet.
                       </p>
                     )}
+                    {objective.success_criteria && objective.success_criteria.length > 0 && (
+                      <ul className="mt-3 space-y-2 rounded-md bg-muted/30 p-3 text-sm text-muted-foreground">
+                        {objective.success_criteria.map((criterion) => (
+                          <li key={criterion.success_criteria_id} className="list-disc pl-4 marker:text-primary">
+                            {criterion.title}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </button>
                 )
               })}

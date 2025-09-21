@@ -125,6 +125,8 @@ export async function uploadLessonFileAction(formData: FormData) {
   }
 
   revalidatePath(`/units/${unitId}`)
+  revalidatePath(`/lessons`)
+  revalidatePath(`/lessons/${lessonId}`)
   return { success: true }
 }
 
@@ -138,6 +140,8 @@ export async function deleteLessonFileAction(unitId: string, lessonId: string, f
   }
 
   revalidatePath(`/units/${unitId}`)
+  revalidatePath(`/lessons`)
+  revalidatePath(`/lessons/${lessonId}`)
   return { success: true }
 }
 

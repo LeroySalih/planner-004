@@ -242,7 +242,7 @@ export function LessonSidebar({
   const handleDeleteLink = (lessonLinkId: string) => {
     if (!lesson) return
     startTransition(async () => {
-      const result = await deleteLessonLinkAction(unitId, lessonLinkId)
+      const result = await deleteLessonLinkAction(unitId, lesson.lesson_id, lessonLinkId)
       if (!result.success) {
         toast.error("Failed to delete link", {
           description: result.error ?? "Please try again later.",
