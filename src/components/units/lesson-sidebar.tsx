@@ -68,9 +68,14 @@ export function LessonSidebar({
   const [linkUrl, setLinkUrl] = useState("")
   const [linkDescription, setLinkDescription] = useState("")
 
-  const sortedObjectives = [...learningObjectives].sort((a, b) =>
-    a.title.localeCompare(b.title),
-  )
+  const sortedObjectives = [...learningObjectives].sort((a, b) => {
+    const aOrder = a.order_by ?? Number.MAX_SAFE_INTEGER
+    const bOrder = b.order_by ?? Number.MAX_SAFE_INTEGER
+    if (aOrder !== bOrder) {
+      return aOrder - bOrder
+    }
+    return a.title.localeCompare(b.title)
+  })
 
   useEffect(() => {
     if (!isOpen) return

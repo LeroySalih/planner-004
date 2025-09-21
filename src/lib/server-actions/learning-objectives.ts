@@ -41,6 +41,7 @@ export async function readLearningObjectivesByUnitAction(unitId: string) {
     .from("learning_objectives")
     .select("*, success_criteria(*)")
     .eq("unit_id", unitId)
+    .order("order_by", { ascending: true, nullsFirst: false })
     .order("title", { ascending: true })
 
   if (error) {
@@ -209,6 +210,33 @@ export async function deleteLearningObjectiveAction(learningObjectiveId: string,
   if (error) {
     console.error("[v0] Failed to delete learning objective:", error)
     return { success: false, error: error.message }
+  }
+
+  revalidatePath(`/units/${unitId}`)
+  return { success: true }
+}
+
+export async function reorderLearningObjectivesAction(
+  unitId: string,
+  ordering: { learningObjectiveId: string; orderBy: number }[],
+) {
+  console.log("[v0] Server action started for learning objective reordering:", {
+    unitId,
+    count: ordering.length,
+  })
+
+  const updates = [...ordering].sort((a, b) => a.orderBy - b.orderBy)
+
+  for (const update of updates) {
+    const { error } = await supabaseServer
+      .from("learning_objectives")
+      .update({ order_by: update.orderBy })
+      .eq("learning_objective_id", update.learningObjectiveId)
+
+    if (error) {
+      console.error("[v0] Failed to reorder learning objective:", error)
+      return { success: false, error: error.message }
+    }
   }
 
   revalidatePath(`/units/${unitId}`)

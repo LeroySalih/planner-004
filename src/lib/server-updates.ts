@@ -20,6 +20,7 @@ export {
   createLearningObjectiveAction,
   updateLearningObjectiveAction,
   deleteLearningObjectiveAction,
+  reorderLearningObjectivesAction,
   type LearningObjectiveWithCriteria,
   type SuccessCriteriaInput,
 } from "./server-actions/learning-objectives"

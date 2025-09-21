@@ -1,13 +1,16 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
-import { Calendar, Edit2, Plus, Target, Users } from "lucide-react"
+import { useEffect, useMemo, useState, useTransition } from "react"
+import { Calendar, Edit2, GripVertical, Plus, Target, Users } from "lucide-react"
+import { toast } from "sonner"
 
 import type { Assignment, Group, Groups, Subjects, Unit } from "@/types"
 import type {
   LearningObjectiveWithCriteria,
   LessonWithObjectives,
 } from "@/lib/server-updates"
+import { reorderLearningObjectivesAction } from "@/lib/server-updates"
+import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -37,16 +40,21 @@ export function UnitDetailView({
 }: UnitDetailViewProps) {
   const [isUnitSidebarOpen, setIsUnitSidebarOpen] = useState(false)
   const [currentUnit, setCurrentUnit] = useState<Unit>(unit)
-  const [objectives, setObjectives] = useState<LearningObjectiveWithCriteria[]>(learningObjectives)
+  const [objectives, setObjectives] = useState<LearningObjectiveWithCriteria[]>(() =>
+    sortObjectives(learningObjectives),
+  )
   const [selectedObjective, setSelectedObjective] = useState<LearningObjectiveWithCriteria | null>(null)
   const [isObjectiveSidebarOpen, setIsObjectiveSidebarOpen] = useState(false)
+  const [draggingObjectiveId, setDraggingObjectiveId] = useState<string | null>(null)
+  const [isDraggingObjective, setIsDraggingObjective] = useState(false)
+  const [, startReorderTransition] = useTransition()
 
   useEffect(() => {
     setCurrentUnit(unit)
   }, [unit])
 
   useEffect(() => {
-    setObjectives(learningObjectives)
+    setObjectives(sortObjectives(learningObjectives))
   }, [learningObjectives])
 
   const groupsById = useMemo(() => {
@@ -90,6 +98,7 @@ export function UnitDetailView({
   }
 
   const openEditObjective = (objective: LearningObjectiveWithCriteria) => {
+    if (isDraggingObjective) return
     setSelectedObjective(objective)
     setIsObjectiveSidebarOpen(true)
   }
@@ -99,12 +108,23 @@ export function UnitDetailView({
       const existingIndex = prev.findIndex(
         (item) => item.learning_objective_id === objective.learning_objective_id,
       )
+
+      const ensureOrderBy = (
+        candidate: LearningObjectiveWithCriteria,
+        fallback: number,
+      ): LearningObjectiveWithCriteria =>
+        candidate.order_by === null || candidate.order_by === undefined
+          ? { ...candidate, order_by: fallback }
+          : candidate
+
       if (existingIndex !== -1) {
         const next = [...prev]
-        next[existingIndex] = objective
-        return next
+        next[existingIndex] = ensureOrderBy(objective, prev[existingIndex]?.order_by ?? existingIndex)
+        return sortObjectives(next)
       }
-      return [...prev, objective].sort((a, b) => a.title.localeCompare(b.title))
+
+      const next = [...prev, ensureOrderBy(objective, prev.length)]
+      return sortObjectives(next)
     })
     setSelectedObjective(objective)
   }
@@ -112,6 +132,56 @@ export function UnitDetailView({
   const handleObjectiveDeleted = (learningObjectiveId: string) => {
     setObjectives((prev) => prev.filter((item) => item.learning_objective_id !== learningObjectiveId))
     setSelectedObjective(null)
+  }
+
+  const handleDragStartObjective = (
+    objectiveId: string,
+    event: React.DragEvent<HTMLButtonElement>,
+  ) => {
+    setDraggingObjectiveId(objectiveId)
+    setIsDraggingObjective(true)
+    event.dataTransfer.effectAllowed = "move"
+    event.dataTransfer.setData("text/plain", objectiveId)
+  }
+
+  const handleDragEndObjective = () => {
+    setDraggingObjectiveId(null)
+    setIsDraggingObjective(false)
+  }
+
+  const handleDropObjective = (targetObjectiveId: string | null) => (
+    event: React.DragEvent<HTMLDivElement | HTMLButtonElement>,
+  ) => {
+    event.preventDefault()
+    event.stopPropagation()
+
+    if (!draggingObjectiveId || draggingObjectiveId === targetObjectiveId) {
+      handleDragEndObjective()
+      return
+    }
+
+    const result = reorderObjectiveList(objectives, draggingObjectiveId, targetObjectiveId)
+
+    if (!result) {
+      handleDragEndObjective()
+      return
+    }
+
+    const { updatedObjectives, payload } = result
+    const previousObjectives = objectives
+
+    setObjectives(updatedObjectives)
+    handleDragEndObjective()
+
+    startReorderTransition(async () => {
+      const response = await reorderLearningObjectivesAction(currentUnit.unit_id, payload)
+      if (!response.success) {
+        toast.error("Failed to update learning objective order", {
+          description: response.error ?? "Please try again shortly.",
+        })
+        setObjectives(previousObjectives)
+      }
+    })
   }
 
   return (
@@ -166,7 +236,7 @@ export function UnitDetailView({
             Add Objective
           </Button>
         </CardHeader>
-        <CardContent>
+        <CardContent onDragOver={(event) => event.preventDefault()} onDrop={handleDropObjective(null)}>
           {objectives.length > 0 ? (
             <div className="space-y-3">
               {objectives.map((objective) => {
@@ -177,11 +247,25 @@ export function UnitDetailView({
                   <button
                     key={objective.learning_objective_id}
                     type="button"
+                    draggable
                     onClick={() => openEditObjective(objective)}
-                    className="w-full rounded-lg border border-border p-4 text-left transition hover:border-primary"
+                    onDragStart={(event) =>
+                      handleDragStartObjective(objective.learning_objective_id, event)
+                    }
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={handleDropObjective(objective.learning_objective_id)}
+                    onDragEnd={handleDragEndObjective}
+                    className={cn(
+                      "w-full rounded-lg border border-border p-4 text-left transition hover:border-primary cursor-grab active:cursor-grabbing",
+                      draggingObjectiveId === objective.learning_objective_id && "opacity-60",
+                    )}
+                    aria-grabbed={draggingObjectiveId === objective.learning_objective_id}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium">{objective.title}</span>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <GripVertical className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                        <span className="font-medium">{objective.title}</span>
+                      </div>
                       <span className="text-sm text-muted-foreground">
                         {lessonCount} {label}
                       </span>
@@ -274,4 +358,73 @@ export function UnitDetailView({
       />
     </>
   )
+}
+
+function sortObjectives(objectives: LearningObjectiveWithCriteria[]) {
+  return [...objectives].sort((a, b) => {
+    const aOrder = a.order_by ?? Number.MAX_SAFE_INTEGER
+    const bOrder = b.order_by ?? Number.MAX_SAFE_INTEGER
+    if (aOrder !== bOrder) {
+      return aOrder - bOrder
+    }
+    return a.title.localeCompare(b.title)
+  })
+}
+
+function arrayMove<T>(array: T[], from: number, to: number): T[] {
+  const result = [...array]
+  if (from < 0 || from >= result.length) return result
+  const [item] = result.splice(from, 1)
+  let target = to
+  if (target < 0) target = 0
+  if (target > result.length) target = result.length
+  result.splice(target, 0, item)
+  return result
+}
+
+function reorderObjectiveList(
+  objectives: LearningObjectiveWithCriteria[],
+  draggedObjectiveId: string,
+  targetObjectiveId: string | null,
+):
+  | {
+      updatedObjectives: LearningObjectiveWithCriteria[]
+      payload: { learningObjectiveId: string; orderBy: number }[]
+    }
+  | null {
+  const orderedObjectives = sortObjectives(objectives)
+
+  const fromIndex = orderedObjectives.findIndex(
+    (objective) => objective.learning_objective_id === draggedObjectiveId,
+  )
+  if (fromIndex === -1) {
+    return null
+  }
+
+  let toIndex = targetObjectiveId
+    ? orderedObjectives.findIndex((objective) => objective.learning_objective_id === targetObjectiveId)
+    : orderedObjectives.length - 1
+
+  if (toIndex === -1) {
+    toIndex = orderedObjectives.length - 1
+  }
+
+  if (fromIndex === toIndex) {
+    return null
+  }
+
+  const reordered = arrayMove(orderedObjectives, fromIndex, toIndex).map((objective, index) => ({
+    ...objective,
+    order_by: index,
+  }))
+
+  const payload = reordered.map((objective) => ({
+    learningObjectiveId: objective.learning_objective_id,
+    orderBy: objective.order_by ?? 0,
+  }))
+
+  return {
+    updatedObjectives: reordered,
+    payload,
+  }
 }

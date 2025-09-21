@@ -42,6 +42,7 @@ export const LearningObjectiveSchema = z.object({
     learning_objective_id: z.string(),
     unit_id: z.string(),
     title: z.string().min(1).max(255),
+    order_by: z.number().default(0),
 });
 
 export const LearningObjectivesSchema = z.array(LearningObjectiveSchema);
