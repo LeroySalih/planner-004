@@ -11,6 +11,8 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import { UnitCreateSidebar } from "@/components/units/unit-create-sidebar"
 
 interface UnitsPageClientProps {
@@ -24,6 +26,7 @@ export function UnitsPageClient({ units, subjects }: UnitsPageClientProps) {
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedSubject, setSelectedSubject] = useState<string | null>(null)
   const [isCreateSidebarOpen, setIsCreateSidebarOpen] = useState(false)
+  const [showInactive, setShowInactive] = useState(false)
 
   const subjectOptions = useMemo(() => {
     const fromUnits = new Set(allUnits.map((unit) => unit.subject))
@@ -37,17 +40,18 @@ export function UnitsPageClient({ units, subjects }: UnitsPageClientProps) {
 
     return allUnits.filter((unit) => {
       const matchesSubject = !selectedSubject || unit.subject === selectedSubject
+      const matchesActivity = showInactive || unit.active !== false
       if (!searchRegex) {
-        return matchesSubject
+        return matchesSubject && matchesActivity
       }
 
       const matchesSearch =
         searchRegex.test(unit.title) ||
         searchRegex.test(unit.subject) ||
         searchRegex.test(unit.unit_id)
-      return matchesSubject && matchesSearch
+      return matchesSubject && matchesActivity && matchesSearch
     })
-  }, [allUnits, searchTerm, selectedSubject])
+  }, [allUnits, searchTerm, selectedSubject, showInactive])
 
   const handleCardClick = (unitId: string) => {
     router.push(`/units/${unitId}`)
@@ -73,14 +77,17 @@ export function UnitsPageClient({ units, subjects }: UnitsPageClientProps) {
         </div>
 
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="relative w-full sm:max-w-md">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Search by title, subject, or unit ID..."
-              value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
-              className="pl-10"
-            />
+          <div className="w-full sm:max-w-md">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search by title, subject, or unit ID..."
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                className="pl-10"
+              />
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">Use &quot;?&quot; to match any single character.</p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -101,10 +108,20 @@ export function UnitsPageClient({ units, subjects }: UnitsPageClientProps) {
                 {subjectOption}
               </Button>
             ))}
+            <div className="flex items-center gap-2 rounded-md border border-border px-3 py-2">
+              <Switch
+                id="show-inactive-switch"
+                checked={showInactive}
+                onCheckedChange={(checked) => setShowInactive(Boolean(checked))}
+              />
+              <Label htmlFor="show-inactive-switch" className="text-sm font-medium">
+                Show inactive units
+              </Label>
+            </div>
           </div>
         </div>
 
-        {searchTerm && (
+        {(searchTerm || selectedSubject !== null || showInactive) && (
           <p className="text-sm text-muted-foreground">
             Showing {filteredUnits.length} of {allUnits.length} units
           </p>

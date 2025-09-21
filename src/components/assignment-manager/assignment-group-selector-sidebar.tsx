@@ -92,6 +92,7 @@ export function AssignmentGroupSelectorSidebar({
                 onChange={(event) => setFilter(event.target.value)}
                 placeholder="Search by group, subject, or join code"
               />
+              <p className="text-xs text-muted-foreground">Use &quot;?&quot; to match any single character.</p>
             </div>
 
             <div className="flex-1 space-y-2 overflow-y-auto rounded-lg border p-3">

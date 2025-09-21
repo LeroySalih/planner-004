@@ -467,6 +467,7 @@ export function AssignmentManager({
                   className="pl-10"
                 />
               </div>
+              <p className="mt-2 text-xs text-muted-foreground">Use &quot;?&quot; to match any single character.</p>
             </div>
 
             {hasActiveFilter() && (

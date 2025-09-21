@@ -42,22 +42,42 @@ export function GroupSidebar({ isOpen, onClose, subjects, onSave, editingGroup, 
     setIsRemoving(false)
   }, [editingGroup, subjects])
 
+  const normalizedGroupIds = groupId
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+
   const handleSave = async () => {
-    if (groupId.trim() && subjectName && !isSubmitting && !isRemoving) {
+    if (!subjectName || isSubmitting || isRemoving) {
+      return
+    }
+
+    if (!editingGroup && normalizedGroupIds.length === 0) {
+      return
+    }
+
+    if (editingGroup && !groupId.trim()) {
+      return
+    }
+
+    if (editingGroup && onUpdate) {
+      if (isSubmitting) return
+      const nextGroupId = normalizedGroupIds[0] ?? groupId.trim()
+      if (!nextGroupId) {
+        return
+      }
+      if (normalizedGroupIds.length > 1) {
+        setGroupId(nextGroupId)
+      }
       setIsSubmitting(true)
 
       try {
-        if (editingGroup && onUpdate) {
-          await onUpdate(editingGroup.group_id, groupId.trim(), subjectName)
-          console.log("[v0] Updated group:", {
-            oldGroupId: editingGroup.group_id,
-            newGroupId: groupId.trim(),
-            subjectName: subjectName,
-          })
-        } else {
-          await onSave(groupId.trim(), subjectName)
-        }
-
+        await onUpdate(editingGroup.group_id, nextGroupId, subjectName)
+        console.log("[v0] Updated group:", {
+          oldGroupId: editingGroup.group_id,
+          newGroupId: nextGroupId,
+          subjectName,
+        })
         setGroupId("")
         setSubjectName("")
         onClose()
@@ -66,6 +86,27 @@ export function GroupSidebar({ isOpen, onClose, subjects, onSave, editingGroup, 
       } finally {
         setIsSubmitting(false)
       }
+      return
+    }
+
+    if (normalizedGroupIds.length === 0) {
+      return
+    }
+
+    setIsSubmitting(true)
+
+    try {
+      for (const id of normalizedGroupIds) {
+        await onSave(id, subjectName)
+      }
+
+      setGroupId("")
+      setSubjectName("")
+      onClose()
+    } catch (error) {
+      console.error("[v0] Error saving groups:", error)
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -108,6 +149,9 @@ export function GroupSidebar({ isOpen, onClose, subjects, onSave, editingGroup, 
 
   const title = editingGroup ? "Edit Group" : "Add New Group"
   const buttonText = editingGroup ? "Update Group" : "Add Group"
+  const canSubmit = editingGroup
+    ? Boolean(groupId.trim()) && Boolean(subjectName)
+    : normalizedGroupIds.length > 0 && Boolean(subjectName)
   const isProcessing = isSubmitting || isRemoving
 
   return (
@@ -128,16 +172,18 @@ export function GroupSidebar({ isOpen, onClose, subjects, onSave, editingGroup, 
           <CardContent className="space-y-6">
             {/* Group ID Input */}
             <div className="space-y-2">
-              <Label htmlFor="group-id">Group ID</Label>
+              <Label htmlFor="group-id">{editingGroup ? "Group ID" : "Group IDs"}</Label>
               <Input
                 id="group-id"
                 value={groupId}
                 onChange={(e) => setGroupId(e.target.value)}
-                placeholder="e.g., 25-12-MA"
+                placeholder={editingGroup ? "e.g., 25-12-MA" : "e.g., 25-12-MA, 25-13-MA"}
                 className="w-full"
               />
               <div className="text-xs text-muted-foreground">
-                {editingGroup ? "Update the group identifier" : "Enter a unique identifier for the new group"}
+                {editingGroup
+                  ? "Update the group identifier"
+                  : "Enter one or more identifiers separated by commas"}
               </div>
             </div>
 
@@ -163,7 +209,7 @@ export function GroupSidebar({ isOpen, onClose, subjects, onSave, editingGroup, 
               <Button
                 onClick={handleSave}
                 className="w-full"
-                disabled={!groupId.trim() || !subjectName || isProcessing}
+                disabled={!canSubmit || isProcessing}
               >
                 {isSubmitting ? "Saving..." : buttonText}
               </Button>
