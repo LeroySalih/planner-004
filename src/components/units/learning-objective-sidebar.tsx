@@ -76,6 +76,60 @@ export function LearningObjectiveSidebar({
     })
   }
 
+  const importFromJson = (rawValue: string): boolean => {
+    const trimmed = rawValue.trim()
+    if (!trimmed.startsWith("{")) {
+      return false
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed)
+      const objectiveTitle =
+        typeof parsed.learning_objective === "string"
+          ? parsed.learning_objective.trim()
+          : typeof parsed.title === "string"
+            ? parsed.title.trim()
+            : null
+
+      const parsedCriteria = Array.isArray(parsed.success_criteria)
+        ? parsed.success_criteria.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+        : []
+
+      if (!objectiveTitle && parsedCriteria.length === 0) {
+        return false
+      }
+
+      if (objectiveTitle) {
+        setTitle(objectiveTitle)
+      }
+
+      if (parsedCriteria.length > 0) {
+        const nextCriteria: Array<{ id?: string; title: string }> = new Array(MAX_SUCCESS_CRITERIA)
+          .fill(null)
+          .map(() => ({ title: "" }))
+
+        parsedCriteria.slice(0, MAX_SUCCESS_CRITERIA).forEach((criterion, index) => {
+          nextCriteria[index] = { title: criterion.trim() }
+        })
+
+        setSuccessCriteria(nextCriteria)
+      }
+
+      toast.success("Learning objective imported from JSON")
+      return true
+    } catch (error) {
+      console.error("[v0] Failed to parse learning objective JSON:", error)
+      return false
+    }
+  }
+
+  const handleTitleInputChange = (value: string) => {
+    if (importFromJson(value)) {
+      return
+    }
+    setTitle(value)
+  }
+
   const handleSave = () => {
     if (title.trim().length === 0) {
       toast.error("Learning objective title is required")
@@ -166,10 +220,11 @@ export function LearningObjectiveSidebar({
           <CardContent className="space-y-6">
             <div className="space-y-2">
               <Label htmlFor="learning-objective-title">Title</Label>
+              <p className="text-xs text-muted-foreground">Paste JSON to auto fill.</p>
               <Input
                 id="learning-objective-title"
                 value={title}
-                onChange={(event) => setTitle(event.target.value)}
+                onChange={(event) => handleTitleInputChange(event.target.value)}
                 placeholder="Describe the learning objective"
                 disabled={isPending}
               />
