@@ -39,6 +39,12 @@ export default function RootLayout({
                 >
                   Units
                 </Link>
+                <Link
+                  href="/curriculum"
+                  className="text-muted-foreground transition-colors hover:text-primary"
+                >
+                  Curriculum
+                </Link>
               </nav>
             </div>
           </header>
