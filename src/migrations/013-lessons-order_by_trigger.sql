@@ -1,6 +1,8 @@
 -- (Optional but recommended) ensure the column doesn't default to 0
 -- ALTER TABLE lessons ALTER COLUMN order_by DROP DEFAULT;
 
+ALTER TABLE lessons ALTER COLUMN order_by SET DEFAULT NULL;
+
 CREATE OR REPLACE FUNCTION set_lessons_order_by()
 RETURNS trigger
 LANGUAGE plpgsql

@@ -19,6 +19,7 @@ export const UnitSchema = z.object({
     title: z.string().min(1).max(255),
     subject: z.string().min(1).max(255),
     description: z.string().nullable(),
+    year: z.number().int().min(1).max(13).nullable(),
     active: z.boolean().optional(),
 });
 
@@ -27,10 +28,40 @@ export const UnitsSchema = z.array(UnitSchema);
 export type Unit = z.infer<typeof UnitSchema>;
 export type Units = z.infer<typeof UnitsSchema>;
 
+export const CurriculumSchema = z.object({
+    curriculum_id: z.string(),
+    subject: z.string().nullable(),
+    title: z.string().min(1).max(255),
+    description: z.string().nullable(),
+});
+
+export const CurriculaSchema = z.array(CurriculumSchema);
+
+export type Curriculum = z.infer<typeof CurriculumSchema>;
+export type Curricula = z.infer<typeof CurriculaSchema>;
+
+export const AssessmentObjectiveSchema = z.object({
+    assessment_objective_id: z.string(),
+    curriculum_id: z.string().nullable(),
+    unit_id: z.string().nullable(),
+    code: z.string().min(1).max(10),
+    title: z.string().min(1).max(255),
+    order_index: z.number().default(0),
+});
+
+export const AssessmentObjectivesSchema = z.array(AssessmentObjectiveSchema);
+
+export type AssessmentObjective = z.infer<typeof AssessmentObjectiveSchema>;
+export type AssessmentObjectives = z.infer<typeof AssessmentObjectivesSchema>;
+
 export const SuccessCriterionSchema = z.object({
     success_criteria_id: z.string(),
     learning_objective_id: z.string(),
-    title: z.string().min(1).max(255),
+    level: z.number().min(1).max(7).default(1),
+    description: z.string().min(1),
+    order_index: z.number().default(0),
+    active: z.boolean().default(true),
+    units: z.array(z.string()).default([]),
 });
 
 export const SuccessCriteriaSchema = z.array(SuccessCriterionSchema);
@@ -38,17 +69,51 @@ export const SuccessCriteriaSchema = z.array(SuccessCriterionSchema);
 export type SuccessCriterion = z.infer<typeof SuccessCriterionSchema>;
 export type SuccessCriteria = z.infer<typeof SuccessCriteriaSchema>;
 
+export const SuccessCriterionUnitSchema = z.object({
+    success_criteria_id: z.string(),
+    unit_id: z.string(),
+});
+
+export const SuccessCriteriaUnitsSchema = z.array(SuccessCriterionUnitSchema);
+
+export type SuccessCriterionUnit = z.infer<typeof SuccessCriterionUnitSchema>;
+export type SuccessCriteriaUnits = z.infer<typeof SuccessCriteriaUnitsSchema>;
+
 export const LearningObjectiveSchema = z.object({
     learning_objective_id: z.string(),
-    unit_id: z.string(),
+    assessment_objective_id: z.string(),
     title: z.string().min(1).max(255),
-    order_by: z.number().default(0),
+    order_index: z.number().default(0),
+    assessment_objective_code: z.string().nullable().optional(),
+    assessment_objective_title: z.string().nullable().optional(),
+    assessment_objective_order_index: z.number().nullable().optional(),
 });
 
 export const LearningObjectivesSchema = z.array(LearningObjectiveSchema);
 
 export type LearningObjective = z.infer<typeof LearningObjectiveSchema>;
 export type LearningObjectives = z.infer<typeof LearningObjectivesSchema>;
+
+export const SuccessCriterionWithUnitsSchema = SuccessCriterionSchema.extend({
+    success_criteria_units: SuccessCriteriaUnitsSchema.optional(),
+});
+
+export const LearningObjectiveWithCriteriaSchema = LearningObjectiveSchema.extend({
+    success_criteria: SuccessCriteriaSchema.default([]),
+});
+
+export const AssessmentObjectiveDetailSchema = AssessmentObjectiveSchema.extend({
+    learning_objectives: z.array(LearningObjectiveWithCriteriaSchema).default([]),
+});
+
+export const CurriculumDetailSchema = CurriculumSchema.extend({
+    assessment_objectives: z.array(AssessmentObjectiveDetailSchema).default([]),
+});
+
+export type SuccessCriterionWithUnits = z.infer<typeof SuccessCriterionWithUnitsSchema>;
+export type LearningObjectiveWithCriteria = z.infer<typeof LearningObjectiveWithCriteriaSchema>;
+export type AssessmentObjectiveDetail = z.infer<typeof AssessmentObjectiveDetailSchema>;
+export type CurriculumDetail = z.infer<typeof CurriculumDetailSchema>;
 
 export const LessonSchema = z.object({
     lesson_id: z.string(),

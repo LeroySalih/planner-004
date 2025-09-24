@@ -1,37 +1,36 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Planner 004
 
-## Getting Started
+Planner 004 is a Next.js prototype for lesson, unit, and curriculum planning workflows. The project exposes a curriculum explorer at `/curriculum` that now reads and persists data against Supabase via server actions.
 
-First, run the development server:
+## Development
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The app runs at http://localhost:3000. The curriculum prototype lives under `/curriculum` and individual curriculum detail pages are served from `/curriculum/:curriculumId`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Curriculum Prototype
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- Curriculum index renders live data through `readCurriculaAction`.
+- Curriculum detail pages fetch nested assessment objectives, learning objectives, and success criteria with `readCurriculumDetailAction`.
+- Inline edits for assessment objectives, learning objectives, and success criteria call the curriculum server actions to persist title, level, description, and unit linkage changes.
+- Unit chips use real unit metadata; filters accept free text plus `l <level>` and `yr <year>` tokens.
 
-## Learn More
+## Manual Smoke Checklist
 
-To learn more about Next.js, take a look at the following resources:
+1. Load `/curriculum` – expect existing curricula ordered by title with description excerpts.
+2. Select a curriculum – verify assessment objectives, learning objectives, and success criteria render.
+3. Edit a success criterion description and level – confirm optimistic update and persisted change after refresh.
+4. Toggle unit associations for a criterion – chips update immediately and survive reload.
+5. Add a new learning objective and success criterion – default placeholders appear and persist.
+6. Add a new assessment objective – default learning objective and criterion scaffold the new AO.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+If a step fails, tail the terminal for server-action logs and ensure Supabase environment variables are configured.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Notes
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
-# planner-004
+- All curriculum mutations are routed through `src/lib/server-actions/curricula.ts` and revalidate the relevant curriculum detail path.
+- Server actions enforce basic validation (non-empty codes, titles, and descriptions) before writing to Supabase.
+- Feature is still a prototype; keep in mind UI polish and granular error toasts are pending.

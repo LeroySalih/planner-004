@@ -19,8 +19,10 @@ import {
 export default async function UnitDetailPage({
   params,
 }: {
-  params: { unitId: string }
+  params: Promise<{ unitId: string }>
 }) {
+  const { unitId } = await params
+
   const [
     unitResult,
     assignmentsResult,
@@ -30,13 +32,13 @@ export default async function UnitDetailPage({
     lessonsResult,
     unitFilesResult,
   ] = await Promise.all([
-    readUnitAction(params.unitId),
+    readUnitAction(unitId),
     readAssignmentsAction(),
     readGroupsAction(),
     readSubjectsAction(),
-    readLearningObjectivesByUnitAction(params.unitId),
-    readLessonsByUnitAction(params.unitId),
-    listUnitFilesAction(params.unitId),
+    readLearningObjectivesByUnitAction(unitId),
+    readLessonsByUnitAction(unitId),
+    listUnitFilesAction(unitId),
   ])
 
   if (unitResult.error) {

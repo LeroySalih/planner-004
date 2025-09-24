@@ -96,10 +96,16 @@ export function LessonDetailClient({ lesson, unit, learningObjectives, lessonFil
                     </div>
                     {objective.learning_objective?.success_criteria &&
                       objective.learning_objective.success_criteria.length > 0 && (
-                        <ul className="space-y-2 rounded-md bg-muted/30 p-3 text-sm text-muted-foreground">
+                        <ul className="space-y-2 list-disc pl-6 text-sm text-muted-foreground">
                           {objective.learning_objective.success_criteria.map((criterion) => (
-                            <li key={criterion.success_criteria_id} className="list-disc pl-4 marker:text-primary">
-                              {criterion.title}
+                            <li key={criterion.success_criteria_id}>
+                              <span className="font-semibold text-primary">Level {criterion.level}:</span>{" "}
+                              <span className="text-foreground">{criterion.description}</span>
+                              {criterion.active === false ? (
+                                <Badge variant="destructive" className="ml-2 text-xs">
+                                  Inactive
+                                </Badge>
+                              ) : null}
                             </li>
                           ))}
                         </ul>

@@ -1,23 +1,29 @@
 "use client"
 
-import { useEffect, useMemo, useState, useTransition } from "react"
-import { Calendar, Edit2, GripVertical, Plus, Target, Users } from "lucide-react"
-import { toast } from "sonner"
+import { useEffect, useMemo, useState } from "react"
+import { Calendar, Edit2, Target, Users } from "lucide-react"
 
 import type { Assignment, Group, Groups, Subjects, Unit } from "@/types"
 import type {
   LearningObjectiveWithCriteria,
   LessonWithObjectives,
 } from "@/lib/server-updates"
-import { reorderLearningObjectivesAction } from "@/lib/server-updates"
-import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { UnitEditSidebar } from "@/components/units/unit-edit-sidebar"
-import { LearningObjectiveSidebar } from "@/components/units/learning-objective-sidebar"
 import { LessonsPanel } from "@/components/units/lessons-panel"
+import { UnitEditSidebar } from "@/components/units/unit-edit-sidebar"
 import { UnitFilesPanel } from "@/components/units/unit-files-panel"
+
+const levelStyleMap: Record<number, string> = {
+  1: "bg-emerald-100 text-emerald-900",
+  2: "bg-emerald-200 text-emerald-900",
+  3: "bg-emerald-300 text-emerald-900",
+  4: "bg-emerald-400 text-emerald-900",
+  5: "bg-emerald-500 text-emerald-50",
+  6: "bg-emerald-600 text-emerald-50",
+  7: "bg-emerald-700 text-emerald-50",
+}
 
 interface UnitDetailViewProps {
   unit: Unit
@@ -40,22 +46,10 @@ export function UnitDetailView({
 }: UnitDetailViewProps) {
   const [isUnitSidebarOpen, setIsUnitSidebarOpen] = useState(false)
   const [currentUnit, setCurrentUnit] = useState<Unit>(unit)
-  const [objectives, setObjectives] = useState<LearningObjectiveWithCriteria[]>(() =>
-    sortObjectives(learningObjectives),
-  )
-  const [selectedObjective, setSelectedObjective] = useState<LearningObjectiveWithCriteria | null>(null)
-  const [isObjectiveSidebarOpen, setIsObjectiveSidebarOpen] = useState(false)
-  const [draggingObjectiveId, setDraggingObjectiveId] = useState<string | null>(null)
-  const [isDraggingObjective, setIsDraggingObjective] = useState(false)
-  const [, startReorderTransition] = useTransition()
 
   useEffect(() => {
     setCurrentUnit(unit)
   }, [unit])
-
-  useEffect(() => {
-    setObjectives(sortObjectives(learningObjectives))
-  }, [learningObjectives])
 
   const groupsById = useMemo(() => {
     const map = new Map<string, Group>()
@@ -65,124 +59,84 @@ export function UnitDetailView({
     return map
   }, [groups])
 
+  const isActive = currentUnit.active ?? true
+  const statusClassName = isActive
+    ? "bg-emerald-100 text-emerald-700 border-emerald-200"
+    : "bg-rose-100 text-rose-700 border-rose-200"
+
+  const orderedObjectives = useMemo(
+    () => sortObjectives(learningObjectives),
+    [learningObjectives],
+  )
+
+  const groupedAssessmentObjectives = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        id: string
+        code: string
+        title: string
+        orderIndex: number
+        objectives: Array<LearningObjectiveWithCriteria & { success_criteria: LearningObjectiveWithCriteria["success_criteria"] }>
+      }
+    >()
+
+    orderedObjectives.forEach((objective) => {
+      const aoId = objective.assessment_objective_id ?? "unassigned"
+      const aoCode = objective.assessment_objective_code ?? "Unassigned"
+      const aoTitle = objective.assessment_objective_title ?? "Unassigned Assessment Objective"
+      const aoOrder = objective.assessment_objective_order_index ?? Number.MAX_SAFE_INTEGER
+
+      if (!map.has(aoId)) {
+        map.set(aoId, {
+          id: aoId,
+          code: aoCode,
+          title: aoTitle,
+          orderIndex: aoOrder,
+          objectives: [],
+        })
+      }
+
+      const entry = map.get(aoId)
+      if (!entry) return
+
+      entry.orderIndex = Math.min(entry.orderIndex, aoOrder)
+
+      entry.objectives.push({
+        ...objective,
+        success_criteria: [...(objective.success_criteria ?? [])]
+          .map((criterion, index) => ({
+            ...criterion,
+            order_index: criterion.order_index ?? index,
+          }))
+          .sort((a, b) => {
+            if (a.level !== b.level) {
+              return a.level - b.level
+            }
+            return (a.order_index ?? 0) - (b.order_index ?? 0)
+          }),
+      })
+    })
+
+    return Array.from(map.values())
+      .map((group) => ({
+        ...group,
+        objectives: group.objectives.sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0)),
+      }))
+      .sort((a, b) => {
+        if (a.orderIndex !== b.orderIndex) {
+          return a.orderIndex - b.orderIndex
+        }
+        return a.code.localeCompare(b.code)
+      })
+  }, [orderedObjectives])
+
   const formatDate = (value: string) =>
     new Date(value).toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
       year: "numeric",
     })
-
-  const isActive = currentUnit.active ?? true
-  const statusClassName = isActive
-    ? "bg-emerald-100 text-emerald-700 border-emerald-200"
-    : "bg-rose-100 text-rose-700 border-rose-200"
-
-  const objectiveLessonCounts = useMemo(() => {
-    const counts: Record<string, number> = {}
-    lessons
-      .filter((lesson) => lesson.active !== false)
-      .forEach((lesson) => {
-        const seen = new Set<string>()
-        lesson.lesson_objectives?.forEach((objective) => {
-          if (!objective?.learning_objective_id || seen.has(objective.learning_objective_id)) return
-          counts[objective.learning_objective_id] = (counts[objective.learning_objective_id] ?? 0) + 1
-          seen.add(objective.learning_objective_id)
-        })
-      })
-    return counts
-  }, [lessons])
-
-  const openCreateObjective = () => {
-    setSelectedObjective(null)
-    setIsObjectiveSidebarOpen(true)
-  }
-
-  const openEditObjective = (objective: LearningObjectiveWithCriteria) => {
-    if (isDraggingObjective) return
-    setSelectedObjective(objective)
-    setIsObjectiveSidebarOpen(true)
-  }
-
-  const handleObjectiveSaved = (objective: LearningObjectiveWithCriteria) => {
-    setObjectives((prev) => {
-      const existingIndex = prev.findIndex(
-        (item) => item.learning_objective_id === objective.learning_objective_id,
-      )
-
-      const ensureOrderBy = (
-        candidate: LearningObjectiveWithCriteria,
-        fallback: number,
-      ): LearningObjectiveWithCriteria =>
-        candidate.order_by === null || candidate.order_by === undefined
-          ? { ...candidate, order_by: fallback }
-          : candidate
-
-      if (existingIndex !== -1) {
-        const next = [...prev]
-        next[existingIndex] = ensureOrderBy(objective, prev[existingIndex]?.order_by ?? existingIndex)
-        return sortObjectives(next)
-      }
-
-      const next = [...prev, ensureOrderBy(objective, prev.length)]
-      return sortObjectives(next)
-    })
-    setSelectedObjective(objective)
-  }
-
-  const handleObjectiveDeleted = (learningObjectiveId: string) => {
-    setObjectives((prev) => prev.filter((item) => item.learning_objective_id !== learningObjectiveId))
-    setSelectedObjective(null)
-  }
-
-  const handleDragStartObjective = (
-    objectiveId: string,
-    event: React.DragEvent<HTMLButtonElement>,
-  ) => {
-    setDraggingObjectiveId(objectiveId)
-    setIsDraggingObjective(true)
-    event.dataTransfer.effectAllowed = "move"
-    event.dataTransfer.setData("text/plain", objectiveId)
-  }
-
-  const handleDragEndObjective = () => {
-    setDraggingObjectiveId(null)
-    setIsDraggingObjective(false)
-  }
-
-  const handleDropObjective = (targetObjectiveId: string | null) => (
-    event: React.DragEvent<HTMLDivElement | HTMLButtonElement>,
-  ) => {
-    event.preventDefault()
-    event.stopPropagation()
-
-    if (!draggingObjectiveId || draggingObjectiveId === targetObjectiveId) {
-      handleDragEndObjective()
-      return
-    }
-
-    const result = reorderObjectiveList(objectives, draggingObjectiveId, targetObjectiveId)
-
-    if (!result) {
-      handleDragEndObjective()
-      return
-    }
-
-    const { updatedObjectives, payload } = result
-    const previousObjectives = objectives
-
-    setObjectives(updatedObjectives)
-    handleDragEndObjective()
-
-    startReorderTransition(async () => {
-      const response = await reorderLearningObjectivesAction(currentUnit.unit_id, payload)
-      if (!response.success) {
-        toast.error("Failed to update learning objective order", {
-          description: response.error ?? "Please try again shortly.",
-        })
-        setObjectives(previousObjectives)
-      }
-    })
-  }
 
   return (
     <>
@@ -197,6 +151,7 @@ export function UnitDetailView({
             </div>
             <div className="flex flex-wrap items-center gap-3 text-muted-foreground">
               <Badge variant="outline">Subject: {currentUnit.subject}</Badge>
+              {currentUnit.year ? <Badge variant="secondary">Year {currentUnit.year}</Badge> : null}
               <span className="text-sm">Unit ID: {currentUnit.unit_id}</span>
             </div>
           </div>
@@ -227,70 +182,104 @@ export function UnitDetailView({
           <div className="space-y-1">
             <CardTitle className="flex items-center gap-2 text-xl font-semibold">
               <Target className="h-5 w-5 text-primary" />
-              Learning Objectives
+              Curriculum Alignment
             </CardTitle>
-            <CardDescription>Each objective can include up to three success criteria.</CardDescription>
+            <CardDescription>
+              Assessment objectives, learning objectives, and success criteria defined on the curriculum page.
+            </CardDescription>
           </div>
-          <Button size="sm" onClick={openCreateObjective}>
-            <Plus className="mr-2 h-4 w-4" />
-            Add Objective
-          </Button>
         </CardHeader>
-        <CardContent onDragOver={(event) => event.preventDefault()} onDrop={handleDropObjective(null)}>
-          {objectives.length > 0 ? (
-            <div className="space-y-3">
-              {objectives.map((objective) => {
-                const lessonCount = objectiveLessonCounts[objective.learning_objective_id] ?? 0
-                const label = lessonCount === 1 ? "lesson" : "lessons"
+        <CardContent>
+          {groupedAssessmentObjectives.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] table-fixed border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
+                    <th className="w-48 px-4 py-3">Assessment Objective</th>
+                    <th className="w-72 px-4 py-3">Learning Objective</th>
+                    <th className="px-4 py-3">Success Criteria</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {groupedAssessmentObjectives.map((group) => {
+                    const rowSpan = group.objectives.reduce(
+                      (count, objective) => count + Math.max(objective.success_criteria.length, 1),
+                      0,
+                    )
 
-                return (
-                  <button
-                    key={objective.learning_objective_id}
-                    type="button"
-                    draggable
-                    onClick={() => openEditObjective(objective)}
-                    onDragStart={(event) =>
-                      handleDragStartObjective(objective.learning_objective_id, event)
-                    }
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={handleDropObjective(objective.learning_objective_id)}
-                    onDragEnd={handleDragEndObjective}
-                    className={cn(
-                      "w-full rounded-lg border border-border p-4 text-left transition hover:border-primary cursor-grab active:cursor-grabbing",
-                      draggingObjectiveId === objective.learning_objective_id && "opacity-60",
-                    )}
-                    aria-grabbed={draggingObjectiveId === objective.learning_objective_id}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <GripVertical className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                        <span className="font-medium">{objective.title}</span>
-                      </div>
-                      <span className="text-sm text-muted-foreground">
-                        {lessonCount} {label}
-                      </span>
-                    </div>
-                    {lessonCount === 0 && (
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        This objective is not linked to any lessons yet.
-                      </p>
-                    )}
-                    {objective.success_criteria && objective.success_criteria.length > 0 && (
-                      <ul className="mt-3 space-y-2 rounded-md bg-muted/30 p-3 text-sm text-muted-foreground">
-                        {objective.success_criteria.map((criterion) => (
-                          <li key={criterion.success_criteria_id} className="list-disc pl-4 marker:text-primary">
-                            {criterion.title}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </button>
-                )
-              })}
+                    let aoCellRendered = false
+
+                    return group.objectives.map((objective) => {
+                      const criteria = objective.success_criteria.length > 0
+                        ? objective.success_criteria
+                        : [null]
+
+                      return criteria.map((criterion, index) => {
+                        const isFirstCriterionForObjective = index === 0
+                        const objectiveRowSpan = objective.success_criteria.length || 1
+
+                        const aoCell = !aoCellRendered ? (
+                          <td
+                            className="border-b border-border px-4 py-3 align-top text-sm font-medium"
+                            rowSpan={rowSpan}
+                          >
+                            <div className="flex flex-col gap-1">
+                              <span className="text-primary">{group.code}</span>
+                              <span className="text-muted-foreground">{group.title}</span>
+                            </div>
+                          </td>
+                        ) : null
+
+                        if (!aoCellRendered) {
+                          aoCellRendered = true
+                        }
+
+                        return (
+                          <tr key={`${group.id}-${objective.learning_objective_id}-${criterion?.success_criteria_id ?? index}`} className="border-b border-border">
+                            {aoCell}
+                            {isFirstCriterionForObjective ? (
+                              <td
+                                className="border-b border-border px-4 py-3 align-top text-sm font-medium"
+                                rowSpan={objectiveRowSpan}
+                              >
+                                <span className="text-foreground">{objective.title}</span>
+                              </td>
+                            ) : null}
+                            <td className="border-b border-border px-4 py-3 align-top">
+                              {criterion ? (
+                                <div className="space-y-2">
+                                  <div className="flex items-center gap-2">
+                                    <Badge
+                                      variant="secondary"
+                                      className={`border-none text-xs font-semibold text-foreground ${levelStyleMap[Math.min(Math.max(criterion.level, 1), 7)].badge}`}
+                                    >
+                                      Level {criterion.level}
+                                    </Badge>
+                                    {criterion.active === false && (
+                                      <Badge variant="destructive" className="text-xs">
+                                        Inactive
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <p className="text-sm text-foreground">{criterion.description}</p>
+                                </div>
+                              ) : (
+                                <span className="text-sm text-muted-foreground">
+                                  No success criteria defined for this objective.
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })
+                    })
+                  })}
+                </tbody>
+              </table>
             </div>
           ) : (
             <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-              No learning objectives yet. Click “Add Objective” to create the first one.
+              No curriculum-aligned learning objectives are assigned to this unit yet.
             </div>
           )}
         </CardContent>
@@ -299,7 +288,7 @@ export function UnitDetailView({
       <LessonsPanel
         unitId={currentUnit.unit_id}
         initialLessons={lessons}
-        learningObjectives={objectives}
+        learningObjectives={orderedObjectives}
       />
 
       <UnitFilesPanel unitId={currentUnit.unit_id} initialFiles={unitFiles} />
@@ -356,84 +345,17 @@ export function UnitDetailView({
         onClose={() => setIsUnitSidebarOpen(false)}
         onOptimisticUpdate={setCurrentUnit}
       />
-
-      <LearningObjectiveSidebar
-        unitId={currentUnit.unit_id}
-        learningObjective={selectedObjective}
-        isOpen={isObjectiveSidebarOpen}
-        onClose={() => setIsObjectiveSidebarOpen(false)}
-        onCreateOrUpdate={handleObjectiveSaved}
-        onDelete={handleObjectiveDeleted}
-      />
     </>
   )
 }
 
 function sortObjectives(objectives: LearningObjectiveWithCriteria[]) {
   return [...objectives].sort((a, b) => {
-    const aOrder = a.order_by ?? Number.MAX_SAFE_INTEGER
-    const bOrder = b.order_by ?? Number.MAX_SAFE_INTEGER
+    const aOrder = (a.order_by ?? a.order_index) ?? Number.MAX_SAFE_INTEGER
+    const bOrder = (b.order_by ?? b.order_index) ?? Number.MAX_SAFE_INTEGER
     if (aOrder !== bOrder) {
-      return aOrder - bOrder
-    }
-    return a.title.localeCompare(b.title)
-  })
-}
-
-function arrayMove<T>(array: T[], from: number, to: number): T[] {
-  const result = [...array]
-  if (from < 0 || from >= result.length) return result
-  const [item] = result.splice(from, 1)
-  let target = to
-  if (target < 0) target = 0
-  if (target > result.length) target = result.length
-  result.splice(target, 0, item)
-  return result
-}
-
-function reorderObjectiveList(
-  objectives: LearningObjectiveWithCriteria[],
-  draggedObjectiveId: string,
-  targetObjectiveId: string | null,
-):
-  | {
-      updatedObjectives: LearningObjectiveWithCriteria[]
-      payload: { learningObjectiveId: string; orderBy: number }[]
-    }
-  | null {
-  const orderedObjectives = sortObjectives(objectives)
-
-  const fromIndex = orderedObjectives.findIndex(
-    (objective) => objective.learning_objective_id === draggedObjectiveId,
-  )
-  if (fromIndex === -1) {
-    return null
-  }
-
-  let toIndex = targetObjectiveId
-    ? orderedObjectives.findIndex((objective) => objective.learning_objective_id === targetObjectiveId)
-    : orderedObjectives.length - 1
-
-  if (toIndex === -1) {
-    toIndex = orderedObjectives.length - 1
-  }
-
-  if (fromIndex === toIndex) {
-    return null
-  }
-
-  const reordered = arrayMove(orderedObjectives, fromIndex, toIndex).map((objective, index) => ({
-    ...objective,
-    order_by: index,
-  }))
-
-  const payload = reordered.map((objective) => ({
-    learningObjectiveId: objective.learning_objective_id,
-    orderBy: objective.order_by ?? 0,
-  }))
-
-  return {
-    updatedObjectives: reordered,
-    payload,
-  }
+          return aOrder - bOrder
+        }
+        return a.title.localeCompare(b.title)
+      })
 }

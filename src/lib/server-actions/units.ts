@@ -21,32 +21,65 @@ export async function createUnitAction(
   title: string,
   subject: string,
   description: string | null = null,
+  year: number | null = null,
 ) {
-  console.log("[v0] Server action started for unit creation:", { unitId, title, subject })
+  console.log("[v0] Server action started for unit creation:", { unitId, title, subject, year })
 
-  const { data, error } = await supabaseServer
-    .from("units")
-    .insert({
-      unit_id: unitId,
-      title,
-      subject,
-      description,
-      active: true,
-    })
-    .select()
-    .single()
+  const sanitizedYear =
+    typeof year === "number" && Number.isFinite(year)
+      ? Math.min(Math.max(Math.trunc(year), 1), 13)
+      : null
 
-  if (error) {
+  let attempt = 0
+  let finalUnitId = unitId
+  let lastError: { message: string } | null = null
+
+  while (attempt < 5) {
+    const { data, error } = await supabaseServer
+      .from("units")
+      .insert({
+        unit_id: finalUnitId,
+        title,
+        subject,
+        description,
+        year: sanitizedYear,
+        active: true,
+      })
+      .select()
+      .single()
+
+    if (!error) {
+      console.log("[v0] Server action completed for unit creation:", {
+        unitId: finalUnitId,
+        title,
+        subject,
+        year: sanitizedYear,
+      })
+
+      revalidatePath("/")
+      revalidatePath("/units")
+      revalidatePath("/assignments")
+      return UnitReturnValue.parse({ data, error: null })
+    }
+
+    lastError = error
+
+    if (error.code === "23505" && error.message?.includes("units_pkey")) {
+      attempt += 1
+      finalUnitId = `${unitId}-${Date.now()}-${attempt}`
+      console.warn(
+        "[v0] Duplicate unit_id detected, retrying with suffix",
+        { attempt, finalUnitId },
+      )
+      continue
+    }
+
     console.error("[v0] Server action failed for unit creation:", error)
     return UnitReturnValue.parse({ data: null, error: error.message })
   }
 
-  console.log("[v0] Server action completed for unit creation:", { unitId, title, subject })
-
-  revalidatePath("/")
-  revalidatePath("/units")
-  revalidatePath("/assignments")
-  return UnitReturnValue.parse({ data, error: null })
+  console.error("[v0] Server action failed for unit creation after retries:", lastError)
+  return UnitReturnValue.parse({ data: null, error: lastError?.message ?? "Unable to create unit" })
 }
 
 export async function readUnitAction(unitId: string) {
@@ -89,7 +122,7 @@ export async function readUnitsAction() {
 
 export async function updateUnitAction(
   unitId: string,
-  updates: { title: string; subject: string; description?: string | null; active?: boolean },
+  updates: { title: string; subject: string; description?: string | null; active?: boolean; year?: number | null },
 ) {
   console.log("[v0] Server action started for unit update:", { unitId, updates })
 
@@ -97,6 +130,10 @@ export async function updateUnitAction(
     title: updates.title,
     subject: updates.subject,
     description: updates.description ?? null,
+  }
+
+  if (Object.prototype.hasOwnProperty.call(updates, "year")) {
+    payload.year = typeof updates.year === "number" ? updates.year : null
   }
 
   if (typeof updates.active === "boolean") {

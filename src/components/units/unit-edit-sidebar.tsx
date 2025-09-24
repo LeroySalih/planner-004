@@ -29,6 +29,7 @@ export function UnitEditSidebar({ unit, subjects, isOpen, onClose, onOptimisticU
     title: unit.title ?? "",
     subject: unit.subject,
     description: unit.description ?? "",
+    year: unit.year?.toString() ?? "",
   })
 
   useEffect(() => {
@@ -37,6 +38,7 @@ export function UnitEditSidebar({ unit, subjects, isOpen, onClose, onOptimisticU
       title: unit.title ?? "",
       subject: unit.subject,
       description: unit.description ?? "",
+      year: unit.year?.toString() ?? "",
     })
   }, [isOpen, unit])
 
@@ -44,6 +46,13 @@ export function UnitEditSidebar({ unit, subjects, isOpen, onClose, onOptimisticU
     isPending || formState.title.trim().length === 0 || formState.subject.trim().length === 0
 
   const handleSave = () => {
+    const trimmedYear = formState.year.trim()
+    const parsedYear = trimmedYear.length === 0 ? null : Number.parseInt(trimmedYear, 10)
+    if (parsedYear !== null && (!Number.isFinite(parsedYear) || parsedYear < 1 || parsedYear > 13)) {
+      toast.error("Year must be between 1 and 13")
+      return
+    }
+
     startTransition(async () => {
       const previousUnit = unit
       const optimisticUnit: Unit = {
@@ -51,6 +60,7 @@ export function UnitEditSidebar({ unit, subjects, isOpen, onClose, onOptimisticU
         title: formState.title.trim(),
         subject: formState.subject,
         description: formState.description.trim() || null,
+        year: parsedYear,
       }
 
       onOptimisticUpdate?.(optimisticUnit)
@@ -60,6 +70,7 @@ export function UnitEditSidebar({ unit, subjects, isOpen, onClose, onOptimisticU
           title: formState.title.trim(),
           subject: formState.subject,
           description: formState.description.trim() || null,
+          year: parsedYear,
         })
 
         if (result.error || !result.data) {
@@ -170,6 +181,20 @@ export function UnitEditSidebar({ unit, subjects, isOpen, onClose, onOptimisticU
                 }
                 rows={6}
                 placeholder="Describe the unit objectives, scope, or resources..."
+                disabled={isPending}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="unit-year">Year (optional)</Label>
+              <Input
+                id="unit-year"
+                type="number"
+                min={1}
+                max={13}
+                value={formState.year}
+                onChange={(event) => setFormState((prev) => ({ ...prev, year: event.target.value }))}
+                placeholder="e.g. 7"
                 disabled={isPending}
               />
             </div>

@@ -77,3 +77,21 @@ export {
 } from "./server-actions/lesson-links"
 
 export { fetchLessonLinkMetadataAction } from "./server-actions/link-metadata"
+
+export {
+  readCurriculaAction,
+  createCurriculumAction,
+  readCurriculumDetailAction,
+  createCurriculumAssessmentObjectiveAction,
+  updateCurriculumAssessmentObjectiveAction,
+  deleteCurriculumAssessmentObjectiveAction,
+  reorderCurriculumAssessmentObjectivesAction,
+  createCurriculumLearningObjectiveAction,
+  updateCurriculumLearningObjectiveAction,
+  deleteCurriculumLearningObjectiveAction,
+  reorderCurriculumLearningObjectivesAction,
+  createCurriculumSuccessCriterionAction,
+  updateCurriculumSuccessCriterionAction,
+  deleteCurriculumSuccessCriterionAction,
+  reorderCurriculumSuccessCriteriaAction,
+} from "./server-actions/curricula"

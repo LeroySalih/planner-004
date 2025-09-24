@@ -10,6 +10,7 @@ import {
   LessonsWithObjectivesSchema,
 } from "@/types"
 import { supabaseServer } from "@/lib/supabaseClient"
+import { fetchSuccessCriteriaForLearningObjectives } from "./learning-objectives"
 
 const LessonsReturnValue = z.object({
   data: LessonsWithObjectivesSchema.nullable(),
@@ -29,7 +30,16 @@ export async function readLessonsByUnitAction(unitId: string) {
   const { data, error } = await supabaseServer
     .from("lessons")
     .select(
-      "*, lessons_learning_objective(*, learning_objective:learning_objectives(*, success_criteria(*))), lesson_links(*)",
+      `*,
+        lessons_learning_objective(
+          *,
+          learning_objective:learning_objectives(
+            *,
+            assessment_objective:assessment_objectives(*)
+          )
+        ),
+        lesson_links(*)
+      `,
     )
     .eq("unit_id", unitId)
     .order("order_by", { ascending: true })
@@ -40,7 +50,18 @@ export async function readLessonsByUnitAction(unitId: string) {
     return LessonsReturnValue.parse({ data: null, error: error.message })
   }
 
-  const normalized = (data ?? []).map((lesson) => {
+  const lessons = data ?? []
+
+  const { lessons: enrichedLessons, error: scError } = await enrichLessonsWithSuccessCriteria(lessons, {
+    unitId,
+  })
+
+  if (scError) {
+    console.error("[v0] Failed to read success criteria for lessons:", scError)
+    return LessonsReturnValue.parse({ data: null, error: scError })
+  }
+
+  const normalized = enrichedLessons.map((lesson) => {
     const { lessons_learning_objective, lesson_links, ...rest } = lesson
     const filtered = ((lessons_learning_objective ?? []) as LessonLearningObjective[])
       .filter((entry) => entry.active !== false)
@@ -66,7 +87,16 @@ export async function readLessonsAction() {
   const { data, error } = await supabaseServer
     .from("lessons")
     .select(
-      "*, lessons_learning_objective(*, learning_objective:learning_objectives(*, success_criteria(*))), lesson_links(*)",
+      `*,
+        lessons_learning_objective(
+          *,
+          learning_objective:learning_objectives(
+            *,
+            assessment_objective:assessment_objectives(*)
+          )
+        ),
+        lesson_links(*)
+      `,
     )
     .order("unit_id", { ascending: true })
     .order("order_by", { ascending: true, nullsFirst: true })
@@ -77,7 +107,16 @@ export async function readLessonsAction() {
     return LessonsReturnValue.parse({ data: null, error: error.message })
   }
 
-  const normalized = (data ?? []).map((lesson) => {
+  const lessons = data ?? []
+
+  const { lessons: enrichedLessons, error: scError } = await enrichLessonsWithSuccessCriteria(lessons)
+
+  if (scError) {
+    console.error("[v0] Failed to read success criteria for all lessons:", scError)
+    return LessonsReturnValue.parse({ data: null, error: scError })
+  }
+
+  const normalized = enrichedLessons.map((lesson) => {
     const { lessons_learning_objective, lesson_links, ...rest } = lesson
     const filtered = ((lessons_learning_objective ?? []) as LessonLearningObjective[])
       .filter((entry) => entry.active !== false)
@@ -280,11 +319,74 @@ export async function reorderLessonsAction(
   return { success: true }
 }
 
+async function enrichLessonsWithSuccessCriteria<T extends { lessons_learning_objective?: LessonLearningObjective[] }>(
+  lessons: T[],
+  options: { unitId?: string } = {},
+): Promise<{ lessons: T[]; error: string | null }> {
+  const ids = new Set<string>()
+
+  for (const lesson of lessons) {
+    for (const entry of lesson.lessons_learning_objective ?? []) {
+      if (entry.learning_objective_id) {
+        ids.add(entry.learning_objective_id)
+      }
+
+      const nestedId = entry.learning_objective?.learning_objective_id
+      if (nestedId) {
+        ids.add(nestedId)
+      }
+    }
+  }
+
+  if (ids.size === 0) {
+    return { lessons: lessons.map((lesson) => ({ ...lesson })), error: null }
+  }
+
+  const { map, error } = await fetchSuccessCriteriaForLearningObjectives([...ids], options.unitId)
+
+  if (error) {
+    return { lessons: [], error }
+  }
+
+  const enriched = lessons.map((lesson) => {
+    const updatedObjectives = (lesson.lessons_learning_objective ?? []).map((entry) => {
+      const loId = entry.learning_objective_id ?? entry.learning_objective?.learning_objective_id ?? ""
+      const successCriteria = loId ? map.get(loId) ?? [] : []
+
+      return {
+        ...entry,
+        learning_objective: entry.learning_objective
+          ? {
+              ...entry.learning_objective,
+              success_criteria: successCriteria,
+            }
+          : entry.learning_objective,
+      }
+    })
+
+    return {
+      ...lesson,
+      lessons_learning_objective: updatedObjectives as LessonLearningObjective[],
+    }
+  })
+
+  return { lessons: enriched, error: null }
+}
+
 async function readLessonWithObjectives(lessonId: string) {
   const { data, error } = await supabaseServer
     .from("lessons")
     .select(
-      "*, lessons_learning_objective(*, learning_objective:learning_objectives(*, success_criteria(*))), lesson_links(*)",
+      `*,
+        lessons_learning_objective(
+          *,
+          learning_objective:learning_objectives(
+            *,
+            assessment_objective:assessment_objectives(*)
+          )
+        ),
+        lesson_links(*)
+      `,
     )
     .eq("lesson_id", lessonId)
     .maybeSingle()
@@ -298,7 +400,16 @@ async function readLessonWithObjectives(lessonId: string) {
     return LessonReturnValue.parse({ data: null, error: null })
   }
 
-  const { lessons_learning_objective, lesson_links, ...rest } = data
+  const { lessons: enrichedLessons, error: scError } = await enrichLessonsWithSuccessCriteria([data])
+
+  if (scError) {
+    console.error("[v0] Failed to read success criteria for lesson:", scError)
+    return LessonReturnValue.parse({ data: null, error: scError })
+  }
+
+  const lesson = enrichedLessons[0]
+
+  const { lessons_learning_objective, lesson_links, ...rest } = lesson
   const normalized = {
     ...rest,
     lesson_objectives: ((lessons_learning_objective ?? []) as LessonLearningObjective[])

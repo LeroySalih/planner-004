@@ -30,6 +30,7 @@ export function UnitCreateSidebar({ isOpen, onClose, subjects, onCreate }: UnitC
   const [title, setTitle] = useState("")
   const [subject, setSubject] = useState<string>(subjects[0]?.subject ?? "")
   const [description, setDescription] = useState("")
+  const [year, setYear] = useState<string>("7")
   const [isPending, startTransition] = useTransition()
 
   if (!isOpen) {
@@ -48,11 +49,24 @@ export function UnitCreateSidebar({ isOpen, onClose, subjects, onCreate }: UnitC
       return
     }
 
+    const trimmedYear = year.trim()
+    const parsedYear = trimmedYear.length === 0 ? null : Number.parseInt(trimmedYear, 10)
+    if (parsedYear !== null && (!Number.isFinite(parsedYear) || parsedYear < 1 || parsedYear > 13)) {
+      toast.error("Year must be between 1 and 13")
+      return
+    }
+
     const generatedUnitId = generateUnitId(name)
 
     startTransition(async () => {
       try {
-        const result = await createUnitAction(generatedUnitId, name, subject, description.trim() || null)
+        const result = await createUnitAction(
+          generatedUnitId,
+          name,
+          subject,
+          description.trim() || null,
+          parsedYear,
+        )
 
         if (result.error || !result.data) {
           throw new Error(result.error ?? "Unknown error")
@@ -62,6 +76,7 @@ export function UnitCreateSidebar({ isOpen, onClose, subjects, onCreate }: UnitC
         onCreate(result.data)
         setTitle("")
         setDescription("")
+        setYear("7")
       } catch (error) {
         console.error("[v0] Failed to create unit:", error)
         toast.error("Failed to create unit", {
@@ -108,6 +123,20 @@ export function UnitCreateSidebar({ isOpen, onClose, subjects, onCreate }: UnitC
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="unit-year">Year (optional)</Label>
+              <Input
+                id="unit-year"
+                type="number"
+                min={1}
+                max={13}
+                value={year}
+                onChange={(event) => setYear(event.target.value)}
+                placeholder="e.g. 7"
+                disabled={isPending}
+              />
             </div>
 
             <div className="space-y-2">

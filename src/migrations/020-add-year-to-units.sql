@@ -1,0 +1,2 @@
+ALTER TABLE units ADD COLUMN year INTEGER;
+UPDATE units SET year = 7 WHERE year IS NULL;
