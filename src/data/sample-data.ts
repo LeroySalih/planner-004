@@ -13,6 +13,7 @@ export const sampleUnits: Units = [
     subject: "Mathematics",
     description:
       "Establishes a foundation in algebraic thinking with linear equations, inequalities, and graphing so learners can progress to advanced problem solving with confidence.",
+    year: null,
     active: true,
   },
   {
@@ -21,6 +22,7 @@ export const sampleUnits: Units = [
     subject: "Science",
     description:
       "Explores the structure and function of living organisms, covering cell biology, genetics, and ecosystems through lab investigations and collaborative projects.",
+    year: null,
     active: true,
   },
   {
@@ -29,6 +31,7 @@ export const sampleUnits: Units = [
     subject: "History",
     description:
       "Analyzes the global conflict from multiple perspectives while emphasizing political alliances, key battles, and the lasting social impact on modern societies.",
+    year: null,
     active: true,
   },
   {
@@ -37,6 +40,7 @@ export const sampleUnits: Units = [
     subject: "Mathematics",
     description:
       "Introduces geometric reasoning with a focus on planar figures, transformations, and proofs that reinforce spatial awareness and logical thinking.",
+    year: null,
     active: true,
   },
   {
@@ -45,6 +49,7 @@ export const sampleUnits: Units = [
     subject: "Science",
     description:
       "Builds conceptual understanding of matter, chemical reactions, and the periodic table using guided experiments and real-world examples.",
+    year: null,
     active: true,
   },
   {
@@ -53,6 +58,7 @@ export const sampleUnits: Units = [
     subject: "Science",
     description:
       "Covers the core principles of motion, forces, and energy with hands-on demonstrations that connect theory to everyday phenomena.",
+    year: null,
     active: true,
   },
   {
@@ -61,6 +67,7 @@ export const sampleUnits: Units = [
     subject: "History",
     description:
       "Investigates the development of early societies across Mesopotamia, Egypt, and the Indus Valley, highlighting culture, governance, and innovation.",
+    year: null,
     active: true,
   },
   {
@@ -69,6 +76,7 @@ export const sampleUnits: Units = [
     subject: "History",
     description:
       "Examines pivotal events from the 20th and 21st centuries, encouraging critical analysis of primary sources and historical narratives.",
+    year: null,
     active: true,
   },
 ]

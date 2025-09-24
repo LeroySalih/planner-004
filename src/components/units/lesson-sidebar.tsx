@@ -69,8 +69,8 @@ export function LessonSidebar({
   const [linkDescription, setLinkDescription] = useState("")
 
   const sortedObjectives = [...learningObjectives].sort((a, b) => {
-    const aOrder = a.order_by ?? Number.MAX_SAFE_INTEGER
-    const bOrder = b.order_by ?? Number.MAX_SAFE_INTEGER
+    const aOrder = a.order_index ?? Number.MAX_SAFE_INTEGER
+    const bOrder = b.order_index ?? Number.MAX_SAFE_INTEGER
     if (aOrder !== bOrder) {
       return aOrder - bOrder
     }

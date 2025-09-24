@@ -251,7 +251,7 @@ export function UnitDetailView({
                                   <div className="flex items-center gap-2">
                                     <Badge
                                       variant="secondary"
-                                      className={`border-none text-xs font-semibold text-foreground ${levelStyleMap[Math.min(Math.max(criterion.level, 1), 7)].badge}`}
+                                      className={`border-none text-xs font-semibold text-foreground ${levelStyleMap[Math.min(Math.max(criterion.level, 1), 7)]}`}
                                     >
                                       Level {criterion.level}
                                     </Badge>
@@ -351,11 +351,11 @@ export function UnitDetailView({
 
 function sortObjectives(objectives: LearningObjectiveWithCriteria[]) {
   return [...objectives].sort((a, b) => {
-    const aOrder = (a.order_by ?? a.order_index) ?? Number.MAX_SAFE_INTEGER
-    const bOrder = (b.order_by ?? b.order_index) ?? Number.MAX_SAFE_INTEGER
+    const aOrder = a.order_index ?? Number.MAX_SAFE_INTEGER
+    const bOrder = b.order_index ?? Number.MAX_SAFE_INTEGER
     if (aOrder !== bOrder) {
-          return aOrder - bOrder
-        }
-        return a.title.localeCompare(b.title)
-      })
+      return aOrder - bOrder
+    }
+    return a.title.localeCompare(b.title)
+  })
 }

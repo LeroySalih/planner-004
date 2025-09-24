@@ -106,7 +106,8 @@ export function LessonObjectivesSidebar({
                           <ul className="space-y-1 text-xs text-muted-foreground">
                             {objective.success_criteria.map((criterion) => (
                               <li key={criterion.success_criteria_id} className="list-disc pl-4 marker:text-primary">
-                                {criterion.title}
+                                <span className="font-semibold text-primary">Level {criterion.level}:</span>{" "}
+                                <span className="text-muted-foreground">{criterion.description}</span>
                               </li>
                             ))}
                           </ul>

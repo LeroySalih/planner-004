@@ -37,8 +37,8 @@ export function LearningObjectiveSidebar({
 }: LearningObjectiveSidebarProps) {
   const [isPending, startTransition] = useTransition()
   const [title, setTitle] = useState("")
-  const [successCriteria, setSuccessCriteria] = useState<Array<{ id?: string; title: string }>>(
-    new Array(MAX_SUCCESS_CRITERIA).fill(null).map(() => ({ title: "" })),
+  const [successCriteria, setSuccessCriteria] = useState<Array<{ id?: string; description: string }>>(
+    new Array(MAX_SUCCESS_CRITERIA).fill(null).map(() => ({ description: "" })),
   )
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false)
 
@@ -47,15 +47,15 @@ export function LearningObjectiveSidebar({
 
     setTitle(learningObjective?.title ?? "")
 
-    const initialCriteria: Array<{ id?: string; title: string }> = new Array(MAX_SUCCESS_CRITERIA)
+    const initialCriteria: Array<{ id?: string; description: string }> = new Array(MAX_SUCCESS_CRITERIA)
       .fill(null)
-      .map(() => ({ title: "" }))
+      .map(() => ({ description: "" }))
 
     learningObjective?.success_criteria?.forEach((criterion, index) => {
       if (index < MAX_SUCCESS_CRITERIA) {
         initialCriteria[index] = {
           id: criterion.success_criteria_id,
-          title: criterion.title,
+          description: criterion.description ?? "",
         }
       }
     })
@@ -71,7 +71,7 @@ export function LearningObjectiveSidebar({
   const handleSuccessCriterionChange = (index: number, value: string) => {
     setSuccessCriteria((prev) => {
       const next = [...prev]
-      next[index] = { ...next[index], title: value }
+      next[index] = { ...next[index], description: value }
       return next
     })
   }
@@ -91,8 +91,10 @@ export function LearningObjectiveSidebar({
             ? parsed.title.trim()
             : null
 
-      const parsedCriteria = Array.isArray(parsed.success_criteria)
-        ? parsed.success_criteria.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      const parsedCriteria: string[] = Array.isArray(parsed.success_criteria)
+        ? parsed.success_criteria.filter((item: unknown): item is string =>
+            typeof item === "string" && item.trim().length > 0,
+          )
         : []
 
       if (!objectiveTitle && parsedCriteria.length === 0) {
@@ -104,12 +106,12 @@ export function LearningObjectiveSidebar({
       }
 
       if (parsedCriteria.length > 0) {
-        const nextCriteria: Array<{ id?: string; title: string }> = new Array(MAX_SUCCESS_CRITERIA)
+        const nextCriteria: Array<{ id?: string; description: string }> = new Array(MAX_SUCCESS_CRITERIA)
           .fill(null)
-          .map(() => ({ title: "" }))
+          .map(() => ({ description: "" }))
 
         parsedCriteria.slice(0, MAX_SUCCESS_CRITERIA).forEach((criterion, index) => {
-          nextCriteria[index] = { title: criterion.trim() }
+          nextCriteria[index] = { description: criterion.trim() }
         })
 
         setSuccessCriteria(nextCriteria)
@@ -137,10 +139,10 @@ export function LearningObjectiveSidebar({
     }
 
     const payload: SuccessCriteriaInput = successCriteria
-      .filter((criterion) => criterion.title.trim().length > 0)
+      .filter((criterion) => criterion.description.trim().length > 0)
       .map((criterion) => ({
         success_criteria_id: criterion.id,
-        title: criterion.title,
+        description: criterion.description,
       }))
 
     startTransition(async () => {
@@ -236,7 +238,7 @@ export function LearningObjectiveSidebar({
                 {successCriteria.map((criterion, index) => (
                   <Textarea
                     key={criterion.id ?? `new-${index}`}
-                    value={criterion.title}
+                    value={criterion.description}
                     onChange={(event) => handleSuccessCriterionChange(index, event.target.value)}
                     placeholder={`Success criterion ${index + 1}`}
                     disabled={isPending}

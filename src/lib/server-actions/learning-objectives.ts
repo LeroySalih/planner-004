@@ -85,12 +85,15 @@ export async function readLearningObjectivesByUnitAction(unitId: string) {
   const normalized = Array.from(successCriteriaMap.entries())
     .map(([learningObjectiveId, criteria], index) => {
       const meta = metaMap.get(learningObjectiveId)
+      const assessmentObjective = Array.isArray(meta?.assessment_objective)
+        ? meta?.assessment_objective[0] ?? null
+        : meta?.assessment_objective ?? null
       return {
         learning_objective_id: learningObjectiveId,
         assessment_objective_id: meta?.assessment_objective_id ?? null,
-        assessment_objective_code: meta?.assessment_objective?.code ?? null,
-        assessment_objective_title: meta?.assessment_objective?.title ?? null,
-        assessment_objective_order_index: meta?.assessment_objective?.order_index ?? null,
+        assessment_objective_code: assessmentObjective?.code ?? null,
+        assessment_objective_title: assessmentObjective?.title ?? null,
+        assessment_objective_order_index: assessmentObjective?.order_index ?? null,
         title: meta?.title ?? "",
         order_index: meta?.order_index ?? index,
         success_criteria: criteria,
