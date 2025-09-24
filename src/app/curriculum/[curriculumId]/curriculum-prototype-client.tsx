@@ -7,6 +7,7 @@ import { Check, Pencil, Plus, Trash2, X, Boxes } from "lucide-react"
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
+import { Checkbox } from "@/components/ui/checkbox"
 import type { CurriculumDetail, Units } from "@/types"
 import {
   createCurriculumAssessmentObjectiveAction,
@@ -133,6 +134,8 @@ export default function CurriculumPrototypeClient({
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null)
   const [isPending, startTransition] = useTransition()
   const [unitFilter, setUnitFilter] = useState("")
+  const [selectedCriteriaIds, setSelectedCriteriaIds] = useState<Set<string>>(() => new Set<string>())
+  const [bulkUnitId, setBulkUnitId] = useState("")
 
   const [editingContext, setEditingContext] = useState<
     { aoIndex: number; loIndex: number; criterionId: string } | null
@@ -155,6 +158,7 @@ export default function CurriculumPrototypeClient({
 
   useEffect(() => {
     setAssessmentObjectives(mapCurriculumToAssessmentObjectives(curriculum))
+    setSelectedCriteriaIds(new Set<string>())
   }, [curriculum])
 
   useEffect(() => {
@@ -180,6 +184,30 @@ export default function CurriculumPrototypeClient({
   )
 
   const unitLookup = useMemo(() => new Map(unitMetadata.map((unit) => [unit.unit_id, unit])), [unitMetadata])
+
+  const subjectUnitOptions = useMemo(() => {
+    if (!curriculum.subject) {
+      return unitMetadata.slice().sort((a, b) => a.title.localeCompare(b.title))
+    }
+    return unitMetadata
+      .filter((unit) => unit.subject === curriculum.subject)
+      .slice()
+      .sort((a, b) => a.title.localeCompare(b.title))
+  }, [curriculum.subject, unitMetadata])
+
+  useEffect(() => {
+    if (subjectUnitOptions.length === 0) {
+      setBulkUnitId("")
+      return
+    }
+
+    setBulkUnitId((prev) => {
+      if (prev && subjectUnitOptions.some((unit) => unit.unit_id === prev)) {
+        return prev
+      }
+      return subjectUnitOptions[0]?.unit_id ?? ""
+    })
+  }, [subjectUnitOptions])
 
   const levelsView = useMemo(() => {
     return levels
@@ -290,6 +318,7 @@ export default function CurriculumPrototypeClient({
     setEditingLessonObjective(null)
     setEditingLessonObjectiveTitle("")
     setUnitPickerContext(null)
+    setSelectedCriteriaIds(new Set<string>())
   }
 
   const syncFromDetail = (
@@ -572,6 +601,18 @@ export default function CurriculumPrototypeClient({
     })
   }
 
+  const toggleCriterionSelection = (criterionId: string, shouldSelect: boolean) => {
+    setSelectedCriteriaIds((prev) => {
+      const next = new Set(prev)
+      if (shouldSelect) {
+        next.add(criterionId)
+      } else {
+        next.delete(criterionId)
+      }
+      return next
+    })
+  }
+
   const handleDeleteCriterion = (aoIndex: number, loIndex: number, criterionId: string) => {
     const targetAo = assessmentObjectives[aoIndex]
     const targetLo = targetAo?.lessonObjectives[loIndex]
@@ -602,6 +643,13 @@ export default function CurriculumPrototypeClient({
     if (unitPickerContext?.criterionId === criterionId) {
       setUnitPickerContext(null)
     }
+
+    setSelectedCriteriaIds((prev) => {
+      if (!prev.has(criterionId)) return prev
+      const next = new Set(prev)
+      next.delete(criterionId)
+      return next
+    })
 
     startTransition(async () => {
       setFeedback(null)
@@ -682,6 +730,81 @@ export default function CurriculumPrototypeClient({
       }
 
       setFeedback({ type: "success", message: "Success criterion updated." })
+    })
+  }
+
+  const handleBulkAssignUnit = () => {
+    const unitId = bulkUnitId
+    const targetIds = Array.from(selectedCriteriaIds)
+
+    if (!unitId) {
+      setFeedback({ type: "error", message: "Select a unit to assign before continuing." })
+      return
+    }
+
+    if (targetIds.length === 0) {
+      setFeedback({ type: "error", message: "Select at least one success criterion to update." })
+      return
+    }
+
+    const targetSet = new Set(targetIds)
+    const updates: {
+      aoId: string
+      loId: string
+      criterionId: string
+      nextUnits: string[]
+    }[] = []
+
+    const nextAssessmentObjectives = assessmentObjectives.map((ao) => {
+      let aoChanged = false
+      const nextLessonObjectives = ao.lessonObjectives.map((lo) => {
+        let loChanged = false
+        const nextSuccessCriteria = lo.successCriteria.map((sc) => {
+          if (!targetSet.has(sc.id) || sc.units.includes(unitId)) {
+            return sc
+          }
+
+          const nextUnits = [...sc.units, unitId]
+          updates.push({ aoId: ao.id, loId: lo.id, criterionId: sc.id, nextUnits })
+          loChanged = true
+          aoChanged = true
+          return { ...sc, units: nextUnits }
+        })
+
+        return loChanged ? { ...lo, successCriteria: nextSuccessCriteria } : lo
+      })
+
+      return aoChanged ? { ...ao, lessonObjectives: nextLessonObjectives } : ao
+    })
+
+    if (updates.length === 0) {
+      setFeedback({
+        type: "error",
+        message: "Selected success criteria already include the chosen unit.",
+      })
+      return
+    }
+
+    setAssessmentObjectives(nextAssessmentObjectives)
+
+    startTransition(async () => {
+      setFeedback(null)
+      const results = await Promise.all(
+        updates.map(({ criterionId, nextUnits }) =>
+          updateCurriculumSuccessCriterionAction(criterionId, curriculumId, { unit_ids: nextUnits }),
+        ),
+      )
+
+      const failed = results.find((result) => result.error)
+
+      if (failed) {
+        setFeedback({ type: "error", message: failed.error ?? "Failed to update success criteria." })
+        await refreshCurriculum()
+        return
+      }
+
+      setFeedback({ type: "success", message: "Unit assigned to selected success criteria." })
+      setSelectedCriteriaIds(new Set<string>())
     })
   }
 
@@ -799,6 +922,8 @@ export default function CurriculumPrototypeClient({
       ]?.successCriteria.find((criterion) => criterion.id === unitPickerContext.criterionId)
     : null
 
+  const bulkAssignmentDisabled = selectedCriteriaIds.size === 0 || !bulkUnitId || subjectUnitOptions.length === 0
+
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-6 py-10">
       <div className="space-y-8">
@@ -830,15 +955,55 @@ export default function CurriculumPrototypeClient({
 
         <div className="grid gap-6 lg:grid-cols-2">
           <section className="flex h-[70vh] flex-col overflow-hidden rounded-xl border bg-card shadow-sm">
-            <div className="flex items-center justify-between border-b px-5 py-4">
-              <h2 className="text-lg font-semibold">Curriculum Builder</h2>
-              <button
-                className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-muted-foreground transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
-                onClick={addAssessmentObjective}
-                disabled={isPending}
-              >
-                <Plus className="h-4 w-4" /> AO
-              </button>
+            <div className="border-b px-5 py-4">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-lg font-semibold">Curriculum Builder</h2>
+                <button
+                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-muted-foreground transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={addAssessmentObjective}
+                  disabled={isPending}
+                >
+                  <Plus className="h-4 w-4" /> AO
+                </button>
+              </div>
+              <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="bulk-unit-select" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Assign unit
+                  </label>
+                  <select
+                    id="bulk-unit-select"
+                    className="rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-60"
+                    value={bulkUnitId}
+                    onChange={(event) => setBulkUnitId(event.target.value)}
+                    disabled={subjectUnitOptions.length === 0}
+                  >
+                    <option value="" disabled>
+                      {subjectUnitOptions.length === 0
+                        ? "No units available"
+                        : "Select a unit"}
+                    </option>
+                    {subjectUnitOptions.map((unit) => (
+                      <option key={unit.unit_id} value={unit.unit_id}>
+                        {unit.title}
+                      </option>
+                    ))}
+                  </select>
+                  {subjectUnitOptions.length === 0 ? (
+                    <span className="text-xs text-muted-foreground">
+                      No units match this subject yet.
+                    </span>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={handleBulkAssignUnit}
+                  disabled={bulkAssignmentDisabled || isPending}
+                >
+                  Add unit to selected SC
+                </button>
+              </div>
             </div>
 
             <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
@@ -925,14 +1090,22 @@ export default function CurriculumPrototypeClient({
                             unitPickerContext?.aoIndex === aoIndex &&
                             unitPickerContext?.loIndex === loIndex &&
                             unitPickerContext?.criterionId === sc.id
+                          const isSelected = selectedCriteriaIds.has(sc.id)
 
                           return (
                             <div
                               key={sc.id}
-                              className="flex flex-col gap-2 rounded-lg border border-border bg-muted/80 p-3 text-sm"
+                              className={`flex flex-col gap-2 rounded-lg border border-border bg-muted/80 p-3 text-sm transition-colors ${
+                                isSelected ? "border-primary/60 bg-primary/10" : ""
+                              }`}
                             >
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
+                                  <Checkbox
+                                    checked={isSelected}
+                                    onCheckedChange={(checked) => toggleCriterionSelection(sc.id, checked === true)}
+                                    aria-label="Select success criterion"
+                                  />
                                   <select
                                     className={`rounded-md border border-border px-2 py-1 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary/40 ${levelStyles.badge}`}
                                     value={sc.level}

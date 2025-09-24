@@ -1,5 +1,6 @@
 import Link from "next/link"
 
+import { CreateCurriculumSheet } from "./_components/create-curriculum-sheet"
 import { createCurriculumAction, readCurriculaAction, readSubjectsAction } from "@/lib/server-updates"
 
 async function handleCreateCurriculum(formData: FormData) {
@@ -42,52 +43,19 @@ export default async function CurriculumIndexPage() {
       </header>
 
       <section className="mt-8 rounded-lg border border-border bg-card p-5 shadow-sm">
-        <h2 className="text-lg font-semibold text-foreground">Create New Curriculum</h2>
-        <form action={handleCreateCurriculum} className="mt-4 grid gap-4 sm:grid-cols-2">
-          <label className="flex flex-col gap-2 sm:col-span-2">
-            <span className="text-sm font-medium text-muted-foreground">Title *</span>
-            <input
-              name="title"
-              required
-              className="rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-              placeholder="e.g. Design & Technology (KS3)"
-            />
-          </label>
-          <label className="flex flex-col gap-2">
-            <span className="text-sm font-medium text-muted-foreground">Subject</span>
-            <select
-              name="subject"
-              className="rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-              defaultValue=""
-            >
-              <option value="">No subject</option>
-              {subjects.map((subject) => (
-                <option key={subject.subject} value={subject.subject}>
-                  {subject.subject}
-                </option>
-              ))}
-            </select>
-            {subjectsResult.error ? (
-              <span className="text-xs text-destructive">{subjectsResult.error}</span>
-            ) : null}
-          </label>
-          <label className="flex flex-col gap-2 sm:col-span-2">
-            <span className="text-sm font-medium text-muted-foreground">Description</span>
-            <textarea
-              name="description"
-              className="min-h-[80px] rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-              placeholder="Optional summary for the curriculum"
-            />
-          </label>
-          <div className="sm:col-span-2">
-            <button
-              type="submit"
-              className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
-            >
-              Add Curriculum
-            </button>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            <h2 className="text-lg font-semibold text-foreground">Create New Curriculum</h2>
+            <p className="text-sm text-muted-foreground">
+              Launch the sidebar to capture the curriculum details.
+            </p>
           </div>
-        </form>
+          <CreateCurriculumSheet
+            action={handleCreateCurriculum}
+            subjects={subjects}
+            subjectsError={subjectsResult.error}
+          />
+        </div>
       </section>
 
       {error ? (
