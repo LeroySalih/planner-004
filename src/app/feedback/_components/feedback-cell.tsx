@@ -32,14 +32,20 @@ export function FeedbackCell({
   })
   const [isPending, startTransition] = useTransition()
 
+  const toRating = (value: FeedbackState): 1 | -1 | null => {
+    if (value === "up") return 1
+    if (value === "down") return -1
+    return null
+  }
+
   const handleThumbsUp = () => {
     const prev = state
-    const next = prev === "up" ? null : "up"
+    const next: FeedbackState = prev === "up" ? null : "up"
 
     if (prev === next) return
 
     setState(next)
-    const rating = next === "up" ? 1 : next === "down" ? -1 : null
+    const rating = toRating(next)
     startTransition(async () => {
       const result = await upsertFeedbackAction({
         userId: pupilId,
@@ -57,12 +63,12 @@ export function FeedbackCell({
 
   const handleThumbsDown = () => {
     const prev = state
-    const next = prev === "down" ? null : "down"
+    const next: FeedbackState = prev === "down" ? null : "down"
 
     if (prev === next) return
 
     setState(next)
-    const rating = next === "up" ? 1 : next === "down" ? -1 : null
+    const rating = toRating(next)
     startTransition(async () => {
       const result = await upsertFeedbackAction({
         userId: pupilId,
