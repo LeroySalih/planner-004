@@ -1473,10 +1473,14 @@ export default function CurriculumPrototypeClient({
               </div>
               <div className="flex-1 overflow-y-auto px-5 py-4">
                 <div className="space-y-3">
-                  {unitMetadata.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No units available.</p>
+                  {subjectUnitOptions.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      {curriculum.subject
+                        ? `No units available for ${curriculum.subject}.`
+                        : "No units available."}
+                    </p>
                   ) : null}
-                  {unitMetadata
+                  {subjectUnitOptions
                     .filter((unit) => {
                       if (!normalizedUnitFilter) return true
                       const tokens = normalizedUnitFilter.split(/\s+/).filter(Boolean)

@@ -2,6 +2,7 @@
 
 import type React from "react"
 import { useMemo, useState } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { Group, Unit, Assignment, Lesson, LessonAssignment } from "@/types"
@@ -538,13 +539,14 @@ export function AssignmentGrid({
                                     {lessonsByWeek.map(({ lessons: weekLessons, weekIndex }) => (
                                       <div key={weekIndex} className="flex flex-col gap-1">
                                         {weekLessons.map(({ lesson, assignment: lessonAssignment }) => (
-                                          <div
+                                          <Link
                                             key={lesson.lesson_id}
-                                            className="truncate rounded-full bg-primary px-2 py-1 text-xs font-medium text-primary-foreground shadow-sm"
+                                            href={`/feedback/groups/${encodeURIComponent(cell.assignment!.group_id)}/lessons/${encodeURIComponent(lesson.lesson_id)}`}
+                                            className="truncate rounded-full bg-primary px-2 py-1 text-xs font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/80"
                                             title={`${lesson.title} • ${formatShortDate(lessonAssignment.start_date)}`}
                                           >
                                             <span>{lesson.title}</span>
-                                          </div>
+                                          </Link>
                                         ))}
                                       </div>
                                     ))}

@@ -95,3 +95,8 @@ export {
   deleteCurriculumSuccessCriterionAction,
   reorderCurriculumSuccessCriteriaAction,
 } from "./server-actions/curricula"
+
+export {
+  readFeedbackForLessonAction,
+  upsertFeedbackAction,
+} from "./server-actions/feedback"

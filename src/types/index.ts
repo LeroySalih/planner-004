@@ -14,6 +14,54 @@ export type Group = z.infer<typeof GroupSchema>;
 export type Groups = z.infer<typeof GroupsSchema>;
 export type AssignmentChangeEvent = "create" | "edit" | "delete" | "unit-title-click"
 
+export const GroupMembershipSchema = z.object({
+    group_id: z.string(),
+    user_id: z.string(),
+    role: z.string().min(1),
+    profile: z
+        .object({
+            user_id: z.string(),
+            first_name: z.string().nullable().optional(),
+            last_name: z.string().nullable().optional(),
+        })
+        .optional(),
+});
+
+export const GroupMembershipsSchema = z.array(GroupMembershipSchema);
+
+export type GroupMembership = z.infer<typeof GroupMembershipSchema>;
+export type GroupMemberships = z.infer<typeof GroupMembershipsSchema>;
+
+export const ProfileSchema = z.object({
+    user_id: z.string(),
+    first_name: z.string().nullable(),
+    last_name: z.string().nullable(),
+});
+
+export const ProfilesSchema = z.array(ProfileSchema);
+
+export type Profile = z.infer<typeof ProfileSchema>;
+export type Profiles = z.infer<typeof ProfilesSchema>;
+
+export const FeedbackSchema = z.object({
+    id: z.number().int(),
+    user_id: z.string(),
+    lesson_id: z.string(),
+    success_criteria_id: z.string(),
+    rating: z.number().int(),
+});
+
+export const FeedbacksSchema = z.array(FeedbackSchema);
+
+export type Feedback = z.infer<typeof FeedbackSchema>;
+export type Feedbacks = z.infer<typeof FeedbacksSchema>;
+
+export const GroupWithMembershipSchema = GroupSchema.extend({
+    members: GroupMembershipsSchema.default([]),
+});
+
+export type GroupWithMembership = z.infer<typeof GroupWithMembershipSchema>;
+
 export const UnitSchema = z.object({
     unit_id: z.string(),
     title: z.string().min(1).max(255),

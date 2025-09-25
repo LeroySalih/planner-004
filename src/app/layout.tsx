@@ -34,6 +34,12 @@ export default function RootLayout({
                   Assignments
                 </Link>
                 <Link
+                  href="/groups"
+                  className="text-muted-foreground transition-colors hover:text-primary"
+                >
+                  Groups
+                </Link>
+                <Link
                   href="/units"
                   className="text-muted-foreground transition-colors hover:text-primary"
                 >
