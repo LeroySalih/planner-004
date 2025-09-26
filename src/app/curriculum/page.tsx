@@ -33,13 +33,15 @@ export default async function CurriculumIndexPage() {
 
   return (
     <main className="container mx-auto max-w-4xl px-6 py-12">
-      <header className="space-y-2">
-        <p className="text-sm uppercase tracking-wide text-muted-foreground">Curricula</p>
-        <h1 className="text-3xl font-bold text-primary">Curriculum Explorer</h1>
-        <p className="text-muted-foreground">
-          Prototype hub for upcoming curriculum tooling. Choose a curriculum below to open its dedicated prototype
-          space.
-        </p>
+      <header className="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 px-8 py-6 text-white shadow-lg">
+        <div className="flex flex-col gap-2">
+          <p className="text-sm uppercase tracking-wide text-slate-300">Curricula</p>
+          <h1 className="text-3xl font-semibold text-white">Curriculum Explorer</h1>
+          <p className="text-sm text-slate-300">
+            Prototype hub for upcoming curriculum tooling. Choose a curriculum below to open its dedicated prototype
+            space.
+          </p>
+        </div>
       </header>
 
       <section className="mt-8 rounded-lg border border-border bg-card p-5 shadow-sm">

@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Analytics } from '@vercel/analytics/next'
 import './globals.css'
 import { Toaster } from 'sonner';
+import Image from 'next/image'
 
 export const metadata: Metadata = {
   title: 'Planner',
@@ -21,17 +22,18 @@ export default function RootLayout({
     <html lang="en">
       <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable}`}>
         <div className="flex min-h-screen flex-col bg-background text-foreground">
-          <header className="border-b bg-card">
-            <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
-              <Link href="/" className="text-lg font-semibold text-primary">
-                Planner
+          <header className="sticky top-0 z-50 border-b bg-card" style={{ height: '80px' }}>
+            <div className="mx-auto flex h-full w-full max-w-6xl items-center justify-between px-6">
+              <Link href="/" className="flex items-center gap-3">
+                <Image src="/header-logo.png" alt="Planner" width={48} height={16} priority />
+                Dino
               </Link>
               <nav className="flex items-center gap-4 text-sm font-medium">
                 <Link
                   href="/assignments"
                   className="text-muted-foreground transition-colors hover:text-primary"
                 >
-                  Assignments
+                  SoW
                 </Link>
                 <Link
                   href="/groups"
@@ -44,6 +46,12 @@ export default function RootLayout({
                   className="text-muted-foreground transition-colors hover:text-primary"
                 >
                   Units
+                </Link>
+                <Link
+                  href="/reports"
+                  className="text-muted-foreground transition-colors hover:text-primary"
+                >
+                  Reports
                 </Link>
                 <Link
                   href="/curriculum"

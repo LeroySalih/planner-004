@@ -1,7 +1,12 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
 
-import { readGroupAction, readLessonAction, readFeedbackForLessonAction } from "@/lib/server-updates"
+import {
+  readGroupAction,
+  readLessonAction,
+  readFeedbackForLessonAction,
+  readAssignmentsForGroupAction,
+} from "@/lib/server-updates"
 
 import { FeedbackCell } from "../../../../_components/feedback-cell"
 import { GroupDetailsPanel } from "./_group-panel"
@@ -14,10 +19,11 @@ export default async function FeedbackLessonPage({
 }) {
   const { groupId, lessonId } = await params
 
-  const [groupResult, lessonResult, feedbackResult] = await Promise.all([
+  const [groupResult, lessonResult, feedbackResult, assignmentsResult] = await Promise.all([
     readGroupAction(groupId),
     readLessonAction(lessonId),
     readFeedbackForLessonAction(lessonId),
+    readAssignmentsForGroupAction(groupId),
   ])
 
   if (groupResult.error && !groupResult.data) {
@@ -48,13 +54,20 @@ export default async function FeedbackLessonPage({
   const feedbackMap = new Map<string, number>(
     feedbackEntries.map((entry) => [`${entry.user_id}-${entry.success_criteria_id}`, entry.rating]),
   )
+  const groupAssignments = assignmentsResult.data ?? []
+  const groupUnitIds = new Set(groupAssignments.map((assignment) => assignment.unit_id))
 
   const allSuccessCriteria = objectives
     .flatMap((objective) => {
       const learningObjective = objective.learning_objective
       const successCriteria = learningObjective?.success_criteria ?? []
+      const relevantCriteria = successCriteria.filter((criterion) => {
+        const units = criterion.units ?? []
+        if (groupUnitIds.size === 0) return false
+        return units.some((unitId) => groupUnitIds.has(unitId))
+      })
 
-      return successCriteria.map((criterion) => ({
+      return relevantCriteria.map((criterion) => ({
         criterion,
         learningObjective,
       }))
@@ -87,30 +100,37 @@ export default async function FeedbackLessonPage({
   const otherRoles = Object.entries(roleCounts).filter(([role]) => role !== "pupil")
 
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 px-6 py-10">
-      <div className="text-sm text-muted-foreground">
+    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 px-6 py-10 text-slate-200">
+      <div className="text-sm text-slate-300">
         <Link href="/assignments" className="underline-offset-4 hover:underline">
           ← Back to assignments
         </Link>
       </div>
 
-      <header className="space-y-3">
-        <p className="text-sm uppercase tracking-wide text-muted-foreground">Feedback Overview</p>
-        <h1 className="text-3xl font-semibold text-primary">
+      <header className="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 px-8 py-6 text-white shadow-lg">
+        <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between">
+        <p className="text-sm uppercase tracking-wide text-slate-300">Feedback Overview</p>
+        <h1 className="text-3xl font-semibold text-white">
           {group.group_id} · {lesson.title}
         </h1>
-        <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
+        <div className="flex flex-wrap gap-4 text-sm text-slate-300">
           <span>
-            Subject: <span className="font-medium text-foreground">{group.subject}</span>
+            Subject: <span className="font-medium text-white">{group.subject}</span>
           </span>
           <span>
-            Lesson ID: <span className="font-medium text-foreground">{lesson.lesson_id}</span>
+            Lesson ID: <span className="font-medium text-white">{lesson.lesson_id}</span>
           </span>
           <span>
-            Unit: <span className="font-medium text-foreground">{lesson.unit_id}</span>
+            Unit: <span className="font-medium text-white">{lesson.unit_id}</span>
           </span>
+            </div>
+        </div>
+        </div>
         </div>
       </header>
+        
 
       {membershipError ? (
         <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -121,6 +141,12 @@ export default async function FeedbackLessonPage({
       {feedbackError ? (
         <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           Unable to load existing feedback: {feedbackError}
+        </div>
+      ) : null}
+
+      {assignmentsResult.error ? (
+        <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          Unable to load group assignments: {assignmentsResult.error}
         </div>
       ) : null}
 
@@ -148,22 +174,26 @@ export default async function FeedbackLessonPage({
         />
       </section>
 
-      <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
+      <section className="rounded-lg border border-border bg-card p-5 shadow-sm text-slate-900">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-foreground">Learning Objectives & Success Criteria</h2>
-          <span className="text-sm text-muted-foreground">{objectives.length} learning objectives</span>
+          <h2 className="text-lg font-semibold text-slate-900">Learning Objectives & Success Criteria</h2>
+          <span className="text-sm text-slate-600">{objectives.length} learning objectives</span>
         </div>
 
         {objectives.length === 0 ? (
-          <p className="mt-4 text-sm text-muted-foreground">
+          <p className="mt-4 text-sm text-slate-600">
             No learning objectives linked to this lesson yet.
+          </p>
+        ) : allSuccessCriteria.length === 0 ? (
+          <p className="mt-4 text-sm text-slate-600">
+            No success criteria are assigned to this group for the current units.
           </p>
         ) : (
           <div className="mt-6 max-h-[60vh] overflow-auto">
             <table className="w-full min-w-[640px] border-collapse">
               <thead>
                 <tr>
-                  <th className="sticky left-0 top-0 z-20 bg-muted px-4 py-3 text-left text-sm font-semibold uppercase tracking-wide text-muted-foreground border border-border shadow-sm">
+                  <th className="sticky left-0 top-0 z-20 bg-muted px-4 py-3 text-left text-sm font-semibold uppercase tracking-wide text-slate-600 border border-border shadow-sm">
                     Pupil
                   </th>
                   {allSuccessCriteria.map(({ criterion, learningObjective }) => (
@@ -171,13 +201,13 @@ export default async function FeedbackLessonPage({
                       key={criterion.success_criteria_id}
                       className="sticky top-0 z-10 bg-muted px-4 py-3 text-left align-top border border-border shadow-sm"
                     >
-                      <span className="block text-[11px] font-medium text-muted-foreground">
+                      <span className="block text-[11px] font-medium text-slate-500">
                         {learningObjective?.title ?? "Learning objective"}
                       </span>
-                      <span className="mt-1 block text-sm font-semibold text-foreground">
+                      <span className="mt-1 block text-sm font-semibold text-slate-900">
                         {criterion.description}
                       </span>
-                      <span className="mt-1 block text-xs text-muted-foreground">Level {criterion.level}</span>
+                      <span className="mt-1 block text-xs text-slate-500">Level {criterion.level}</span>
                     </th>
                   ))}
                 </tr>
@@ -185,7 +215,7 @@ export default async function FeedbackLessonPage({
               <tbody>
                 {pupils.length === 0 ? (
                   <tr>
-                    <td colSpan={allSuccessCriteria.length + 1} className="px-4 py-6 text-center text-sm text-muted-foreground border border-border">
+                    <td colSpan={allSuccessCriteria.length + 1} className="px-4 py-6 text-center text-sm text-slate-600 border border-border">
                       No pupils assigned to this group yet.
                     </td>
                   </tr>
@@ -196,7 +226,7 @@ export default async function FeedbackLessonPage({
                       <tr key={member.user_id}>
                         <td className="sticky left-0 z-10 bg-background px-4 py-3 border border-border align-top shadow-sm">
                           <div className="flex flex-col">
-                            <span className="text-sm font-medium text-foreground">{displayName}</span>
+                            <span className="text-sm font-medium text-slate-900">{displayName}</span>
                           </div>
                         </td>
                         {allSuccessCriteria.map(({ criterion }) => {

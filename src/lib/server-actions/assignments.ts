@@ -93,6 +93,23 @@ export async function readAssignmentsAction() {
   return AssignmentsReturnValue.parse({ data, error })
 }
 
+export async function readAssignmentsForGroupAction(groupId: string) {
+  console.log("[v0] Server action started for reading assignments for group:", { groupId })
+
+  const { data, error } = await supabaseServer
+    .from("assignments")
+    .select("*")
+    .eq("group_id", groupId)
+    .eq("active", true)
+
+  if (error) {
+    console.error("[v0] Server action failed for reading assignments for group:", error)
+    return AssignmentsReturnValue.parse({ data: null, error: error.message })
+  }
+
+  return AssignmentsReturnValue.parse({ data, error: null })
+}
+
 export async function updateAssignmentAction(
   groupId: string,
   unitId: string,

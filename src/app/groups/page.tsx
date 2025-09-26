@@ -45,13 +45,20 @@ export default async function GroupsIndexPage({
 
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-6 py-10">
-      <header className="space-y-3">
+      <header className="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 px-8 py-6 text-white shadow-lg">
+        <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between">
         <p className="text-sm uppercase tracking-wide text-muted-foreground">Groups</p>
         <h1 className="text-3xl font-semibold text-primary">Group Directory</h1>
         <p className="text-muted-foreground">
           Browse all active teaching groups. Select a group to review its details and pupil membership.
         </p>
+            </div>
+        </div>
+      </div>
       </header>
+        
 
       {error ? (
         <div className="mt-6 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">

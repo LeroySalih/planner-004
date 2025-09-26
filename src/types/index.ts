@@ -32,6 +32,15 @@ export const GroupMembershipsSchema = z.array(GroupMembershipSchema);
 export type GroupMembership = z.infer<typeof GroupMembershipSchema>;
 export type GroupMemberships = z.infer<typeof GroupMembershipsSchema>;
 
+export const GroupMembershipWithGroupSchema = GroupMembershipSchema.extend({
+    group: GroupSchema.optional(),
+});
+
+export const GroupMembershipsWithGroupSchema = z.array(GroupMembershipWithGroupSchema);
+
+export type GroupMembershipWithGroup = z.infer<typeof GroupMembershipWithGroupSchema>;
+export type GroupMembershipsWithGroup = z.infer<typeof GroupMembershipsWithGroupSchema>;
+
 export const ProfileSchema = z.object({
     user_id: z.string(),
     first_name: z.string().nullable(),
@@ -252,3 +261,12 @@ export const AssignmentsSchema = z.array(AssignmentSchema);
 
 export type Assignment = z.infer<typeof AssignmentSchema>;
 export type Assignments = z.infer<typeof AssignmentsSchema>;
+
+export const AssignmentWithUnitSchema = AssignmentSchema.extend({
+    unit: UnitSchema.optional().nullable(),
+});
+
+export const AssignmentsWithUnitSchema = z.array(AssignmentWithUnitSchema);
+
+export type AssignmentWithUnit = z.infer<typeof AssignmentWithUnitSchema>;
+export type AssignmentsWithUnit = z.infer<typeof AssignmentsWithUnitSchema>;

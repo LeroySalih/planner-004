@@ -26,7 +26,18 @@ export default async function GroupDetailPage({
   }
 
   const membershipError = result.error
-  const pupils = group.members.filter((member) => member.role.toLowerCase() === "pupil")
+  const pupils = group.members
+    .filter((member) => member.role.toLowerCase() === "pupil")
+    .map((member) => {
+      const first = member.profile?.first_name?.trim() ?? ""
+      const last = member.profile?.last_name?.trim() ?? ""
+      const displayName = `${first} ${last}`.trim()
+      return {
+        ...member,
+        displayName: displayName.length > 0 ? displayName : member.user_id,
+      }
+    })
+    .sort((a, b) => a.displayName.localeCompare(b.displayName))
 
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-6 py-10">
@@ -36,13 +47,20 @@ export default async function GroupDetailPage({
         </Link>
       </div>
 
-      <header className="space-y-2">
+      <header className="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 px-8 py-6 text-white shadow-lg">
+        <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between">
         <p className="text-sm uppercase tracking-wide text-muted-foreground">Group</p>
         <h1 className="text-3xl font-semibold text-primary">{group.group_id}</h1>
         <p className="text-muted-foreground">
           Subject: <span className="font-medium text-foreground">{group.subject}</span>
         </p>
+            </div>
+        </div>
+        </div>
       </header>
+        
 
       {membershipError ? (
         <div className="mt-4 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -50,25 +68,7 @@ export default async function GroupDetailPage({
         </div>
       ) : null}
 
-      <section className="mt-6 grid gap-6 md:grid-cols-2">
-        <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
-          <h2 className="text-lg font-semibold text-foreground">Group Details</h2>
-          <dl className="mt-3 space-y-2 text-sm">
-            <div className="flex items-center justify-between">
-              <dt className="text-muted-foreground">Join code</dt>
-              <dd className="font-medium text-foreground">{group.join_code}</dd>
-            </div>
-            <div className="flex items-center justify-between">
-              <dt className="text-muted-foreground">Status</dt>
-              <dd className="font-medium text-foreground">{group.active ? "Active" : "Inactive"}</dd>
-            </div>
-            <div className="flex items-center justify-between">
-              <dt className="text-muted-foreground">Total members</dt>
-              <dd className="font-medium text-foreground">{group.members.length}</dd>
-            </div>
-          </dl>
-        </div>
-
+      <section className="mt-6">
         <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
           <h2 className="text-lg font-semibold text-foreground">Pupils</h2>
           {pupils.length === 0 ? (
@@ -80,7 +80,17 @@ export default async function GroupDetailPage({
                   key={member.user_id}
                   className="flex items-center justify-between rounded-md border border-border/60 bg-background px-3 py-2"
                 >
-                  <span className="font-medium text-foreground">{member.user_id}</span>
+                    <div className="flex flex-col">
+                      <Link
+                        href={`/reports/${member.user_id}`}
+                        className="font-medium text-foreground underline-offset-4 hover:underline"
+                      >
+                        {member.displayName}
+                      </Link>
+                      {member.displayName !== member.user_id ? (
+                        <span className="text-xs text-muted-foreground">{member.user_id}</span>
+                      ) : null}
+                    </div>
                   <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     {roleLabelMap[member.role.toLowerCase()] ?? member.role}
                   </span>

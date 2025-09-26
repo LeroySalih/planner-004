@@ -1377,6 +1377,51 @@ export default function CurriculumPrototypeClient({
 
                     if (filteredEntries.length === 0) return null
 
+                    const sortedEntries = filteredEntries
+                      .slice()
+                      .sort(
+                        (a, b) =>
+                          a.aoCode.localeCompare(b.aoCode) ||
+                          a.level - b.level ||
+                          a.loTitle.localeCompare(b.loTitle) ||
+                          a.description.localeCompare(b.description),
+                      )
+
+                    const grouped = new Map<
+                      string,
+                      {
+                        aoCode: string
+                        aoTitle: string
+                        levels: Map<
+                          number,
+                          {
+                            loTitle: string
+                            criteria: typeof sortedEntries
+                          }[]
+                        >
+                      }
+                    >()
+
+                    sortedEntries.forEach((entry) => {
+                      const aoKey = `${entry.aoCode}__${entry.aoTitle}`
+                      if (!grouped.has(aoKey)) {
+                        grouped.set(aoKey, {
+                          aoCode: entry.aoCode,
+                          aoTitle: entry.aoTitle,
+                          levels: new Map(),
+                        })
+                      }
+                      const aoEntry = grouped.get(aoKey)!
+                      const levelEntry = aoEntry.levels.get(entry.level) ?? []
+                      let loEntry = levelEntry.find((item) => item.loTitle === entry.loTitle)
+                      if (!loEntry) {
+                        loEntry = { loTitle: entry.loTitle, criteria: [] }
+                        levelEntry.push(loEntry)
+                      }
+                      loEntry.criteria.push(entry)
+                      aoEntry.levels.set(entry.level, levelEntry)
+                    })
+
                     const badgeClass = unit.year
                       ? yearBadgeMap[unit.year] ?? "bg-primary/10 text-primary"
                       : "bg-primary/10 text-primary"
@@ -1394,29 +1439,56 @@ export default function CurriculumPrototypeClient({
                           <span className="text-xs text-muted-foreground">{filteredEntries.length} criteria</span>
                         </header>
 
-                        <div className="space-y-2">
-                          {filteredEntries
-                            .slice()
-                            .sort(
-                              (a, b) =>
-                                a.aoCode.localeCompare(b.aoCode) ||
-                                a.level - b.level ||
-                                a.description.localeCompare(b.description),
-                            )
-                            .map((entry, index) => (
-                              <div key={`${unit.unitId}-${index}`} className="rounded-lg border border-border bg-card p-3">
-                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                  <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-foreground">
-                                    {`Level ${entry.level}`}
-                                  </span>
-                                  <span className="font-semibold">{entry.loTitle}</span>
-                                </div>
-                                <p className="mt-1 text-sm font-medium text-foreground">{entry.description}</p>
-                                <p className="text-xs text-muted-foreground">
-                                  {entry.aoCode} · {entry.aoTitle}
-                                </p>
+                        <div className="space-y-4">
+                          {Array.from(grouped.values()).map((aoEntry) => (
+                            <div key={`${unit.unitId}-${aoEntry.aoCode}`} className="space-y-2">
+                              <header className="font-semibold text-sm text-foreground">
+                                {aoEntry.aoCode} · {aoEntry.aoTitle}
+                              </header>
+                              <div className="overflow-auto rounded-lg border border-border">
+                                <table className="min-w-full border-collapse text-sm">
+                                  <thead className="bg-muted text-xs font-semibold">
+                                    <tr>
+                                      <th className="border border-border px-3 py-2 text-left">Level</th>
+                                      <th className="border border-border px-3 py-2 text-left">Learning Objective</th>
+                                      <th className="border border-border px-3 py-2 text-left">Success Criterion</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {Array.from(aoEntry.levels.entries())
+                                      .sort((a, b) => a[0] - b[0])
+                                      .flatMap(([level, loEntries]) => {
+                                        let levelRendered = false
+                                        return loEntries.flatMap((loEntry) =>
+                                          loEntry.criteria.map((criterion, index) => {
+                                            const renderLevel = !levelRendered
+                                            const renderLo = index === 0
+                                            if (renderLevel) {
+                                              levelRendered = true
+                                            }
+                                            return (
+                                              <tr key={`${aoEntry.aoCode}-${level}-${loEntry.loTitle}-${criterion.description}-${index}`}>
+                                                {renderLevel ? (
+                                                  <td className="border border-border px-3 py-2 align-top" rowSpan={loEntries.reduce((acc, item) => acc + item.criteria.length, 0)}>
+                                                    <span className="font-semibold text-foreground">Level {level}</span>
+                                                  </td>
+                                                ) : null}
+                                                {renderLo ? (
+                                                  <td className="border border-border px-3 py-2 align-top" rowSpan={loEntry.criteria.length}>
+                                                    {loEntry.loTitle}
+                                                  </td>
+                                                ) : null}
+                                                <td className="border border-border px-3 py-2 align-top">{criterion.description}</td>
+                                              </tr>
+                                            )
+                                          }),
+                                        )
+                                      })}
+                                  </tbody>
+                                </table>
                               </div>
-                            ))}
+                            </div>
+                          ))}
                         </div>
                       </div>
                     )

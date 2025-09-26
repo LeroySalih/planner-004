@@ -41,6 +41,7 @@ export {
   createAssignmentAction,
   readAssignmentAction,
   readAssignmentsAction,
+  readAssignmentsForGroupAction,
   updateAssignmentAction,
   deleteAssignmentAction,
   batchCreateAssignmentsAction,
@@ -100,3 +101,5 @@ export {
   readFeedbackForLessonAction,
   upsertFeedbackAction,
 } from "./server-actions/feedback"
+
+export { readPupilReportAction } from "./server-actions/pupils"
