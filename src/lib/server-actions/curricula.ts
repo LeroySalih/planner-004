@@ -116,6 +116,65 @@ export async function createCurriculumAction(payload: {
   return CurriculumReturnValue.parse({ data, error: null })
 }
 
+export async function updateCurriculumAction(
+  curriculumId: string,
+  payload: { title?: string; subject?: string | null; description?: string | null },
+) {
+  console.log("[curricula] updateCurriculumAction:start", { curriculumId, payload })
+
+  const updates: Record<string, unknown> = {}
+
+  if (payload.title !== undefined) {
+    const trimmed = payload.title.trim()
+    if (trimmed.length === 0) {
+      return CurriculumReturnValue.parse({ data: null, error: "Curriculum title is required" })
+    }
+    updates.title = trimmed
+  }
+
+  if (payload.subject !== undefined) {
+    const subjectValue = payload.subject ? payload.subject.trim() : null
+    updates.subject = subjectValue && subjectValue.length > 0 ? subjectValue : null
+  }
+
+  if (payload.description !== undefined) {
+    const descriptionValue = payload.description ? payload.description.trim() : null
+    updates.description = descriptionValue && descriptionValue.length > 0 ? descriptionValue : null
+  }
+
+  if (Object.keys(updates).length === 0) {
+    console.log("[curricula] updateCurriculumAction:no-op", { curriculumId })
+    const { data, error } = await supabaseServer
+      .from("curricula")
+      .select("curriculum_id, title, subject, description")
+      .eq("curriculum_id", curriculumId)
+      .maybeSingle()
+
+    if (error) {
+      console.error("[curricula] updateCurriculumAction:readError", error)
+      return CurriculumReturnValue.parse({ data: null, error: error.message })
+    }
+
+    return CurriculumReturnValue.parse({ data, error: null })
+  }
+
+  const { data, error } = await supabaseServer
+    .from("curricula")
+    .update(updates)
+    .eq("curriculum_id", curriculumId)
+    .select("curriculum_id, title, subject, description")
+    .single()
+
+  if (error) {
+    console.error("[curricula] updateCurriculumAction:error", error)
+    return CurriculumReturnValue.parse({ data: null, error: error.message })
+  }
+
+  revalidatePath("/curriculum")
+
+  return CurriculumReturnValue.parse({ data, error: null })
+}
+
 export async function readCurriculumDetailAction(curriculumId: string) {
   console.log("[curricula] readCurriculumDetailAction:start", { curriculumId })
 

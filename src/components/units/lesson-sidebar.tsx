@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState, useTransition } from "react"
-import type { ChangeEvent, DragEvent, MouseEvent } from "react"
+import type { ChangeEvent, DragEvent, KeyboardEvent, MouseEvent } from "react"
 import { toast } from "sonner"
 
 import type { LessonActivity, LessonLearningObjective } from "@/types"
@@ -81,6 +81,14 @@ interface LessonLinkInfo {
   description: string | null
 }
 
+interface LessonFileUpload {
+  id: string
+  name: string
+  progress: number
+  status: "uploading" | "success" | "error"
+  error?: string | null
+}
+
 export function LessonSidebar({
   unitId,
   unitTitle,
@@ -110,7 +118,10 @@ export function LessonSidebar({
   const [activeDropTargets, setActiveDropTargets] = useState<Record<string, boolean>>({})
   const [files, setFiles] = useState<LessonFileInfo[]>([])
   const [isFilesLoading, setIsFilesLoading] = useState(false)
+  const [lessonFileUploads, setLessonFileUploads] = useState<LessonFileUpload[]>([])
+  const [isLessonFileDragActive, setIsLessonFileDragActive] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const lessonFileDragCounterRef = useRef(0)
   const activityFileInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const previousLessonIdRef = useRef<string | null>(null)
   const [links, setLinks] = useState<LessonLinkInfo[]>([])
@@ -147,6 +158,9 @@ export function LessonSidebar({
     setDraggingActivityId(null)
     setIsPresentationOpen(false)
     setPresentationIndex(-1)
+    setLessonFileUploads([])
+    setIsLessonFileDragActive(false)
+    lessonFileDragCounterRef.current = 0
 
     if (lesson) {
       if (previousLessonIdRef.current !== lesson.lesson_id) {
@@ -802,40 +816,208 @@ export function LessonSidebar({
     })
   }
 
-  if (!isOpen) {
-    return null
-  }
-
   const isEditing = Boolean(lesson)
 
+  const uploadLessonFiles = useCallback(
+    async (fileList: FileList | File[]) => {
+      if (!lesson) {
+        toast.error("Lesson must be created before uploading files")
+        return
+      }
+
+      const filesToUpload = Array.from(fileList).filter((file) => file.size > 0)
+      if (filesToUpload.length === 0) return
+
+      let hasSuccessfulUpload = false
+
+      for (const file of filesToUpload) {
+        const uploadId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+
+        setLessonFileUploads((prev) => [
+          ...prev,
+          {
+            id: uploadId,
+            name: file.name,
+            progress: 5,
+            status: "uploading",
+          },
+        ])
+
+        let intervalId: number | undefined
+
+        if (typeof window !== "undefined") {
+          intervalId = window.setInterval(() => {
+            setLessonFileUploads((prev) =>
+              prev.map((entry) =>
+                entry.id === uploadId
+                  ? {
+                      ...entry,
+                      progress: entry.progress >= 90 ? 90 : entry.progress + 5,
+                    }
+                  : entry,
+              ),
+            )
+          }, 200)
+        }
+
+        const formData = new FormData()
+        formData.append("unitId", unitId)
+        formData.append("lessonId", lesson.lesson_id)
+        formData.append("file", file)
+
+        try {
+          const result = await uploadLessonFileAction(formData)
+
+          if (intervalId !== undefined) {
+            window.clearInterval(intervalId)
+          }
+
+          if (!result.success) {
+            setLessonFileUploads((prev) =>
+              prev.map((entry) =>
+                entry.id === uploadId
+                  ? {
+                      ...entry,
+                      status: "error",
+                      progress: 100,
+                      error: result.error ?? "Failed to upload file",
+                    }
+                  : entry,
+              ),
+            )
+
+            toast.error(`Failed to upload ${file.name}`, {
+              description: result.error ?? "Please try again later.",
+            })
+          } else {
+            hasSuccessfulUpload = true
+            setLessonFileUploads((prev) =>
+              prev.map((entry) =>
+                entry.id === uploadId
+                  ? {
+                      ...entry,
+                      status: "success",
+                      progress: 100,
+                    }
+                  : entry,
+              ),
+            )
+
+            toast.success(`Uploaded ${file.name}`)
+
+            setTimeout(() => {
+              setLessonFileUploads((prev) => prev.filter((entry) => entry.id !== uploadId || entry.status === "error"))
+            }, 1500)
+          }
+        } catch (error) {
+          if (intervalId !== undefined) {
+            window.clearInterval(intervalId)
+          }
+
+          console.error("[lessons] Failed to upload file", error)
+
+          setLessonFileUploads((prev) =>
+            prev.map((entry) =>
+              entry.id === uploadId
+                ? {
+                    ...entry,
+                    status: "error",
+                    progress: 100,
+                    error: error instanceof Error ? error.message : "Failed to upload file",
+                  }
+                : entry,
+            ),
+          )
+
+          toast.error(`Failed to upload ${file.name}`, {
+            description: error instanceof Error ? error.message : "Please try again later.",
+          })
+        }
+      }
+
+      if (hasSuccessfulUpload) {
+        await refreshFiles()
+      }
+    },
+    [lesson, refreshFiles, unitId],
+  )
+
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (!lesson) return
     const fileList = event.target.files
     if (!fileList || fileList.length === 0) return
 
-    const file = fileList[0]
-    const formData = new FormData()
-    formData.append("unitId", unitId)
-    formData.append("lessonId", lesson.lesson_id)
-    formData.append("file", file)
+    void uploadLessonFiles(fileList)
 
-    startTransition(async () => {
-      const result = await uploadLessonFileAction(formData)
-
-      if (!result.success) {
-        toast.error("Failed to upload file", {
-          description: result.error ?? "Please try again later.",
-        })
-      } else {
-        toast.success("File uploaded")
-        await refreshFiles()
-      }
-
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ""
-      }
-    })
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ""
+    }
   }
+
+  const handleLessonFileAreaClick = () => {
+    if (!lesson || isPending) return
+    fileInputRef.current?.click()
+  }
+
+  const handleLessonFileAreaKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault()
+      handleLessonFileAreaClick()
+    }
+  }
+
+  const handleLessonFileDragEnter = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      if (!lesson) return
+      if (!event.dataTransfer) return
+      const hasFile = Array.from(event.dataTransfer.items ?? []).some((item) => item.kind === "file")
+      if (!hasFile) return
+      event.preventDefault()
+      event.stopPropagation()
+      lessonFileDragCounterRef.current += 1
+      setIsLessonFileDragActive(true)
+    },
+    [lesson],
+  )
+
+  const handleLessonFileDragOver = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      if (!lesson) return
+      event.preventDefault()
+      event.stopPropagation()
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = "copy"
+      }
+    },
+    [lesson],
+  )
+
+  const handleLessonFileDragLeave = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      if (!lesson) return
+      event.preventDefault()
+      event.stopPropagation()
+      lessonFileDragCounterRef.current = Math.max(lessonFileDragCounterRef.current - 1, 0)
+      if (lessonFileDragCounterRef.current === 0) {
+        setIsLessonFileDragActive(false)
+      }
+    },
+    [lesson],
+  )
+
+  const handleLessonFileDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      if (!lesson) return
+      event.preventDefault()
+      event.stopPropagation()
+      setIsLessonFileDragActive(false)
+      lessonFileDragCounterRef.current = 0
+      const files = event.dataTransfer?.files
+      if (files && files.length > 0) {
+        void uploadLessonFiles(files)
+      }
+    },
+    [lesson, uploadLessonFiles],
+  )
 
   const handleFileDelete = (fileName: string) => {
     if (!lesson) return
@@ -969,6 +1151,10 @@ export function LessonSidebar({
         })
       }
     })
+  }
+
+  if (!isOpen) {
+    return null
   }
 
   return (
@@ -1426,10 +1612,63 @@ export function LessonSidebar({
                       ref={fileInputRef}
                       id="lesson-file-upload"
                       type="file"
+                      multiple
                       className="hidden"
                       onChange={handleFileUpload}
                       disabled={isPending}
                     />
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={handleLessonFileAreaClick}
+                      onKeyDown={handleLessonFileAreaKeyDown}
+                      onDragEnter={handleLessonFileDragEnter}
+                      onDragOver={handleLessonFileDragOver}
+                      onDragLeave={handleLessonFileDragLeave}
+                      onDrop={handleLessonFileDrop}
+                      className={cn(
+                        "flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-muted-foreground/40 p-6 text-center text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                        isLessonFileDragActive && "border-primary bg-primary/10",
+                        (!lesson || isPending) && "cursor-not-allowed opacity-70",
+                      )}
+                    >
+                      <p className="font-medium">Drag and drop files here or click to browse</p>
+                      <p className="text-xs text-muted-foreground">
+                        You can upload multiple files at once. Learners will be able to download them from the lesson.
+                      </p>
+                    </div>
+                    {lessonFileUploads.length > 0 ? (
+                      <div className="space-y-2">
+                        {lessonFileUploads.map((upload) => (
+                          <div
+                            key={upload.id}
+                            className={cn(
+                              "rounded-md border px-3 py-3 text-sm shadow-sm",
+                              upload.status === "error" ? "border-destructive/60 bg-destructive/10" : "border-border bg-muted/40",
+                            )}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-medium truncate" title={upload.name}>
+                                {upload.name}
+                              </span>
+                              <span className="text-xs text-muted-foreground">{upload.progress}%</span>
+                            </div>
+                            <div className="mt-2 h-2 rounded-full bg-muted">
+                              <div
+                                className={cn(
+                                  "h-full rounded-full bg-primary transition-all duration-200",
+                                  upload.status === "error" && "bg-destructive",
+                                )}
+                                style={{ width: `${upload.progress}%` }}
+                              />
+                            </div>
+                            {upload.status === "error" && upload.error ? (
+                              <p className="mt-2 text-xs text-destructive">{upload.error}</p>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                     {isFilesLoading ? (
                       <p className="text-sm text-muted-foreground">Loading files...</p>
                     ) : files.length === 0 ? (

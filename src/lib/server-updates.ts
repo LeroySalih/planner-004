@@ -97,6 +97,7 @@ export { fetchLessonLinkMetadataAction } from "./server-actions/link-metadata"
 export {
   readCurriculaAction,
   createCurriculumAction,
+  updateCurriculumAction,
   readCurriculumDetailAction,
   createCurriculumAssessmentObjectiveAction,
   updateCurriculumAssessmentObjectiveAction,
