@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic"
+
 import Link from "next/link"
 
 import { CreateCurriculumSheet } from "./_components/create-curriculum-sheet"
