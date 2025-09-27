@@ -67,7 +67,7 @@ interface LessonSidebarProps {
   learningObjectives: LearningObjectiveWithCriteria[]
 }
 
-interface LessonFileInfo {
+export interface LessonFileInfo {
   name: string
   path: string
   created_at?: string
@@ -75,7 +75,7 @@ interface LessonFileInfo {
   size?: number
 }
 
-interface LessonLinkInfo {
+export interface LessonLinkInfo {
   lesson_link_id: string
   url: string
   description: string | null
@@ -1936,7 +1936,7 @@ function getDefaultBodyDataForType(type: ActivityTypeValue): unknown {
   return null
 }
 
-interface LessonPresentationProps {
+export interface LessonPresentationProps {
   activities: LessonActivity[]
   currentIndex: number
   unitTitle: string
@@ -1953,7 +1953,7 @@ interface LessonPresentationProps {
   fetchActivityFileUrl: (activityId: string, fileName: string) => Promise<string | null>
 }
 
-function LessonPresentation({
+export function LessonPresentation({
   activities,
   currentIndex,
   unitTitle,
