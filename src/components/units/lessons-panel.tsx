@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useState, useTransition } from "react"
+import { useCallback, useEffect, useState, useTransition } from "react"
 import { BookOpen, GripVertical, Plus } from "lucide-react"
 
 import type { LessonWithObjectives, LearningObjectiveWithCriteria } from "@/lib/server-updates"
@@ -21,10 +21,13 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   LessonSidebar,
+  LessonActivitiesSidebar,
+  LessonResourcesSidebar,
   LessonPresentation,
   type LessonFileInfo,
   type LessonLinkInfo,
 } from "@/components/units/lesson-sidebar"
+import { LessonObjectivesSidebar } from "@/components/units/lesson-objectives-sidebar"
 import { toast } from "sonner"
 
 interface LessonsPanelProps {
@@ -49,6 +52,12 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
   )
   const [selectedLesson, setSelectedLesson] = useState<LessonWithObjectives | null>(null)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  const [objectivesLesson, setObjectivesLesson] = useState<LessonWithObjectives | null>(null)
+  const [isObjectivesSidebarOpen, setIsObjectivesSidebarOpen] = useState(false)
+  const [activitiesLesson, setActivitiesLesson] = useState<LessonWithObjectives | null>(null)
+  const [isActivitiesSidebarOpen, setIsActivitiesSidebarOpen] = useState(false)
+  const [resourcesLesson, setResourcesLesson] = useState<LessonWithObjectives | null>(null)
+  const [isResourcesSidebarOpen, setIsResourcesSidebarOpen] = useState(false)
   const [presentationState, setPresentationState] = useState<PresentationState | null>(null)
   const [presentationIndex, setPresentationIndex] = useState(-1)
   const [draggingLessonId, setDraggingLessonId] = useState<string | null>(null)
@@ -67,6 +76,104 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
     setSelectedLesson(lesson)
     setIsSidebarOpen(true)
   }
+
+  const openObjectivesSidebar = (lesson: LessonWithObjectives) => {
+    setObjectivesLesson(lesson)
+    setIsObjectivesSidebarOpen(true)
+  }
+
+  const closeObjectivesSidebar = () => {
+    setIsObjectivesSidebarOpen(false)
+    setObjectivesLesson(null)
+  }
+
+  const openActivitiesSidebar = (lesson: LessonWithObjectives) => {
+    setActivitiesLesson(lesson)
+    setIsActivitiesSidebarOpen(true)
+  }
+
+  const closeActivitiesSidebar = () => {
+    setIsActivitiesSidebarOpen(false)
+    setActivitiesLesson(null)
+  }
+
+  const openResourcesSidebar = (lesson: LessonWithObjectives) => {
+    setResourcesLesson(lesson)
+    setIsResourcesSidebarOpen(true)
+  }
+
+  const closeResourcesSidebar = () => {
+    setIsResourcesSidebarOpen(false)
+    setResourcesLesson(null)
+  }
+
+  const handleActivitiesChange = useCallback(
+    (lessonId: string, updatedActivities: LessonActivity[]) => {
+      setLessonActivitiesMap((prev) => ({ ...prev, [lessonId]: updatedActivities }))
+      setLessonActivityCounts((prev) => ({ ...prev, [lessonId]: updatedActivities.length }))
+      setPresentationState((prev) => {
+        if (!prev || prev.lesson.lesson_id !== lessonId) {
+          return prev
+        }
+        return { ...prev, activities: updatedActivities }
+      })
+      if (presentationState?.lesson.lesson_id === lessonId) {
+        setPresentationIndex((prev) => {
+          if (prev < 0) return prev
+          const maxIndex = updatedActivities.length - 1
+          return prev > maxIndex ? maxIndex : prev
+        })
+      }
+    },
+    [presentationState],
+  )
+
+  const handleResourcesChange = useCallback(
+    (
+      lessonId: string,
+      changes: { links?: LessonLinkInfo[]; files?: LessonFileInfo[] },
+    ) => {
+      setLessons((prev) =>
+        prev.map((lesson) =>
+          lesson.lesson_id === lessonId
+            ? {
+                ...lesson,
+                ...(changes.links ? { lesson_links: changes.links } : {}),
+              }
+            : lesson,
+        ),
+      )
+
+      const applyUpdate = (lesson: LessonWithObjectives | null) =>
+        lesson && lesson.lesson_id === lessonId
+          ? {
+              ...lesson,
+              ...(changes.links ? { lesson_links: changes.links } : {}),
+            }
+          : lesson
+
+      setSelectedLesson(applyUpdate)
+      setObjectivesLesson(applyUpdate)
+      setActivitiesLesson(applyUpdate)
+      setResourcesLesson(applyUpdate)
+
+      setPresentationState((prev) => {
+        if (!prev || prev.lesson.lesson_id !== lessonId) {
+          return prev
+        }
+        return {
+          ...prev,
+          lesson: {
+            ...prev.lesson,
+            ...(changes.links ? { lesson_links: changes.links } : {}),
+          },
+          ...(changes.links ? { links: changes.links } : {}),
+          ...(changes.files ? { files: changes.files } : {}),
+        }
+      })
+    },
+    [],
+  )
 
   const upsertLesson = (lesson: LessonWithObjectives) => {
     setLessons((prev) => {
@@ -93,6 +200,9 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
         ? { ...prev, lesson }
         : prev,
     )
+    setObjectivesLesson((prev) => (prev && prev.lesson_id === lesson.lesson_id ? lesson : prev))
+    setActivitiesLesson((prev) => (prev && prev.lesson_id === lesson.lesson_id ? lesson : prev))
+    setResourcesLesson((prev) => (prev && prev.lesson_id === lesson.lesson_id ? lesson : prev))
   }
 
   const deactivateLesson = (lessonId: string) => {
@@ -376,8 +486,19 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
                     </Button>
                   </div>
                 </div>
-                <div className="mt-3 flex items-start justify-between gap-4">
-                  <div className="flex-1">
+                <div className="mt-4 space-y-4">
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        openObjectivesSidebar(lesson)
+                      }}
+                      className="text-left text-sm font-semibold text-muted-foreground underline-offset-2 hover:underline"
+                    >
+                      Learning objectives
+                    </button>
                     {lesson.lesson_objectives && lesson.lesson_objectives.length > 0 ? (
                       <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
                         {lesson.lesson_objectives.map((objective) => (
@@ -387,42 +508,74 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
                         ))}
                       </ul>
                     ) : (
-                      <p className="text-sm text-muted-foreground">
-                        Drag the handle to reorder this lesson or use the Edit button for changes.
-                      </p>
+                      <p className="text-sm text-muted-foreground">No learning objectives yet.</p>
                     )}
                   </div>
-                 <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    onClick={(event) => {
-                      event.preventDefault()
-                      event.stopPropagation()
-                      handleShowActivities(lesson)
-                    }}
-                    className="whitespace-nowrap"
-                    disabled={lessonActivityCounts[lesson.lesson_id] === 0}
-                  >
-                    {`Show Activities (${lessonActivityCounts[lesson.lesson_id] ?? "…"})`}
-                  </Button>
+
+                  <div className="flex items-center justify-between gap-4">
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        openActivitiesSidebar(lesson)
+                      }}
+                      className="text-left text-sm font-semibold text-muted-foreground underline-offset-2 hover:underline"
+                    >
+                      Activities
+                    </button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        handleShowActivities(lesson)
+                      }}
+                      className="whitespace-nowrap"
+                      disabled={lessonActivityCounts[lesson.lesson_id] === 0}
+                    >
+                      {`Show Activities (${lessonActivityCounts[lesson.lesson_id] ?? "…"})`}
+                    </Button>
+                  </div>
+
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        openResourcesSidebar(lesson)
+                      }}
+                      className="text-left text-sm font-semibold text-muted-foreground underline-offset-2 hover:underline"
+                    >
+                      Links &amp; files
+                    </button>
+                    {lesson.lesson_links && lesson.lesson_links.length > 0 ? (
+                      <ul className="space-y-1 text-sm text-muted-foreground">
+                        {lesson.lesson_links.map((link) => (
+                          <li key={link.lesson_link_id}>
+                            {link.description ? (
+                              <span>{link.description}</span>
+                            ) : (
+                              <a
+                                href={link.url}
+                                className="text-primary underline-offset-2 hover:underline"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                {link.url}
+                              </a>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No links added yet.</p>
+                    )}
+                  </div>
                 </div>
-                {lesson.lesson_links && lesson.lesson_links.length > 0 && (
-                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                    {lesson.lesson_links.map((link) => (
-                      <li key={link.lesson_link_id}>
-                        <a
-                          href={link.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary underline-offset-2 hover:underline"
-                        >
-                          {link.description || link.url}
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                )}
               </div>
             ))}
           </div>
@@ -442,6 +595,38 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
         onCreateOrUpdate={upsertLesson}
         onDeactivate={deactivateLesson}
         learningObjectives={learningObjectives}
+      />
+      <LessonActivitiesSidebar
+        unitId={unitId}
+        unitTitle={unitTitle}
+        lesson={activitiesLesson}
+        isOpen={isActivitiesSidebarOpen}
+        onClose={closeActivitiesSidebar}
+        learningObjectives={learningObjectives}
+        onActivitiesChange={handleActivitiesChange}
+        onLessonUpdated={upsertLesson}
+        onDeactivate={deactivateLesson}
+      />
+      <LessonResourcesSidebar
+        unitId={unitId}
+        unitTitle={unitTitle}
+        lesson={resourcesLesson}
+        isOpen={isResourcesSidebarOpen}
+        onClose={closeResourcesSidebar}
+        learningObjectives={learningObjectives}
+        onResourcesChange={handleResourcesChange}
+        onLessonUpdated={upsertLesson}
+        onDeactivate={deactivateLesson}
+      />
+      <LessonObjectivesSidebar
+        unitId={unitId}
+        lesson={objectivesLesson}
+        availableObjectives={learningObjectives}
+        isOpen={isObjectivesSidebarOpen}
+        onClose={closeObjectivesSidebar}
+        onUpdate={(updatedLesson) => {
+          upsertLesson(updatedLesson)
+        }}
       />
       {presentationState ? (
         <>

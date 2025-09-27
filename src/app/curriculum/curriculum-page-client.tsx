@@ -89,23 +89,27 @@ export function CurriculumPageClient({
       return
     }
 
+    const editingId = editing.curriculum_id
+
     startTransition(async () => {
-      const result = await updateCurriculumAction(editing.curriculum_id, {
+      const result = await updateCurriculumAction(editingId, {
         title: trimmedTitle,
         subject: editSubject.trim() || null,
         description: editDescription.trim() || null,
       })
 
-      if (result.error || !result.data) {
+      const { data: updatedCurriculum, error: updateError } = result
+
+      if (updateError || !updatedCurriculum) {
         toast.error("Failed to update curriculum", {
-          description: result.error ?? "Please try again later.",
+          description: updateError ?? "Please try again later.",
         })
         return
       }
 
       setItems((previous) =>
         sortCurricula(
-          previous.map((item) => (item.curriculum_id === editing.curriculum_id ? result.data : item)),
+          previous.map((item) => (item.curriculum_id === editingId ? updatedCurriculum : item)),
         ),
       )
       toast.success("Curriculum updated")
@@ -228,7 +232,12 @@ export function CurriculumPageClient({
           </div>
           <SheetFooter>
             <div className="flex w-full flex-col gap-2 sm:flex-row sm:justify-end">
-              <Button type="button" variant="outline" onClick={handleCloseEdit} disabled={isPending}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => handleCloseEdit()}
+                disabled={isPending}
+              >
                 Cancel
               </Button>
               <Button type="button" onClick={handleSaveEdit} disabled={isPending}>

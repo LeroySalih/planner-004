@@ -65,6 +65,10 @@ interface LessonSidebarProps {
   onCreateOrUpdate: (lesson: LessonWithObjectives) => void
   onDeactivate: (lessonId: string) => void
   learningObjectives: LearningObjectiveWithCriteria[]
+  viewMode?: "full" | "activities-only" | "resources-only"
+  onActivitiesChange?: (activities: LessonActivity[]) => void
+  onLessonLinksChange?: (links: LessonLinkInfo[]) => void
+  onLessonFilesChange?: (files: LessonFileInfo[]) => void
 }
 
 export interface LessonFileInfo {
@@ -77,6 +81,7 @@ export interface LessonFileInfo {
 
 export interface LessonLinkInfo {
   lesson_link_id: string
+  lesson_id: string
   url: string
   description: string | null
 }
@@ -89,6 +94,112 @@ interface LessonFileUpload {
   error?: string | null
 }
 
+interface LessonActivitiesSidebarProps {
+  unitId: string
+  unitTitle: string
+  lesson: LessonWithObjectives | null
+  isOpen: boolean
+  onClose: () => void
+  learningObjectives: LearningObjectiveWithCriteria[]
+  onActivitiesChange?: (lessonId: string, activities: LessonActivity[]) => void
+  onLessonUpdated?: (lesson: LessonWithObjectives) => void
+  onDeactivate?: (lessonId: string) => void
+}
+
+export function LessonActivitiesSidebar({
+  unitId,
+  unitTitle,
+  lesson,
+  isOpen,
+  onClose,
+  learningObjectives,
+  onActivitiesChange,
+  onLessonUpdated,
+  onDeactivate,
+}: LessonActivitiesSidebarProps) {
+  if (!lesson) {
+    return null
+  }
+
+  return (
+    <LessonSidebar
+      unitId={unitId}
+      unitTitle={unitTitle}
+      lesson={lesson}
+      isOpen={isOpen}
+      onClose={onClose}
+      onCreateOrUpdate={(updatedLesson) => {
+        onLessonUpdated?.(updatedLesson)
+      }}
+      onDeactivate={(lessonId) => {
+        onDeactivate?.(lessonId)
+      }}
+      learningObjectives={learningObjectives}
+      viewMode="activities-only"
+      onActivitiesChange={(activities) => {
+        onActivitiesChange?.(lesson.lesson_id, activities)
+      }}
+    />
+  )
+}
+
+interface LessonResourcesSidebarProps {
+  unitId: string
+  unitTitle: string
+  lesson: LessonWithObjectives | null
+  isOpen: boolean
+  onClose: () => void
+  learningObjectives: LearningObjectiveWithCriteria[]
+  onResourcesChange?: (
+    lessonId: string,
+    changes: { links?: LessonLinkInfo[]; files?: LessonFileInfo[] },
+  ) => void
+  onLessonUpdated?: (lesson: LessonWithObjectives) => void
+  onDeactivate?: (lessonId: string) => void
+}
+
+export function LessonResourcesSidebar({
+  unitId,
+  unitTitle,
+  lesson,
+  isOpen,
+  onClose,
+  learningObjectives,
+  onResourcesChange,
+  onLessonUpdated,
+  onDeactivate,
+}: LessonResourcesSidebarProps) {
+  if (!lesson) {
+    return null
+  }
+
+  const lessonId = lesson.lesson_id
+
+  return (
+    <LessonSidebar
+      unitId={unitId}
+      unitTitle={unitTitle}
+      lesson={lesson}
+      isOpen={isOpen}
+      onClose={onClose}
+      onCreateOrUpdate={(updatedLesson) => {
+        onLessonUpdated?.(updatedLesson)
+      }}
+      onDeactivate={(id) => {
+        onDeactivate?.(id)
+      }}
+      learningObjectives={learningObjectives}
+      viewMode="resources-only"
+      onLessonLinksChange={(links) => {
+        onResourcesChange?.(lessonId, { links })
+      }}
+      onLessonFilesChange={(files) => {
+        onResourcesChange?.(lessonId, { files })
+      }}
+    />
+  )
+}
+
 export function LessonSidebar({
   unitId,
   unitTitle,
@@ -98,7 +209,13 @@ export function LessonSidebar({
   onCreateOrUpdate,
   onDeactivate,
   learningObjectives,
+  viewMode = "full",
+  onActivitiesChange,
+  onLessonLinksChange,
+  onLessonFilesChange,
 }: LessonSidebarProps) {
+  const isActivitiesOnly = viewMode === "activities-only"
+  const isResourcesOnly = viewMode === "resources-only"
   const [isPending, startTransition] = useTransition()
   const [title, setTitle] = useState("")
   const [isConfirmingDeactivate, setIsConfirmingDeactivate] = useState(false)
@@ -192,7 +309,9 @@ export function LessonSidebar({
             })
             return
           }
-          setFiles(result.data ?? [])
+          const values = result.data ?? []
+          setFiles(values)
+          onLessonFilesChange?.(values)
         })
         .finally(() => setIsFilesLoading(false))
 
@@ -205,7 +324,9 @@ export function LessonSidebar({
             })
             return
           }
-          setLinks(result.data ?? [])
+          const values = result.data ?? []
+          setLinks(values)
+          onLessonLinksChange?.(values)
         })
         .finally(() => setIsLinksLoading(false))
     } else {
@@ -218,7 +339,7 @@ export function LessonSidebar({
       setLinks([])
       previousLessonIdRef.current = null
     }
-  }, [isOpen, lesson, learningObjectives])
+  }, [isOpen, lesson, learningObjectives, onLessonFilesChange, onLessonLinksChange])
 
   const refreshActivities = useCallback(async () => {
     if (!lesson) return
@@ -281,6 +402,15 @@ export function LessonSidebar({
     })
   }, [activities, activityFilesMap, lesson, refreshActivityFiles])
 
+  useEffect(() => {
+    if (!lesson) return
+    onActivitiesChange?.(activities)
+    // We intentionally leave onActivitiesChange out of the dependency list to
+    // avoid looping when the parent recreates the callback during state
+    // updates triggered by this effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activities, lesson])
+
   const refreshFiles = useCallback(async () => {
     if (!lesson) return
     setIsFilesLoading(true)
@@ -290,10 +420,12 @@ export function LessonSidebar({
         description: result.error,
       })
     } else {
-      setFiles(result.data ?? [])
+      const values = result.data ?? []
+      setFiles(values)
+      onLessonFilesChange?.(values)
     }
     setIsFilesLoading(false)
-  }, [lesson])
+  }, [lesson, onLessonFilesChange])
 
   const refreshLinks = useCallback(async () => {
     if (!lesson) return
@@ -304,10 +436,12 @@ export function LessonSidebar({
         description: result.error,
       })
     } else {
-      setLinks(result.data ?? [])
+      const values = result.data ?? []
+      setLinks(values)
+      onLessonLinksChange?.(values)
     }
     setIsLinksLoading(false)
-  }, [lesson])
+  }, [lesson, onLessonLinksChange])
 
   const handleAddActivity = () => {
     if (!lesson) return
@@ -1165,64 +1299,92 @@ export function LessonSidebar({
           <Card className="flex h-full flex-col rounded-none border-0">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
             <CardTitle className="text-xl font-semibold">
-              {isEditing ? "Edit Lesson" : "Add Lesson"}
+              {isActivitiesOnly
+                ? "Edit Activities"
+                : isResourcesOnly
+                  ? "Lesson resources"
+                  : isEditing
+                    ? "Edit Lesson"
+                    : "Add Lesson"}
             </CardTitle>
             <Button variant="ghost" size="icon" onClick={onClose} disabled={isPending}>
               <X className="h-4 w-4" />
             </Button>
           </CardHeader>
           <CardContent className="flex flex-1 flex-col overflow-hidden p-0">
-            <div className="space-y-6 border-b bg-background px-6 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="lesson-title">Title</Label>
-                <Input
-                  id="lesson-title"
-                  value={title}
-                  onChange={(event) => setTitle(event.target.value)}
-                  placeholder="Lesson title"
-                  disabled={isPending}
-                />
+            {isActivitiesOnly ? (
+              <div className="border-b bg-background px-6 py-4">
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">Lesson</p>
+                  <p className="text-base font-medium text-foreground">{lesson?.title ?? "Untitled lesson"}</p>
+                </div>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Manage the activities learners will work through for this lesson.
+                </p>
               </div>
-
-              <div className="space-y-2">
-                <Label>Learning Objectives</Label>
+            ) : isResourcesOnly ? (
+              <div className="border-b bg-background px-6 py-4">
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">Lesson</p>
+                  <p className="text-base font-medium text-foreground">{lesson?.title ?? "Untitled lesson"}</p>
+                </div>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Add lesson links and upload supporting files learners will need.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-6 border-b bg-background px-6 py-4">
                 <div className="space-y-2">
-                  {sortedObjectives.length === 0 && (
-                    <p className="text-sm text-muted-foreground">
-                      No learning objectives available for this unit yet.
-                    </p>
-                  )}
-                  {sortedObjectives.map((objective) => {
-                    const isChecked = selectedObjectiveIds.includes(objective.learning_objective_id)
-                    return (
-                      <label
-                        key={objective.learning_objective_id}
-                        className="flex items-start gap-2 text-sm"
-                      >
-                        <Checkbox
-                          checked={isChecked}
-                          onCheckedChange={(checked) => {
-                            setSelectedObjectiveIds((prev) => {
-                              if (checked === true) {
-                                if (prev.includes(objective.learning_objective_id)) return prev
-                                return [...prev, objective.learning_objective_id]
-                              }
-                              return prev.filter((id) => id !== objective.learning_objective_id)
-                            })
-                          }}
-                          disabled={isPending}
-                        />
-                        <span>{objective.title}</span>
-                      </label>
-                    )
-                  })}
+                  <Label htmlFor="lesson-title">Title</Label>
+                  <Input
+                    id="lesson-title"
+                    value={title}
+                    onChange={(event) => setTitle(event.target.value)}
+                    placeholder="Lesson title"
+                    disabled={isPending}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Learning Objectives</Label>
+                  <div className="space-y-2">
+                    {sortedObjectives.length === 0 && (
+                      <p className="text-sm text-muted-foreground">
+                        No learning objectives available for this unit yet.
+                      </p>
+                    )}
+                    {sortedObjectives.map((objective) => {
+                      const isChecked = selectedObjectiveIds.includes(objective.learning_objective_id)
+                      return (
+                        <label
+                          key={objective.learning_objective_id}
+                          className="flex items-start gap-2 text-sm"
+                        >
+                          <Checkbox
+                            checked={isChecked}
+                            onCheckedChange={(checked) => {
+                              setSelectedObjectiveIds((prev) => {
+                                if (checked === true) {
+                                  if (prev.includes(objective.learning_objective_id)) return prev
+                                  return [...prev, objective.learning_objective_id]
+                                }
+                                return prev.filter((id) => id !== objective.learning_objective_id)
+                              })
+                            }}
+                            disabled={isPending}
+                          />
+                          <span>{objective.title}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
             <div className="flex-1 overflow-y-auto px-6 py-4">
               <div className="space-y-6">
-                {lesson && (
+                {!isResourcesOnly && lesson && (
                   <div className="space-y-3">
                     <Label>Lesson Activities</Label>
                 <div className="space-y-2 rounded-md border border-border p-3">
@@ -1521,7 +1683,7 @@ export function LessonSidebar({
                   </div>
                 )}
 
-                {lesson && (
+                {!isActivitiesOnly && lesson && (
                   <div className="space-y-3">
                     <Label>Lesson Links</Label>
                     <div className="space-y-2">
@@ -1594,7 +1756,7 @@ export function LessonSidebar({
                   </div>
                 )}
 
-                {lesson && (
+                {!isActivitiesOnly && lesson && (
                   <div className="space-y-3">
                     <Label className="flex items-center justify-between">
                       <span>Lesson Files</span>
@@ -1721,11 +1883,13 @@ export function LessonSidebar({
 
             <div className="border-t bg-background px-6 py-4">
               <div className="flex flex-col gap-3">
-                <Button onClick={handleSave} disabled={isPending || title.trim().length === 0}>
-                  {isEditing ? "Save Changes" : "Create Lesson"}
-                </Button>
+                {viewMode === "full" ? (
+                  <Button onClick={handleSave} disabled={isPending || title.trim().length === 0}>
+                    {isEditing ? "Save Changes" : "Create Lesson"}
+                  </Button>
+                ) : null}
 
-                {isEditing && lesson?.active !== false && (
+                {viewMode === "full" && isEditing && lesson?.active !== false && (
                   <div className="space-y-3">
                     {!isConfirmingDeactivate ? (
                       <div className="flex flex-col gap-2">
@@ -1775,7 +1939,7 @@ export function LessonSidebar({
                 )}
 
                 <Button variant="outline" className="bg-transparent" onClick={onClose} disabled={isPending}>
-                  Cancel
+                  {viewMode === "full" ? "Cancel" : "Close"}
                 </Button>
               </div>
             </div>
