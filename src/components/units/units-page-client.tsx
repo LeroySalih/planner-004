@@ -1,9 +1,8 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, BookOpen, Search } from "lucide-react"
+import { BookOpen, Search } from "lucide-react"
 
 import type { Subjects, Unit } from "@/types"
 import { createWildcardRegExp, truncateText } from "@/lib/utils"
@@ -58,24 +57,25 @@ export function UnitsPageClient({ units, subjects }: UnitsPageClientProps) {
   }
 
   return (
-    <main className="container mx-auto p-6">
-      <div className="mb-8 space-y-6">
-        <div className="flex items-center gap-4">
-          <Link href="/assignments">
-            <Button variant="outline" size="sm">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Assignments
+    <main className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-6 py-10">
+      <header className="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 px-8 py-6 text-white shadow-lg">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <BookOpen className="h-6 w-6 text-white" />
+              <h1 className="text-3xl font-semibold text-white">Units Overview</h1>
+            </div>
+            <Button onClick={() => setIsCreateSidebarOpen(true)} className="w-full sm:w-auto">
+              + Add Unit
             </Button>
-          </Link>
-          <div className="flex items-center gap-2">
-            <BookOpen className="h-6 w-6 text-primary" />
-            <h1 className="text-3xl font-bold text-balance">Units Overview</h1>
           </div>
-          <div className="ml-auto">
-            <Button onClick={() => setIsCreateSidebarOpen(true)}>+ Add Unit</Button>
-          </div>
+          <p className="text-sm text-slate-300">
+            Organize and manage your schemes of work. Filter by subject or review inactive units when needed.
+          </p>
         </div>
+      </header>
 
+      <div className="space-y-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="w-full sm:max-w-md">
             <div className="relative">

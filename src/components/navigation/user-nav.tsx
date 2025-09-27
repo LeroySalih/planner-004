@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { MoreVertical } from "lucide-react"
+import type { User } from "@supabase/supabase-js"
 
 import { supabaseBrowserClient } from "@/lib/supabase-browser"
 import {
@@ -27,14 +28,11 @@ export function UserNav() {
   useEffect(() => {
     let isMounted = true
 
-    const loadProfile = async () => {
-      const { data: sessionData } = await supabaseBrowserClient.auth.getUser()
-      const user = sessionData?.user
+    const populateProfile = async (user: User | null) => {
+      if (!isMounted) return
 
       if (!user) {
-        if (isMounted) {
-          setProfile(null)
-        }
+        setProfile(null)
         return
       }
 
@@ -44,22 +42,32 @@ export function UserNav() {
         .eq("user_id", user.id)
         .maybeSingle()
 
+      if (!isMounted) return
+
       const first = profileData?.first_name?.trim() ?? ""
       const last = profileData?.last_name?.trim() ?? ""
       const combined = `${first} ${last}`.trim()
 
-      if (isMounted) {
-        setProfile({
-          userId: user.id,
-          displayName: combined.length > 0 ? combined : user.email ?? user.id,
-        })
-      }
+      setProfile({
+        userId: user.id,
+        displayName: combined.length > 0 ? combined : user.email ?? user.id,
+      })
     }
 
-    void loadProfile()
+    const initialize = async () => {
+      const { data: sessionData } = await supabaseBrowserClient.auth.getUser()
+      await populateProfile(sessionData?.user ?? null)
+    }
+
+    void initialize()
+
+    const { data: authListener } = supabaseBrowserClient.auth.onAuthStateChange((_, session) => {
+      void populateProfile(session?.user ?? null)
+    })
 
     return () => {
       isMounted = false
+      authListener?.subscription.unsubscribe()
     }
   }, [])
 
@@ -85,7 +93,11 @@ export function UserNav() {
   )
 
   if (!profile) {
-    return null
+    return (
+      <Button asChild size="sm" variant="outline">
+        <Link href="/signin">Sign in</Link>
+      </Button>
+    )
   }
 
   return (
