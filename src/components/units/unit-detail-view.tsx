@@ -287,6 +287,7 @@ export function UnitDetailView({
 
       <LessonsPanel
         unitId={currentUnit.unit_id}
+        unitTitle={currentUnit.title}
         initialLessons={lessons}
         learningObjectives={orderedObjectives}
       />

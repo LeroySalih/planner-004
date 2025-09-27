@@ -1,14 +1,17 @@
-import type { Metadata } from 'next'
-import { GeistSans } from 'geist/font/sans'
-import { GeistMono } from 'geist/font/mono'
-import Link from 'next/link'
-import { Analytics } from '@vercel/analytics/next'
-import './globals.css'
-import { Toaster } from 'sonner';
-import Image from 'next/image'
+import type { Metadata } from "next"
+import { GeistSans } from "geist/font/sans"
+import { GeistMono } from "geist/font/mono"
+import Link from "next/link"
+import { Analytics } from "@vercel/analytics/next"
+import Image from "next/image"
+
+import "./globals.css"
+import { Toaster } from "sonner"
+
+import { UserNav } from "@/components/navigation/user-nav"
 
 export const metadata: Metadata = {
-  title: 'Planner',
+  title: 'Dino',
   description: 'mr-salih.org',
   generator: 'open-ai & v0',
 }
@@ -60,6 +63,7 @@ export default function RootLayout({
                   Curriculum
                 </Link>
               </nav>
+              <UserNav />
             </div>
           </header>
           <main className="flex-1">{children}</main>

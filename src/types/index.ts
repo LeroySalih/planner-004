@@ -235,6 +235,22 @@ export const LessonsWithObjectivesSchema = z.array(LessonWithObjectivesSchema);
 
 export type LessonWithObjectives = z.infer<typeof LessonWithObjectivesSchema>;
 
+export const LessonActivitySchema = z.object({
+    activity_id: z.string(),
+    lesson_id: z.string(),
+    title: z.string().min(1),
+    type: z.string().min(1),
+    body_data: z.unknown().nullable(),
+    is_homework: z.boolean().default(false),
+    order_by: z.number().nullable(),
+    active: z.boolean().default(true),
+});
+
+export const LessonActivitiesSchema = z.array(LessonActivitySchema);
+
+export type LessonActivity = z.infer<typeof LessonActivitySchema>;
+export type LessonActivities = z.infer<typeof LessonActivitiesSchema>;
+
 export const SubjectSchema = z.object({
     subject: z.string().min(1).max(255),
     active: z.boolean().default(true),

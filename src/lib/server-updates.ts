@@ -71,11 +71,26 @@ export {
 } from "./server-actions/lesson-files"
 
 export {
+  listActivityFilesAction,
+  uploadActivityFileAction,
+  deleteActivityFileAction,
+  getActivityFileDownloadUrlAction,
+} from "./server-actions/lesson-activity-files"
+
+export {
   listLessonLinksAction,
   createLessonLinkAction,
   updateLessonLinkAction,
   deleteLessonLinkAction,
 } from "./server-actions/lesson-links"
+
+export {
+  listLessonActivitiesAction,
+  createLessonActivityAction,
+  updateLessonActivityAction,
+  reorderLessonActivitiesAction,
+  deleteLessonActivityAction,
+} from "./server-actions/lesson-activities"
 
 export { fetchLessonLinkMetadataAction } from "./server-actions/link-metadata"
 

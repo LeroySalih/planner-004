@@ -1,8 +1,7 @@
 import Link from "next/link"
 
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { readGroupsAction } from "@/lib/server-updates"
+import { GroupsFilterControls } from "./groups-filter-controls"
 
 function buildWildcardRegex(pattern: string) {
   const escaped = Array.from(pattern)
@@ -44,21 +43,18 @@ export default async function GroupsIndexPage({
   })()
 
   return (
-    <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-6 py-10">
+    <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-6 py-10 text-slate-900">
       <header className="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 px-8 py-6 text-white shadow-lg">
-        <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-        <div className="flex items-center justify-between">
-        <p className="text-sm uppercase tracking-wide text-muted-foreground">Groups</p>
-        <h1 className="text-3xl font-semibold text-primary">Group Directory</h1>
-        <p className="text-muted-foreground">
-          Browse all active teaching groups. Select a group to review its details and pupil membership.
-        </p>
-            </div>
+        <div className="flex flex-col gap-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">Groups</p>
+          <div>
+            <h1 className="text-3xl font-semibold text-white">Group Directory</h1>
+            <p className="mt-2 max-w-2xl text-sm text-slate-200">
+              Browse all active teaching groups. Select a group to review its details and pupil membership.
+            </p>
+          </div>
         </div>
-      </div>
       </header>
-        
 
       {error ? (
         <div className="mt-6 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -66,32 +62,10 @@ export default async function GroupsIndexPage({
         </div>
       ) : null}
 
-      <form className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center" action="/groups" method="get">
-        <div className="flex flex-1 items-center gap-2">
-          <Input
-            name="q"
-            defaultValue={filter}
-            placeholder="Filter by group or subject (use '?' as wildcard)"
-            className="flex-1"
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <Button type="submit" variant="secondary">
-            Apply filter
-          </Button>
-          {filter ? (
-            <Link
-              href="/groups"
-              className="text-sm font-medium text-muted-foreground underline-offset-4 hover:underline"
-            >
-              Clear
-            </Link>
-          ) : null}
-        </div>
-      </form>
+      <GroupsFilterControls initialValue={filter} />
 
       {groups.length === 0 && !error ? (
-        <div className="mt-6 rounded-lg border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+        <div className="mt-6 rounded-lg border border-dashed border-border px-4 py-6 text-sm text-slate-600">
           No groups found yet. Create a group to see it listed here.
         </div>
       ) : null}
@@ -104,18 +78,18 @@ export default async function GroupsIndexPage({
             className="flex flex-col rounded-lg border border-border bg-card p-4 shadow-sm transition hover:border-primary hover:shadow"
           >
             <div className="flex items-center justify-between">
-              <h2 className="text-xl font-semibold text-foreground">{group.group_id}</h2>
-              <span className="rounded-full border border-primary/30 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-primary">
+              <h2 className="text-xl font-semibold text-slate-900">{group.group_id}</h2>
+              <span className="rounded-full border border-primary/30 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-slate-700">
                 {group.subject}
               </span>
             </div>
-            <p className="mt-3 text-sm text-muted-foreground">Join code: {group.join_code}</p>
+            <p className="mt-3 text-sm text-slate-600">Join code: {group.join_code}</p>
           </Link>
         ))}
       </section>
 
       {filter && filteredGroups.length === 0 && groups.length > 0 ? (
-        <p className="mt-6 text-sm text-muted-foreground">No groups match the current filter.</p>
+        <p className="mt-6 text-sm text-slate-600">No groups match the current filter.</p>
       ) : null}
     </main>
   )

@@ -40,27 +40,24 @@ export default async function GroupDetailPage({
     .sort((a, b) => a.displayName.localeCompare(b.displayName))
 
   return (
-    <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-6 py-10">
-      <div className="mb-6 text-sm text-muted-foreground">
+    <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-6 py-10 text-slate-900">
+      <div className="mb-6 text-sm text-slate-600">
         <Link href="/groups" className="underline-offset-4 hover:underline">
           ← Back to groups
         </Link>
       </div>
 
       <header className="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 px-8 py-6 text-white shadow-lg">
-        <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-        <div className="flex items-center justify-between">
-        <p className="text-sm uppercase tracking-wide text-muted-foreground">Group</p>
-        <h1 className="text-3xl font-semibold text-primary">{group.group_id}</h1>
-        <p className="text-muted-foreground">
-          Subject: <span className="font-medium text-foreground">{group.subject}</span>
-        </p>
-            </div>
-        </div>
+        <div className="flex flex-col gap-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">Group</p>
+          <div>
+            <h1 className="text-3xl font-semibold text-white">{group.group_id}</h1>
+            <p className="mt-2 text-sm text-slate-200">
+              Subject: <span className="font-medium text-white">{group.subject}</span>
+            </p>
+          </div>
         </div>
       </header>
-        
 
       {membershipError ? (
         <div className="mt-4 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -70,9 +67,9 @@ export default async function GroupDetailPage({
 
       <section className="mt-6">
         <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
-          <h2 className="text-lg font-semibold text-foreground">Pupils</h2>
+          <h2 className="text-lg font-semibold text-slate-900">Pupils</h2>
           {pupils.length === 0 ? (
-            <p className="mt-3 text-sm text-muted-foreground">No pupils assigned to this group yet.</p>
+            <p className="mt-3 text-sm text-slate-600">No pupils assigned to this group yet.</p>
           ) : (
             <ul className="mt-3 space-y-2 text-sm">
               {pupils.map((member) => (
@@ -80,18 +77,18 @@ export default async function GroupDetailPage({
                   key={member.user_id}
                   className="flex items-center justify-between rounded-md border border-border/60 bg-background px-3 py-2"
                 >
-                    <div className="flex flex-col">
-                      <Link
-                        href={`/reports/${member.user_id}`}
-                        className="font-medium text-foreground underline-offset-4 hover:underline"
-                      >
-                        {member.displayName}
-                      </Link>
-                      {member.displayName !== member.user_id ? (
-                        <span className="text-xs text-muted-foreground">{member.user_id}</span>
-                      ) : null}
-                    </div>
-                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <div className="flex flex-col">
+                    <Link
+                      href={`/reports/${member.user_id}`}
+                      className="font-medium text-slate-900 underline-offset-4 hover:underline"
+                    >
+                      {member.displayName}
+                    </Link>
+                    {member.displayName !== member.user_id ? (
+                      <span className="text-xs text-slate-500">{member.user_id}</span>
+                    ) : null}
+                  </div>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">
                     {roleLabelMap[member.role.toLowerCase()] ?? member.role}
                   </span>
                 </li>
