@@ -122,3 +122,13 @@
     @apply bg-background text-foreground;
   }
 }
+
+@media print {
+  .print-break-after {
+    page-break-after: always;
+  }
+
+  .print-break-after:last-child {
+    page-break-after: auto;
+  }
+}

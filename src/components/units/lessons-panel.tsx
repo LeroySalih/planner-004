@@ -10,22 +10,23 @@ import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"
 import { LessonSidebar } from "@/components/units/lesson-sidebar"
 import { toast } from "sonner"
 
 interface LessonsPanelProps {
   unitId: string
+  unitTitle: string
   initialLessons: LessonWithObjectives[]
   learningObjectives: LearningObjectiveWithCriteria[]
 }
 
-export function LessonsPanel({ unitId, initialLessons, learningObjectives }: LessonsPanelProps) {
+export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObjectives }: LessonsPanelProps) {
   const [lessons, setLessons] = useState(() =>
     [...initialLessons].sort((a, b) => (a.order_by ?? 0) - (b.order_by ?? 0)),
   )
   const [selectedLesson, setSelectedLesson] = useState<LessonWithObjectives | null>(null)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  const [presentationLesson, setPresentationLesson] = useState<LessonWithObjectives | null>(null)
   const [draggingLessonId, setDraggingLessonId] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [, startTransition] = useTransition()
@@ -64,6 +65,11 @@ export function LessonsPanel({ unitId, initialLessons, learningObjectives }: Les
   }
 
   const activeLessons = lessons.filter((lesson) => lesson.active !== false)
+
+  const handleShowActivities = (lesson: LessonWithObjectives) => {
+    if (!lesson) return
+    setPresentationLesson(lesson)
+  }
 
   const handleDragStart = (lessonId: string, event: React.DragEvent) => {
     setDraggingLessonId(lessonId)
@@ -127,11 +133,9 @@ export function LessonsPanel({ unitId, initialLessons, learningObjectives }: Les
         {activeLessons.length > 0 ? (
           <div className="space-y-3">
             {activeLessons.map((lesson) => (
-              <button
+              <div
                 key={lesson.lesson_id}
-                type="button"
                 draggable
-                onClick={() => handleLessonClick(lesson)}
                 onDragStart={(event) => handleDragStart(lesson.lesson_id, event)}
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={handleDrop(lesson.lesson_id)}
@@ -145,42 +149,61 @@ export function LessonsPanel({ unitId, initialLessons, learningObjectives }: Les
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <GripVertical className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                    <HoverCard>
-                      <HoverCardTrigger asChild>
-                        <span className="font-medium underline-offset-4 hover:underline cursor-pointer">
-                          {lesson.title}
-                        </span>
-                      </HoverCardTrigger>
-                      <HoverCardContent className="space-y-2" side="top" align="start">
-                        <Link
-                          href={`/lessons/${lesson.lesson_id}`}
-                          className="text-sm font-semibold text-primary underline-offset-2 hover:underline"
-                        >
-                          View {lesson.title}
-                        </Link>
-                        <p className="text-xs text-muted-foreground">
-                          Open the lesson details page in a new view while keeping this panel open.
-                        </p>
-                      </HoverCardContent>
-                    </HoverCard>
+                    <Link
+                      href={`/lessons/${lesson.lesson_id}`}
+                      className="font-medium text-primary underline-offset-2 hover:underline"
+                    >
+                      {lesson.title}
+                    </Link>
                   </div>
-                  <Badge variant="outline" className="text-xs">
-                    {lesson.active === false ? "Inactive" : "Active"}
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="text-xs">
+                      {lesson.active === false ? "Inactive" : "Active"}
+                    </Badge>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        handleLessonClick(lesson)
+                      }}
+                    >
+                      Edit
+                    </Button>
+                  </div>
                 </div>
-                {lesson.lesson_objectives && lesson.lesson_objectives.length > 0 ? (
-                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                    {lesson.lesson_objectives.map((objective) => (
-                      <li key={objective.learning_objective_id}>
-                        {objective.learning_objective?.title ?? objective.title}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Drag the handle to reorder or click to edit this lesson.
-                  </p>
-                )}
+                <div className="mt-3 flex items-start justify-between gap-4">
+                  <div className="flex-1">
+                    {lesson.lesson_objectives && lesson.lesson_objectives.length > 0 ? (
+                      <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                        {lesson.lesson_objectives.map((objective) => (
+                          <li key={objective.learning_objective_id}>
+                            {objective.learning_objective?.title ?? objective.title}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        Drag the handle to reorder this lesson or use the Edit button for changes.
+                      </p>
+                    )}
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      handleShowActivities(lesson)
+                    }}
+                    className="whitespace-nowrap"
+                  >
+                    Show Activities
+                  </Button>
+                </div>
                 {lesson.lesson_links && lesson.lesson_links.length > 0 && (
                   <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
                     {lesson.lesson_links.map((link) => (
@@ -197,7 +220,7 @@ export function LessonsPanel({ unitId, initialLessons, learningObjectives }: Les
                     ))}
                   </ul>
                 )}
-              </button>
+              </div>
             ))}
           </div>
         ) : (
@@ -209,6 +232,7 @@ export function LessonsPanel({ unitId, initialLessons, learningObjectives }: Les
 
       <LessonSidebar
         unitId={unitId}
+        unitTitle={unitTitle}
         lesson={selectedLesson}
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
@@ -216,6 +240,28 @@ export function LessonsPanel({ unitId, initialLessons, learningObjectives }: Les
         onDeactivate={deactivateLesson}
         learningObjectives={learningObjectives}
       />
+      {presentationLesson ? (
+        <LessonSidebar
+          unitId={unitId}
+          unitTitle={unitTitle}
+          lesson={presentationLesson}
+          isOpen={true}
+          onClose={() => setPresentationLesson(null)}
+          onCreateOrUpdate={(updated) => {
+            upsertLesson(updated)
+            if (presentationLesson?.lesson_id === updated.lesson_id) {
+              setPresentationLesson(updated)
+            }
+          }}
+          onDeactivate={(lessonId) => {
+            deactivateLesson(lessonId)
+            if (presentationLesson?.lesson_id === lessonId) {
+              setPresentationLesson(null)
+            }
+          }}
+          learningObjectives={learningObjectives}
+        />
+      ) : null}
     </Card>
   )
 }

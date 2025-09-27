@@ -12,6 +12,8 @@ import {
 } from "@/lib/server-updates"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Progress } from "@/components/ui/progress"
+import { cn } from "@/lib/utils"
 
 interface UnitFileInfo {
   name: string
@@ -26,49 +28,204 @@ interface UnitFilesPanelProps {
   initialFiles: UnitFileInfo[]
 }
 
+type UploadProgressState = {
+  completed: number
+  successful: number
+  total: number
+}
+
 export function UnitFilesPanel({ unitId, initialFiles }: UnitFilesPanelProps) {
   const [files, setFiles] = useState(initialFiles)
   const [isPending, startTransition] = useTransition()
   const inputRef = useRef<HTMLInputElement | null>(null)
+  const [isDragActive, setIsDragActive] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<UploadProgressState | null>(null)
 
-  const resetInput = () => {
+  const resetInput = useCallback(() => {
     if (inputRef.current) {
       inputRef.current.value = ""
     }
-  }
+  }, [])
 
-  const handleUpload = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      const fileList = event.target.files
-      if (!fileList || fileList.length === 0) return
+  const handleFilesUpload = useCallback(
+    (fileList: FileList | File[]) => {
+      const selectedFiles = Array.from(fileList).filter((file): file is File => file instanceof File && file.size > 0)
 
-      const file = fileList[0]
+      if (selectedFiles.length === 0) {
+        return
+      }
 
-      const formData = new FormData()
-      formData.append("unitId", unitId)
-      formData.append("file", file)
+      setUploadProgress({ completed: 0, successful: 0, total: selectedFiles.length })
 
       startTransition(async () => {
-        const result = await uploadUnitFileAction(formData)
-        if (!result.success) {
-          toast.error("Upload failed", {
-            description: result.error ?? "Please try again later.",
-          })
+        const failed: { name: string; error?: string }[] = []
+        let completedCount = 0
+        let successfulCount = 0
+
+        try {
+          for (const file of selectedFiles) {
+            const formData = new FormData()
+            formData.append("unitId", unitId)
+            formData.append("file", file)
+
+            const result = await uploadUnitFileAction(formData)
+
+            if (!result.success) {
+              failed.push({ name: file.name, error: result.error ?? undefined })
+            } else {
+              successfulCount += 1
+            }
+
+            completedCount += 1
+            const completedSnapshot = completedCount
+            const successfulSnapshot = successfulCount
+
+            setUploadProgress((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    completed: completedSnapshot,
+                    successful: successfulSnapshot,
+                  }
+                : prev,
+            )
+          }
+
+          if (successfulCount > 0) {
+            toast.success(
+              successfulCount === 1
+                ? "File uploaded"
+                : `${successfulCount} files uploaded`,
+            )
+
+            const updatedList = await listFiles(unitId)
+            if (updatedList) {
+              setFiles(updatedList)
+            }
+          }
+
+          if (failed.length > 0) {
+            const failureDescription =
+              failed.length === 1
+                ? failed[0].error ?? "Please try again later."
+                : `Unable to upload: ${failed.map((item) => item.name).join(", ")}`
+
+            toast.error(
+              failed.length === 1
+                ? `Failed to upload ${failed[0].name}`
+                : "Some files failed to upload",
+              {
+                description: failureDescription,
+              },
+            )
+          }
+        } finally {
           resetInput()
-          return
+          setUploadProgress(null)
+          setIsDragActive(false)
         }
-
-        toast.success("File uploaded")
-
-        const updatedList = await listFiles(unitId)
-        if (updatedList) {
-          setFiles(updatedList)
-        }
-
-        resetInput()
       })
     },
-    [unitId],
+    [resetInput, startTransition, unitId],
+  )
+
+  const handleFileInputChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const fileList = event.target.files
+      if (!fileList || fileList.length === 0) {
+        return
+      }
+
+      handleFilesUpload(fileList)
+    },
+    [handleFilesUpload],
+  )
+
+  const handleBrowseClick = useCallback(() => {
+    if (isPending) {
+      return
+    }
+
+    inputRef.current?.click()
+  }, [isPending])
+
+  const handleZoneKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault()
+        handleBrowseClick()
+      }
+    },
+    [handleBrowseClick],
+  )
+
+  const handleDragEnter = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      event.preventDefault()
+      event.stopPropagation()
+
+      if (isPending) {
+        return
+      }
+
+      setIsDragActive(true)
+    },
+    [isPending],
+  )
+
+  const handleDragOver = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      event.preventDefault()
+      event.stopPropagation()
+
+      if (isPending) {
+        event.dataTransfer.dropEffect = "none"
+        return
+      }
+
+      event.dataTransfer.dropEffect = "copy"
+    },
+    [isPending],
+  )
+
+  const handleDragLeave = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+
+    const relatedTarget = event.relatedTarget as Node | null
+    if (relatedTarget && event.currentTarget.contains(relatedTarget)) {
+      return
+    }
+
+    setIsDragActive(false)
+  }, [])
+
+  const handleDrop = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      event.preventDefault()
+      event.stopPropagation()
+
+      if (isPending) {
+        setIsDragActive(false)
+        return
+      }
+
+      const fileList = event.dataTransfer.files
+      setIsDragActive(false)
+
+      if (!fileList || fileList.length === 0) {
+        return
+      }
+
+      handleFilesUpload(fileList)
+    },
+    [handleFilesUpload, isPending],
+  )
+
+  const dropZoneClasses = cn(
+    "flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-muted-foreground/40 p-6 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+    isDragActive && "border-primary bg-primary/10",
+    isPending ? "cursor-not-allowed opacity-75" : "cursor-pointer",
   )
 
   const handleDelete = (fileName: string) => {
@@ -106,8 +263,9 @@ export function UnitFilesPanel({ unitId, initialFiles }: UnitFilesPanelProps) {
           <input
             ref={inputRef}
             type="file"
-            onChange={handleUpload}
+            onChange={handleFileInputChange}
             disabled={isPending}
+            multiple
             className="hidden"
             id="unit-file-upload"
           />
@@ -115,7 +273,7 @@ export function UnitFilesPanel({ unitId, initialFiles }: UnitFilesPanelProps) {
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => inputRef.current?.click()}
+            onClick={handleBrowseClick}
             disabled={isPending}
           >
             {isPending ? (
@@ -123,11 +281,47 @@ export function UnitFilesPanel({ unitId, initialFiles }: UnitFilesPanelProps) {
             ) : (
               <Upload className="mr-2 h-4 w-4" />
             )}
-            Upload File
+            Upload Files
           </Button>
         </div>
       </CardHeader>
       <CardContent>
+        <div
+          role="button"
+          tabIndex={0}
+          aria-disabled={isPending}
+          aria-busy={uploadProgress !== null}
+          onClick={handleBrowseClick}
+          onKeyDown={handleZoneKeyDown}
+          onDragEnter={handleDragEnter}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className={dropZoneClasses}
+        >
+          <Upload className="h-6 w-6 text-muted-foreground" aria-hidden="true" />
+          <div className="text-sm font-medium">
+            {uploadProgress ? "Uploading files..." : "Drag and drop files here"}
+          </div>
+          {uploadProgress ? (
+            <div className="w-full max-w-sm space-y-2">
+              <Progress
+                value={(uploadProgress.completed / uploadProgress.total) * 100}
+                aria-label="Upload progress"
+              />
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>
+                  Processed {uploadProgress.completed}/{uploadProgress.total}
+                </span>
+                <span>Uploaded {uploadProgress.successful}</span>
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              or click to browse your device
+            </p>
+          )}
+        </div>
         {files.length === 0 ? (
           <p className="text-sm text-muted-foreground">No files uploaded yet.</p>
         ) : (
