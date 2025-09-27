@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic"
+
 import { readGroupsAction, readGroupAction } from "@/lib/server-updates"
 import { ReportsTable } from "./reports-table"
 
