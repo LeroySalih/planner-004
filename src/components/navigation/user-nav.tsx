@@ -108,7 +108,7 @@ export function UserNav() {
   return (
     <div className="flex items-center gap-2">
       <Link
-        href={`/profile/dashboard/${profile.userId}`}
+        href={`/profiles/${profile.userId}`}
         className="rounded-full border border-border bg-card px-3 py-2 text-sm font-medium text-foreground shadow-sm underline-offset-4 hover:underline"
       >
         {profile.displayName}
