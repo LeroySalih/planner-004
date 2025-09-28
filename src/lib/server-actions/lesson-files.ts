@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
-import { supabaseServer } from "@/lib/supabaseClient"
+import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 const LESSON_FILES_BUCKET = "lessons"
 
@@ -42,7 +42,9 @@ function buildVersionedName(name: string) {
 }
 
 export async function listLessonFilesAction(lessonId: string) {
-  const { data, error } = await supabaseServer.storage
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error } = await supabase.storage
     .from(LESSON_FILES_BUCKET)
     .list(lessonId, { limit: 100 })
 
@@ -89,7 +91,8 @@ export async function uploadLessonFileAction(formData: FormData) {
   }
 
   const fileName = file.name
-  const bucket = supabaseServer.storage.from(LESSON_FILES_BUCKET)
+  const supabase = await createSupabaseServerClient()
+  const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
   const fullPath = buildFilePath(lessonId, fileName)
 
   const { data: existingFiles, error: listError } = await bucket.list(lessonId, {
@@ -131,7 +134,8 @@ export async function uploadLessonFileAction(formData: FormData) {
 }
 
 export async function deleteLessonFileAction(unitId: string, lessonId: string, fileName: string) {
-  const bucket = supabaseServer.storage.from(LESSON_FILES_BUCKET)
+  const supabase = await createSupabaseServerClient()
+  const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
   const { error } = await bucket.remove([buildFilePath(lessonId, fileName)])
 
   if (error) {
@@ -146,7 +150,8 @@ export async function deleteLessonFileAction(unitId: string, lessonId: string, f
 }
 
 export async function getLessonFileDownloadUrlAction(lessonId: string, fileName: string) {
-  const bucket = supabaseServer.storage.from(LESSON_FILES_BUCKET)
+  const supabase = await createSupabaseServerClient()
+  const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
   const { data, error } = await bucket.createSignedUrl(buildFilePath(lessonId, fileName), 60 * 10)
 
   if (error) {

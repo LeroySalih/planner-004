@@ -2,7 +2,7 @@
 
 // --file: src/actions/units/get-units.ts
 
-import { supabaseServer } from "@/lib/supabaseClient"
+import { createSupabaseServerClient } from "@/lib/supabase/server"
 import { UnitsSchema } from "./types";
 
 import {z} from "zod";
@@ -18,7 +18,9 @@ export async function getUnits() {
 
     try {
 
-        const result = await supabaseServer
+        const supabase = await createSupabaseServerClient()
+
+        const result = await supabase
                 .from("units")
                 .select("*")
 

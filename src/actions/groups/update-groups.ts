@@ -1,7 +1,8 @@
 import { Group, GroupSchema } from "./types";
 import { z} from "zod";
-import { supabaseServer } from "@/lib/supabaseClient"
 import { revalidatePath } from "next/cache";
+
+import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 
 const ReturnValueSchema = z.object({
@@ -15,7 +16,9 @@ export const updateGroup = async (prev: {data: Group | null, error: string | nul
 
     let data =null, error=null;
     try{
-        const result = await supabaseServer
+        const supabase = await createSupabaseServerClient()
+
+        const result = await supabase
                 .from("groups")
                 .upsert(group)
                 .select()
@@ -35,4 +38,3 @@ export const updateGroup = async (prev: {data: Group | null, error: string | nul
         return ReturnValueSchema.parse({data, error});
     }
 }
-

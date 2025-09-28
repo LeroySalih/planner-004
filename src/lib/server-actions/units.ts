@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
 import { UnitSchema, UnitsSchema } from "@/types"
-import { supabaseServer } from "@/lib/supabaseClient"
+import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 const UnitsReturnValue = z.object({
   data: UnitsSchema.nullable(),
@@ -25,6 +25,8 @@ export async function createUnitAction(
 ) {
   console.log("[v0] Server action started for unit creation:", { unitId, title, subject, year })
 
+  const supabase = await createSupabaseServerClient()
+
   const sanitizedYear =
     typeof year === "number" && Number.isFinite(year)
       ? Math.min(Math.max(Math.trunc(year), 1), 13)
@@ -35,7 +37,7 @@ export async function createUnitAction(
   let lastError: { message: string } | null = null
 
   while (attempt < 5) {
-    const { data, error } = await supabaseServer
+    const { data, error } = await supabase
       .from("units")
       .insert({
         unit_id: finalUnitId,
@@ -85,7 +87,9 @@ export async function createUnitAction(
 export async function readUnitAction(unitId: string) {
   console.log("[v0] Server action started for reading unit:", { unitId })
 
-  const { data, error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error } = await supabase
     .from("units")
     .select("*")
     .eq("unit_id", unitId)
@@ -106,7 +110,9 @@ export async function readUnitsAction() {
 
   let error: string | null = null
 
-  const { data, error: readError } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error: readError } = await supabase
     .from("units")
     .select("*")
 
@@ -126,6 +132,8 @@ export async function updateUnitAction(
 ) {
   console.log("[v0] Server action started for unit update:", { unitId, updates })
 
+  const supabase = await createSupabaseServerClient()
+
   const payload: Record<string, unknown> = {
     title: updates.title,
     subject: updates.subject,
@@ -140,7 +148,7 @@ export async function updateUnitAction(
     payload.active = updates.active
   }
 
-  const { data, error } = await supabaseServer
+  const { data, error } = await supabase
     .from("units")
     .update(payload)
     .eq("unit_id", unitId)
@@ -164,7 +172,9 @@ export async function updateUnitAction(
 export async function deleteUnitAction(unitId: string) {
   console.log("[v0] Server action started for unit deletion:", { unitId })
 
-  const { error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { error } = await supabase
     .from("units")
     .update({ active: false })
     .eq("unit_id", unitId)

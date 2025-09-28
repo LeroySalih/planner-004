@@ -3,7 +3,7 @@
 import { z } from "zod"
 
 import { FeedbacksSchema } from "@/types"
-import { supabaseServer } from "@/lib/supabaseClient"
+import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 const FeedbackListReturnValue = z.object({
   data: FeedbacksSchema.nullable(),
@@ -23,7 +23,9 @@ const FeedbackMutationResult = z.object({
 })
 
 export async function readFeedbackForLessonAction(lessonId: string) {
-  const { data, error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error } = await supabase
     .from("feedback")
     .select("*")
     .eq("lesson_id", lessonId)
@@ -40,7 +42,9 @@ export async function upsertFeedbackAction(input: z.infer<typeof FeedbackMutatio
   const payload = FeedbackMutationInput.parse(input)
 
   if (payload.rating === null) {
-    const { error } = await supabaseServer
+    const supabase = await createSupabaseServerClient()
+
+    const { error } = await supabase
       .from("feedback")
       .delete()
       .eq("user_id", payload.userId)
@@ -55,7 +59,9 @@ export async function upsertFeedbackAction(input: z.infer<typeof FeedbackMutatio
     return FeedbackMutationResult.parse({ success: true, error: null })
   }
 
-  const { error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { error } = await supabase
     .from("feedback")
     .upsert(
       {

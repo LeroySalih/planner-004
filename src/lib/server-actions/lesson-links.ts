@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
-import { supabaseServer } from "@/lib/supabaseClient"
+import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 const LessonLinkSchema = z.object({
   lesson_link_id: z.string(),
@@ -18,7 +18,9 @@ const LessonLinksReturnValue = z.object({
 })
 
 export async function listLessonLinksAction(lessonId: string) {
-  const { data, error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error } = await supabase
     .from("lesson_links")
     .select("*")
     .eq("lesson_id", lessonId)
@@ -38,7 +40,9 @@ export async function createLessonLinkAction(
   url: string,
   description: string | null,
 ) {
-  const { data, error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error } = await supabase
     .from("lesson_links")
     .insert({
       lesson_id: lessonId,
@@ -65,7 +69,9 @@ export async function updateLessonLinkAction(
   url: string,
   description: string | null,
 ) {
-  const { data, error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error } = await supabase
     .from("lesson_links")
     .update({ url, description })
     .eq("lesson_link_id", lessonLinkId)
@@ -83,7 +89,9 @@ export async function updateLessonLinkAction(
 }
 
 export async function deleteLessonLinkAction(unitId: string, lessonId: string, lessonLinkId: string) {
-  const { error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { error } = await supabase
     .from("lesson_links")
     .delete()
     .eq("lesson_link_id", lessonLinkId)

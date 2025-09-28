@@ -5,7 +5,7 @@ import { z } from "zod"
 
 import type { Assignment } from "@/types"
 import { AssignmentSchema, AssignmentsSchema } from "@/types"
-import { supabaseServer } from "@/lib/supabaseClient"
+import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 const AssignmentReturnValue = z.object({
   data: AssignmentSchema.nullable(),
@@ -27,7 +27,9 @@ export async function createAssignmentAction(
 ) {
   console.log("[v0] Server action started for assignment creation:", { groupId, unitId, startDate, endDate })
 
-  const { data, error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error } = await supabase
     .from("assignments")
     .insert({
       group_id: groupId,
@@ -53,7 +55,9 @@ export async function createAssignmentAction(
 export async function readAssignmentAction(groupId: string, unitId: string, startDate: string) {
   console.log("[v0] Server action started for reading assignment:", { groupId, unitId, startDate })
 
-  const { data, error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error } = await supabase
     .from("assignments")
     .select("*")
     .eq("group_id", groupId)
@@ -78,7 +82,9 @@ export async function readAssignmentsAction() {
 
   let error: string | null = null
 
-  const { data, error: readError } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error: readError } = await supabase
     .from("assignments")
     .select("*")
     .eq("active", true)
@@ -96,7 +102,9 @@ export async function readAssignmentsAction() {
 export async function readAssignmentsForGroupAction(groupId: string) {
   console.log("[v0] Server action started for reading assignments for group:", { groupId })
 
-  const { data, error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error } = await supabase
     .from("assignments")
     .select("*")
     .eq("group_id", groupId)
@@ -129,7 +137,9 @@ export async function updateAssignmentAction(
   const matchUnitId = options?.originalUnitId ?? unitId
   const matchStartDate = options?.originalStartDate ?? startDate
 
-  const { data, error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error } = await supabase
     .from("assignments")
     .update({
       unit_id: unitId,
@@ -157,7 +167,9 @@ export async function updateAssignmentAction(
 export async function deleteAssignmentAction(groupId: string, unitId: string, startDate: string) {
   console.log("[v0] Server action started for assignment deletion:", { groupId, unitId, startDate })
 
-  const { error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { error } = await supabase
     .from("assignments")
     .update({ active: false })
     .eq("group_id", groupId)
@@ -190,7 +202,9 @@ export async function batchCreateAssignmentsAction(assignments: Assignment[]) {
     active: assignment.active ?? true,
   }))
 
-  const { error } = await supabaseServer.from("assignments").insert(payload)
+  const supabase = await createSupabaseServerClient()
+
+  const { error } = await supabase.from("assignments").insert(payload)
 
   if (error) {
     console.error("[v0] Server action failed for batch assignment creation:", error)
@@ -210,10 +224,12 @@ export async function batchDeleteAssignmentsAction(assignments: { groupId: strin
     return { success: true, count: 0 }
   }
 
+  const supabase = await createSupabaseServerClient()
+
   const errors: string[] = []
 
   for (const assignment of assignments) {
-    const { error } = await supabaseServer
+    const { error } = await supabase
       .from("assignments")
       .update({ active: false })
       .eq("group_id", assignment.groupId)

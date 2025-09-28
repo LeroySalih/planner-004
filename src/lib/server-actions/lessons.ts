@@ -9,7 +9,7 @@ import {
   LessonWithObjectivesSchema,
   LessonsWithObjectivesSchema,
 } from "@/types"
-import { supabaseServer } from "@/lib/supabaseClient"
+import { createSupabaseServerClient } from "@/lib/supabase/server"
 import { fetchSuccessCriteriaForLearningObjectives } from "./learning-objectives"
 
 const LessonsReturnValue = z.object({
@@ -27,7 +27,9 @@ const ObjectiveIdsSchema = z.array(z.string()).max(50)
 export async function readLessonsByUnitAction(unitId: string) {
   console.log("[v0] Server action started for lessons:", { unitId })
 
-  const { data, error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error } = await supabase
     .from("lessons")
     .select(
       `*,
@@ -84,7 +86,9 @@ export async function readLessonsByUnitAction(unitId: string) {
 export async function readLessonsAction() {
   console.log("[v0] Server action started for all lessons")
 
-  const { data, error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error } = await supabase
     .from("lessons")
     .select(
       `*,
@@ -141,7 +145,9 @@ export async function createLessonAction(unitId: string, title: string, objectiv
 
   const sanitizedObjectiveIds = ObjectiveIdsSchema.parse(objectiveIds)
 
-  const { data: maxOrderLesson } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { data: maxOrderLesson } = await supabase
     .from("lessons")
     .select("order_by")
     .eq("unit_id", unitId)
@@ -151,7 +157,7 @@ export async function createLessonAction(unitId: string, title: string, objectiv
 
   const nextOrder = (maxOrderLesson?.order_by ?? -1) + 1
 
-  const { data, error } = await supabaseServer
+  const { data, error } = await supabase
     .from("lessons")
     .insert({ unit_id: unitId, title, active: true, order_by: nextOrder })
     .select("*")
@@ -163,7 +169,7 @@ export async function createLessonAction(unitId: string, title: string, objectiv
   }
 
   if (sanitizedObjectiveIds.length > 0) {
-    const { error: linkError } = await supabaseServer
+    const { error: linkError } = await supabase
       .from("lessons_learning_objective")
       .insert(
         sanitizedObjectiveIds.map((learningObjectiveId, index) => ({
@@ -195,7 +201,9 @@ export async function updateLessonAction(
 
   const sanitizedObjectiveIds = ObjectiveIdsSchema.parse(objectiveIds)
 
-  const { data, error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error } = await supabase
     .from("lessons")
     .update({ title })
     .eq("lesson_id", lessonId)
@@ -207,7 +215,7 @@ export async function updateLessonAction(
     return LessonReturnValue.parse({ data: null, error: error.message })
   }
 
-  const { data: existingLinks, error: readLinksError } = await supabaseServer
+  const { data: existingLinks, error: readLinksError } = await supabase
     .from("lessons_learning_objective")
     .select("learning_objective_id")
     .eq("lesson_id", lessonId)
@@ -226,7 +234,7 @@ export async function updateLessonAction(
   // Update order and ensure active for retained objectives
   for (const [index, learningObjectiveId] of sanitizedObjectiveIds.entries()) {
     if (existingIds.has(learningObjectiveId)) {
-      const { error: updateLinkError } = await supabaseServer
+      const { error: updateLinkError } = await supabase
         .from("lessons_learning_objective")
         .update({ order_by: index, active: true })
         .eq("lesson_id", lessonId)
@@ -240,7 +248,7 @@ export async function updateLessonAction(
   }
 
   if (idsToDelete.length > 0) {
-    const { error: deleteError } = await supabaseServer
+    const { error: deleteError } = await supabase
       .from("lessons_learning_objective")
       .delete()
       .eq("lesson_id", lessonId)
@@ -253,7 +261,7 @@ export async function updateLessonAction(
   }
 
   if (idsToInsert.length > 0) {
-    const { error: insertError } = await supabaseServer
+    const { error: insertError } = await supabase
       .from("lessons_learning_objective")
       .insert(
         idsToInsert.map((learningObjectiveId) => ({
@@ -278,7 +286,9 @@ export async function updateLessonAction(
 export async function deactivateLessonAction(lessonId: string, unitId: string) {
   console.log("[v0] Server action started for lesson deactivation:", { lessonId, unitId })
 
-  const { error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { error } = await supabase
     .from("lessons")
     .update({ active: false })
     .eq("lesson_id", lessonId)
@@ -303,8 +313,10 @@ export async function reorderLessonsAction(
 
   const updates = ordering.sort((a, b) => a.orderBy - b.orderBy)
 
+  const supabase = await createSupabaseServerClient()
+
   for (const update of updates) {
-    const { error } = await supabaseServer
+    const { error } = await supabase
       .from("lessons")
       .update({ order_by: update.orderBy })
       .eq("lesson_id", update.lessonId)
@@ -374,7 +386,9 @@ async function enrichLessonsWithSuccessCriteria<T extends { lessons_learning_obj
 }
 
 async function readLessonWithObjectives(lessonId: string) {
-  const { data, error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error } = await supabase
     .from("lessons")
     .select(
       `*,

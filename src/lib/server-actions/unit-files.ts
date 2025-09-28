@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
-import { supabaseServer } from "@/lib/supabaseClient"
+import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 const UNIT_FILES_BUCKET = "units"
 
@@ -44,7 +44,9 @@ function buildVersionedName(name: string) {
 export async function listUnitFilesAction(unitId: string) {
   console.log("[v0] Server action started for listing unit files:", { unitId })
 
-  const { data, error } = await supabaseServer.storage
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error } = await supabase.storage
     .from(UNIT_FILES_BUCKET)
     .list(unitId, { limit: 100 })
 
@@ -86,7 +88,8 @@ export async function uploadUnitFileAction(formData: FormData) {
   }
 
   const fileName = file.name
-  const bucket = supabaseServer.storage.from(UNIT_FILES_BUCKET)
+  const supabase = await createSupabaseServerClient()
+  const bucket = supabase.storage.from(UNIT_FILES_BUCKET)
   const fullPath = buildFilePath(unitId, fileName)
 
   const { data: existingFiles, error: listError } = await bucket.list(unitId, {
@@ -126,7 +129,8 @@ export async function uploadUnitFileAction(formData: FormData) {
 }
 
 export async function deleteUnitFileAction(unitId: string, fileName: string) {
-  const bucket = supabaseServer.storage.from(UNIT_FILES_BUCKET)
+  const supabase = await createSupabaseServerClient()
+  const bucket = supabase.storage.from(UNIT_FILES_BUCKET)
   const { error } = await bucket.remove([buildFilePath(unitId, fileName)])
 
   if (error) {
@@ -139,7 +143,8 @@ export async function deleteUnitFileAction(unitId: string, fileName: string) {
 }
 
 export async function getUnitFileDownloadUrlAction(unitId: string, fileName: string) {
-  const bucket = supabaseServer.storage.from(UNIT_FILES_BUCKET)
+  const supabase = await createSupabaseServerClient()
+  const bucket = supabase.storage.from(UNIT_FILES_BUCKET)
   const { data, error } = await bucket.createSignedUrl(buildFilePath(unitId, fileName), 60 * 10)
 
   if (error) {

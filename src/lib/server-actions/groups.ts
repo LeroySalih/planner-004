@@ -5,7 +5,7 @@ import { z } from "zod"
 
 import { GroupsSchema, GroupWithMembershipSchema, GroupMembershipsSchema, ProfilesSchema } from "@/types"
 
-import { supabaseServer } from "@/lib/supabaseClient"
+import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 const GroupReturnValue = z.object({
   data: GroupWithMembershipSchema.nullable(),
@@ -33,7 +33,9 @@ export async function createGroupAction(groupId: string, subject: string): Promi
   const joinCode = generateJoinCode()
   console.log("[v0] Server action started for group:", { groupId, subject, joinCode })
 
-  const { data, error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error } = await supabase
     .from("groups")
     .insert({
       group_id: groupId,
@@ -59,7 +61,9 @@ export async function createGroupAction(groupId: string, subject: string): Promi
 export async function readGroupAction(groupId: string) {
   console.log("[v0] Server action started for reading group:", { groupId })
 
-  const { data, error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error } = await supabase
     .from("groups")
     .select("*")
     .eq("group_id", groupId)
@@ -71,7 +75,7 @@ export async function readGroupAction(groupId: string) {
     return GroupReturnValue.parse({ data: null, error: error.message })
   }
 
-  const { data: membership, error: membershipError } = await supabaseServer
+  const { data: membership, error: membershipError } = await supabase
     .from("group_membership")
     .select("*")
     .eq("group_id", groupId)
@@ -90,7 +94,7 @@ export async function readGroupAction(groupId: string) {
   let parsedProfiles: z.infer<typeof ProfilesSchema> = []
   if (parsedMembership.length > 0) {
     const memberIds = parsedMembership.map((member) => member.user_id)
-    const { data: profiles, error: profilesError } = await supabaseServer
+    const { data: profiles, error: profilesError } = await supabase
       .from("profiles")
       .select("user_id, first_name, last_name, is_teacher")
       .in("user_id", memberIds)
@@ -122,7 +126,9 @@ export async function readGroupsAction() {
   
   let error: string | null = null;
 
-  const { data, error: readError } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error: readError } = await supabase
     .from("groups")
     .select("*")
     .eq("active", true);
@@ -141,7 +147,9 @@ export async function readGroupsAction() {
 export async function updateGroupAction(oldGroupId: string, newGroupId: string, subject: string) {
   console.log("[v0] Server action started for group update:", { oldGroupId, newGroupId, subject })
 
-  const { error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { error } = await supabase
     .from("groups")
     .update({ group_id: newGroupId, subject })
     .eq("group_id", oldGroupId)
@@ -160,7 +168,9 @@ export async function updateGroupAction(oldGroupId: string, newGroupId: string, 
 export async function deleteGroupAction(groupId: string) {
   console.log("[v0] Server action started for group deletion:", { groupId })
 
-  const { error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { error } = await supabase
     .from("groups")
     .update({ active: false })
     .eq("group_id", groupId)

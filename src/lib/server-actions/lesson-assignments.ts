@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
 import { LessonAssignmentSchema, LessonAssignmentsSchema } from "@/types"
-import { supabaseServer } from "@/lib/supabaseClient"
+import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 const LessonAssignmentReturnValue = z.object({
   data: LessonAssignmentSchema.nullable(),
@@ -21,7 +21,9 @@ export type LessonAssignmentActionResult = z.infer<typeof LessonAssignmentReturn
 export async function readLessonAssignmentsAction() {
   console.log("[v0] Server action started for reading lesson assignments")
 
-  const { data, error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error } = await supabase
     .from("lesson_assignments")
     .select("*")
 
@@ -42,7 +44,9 @@ export async function upsertLessonAssignmentAction(groupId: string, lessonId: st
     startDate,
   })
 
-  const { data: existing, error: readError } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { data: existing, error: readError } = await supabase
     .from("lesson_assignments")
     .select("*")
     .eq("group_id", groupId)
@@ -57,7 +61,7 @@ export async function upsertLessonAssignmentAction(groupId: string, lessonId: st
   let resultData = existing ?? null
 
   if (existing) {
-    const { data, error } = await supabaseServer
+    const { data, error } = await supabase
       .from("lesson_assignments")
       .update({ start_date: startDate })
       .eq("group_id", groupId)
@@ -72,7 +76,7 @@ export async function upsertLessonAssignmentAction(groupId: string, lessonId: st
 
     resultData = data
   } else {
-    const { data, error } = await supabaseServer
+    const { data, error } = await supabase
       .from("lesson_assignments")
       .insert({ group_id: groupId, lesson_id: lessonId, start_date: startDate })
       .select()
@@ -99,7 +103,9 @@ export async function upsertLessonAssignmentAction(groupId: string, lessonId: st
 export async function deleteLessonAssignmentAction(groupId: string, lessonId: string) {
   console.log("[v0] Server action started for deleting lesson assignment:", { groupId, lessonId })
 
-  const { error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { error } = await supabase
     .from("lesson_assignments")
     .delete()
     .eq("group_id", groupId)

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
 import { LessonActivitySchema, LessonActivitiesSchema } from "@/types"
-import { supabaseServer } from "@/lib/supabaseClient"
+import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 const LessonActivitiesReturnValue = z.object({
   data: LessonActivitiesSchema.nullable(),
@@ -35,7 +35,9 @@ const ReorderActivityInputSchema = z
   .max(200)
 
 export async function listLessonActivitiesAction(lessonId: string) {
-  const { data, error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error } = await supabase
     .from("activities")
     .select("*")
     .eq("lesson_id", lessonId)
@@ -73,7 +75,9 @@ export async function createLessonActivityAction(
     return { success: false, error: normalizedBody.error, data: null }
   }
 
-  const { data: maxOrderActivity, error: maxOrderError } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { data: maxOrderActivity, error: maxOrderError } = await supabase
     .from("activities")
     .select("order_by")
     .eq("lesson_id", lessonId)
@@ -88,7 +92,7 @@ export async function createLessonActivityAction(
 
   const nextOrder = typeof maxOrderActivity?.order_by === "number" ? maxOrderActivity.order_by + 1 : 0
 
-  const { data, error } = await supabaseServer
+  const { data, error } = await supabase
     .from("activities")
     .insert({
       lesson_id: lessonId,
@@ -125,7 +129,9 @@ export async function updateLessonActivityAction(
   const payload = UpdateActivityInputSchema.parse(input)
   const updates: Record<string, unknown> = {}
 
-  const { data: existing, error: existingError } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { data: existing, error: existingError } = await supabase
     .from("activities")
     .select("activity_id, type, body_data")
     .eq("activity_id", activityId)
@@ -172,7 +178,7 @@ export async function updateLessonActivityAction(
     return { success: true, data: null }
   }
 
-  const { data, error } = await supabaseServer
+  const { data, error } = await supabase
     .from("activities")
     .update(updates)
     .eq("activity_id", activityId)
@@ -204,7 +210,9 @@ export async function reorderLessonActivitiesAction(
 
   const activityIds = payload.map((entry) => entry.activityId)
 
-  const { data: existing, error: existingError } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { data: existing, error: existingError } = await supabase
     .from("activities")
     .select("activity_id")
     .eq("lesson_id", lessonId)
@@ -219,7 +227,7 @@ export async function reorderLessonActivitiesAction(
     return { success: false, error: "Some activities were not found for this lesson." }
   }
 
-  const { error } = await supabaseServer
+  const { error } = await supabase
     .from("activities")
     .upsert(
       payload.map((entry) => ({
@@ -241,7 +249,9 @@ export async function reorderLessonActivitiesAction(
 }
 
 export async function deleteLessonActivityAction(unitId: string, lessonId: string, activityId: string) {
-  const { error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { error } = await supabase
     .from("activities")
     .delete()
     .eq("activity_id", activityId)

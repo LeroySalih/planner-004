@@ -14,7 +14,7 @@ import {
   SuccessCriteriaSchema,
   CurriculumSchema,
 } from "@/types"
-import { supabaseServer } from "@/lib/supabaseClient"
+import { createSupabaseServerClient } from "@/lib/supabase/server"
 import {
   fetchSuccessCriteriaForLearningObjectives,
   type NormalizedSuccessCriterion,
@@ -68,7 +68,9 @@ const SuccessCriteriaListReturnValue = z.object({
 export async function readCurriculaAction() {
   console.log("[curricula] readCurriculaAction:start")
 
-  const { data, error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error } = await supabase
     .from("curricula")
     .select("*")
     .order("title", { ascending: true })
@@ -88,6 +90,8 @@ export async function createCurriculumAction(payload: {
 }) {
   console.log("[curricula] createCurriculumAction:start", { payload })
 
+  const supabase = await createSupabaseServerClient()
+
   const title = (payload.title ?? "").trim()
   if (title.length === 0) {
     return CurriculumReturnValue.parse({ data: null, error: "Curriculum title is required" })
@@ -96,7 +100,7 @@ export async function createCurriculumAction(payload: {
   const subject = payload.subject ? payload.subject.trim() : null
   const description = payload.description ? payload.description.trim() : null
 
-  const { data, error } = await supabaseServer
+  const { data, error } = await supabase
     .from("curricula")
     .insert({
       title,
@@ -122,6 +126,8 @@ export async function updateCurriculumAction(
 ) {
   console.log("[curricula] updateCurriculumAction:start", { curriculumId, payload })
 
+  const supabase = await createSupabaseServerClient()
+
   const updates: Record<string, unknown> = {}
 
   if (payload.title !== undefined) {
@@ -144,7 +150,7 @@ export async function updateCurriculumAction(
 
   if (Object.keys(updates).length === 0) {
     console.log("[curricula] updateCurriculumAction:no-op", { curriculumId })
-    const { data, error } = await supabaseServer
+    const { data, error } = await supabase
       .from("curricula")
       .select("curriculum_id, title, subject, description")
       .eq("curriculum_id", curriculumId)
@@ -158,7 +164,7 @@ export async function updateCurriculumAction(
     return CurriculumReturnValue.parse({ data, error: null })
   }
 
-  const { data, error } = await supabaseServer
+  const { data, error } = await supabase
     .from("curricula")
     .update(updates)
     .eq("curriculum_id", curriculumId)
@@ -178,7 +184,9 @@ export async function updateCurriculumAction(
 export async function readCurriculumDetailAction(curriculumId: string) {
   console.log("[curricula] readCurriculumDetailAction:start", { curriculumId })
 
-  const { data, error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error } = await supabase
     .from("curricula")
     .select(
       `curriculum_id,
@@ -221,7 +229,11 @@ export async function readCurriculumDetailAction(curriculumId: string) {
   let successCriteriaMap = new Map<string, NormalizedSuccessCriterion[]>()
 
   if (learningObjectives.length > 0) {
-    const { map, error: scError } = await fetchSuccessCriteriaForLearningObjectives(learningObjectives)
+    const { map, error: scError } = await fetchSuccessCriteriaForLearningObjectives(
+      learningObjectives,
+      undefined,
+      supabase,
+    )
     if (scError) {
       console.error("[curricula] readCurriculumDetailAction:successCriteriaError", scError)
       return CurriculumDetailReturnValue.parse({ data: null, error: scError })
@@ -268,6 +280,8 @@ export async function createCurriculumAssessmentObjectiveAction(
 ) {
   console.log("[curricula] createCurriculumAssessmentObjectiveAction:start", { curriculumId, payload })
 
+  const supabase = await createSupabaseServerClient()
+
   const sanitized = {
     curriculum_id: curriculumId,
     code: payload.code.trim(),
@@ -284,7 +298,7 @@ export async function createCurriculumAssessmentObjectiveAction(
     return AssessmentObjectiveReturnValue.parse({ data: null, error: "Assessment objective title is required" })
   }
 
-  const { data, error } = await supabaseServer
+  const { data, error } = await supabase
     .from("assessment_objectives")
     .insert(sanitized)
     .select("assessment_objective_id, curriculum_id, unit_id, code, title, order_index")
@@ -317,6 +331,8 @@ export async function updateCurriculumAssessmentObjectiveAction(
     updates,
   })
 
+  const supabase = await createSupabaseServerClient()
+
   const payload: Record<string, unknown> = {}
   if (typeof updates.code === "string") {
     const trimmed = updates.code.trim()
@@ -339,7 +355,7 @@ export async function updateCurriculumAssessmentObjectiveAction(
     payload.order_index = updates.order_index
   }
 
-  const { data, error } = await supabaseServer
+  const { data, error } = await supabase
     .from("assessment_objectives")
     .update(payload)
     .eq("assessment_objective_id", assessmentObjectiveId)
@@ -366,7 +382,9 @@ export async function deleteCurriculumAssessmentObjectiveAction(
     curriculumId,
   })
 
-  const { error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { error } = await supabase
     .from("assessment_objectives")
     .delete()
     .eq("assessment_objective_id", assessmentObjectiveId)
@@ -391,7 +409,9 @@ export async function reorderCurriculumAssessmentObjectivesAction(
     orderedAssessmentObjectiveIds,
   })
 
-  const { error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { error } = await supabase
     .from("assessment_objectives")
     .upsert(
       orderedAssessmentObjectiveIds.map((assessmentObjectiveId, index) => ({
@@ -408,7 +428,7 @@ export async function reorderCurriculumAssessmentObjectivesAction(
 
   revalidatePath(`/curriculum/${curriculumId}`)
 
-  const { data, error: readError } = await supabaseServer
+  const { data, error: readError } = await supabase
     .from("assessment_objectives")
     .select(
       `assessment_objective_id,
@@ -471,6 +491,8 @@ export async function createCurriculumLearningObjectiveAction(
     payload,
   })
 
+  const supabase = await createSupabaseServerClient()
+
   const sanitized = {
     assessment_objective_id: assessmentObjectiveId,
     title: payload.title.trim(),
@@ -481,7 +503,7 @@ export async function createCurriculumLearningObjectiveAction(
     return LearningObjectiveReturnValue.parse({ data: null, error: "Learning objective title is required" })
   }
 
-  const { data, error } = await supabaseServer
+  const { data, error } = await supabase
     .from("learning_objectives")
     .insert(sanitized)
     .select("learning_objective_id, assessment_objective_id, title, order_index")
@@ -508,6 +530,8 @@ export async function updateCurriculumLearningObjectiveAction(
     updates,
   })
 
+  const supabase = await createSupabaseServerClient()
+
   const payload: Record<string, unknown> = {}
   if (typeof updates.title === "string") {
     const trimmed = updates.title.trim()
@@ -520,7 +544,7 @@ export async function updateCurriculumLearningObjectiveAction(
     payload.order_index = updates.order_index
   }
 
-  const { data, error } = await supabaseServer
+  const { data, error } = await supabase
     .from("learning_objectives")
     .update(payload)
     .eq("learning_objective_id", learningObjectiveId)
@@ -546,7 +570,9 @@ export async function deleteCurriculumLearningObjectiveAction(
     curriculumId,
   })
 
-  const { error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { error } = await supabase
     .from("learning_objectives")
     .delete()
     .eq("learning_objective_id", learningObjectiveId)
@@ -572,7 +598,9 @@ export async function reorderCurriculumLearningObjectivesAction(
     orderedLearningObjectiveIds,
   })
 
-  const { error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { error } = await supabase
     .from("learning_objectives")
     .upsert(
       orderedLearningObjectiveIds.map((learningObjectiveId, index) => ({
@@ -589,7 +617,7 @@ export async function reorderCurriculumLearningObjectivesAction(
 
   revalidatePath(`/curriculum/${curriculumId}`)
 
-  const { data, error: readError } = await supabaseServer
+  const { data, error: readError } = await supabase
     .from("learning_objectives")
     .select(
       `learning_objective_id,
@@ -647,6 +675,8 @@ export async function createCurriculumSuccessCriterionAction(
     payload,
   })
 
+  const supabase = await createSupabaseServerClient()
+
   const sanitizedUnits = Array.from(new Set(payload.unit_ids ?? [])).filter((unitId) => unitId.trim().length > 0)
 
   const sanitized = {
@@ -661,7 +691,7 @@ export async function createCurriculumSuccessCriterionAction(
     return SuccessCriterionReturnValue.parse({ data: null, error: "Success criterion description is required" })
   }
 
-  const { data, error } = await supabaseServer
+  const { data, error } = await supabase
     .from("success_criteria")
     .insert(sanitized)
     .select("success_criteria_id, learning_objective_id, level, description, order_index, active")
@@ -673,7 +703,7 @@ export async function createCurriculumSuccessCriterionAction(
   }
 
   if (sanitizedUnits.length > 0) {
-    const { error: unitError } = await supabaseServer
+    const { error: unitError } = await supabase
       .from("success_criteria_units")
       .insert(
         sanitizedUnits.map((unitId) => ({
@@ -710,6 +740,8 @@ export async function updateCurriculumSuccessCriterionAction(
     updates,
   })
 
+  const supabase = await createSupabaseServerClient()
+
   const payload: Record<string, unknown> = {}
   if (typeof updates.description === "string") {
     const trimmed = updates.description.trim()
@@ -729,7 +761,7 @@ export async function updateCurriculumSuccessCriterionAction(
   }
 
   if (Object.keys(payload).length > 0) {
-    const { error } = await supabaseServer
+    const { error } = await supabase
       .from("success_criteria")
       .update(payload)
       .eq("success_criteria_id", successCriterionId)
@@ -743,7 +775,7 @@ export async function updateCurriculumSuccessCriterionAction(
   if (updates.unit_ids) {
     const sanitizedUnits = Array.from(new Set(updates.unit_ids)).filter((unitId) => unitId.trim().length > 0)
 
-    const { data: existingLinks, error: readLinksError } = await supabaseServer
+    const { data: existingLinks, error: readLinksError } = await supabase
       .from("success_criteria_units")
       .select("unit_id")
       .eq("success_criteria_id", successCriterionId)
@@ -760,7 +792,7 @@ export async function updateCurriculumSuccessCriterionAction(
     const toDelete = Array.from(existingSet).filter((unitId) => !sanitizedSet.has(unitId))
 
     if (toDelete.length > 0) {
-      const { error: deleteError } = await supabaseServer
+      const { error: deleteError } = await supabase
         .from("success_criteria_units")
         .delete()
         .eq("success_criteria_id", successCriterionId)
@@ -773,7 +805,7 @@ export async function updateCurriculumSuccessCriterionAction(
     }
 
     if (toInsert.length > 0) {
-      const { error: insertError } = await supabaseServer
+      const { error: insertError } = await supabase
         .from("success_criteria_units")
         .insert(
           toInsert.map((unitId) => ({
@@ -789,7 +821,7 @@ export async function updateCurriculumSuccessCriterionAction(
     }
   }
 
-  const { data, error: readError } = await supabaseServer
+  const { data, error: readError } = await supabase
     .from("success_criteria")
     .select(
       "success_criteria_id, learning_objective_id, level, description, order_index, active, success_criteria_units(unit_id)",
@@ -831,7 +863,9 @@ export async function deleteCurriculumSuccessCriterionAction(
     curriculumId,
   })
 
-  const { error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { error } = await supabase
     .from("success_criteria")
     .delete()
     .eq("success_criteria_id", successCriterionId)
@@ -857,7 +891,9 @@ export async function reorderCurriculumSuccessCriteriaAction(
     orderedSuccessCriterionIds,
   })
 
-  const { error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { error } = await supabase
     .from("success_criteria")
     .upsert(
       orderedSuccessCriterionIds.map((successCriterionId, index) => ({
@@ -874,7 +910,7 @@ export async function reorderCurriculumSuccessCriteriaAction(
 
   revalidatePath(`/curriculum/${curriculumId}`)
 
-  const { data, error: readError } = await supabaseServer
+  const { data, error: readError } = await supabase
     .from("success_criteria")
     .select("success_criteria_id, learning_objective_id, level, description, order_index, active, success_criteria_units(unit_id)")
     .eq("learning_objective_id", learningObjectiveId)

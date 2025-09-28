@@ -2,7 +2,7 @@
 
 // --file: src/actions/groups/get-groups.ts
 
-import { supabaseServer } from "@/lib/supabaseClient"
+import { createSupabaseServerClient } from "@/lib/supabase/server"
 import { AssignmentsSchema } from "./types";
 
 import {z} from "zod";
@@ -14,7 +14,9 @@ const ReturnValSchema = z.object({
 
 export async function getAssignments() {
   try {
-    const { data, error } = await supabaseServer
+    const supabase = await createSupabaseServerClient()
+
+    const { data, error } = await supabase
       .from("assignments")
       .select("*");
 

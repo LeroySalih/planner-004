@@ -10,7 +10,7 @@ import {
   AssignmentWithUnitSchema,
   UnitSchema,
 } from "@/types"
-import { supabaseServer } from "@/lib/supabaseClient"
+import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 const PupilReportSchema = z.object({
   profile: ProfileSchema.nullable(),
@@ -22,18 +22,20 @@ const PupilReportSchema = z.object({
 export type PupilReport = z.infer<typeof PupilReportSchema>
 
 export async function readPupilReportAction(pupilId: string) {
+  const supabase = await createSupabaseServerClient()
+
   const [{ data: profileData, error: profileError }, { data: membershipData, error: membershipError }, { data: feedbackData, error: feedbackError }] =
     await Promise.all([
-      supabaseServer
+      supabase
         .from("profiles")
         .select("user_id, first_name, last_name, is_teacher")
         .eq("user_id", pupilId)
         .maybeSingle(),
-      supabaseServer
+      supabase
         .from("group_membership")
         .select("group_id, user_id, role, groups(*)")
         .eq("user_id", pupilId),
-      supabaseServer
+      supabase
         .from("feedback")
         .select("*")
         .eq("user_id", pupilId),
@@ -61,7 +63,7 @@ export async function readPupilReportAction(pupilId: string) {
 
   let assignmentsRows: Array<z.infer<typeof AssignmentWithUnitSchema>> = []
   if (groupIds.length > 0) {
-    const { data: assignmentsData, error: assignmentsError } = await supabaseServer
+    const { data: assignmentsData, error: assignmentsError } = await supabase
       .from("assignments")
       .select("group_id, unit_id, start_date, end_date, active")
       .in("group_id", groupIds)
@@ -81,7 +83,7 @@ export async function readPupilReportAction(pupilId: string) {
   if (assignmentsRows.length > 0) {
     const unitIds = Array.from(new Set(assignmentsRows.map((row) => row.unit_id)))
     if (unitIds.length > 0) {
-      const { data: unitsData, error: unitsError } = await supabaseServer
+      const { data: unitsData, error: unitsError } = await supabase
         .from("units")
         .select("*")
         .in("unit_id", unitIds)

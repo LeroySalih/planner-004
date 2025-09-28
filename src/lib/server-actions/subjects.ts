@@ -3,7 +3,7 @@
 import { z } from "zod"
 
 import { SubjectsSchema } from "@/types"
-import { supabaseServer } from "@/lib/supabaseClient"
+import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 const SubjectsReturnValue = z.object({
   data: SubjectsSchema.nullable(),
@@ -15,7 +15,9 @@ export async function readSubjectsAction() {
 
   let error: string | null = null
 
-  const { data, error: readError } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error: readError } = await supabase
     .from("subjects")
     .select("*")
     .eq("active", true)

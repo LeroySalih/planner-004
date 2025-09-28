@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
 import { LearningObjectiveSchema, SuccessCriteriaSchema } from "@/types"
-import { supabaseServer } from "@/lib/supabaseClient"
+import { createSupabaseServerClient } from "@/lib/supabase/server"
+import type { SupabaseClient } from "@supabase/supabase-js"
 
 const LearningObjectiveWithCriteriaSchema = LearningObjectiveSchema.extend({
   success_criteria: SuccessCriteriaSchema.default([]),
@@ -40,11 +41,13 @@ export type SuccessCriteriaInput = z.infer<typeof SuccessCriteriaInputSchema>
 export async function readLearningObjectivesByUnitAction(unitId: string) {
   console.log("[v0] Server action started for learning objectives:", { unitId })
 
+  const supabase = await createSupabaseServerClient()
+
   const {
     map: successCriteriaMap,
     learningObjectiveIds,
     error: successCriteriaError,
-  } = await fetchSuccessCriteriaForLearningObjectives([], unitId)
+  } = await fetchSuccessCriteriaForLearningObjectives([], unitId, supabase)
 
   if (successCriteriaError) {
     console.error("[v0] Failed to read success criteria for unit:", successCriteriaError)
@@ -55,7 +58,7 @@ export async function readLearningObjectivesByUnitAction(unitId: string) {
     return LearningObjectivesReturnValue.parse({ data: [], error: null })
   }
 
-  const { data: learningObjectives, error } = await supabaseServer
+  const { data: learningObjectives, error } = await supabase
     .from("learning_objectives")
     .select(
       `learning_objective_id,
@@ -117,12 +120,15 @@ export type NormalizedSuccessCriterion = {
 export async function fetchSuccessCriteriaForLearningObjectives(
   learningObjectiveIds: string[],
   filterUnitId?: string,
+  supabaseClient?: SupabaseClient,
 ): Promise<{
   map: Map<string, NormalizedSuccessCriterion[]>
   learningObjectiveIds: string[]
   error: string | null
 }> {
-  let criteriaQuery = supabaseServer
+  const supabase = supabaseClient ?? (await createSupabaseServerClient())
+
+  let criteriaQuery = supabase
     .from("success_criteria")
     .select("success_criteria_id, learning_objective_id, level, description, order_index, active")
 
@@ -131,7 +137,7 @@ export async function fetchSuccessCriteriaForLearningObjectives(
   if (learningObjectiveIds.length > 0) {
     criteriaQuery = criteriaQuery.in("learning_objective_id", learningObjectiveIds)
   } else if (filterUnitId) {
-    const { data: linkRows, error: linkError } = await supabaseServer
+    const { data: linkRows, error: linkError } = await supabase
       .from("success_criteria_units")
       .select("success_criteria_id")
       .eq("unit_id", filterUnitId)
@@ -171,7 +177,7 @@ export async function fetchSuccessCriteriaForLearningObjectives(
     return { map: new Map(), learningObjectiveIds: [], error: null }
   }
 
-  const { data: linkRows, error: linkError } = await supabaseServer
+  const { data: linkRows, error: linkError } = await supabase
     .from("success_criteria_units")
     .select("success_criteria_id, unit_id")
     .in("success_criteria_id", criterionIds)
@@ -243,6 +249,8 @@ export async function createLearningObjectiveAction(
 ) {
   console.log("[v0] Server action started for learning objective creation:", { unitId, title })
 
+  const supabase = await createSupabaseServerClient()
+
   const sanitizedSuccessCriteria = SuccessCriteriaInputSchema.parse(successCriteria).map((criterion, index) => {
     const description = (criterion.description ?? criterion.title ?? "").trim()
     return {
@@ -256,7 +264,7 @@ export async function createLearningObjectiveAction(
   })
   const filteredCriteria = sanitizedSuccessCriteria.filter((criterion) => criterion.description.length > 0)
 
-  const { data: assessmentObjective, error: readAoError } = await supabaseServer
+  const { data: assessmentObjective, error: readAoError } = await supabase
     .from("assessment_objectives")
     .select("assessment_objective_id")
     .eq("unit_id", unitId)
@@ -271,7 +279,7 @@ export async function createLearningObjectiveAction(
     return LearningObjectiveReturnValue.parse({ data: null, error: "No assessment objective found for unit" })
   }
 
-  const { data: learningObjective, error } = await supabaseServer
+  const { data: learningObjective, error } = await supabase
     .from("learning_objectives")
     .insert({ assessment_objective_id: assessmentObjective.assessment_objective_id, title })
     .select("*")
@@ -283,7 +291,7 @@ export async function createLearningObjectiveAction(
   }
 
   if (filteredCriteria.length > 0) {
-    const { data: insertedCriteria, error: insertError } = await supabaseServer
+    const { data: insertedCriteria, error: insertError } = await supabase
       .from("success_criteria")
       .insert(
         filteredCriteria.map((criterion) => ({
@@ -310,7 +318,7 @@ export async function createLearningObjectiveAction(
 
       const unitIds = payload.unit_ids ?? []
       if (unitIds.length > 0) {
-        const { error: unitInsertError } = await supabaseServer
+        const { error: unitInsertError } = await supabase
           .from("success_criteria_units")
           .insert(
             unitIds.map((unitId) => ({
@@ -345,6 +353,8 @@ export async function updateLearningObjectiveAction(
     title,
   })
 
+  const supabase = await createSupabaseServerClient()
+
   const sanitizedSuccessCriteria = SuccessCriteriaInputSchema.parse(successCriteria).map((criterion, index) => {
     const description = (criterion.description ?? criterion.title ?? "").trim()
     return {
@@ -358,7 +368,7 @@ export async function updateLearningObjectiveAction(
   })
   const filteredCriteria = sanitizedSuccessCriteria.filter((criterion) => criterion.description.length > 0)
 
-  const { error } = await supabaseServer
+  const { error } = await supabase
     .from("learning_objectives")
     .update({ title })
     .eq("learning_objective_id", learningObjectiveId)
@@ -368,7 +378,7 @@ export async function updateLearningObjectiveAction(
     return LearningObjectiveReturnValue.parse({ data: null, error: error.message })
   }
 
-  const { data: existingCriteria, error: readCriteriaError } = await supabaseServer
+  const { data: existingCriteria, error: readCriteriaError } = await supabase
     .from("success_criteria")
     .select("success_criteria_id, level, description, order_index, active, success_criteria_units(unit_id)")
     .eq("learning_objective_id", learningObjectiveId)
@@ -388,7 +398,7 @@ export async function updateLearningObjectiveAction(
   const idsToDelete = Array.from(existingIds).filter((id) => !incomingIds.has(id))
 
   if (idsToDelete.length > 0) {
-    const { error: deleteError } = await supabaseServer
+    const { error: deleteError } = await supabase
       .from("success_criteria")
       .delete()
       .in("success_criteria_id", idsToDelete)
@@ -401,7 +411,7 @@ export async function updateLearningObjectiveAction(
 
   const updates = filteredCriteria.filter((criterion) => criterion.success_criteria_id)
   for (const criterion of updates) {
-    const { error: updateError } = await supabaseServer
+    const { error: updateError } = await supabase
       .from("success_criteria")
       .update({
         description: criterion.description,
@@ -426,7 +436,7 @@ export async function updateLearningObjectiveAction(
     const unitsToAdd = Array.from(incomingUnits).filter((unitId) => !existingUnits.has(unitId))
 
     if (unitsToRemove.length > 0) {
-      const { error: removeError } = await supabaseServer
+      const { error: removeError } = await supabase
         .from("success_criteria_units")
         .delete()
         .eq("success_criteria_id", criterion.success_criteria_id)
@@ -439,7 +449,7 @@ export async function updateLearningObjectiveAction(
     }
 
     if (unitsToAdd.length > 0) {
-      const { error: addError } = await supabaseServer
+      const { error: addError } = await supabase
         .from("success_criteria_units")
         .insert(
           unitsToAdd.map((unitId) => ({
@@ -457,7 +467,7 @@ export async function updateLearningObjectiveAction(
 
   const inserts = filteredCriteria.filter((criterion) => !criterion.success_criteria_id)
   if (inserts.length > 0) {
-    const { data: insertedRows, error: insertError } = await supabaseServer
+    const { data: insertedRows, error: insertError } = await supabase
       .from("success_criteria")
       .insert(
         inserts.map((criterion) => ({
@@ -483,7 +493,7 @@ export async function updateLearningObjectiveAction(
 
       const units = payload.unit_ids ?? []
       if (units.length > 0) {
-        const { error: unitInsertError } = await supabaseServer
+        const { error: unitInsertError } = await supabase
           .from("success_criteria_units")
           .insert(
             units.map((unitId) => ({
@@ -509,7 +519,9 @@ export async function updateLearningObjectiveAction(
 export async function deleteLearningObjectiveAction(learningObjectiveId: string, unitId: string) {
   console.log("[v0] Server action started for learning objective deletion:", { learningObjectiveId })
 
-  const { error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { error } = await supabase
     .from("learning_objectives")
     .delete()
     .eq("learning_objective_id", learningObjectiveId)
@@ -534,8 +546,10 @@ export async function reorderLearningObjectivesAction(
 
   const updates = [...ordering].sort((a, b) => a.orderBy - b.orderBy)
 
+  const supabase = await createSupabaseServerClient()
+
   for (const update of updates) {
-    const { error } = await supabaseServer
+    const { error } = await supabase
       .from("learning_objectives")
       .update({ order_index: update.orderBy })
       .eq("learning_objective_id", update.learningObjectiveId)
@@ -551,7 +565,9 @@ export async function reorderLearningObjectivesAction(
 }
 
 async function readSingleLearningObjective(learningObjectiveId: string) {
-  const { data, error } = await supabaseServer
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error } = await supabase
     .from("learning_objectives")
     .select("*, success_criteria(*)")
     .eq("learning_objective_id", learningObjectiveId)

@@ -1,7 +1,8 @@
 import { Assignment, AssignmentSchema } from "./types";
 import { z} from "zod";
-import { supabaseServer } from "@/lib/supabaseClient"
 import { revalidatePath } from "next/cache";
+
+import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 
 const ReturnValueSchema = z.object({
@@ -15,7 +16,9 @@ export const updateAssignment = async (prev: {data: Assignment | null, error: st
 
     let data =null, error=null;
     try{
-        const result = await supabaseServer
+        const supabase = await createSupabaseServerClient()
+
+        const result = await supabase
                 .from("assignments")
                 .upsert(assignment)
                 .select()
@@ -37,4 +40,3 @@ export const updateAssignment = async (prev: {data: Assignment | null, error: st
         return ReturnValueSchema.parse({data, error});
     }
 }
-
