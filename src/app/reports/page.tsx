@@ -1,7 +1,9 @@
 import { readGroupsAction, readGroupAction } from "@/lib/server-updates"
 import { ReportsTable } from "./reports-table"
+import { requireTeacherProfile } from "@/lib/auth"
 
 export default async function ReportsLandingPage() {
+  await requireTeacherProfile()
   const groupsResult = await readGroupsAction()
   if (groupsResult.error) {
     throw new Error(groupsResult.error)

@@ -16,6 +16,7 @@ export function ProfileDetailForm({ profileId }: ProfileDetailFormProps) {
   const [firstName, setFirstName] = useState("")
   const [lastName, setLastName] = useState("")
   const [isTeacher, setIsTeacher] = useState(false)
+  const [email, setEmail] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -25,6 +26,9 @@ export function ProfileDetailForm({ profileId }: ProfileDetailFormProps) {
     setIsLoading(true)
     setError(null)
     setSuccessMessage(null)
+
+    const { data: sessionData } = await supabaseBrowserClient.auth.getUser()
+    const authUser = sessionData?.user
 
     const { data, error: profileError } = await supabaseBrowserClient
       .from("profiles")
@@ -47,6 +51,7 @@ export function ProfileDetailForm({ profileId }: ProfileDetailFormProps) {
     setFirstName(data.first_name ?? "")
     setLastName(data.last_name ?? "")
     setIsTeacher(Boolean(data.is_teacher))
+    setEmail(authUser?.id === profileId ? authUser.email ?? null : null)
     setIsLoading(false)
   }, [profileId])
 
@@ -95,6 +100,18 @@ export function ProfileDetailForm({ profileId }: ProfileDetailFormProps) {
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-6">
       <div className="space-y-2">
+        <Label htmlFor="email">Email</Label>
+        <Input
+          id="email"
+          value={email ?? ""}
+          disabled
+          readOnly
+          aria-readonly
+          placeholder="Not available"
+        />
+      </div>
+
+      <div className="space-y-2">
         <Label htmlFor="first-name">First name</Label>
         <Input
           id="first-name"
@@ -133,4 +150,3 @@ export function ProfileDetailForm({ profileId }: ProfileDetailFormProps) {
     </form>
   )
 }
-

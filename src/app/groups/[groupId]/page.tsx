@@ -2,6 +2,7 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 
 import { readGroupAction } from "@/lib/server-updates"
+import { requireTeacherProfile } from "@/lib/auth"
 
 const roleLabelMap: Record<string, string> = {
   pupil: "Pupil",
@@ -12,6 +13,7 @@ export default async function GroupDetailPage({
 }: {
   params: Promise<{ groupId: string }>
 }) {
+  await requireTeacherProfile()
   const { groupId } = await params
   const result = await readGroupAction(groupId)
 

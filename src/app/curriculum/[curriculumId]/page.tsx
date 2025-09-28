@@ -4,12 +4,14 @@ import { readCurriculumDetailAction, readUnitsAction } from "@/lib/server-update
 import type { CurriculumDetail, Units } from "@/types"
 
 import CurriculumPrototypeClient from "./curriculum-prototype-client"
+import { requireTeacherProfile } from "@/lib/auth"
 
 export default async function CurriculumDetailPage({
   params,
 }: {
   params: Promise<{ curriculumId: string }>
 }) {
+  await requireTeacherProfile()
   const { curriculumId } = await params
 
   const [curriculumResult, unitsResult] = await Promise.all([

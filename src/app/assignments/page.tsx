@@ -12,8 +12,11 @@ import {
   readLessonsAction,
   readLessonAssignmentsAction,
 } from "@/lib/server-updates"
+import { requireTeacherProfile } from "@/lib/auth"
 
 export default async function Home() {
+
+  await requireTeacherProfile()
 
   const {data:groups, error: groupsError} = await readGroupsAction();
   const {data:subjects, error: subjectsError} = await readSubjectsAction();

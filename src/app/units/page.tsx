@@ -2,8 +2,10 @@ export const dynamic = "force-dynamic"
 
 import { UnitsPageClient } from "@/components/units/units-page-client"
 import { readSubjectsAction, readUnitsAction } from "@/lib/server-updates"
+import { requireTeacherProfile } from "@/lib/auth"
 
 export default async function UnitsPage() {
+  await requireTeacherProfile()
   const [{ data: units, error: unitsError }, { data: subjects, error: subjectsError }] = await Promise.all([
     readUnitsAction(),
     readSubjectsAction(),

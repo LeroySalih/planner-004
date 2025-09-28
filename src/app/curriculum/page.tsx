@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic"
 
 import { createCurriculumAction, readCurriculaAction, readSubjectsAction } from "@/lib/server-updates"
 import { CurriculumPageClient } from "./curriculum-page-client"
+import { requireTeacherProfile } from "@/lib/auth"
 
 async function handleCreateCurriculum(formData: FormData) {
   "use server"
@@ -22,6 +23,7 @@ async function handleCreateCurriculum(formData: FormData) {
 }
 
 export default async function CurriculumIndexPage() {
+  await requireTeacherProfile()
   const [curriculaResult, subjectsResult] = await Promise.all([
     readCurriculaAction(),
     readSubjectsAction(),

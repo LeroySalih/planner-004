@@ -9,6 +9,7 @@ import "./globals.css"
 import { Toaster } from "sonner"
 
 import { UserNav } from "@/components/navigation/user-nav"
+import { TeacherNavLinks } from "@/components/navigation/teacher-links"
 
 export const metadata: Metadata = {
   title: 'Dino',
@@ -16,7 +17,7 @@ export const metadata: Metadata = {
   generator: 'open-ai & v0',
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
@@ -32,36 +33,7 @@ export default function RootLayout({
                 Dino
               </Link>
               <nav className="flex items-center gap-4 text-sm font-medium">
-                <Link
-                  href="/assignments"
-                  className="text-muted-foreground transition-colors hover:text-primary"
-                >
-                  SoW
-                </Link>
-                <Link
-                  href="/groups"
-                  className="text-muted-foreground transition-colors hover:text-primary"
-                >
-                  Groups
-                </Link>
-                <Link
-                  href="/units"
-                  className="text-muted-foreground transition-colors hover:text-primary"
-                >
-                  Units
-                </Link>
-                <Link
-                  href="/reports"
-                  className="text-muted-foreground transition-colors hover:text-primary"
-                >
-                  Reports
-                </Link>
-                <Link
-                  href="/curriculum"
-                  className="text-muted-foreground transition-colors hover:text-primary"
-                >
-                  Curriculum
-                </Link>
+                <TeacherNavLinks />
               </nav>
               <UserNav />
             </div>

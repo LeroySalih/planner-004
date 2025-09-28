@@ -15,12 +15,14 @@ import {
   readUnitAction,
   listUnitFilesAction,
 } from "@/lib/server-updates"
+import { requireTeacherProfile } from "@/lib/auth"
 
 export default async function UnitDetailPage({
   params,
 }: {
   params: Promise<{ unitId: string }>
 }) {
+  await requireTeacherProfile()
   const { unitId } = await params
 
   const [
