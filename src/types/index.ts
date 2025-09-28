@@ -23,6 +23,7 @@ export const GroupMembershipSchema = z.object({
             user_id: z.string(),
             first_name: z.string().nullable().optional(),
             last_name: z.string().nullable().optional(),
+            is_teacher: z.boolean().default(false).optional(),
         })
         .optional(),
 });
@@ -45,6 +46,7 @@ export const ProfileSchema = z.object({
     user_id: z.string(),
     first_name: z.string().nullable(),
     last_name: z.string().nullable(),
+    is_teacher: z.boolean().default(false),
 });
 
 export const ProfilesSchema = z.array(ProfileSchema);

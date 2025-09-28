@@ -26,7 +26,7 @@ export async function readPupilReportAction(pupilId: string) {
     await Promise.all([
       supabaseServer
         .from("profiles")
-        .select("user_id, first_name, last_name")
+        .select("user_id, first_name, last_name, is_teacher")
         .eq("user_id", pupilId)
         .maybeSingle(),
       supabaseServer

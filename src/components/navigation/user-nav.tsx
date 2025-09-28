@@ -22,12 +22,16 @@ type UserProfile = {
 
 export function UserNav() {
   const router = useRouter()
-  const [profile, setProfile] = useState<UserProfile | null>(null)
+  const [profile, setProfile] = useState<UserProfile | null | undefined>(undefined)
 
   useEffect(() => {
     let isMounted = true
 
     const loadProfile = async () => {
+      if (isMounted) {
+        setProfile(undefined)
+      }
+
       const { data: sessionData } = await supabaseBrowserClient.auth.getUser()
       const user = sessionData?.user
 
@@ -58,8 +62,13 @@ export function UserNav() {
 
     void loadProfile()
 
+    const { data: authListener } = supabaseBrowserClient.auth.onAuthStateChange(() => {
+      void loadProfile()
+    })
+
     return () => {
       isMounted = false
+      authListener?.subscription.unsubscribe()
     }
   }, [])
 
@@ -84,8 +93,16 @@ export function UserNav() {
     [handleSignOut],
   )
 
-  if (!profile) {
+  if (profile === undefined) {
     return null
+  }
+
+  if (profile === null) {
+    return (
+      <Button asChild>
+        <Link href="/signin">Sign in</Link>
+      </Button>
+    )
   }
 
   return (
@@ -112,11 +129,6 @@ export function UserNav() {
           <DropdownMenuItem asChild>
             <Link href={`/profile/dashboard/${profile.userId}`} className="w-full">
               Dashboard
-            </Link>
-          </DropdownMenuItem>
-          <DropdownMenuItem asChild>
-            <Link href="/groups" className="w-full">
-              Groups
             </Link>
           </DropdownMenuItem>
           <DropdownMenuSeparator />

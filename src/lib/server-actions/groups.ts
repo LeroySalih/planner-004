@@ -92,7 +92,7 @@ export async function readGroupAction(groupId: string) {
     const memberIds = parsedMembership.map((member) => member.user_id)
     const { data: profiles, error: profilesError } = await supabaseServer
       .from("profiles")
-      .select("user_id, first_name, last_name")
+      .select("user_id, first_name, last_name, is_teacher")
       .in("user_id", memberIds)
 
     if (profilesError) {

@@ -54,7 +54,7 @@ export function SignupForm() {
         return
       }
 
-      router.push("/profile")
+      router.push("/profiles")
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Unable to complete sign up.")
     } finally {

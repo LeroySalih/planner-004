@@ -160,7 +160,7 @@ export default async function ProfileDashboardPage({
       <header className="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 px-8 py-6 text-white shadow-lg">
         <div className="flex flex-col gap-2">
           <p className="text-sm uppercase tracking-wide text-slate-300">Dashboard</p>
-          <h1 className="text-3xl font-semibold text-white">{profileName}&apos;s groups</h1>
+          <h1 className="text-3xl font-semibold text-white">{profileName}&apos;s dashboard</h1>
           <p className="text-sm text-slate-300">
             Review the groups you belong to and keep track of the latest working levels based on your submitted feedback.
           </p>
@@ -170,7 +170,7 @@ export default async function ProfileDashboardPage({
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-foreground">Group overview</h2>
-          <Link href="/profile/groups" className="text-sm text-primary underline-offset-4 hover:underline">
+          <Link href="/profiles/groups" className="text-sm text-primary underline-offset-4 hover:underline">
             Manage group memberships
           </Link>
         </div>
