@@ -2191,7 +2191,7 @@ export function LessonPresentation({
   })
 
   return (
-    <div className="fixed inset-0 z-[70] flex flex-col bg-background">
+    <div className="fixed inset-0 z-[70] flex flex-col bg-background text-foreground">
       <header className="flex items-center justify-between border-b px-6 py-4">
         <div className="space-y-1">
           <p className="text-sm text-muted-foreground">

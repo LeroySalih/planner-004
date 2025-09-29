@@ -6,11 +6,14 @@ import {
   readLessonAction,
   readFeedbackForLessonAction,
   readAssignmentsForGroupAction,
+  listLessonFilesAction,
+  readUnitAction,
 } from "@/lib/server-updates"
 
-import { FeedbackCell } from "../../../../_components/feedback-cell"
-import { GroupDetailsPanel } from "./_group-panel"
 import { LessonDetailsPanel } from "./_lesson-panel"
+import { LessonFeedbackTable } from "./lesson-feedback-table"
+import { LessonResourcesPanel } from "./lesson-resources-panel"
+import { LessonActivitiesLauncher } from "./lesson-activities-launcher"
 
 export default async function FeedbackLessonPage({
   params,
@@ -19,11 +22,12 @@ export default async function FeedbackLessonPage({
 }) {
   const { groupId, lessonId } = await params
 
-  const [groupResult, lessonResult, feedbackResult, assignmentsResult] = await Promise.all([
+  const [groupResult, lessonResult, feedbackResult, assignmentsResult, lessonFilesResult] = await Promise.all([
     readGroupAction(groupId),
     readLessonAction(lessonId),
     readFeedbackForLessonAction(lessonId),
     readAssignmentsForGroupAction(groupId),
+    listLessonFilesAction(lessonId),
   ])
 
   if (groupResult.error && !groupResult.data) {
@@ -46,16 +50,19 @@ export default async function FeedbackLessonPage({
     notFound()
   }
 
+  const unitResult = await readUnitAction(lesson.unit_id)
+  const unitTitle = unitResult.data?.title ?? null
+
   const membershipError = groupResult.error
 
   const objectives = lesson.lesson_objectives ?? []
   const feedbackEntries = feedbackResult.data ?? []
   const feedbackError = feedbackResult.error
-  const feedbackMap = new Map<string, number>(
-    feedbackEntries.map((entry) => [`${entry.user_id}-${entry.success_criteria_id}`, entry.rating]),
-  )
   const groupAssignments = assignmentsResult.data ?? []
   const groupUnitIds = new Set(groupAssignments.map((assignment) => assignment.unit_id))
+  const lessonLinks = lesson.lesson_links ?? []
+  const lessonFiles = lessonFilesResult.data ?? []
+  const lessonFilesError = lessonFilesResult.error
 
   const allSuccessCriteria = objectives
     .flatMap((objective) => {
@@ -91,13 +98,23 @@ export default async function FeedbackLessonPage({
     .slice()
     .sort((a, b) => getMemberDisplayName(a).localeCompare(getMemberDisplayName(b)))
 
-  const totalMembers = group.members.length
-  const roleCounts = group.members.reduce<Record<string, number>>((acc, member) => {
-    const role = member.role?.toLowerCase() ?? "unknown"
-    acc[role] = (acc[role] ?? 0) + 1
-    return acc
-  }, {})
-  const otherRoles = Object.entries(roleCounts).filter(([role]) => role !== "pupil")
+  const successCriteriaColumns = allSuccessCriteria.map(({ criterion, learningObjective }) => ({
+    id: criterion.success_criteria_id,
+    description: criterion.description,
+    level: criterion.level,
+    learningObjectiveTitle: learningObjective?.title ?? null,
+  }))
+
+  const pupilRows = pupils.map((member) => ({
+    userId: member.user_id,
+    displayName: getMemberDisplayName(member),
+  }))
+
+  const initialRatings: Record<string, 1 | -1 | null> = {}
+  for (const entry of feedbackEntries) {
+    const key = `${entry.user_id}-${entry.success_criteria_id}`
+    initialRatings[key] = entry.rating === 1 ? 1 : entry.rating === -1 ? -1 : null
+  }
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 px-6 py-10 text-slate-200">
@@ -108,26 +125,25 @@ export default async function FeedbackLessonPage({
       </div>
 
       <header className="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 px-8 py-6 text-white shadow-lg">
-        <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-        <div className="flex items-center justify-between">
-        <p className="text-sm uppercase tracking-wide text-slate-300">Feedback Overview</p>
-        <h1 className="text-3xl font-semibold text-white">
-          {group.group_id} · {lesson.title}
-        </h1>
-        <div className="flex flex-wrap gap-4 text-sm text-slate-300">
-          <span>
-            Subject: <span className="font-medium text-white">{group.subject}</span>
-          </span>
-          <span>
-            Lesson ID: <span className="font-medium text-white">{lesson.lesson_id}</span>
-          </span>
-          <span>
-            Unit: <span className="font-medium text-white">{lesson.unit_id}</span>
-          </span>
-            </div>
-        </div>
-        </div>
+        <div className="flex flex-col gap-3">
+          <p className="text-sm uppercase tracking-wide text-slate-300">Feedback Overview</p>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <h1 className="text-3xl font-semibold text-white">
+              {group.group_id} · {lesson.title}
+            </h1>
+            <LessonActivitiesLauncher lesson={lesson} unitTitle={unitTitle} />
+          </div>
+          <div className="flex flex-wrap gap-4 text-sm text-slate-300">
+            <span>
+              Subject: <span className="font-medium text-white">{group.subject}</span>
+            </span>
+            <span>
+              Lesson ID: <span className="font-medium text-white">{lesson.lesson_id}</span>
+            </span>
+            <span>
+              Unit: <span className="font-medium text-white">{unitTitle ?? lesson.unit_id}</span>
+            </span>
+          </div>
         </div>
       </header>
         
@@ -150,17 +166,24 @@ export default async function FeedbackLessonPage({
         </div>
       ) : null}
 
+      {lessonFilesError ? (
+        <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          Unable to load lesson files: {lessonFilesError}
+        </div>
+      ) : null}
+
+      {unitResult.error ? (
+        <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          Unable to load unit details: {unitResult.error}
+        </div>
+      ) : null}
+
       <section className="grid gap-6 lg:grid-cols-2">
-        <GroupDetailsPanel
-          group={{
-            group_id: group.group_id,
-            subject: group.subject,
-            join_code: group.join_code,
-            active: group.active ?? true,
-          }}
-          totalMembers={totalMembers}
-          pupilCount={pupils.length}
-          otherRoles={otherRoles}
+        <LessonResourcesPanel
+          lessonId={lesson.lesson_id}
+          unitId={lesson.unit_id}
+          links={lessonLinks}
+          files={lessonFiles}
         />
 
         <LessonDetailsPanel
@@ -174,85 +197,13 @@ export default async function FeedbackLessonPage({
         />
       </section>
 
-      <section className="rounded-lg border border-border bg-card p-5 shadow-sm text-slate-900">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-900">Learning Objectives & Success Criteria</h2>
-          <span className="text-sm text-slate-600">{objectives.length} learning objectives</span>
-        </div>
-
-        {objectives.length === 0 ? (
-          <p className="mt-4 text-sm text-slate-600">
-            No learning objectives linked to this lesson yet.
-          </p>
-        ) : allSuccessCriteria.length === 0 ? (
-          <p className="mt-4 text-sm text-slate-600">
-            No success criteria are assigned to this group for the current units.
-          </p>
-        ) : (
-          <div className="mt-6 max-h-[60vh] overflow-auto">
-            <table className="w-full min-w-[640px] border-collapse">
-              <thead>
-                <tr>
-                  <th className="sticky left-0 top-0 z-20 bg-muted px-4 py-3 text-left text-sm font-semibold uppercase tracking-wide text-slate-600 border border-border shadow-sm">
-                    Pupil
-                  </th>
-                  {allSuccessCriteria.map(({ criterion, learningObjective }) => (
-                    <th
-                      key={criterion.success_criteria_id}
-                      className="sticky top-0 z-10 bg-muted px-4 py-3 text-left align-top border border-border shadow-sm"
-                    >
-                      <span className="block text-[11px] font-medium text-slate-500">
-                        {learningObjective?.title ?? "Learning objective"}
-                      </span>
-                      <span className="mt-1 block text-sm font-semibold text-slate-900">
-                        {criterion.description}
-                      </span>
-                      <span className="mt-1 block text-xs text-slate-500">Level {criterion.level}</span>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {pupils.length === 0 ? (
-                  <tr>
-                    <td colSpan={allSuccessCriteria.length + 1} className="px-4 py-6 text-center text-sm text-slate-600 border border-border">
-                      No pupils assigned to this group yet.
-                    </td>
-                  </tr>
-                ) : (
-                  pupils.map((member) => {
-                    const displayName = getMemberDisplayName(member)
-                    return (
-                      <tr key={member.user_id}>
-                        <td className="sticky left-0 z-10 bg-background px-4 py-3 border border-border align-top shadow-sm">
-                          <div className="flex flex-col">
-                            <span className="text-sm font-medium text-slate-900">{displayName}</span>
-                          </div>
-                        </td>
-                        {allSuccessCriteria.map(({ criterion }) => {
-                          const rating = feedbackMap.get(`${member.user_id}-${criterion.success_criteria_id}`) ?? null
-                          const normalizedRating = rating === 1 ? 1 : rating === -1 ? -1 : null
-                          return (
-                            <FeedbackCell
-                              key={`${member.user_id}-${criterion.success_criteria_id}`}
-                              pupilId={member.user_id}
-                              pupilName={displayName}
-                              criterionId={criterion.success_criteria_id}
-                              criterionDescription={criterion.description}
-                              lessonId={lesson.lesson_id}
-                              initialRating={normalizedRating}
-                            />
-                          )
-                        })}
-                      </tr>
-                    )
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+      <LessonFeedbackTable
+        lessonId={lesson.lesson_id}
+        pupils={pupilRows}
+        successCriteria={successCriteriaColumns}
+        initialRatings={initialRatings}
+        objectivesCount={objectives.length}
+      />
     </main>
   )
 }

@@ -16,7 +16,7 @@ type LessonPanelProps = {
 }
 
 export function LessonDetailsPanel({ lesson }: LessonPanelProps) {
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(false)
 
   return (
     <div className="rounded-lg border border-border bg-card shadow-sm">

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useEffect, useRef, useState, useTransition } from "react"
 import { ThumbsDown, ThumbsUp } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -15,7 +15,10 @@ type FeedbackCellProps = {
   criterionDescription: string
   lessonId: string
   initialRating: 1 | -1 | null
+  bulkAction?: BulkFeedbackAction | null
 }
+
+export type BulkFeedbackAction = { type: "up" | "down"; timestamp: number }
 
 export function FeedbackCell({
   pupilId,
@@ -24,6 +27,7 @@ export function FeedbackCell({
   criterionDescription,
   lessonId,
   initialRating,
+  bulkAction,
 }: FeedbackCellProps) {
   const [state, setState] = useState<FeedbackState>(() => {
     if (initialRating === 1) return "up"
@@ -31,6 +35,7 @@ export function FeedbackCell({
     return null
   })
   const [isPending, startTransition] = useTransition()
+  const lastBulkTimestamp = useRef<number | null>(null)
 
   const toRating = (value: FeedbackState): 1 | -1 | null => {
     if (value === "up") return 1
@@ -83,6 +88,35 @@ export function FeedbackCell({
       }
     })
   }
+
+  useEffect(() => {
+    if (!bulkAction) return
+    if (lastBulkTimestamp.current === bulkAction.timestamp) return
+    lastBulkTimestamp.current = bulkAction.timestamp
+
+    const targetState: FeedbackState = bulkAction.type === "up" ? "up" : "down"
+    if (state === targetState) {
+      return
+    }
+
+    const previous = state
+    setState(targetState)
+    const rating = toRating(targetState)
+
+    startTransition(async () => {
+      const result = await upsertFeedbackAction({
+        userId: pupilId,
+        lessonId,
+        successCriteriaId: criterionId,
+        rating,
+      })
+
+      if (!result.success) {
+        console.error("[feedback] Failed to apply bulk feedback update", result.error)
+        setState(previous)
+      }
+    })
+  }, [bulkAction, criterionId, lessonId, pupilId, state, startTransition])
 
   return (
     <td
