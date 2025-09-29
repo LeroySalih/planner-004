@@ -7,7 +7,7 @@ import { toast } from "sonner"
 import type { Curriculum, Subjects } from "@/types"
 import { updateCurriculumAction } from "@/lib/server-updates"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/sheet"
 
 import { CreateCurriculumSheet } from "./_components/create-curriculum-sheet"
+import { Pencil } from "lucide-react"
 
 interface CurriculumPageClientProps {
   curricula: Curriculum[]
@@ -157,7 +158,26 @@ export function CurriculumPageClient({
           {items.map((curriculum) => (
             <Card key={curriculum.curriculum_id} className="border-border shadow-sm">
               <CardHeader className="space-y-1">
-                <CardTitle className="text-xl font-semibold text-foreground">{curriculum.title}</CardTitle>
+                <CardTitle className="text-xl font-semibold text-foreground">
+                  <Link
+                    href={`/curriculum/${curriculum.curriculum_id}`}
+                    className="inline-flex items-center underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  >
+                    {curriculum.title}
+                  </Link>
+                </CardTitle>
+                <CardAction>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => handleOpenEdit(curriculum)}
+                    className="text-primary"
+                    aria-label={`Edit curriculum ${curriculum.title}`}
+                  >
+                    <Pencil className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                </CardAction>
               </CardHeader>
               <CardContent className="space-y-4">
                 {curriculum.description ? (
@@ -168,18 +188,6 @@ export function CurriculumPageClient({
                 <p className="text-sm text-muted-foreground">
                   Subject: {curriculum.subject ?? "Not assigned"}
                 </p>
-                <div className="flex flex-col gap-2 text-sm font-medium text-primary sm:flex-row sm:items-center sm:gap-4">
-                  <Link href={`/curriculum/${curriculum.curriculum_id}`} className="hover:underline">
-                    View curriculum →
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => handleOpenEdit(curriculum)}
-                    className="inline-flex items-center text-primary hover:underline"
-                  >
-                    Edit
-                  </button>
-                </div>
               </CardContent>
             </Card>
           ))}
