@@ -3,16 +3,7 @@
 import { useMemo, useState } from "react"
 import Link from "next/link"
 
-function createWildcardRegex(pattern: string) {
-  const escaped = Array.from(pattern)
-    .map((char) => {
-      if (char === "?") return "."
-      return char.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-    })
-    .join("")
-
-  return new RegExp(escaped, "i")
-}
+import { createWildcardRegex } from "@/lib/search"
 
 export type ReportsTablePupil = {
   pupilId: string

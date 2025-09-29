@@ -35,6 +35,7 @@ export async function getAuthenticatedProfile(): Promise<AuthenticatedProfile | 
     return { userId: user.id, isTeacher: false }
   }
 
+
   return {
     userId: user.id,
     isTeacher: Boolean(data?.is_teacher),
@@ -55,3 +56,12 @@ export async function requireTeacherProfile(): Promise<AuthenticatedProfile> {
   return profile
 }
 
+export async function requireAuthenticatedProfile(): Promise<AuthenticatedProfile> {
+  const profile = await getAuthenticatedProfile()
+
+  if (!profile) {
+    redirect("/signin")
+  }
+
+  return profile
+}
