@@ -350,11 +350,6 @@ export function AssignmentManager({
     setIsSidebarOpen(true)
   }
 
-  const handleUnitTitleClick = (assignment: Assignment) => {
-    console.log("[v0] Unit title clicked from hover tooltip:", assignment)
-    onChange?.(assignment, "unit-title-click")
-  }
-
   const handleLessonDateChange = (lessonId: string, startDate: string | null) => {
     if (!sidebarGroupId) {
       return
@@ -611,14 +606,13 @@ export function AssignmentManager({
         units={units}
         assignments={filteredAssignments}
         lessons={lessons}
-        lessonAssignments={lessonAssignments}
-        lessonFeedbackSummaries={lessonFeedbackSummaries}
-        onAssignmentClick={handleAssignmentClick}
-        onEmptyCellClick={handleEmptyCellClick}
-        onUnitTitleClick={handleUnitTitleClick}
-        onAddGroupClick={handleAddGroupClick}
-        onGroupTitleClick={handleGroupTitleClick}
-      />
+      lessonAssignments={lessonAssignments}
+      lessonFeedbackSummaries={lessonFeedbackSummaries}
+      onAssignmentClick={handleAssignmentClick}
+      onEmptyCellClick={handleEmptyCellClick}
+      onAddGroupClick={handleAddGroupClick}
+      onGroupTitleClick={handleGroupTitleClick}
+    />
 
       <AssignmentSidebar
         isOpen={isSidebarOpen}

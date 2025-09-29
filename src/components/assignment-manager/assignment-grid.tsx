@@ -1,9 +1,8 @@
 "use client"
 
 import type React from "react"
-import { useMemo, useState } from "react"
+import { useMemo } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { Group, Unit, Assignment, Lesson, LessonAssignment, LessonFeedbackSummary } from "@/types"
 
@@ -17,7 +16,6 @@ interface AssignmentGridProps {
   lessonFeedbackSummaries: LessonFeedbackSummary[]
   onAssignmentClick?: (assignment: Assignment) => void
   onEmptyCellClick?: (groupId: string, weekStart: Date) => void
-  onUnitTitleClick?: (assignment: Assignment) => void
   onAddGroupClick?: () => void // Changed from onAddGroup to onAddGroupClick to trigger sidebar
   onGroupTitleClick?: (groupId: string) => void // Added prop for group title click
 }
@@ -36,53 +34,6 @@ interface GroupRow {
   tracks: TrackCell[][]
 }
 
-interface UnitTooltipProps {
-  assignment: Assignment & { unit: Unit }
-  onTitleClick: () => void
-  position: { x: number; y: number }
-}
-
-function UnitTooltip({ assignment, onTitleClick, position }: UnitTooltipProps) {
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    })
-  }
-
-  return (
-    <div
-      className="fixed z-50 bg-popover border border-border rounded-lg shadow-lg p-3 max-w-xs pointer-events-auto"
-      style={{
-        left: `${position.x}px`,
-        top: `${position.y - 5}px`,
-        transform: "translate(-50%, -100%)",
-      }}
-    >
-      <div className="space-y-2">
-        <button
-          onClick={onTitleClick}
-          className="font-semibold text-primary hover:text-primary/80 transition-colors cursor-pointer text-left w-full"
-        >
-          {assignment.unit.title}
-        </button>
-        <div className="text-sm text-muted-foreground">
-          <div>
-            <strong>Subject:</strong> {assignment.unit.subject}
-          </div>
-          <div>
-            <strong>Start:</strong> {formatDate(assignment.start_date)}
-          </div>
-          <div>
-            <strong>End:</strong> {formatDate(assignment.end_date)}
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 const POSITIVE_SEGMENT_COLOR = "#bbf7d0"
 const NEGATIVE_SEGMENT_COLOR = "#fecaca"
 const UNMARKED_SEGMENT_COLOR = "#e5e7eb"
@@ -98,14 +49,9 @@ export function AssignmentGrid({
   lessonFeedbackSummaries,
   onAssignmentClick,
   onEmptyCellClick,
-  onUnitTitleClick,
   onAddGroupClick, // Updated prop name
   onGroupTitleClick, // Added onGroupTitleClick prop
 }: AssignmentGridProps) {
-  const router = useRouter()
-  const [hoveredAssignment, setHoveredAssignment] = useState<(Assignment & { unit: Unit }) | null>(null)
-  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 })
-  const [isTooltipHovered, setIsTooltipHovered] = useState(false)
   const feedbackSummaryMap = useMemo(() => {
     const map = new Map<string, LessonFeedbackSummary>()
     lessonFeedbackSummaries.forEach((summary) => {
@@ -420,34 +366,6 @@ export function AssignmentGrid({
     return lessonsByWeek
   }
 
-  const handleMouseEnter = (assignment: Assignment & { unit: Unit }, event: React.MouseEvent) => {
-    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-    setHoveredAssignment(assignment)
-    setMousePosition({
-      x: rect.left + rect.width / 2,
-      y: rect.top,
-    })
-  }
-
-  const handleMouseLeave = () => {
-    setTimeout(() => {
-      if (!isTooltipHovered) {
-        setHoveredAssignment(null)
-      }
-    }, 100)
-  }
-
-  const handleUnitTitleClick = (assignment: Assignment & { unit: Unit }) => {
-    setHoveredAssignment(null)
-    router.push(`/units/${assignment.unit.unit_id ?? assignment.unit_id}`)
-    onUnitTitleClick?.({
-      group_id: assignment.group_id,
-      unit_id: assignment.unit_id,
-      start_date: assignment.start_date,
-      end_date: assignment.end_date,
-    })
-  }
-
   return (
     <>
       <Card className="w-full">
@@ -517,33 +435,36 @@ export function AssignmentGrid({
                             colSpan={cell.colSpan}
                             className={`p-2 align-top border border-border min-h-20 ${
                               cell.assignment
-                                ? "bg-primary/10 hover:bg-primary/20 transition-colors cursor-pointer"
+                                ? "bg-primary/10 hover:bg-primary/20 transition-colors cursor-default"
                                 : "bg-background hover:bg-muted/50 transition-colors cursor-pointer"
                             }`}
                             onClick={() => {
-                              if (cell.assignment && onAssignmentClick) {
-                                onAssignmentClick({
-                                  group_id: cell.assignment.group_id,
-                                  unit_id: cell.assignment.unit_id,
-                                  start_date: cell.assignment.start_date,
-                                  end_date: cell.assignment.end_date,
-                                })
-                              } else if (!cell.assignment && onEmptyCellClick) {
+                              if (!cell.assignment && onEmptyCellClick) {
                                 onEmptyCellClick(cell.groupId, cell.weekStart)
                               }
                             }}
-                            onMouseLeave={cell.assignment ? handleMouseLeave : undefined}
                           >
                             {cell.assignment && (
                               <div className="flex h-full flex-col">
                                 <div className="flex flex-1 items-center justify-center text-center">
                                   <div className="w-full">
-                                    <div
-                                      className="font-medium text-sm text-slate-900 truncate cursor-pointer hover:text-slate-700 transition-colors"
-                                      onMouseEnter={(e) => handleMouseEnter(cell.assignment!, e)}
+                                    <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation()
+                                        if (onAssignmentClick) {
+                                          onAssignmentClick({
+                                            group_id: cell.assignment!.group_id,
+                                            unit_id: cell.assignment!.unit_id,
+                                            start_date: cell.assignment!.start_date,
+                                            end_date: cell.assignment!.end_date,
+                                          })
+                                        }
+                                      }}
+                                      className="font-medium text-sm text-slate-900 truncate hover:text-slate-700 transition-colors text-left w-full cursor-pointer"
                                     >
                                       {cell.assignment.unit.title}
-                                    </div>
+                                    </button>
                                   </div>
                                 </div>
                                 {hasScheduledLessons && (
@@ -650,22 +571,6 @@ export function AssignmentGrid({
           </div>
         </CardContent>
       </Card>
-
-      {hoveredAssignment && (
-        <div
-          onMouseEnter={() => setIsTooltipHovered(true)}
-          onMouseLeave={() => {
-            setIsTooltipHovered(false)
-            setHoveredAssignment(null)
-          }}
-        >
-          <UnitTooltip
-            assignment={hoveredAssignment}
-            onTitleClick={() => handleUnitTitleClick(hoveredAssignment)}
-            position={mousePosition}
-          />
-        </div>
-      )}
     </>
   )
 }
