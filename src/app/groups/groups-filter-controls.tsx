@@ -1,54 +1,26 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
-import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { useCallback, useMemo } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 
 interface GroupsFilterControlsProps {
-  initialValue: string
+  value: string
+  onValueChange: (next: string) => void
 }
 
-export function GroupsFilterControls({ initialValue }: GroupsFilterControlsProps) {
-  const router = useRouter()
-  const pathname = usePathname()
-  const searchParams = useSearchParams()
-  const [value, setValue] = useState(initialValue)
-
-  useEffect(() => {
-    setValue(initialValue)
-  }, [initialValue])
-
-  const createNextUrl = useCallback(
-    (nextValue: string) => {
-      const params = new URLSearchParams(searchParams?.toString())
-
-      if (nextValue.trim().length > 0) {
-        params.set("q", nextValue)
-      } else {
-        params.delete("q")
-      }
-
-      const query = params.toString()
-      return query ? `${pathname}?${query}` : pathname
-    },
-    [pathname, searchParams],
-  )
-
+export function GroupsFilterControls({ value, onValueChange }: GroupsFilterControlsProps) {
   const handleChange = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
-      const nextValue = event.target.value
-      setValue(nextValue)
-      router.replace(createNextUrl(nextValue))
+      onValueChange(event.target.value)
     },
-    [createNextUrl, router],
+    [onValueChange],
   )
 
   const handleClear = useCallback(() => {
-    setValue("")
-    router.replace(pathname)
-  }, [pathname, router])
+    onValueChange("")
+  }, [onValueChange])
 
   const isClearDisabled = useMemo(() => value.trim().length === 0, [value])
 

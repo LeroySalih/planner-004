@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState, useTransition } from "react"
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Plus, Pencil, X } from "lucide-react"
@@ -11,6 +11,7 @@ import { createGroupAction, updateGroupAction } from "@/lib/server-updates"
 import { GroupsFilterControls } from "./groups-filter-controls"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
@@ -26,25 +27,42 @@ export function GroupsPageClient({ groups: initialGroups, initialFilter, error }
   const [groups, setGroups] = useState<Group[]>(() => sortGroups(initialGroups))
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [editingGroup, setEditingGroup] = useState<Group | null>(null)
+  const [filter, setFilter] = useState(() => initialFilter)
+  const [activeJoinCode, setActiveJoinCode] = useState<string | null>(null)
+  const [siteUrl, setSiteUrl] = useState<string>("")
 
   useEffect(() => {
     setGroups(sortGroups(initialGroups))
   }, [initialGroups])
 
+  useEffect(() => {
+    setFilter(initialFilter)
+  }, [initialFilter])
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setSiteUrl(window.location.origin)
+    }
+  }, [])
+
   const filteredGroups = useMemo(() => {
-    const filter = initialFilter.trim()
-    if (!filter) {
+    const trimmedFilter = filter.trim()
+    if (!trimmedFilter) {
       return groups
     }
 
     try {
-      const regex = buildWildcardRegex(filter)
+      const regex = buildWildcardRegex(trimmedFilter)
       return groups.filter((group) => regex.test(group.group_id) || regex.test(group.subject ?? ""))
     } catch (buildError) {
       console.error("[groups] Failed to build wildcard regex", buildError)
       return []
     }
-  }, [groups, initialFilter])
+  }, [filter, groups])
+
+  const handleFilterChange = useCallback((nextFilter: string) => {
+    setFilter(nextFilter)
+  }, [])
 
   const handleGroupsCreated = (created: Group[]) => {
     if (created.length === 0) {
@@ -62,6 +80,17 @@ export function GroupsPageClient({ groups: initialGroups, initialFilter, error }
     )
     router.refresh()
   }
+
+  const handleJoinCodeClick = useCallback((code: string | null) => {
+    if (!code) {
+      return
+    }
+    setActiveJoinCode(code)
+  }, [])
+
+  const handleJoinCodeClose = useCallback(() => {
+    setActiveJoinCode(null)
+  }, [])
 
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-6 py-10 text-slate-900">
@@ -99,7 +128,7 @@ export function GroupsPageClient({ groups: initialGroups, initialFilter, error }
         </div>
       ) : null}
 
-      <GroupsFilterControls initialValue={initialFilter} />
+      <GroupsFilterControls value={filter} onValueChange={handleFilterChange} />
 
       {groups.length === 0 && !error ? (
         <div className="mt-6 rounded-lg border border-dashed border-border px-4 py-6 text-sm text-slate-600">
@@ -120,7 +149,20 @@ export function GroupsPageClient({ groups: initialGroups, initialFilter, error }
             </CardHeader>
             <CardContent className="flex flex-1 flex-col justify-between gap-4">
               <div>
-                <p className="text-sm text-slate-600">Join code: {group.join_code ?? "—"}</p>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-slate-600">Join code:</span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => handleJoinCodeClick(group.join_code ?? null)}
+                    disabled={!group.join_code}
+                    className="font-mono tracking-[0.35em] uppercase"
+                    aria-label={`Display join code for ${group.group_id}`}
+                  >
+                    {group.join_code ?? "—"}
+                  </Button>
+                </div>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <Button asChild size="sm" className="w-full sm:w-auto">
@@ -142,7 +184,7 @@ export function GroupsPageClient({ groups: initialGroups, initialFilter, error }
         ))}
       </section>
 
-      {initialFilter && filteredGroups.length === 0 && groups.length > 0 ? (
+      {filter && filteredGroups.length === 0 && groups.length > 0 ? (
         <p className="mt-6 text-sm text-slate-600">No groups match the current filter.</p>
       ) : null}
 
@@ -158,6 +200,38 @@ export function GroupsPageClient({ groups: initialGroups, initialFilter, error }
         onClose={() => setEditingGroup(null)}
         onUpdated={handleGroupUpdated}
       />
+
+      <Dialog
+        open={Boolean(activeJoinCode)}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) {
+            handleJoinCodeClose()
+          }
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="max-w-none w-screen h-dvh translate-x-[-50%] translate-y-[-50%] border-none bg-transparent p-0 shadow-none"
+        >
+          <div className="flex h-full w-full flex-col items-center justify-center gap-10 bg-slate-950 px-6 text-white">
+            <DialogTitle className="text-sm uppercase tracking-[0.5em] text-white/60">Join Code</DialogTitle>
+            <p className="text-6xl font-semibold tracking-[0.4em] text-white sm:text-8xl">{activeJoinCode}</p>
+            <div className="text-center">
+              <p className="text-lg text-white/80">Share this code with your class and have them visit:</p>
+              <p className="mt-2 text-2xl font-medium text-white">{siteUrl || ""}</p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="lg"
+              onClick={handleJoinCodeClose}
+              className="text-base bg-white text-slate-900 hover:bg-white/80 hover:text-slate-900"
+            >
+              Close display
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </main>
   )
 }
