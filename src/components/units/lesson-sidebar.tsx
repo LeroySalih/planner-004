@@ -1291,6 +1291,9 @@ export function LessonSidebar({
     return null
   }
 
+  const activitiesCount = activities.length
+  const showActivitiesDisabled = isPending || activitiesCount === 0
+
   return (
     <>
       <div className="fixed inset-0 z-50 flex">
@@ -1897,9 +1900,11 @@ export function LessonSidebar({
                           type="button"
                           variant="secondary"
                           onClick={(event) => openPresentation(event)}
-                          disabled={isPending}
+                          disabled={showActivitiesDisabled}
                         >
-                          Show Activities
+                          {isActivitiesLoading
+                            ? "Show Activities (\u2026)"
+                            : `Show Activities (${activitiesCount})`}
                         </Button>
                         <Button
                           type="button"

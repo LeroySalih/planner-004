@@ -7,7 +7,10 @@ import {
   readFeedbackForLessonAction,
   readAssignmentsForGroupAction,
   listLessonFilesAction,
+  listLessonActivitiesAction,
+  readLessonAssignmentsAction,
   readUnitAction,
+  readLessonsByUnitAction,
 } from "@/lib/server-updates"
 
 import { LessonDetailsPanel } from "./_lesson-panel"
@@ -22,12 +25,22 @@ export default async function FeedbackLessonPage({
 }) {
   const { groupId, lessonId } = await params
 
-  const [groupResult, lessonResult, feedbackResult, assignmentsResult, lessonFilesResult] = await Promise.all([
+  const [
+    groupResult,
+    lessonResult,
+    feedbackResult,
+    assignmentsResult,
+    lessonFilesResult,
+    lessonActivitiesResult,
+    lessonAssignmentsResult,
+  ] = await Promise.all([
     readGroupAction(groupId),
     readLessonAction(lessonId),
     readFeedbackForLessonAction(lessonId),
     readAssignmentsForGroupAction(groupId),
     listLessonFilesAction(lessonId),
+    listLessonActivitiesAction(lessonId),
+    readLessonAssignmentsAction(),
   ])
 
   if (groupResult.error && !groupResult.data) {
@@ -52,6 +65,52 @@ export default async function FeedbackLessonPage({
 
   const unitResult = await readUnitAction(lesson.unit_id)
   const unitTitle = unitResult.data?.title ?? null
+
+  const lessonsInUnitResult = await readLessonsByUnitAction(lesson.unit_id)
+  const lessonsInUnit = lessonsInUnitResult.data ?? []
+
+  const lessonActivities = lessonActivitiesResult.data ?? []
+  const activitiesError = lessonActivitiesResult.error
+  const lessonAssignments = lessonAssignmentsResult.data ?? []
+  const lessonAssignmentsError = lessonAssignmentsResult.error
+
+  const lessonsSort = (a: (typeof lessonsInUnit)[number], b: (typeof lessonsInUnit)[number]) => {
+    const orderA = typeof a.order_by === "number" ? a.order_by : Number.MAX_SAFE_INTEGER
+    const orderB = typeof b.order_by === "number" ? b.order_by : Number.MAX_SAFE_INTEGER
+    if (orderA !== orderB) return orderA - orderB
+    return a.title.localeCompare(b.title)
+  }
+
+  const assignedLessonIds = new Set(
+    lessonAssignments.filter((entry) => entry.group_id === groupId).map((entry) => entry.lesson_id),
+  )
+
+  let assignedLessonsInUnit = lessonsInUnit.filter((unitLesson) => assignedLessonIds.has(unitLesson.lesson_id))
+
+  if (!assignedLessonsInUnit.some((unitLesson) => unitLesson.lesson_id === lesson.lesson_id)) {
+    const currentUnitLesson = lessonsInUnit.find((unitLesson) => unitLesson.lesson_id === lesson.lesson_id)
+    if (currentUnitLesson) {
+      assignedLessonsInUnit = [...assignedLessonsInUnit, currentUnitLesson]
+    }
+  }
+
+  assignedLessonsInUnit = assignedLessonsInUnit.sort(lessonsSort)
+
+  const currentLessonIndex = assignedLessonsInUnit.findIndex(
+    (unitLesson) => unitLesson.lesson_id === lesson.lesson_id,
+  )
+  const previousLesson = currentLessonIndex > 0 ? assignedLessonsInUnit[currentLessonIndex - 1] : null
+  const nextLesson =
+    currentLessonIndex >= 0 && currentLessonIndex < assignedLessonsInUnit.length - 1
+      ? assignedLessonsInUnit[currentLessonIndex + 1]
+      : null
+
+  const previousLessonHref = previousLesson
+    ? `/feedback/groups/${encodeURIComponent(groupId)}/lessons/${encodeURIComponent(previousLesson.lesson_id)}`
+    : null
+  const nextLessonHref = nextLesson
+    ? `/feedback/groups/${encodeURIComponent(groupId)}/lessons/${encodeURIComponent(nextLesson.lesson_id)}`
+    : null
 
   const membershipError = groupResult.error
 
@@ -129,19 +188,57 @@ export default async function FeedbackLessonPage({
           <p className="text-sm uppercase tracking-wide text-slate-300">Feedback Overview</p>
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <h1 className="text-3xl font-semibold text-white">
-              {group.group_id} · {lesson.title}
+              <Link
+                href={`/groups/${encodeURIComponent(group.group_id)}`}
+                className="underline-offset-4 hover:underline"
+              >
+                {group.group_id}
+              </Link>
+              {" "}·{" "}
+              <Link
+                href={`/lessons/${encodeURIComponent(lesson.lesson_id)}`}
+                className="underline-offset-4 hover:underline"
+              >
+                {lesson.title}
+              </Link>
             </h1>
             <LessonActivitiesLauncher lesson={lesson} unitTitle={unitTitle} />
+          </div>
+          <div className="flex flex-wrap items-center gap-3 text-sm text-slate-200">
+            {previousLessonHref ? (
+              <Link
+                href={previousLessonHref}
+                className="inline-flex items-center gap-1 underline-offset-4 hover:underline"
+              >
+                ← {previousLesson?.title}
+              </Link>
+            ) : (
+              <span className="text-slate-400">No previous lesson</span>
+            )}
+            <span className="text-slate-500">·</span>
+            {nextLessonHref ? (
+              <Link
+                href={nextLessonHref}
+                className="inline-flex items-center gap-1 underline-offset-4 hover:underline"
+              >
+                {nextLesson?.title} →
+              </Link>
+            ) : (
+              <span className="text-slate-400">No next lesson</span>
+            )}
           </div>
           <div className="flex flex-wrap gap-4 text-sm text-slate-300">
             <span>
               Subject: <span className="font-medium text-white">{group.subject}</span>
             </span>
             <span>
-              Lesson ID: <span className="font-medium text-white">{lesson.lesson_id}</span>
-            </span>
-            <span>
-              Unit: <span className="font-medium text-white">{unitTitle ?? lesson.unit_id}</span>
+              Unit:{" "}
+              <Link
+                href={`/units/${encodeURIComponent(lesson.unit_id)}`}
+                className="font-medium text-white underline-offset-4 hover:underline"
+              >
+                {unitTitle ?? lesson.unit_id}
+              </Link>
             </span>
           </div>
         </div>
@@ -166,6 +263,12 @@ export default async function FeedbackLessonPage({
         </div>
       ) : null}
 
+      {lessonAssignmentsError ? (
+        <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          Unable to load lesson assignments: {lessonAssignmentsError}
+        </div>
+      ) : null}
+
       {lessonFilesError ? (
         <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           Unable to load lesson files: {lessonFilesError}
@@ -178,14 +281,13 @@ export default async function FeedbackLessonPage({
         </div>
       ) : null}
 
-      <section className="grid gap-6 lg:grid-cols-2">
-        <LessonResourcesPanel
-          lessonId={lesson.lesson_id}
-          unitId={lesson.unit_id}
-          links={lessonLinks}
-          files={lessonFiles}
-        />
+      {lessonsInUnitResult.error ? (
+        <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          Unable to load unit lessons: {lessonsInUnitResult.error}
+        </div>
+      ) : null}
 
+      <section className="grid gap-6 lg:grid-cols-2">
         <LessonDetailsPanel
           lesson={{
             lesson_id: lesson.lesson_id,
@@ -194,6 +296,14 @@ export default async function FeedbackLessonPage({
             order_by: lesson.order_by ?? null,
             active: lesson.active ?? true,
           }}
+          activities={lessonActivities}
+          activitiesError={activitiesError}
+        />
+
+        <LessonResourcesPanel
+          lessonId={lesson.lesson_id}
+          links={lessonLinks}
+          files={lessonFiles}
         />
       </section>
 

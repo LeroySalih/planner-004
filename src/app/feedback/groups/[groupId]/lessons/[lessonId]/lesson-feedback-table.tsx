@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useCallback, useState } from "react"
+import { Loader2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 
@@ -34,10 +35,30 @@ export function LessonFeedbackTable({
   objectivesCount,
 }: LessonFeedbackTableProps) {
   const [bulkAction, setBulkAction] = useState<BulkFeedbackAction | null>(null)
+  const [pendingPupils, setPendingPupils] = useState<Record<string, number>>({})
+  const pupilColumnWidthClass = "w-[240px] min-w-[240px] max-w-[240px]"
 
   const handleBulkApply = (type: BulkFeedbackAction["type"]) => {
     setBulkAction({ type, timestamp: Date.now() })
   }
+
+  const handlePendingChange = useCallback((pupilId: string, pending: boolean) => {
+    setPendingPupils((prev) => {
+      const current = prev[pupilId] ?? 0
+      const next = pending ? current + 1 : Math.max(current - 1, 0)
+
+      if (next === current) {
+        return prev
+      }
+
+      if (next === 0) {
+        const { [pupilId]: _removed, ...rest } = prev
+        return rest
+      }
+
+      return { ...prev, [pupilId]: next }
+    })
+  }, [])
 
   const hasPupils = pupils.length > 0
   const hasCriteria = successCriteria.length > 0
@@ -69,6 +90,15 @@ export function LessonFeedbackTable({
           >
             Mark all red
           </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => handleBulkApply("clear")}
+            disabled={disableBulk}
+            className="border-border text-slate-700 hover:bg-muted/60"
+          >
+            Clear all feedback
+          </Button>
         </div>
       </div>
 
@@ -85,7 +115,9 @@ export function LessonFeedbackTable({
           <table className="w-full min-w-[640px] border-collapse">
             <thead>
               <tr>
-                <th className="sticky left-0 top-0 z-20 border border-border bg-muted px-4 py-3 text-left text-sm font-semibold uppercase tracking-wide text-slate-600 shadow-sm">
+                <th
+                  className={`sticky left-0 top-0 z-20 border border-border bg-muted px-4 py-3 text-left text-sm font-semibold uppercase tracking-wide text-slate-600 shadow-sm ${pupilColumnWidthClass}`}
+                >
                   Pupil
                 </th>
                 {successCriteria.map((criterion) => (
@@ -115,9 +147,29 @@ export function LessonFeedbackTable({
               ) : (
                 pupils.map((pupil) => (
                   <tr key={pupil.userId}>
-                    <td className="sticky left-0 z-10 border border-border bg-background px-4 py-3 align-top shadow-sm">
+                    <td
+                      className={`sticky left-0 z-10 border border-border bg-background px-4 py-3 align-top shadow-sm ${pupilColumnWidthClass}`}
+                    >
                       <div className="flex flex-col">
-                        <span className="text-sm font-medium text-slate-900">{pupil.displayName}</span>
+                        <span className="flex items-center gap-2 text-sm font-medium text-slate-900">
+                          {pupil.displayName}
+                          <span
+                            className="flex h-4 w-4 items-center justify-center text-muted-foreground"
+                            role="status"
+                            aria-live="polite"
+                            aria-atomic="true"
+                          >
+                            <Loader2
+                              className={`h-3.5 w-3.5 transition-opacity ${
+                                pendingPupils[pupil.userId] ? "animate-spin opacity-100" : "opacity-0"
+                              }`}
+                              aria-hidden="true"
+                            />
+                            {pendingPupils[pupil.userId] ? (
+                              <span className="sr-only">Saving feedback for {pupil.displayName}</span>
+                            ) : null}
+                          </span>
+                        </span>
                       </div>
                     </td>
                     {successCriteria.map((criterion) => {
@@ -134,6 +186,8 @@ export function LessonFeedbackTable({
                           lessonId={lessonId}
                           initialRating={initialRating}
                           bulkAction={bulkAction}
+                          onPendingChange={handlePendingChange}
+                          pupilPending={Boolean(pendingPupils[pupil.userId])}
                         />
                       )
                     })}
@@ -147,4 +201,3 @@ export function LessonFeedbackTable({
     </section>
   )
 }
-

@@ -16,9 +16,11 @@ type FeedbackCellProps = {
   lessonId: string
   initialRating: 1 | -1 | null
   bulkAction?: BulkFeedbackAction | null
+  onPendingChange?: (pupilId: string, pending: boolean) => void
+  pupilPending?: boolean
 }
 
-export type BulkFeedbackAction = { type: "up" | "down"; timestamp: number }
+export type BulkFeedbackAction = { type: "up" | "down" | "clear"; timestamp: number }
 
 export function FeedbackCell({
   pupilId,
@@ -28,6 +30,8 @@ export function FeedbackCell({
   lessonId,
   initialRating,
   bulkAction,
+  onPendingChange,
+  pupilPending = false,
 }: FeedbackCellProps) {
   const [state, setState] = useState<FeedbackState>(() => {
     if (initialRating === 1) return "up"
@@ -51,17 +55,25 @@ export function FeedbackCell({
 
     setState(next)
     const rating = toRating(next)
+    onPendingChange?.(pupilId, true)
     startTransition(async () => {
-      const result = await upsertFeedbackAction({
-        userId: pupilId,
-        lessonId,
-        successCriteriaId: criterionId,
-        rating,
-      })
+      try {
+        const result = await upsertFeedbackAction({
+          userId: pupilId,
+          lessonId,
+          successCriteriaId: criterionId,
+          rating,
+        })
 
-      if (!result.success) {
-        console.error("[feedback] Failed to store feedback", result.error)
+        if (!result.success) {
+          console.error("[feedback] Failed to store feedback", result.error)
+          setState(prev)
+        }
+      } catch (error) {
+        console.error("[feedback] Failed to store feedback", error)
         setState(prev)
+      } finally {
+        onPendingChange?.(pupilId, false)
       }
     })
   }
@@ -74,17 +86,25 @@ export function FeedbackCell({
 
     setState(next)
     const rating = toRating(next)
+    onPendingChange?.(pupilId, true)
     startTransition(async () => {
-      const result = await upsertFeedbackAction({
-        userId: pupilId,
-        lessonId,
-        successCriteriaId: criterionId,
-        rating,
-      })
+      try {
+        const result = await upsertFeedbackAction({
+          userId: pupilId,
+          lessonId,
+          successCriteriaId: criterionId,
+          rating,
+        })
 
-      if (!result.success) {
-        console.error("[feedback] Failed to store feedback", result.error)
+        if (!result.success) {
+          console.error("[feedback] Failed to store feedback", result.error)
+          setState(prev)
+        }
+      } catch (error) {
+        console.error("[feedback] Failed to store feedback", error)
         setState(prev)
+      } finally {
+        onPendingChange?.(pupilId, false)
       }
     })
   }
@@ -94,7 +114,7 @@ export function FeedbackCell({
     if (lastBulkTimestamp.current === bulkAction.timestamp) return
     lastBulkTimestamp.current = bulkAction.timestamp
 
-    const targetState: FeedbackState = bulkAction.type === "up" ? "up" : "down"
+    const targetState: FeedbackState = bulkAction.type === "clear" ? null : bulkAction.type === "up" ? "up" : "down"
     if (state === targetState) {
       return
     }
@@ -102,21 +122,29 @@ export function FeedbackCell({
     const previous = state
     setState(targetState)
     const rating = toRating(targetState)
+    onPendingChange?.(pupilId, true)
 
     startTransition(async () => {
-      const result = await upsertFeedbackAction({
-        userId: pupilId,
-        lessonId,
-        successCriteriaId: criterionId,
-        rating,
-      })
+      try {
+        const result = await upsertFeedbackAction({
+          userId: pupilId,
+          lessonId,
+          successCriteriaId: criterionId,
+          rating,
+        })
 
-      if (!result.success) {
-        console.error("[feedback] Failed to apply bulk feedback update", result.error)
+        if (!result.success) {
+          console.error("[feedback] Failed to apply bulk feedback update", result.error)
+          setState(previous)
+        }
+      } catch (error) {
+        console.error("[feedback] Failed to apply bulk feedback update", error)
         setState(previous)
+      } finally {
+        onPendingChange?.(pupilId, false)
       }
     })
-  }, [bulkAction, criterionId, lessonId, pupilId, state, startTransition])
+  }, [bulkAction, criterionId, lessonId, onPendingChange, pupilId, state, startTransition])
 
   return (
     <td
@@ -135,7 +163,7 @@ export function FeedbackCell({
           onClick={handleThumbsUp}
           aria-pressed={state === "up"}
           aria-label={`Thumbs up for ${pupilName} on ${criterionDescription}`}
-          disabled={isPending}
+          disabled={isPending || pupilPending}
           className={cn(
             "rounded-full border border-border/60 bg-muted/60 p-2 text-emerald-600 transition hover:border-emerald-200 hover:bg-emerald-50",
             state === "up" && "border-emerald-400 bg-emerald-100",
@@ -149,7 +177,7 @@ export function FeedbackCell({
           onClick={handleThumbsDown}
           aria-pressed={state === "down"}
           aria-label={`Thumbs down for ${pupilName} on ${criterionDescription}`}
-          disabled={isPending}
+          disabled={isPending || pupilPending}
           className={cn(
             "rounded-full border border-border/60 bg-muted/60 p-2 text-destructive transition hover:border-destructive/50 hover:bg-destructive/10",
             state === "down" && "border-destructive bg-destructive/20 text-destructive",

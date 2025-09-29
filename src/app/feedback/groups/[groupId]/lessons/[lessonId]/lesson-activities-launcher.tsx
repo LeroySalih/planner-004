@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useTransition } from "react"
+import { useEffect, useState, useTransition } from "react"
 import { toast } from "sonner"
 
 import {
@@ -38,6 +38,35 @@ export function LessonActivitiesLauncher({ lesson, unitTitle }: LessonActivities
   const [currentIndex, setCurrentIndex] = useState(-1)
   const [isLoadingActivities, startActivitiesTransition] = useTransition()
   const [, startDownloadTransition] = useTransition()
+  const [activityCount, setActivityCount] = useState<number | null>(null)
+
+  useEffect(() => {
+    let isMounted = true
+
+    const fetchActivityCount = async () => {
+      try {
+        const result = await listLessonActivitiesAction(lesson.lesson_id)
+        if (result.error) {
+          throw new Error(result.error)
+        }
+        if (!isMounted) return
+        setActivityCount((result.data ?? []).length)
+      } catch (error) {
+        console.error("[feedback] Failed to load activity count:", error)
+        toast.error("Unable to load activity count", {
+          description: error instanceof Error ? error.message : "Please try again later.",
+        })
+      } finally {
+        if (!isMounted) return
+      }
+    }
+
+    fetchActivityCount()
+
+    return () => {
+      isMounted = false
+    }
+  }, [lesson.lesson_id])
 
   const handleClose = () => {
     setPresentation(null)
@@ -46,6 +75,7 @@ export function LessonActivitiesLauncher({ lesson, unitTitle }: LessonActivities
 
   const handleShowActivities = () => {
     if (isLoadingActivities) return
+    if (activityCount === 0) return
 
     setPresentation({
       lesson,
@@ -65,6 +95,7 @@ export function LessonActivitiesLauncher({ lesson, unitTitle }: LessonActivities
         }
 
         const activities = (activitiesResult.data ?? []).slice()
+        setActivityCount(activities.length)
 
         if (activities.length === 0) {
           toast.info("This lesson doesn't have any activities yet.")
@@ -155,6 +186,11 @@ export function LessonActivitiesLauncher({ lesson, unitTitle }: LessonActivities
   }
 
   const isBusy = isLoadingActivities || Boolean(presentation?.loading)
+  const countLabel =
+    activityCount === null
+      ? "…"
+      : activityCount
+  const isButtonDisabled = isBusy || activityCount === 0
 
   return (
     <>
@@ -163,9 +199,11 @@ export function LessonActivitiesLauncher({ lesson, unitTitle }: LessonActivities
         size="sm"
         variant="secondary"
         onClick={handleShowActivities}
-        disabled={isBusy}
+        disabled={isButtonDisabled}
       >
-        {isBusy ? "Loading activities…" : "Show activities"}
+        {isBusy
+          ? "Loading activities…"
+          : `Show activities (${countLabel})`}
       </Button>
 
       {presentation ? (
