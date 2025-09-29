@@ -19,6 +19,7 @@ import type {
   LessonAssignment,
   LessonAssignments,
   Lessons,
+  LessonFeedbackSummaries,
   Subjects,
   Unit,
   Units,
@@ -46,6 +47,7 @@ export interface AssignmentManagerProps {
   units?: Units | null
   lessons?: Lessons | null
   lessonAssignments?: LessonAssignments | null
+  lessonFeedbackSummaries?: LessonFeedbackSummaries | null
   onChange?: (assignment: Assignment, eventType: AssignmentChangeEvent) => void
 }
 
@@ -56,6 +58,7 @@ export function AssignmentManager({
     units: initialUnits,
     lessons: initialLessons,
     lessonAssignments: initialLessonAssignments,
+    lessonFeedbackSummaries: initialLessonFeedbackSummaries,
     onChange }: AssignmentManagerProps) {
   const [groups, setGroups] = useState<Groups>(initialGroups ?? [])
   const subjects = initialSubjects ?? []
@@ -63,6 +66,10 @@ export function AssignmentManager({
   const lessons = useMemo(() => initialLessons ?? [], [initialLessons])
   const [assignments, setAssignments] = useState<Assignments>(initialAssignments ?? [])
   const [lessonAssignments, setLessonAssignments] = useState<LessonAssignments>(initialLessonAssignments ?? [])
+  const lessonFeedbackSummaries = useMemo(
+    () => initialLessonFeedbackSummaries ?? [],
+    [initialLessonFeedbackSummaries],
+  )
   const [, startTransition] = useTransition()
   //const { toast: showToast } = useToast()
   const [isEditing] = useState(false)
@@ -605,6 +612,7 @@ export function AssignmentManager({
         assignments={filteredAssignments}
         lessons={lessons}
         lessonAssignments={lessonAssignments}
+        lessonFeedbackSummaries={lessonFeedbackSummaries}
         onAssignmentClick={handleAssignmentClick}
         onEmptyCellClick={handleEmptyCellClick}
         onUnitTitleClick={handleUnitTitleClick}

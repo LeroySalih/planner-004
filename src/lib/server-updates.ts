@@ -116,6 +116,7 @@ export {
 export {
   readFeedbackForLessonAction,
   upsertFeedbackAction,
+  readLessonFeedbackSummariesAction,
 } from "./server-actions/feedback"
 
 export { readPupilReportAction } from "./server-actions/pupils"

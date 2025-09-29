@@ -11,6 +11,7 @@ import {
   readUnitsAction,
   readLessonsAction,
   readLessonAssignmentsAction,
+  readLessonFeedbackSummariesAction,
 } from "@/lib/server-updates"
 import { requireTeacherProfile } from "@/lib/auth"
 
@@ -67,6 +68,25 @@ export default async function Home() {
     </div>
   }
 
+  const summaryPairs = Array.from(
+    new Map(
+      (lessonAssignments ?? []).map((assignment) => [
+        `${assignment.group_id}::${assignment.lesson_id}`,
+        { groupId: assignment.group_id, lessonId: assignment.lesson_id },
+      ]),
+    ).values(),
+  )
+
+  const { data: lessonFeedbackSummaries, error: lessonFeedbackSummariesError } =
+    await readLessonFeedbackSummariesAction({ pairs: summaryPairs })
+
+  if (lessonFeedbackSummariesError) {
+    return <div className="container mx-auto p-6">
+      <h1 className="text-2xl font-bold mb-4">Error Loading Feedback Summaries</h1>
+      <p className="text-red-600">There was an error loading the feedback summaries: {lessonFeedbackSummariesError}</p>
+    </div>
+  }
+
 
   const lessons = (lessonsWithDetails ?? []).map((lesson) => ({
     lesson_id: lesson.lesson_id,
@@ -95,6 +115,7 @@ export default async function Home() {
         units={(units ?? []).filter((unit) => unit.active ?? true)}
         lessons={lessons.filter((lesson) => lesson.active ?? true)}
         lessonAssignments={lessonAssignments}
+        lessonFeedbackSummaries={lessonFeedbackSummaries}
       />
     </main>
   )

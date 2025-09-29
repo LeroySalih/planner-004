@@ -200,6 +200,20 @@ export const LessonAssignmentsSchema = z.array(LessonAssignmentSchema);
 export type LessonAssignment = z.infer<typeof LessonAssignmentSchema>;
 export type LessonAssignments = z.infer<typeof LessonAssignmentsSchema>;
 
+export const LessonFeedbackSummarySchema = z.object({
+    group_id: z.string(),
+    lesson_id: z.string(),
+    total_pupils: z.number().int().min(0),
+    positive_count: z.number().int().min(0),
+    negative_count: z.number().int().min(0),
+    unmarked_count: z.number().int().min(0),
+});
+
+export const LessonFeedbackSummariesSchema = z.array(LessonFeedbackSummarySchema);
+
+export type LessonFeedbackSummary = z.infer<typeof LessonFeedbackSummarySchema>;
+export type LessonFeedbackSummaries = z.infer<typeof LessonFeedbackSummariesSchema>;
+
 export const LessonLearningObjectiveSchema = z.object({
     learning_objective_id: z.string(),
     lesson_id: z.string(),
