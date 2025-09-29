@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/sheet"
 
 import { CreateCurriculumSheet } from "./_components/create-curriculum-sheet"
-import { Pencil } from "lucide-react"
+import { Download, Pencil } from "lucide-react"
 
 interface CurriculumPageClientProps {
   curricula: Curriculum[]
@@ -44,6 +44,7 @@ export function CurriculumPageClient({
   const [editSubject, setEditSubject] = useState("")
   const [editDescription, setEditDescription] = useState("")
   const [isPending, startTransition] = useTransition()
+  const [downloadingCurriculumId, setDownloadingCurriculumId] = useState<string | null>(null)
 
   useEffect(() => {
     setItems(sortCurricula(curricula))
@@ -118,6 +119,60 @@ export function CurriculumPageClient({
     })
   }
 
+  const handleExport = async (curriculum: Curriculum) => {
+    const id = curriculum.curriculum_id
+    setDownloadingCurriculumId(id)
+
+    try {
+      const response = await fetch(`/api/curriculum/${id}/export`)
+
+      if (!response.ok) {
+        let description = `${response.status} ${response.statusText}`
+        const contentType = response.headers.get("content-type") ?? ""
+
+        if (contentType.includes("application/json")) {
+          const payload = await response.json().catch(() => null)
+          if (payload?.error) {
+            description = payload.error
+          }
+        }
+
+        toast.error("Failed to export curriculum", {
+          description,
+        })
+        return
+      }
+
+      const blob = await response.blob()
+      const filenameFromHeader = extractFilenameFromContentDisposition(
+        response.headers.get("Content-Disposition"),
+      )
+      const filename =
+        filenameFromHeader ?? `${createDownloadFilename(curriculum.title, curriculum.curriculum_id)}.xlsx`
+
+      const url = window.URL.createObjectURL(blob)
+      const anchor = document.createElement("a")
+      anchor.href = url
+      anchor.download = filename
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      window.URL.revokeObjectURL(url)
+
+      toast.success("Curriculum exported", {
+        description: `Downloaded ${curriculum.title}`,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unexpected error"
+      console.error("Failed to export curriculum", error)
+      toast.error("Failed to export curriculum", {
+        description: message,
+      })
+    } finally {
+      setDownloadingCurriculumId(null)
+    }
+  }
+
   return (
     <main className="container mx-auto max-w-4xl px-6 py-12">
       <header className="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 px-8 py-6 text-white shadow-lg">
@@ -166,7 +221,24 @@ export function CurriculumPageClient({
                     {curriculum.title}
                   </Link>
                 </CardTitle>
-                <CardAction>
+                <CardAction className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleExport(curriculum)}
+                    disabled={downloadingCurriculumId === curriculum.curriculum_id}
+                    aria-label={`Export curriculum ${curriculum.title} to Excel`}
+                  >
+                    {downloadingCurriculumId === curriculum.curriculum_id ? (
+                      "Exporting..."
+                    ) : (
+                      <>
+                        <Download className="mr-2 h-4 w-4" aria-hidden="true" />
+                        Export
+                      </>
+                    )}
+                  </Button>
                   <Button
                     type="button"
                     variant="ghost"
@@ -261,4 +333,36 @@ export function CurriculumPageClient({
 
 function sortCurricula(curricula: Curriculum[]) {
   return [...curricula].sort((a, b) => a.title.localeCompare(b.title))
+}
+
+function extractFilenameFromContentDisposition(header: string | null) {
+  if (!header) return null
+
+  const utf8Match = header.match(/filename\*=UTF-8''([^;]+)/i)
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1])
+    } catch (error) {
+      console.error("Failed to decode filename from header", error)
+    }
+  }
+
+  const fallbackMatch = header.match(/filename="?([^";]+)"?/i)
+  return fallbackMatch?.[1] ?? null
+}
+
+function createDownloadFilename(title: string, fallbackId: string) {
+  const normalized = title
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+
+  if (normalized.length === 0) {
+    return `curriculum-${fallbackId}`
+  }
+
+  return normalized.slice(0, 80)
 }
