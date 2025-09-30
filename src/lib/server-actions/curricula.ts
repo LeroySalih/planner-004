@@ -87,6 +87,7 @@ export async function createCurriculumAction(payload: {
   title: string
   subject?: string | null
   description?: string | null
+  active?: boolean
 }) {
   console.log("[curricula] createCurriculumAction:start", { payload })
 
@@ -99,6 +100,7 @@ export async function createCurriculumAction(payload: {
 
   const subject = payload.subject ? payload.subject.trim() : null
   const description = payload.description ? payload.description.trim() : null
+  const active = payload.active ?? true
 
   const { data, error } = await supabase
     .from("curricula")
@@ -106,8 +108,9 @@ export async function createCurriculumAction(payload: {
       title,
       subject: subject && subject.length > 0 ? subject : null,
       description: description && description.length > 0 ? description : null,
+      active,
     })
-    .select("curriculum_id, title, subject, description")
+    .select("curriculum_id, title, subject, description, active")
     .single()
 
   if (error) {
@@ -122,7 +125,7 @@ export async function createCurriculumAction(payload: {
 
 export async function updateCurriculumAction(
   curriculumId: string,
-  payload: { title?: string; subject?: string | null; description?: string | null },
+  payload: { title?: string; subject?: string | null; description?: string | null; active?: boolean },
 ) {
   console.log("[curricula] updateCurriculumAction:start", { curriculumId, payload })
 
@@ -148,11 +151,15 @@ export async function updateCurriculumAction(
     updates.description = descriptionValue && descriptionValue.length > 0 ? descriptionValue : null
   }
 
+  if (payload.active !== undefined) {
+    updates.active = payload.active
+  }
+
   if (Object.keys(updates).length === 0) {
     console.log("[curricula] updateCurriculumAction:no-op", { curriculumId })
     const { data, error } = await supabase
       .from("curricula")
-      .select("curriculum_id, title, subject, description")
+      .select("curriculum_id, title, subject, description, active")
       .eq("curriculum_id", curriculumId)
       .maybeSingle()
 
@@ -168,7 +175,7 @@ export async function updateCurriculumAction(
     .from("curricula")
     .update(updates)
     .eq("curriculum_id", curriculumId)
-    .select("curriculum_id, title, subject, description")
+    .select("curriculum_id, title, subject, description, active")
     .single()
 
   if (error) {
@@ -193,6 +200,7 @@ export async function readCurriculumDetailAction(curriculumId: string) {
         subject,
         title,
         description,
+        active,
         assessment_objectives(
           assessment_objective_id,
           curriculum_id,

@@ -92,6 +92,7 @@ export const CurriculumSchema = z.object({
     subject: z.string().nullable(),
     title: z.string().min(1).max(255),
     description: z.string().nullable(),
+    active: z.boolean().default(true),
 });
 
 export const CurriculaSchema = z.array(CurriculumSchema);

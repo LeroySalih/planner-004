@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Sheet,
@@ -28,7 +29,6 @@ interface CurriculumPageClientProps {
   subjects: Subjects
   error: string | null
   subjectsError: string | null
-  createAction: (formData: FormData) => Promise<void>
 }
 
 export function CurriculumPageClient({
@@ -36,9 +36,9 @@ export function CurriculumPageClient({
   subjects,
   error,
   subjectsError,
-  createAction,
 }: CurriculumPageClientProps) {
   const [items, setItems] = useState<Curriculum[]>(() => sortCurricula(curricula))
+  const [showInactive, setShowInactive] = useState(false)
   const [editing, setEditing] = useState<Curriculum | null>(null)
   const [editTitle, setEditTitle] = useState("")
   const [editSubject, setEditSubject] = useState("")
@@ -46,11 +46,20 @@ export function CurriculumPageClient({
   const [isPending, startTransition] = useTransition()
   const [downloadingCurriculumId, setDownloadingCurriculumId] = useState<string | null>(null)
 
+  const editingIsActive = editing?.active ?? false
+
   useEffect(() => {
     setItems(sortCurricula(curricula))
   }, [curricula])
 
-  const hasItems = items.length > 0
+  const visibleItems = useMemo(() => {
+    if (showInactive) {
+      return items
+    }
+    return items.filter((curriculum) => curriculum.active !== false)
+  }, [items, showInactive])
+
+  const hasItems = visibleItems.length > 0
 
   const sortedSubjects = useMemo(() => {
     const unique = new Set<string>()
@@ -119,6 +128,42 @@ export function CurriculumPageClient({
     })
   }
 
+  const handleSetActive = (nextActive: boolean) => {
+    if (!editing) return
+
+    const target = editing
+    startTransition(async () => {
+      const result = await updateCurriculumAction(target.curriculum_id, {
+        active: nextActive,
+      })
+
+      const { data: updatedCurriculum, error: updateError } = result
+
+      if (updateError || !updatedCurriculum) {
+        toast.error("Failed to update curriculum", {
+          description: updateError ?? "Please try again later.",
+        })
+        return
+      }
+
+      setItems((previous) =>
+        sortCurricula(
+          previous.map((item) => (item.curriculum_id === target.curriculum_id ? updatedCurriculum : item)),
+        ),
+      )
+      if (!nextActive) {
+        toast.success("Curriculum archived", {
+          description: `${target.title} is now inactive.`,
+        })
+      } else {
+        toast.success("Curriculum reactivated", {
+          description: `${target.title} is active again.`,
+        })
+      }
+      handleCloseEdit(true)
+    })
+  }
+
   const handleExport = async (curriculum: Curriculum) => {
     const id = curriculum.curriculum_id
     setDownloadingCurriculumId(id)
@@ -173,6 +218,10 @@ export function CurriculumPageClient({
     }
   }
 
+  const handleCurriculumCreated = (curriculum: Curriculum) => {
+    setItems((previous) => sortCurricula([...previous, curriculum]))
+  }
+
   return (
     <main className="container mx-auto max-w-4xl px-6 py-12">
       <header className="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 px-8 py-6 text-white shadow-lg">
@@ -192,7 +241,33 @@ export function CurriculumPageClient({
             <h2 className="text-lg font-semibold text-foreground">Create New Curriculum</h2>
             <p className="text-sm text-muted-foreground">Launch the sidebar to capture the curriculum details.</p>
           </div>
-          <CreateCurriculumSheet action={createAction} subjects={subjects} subjectsError={subjectsError} />
+          <CreateCurriculumSheet
+            subjects={subjects}
+            subjectsError={subjectsError}
+            onCurriculumCreated={handleCurriculumCreated}
+          />
+        </div>
+        <div className="mt-3 flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+          <p className="max-w-[28rem]">
+            Use the template spreadsheet to structure assessment objectives, learning objectives, success criteria, and their level values before uploading.
+          </p>
+          <Button asChild variant="secondary" className="sm:w-auto">
+            <a href="/example-upload.xlsx" download>
+              Download example spreadsheet
+            </a>
+          </Button>
+        </div>
+        <div className="mt-4 flex items-center justify-between rounded-md border border-border/60 bg-muted/40 px-4 py-3 sm:justify-end">
+          <div className="flex items-center gap-3 text-sm text-muted-foreground">
+            <Switch
+              id="curriculum-show-inactive"
+              checked={showInactive}
+              onCheckedChange={(checked) => setShowInactive(checked)}
+            />
+            <Label htmlFor="curriculum-show-inactive" className="cursor-pointer text-muted-foreground">
+              Show inactive curricula
+            </Label>
+          </div>
         </div>
       </section>
 
@@ -204,22 +279,29 @@ export function CurriculumPageClient({
 
       {!hasItems && !error ? (
         <div className="mt-8 rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">
-          No curricula found yet. Once curricula are created they will appear here.
+          {items.length === 0
+            ? "No curricula found yet. Once curricula are created they will appear here."
+            : "No active curricula right now. Enable \"Show inactive curricula\" to review archived entries."}
         </div>
       ) : null}
 
       {hasItems ? (
         <section className="mt-8 grid gap-4">
-          {items.map((curriculum) => (
+          {visibleItems.map((curriculum) => (
             <Card key={curriculum.curriculum_id} className="border-border shadow-sm">
               <CardHeader className="space-y-1">
-                <CardTitle className="text-xl font-semibold text-foreground">
+                <CardTitle className="flex items-center gap-2 text-xl font-semibold text-foreground">
                   <Link
                     href={`/curriculum/${curriculum.curriculum_id}`}
                     className="inline-flex items-center underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   >
                     {curriculum.title}
                   </Link>
+                  {curriculum.active === false ? (
+                    <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-700">
+                      Inactive
+                    </span>
+                  ) : null}
                 </CardTitle>
                 <CardAction className="flex items-center gap-2">
                   <Button
@@ -311,18 +393,40 @@ export function CurriculumPageClient({
             </div>
           </div>
           <SheetFooter>
-            <div className="flex w-full flex-col gap-2 sm:flex-row sm:justify-end">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => handleCloseEdit()}
-                disabled={isPending}
-              >
-                Cancel
-              </Button>
-              <Button type="button" onClick={handleSaveEdit} disabled={isPending}>
-                {isPending ? "Saving..." : "Save changes"}
-              </Button>
+            <div className="flex w-full flex-col gap-3">
+              {editing ? (
+                <div className="rounded-md border border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground">
+                  <p className="font-medium text-foreground">Status</p>
+                  <p>{editingIsActive ? "Active" : "Inactive"}</p>
+                </div>
+              ) : null}
+              <div className="flex w-full flex-col gap-2 sm:flex-row sm:justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => handleCloseEdit()}
+                  disabled={isPending}
+                >
+                  Cancel
+                </Button>
+                <Button type="button" onClick={handleSaveEdit} disabled={isPending}>
+                  {isPending ? "Saving..." : "Save changes"}
+                </Button>
+              </div>
+              {editing ? (
+                <Button
+                  type="button"
+                  variant={editingIsActive ? "destructive" : "secondary"}
+                  onClick={() => handleSetActive(!editingIsActive)}
+                  disabled={isPending}
+                >
+                  {isPending
+                    ? "Updating status..."
+                    : editingIsActive
+                      ? "Set inactive"
+                      : "Set active"}
+                </Button>
+              ) : null}
             </div>
           </SheetFooter>
         </SheetContent>
