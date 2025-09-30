@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button"
 type UserProfile = {
   userId: string
   displayName: string
+  isTeacher: boolean
 }
 
 export function UserNav() {
@@ -44,7 +45,7 @@ export function UserNav() {
 
       const { data: profileData } = await supabaseBrowserClient
         .from("profiles")
-        .select("first_name, last_name")
+        .select("first_name, last_name, is_teacher")
         .eq("user_id", user.id)
         .maybeSingle()
 
@@ -56,6 +57,7 @@ export function UserNav() {
         setProfile({
           userId: user.id,
           displayName: combined.length > 0 ? combined : user.email ?? user.id,
+          isTeacher: Boolean(profileData?.is_teacher),
         })
       }
     }
@@ -127,7 +129,7 @@ export function UserNav() {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-44">
           <DropdownMenuItem asChild>
-            <Link href={`/profile/dashboard/${profile.userId}`} className="w-full">
+            <Link href={`/reports/${encodeURIComponent(profile.userId)}`} className="w-full">
               Dashboard
             </Link>
           </DropdownMenuItem>

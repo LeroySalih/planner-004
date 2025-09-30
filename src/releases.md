@@ -1,6 +1,11 @@
 # Dino
 ## Releases 
 
+### Release 0.0.2
+- Updated the user menu Dashboard link to route to `/reports/<pupil_id>` for the signed-in user.
+- Let pupils open `/reports/<pupil_id>` while redirecting them back to their own report if they try to view another pupil.
+- Hid the Dashboards item from the pupil top navigation while keeping it in the three-dot user menu.
+
 ### Release 0.0.1
 - `/`: Centers the Planner hero graphic as a simple branded landing page.
 - `/signin`: Email-password sign-in form with welcome messaging and home navigation.
