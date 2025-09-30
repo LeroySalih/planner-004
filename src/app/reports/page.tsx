@@ -59,17 +59,15 @@ export default async function ReportsLandingPage() {
     <main className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-6 py-10">
       <header className="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 px-8 py-6 text-white shadow-lg">
         <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-        <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-semibold text-primary">Reports</h1>
-        <p className="text-sm text-muted-foreground">
-          Browse groups and access individual pupil reports. Use the filter to quickly find pupils or groups.
-        </p>
-            </div>
+          <div className="flex items-center justify-between">
+            <h1 className="text-3xl font-semibold text-white">Reports</h1>
+          </div>
+          <p className="text-sm text-slate-200">
+            Browse groups and access individual pupil reports. Use the filter to quickly find pupils or groups.
+          </p>
         </div>
-      </div>
       </header>
-        
+
 
       <ReportsTable pupils={pupils} />
     </main>

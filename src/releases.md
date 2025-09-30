@@ -1,6 +1,11 @@
 # Dino
 ## Releases 
 
+### Release 0.0.3
+- `/reports`: Restyled the hero header with white/grey copy and relocated the export controls into the gradient banner.
+- `/reports/[pupilId]`: Opened all subject accordions by default, swapped feedback captions for icon-only indicators, linked unit headings to their detail pages, and removed the back-to-assignments link.
+- `/reports/[pupilId]`: Added a server-backed "Export PDF" workflow powered by pdfkit, colour-coding success criteria by feedback in the generated document, and exposing both export and print actions from the header.
+
 ### Release 0.0.2
 - Updated the user menu Dashboard link to route to `/reports/<pupil_id>` for the signed-in user.
 - Let pupils open `/reports/<pupil_id>` while redirecting them back to their own report if they try to view another pupil.
