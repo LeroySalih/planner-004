@@ -1,13 +1,14 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { X } from "lucide-react"
+import { MoreVertical, X } from "lucide-react"
 import type { Unit, Assignment, Lesson, LessonAssignment } from "@/types"
 import { truncateText } from "@/lib/utils"
 
@@ -110,6 +111,114 @@ export function AssignmentSidebar({
       relevantAssignments.map((entry) => [entry.lesson_id, entry] as const),
     )
   }, [lessonAssignments, editedAssignment])
+
+  const planLessonDatesForwardFromIndex = useCallback(
+    (startIndex: number) => {
+      if (!onLessonDateChange || assignmentDateOptions.length === 0) {
+        return
+      }
+
+      const startingLesson = unitLessons[startIndex]
+      if (!startingLesson) {
+        return
+      }
+
+      const startingLessonDate = lessonAssignmentsByLessonId.get(startingLesson.lesson_id)?.start_date
+      if (!startingLessonDate) {
+        return
+      }
+
+      const startingOptionIndex = assignmentDateOptions.findIndex(
+        (option) => option.value === startingLessonDate,
+      )
+
+      if (startingOptionIndex === -1) {
+        return
+      }
+
+      let nextOptionIndex = startingOptionIndex
+
+      for (let lessonIndex = startIndex + 1; lessonIndex < unitLessons.length; lessonIndex += 1) {
+        nextOptionIndex += 1
+        const nextOption = assignmentDateOptions[nextOptionIndex]
+        if (!nextOption) {
+          break
+        }
+
+        const nextLesson = unitLessons[lessonIndex]
+        const assignmentKey = `${editedAssignment.group_id}__${nextLesson.lesson_id}`
+        const isPending = Boolean(pendingLessonAssignmentKeys?.[assignmentKey])
+
+        if (isPending) {
+          continue
+        }
+
+        onLessonDateChange(nextLesson.lesson_id, nextOption.value)
+      }
+    },
+    [
+      assignmentDateOptions,
+      editedAssignment?.group_id,
+      lessonAssignmentsByLessonId,
+      onLessonDateChange,
+      pendingLessonAssignmentKeys,
+      unitLessons,
+    ],
+  )
+
+  const planLessonDatesBackwardFromIndex = useCallback(
+    (startIndex: number) => {
+      if (!onLessonDateChange || assignmentDateOptions.length === 0) {
+        return
+      }
+
+      const startingLesson = unitLessons[startIndex]
+      if (!startingLesson) {
+        return
+      }
+
+      const startingLessonDate = lessonAssignmentsByLessonId.get(startingLesson.lesson_id)?.start_date
+      if (!startingLessonDate) {
+        return
+      }
+
+      const startingOptionIndex = assignmentDateOptions.findIndex(
+        (option) => option.value === startingLessonDate,
+      )
+
+      if (startingOptionIndex === -1) {
+        return
+      }
+
+      let previousOptionIndex = startingOptionIndex
+
+      for (let lessonIndex = startIndex - 1; lessonIndex >= 0; lessonIndex -= 1) {
+        previousOptionIndex -= 1
+        const previousOption = assignmentDateOptions[previousOptionIndex]
+        if (!previousOption) {
+          break
+        }
+
+        const previousLesson = unitLessons[lessonIndex]
+        const assignmentKey = `${editedAssignment.group_id}__${previousLesson.lesson_id}`
+        const isPending = Boolean(pendingLessonAssignmentKeys?.[assignmentKey])
+
+        if (isPending) {
+          continue
+        }
+
+        onLessonDateChange(previousLesson.lesson_id, previousOption.value)
+      }
+    },
+    [
+      assignmentDateOptions,
+      editedAssignment?.group_id,
+      lessonAssignmentsByLessonId,
+      onLessonDateChange,
+      pendingLessonAssignmentKeys,
+      unitLessons,
+    ],
+  )
 
   useEffect(() => {
     if (assignment) {
@@ -296,11 +405,24 @@ export function AssignmentSidebar({
                         Update the assignment start and end dates to enable lesson scheduling.
                       </div>
                     )}
-                    {unitLessons.map((lesson) => {
+                    {unitLessons.map((lesson, lessonIndex) => {
                       const assignedDate = lessonAssignmentsByLessonId.get(lesson.lesson_id)?.start_date ?? ""
+                      const assignedDateIndex = assignmentDateOptions.findIndex(
+                        (option) => option.value === assignedDate,
+                      )
                       const assignmentKey = `${editedAssignment.group_id}__${lesson.lesson_id}`
                       const isPending = Boolean(pendingLessonAssignmentKeys?.[assignmentKey])
-                      const validAssignedDate = assignmentDateOptions.some((option) => option.value === assignedDate)
+                      const validAssignedDate = assignedDateIndex !== -1
+                      const canPlanFromHere =
+                        Boolean(onLessonDateChange) &&
+                        assignmentDateOptions.length > 0 &&
+                        validAssignedDate &&
+                        !isPending
+                      const canPlanBackward =
+                        canPlanFromHere &&
+                        lessonIndex > 0 &&
+                        assignedDateIndex > 0
+                      const canClear = Boolean(onLessonDateChange) && Boolean(assignedDate) && !isPending
 
                       return (
                         <div
@@ -337,14 +459,51 @@ export function AssignmentSidebar({
                                 ))}
                               </SelectContent>
                             </Select>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              disabled={!onLessonDateChange || !assignedDate || isPending}
-                              onClick={() => onLessonDateChange?.(lesson.lesson_id, null)}
-                            >
-                              Clear
-                            </Button>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon" className="size-8" aria-label="Lesson actions">
+                                  <MoreVertical className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem
+                                  disabled={!canClear}
+                                  onSelect={(event) => {
+                                    event.preventDefault()
+                                    if (!canClear) {
+                                      return
+                                    }
+                                    onLessonDateChange?.(lesson.lesson_id, null)
+                                  }}
+                                >
+                                  Clear date
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  disabled={!canPlanFromHere}
+                                  onSelect={(event) => {
+                                    event.preventDefault()
+                                    if (!canPlanFromHere) {
+                                      return
+                                    }
+                                    planLessonDatesForwardFromIndex(lessonIndex)
+                                  }}
+                                >
+                                  Reschedule forward
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  disabled={!canPlanBackward}
+                                  onSelect={(event) => {
+                                    event.preventDefault()
+                                    if (!canPlanBackward) {
+                                      return
+                                    }
+                                    planLessonDatesBackwardFromIndex(lessonIndex)
+                                  }}
+                                >
+                                  Reschedule back
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
                         </div>
                       )
