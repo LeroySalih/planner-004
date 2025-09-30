@@ -112,9 +112,11 @@ export function AssignmentSidebar({
     )
   }, [lessonAssignments, editedAssignment])
 
+  const activeGroupId = editedAssignment?.group_id ?? null
+
   const planLessonDatesForwardFromIndex = useCallback(
     (startIndex: number) => {
-      if (!onLessonDateChange || assignmentDateOptions.length === 0) {
+      if (!onLessonDateChange || assignmentDateOptions.length === 0 || !activeGroupId) {
         return
       }
 
@@ -146,7 +148,7 @@ export function AssignmentSidebar({
         }
 
         const nextLesson = unitLessons[lessonIndex]
-        const assignmentKey = `${editedAssignment.group_id}__${nextLesson.lesson_id}`
+        const assignmentKey = `${activeGroupId}__${nextLesson.lesson_id}`
         const isPending = Boolean(pendingLessonAssignmentKeys?.[assignmentKey])
 
         if (isPending) {
@@ -158,7 +160,7 @@ export function AssignmentSidebar({
     },
     [
       assignmentDateOptions,
-      editedAssignment?.group_id,
+      activeGroupId,
       lessonAssignmentsByLessonId,
       onLessonDateChange,
       pendingLessonAssignmentKeys,
@@ -168,7 +170,7 @@ export function AssignmentSidebar({
 
   const planLessonDatesBackwardFromIndex = useCallback(
     (startIndex: number) => {
-      if (!onLessonDateChange || assignmentDateOptions.length === 0) {
+      if (!onLessonDateChange || assignmentDateOptions.length === 0 || !activeGroupId) {
         return
       }
 
@@ -200,7 +202,7 @@ export function AssignmentSidebar({
         }
 
         const previousLesson = unitLessons[lessonIndex]
-        const assignmentKey = `${editedAssignment.group_id}__${previousLesson.lesson_id}`
+        const assignmentKey = `${activeGroupId}__${previousLesson.lesson_id}`
         const isPending = Boolean(pendingLessonAssignmentKeys?.[assignmentKey])
 
         if (isPending) {
@@ -212,7 +214,7 @@ export function AssignmentSidebar({
     },
     [
       assignmentDateOptions,
-      editedAssignment?.group_id,
+      activeGroupId,
       lessonAssignmentsByLessonId,
       onLessonDateChange,
       pendingLessonAssignmentKeys,
