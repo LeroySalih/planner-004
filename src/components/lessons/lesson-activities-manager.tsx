@@ -1,6 +1,6 @@
 "use client"
 
-import type { DragEvent } from "react"
+import type { ChangeEvent, DragEvent } from "react"
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
@@ -33,6 +33,18 @@ interface VoiceBody {
   [key: string]: unknown
 }
 
+interface ImageBody {
+  imageFile: string | null
+  imageUrl?: string | null
+  [key: string]: unknown
+}
+
+interface ActivityFileInfo {
+  name: string
+  path: string
+  size?: number | null
+}
+
 const ACTIVITY_TYPES = [
   { value: "text", label: "Text" },
   { value: "file-download", label: "File download" },
@@ -46,6 +58,8 @@ const ACTIVITY_TYPES = [
 
 type ActivityTypeValue = (typeof ACTIVITY_TYPES)[number]["value"]
 
+const NEW_ACTIVITY_ID = "__new__"
+
 interface LessonActivitiesManagerProps {
   unitId: string
   lessonId: string
@@ -57,11 +71,6 @@ export function LessonActivitiesManager({ unitId, lessonId, initialActivities }:
   const [activities, setActivities] = useState<LessonActivity[]>(() => sortActivities(initialActivities))
   const [isPending, startTransition] = useTransition()
 
-  const [newTitle, setNewTitle] = useState("")
-  const [newType, setNewType] = useState<ActivityTypeValue>("text")
-  const [newText, setNewText] = useState("")
-  const [newVideoUrl, setNewVideoUrl] = useState("")
-
   const [editorActivityId, setEditorActivityId] = useState<string | null>(null)
   const [isEditorOpen, setIsEditorOpen] = useState(false)
   const [draggingId, setDraggingId] = useState<string | null>(null)
@@ -71,24 +80,15 @@ export function LessonActivitiesManager({ unitId, lessonId, initialActivities }:
     Record<string, { url: string | null; loading: boolean }>
   >({})
   const [fileDownloadState, setFileDownloadState] = useState<Record<string, { loading: boolean }>>({})
+  const [imagePreviewState, setImagePreviewState] = useState<
+    Record<string, { url: string | null; loading: boolean }>
+  >({})
   const voiceAudioRef = useRef<HTMLAudioElement | null>(null)
 
   useEffect(() => {
     setActivities(sortActivities(initialActivities))
+    setImagePreviewState({})
   }, [initialActivities])
-
-  useEffect(() => {
-    if (newType === "text") {
-      setNewVideoUrl("")
-      return
-    }
-    if (newType === "show-video") {
-      setNewText("")
-      return
-    }
-    setNewText("")
-    setNewVideoUrl("")
-  }, [newType])
 
   const typeLabelMap = useMemo(() => {
     return ACTIVITY_TYPES.reduce<Record<string, string>>((acc, type) => {
@@ -97,51 +97,359 @@ export function LessonActivitiesManager({ unitId, lessonId, initialActivities }:
     }, {})
   }, [])
 
-  const resetNewForm = () => {
-    setNewTitle("")
-    setNewText("")
-    setNewVideoUrl("")
-    setNewType("text")
+  const openEditor = (activityId: string) => {
+    setEditorActivityId(activityId)
+    setIsEditorOpen(true)
   }
 
-  const handleAddActivity = () => {
-    const title = newTitle.trim()
-    if (!title) {
-      toast.error("Activity title is required")
-      return
-    }
+  const closeEditor = () => {
+    setIsEditorOpen(false)
+    setEditorActivityId(null)
+  }
 
-    const bodyData = buildBodyData(newType, {
-      text: newText,
-      videoUrl: newVideoUrl,
+  const isCreating = editorActivityId === NEW_ACTIVITY_ID
+
+  const fetchImagePreview = useCallback(
+    async (activity: LessonActivity, fileName: string) => {
+      setImagePreviewState((prev) => ({
+        ...prev,
+        [activity.activity_id]: {
+          url: prev[activity.activity_id]?.url ?? null,
+          loading: true,
+        },
+      }))
+
+      try {
+        const result = await getActivityFileDownloadUrlAction(
+          activity.lesson_id,
+          activity.activity_id,
+          fileName,
+        )
+        if (!result.success || !result.url) {
+          setImagePreviewState((prev) => ({
+            ...prev,
+            [activity.activity_id]: {
+              url: null,
+              loading: false,
+            },
+          }))
+          if (result.error) {
+            console.warn("[activities] Unable to load image thumbnail:", result.error)
+          }
+          return
+        }
+
+        setImagePreviewState((prev) => ({
+          ...prev,
+          [activity.activity_id]: {
+            url: result.url,
+            loading: false,
+          },
+        }))
+      } catch (error) {
+        console.error("[activities] Failed to fetch image thumbnail:", error)
+        setImagePreviewState((prev) => ({
+          ...prev,
+          [activity.activity_id]: {
+            url: null,
+            loading: false,
+          },
+        }))
+      }
+    },
+    [],
+  )
+
+  useEffect(() => {
+    const pendingFetches: { activity: LessonActivity; fileName: string }[] = []
+
+    setImagePreviewState((prev) => {
+      const next: Record<string, { url: string | null; loading: boolean }> = { ...prev }
+      const isAbsolute = (value: string | null) => {
+        if (!value) return false
+        return /^https?:\/\//i.test(value) || value.startsWith("data:")
+      }
+
+      for (const activity of activities) {
+        if (activity.type !== "display-image") {
+          continue
+        }
+
+        const body = getImageBody(activity)
+        const raw = (activity.body_data ?? {}) as Record<string, unknown>
+        const rawFileUrl = typeof raw.fileUrl === "string" ? raw.fileUrl : null
+
+        const directUrl = body.imageUrl && isAbsolute(body.imageUrl) ? body.imageUrl : null
+        const fallbackDirect = directUrl || (rawFileUrl && isAbsolute(rawFileUrl) ? rawFileUrl : null)
+
+        const fileNameCandidate = body.imageFile && !isAbsolute(body.imageFile) ? body.imageFile : null
+        const fallbackFileName = !fileNameCandidate && rawFileUrl && !isAbsolute(rawFileUrl) ? rawFileUrl : null
+        const finalFileName = fileNameCandidate ?? fallbackFileName
+
+        if (fallbackDirect) {
+          next[activity.activity_id] = { url: fallbackDirect, loading: false }
+          continue
+        }
+
+        if (finalFileName) {
+          const existing = prev[activity.activity_id]
+          if (!existing || (!existing.url && !existing.loading)) {
+            pendingFetches.push({ activity, fileName: finalFileName })
+            next[activity.activity_id] = { url: existing?.url ?? null, loading: true }
+          }
+          continue
+        }
+
+        next[activity.activity_id] = { url: null, loading: false }
+      }
+
+      return next
     })
 
+    pendingFetches.forEach(({ activity, fileName }) => {
+      void fetchImagePreview(activity, fileName)
+    })
+  }, [activities, fetchImagePreview])
+
+  const editingActivity = useMemo(() => {
+    if (!editorActivityId || editorActivityId === NEW_ACTIVITY_ID) {
+      return null
+    }
+    return activities.find((activity) => activity.activity_id === editorActivityId) ?? null
+  }, [activities, editorActivityId])
+
+  useEffect(() => {
+    if (isEditorOpen && editorActivityId && !isCreating && !editingActivity) {
+      closeEditor()
+    }
+  }, [editorActivityId, editingActivity, isCreating, isEditorOpen])
+
+  useEffect(() => {
+    return () => {
+      if (voiceAudioRef.current) {
+        try {
+          voiceAudioRef.current.pause()
+        } catch (error) {
+          console.warn("[activities] Failed to pause voice preview on unmount", error)
+        }
+      }
+      voiceAudioRef.current = null
+    }
+  }, [])
+
+  const handleEditorSubmit = ({
+    mode,
+    activityId,
+    title,
+    type,
+    bodyData,
+    imageSubmission,
+  }: {
+    mode: "create" | "edit"
+    activityId?: string
+    title: string
+    type: ActivityTypeValue
+    bodyData: unknown
+    imageSubmission?: ImageSubmissionPayload
+  }) => {
     startTransition(async () => {
-      const result = await createLessonActivityAction(unitId, lessonId, {
+      if (mode === "create") {
+        if (type === "display-image" && imageSubmission) {
+          const createBody = imageSubmission.pendingFile ? { imageFile: null, imageUrl: null, fileUrl: null } : bodyData
+
+          const createResult = await createLessonActivityAction(unitId, lessonId, {
+            title,
+            type,
+            bodyData: createBody,
+          })
+
+          if (!createResult.success || !createResult.data) {
+            toast.error("Unable to create activity", {
+              description: createResult.error ?? "Please try again later.",
+            })
+            return
+          }
+
+          let createdActivity = createResult.data
+
+          if (imageSubmission.pendingFile && createdActivity) {
+            const formData = new FormData()
+            formData.append("unitId", unitId)
+            formData.append("lessonId", lessonId)
+            formData.append("activityId", createdActivity.activity_id)
+            formData.append("file", imageSubmission.pendingFile)
+
+            const uploadResult = await uploadActivityFileAction(formData)
+            if (!uploadResult.success) {
+              toast.error("Failed to upload image", {
+                description: uploadResult.error ?? "Please try again later.",
+              })
+              await deleteLessonActivityAction(unitId, lessonId, createdActivity.activity_id)
+              return
+            }
+
+            const finalizeResult = await updateLessonActivityAction(unitId, lessonId, createdActivity.activity_id, {
+              bodyData: imageSubmission.finalBody ?? { imageFile: imageSubmission.pendingFile.name },
+            })
+
+            if (!finalizeResult.success || !finalizeResult.data) {
+              toast.error("Unable to finalize image", {
+                description: finalizeResult.error ?? "Please try again later.",
+              })
+              await deleteActivityFileAction(
+                unitId,
+                lessonId,
+                createdActivity.activity_id,
+                imageSubmission.pendingFile.name,
+              )
+              await deleteLessonActivityAction(unitId, lessonId, createdActivity.activity_id)
+              return
+            }
+
+            createdActivity = finalizeResult.data
+          }
+
+          setActivities((prev) => sortActivities([...prev, createdActivity]))
+          setImagePreviewState((prev) => ({
+            ...prev,
+            [createdActivity.activity_id]: { url: null, loading: false },
+          }))
+          toast.success("Activity created")
+          closeEditor()
+          router.refresh()
+          return
+        }
+
+        const result = await createLessonActivityAction(unitId, lessonId, {
+          title,
+          type,
+          bodyData,
+        })
+
+        if (!result.success || !result.data) {
+          toast.error("Unable to create activity", {
+            description: result.error ?? "Please try again later.",
+          })
+          return
+        }
+
+        setActivities((prev) => sortActivities([...prev, result.data!]))
+        toast.success("Activity created")
+        closeEditor()
+        router.refresh()
+        return
+      }
+
+      if (!activityId) {
+        toast.error("Unable to update activity", {
+          description: "Missing activity identifier.",
+        })
+        return
+      }
+
+      if (type === "display-image" && imageSubmission) {
+        const pendingFile = imageSubmission.pendingFile
+        const previousFileName = imageSubmission.previousFileName
+
+        if (pendingFile) {
+          const formData = new FormData()
+          formData.append("unitId", unitId)
+          formData.append("lessonId", lessonId)
+          formData.append("activityId", activityId)
+          formData.append("file", pendingFile)
+
+          const uploadResult = await uploadActivityFileAction(formData)
+          if (!uploadResult.success) {
+            toast.error("Failed to upload image", {
+              description: uploadResult.error ?? "Please try again later.",
+            })
+            return
+          }
+        }
+
+        const updateResult = await updateLessonActivityAction(unitId, lessonId, activityId, {
+          title,
+          type,
+          bodyData: imageSubmission.finalBody ?? null,
+        })
+
+        if (!updateResult.success || !updateResult.data) {
+          if (pendingFile) {
+            await deleteActivityFileAction(unitId, lessonId, activityId, pendingFile.name)
+          }
+          toast.error("Unable to update activity", {
+            description: updateResult.error ?? "Please try again later.",
+          })
+          return
+        }
+
+        const updatedActivity = updateResult.data
+
+        if (pendingFile && previousFileName && previousFileName !== pendingFile.name) {
+          const cleanupResult = await deleteActivityFileAction(unitId, lessonId, activityId, previousFileName)
+          if (!cleanupResult.success) {
+            toast.error("Image updated, but the previous file could not be removed.", {
+              description: cleanupResult.error ?? "Please remove it manually later.",
+            })
+          }
+        }
+
+        if (!pendingFile && imageSubmission.shouldDeleteExisting && previousFileName) {
+          const deleteResult = await deleteActivityFileAction(unitId, lessonId, activityId, previousFileName)
+          if (!deleteResult.success) {
+            toast.error("Unable to remove the existing image", {
+              description: deleteResult.error ?? "Please try again later.",
+            })
+            // Attempt to restore the previous body so the image remains referenced
+            await updateLessonActivityAction(unitId, lessonId, activityId, {
+              title,
+              type,
+              bodyData: { imageFile: previousFileName, fileUrl: previousFileName },
+            })
+            return
+          }
+        }
+
+        setActivities((prev) =>
+          sortActivities(prev.map((item) => (item.activity_id === activityId ? updatedActivity : item))),
+        )
+        setImagePreviewState((prev) => ({
+          ...prev,
+          [activityId]: { url: null, loading: false },
+        }))
+        toast.success("Activity updated")
+        closeEditor()
+        router.refresh()
+        return
+      }
+
+      const result = await updateLessonActivityAction(unitId, lessonId, activityId, {
         title,
-        type: newType,
+        type,
         bodyData,
       })
 
       if (!result.success || !result.data) {
-        toast.error("Unable to add activity", {
+        toast.error("Unable to update activity", {
           description: result.error ?? "Please try again later.",
         })
         return
       }
 
-      setActivities((prev) => sortActivities([...prev, result.data!]))
-      resetNewForm()
-      toast.success("Activity added")
+      setActivities((prev) =>
+        sortActivities(prev.map((item) => (item.activity_id === activityId ? result.data! : item))),
+      )
+      toast.success("Activity updated")
+      closeEditor()
       router.refresh()
     })
   }
 
-const handleDeleteActivity = (activityId: string) => {
-  startTransition(async () => {
-    const result = await deleteLessonActivityAction(unitId, lessonId, activityId)
-    if (!result.success) {
-      toast.error("Unable to delete activity", {
+  const handleDeleteActivity = (activityId: string) => {
+    startTransition(async () => {
+      const result = await deleteLessonActivityAction(unitId, lessonId, activityId)
+      if (!result.success) {
+        toast.error("Unable to delete activity", {
           description: result.error ?? "Please try again later.",
         })
         return
@@ -257,73 +565,6 @@ const handleDeleteActivity = (activityId: string) => {
       setFileDownloadState((prev) => ({ ...prev, [activityId]: { loading: false } }))
     }
   }
-
-  const openEditor = (activityId: string) => {
-    setEditorActivityId(activityId)
-    setIsEditorOpen(true)
-  }
-
-  const closeEditor = () => {
-    setIsEditorOpen(false)
-    setEditorActivityId(null)
-  }
-
-  const editingActivity = editorActivityId
-    ? activities.find((activity) => activity.activity_id === editorActivityId) ?? null
-    : null
-
-  useEffect(() => {
-    if (isEditorOpen && editorActivityId && !editingActivity) {
-      closeEditor()
-    }
-  }, [editorActivityId, editingActivity, isEditorOpen])
-
-  useEffect(() => {
-    return () => {
-      if (voiceAudioRef.current) {
-        try {
-          voiceAudioRef.current.pause()
-        } catch (error) {
-          console.warn("[activities] Failed to pause voice preview on unmount", error)
-        }
-      }
-      voiceAudioRef.current = null
-    }
-  }, [])
-
-  const handleEditorSubmit = ({
-    activityId,
-    title,
-    type,
-    bodyData,
-  }: {
-    activityId: string
-    title: string
-    type: ActivityTypeValue
-    bodyData: unknown
-  }) => {
-    startTransition(async () => {
-      const result = await updateLessonActivityAction(unitId, lessonId, activityId, {
-        title,
-        type,
-        bodyData,
-      })
-
-      if (!result.success || !result.data) {
-        toast.error("Unable to update activity", {
-          description: result.error ?? "Please try again later.",
-        })
-        return
-      }
-
-      setActivities((prev) =>
-        sortActivities(prev.map((item) => (item.activity_id === activityId ? result.data! : item))),
-      )
-      toast.success("Activity updated")
-      closeEditor()
-      router.refresh()
-    })
-  }
   const submitReorder = useCallback(
     (nextActivities: LessonActivity[], previousActivities?: LessonActivity[]) => {
       startTransition(async () => {
@@ -412,66 +653,16 @@ const handleDeleteActivity = (activityId: string) => {
     <>
       <div className="space-y-6">
         <section className="space-y-3">
+        <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-muted-foreground">Add Activity</h3>
-        <div className="grid gap-3 sm:grid-cols-6">
-          <div className="space-y-2 sm:col-span-3">
-            <Label htmlFor="new-activity-title">Title</Label>
-            <Input
-              id="new-activity-title"
-              value={newTitle}
-              onChange={(event) => setNewTitle(event.target.value)}
-              placeholder="Warm-up discussion"
-              disabled={isBusy}
-            />
-          </div>
-          <div className="space-y-2 sm:col-span-3">
-            <Label htmlFor="new-activity-type">Type</Label>
-            <Select
-              value={newType}
-              onValueChange={(value: ActivityTypeValue) => setNewType(value)}
-              disabled={isBusy}
-            >
-              <SelectTrigger id="new-activity-type">
-                <SelectValue placeholder="Select activity type" />
-              </SelectTrigger>
-              <SelectContent>
-                {ACTIVITY_TYPES.map((item) => (
-                  <SelectItem key={item.value} value={item.value}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <Button
+            onClick={() => openEditor(NEW_ACTIVITY_ID)}
+            disabled={isBusy}
+            className="sm:w-auto"
+          >
+            <Plus className="mr-2 h-4 w-4" /> Add Activity
+          </Button>
         </div>
-        {newType === "text" ? (
-          <div className="space-y-2">
-            <Label htmlFor="new-activity-text">Instructions</Label>
-            <Textarea
-              id="new-activity-text"
-              value={newText}
-              onChange={(event) => setNewText(event.target.value)}
-              placeholder="Enter the activity instructions"
-              disabled={isBusy}
-              rows={4}
-            />
-          </div>
-        ) : null}
-        {newType === "show-video" ? (
-          <div className="space-y-2">
-            <Label htmlFor="new-activity-video-url">Video URL</Label>
-            <Input
-              id="new-activity-video-url"
-              value={newVideoUrl}
-              onChange={(event) => setNewVideoUrl(event.target.value)}
-              placeholder="https://..."
-              disabled={isBusy}
-            />
-          </div>
-        ) : null}
-        <Button onClick={handleAddActivity} disabled={isBusy || newTitle.trim().length === 0} className="sm:w-auto">
-          <Plus className="mr-2 h-4 w-4" /> Add Activity
-        </Button>
       </section>
 
       <section className="space-y-3">
@@ -492,6 +683,11 @@ const handleDeleteActivity = (activityId: string) => {
               const voiceStatus = voicePreviewState[activity.activity_id]
               const isFileDownload = activity.type === "file-download"
               const fileStatus = fileDownloadState[activity.activity_id]
+              const isDisplayImage = activity.type === "display-image"
+              const imageBody = isDisplayImage ? getImageBody(activity) : null
+              const imageState = isDisplayImage ? imagePreviewState[activity.activity_id] : null
+              const imageThumbnail = isDisplayImage ? imageState?.url ?? imageBody?.imageUrl ?? null : null
+              const isImageLoading = isDisplayImage ? imageState?.loading ?? false : false
               return (
                 <li
                   key={activity.activity_id}
@@ -550,10 +746,36 @@ const handleDeleteActivity = (activityId: string) => {
                               {fileStatus?.loading ? (
                                 <Loader2 className="h-4 w-4 animate-spin" />
                               ) : (
-                                <Download className="h-4 w-4" />
+                              <Download className="h-4 w-4" />
                               )}
                               <span className="text-xs">Download</span>
                             </Button>
+                          ) : null}
+                          {isDisplayImage ? (
+                            imageThumbnail ? (
+                              <a
+                                href={imageThumbnail}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex shrink-0"
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={imageThumbnail}
+                                  alt="Activity image thumbnail"
+                                  className="h-auto w-[100px] rounded-md border border-border object-cover"
+                                  loading="lazy"
+                                />
+                              </a>
+                            ) : isImageLoading ? (
+                              <div className="flex h-[60px] w-[100px] shrink-0 items-center justify-center rounded-md border border-border bg-muted/30">
+                                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                              </div>
+                            ) : (
+                              <div className="flex h-[60px] w-[100px] shrink-0 items-center justify-center rounded-md border border-dashed border-border text-[11px] text-muted-foreground">
+                                No image
+                              </div>
+                            )
                           ) : null}
                           {videoThumbnail ? (
                             <a
@@ -629,7 +851,9 @@ const handleDeleteActivity = (activityId: string) => {
       </section>
       </div>
       <LessonActivityEditorSheet
-        activity={editingActivity}
+        key={editorActivityId ?? "closed"}
+        mode={isCreating ? "create" : "edit"}
+        activity={isCreating ? null : editingActivity}
         open={isEditorOpen}
         onClose={closeEditor}
         isPending={isPending}
@@ -761,12 +985,27 @@ function renderActivityPreview(activity: LessonActivity) {
   return null
 }
 
+interface ImageSubmissionPayload {
+  pendingFile: File | null
+  shouldDeleteExisting: boolean
+  previousFileName: string | null
+  finalBody: ImageBody | null
+}
+
 interface LessonActivityEditorSheetProps {
+  mode: "create" | "edit"
   activity: LessonActivity | null
   open: boolean
   onClose: () => void
   isPending: boolean
-  onSubmit: (updates: { activityId: string; title: string; type: ActivityTypeValue; bodyData: unknown }) => void
+  onSubmit: (updates: {
+    mode: "create" | "edit"
+    activityId?: string
+    title: string
+    type: ActivityTypeValue
+    bodyData: unknown
+    imageSubmission?: ImageSubmissionPayload
+  }) => void
   unitId: string
   lessonId: string
 }
@@ -791,7 +1030,41 @@ function getVoiceBody(activity: LessonActivity): VoiceBody {
   }
 }
 
+function getImageBody(activity: LessonActivity): ImageBody {
+  if (!activity.body_data || typeof activity.body_data !== "object") {
+    return { imageFile: null, imageUrl: null }
+  }
+
+  const body = activity.body_data as Record<string, unknown>
+  const rawImageFile = typeof body.imageFile === "string" ? body.imageFile : null
+  const rawImageUrl = typeof body.imageUrl === "string" ? body.imageUrl : null
+  const rawFileUrl = typeof body.fileUrl === "string" ? body.fileUrl : null
+
+  const isAbsolute = (value: string | null) => {
+    if (!value) return false
+    return /^https?:\/\//i.test(value) || value.startsWith("data:")
+  }
+
+  let imageFile = rawImageFile
+  let imageUrl = rawImageUrl
+
+  if (!imageFile && rawFileUrl && !isAbsolute(rawFileUrl)) {
+    imageFile = rawFileUrl
+  }
+
+  if (!imageUrl && rawFileUrl && isAbsolute(rawFileUrl)) {
+    imageUrl = rawFileUrl
+  }
+
+  return {
+    ...body,
+    imageFile,
+    imageUrl: imageUrl ?? null,
+  }
+}
+
 function LessonActivityEditorSheet({
+  mode,
   activity,
   open,
   onClose,
@@ -800,6 +1073,7 @@ function LessonActivityEditorSheet({
   unitId,
   lessonId,
 }: LessonActivityEditorSheetProps) {
+  const isCreateMode = mode === "create"
   const [title, setTitle] = useState("")
   const [type, setType] = useState<ActivityTypeValue>("text")
   const [text, setText] = useState("")
@@ -814,6 +1088,16 @@ function LessonActivityEditorSheet({
   const [playbackUrl, setPlaybackUrl] = useState<string | null>(null)
   const [isPlaybackLoading, setIsPlaybackLoading] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
+  const [activityFiles, setActivityFiles] = useState<ActivityFileInfo[]>([])
+  const [isFilesLoading, setIsFilesLoading] = useState(false)
+  const [isUploadingFiles, setIsUploadingFiles] = useState(false)
+  const [isFileDragActive, setIsFileDragActive] = useState(false)
+  const [imageBody, setImageBody] = useState<ImageBody | null>(null)
+  const [pendingImageFile, setPendingImageFile] = useState<File | null>(null)
+  const [shouldDeleteExistingImage, setShouldDeleteExistingImage] = useState(false)
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null)
+  const [isImageLoading, setIsImageLoading] = useState(false)
+  const [isImageDragActive, setIsImageDragActive] = useState(false)
 
   const originalVoiceBodyRef = useRef<VoiceBody | null>(null)
   const pendingObjectUrlRef = useRef<string | null>(null)
@@ -821,56 +1105,125 @@ function LessonActivityEditorSheet({
   const mediaStreamRef = useRef<MediaStream | null>(null)
   const chunksRef = useRef<Blob[]>([])
   const startTimeRef = useRef<number | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const imageInputRef = useRef<HTMLInputElement | null>(null)
+  const pendingImageObjectUrlRef = useRef<string | null>(null)
+  const originalImageBodyRef = useRef<ImageBody | null>(null)
 
-  useEffect(() => {
-    if (open && activity) {
-      const ensuredType = ensureActivityType(activity.type)
-      setTitle(activity.title)
-      setType(ensuredType)
-      setText(extractText(activity))
-      setVideoUrl(extractVideoUrl(activity))
-      setRawBody(activity.body_data ? JSON.stringify(activity.body_data, null, 2) : "")
-      setRawBodyError(null)
-      const voice = getVoiceBody(activity)
-      setVoiceBody(voice)
-      originalVoiceBodyRef.current = voice
-      setShouldDeleteExistingRecording(false)
-      setPendingRecording(null)
-      setPlaybackUrl(null)
-      setRecordingError(null)
-      if (ensuredType === "voice") {
-        if (voice.audioFile) {
-          setIsPlaybackLoading(true)
+  const resetImageState = useCallback(() => {
+    if (pendingImageObjectUrlRef.current) {
+      URL.revokeObjectURL(pendingImageObjectUrlRef.current)
+      pendingImageObjectUrlRef.current = null
+    }
+
+    const defaultBody: ImageBody = { imageFile: null, imageUrl: null }
+    setImageBody(defaultBody)
+    originalImageBodyRef.current = defaultBody
+    setPendingImageFile(null)
+    setShouldDeleteExistingImage(false)
+    setImagePreviewUrl(null)
+    setIsImageLoading(false)
+    setIsImageDragActive(false)
+  }, [])
+
+  const loadImagePreviewForFile = useCallback(
+    async (fileName: string | null) => {
+      if (!activity) {
+        setImagePreviewUrl(null)
+        setIsImageLoading(false)
+        return
+      }
+
+      if (!fileName) {
+        setImagePreviewUrl(null)
+        setIsImageLoading(false)
+        return
+      }
+
+      setIsImageLoading(true)
+      try {
+        const result = await getActivityFileDownloadUrlAction(
+          activity.lesson_id,
+          activity.activity_id,
+          fileName,
+        )
+        if (!result.success || !result.url) {
+          if (result.error) {
+            toast.error("Failed to load image", {
+              description: result.error,
+            })
+          }
+          setImagePreviewUrl(null)
         } else {
-          setIsPlaybackLoading(false)
+          setImagePreviewUrl(result.url)
         }
-      } else {
-        setIsPlaybackLoading(false)
+      } catch (error) {
+        console.error("[activities] Failed to load activity image:", error)
+        toast.error("Failed to load image", {
+          description: error instanceof Error ? error.message : "Please try again later.",
+        })
+        setImagePreviewUrl(null)
+      } finally {
+        setIsImageLoading(false)
       }
-    }
+    },
+    [activity],
+  )
 
-    if (!open) {
-      cleanupRecordingResources()
-      if (pendingObjectUrlRef.current) {
-        URL.revokeObjectURL(pendingObjectUrlRef.current)
-        pendingObjectUrlRef.current = null
+  const applyImageFromActivity = useCallback(
+    (target: LessonActivity | null) => {
+      resetImageState()
+      if (!target) {
+        return
       }
-      setTitle("")
-      setType("text")
-      setText("")
-      setVideoUrl("")
-      setRawBody("")
-      setRawBodyError(null)
-      setVoiceBody(null)
-      originalVoiceBodyRef.current = null
-      setPendingRecording(null)
-      setShouldDeleteExistingRecording(false)
-      setPlaybackUrl(null)
-      setRecordingError(null)
-      setIsPlaybackLoading(false)
-      setIsProcessing(false)
-    }
-  }, [activity, open])
+
+      const nextBody = getImageBody(target)
+      setImageBody(nextBody)
+      originalImageBodyRef.current = nextBody
+      setShouldDeleteExistingImage(false)
+      setPendingImageFile(null)
+      setIsImageDragActive(false)
+
+      const rawBody = nextBody as Record<string, unknown>
+      const candidateFile =
+        typeof nextBody.imageFile === "string" && nextBody.imageFile.trim().length > 0
+          ? nextBody.imageFile
+          : typeof rawBody.fileUrl === "string" && rawBody.fileUrl.trim().length > 0
+            ? (rawBody.fileUrl as string)
+            : null
+
+      const candidateExternalUrl =
+        typeof nextBody.imageUrl === "string" && nextBody.imageUrl.trim().length > 0
+          ? nextBody.imageUrl
+          : null
+
+      const isAbsoluteUrl = (value: string | null) => {
+        if (!value) return false
+        return /^https?:\/\//i.test(value) || value.startsWith("data:")
+      }
+
+      if (candidateFile && isAbsoluteUrl(candidateFile)) {
+        setImagePreviewUrl(candidateFile)
+        setIsImageLoading(false)
+        return
+      }
+
+      if (candidateFile) {
+        void loadImagePreviewForFile(candidateFile)
+        return
+      }
+
+      if (candidateExternalUrl) {
+        setImagePreviewUrl(candidateExternalUrl)
+        setIsImageLoading(false)
+        return
+      }
+
+      setImagePreviewUrl(null)
+      setIsImageLoading(false)
+    },
+    [loadImagePreviewForFile, resetImageState],
+  )
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen) {
@@ -933,8 +1286,384 @@ function LessonActivityEditorSheet({
     [activity],
   )
 
+  const refreshActivityFiles = useCallback(
+    async (targetActivityId: string) => {
+      setIsFilesLoading(true)
+      try {
+        const result = await listActivityFilesAction(lessonId, targetActivityId)
+        if (result.error) {
+          toast.error("Unable to load files", {
+            description: result.error,
+          })
+          setActivityFiles([])
+        } else {
+          setActivityFiles(result.data ?? [])
+        }
+      } catch (error) {
+        console.error("[activities] Failed to load activity files:", error)
+        toast.error("Unable to load files", {
+          description: error instanceof Error ? error.message : "Please try again later.",
+        })
+        setActivityFiles([])
+      } finally {
+        setIsFilesLoading(false)
+      }
+    },
+    [lessonId],
+  )
+
+  const handleUploadFiles = useCallback(
+    async (files: FileList | File[]) => {
+      if (!activity) return
+      const items = Array.from(files).filter((file) => file.size > 0)
+      if (items.length === 0) {
+        return
+      }
+
+      setIsUploadingFiles(true)
+      let hadError = false
+
+      for (const file of items) {
+        const formData = new FormData()
+        formData.append("unitId", unitId)
+        formData.append("lessonId", lessonId)
+        formData.append("activityId", activity.activity_id)
+        formData.append("file", file)
+
+        try {
+          const result = await uploadActivityFileAction(formData)
+          if (!result.success) {
+            hadError = true
+            toast.error(`Failed to upload ${file.name}`, {
+              description: result.error ?? "Please try again later.",
+            })
+          }
+        } catch (error) {
+          hadError = true
+          console.error("[activities] Failed to upload file:", error)
+          toast.error(`Failed to upload ${file.name}`, {
+            description: error instanceof Error ? error.message : "Please try again later.",
+          })
+        }
+      }
+
+      setIsUploadingFiles(false)
+      await refreshActivityFiles(activity.activity_id)
+      setIsFileDragActive(false)
+
+      if (!hadError) {
+        toast.success("Files uploaded")
+      }
+    },
+    [activity, lessonId, refreshActivityFiles, unitId],
+  )
+
+  const handleDeleteFile = useCallback(
+    async (fileName: string) => {
+      if (!activity) return
+      setIsUploadingFiles(true)
+      try {
+        const result = await deleteActivityFileAction(unitId, lessonId, activity.activity_id, fileName)
+        if (!result.success) {
+          toast.error("Failed to delete file", {
+            description: result.error ?? "Please try again later.",
+          })
+          return
+        }
+
+        toast.success("File removed")
+        await refreshActivityFiles(activity.activity_id)
+      } catch (error) {
+        console.error("[activities] Failed to delete file:", error)
+        toast.error("Failed to delete file", {
+          description: error instanceof Error ? error.message : "Please try again later.",
+        })
+      } finally {
+        setIsUploadingFiles(false)
+      }
+    },
+    [activity, lessonId, refreshActivityFiles, unitId],
+  )
+
+  const handleFileInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    if (!event.target.files) return
+    void handleUploadFiles(event.target.files)
+    event.target.value = ""
+  }
+
+  const handleFileDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    setIsFileDragActive(false)
+    const files = event.dataTransfer?.files
+    if (files && files.length > 0) {
+      void handleUploadFiles(files)
+    }
+  }
+
+  const handleFileDragOver = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    setIsFileDragActive(true)
+  }
+
+  const handleFileDragLeave = () => {
+    setIsFileDragActive(false)
+  }
+
+  const formatFileSize = (size?: number | null) => {
+    if (typeof size !== "number" || Number.isNaN(size) || size < 0) {
+      return ""
+    }
+    const units = ["B", "KB", "MB", "GB"] as const
+    let value = size
+    let unitIndex = 0
+    while (value >= 1024 && unitIndex < units.length - 1) {
+      value /= 1024
+      unitIndex += 1
+    }
+    const display = unitIndex === 0 ? value.toFixed(0) : value.toFixed(1)
+    return `${display} ${units[unitIndex]}`
+  }
+
+  const processImageFile = (file: File | null) => {
+    if (!file) return
+    if (!file.type?.startsWith("image/")) {
+      toast.error("Unsupported file type", {
+        description: "Please choose an image file.",
+      })
+      return
+    }
+    if (file.size === 0) {
+      toast.error("Image is empty", {
+        description: "Please choose a valid image file.",
+      })
+      return
+    }
+
+    if (pendingImageObjectUrlRef.current) {
+      URL.revokeObjectURL(pendingImageObjectUrlRef.current)
+      pendingImageObjectUrlRef.current = null
+    }
+
+    const objectUrl = URL.createObjectURL(file)
+    pendingImageObjectUrlRef.current = objectUrl
+    setPendingImageFile(file)
+    setImagePreviewUrl(objectUrl)
+    setIsImageLoading(false)
+    setShouldDeleteExistingImage(false)
+    setImageBody((prev) => {
+      const next: ImageBody = {
+        ...(prev ?? { imageFile: null, imageUrl: null }),
+        imageFile: file.name,
+        imageUrl: null,
+        fileUrl: file.name,
+        mimeType: file.type,
+        size: file.size,
+      }
+      return next
+    })
+  }
+
+  const handleImageInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null
+    processImageFile(file)
+    setIsImageDragActive(false)
+    event.target.value = ""
+  }
+
+  const handleImageDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    setIsImageDragActive(false)
+    const file = event.dataTransfer?.files?.[0] ?? null
+    processImageFile(file)
+  }
+
+  const handleImageDragOver = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    setIsImageDragActive(true)
+  }
+
+  const handleImageDragLeave = () => {
+    setIsImageDragActive(false)
+  }
+
+  const handleRemoveImage = () => {
+    if (pendingImageFile) {
+      if (pendingImageObjectUrlRef.current) {
+        URL.revokeObjectURL(pendingImageObjectUrlRef.current)
+        pendingImageObjectUrlRef.current = null
+      }
+      setPendingImageFile(null)
+      setShouldDeleteExistingImage(false)
+      if (isCreateMode) {
+        resetImageState()
+      } else if (activity) {
+        applyImageFromActivity(activity)
+      } else {
+        resetImageState()
+      }
+      return
+    }
+
+    if (pendingImageObjectUrlRef.current) {
+      URL.revokeObjectURL(pendingImageObjectUrlRef.current)
+      pendingImageObjectUrlRef.current = null
+    }
+
+    setImagePreviewUrl(null)
+    setIsImageLoading(false)
+    setImageBody((prev) => ({
+      ...(prev ?? { imageFile: null, imageUrl: null }),
+      imageFile: null,
+      imageUrl: null,
+      fileUrl: null,
+    }))
+    setPendingImageFile(null)
+    if (!isCreateMode) {
+      const original = originalImageBodyRef.current
+      const hadOriginal = Boolean(
+        (original?.imageFile && original.imageFile.trim().length > 0) ||
+          (original?.imageUrl && original.imageUrl.trim().length > 0) ||
+          (typeof (original as Record<string, unknown>)?.fileUrl === "string" &&
+            ((original as Record<string, unknown>).fileUrl as string).trim().length > 0),
+      )
+      setShouldDeleteExistingImage(hadOriginal)
+    }
+  }
+
+  useEffect(() => {
+    if (open && isCreateMode) {
+      setTitle("")
+      setType("text")
+      setText("")
+      setVideoUrl("")
+      setRawBody("")
+      setRawBodyError(null)
+      const defaultVoice: VoiceBody = { audioFile: null }
+      setVoiceBody(defaultVoice)
+      originalVoiceBodyRef.current = defaultVoice
+      setShouldDeleteExistingRecording(false)
+      setPendingRecording(null)
+      setPlaybackUrl(null)
+      setRecordingError(null)
+      setIsPlaybackLoading(false)
+      setIsProcessing(false)
+      setActivityFiles([])
+      setIsFilesLoading(false)
+      setIsUploadingFiles(false)
+      setIsFileDragActive(false)
+      resetImageState()
+      return
+    }
+
+    if (open && activity && mode === "edit") {
+      const ensuredType = ensureActivityType(activity.type)
+      setTitle(activity.title)
+      setType(ensuredType)
+      setText(extractText(activity))
+      setVideoUrl(extractVideoUrl(activity))
+      setRawBody(activity.body_data ? JSON.stringify(activity.body_data, null, 2) : "")
+      setRawBodyError(null)
+      const voice = getVoiceBody(activity)
+      setVoiceBody(voice)
+      originalVoiceBodyRef.current = voice
+      setShouldDeleteExistingRecording(false)
+      setPendingRecording(null)
+      setPlaybackUrl(null)
+      setRecordingError(null)
+      if (ensuredType === "voice") {
+        if (voice.audioFile) {
+          setIsPlaybackLoading(true)
+        } else {
+          setIsPlaybackLoading(false)
+        }
+      } else {
+        setIsPlaybackLoading(false)
+      }
+      if (ensuredType === "file-download") {
+        void refreshActivityFiles(activity.activity_id)
+      } else {
+        setActivityFiles([])
+      }
+      if (ensuredType === "display-image") {
+        applyImageFromActivity(activity)
+      } else {
+        resetImageState()
+      }
+    }
+
+    if (!open) {
+      cleanupRecordingResources()
+      if (pendingObjectUrlRef.current) {
+        URL.revokeObjectURL(pendingObjectUrlRef.current)
+        pendingObjectUrlRef.current = null
+      }
+      resetImageState()
+      setTitle("")
+      setType("text")
+      setText("")
+      setVideoUrl("")
+      setRawBody("")
+      setRawBodyError(null)
+      setVoiceBody(null)
+      originalVoiceBodyRef.current = null
+      setPendingRecording(null)
+      setShouldDeleteExistingRecording(false)
+      setPlaybackUrl(null)
+      setRecordingError(null)
+      setIsPlaybackLoading(false)
+      setIsProcessing(false)
+      setActivityFiles([])
+      setIsFilesLoading(false)
+      setIsUploadingFiles(false)
+      setIsFileDragActive(false)
+    }
+  }, [activity, applyImageFromActivity, isCreateMode, mode, open, refreshActivityFiles, resetImageState])
+
   useEffect(() => {
     setRawBodyError(null)
+    if (isCreateMode) {
+      if (type === "text") {
+        setVideoUrl("")
+        setText("")
+        setRawBody("")
+        return
+      }
+
+      if (type === "show-video") {
+        setText("")
+        setRawBody("")
+        return
+      }
+
+      if (type === "voice") {
+        const defaultVoice: VoiceBody = { audioFile: null }
+        setVoiceBody(defaultVoice)
+        originalVoiceBodyRef.current = defaultVoice
+        setPendingRecording(null)
+        setShouldDeleteExistingRecording(false)
+        setRecordingError(null)
+        setPlaybackUrl(null)
+        setIsPlaybackLoading(false)
+        return
+      }
+
+      if (type === "file-download") {
+        setActivityFiles([])
+        setIsFilesLoading(false)
+        setIsUploadingFiles(false)
+        setIsFileDragActive(false)
+        return
+      }
+
+      if (type === "display-image") {
+        resetImageState()
+        return
+      }
+
+      setRawBody("")
+      return
+    }
+
     if (type === "text") {
       setVideoUrl("")
       if (activity) {
@@ -968,25 +1697,43 @@ function LessonActivityEditorSheet({
       return
     }
 
+    if (type === "file-download") {
+      if (activity) {
+        void refreshActivityFiles(activity.activity_id)
+      } else {
+        setActivityFiles([])
+      }
+      return
+    }
+
+    if (type === "display-image") {
+      if (activity) {
+        applyImageFromActivity(activity)
+      } else {
+        resetImageState()
+      }
+      return
+    }
+
     if (activity) {
       setRawBody(activity.body_data ? JSON.stringify(activity.body_data, null, 2) : "")
     }
 
-    if (type !== "voice") {
-      setVoiceBody(null)
-      setPendingRecording(null)
-      setShouldDeleteExistingRecording(false)
-      setPlaybackUrl(null)
-      setRecordingError(null)
-      cleanupRecordingResources()
-    }
-  }, [type, activity, loadPlaybackForFile])
+    setVoiceBody(null)
+    setPendingRecording(null)
+    setShouldDeleteExistingRecording(false)
+    setPlaybackUrl(null)
+    setRecordingError(null)
+    cleanupRecordingResources()
+    setActivityFiles([])
+    resetImageState()
+  }, [activity, applyImageFromActivity, isCreateMode, loadPlaybackForFile, refreshActivityFiles, resetImageState, type])
 
   useEffect(() => {
-    if (open && type === "voice" && voiceBody?.audioFile && !pendingRecording) {
+    if (open && !isCreateMode && type === "voice" && voiceBody?.audioFile && !pendingRecording) {
       loadPlaybackForFile(voiceBody.audioFile)
     }
-  }, [loadPlaybackForFile, open, type, voiceBody?.audioFile, pendingRecording])
+  }, [isCreateMode, loadPlaybackForFile, open, pendingRecording, type, voiceBody?.audioFile])
 
   useEffect(() => {
     return () => {
@@ -995,11 +1742,15 @@ function LessonActivityEditorSheet({
         URL.revokeObjectURL(pendingObjectUrlRef.current)
         pendingObjectUrlRef.current = null
       }
+      if (pendingImageObjectUrlRef.current) {
+        URL.revokeObjectURL(pendingImageObjectUrlRef.current)
+        pendingImageObjectUrlRef.current = null
+      }
     }
   }, [])
 
   const handleStartRecording = async () => {
-    if (isRecording || isPending || isProcessing) return
+    if (isCreateMode || isRecording || isPending || isProcessing) return
     setRecordingError(null)
 
     if (typeof window === "undefined" || typeof navigator === "undefined") {
@@ -1236,7 +1987,10 @@ function LessonActivityEditorSheet({
   }
 
   const handleSave = async () => {
-    if (!activity) {
+    if (!isCreateMode && !activity) {
+      toast.error("Unable to update activity", {
+        description: "Activity could not be found.",
+      })
       return
     }
 
@@ -1247,16 +2001,84 @@ function LessonActivityEditorSheet({
     }
 
     let bodyData: unknown
+    let imageSubmission: ImageSubmissionPayload | undefined
 
     if (type === "voice") {
-      const result = await prepareVoiceBody()
-      if (!result.success || result.bodyData === undefined) {
-        return
+      if (isCreateMode) {
+        bodyData = { audioFile: null }
+      } else {
+        const result = await prepareVoiceBody()
+        if (!result.success || result.bodyData === undefined) {
+          return
+        }
+        bodyData = result.bodyData
       }
-      bodyData = result.bodyData
+    } else if (type === "display-image") {
+      const previousBody = originalImageBodyRef.current ?? (activity ? getImageBody(activity) : { imageFile: null })
+      const baseBody = imageBody ?? previousBody ?? { imageFile: null, imageUrl: null }
+      const pendingFileRef = pendingImageFile
+
+      const normalizedExternalUrl =
+        typeof baseBody.imageUrl === "string" && baseBody.imageUrl.trim().length > 0
+          ? baseBody.imageUrl.trim()
+          : null
+
+      const nextFileName = pendingFileRef
+        ? pendingFileRef.name
+        : typeof baseBody.imageFile === "string" && baseBody.imageFile.trim().length > 0
+          ? baseBody.imageFile.trim()
+          : null
+
+      const sanitizedBody = (() => {
+        if (nextFileName) {
+          const next: ImageBody = {
+            ...(baseBody ?? {}),
+            imageFile: nextFileName,
+            imageUrl: null,
+            fileUrl: nextFileName,
+          }
+          if (pendingFileRef) {
+            next.mimeType = pendingFileRef.type
+            next.size = pendingFileRef.size
+          }
+          return next
+        }
+
+        if (normalizedExternalUrl) {
+          const next: ImageBody = {
+            ...(baseBody ?? {}),
+            imageFile: null,
+            imageUrl: normalizedExternalUrl,
+            fileUrl: normalizedExternalUrl,
+          }
+          return next
+        }
+
+        if (
+          shouldDeleteExistingImage ||
+          (previousBody &&
+            ((previousBody.imageFile && previousBody.imageFile.trim().length > 0) ||
+              (previousBody.imageUrl && previousBody.imageUrl.trim().length > 0)))
+        ) {
+          return { imageFile: null, imageUrl: null, fileUrl: null }
+        }
+
+        return null
+      })()
+
+      bodyData = sanitizedBody
+      imageSubmission = {
+        pendingFile: pendingFileRef ?? null,
+        shouldDeleteExisting: Boolean(!pendingFileRef && shouldDeleteExistingImage),
+        previousFileName:
+          typeof previousBody?.imageFile === "string" && previousBody.imageFile.trim().length > 0
+            ? previousBody.imageFile.trim()
+            : null,
+        finalBody: sanitizedBody,
+      }
     } else {
-      let fallbackBody: unknown = activity.body_data ?? null
-      if (type !== "text" && type !== "show-video") {
+      let fallbackBody: unknown = !isCreateMode && activity ? activity.body_data ?? null : null
+      if (!isCreateMode && type !== "text" && type !== "show-video") {
         const trimmed = rawBody.trim()
         if (trimmed.length === 0) {
           fallbackBody = null
@@ -1279,10 +2101,12 @@ function LessonActivityEditorSheet({
     }
 
     onSubmit({
-      activityId: activity.activity_id,
+      mode: isCreateMode ? "create" : "edit",
+      activityId: activity?.activity_id,
       title: trimmedTitle,
       type,
       bodyData,
+      imageSubmission,
     })
   }
 
@@ -1290,7 +2114,6 @@ function LessonActivityEditorSheet({
     isPending ||
     isProcessing ||
     isRecording ||
-    !activity ||
     title.trim().length === 0 ||
     (type !== "voice" && rawBodyError !== null)
 
@@ -1298,8 +2121,12 @@ function LessonActivityEditorSheet({
     <Sheet open={open} onOpenChange={handleOpenChange}>
       <SheetContent side="right" className="sm:max-w-md gap-0">
         <SheetHeader>
-          <SheetTitle>Edit activity</SheetTitle>
-          <SheetDescription>Update the activity details and save to keep your changes.</SheetDescription>
+          <SheetTitle>{isCreateMode ? "New activity" : "Edit activity"}</SheetTitle>
+          <SheetDescription>
+            {isCreateMode
+              ? "Configure the activity details and save to add it to the lesson."
+              : "Update the activity details and save to keep your changes."}
+          </SheetDescription>
         </SheetHeader>
         <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 pb-4">
           <div className="space-y-2">
@@ -1376,6 +2203,94 @@ function LessonActivityEditorSheet({
             </div>
           ) : null}
 
+          {type === "display-image" ? (
+            <div className="space-y-3 rounded-md border border-border p-4">
+              <div
+                onDragOver={handleImageDragOver}
+                onDragEnter={handleImageDragOver}
+                onDragLeave={handleImageDragLeave}
+                onDrop={handleImageDrop}
+                className={[
+                  "flex h-28 flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed border-muted-foreground/40 p-4 text-center transition",
+                  isImageDragActive ? "border-primary bg-primary/5" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+              >
+                <p className="text-sm font-medium">Drag and drop an image here</p>
+                <p className="text-xs text-muted-foreground">PNG, JPG, or GIF up to a few megabytes.</p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => imageInputRef.current?.click()}
+                  disabled={isPending}
+                >
+                  Browse image
+                </Button>
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleImageInputChange}
+                />
+              </div>
+
+              {pendingImageFile ? (
+                <p className="text-xs text-muted-foreground">
+                  Selected file: {pendingImageFile.name} ({formatFileSize(pendingImageFile.size)})
+                </p>
+              ) : null}
+
+              {shouldDeleteExistingImage && !pendingImageFile ? (
+                <p className="text-xs font-medium text-amber-600">Existing image will be removed when you save.</p>
+              ) : null}
+
+              {isImageLoading ? (
+                <p className="text-sm text-muted-foreground">Loading preview…</p>
+              ) : imagePreviewUrl ? (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">Preview</p>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={imagePreviewUrl}
+                    alt="Activity image preview"
+                    className="h-auto max-h-48 w-full max-w-xs rounded-md border border-border object-contain"
+                    loading="lazy"
+                  />
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No image selected.</p>
+              )}
+
+              <div className="space-y-1 text-xs text-muted-foreground">
+                {isCreateMode
+                  ? "Save the activity to upload the image."
+                  : pendingImageFile
+                    ? "New image will replace the current one when you save."
+                    : shouldDeleteExistingImage
+                      ? "Image will be removed when you save."
+                      : imageBody?.imageFile
+                        ? `Current file: ${imageBody.imageFile}`
+                        : null}
+              </div>
+
+              {(pendingImageFile || imagePreviewUrl || shouldDeleteExistingImage) && (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleRemoveImage}
+                    disabled={isPending}
+                  >
+                    {pendingImageFile ? "Discard image" : "Remove image"}
+                  </Button>
+                </div>
+              )}
+            </div>
+          ) : null}
+
           {type === "voice" ? (
             <div className="space-y-3 rounded-md border border-border p-4">
               <div className="space-y-2">
@@ -1394,32 +2309,36 @@ function LessonActivityEditorSheet({
                   type="button"
                   variant={isRecording ? "destructive" : "secondary"}
                   onClick={isRecording ? handleStopRecording : handleStartRecording}
-                  disabled={isPending || isProcessing}
+                  disabled={isPending || isProcessing || isCreateMode}
                 >
                   {isRecording ? "Stop recording" : "Record"}
                 </Button>
-                {pendingRecording ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handleDiscardRecording}
-                    disabled={isPending || isProcessing || isRecording}
-                  >
-                    Discard recording
-                  </Button>
-                ) : voiceBody?.audioFile && !shouldDeleteExistingRecording ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handleRemoveExistingRecording}
-                    disabled={isPending || isProcessing || isRecording}
-                  >
-                    Remove recording
-                  </Button>
+                {!isCreateMode ? (
+                  pendingRecording ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleDiscardRecording}
+                      disabled={isPending || isProcessing || isRecording}
+                    >
+                      Discard recording
+                    </Button>
+                  ) : voiceBody?.audioFile && !shouldDeleteExistingRecording ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleRemoveExistingRecording}
+                      disabled={isPending || isProcessing || isRecording}
+                    >
+                      Remove recording
+                    </Button>
+                  ) : null
                 ) : null}
               </div>
               <div className="space-y-1 text-xs text-muted-foreground">
-                {pendingRecording ? (
+                {isCreateMode ? (
+                  <p>Save the activity to upload or record audio.</p>
+                ) : pendingRecording ? (
                   <p>New recording will replace the existing file when you save.</p>
                 ) : shouldDeleteExistingRecording ? (
                   <p>Recording will be removed when you save.</p>
@@ -1428,14 +2347,99 @@ function LessonActivityEditorSheet({
                 ) : (
                   <p>No recording selected.</p>
                 )}
-                {voiceBody?.duration != null ? (
+                {!isCreateMode && voiceBody?.duration != null ? (
                   <p>Duration: {voiceBody.duration.toFixed(1)}s</p>
                 ) : null}
               </div>
             </div>
           ) : null}
 
-          {type !== "text" && type !== "show-video" && type !== "voice" ? (
+          {type === "file-download" ? (
+            <div className="space-y-3 rounded-md border border-border p-4">
+              {isCreateMode || !activity ? (
+                <p className="text-sm text-muted-foreground">
+                  Save the activity before uploading files.
+                </p>
+              ) : (
+                <>
+                  <div
+                    onDragOver={handleFileDragOver}
+                    onDragEnter={handleFileDragOver}
+                    onDragLeave={handleFileDragLeave}
+                    onDrop={handleFileDrop}
+                    className={[
+                      "flex h-28 flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed border-muted-foreground/40 p-4 text-center transition",
+                      isFileDragActive ? "border-primary bg-primary/5" : "",
+                      isUploadingFiles || isFilesLoading ? "opacity-60" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                  >
+                    <p className="text-sm font-medium">Drag and drop files here</p>
+                    <p className="text-xs text-muted-foreground">
+                      Files will be available for download during the lesson.
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isUploadingFiles}
+                      className="mt-2"
+                    >
+                      Browse files
+                    </Button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      className="hidden"
+                      onChange={handleFileInputChange}
+                    />
+                  </div>
+
+                  {isFilesLoading ? (
+                    <p className="text-sm text-muted-foreground">Loading files…</p>
+                  ) : activityFiles.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No files uploaded yet.</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {activityFiles.map((file) => {
+                        const sizeLabel = formatFileSize(file.size)
+                        return (
+                          <li
+                            key={file.path}
+                            className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm"
+                          >
+                            <div className="flex flex-col">
+                              <span className="font-medium">{file.name}</span>
+                              {sizeLabel ? <span className="text-xs text-muted-foreground">{sizeLabel}</span> : null}
+                            </div>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => handleDeleteFile(file.name)}
+                              disabled={isUploadingFiles}
+                              aria-label={`Remove ${file.name}`}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )}
+                </>
+              )}
+            </div>
+          ) : null}
+
+          {type !== "text" &&
+          type !== "show-video" &&
+          type !== "voice" &&
+          type !== "file-download" &&
+          type !== "display-image" ? (
             <div className="space-y-2">
               <Label htmlFor="activity-json">Activity details</Label>
               <Textarea
@@ -1462,7 +2466,7 @@ function LessonActivityEditorSheet({
               Cancel
             </Button>
             <Button onClick={handleSave} disabled={disableSave}>
-              Save changes
+              {isCreateMode ? "Create activity" : "Save changes"}
             </Button>
           </div>
         </SheetFooter>
