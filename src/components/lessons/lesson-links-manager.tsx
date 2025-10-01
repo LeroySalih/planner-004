@@ -218,6 +218,7 @@ export function LessonLinksManager({ unitId, lessonId, initialLinks }: LessonLin
           <ul className="space-y-3">
             {links.map((link) => {
               const isEditing = editingId === link.lesson_link_id
+              const displayTitle = link.description?.trim() || "View resource"
               return (
                 <li key={link.lesson_link_id} className="rounded-md border border-border p-4">
                   {isEditing ? (
@@ -262,11 +263,8 @@ export function LessonLinksManager({ unitId, lessonId, initialLinks }: LessonLin
                             rel="noopener noreferrer"
                             className="font-medium text-primary underline-offset-2 hover:underline"
                           >
-                            {link.description || link.url}
+                            {displayTitle}
                           </a>
-                          {link.description && (
-                            <p className="text-xs text-muted-foreground break-all">{link.url}</p>
-                          )}
                         </div>
                         <div className="flex items-center gap-2">
                           <Button size="icon" variant="ghost" onClick={() => startEditing(link)} disabled={isBusy}>
@@ -282,9 +280,6 @@ export function LessonLinksManager({ unitId, lessonId, initialLinks }: LessonLin
                           </Button>
                         </div>
                       </div>
-                      {!link.description && (
-                        <p className="text-xs text-muted-foreground break-all">{link.url}</p>
-                      )}
                     </div>
                   )}
                 </li>

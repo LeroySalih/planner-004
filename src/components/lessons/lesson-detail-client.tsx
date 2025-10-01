@@ -3,28 +3,45 @@
 import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, BookOpen, LinkIcon, Target, Upload } from "lucide-react"
+import { ArrowLeft, ArrowRight, BookOpen, LinkIcon, List, Target, Upload } from "lucide-react"
 
 import type {
   LearningObjectiveWithCriteria,
   LessonWithObjectives,
 } from "@/lib/server-updates"
-import type { Unit } from "@/types"
+import type { LessonActivity, Unit } from "@/types"
 import { LessonFilesManager } from "@/components/lessons/lesson-files-manager"
 import { LessonLinksManager } from "@/components/lessons/lesson-links-manager"
+import { LessonActivitiesManager } from "@/components/lessons/lesson-activities-manager"
 import { LessonObjectivesSidebar } from "@/components/lessons/lesson-objectives-sidebar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+
+interface LessonNavLink {
+  lesson_id: string
+  title: string
+}
 
 interface LessonDetailClientProps {
   lesson: LessonWithObjectives
   unit: Unit | null
   learningObjectives: LearningObjectiveWithCriteria[]
   lessonFiles: { name: string; path: string; created_at?: string; updated_at?: string; size?: number }[]
+  lessonActivities: LessonActivity[]
+  previousLesson: LessonNavLink | null
+  nextLesson: LessonNavLink | null
 }
 
-export function LessonDetailClient({ lesson, unit, learningObjectives, lessonFiles }: LessonDetailClientProps) {
+export function LessonDetailClient({
+  lesson,
+  unit,
+  learningObjectives,
+  lessonFiles,
+  lessonActivities,
+  previousLesson,
+  nextLesson,
+}: LessonDetailClientProps) {
   const router = useRouter()
   const [currentLesson, setCurrentLesson] = useState<LessonWithObjectives>(lesson)
   const [isObjectivesSidebarOpen, setIsObjectivesSidebarOpen] = useState(false)
@@ -38,19 +55,55 @@ export function LessonDetailClient({ lesson, unit, learningObjectives, lessonFil
 
   return (
     <>
-      <main className="container mx-auto flex flex-col gap-6 p-6">
-        <div className="flex items-center justify-between gap-4">
-          <Link href="/lessons">
-            <Badge variant="outline" className="flex items-center gap-2 px-3 py-1">
-              <ArrowLeft className="h-4 w-4" /> Back to Lessons
-            </Badge>
-          </Link>
-          {unit && (
-            <Link href={`/units/${unit.unit_id}`} className="text-sm text-primary underline-offset-2 hover:underline">
-              View parent unit
+      <main className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-6 py-10">
+        <div>
+          <Button asChild variant="outline" size="sm" className="w-fit">
+            <Link href="/lessons">
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Back to Lessons
             </Link>
-          )}
+          </Button>
         </div>
+
+        <header className="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 px-8 py-6 text-white shadow-lg">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="space-y-1">
+                <span className="text-xs uppercase tracking-wide text-slate-300">Unit</span>
+                <Link
+                  href={unit ? `/units/${unit.unit_id}` : `/units/${currentLesson.unit_id}`}
+                  className="text-xl font-semibold text-white underline-offset-4 transition hover:text-slate-200 hover:underline"
+                >
+                  {unit?.title ?? currentLesson.unit_id}
+                </Link>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                {previousLesson ? (
+                  <Link
+                    href={`/lessons/${previousLesson.lesson_id}`}
+                    className="inline-flex items-center gap-1 rounded-md border border-white/20 px-3 py-1 text-slate-100 transition hover:bg-white/10"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                    <span className="font-medium">{previousLesson.title}</span>
+                  </Link>
+                ) : null}
+                {nextLesson ? (
+                  <Link
+                    href={`/lessons/${nextLesson.lesson_id}`}
+                    className="inline-flex items-center gap-1 rounded-md border border-white/20 px-3 py-1 text-slate-100 transition hover:bg-white/10"
+                  >
+                    <span className="font-medium">{nextLesson.title}</span>
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                ) : null}
+              </div>
+            </div>
+            <div className="space-y-1">
+              <h1 className="text-3xl font-semibold text-white">{currentLesson.title}</h1>
+              <p className="text-sm text-slate-200">Lesson overview</p>
+            </div>
+          </div>
+        </header>
 
         <Card>
           <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -116,6 +169,22 @@ export function LessonDetailClient({ lesson, unit, learningObjectives, lessonFil
             ) : (
               <p className="text-sm text-muted-foreground">No learning objectives are linked to this lesson yet.</p>
             )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle className="flex items-center gap-2 text-xl font-semibold">
+              <List className="h-5 w-5 text-primary" />
+              Lesson Activities
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <LessonActivitiesManager
+              unitId={unit?.unit_id ?? currentLesson.unit_id}
+              lessonId={currentLesson.lesson_id}
+              initialActivities={lessonActivities}
+            />
           </CardContent>
         </Card>
 
