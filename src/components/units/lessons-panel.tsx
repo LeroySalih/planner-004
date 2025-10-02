@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useCallback, useEffect, useState, useTransition } from "react"
-import { BookOpen, GripVertical, Plus } from "lucide-react"
+import { BookOpen, GripVertical, Plus, ChevronRight } from "lucide-react"
 
 import type { LessonWithObjectives, LearningObjectiveWithCriteria } from "@/lib/server-updates"
 import {
@@ -16,7 +16,6 @@ import {
 } from "@/lib/server-updates"
 import type { LessonActivity } from "@/types"
 import { cn } from "@/lib/utils"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -65,6 +64,7 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
   const [, startTransition] = useTransition()
   const [lessonActivityCounts, setLessonActivityCounts] = useState<Record<string, number>>({})
   const [lessonActivitiesMap, setLessonActivitiesMap] = useState<Record<string, LessonActivity[]>>({})
+  const [expandedLessons, setExpandedLessons] = useState<Record<string, boolean>>({})
 
   const openCreateSidebar = () => {
     setSelectedLesson(null)
@@ -174,6 +174,13 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
     },
     [],
   )
+
+  const toggleLessonDetails = useCallback((lessonId: string) => {
+    setExpandedLessons((prev) => ({
+      ...prev,
+      [lessonId]: !prev[lessonId],
+    }))
+  }, [])
 
   const upsertLesson = (lesson: LessonWithObjectives) => {
     setLessons((prev) => {
@@ -444,140 +451,167 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
       <CardContent onDragOver={(event) => event.preventDefault()} onDrop={handleDrop(null)}>
         {activeLessons.length > 0 ? (
           <div className="space-y-3">
-           {activeLessons.map((lesson) => (
-              <div
-                key={lesson.lesson_id}
-                draggable
-                onDragStart={(event) => handleDragStart(lesson.lesson_id, event)}
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={handleDrop(lesson.lesson_id)}
-                onDragEnd={handleDragEnd}
-                className={cn(
-                  "w-full rounded-lg border border-border p-4 text-left transition hover:border-primary cursor-grab active:cursor-grabbing",
-                  draggingLessonId === lesson.lesson_id && "opacity-60",
-                )}
-                aria-grabbed={draggingLessonId === lesson.lesson_id}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <GripVertical className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                    <Link
-                      href={`/lessons/${lesson.lesson_id}`}
-                      className="font-medium text-primary underline-offset-2 hover:underline"
-                    >
-                      {lesson.title}
-                    </Link>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="text-xs">
-                      {lesson.active === false ? "Inactive" : "Active"}
-                    </Badge>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        handleLessonClick(lesson)
-                      }}
-                    >
-                      Edit
-                    </Button>
-                  </div>
-                </div>
-                <div className="mt-4 space-y-4">
-                  <div className="space-y-2">
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        openObjectivesSidebar(lesson)
-                      }}
-                      className="text-left text-sm font-semibold text-muted-foreground underline-offset-2 hover:underline"
-                    >
-                      Learning objectives
-                    </button>
-                    {lesson.lesson_objectives && lesson.lesson_objectives.length > 0 ? (
-                      <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                        {lesson.lesson_objectives.map((objective) => (
-                          <li key={objective.learning_objective_id}>
-                            {objective.learning_objective?.title ?? objective.title}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">No learning objectives yet.</p>
-                    )}
+            {activeLessons.map((lesson) => {
+              const isExpanded = expandedLessons[lesson.lesson_id] ?? false
+              const detailsSectionId = `lesson-details-${lesson.lesson_id}`
+
+              return (
+                <div
+                  key={lesson.lesson_id}
+                  draggable
+                  onDragStart={(event) => handleDragStart(lesson.lesson_id, event)}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={handleDrop(lesson.lesson_id)}
+                  onDragEnd={handleDragEnd}
+                  className={cn(
+                    "w-full rounded-lg border border-border p-4 text-left transition hover:border-primary",
+                    draggingLessonId === lesson.lesson_id && "opacity-60",
+                  )}
+                  aria-grabbed={draggingLessonId === lesson.lesson_id}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                      <GripVertical
+                        className="h-4 w-4 cursor-grab text-muted-foreground active:cursor-grabbing"
+                        aria-hidden="true"
+                      />
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          toggleLessonDetails(lesson.lesson_id)
+                        }}
+                        aria-expanded={isExpanded}
+                        aria-controls={detailsSectionId}
+                        className="flex flex-1 items-center gap-2 rounded-md px-1 py-1 text-left text-sm font-medium text-foreground transition hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        <ChevronRight
+                          className={cn(
+                            "h-4 w-4 text-muted-foreground transition-transform",
+                            isExpanded && "rotate-90",
+                          )}
+                        />
+                        <span className="truncate">
+                          {lesson.title?.trim().length ? lesson.title : "Untitled lesson"}
+                        </span>
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          handleShowActivities(lesson)
+                        }}
+                        disabled={lessonActivityCounts[lesson.lesson_id] === 0}
+                        className="whitespace-nowrap"
+                      >
+                        {`Show activities (${lessonActivityCounts[lesson.lesson_id] ?? "…"})`}
+                      </Button>
+                      <Button asChild variant="ghost" size="sm">
+                        <Link href={`/lessons/${lesson.lesson_id}`}>Details</Link>
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          handleLessonClick(lesson)
+                        }}
+                      >
+                        Edit
+                      </Button>
+                    </div>
                   </div>
 
-                  <div className="flex items-center justify-between gap-4">
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        openActivitiesSidebar(lesson)
-                      }}
-                      className="text-left text-sm font-semibold text-muted-foreground underline-offset-2 hover:underline"
+                  {isExpanded ? (
+                    <div
+                      id={detailsSectionId}
+                      className="mt-4 space-y-4 border-t border-border pt-4"
                     >
-                      Activities
-                    </button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="secondary"
-                      onClick={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        handleShowActivities(lesson)
-                      }}
-                      className="whitespace-nowrap"
-                      disabled={lessonActivityCounts[lesson.lesson_id] === 0}
-                    >
-                      {`Show Activities (${lessonActivityCounts[lesson.lesson_id] ?? "…"})`}
-                    </Button>
-                  </div>
+                      <div className="space-y-2">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            openObjectivesSidebar(lesson)
+                          }}
+                          className="text-left text-sm font-semibold text-muted-foreground underline-offset-2 hover:underline"
+                        >
+                          Learning objectives
+                        </button>
+                        {lesson.lesson_objectives && lesson.lesson_objectives.length > 0 ? (
+                          <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                            {lesson.lesson_objectives.map((objective) => (
+                              <li key={objective.learning_objective_id}>
+                                {objective.learning_objective?.title ?? objective.title}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">No learning objectives yet.</p>
+                        )}
+                      </div>
 
-                  <div className="space-y-2">
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        openResourcesSidebar(lesson)
-                      }}
-                      className="text-left text-sm font-semibold text-muted-foreground underline-offset-2 hover:underline"
-                    >
-                      Links &amp; files
-                    </button>
-                    {lesson.lesson_links && lesson.lesson_links.length > 0 ? (
-                      <ul className="space-y-1 text-sm text-muted-foreground">
-                        {lesson.lesson_links.map((link) => (
-                          <li key={link.lesson_link_id}>
-                            {link.description ? (
-                              <span>{link.description}</span>
-                            ) : (
-                              <a
-                                href={link.url}
-                                className="text-primary underline-offset-2 hover:underline"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                              >
-                                {link.url}
-                              </a>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">No links added yet.</p>
-                    )}
-                  </div>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          openActivitiesSidebar(lesson)
+                        }}
+                        className="text-left text-sm font-semibold text-muted-foreground underline-offset-2 hover:underline"
+                      >
+                        Activities
+                      </button>
+
+                      <div className="space-y-2">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            openResourcesSidebar(lesson)
+                          }}
+                          className="text-left text-sm font-semibold text-muted-foreground underline-offset-2 hover:underline"
+                        >
+                          Links &amp; files
+                        </button>
+                        {lesson.lesson_links && lesson.lesson_links.length > 0 ? (
+                          <ul className="space-y-1 text-sm text-muted-foreground">
+                            {lesson.lesson_links.map((link) => (
+                              <li key={link.lesson_link_id}>
+                                {link.description ? (
+                                  <span>{link.description}</span>
+                                ) : (
+                                  <a
+                                    href={link.url}
+                                    className="text-primary underline-offset-2 hover:underline"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  >
+                                    {link.url}
+                                  </a>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">No links added yet.</p>
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         ) : (
           <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
@@ -635,6 +669,7 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
             currentIndex={presentationIndex}
             unitTitle={unitTitle}
             lessonTitle={presentationState.lesson.title}
+            lessonId={presentationState.lesson.lesson_id}
             lessonObjectives={presentationState.lesson.lesson_objectives ?? []}
             lessonLinks={presentationState.links}
             lessonFiles={presentationState.files}

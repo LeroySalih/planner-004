@@ -9,8 +9,11 @@ import {
   readLessonAction,
   listLessonActivitiesAction,
   listLessonFilesAction,
+  listActivityFilesAction,
+  listPupilActivitySubmissionsAction,
 } from "@/lib/server-updates"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { PupilUploadActivity } from "@/components/pupil/pupil-upload-activity"
 
 function formatDateLabel(value: string | null | undefined) {
   if (!value) {
@@ -120,6 +123,17 @@ function extractAudioUrl(activity: { body_data: unknown }) {
   return null
 }
 
+function extractUploadInstructions(activity: { body_data: unknown }) {
+  const bodyData = activity.body_data
+  if (typeof bodyData !== "object" || bodyData === null) {
+    return ""
+  }
+
+  const record = bodyData as Record<string, unknown>
+  const instructions = record.instructions
+  return typeof instructions === "string" ? instructions : ""
+}
+
 export default async function PupilLessonFriendlyPage({
   params,
 }: {
@@ -147,6 +161,28 @@ export default async function PupilLessonFriendlyPage({
 
   const activities = activitiesResult.data ?? []
   const lessonFiles = filesResult.data ?? []
+
+  const uploadActivities = activities.filter((activity) => activity.type === "upload-file")
+
+  const uploadActivityData = await Promise.all(
+    uploadActivities.map(async (activity) => {
+      const [resourcesResult, submissionsResult] = await Promise.all([
+        listActivityFilesAction(lesson.lesson_id, activity.activity_id),
+        listPupilActivitySubmissionsAction(lesson.lesson_id, activity.activity_id, pupilId),
+      ])
+
+      return {
+        activityId: activity.activity_id,
+        resources: resourcesResult.error ? [] : resourcesResult.data ?? [],
+        submissions: submissionsResult.error ? [] : submissionsResult.data ?? [],
+      }
+    }),
+  )
+
+  const resourceMap = new Map(uploadActivityData.map((item) => [item.activityId, item.resources]))
+  const submissionMap = new Map(uploadActivityData.map((item) => [item.activityId, item.submissions]))
+
+  const canUpload = !profile.isTeacher && profile.userId === pupilId
 
   const assignments = summary
     ? summary.sections.flatMap((section) =>
@@ -235,35 +271,53 @@ export default async function PupilLessonFriendlyPage({
                 const icon = selectActivityIcon(activity.type, Boolean(audioUrl), linkUrl)
 
                 return (
-                  <li key={activity.activity_id} className="rounded-md border border-border/60 bg-muted/40 px-3 py-3">
-                    <div className="flex items-start gap-2">
-                      <span className="text-xs font-semibold text-muted-foreground">{index + 1}.</span>
-                      <div className="flex flex-col gap-1">
-                        <div className="flex items-center gap-2">
-                          {icon}
-                          {linkUrl ? (
-                            <Link
-                              href={linkUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="font-medium text-primary underline-offset-4 hover:underline"
-                            >
-                              {activity.title}
-                            </Link>
-                          ) : (
-                            <span className="font-medium text-foreground">{activity.title}</span>
-                          )}
+                  <li
+                    key={activity.activity_id}
+                    className="rounded-md border border-border/60 bg-muted/40 px-3 py-3"
+                  >
+                    {activity.type === "upload-file" ? (
+                      <PupilUploadActivity
+                        lessonId={lesson.lesson_id}
+                        activity={activity}
+                        pupilId={pupilId}
+                        instructions={extractUploadInstructions(activity)}
+                        resourceFiles={resourceMap.get(activity.activity_id) ?? []}
+                        initialSubmissions={submissionMap.get(activity.activity_id) ?? []}
+                        canUpload={canUpload}
+                        stepNumber={index + 1}
+                      />
+                    ) : (
+                      <>
+                        <div className="flex items-start gap-2">
+                          <span className="text-xs font-semibold text-muted-foreground">{index + 1}.</span>
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-2">
+                              {icon}
+                              {linkUrl ? (
+                                <Link
+                                  href={linkUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="font-medium text-primary underline-offset-4 hover:underline"
+                                >
+                                  {activity.title}
+                                </Link>
+                              ) : (
+                                <span className="font-medium text-foreground">{activity.title}</span>
+                              )}
+                            </div>
+                            <span className="text-xs text-muted-foreground">{formatActivityType(activity.type)}</span>
+                            {linkUrl ? <span className="break-all text-xs text-muted-foreground">{linkUrl}</span> : null}
+                          </div>
                         </div>
-                        <span className="text-xs text-muted-foreground">{formatActivityType(activity.type)}</span>
-                        {linkUrl ? <span className="break-all text-xs text-muted-foreground">{linkUrl}</span> : null}
-                      </div>
-                    </div>
 
-                    {audioUrl && activity.type !== "show-video" ? (
-                      <audio className="mt-3 w-full" controls preload="none" src={audioUrl}>
-                        Your browser does not support the audio element.
-                      </audio>
-                    ) : null}
+                        {audioUrl && activity.type !== "show-video" ? (
+                          <audio className="mt-3 w-full" controls preload="none" src={audioUrl}>
+                            Your browser does not support the audio element.
+                          </audio>
+                        ) : null}
+                      </>
+                    )}
                   </li>
                 )
               })}

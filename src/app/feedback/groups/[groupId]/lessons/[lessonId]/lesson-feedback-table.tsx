@@ -52,8 +52,9 @@ export function LessonFeedbackTable({
       }
 
       if (next === 0) {
-        const { [pupilId]: _removed, ...rest } = prev
-        return rest
+        const nextPending = { ...prev }
+        delete nextPending[pupilId]
+        return nextPending
       }
 
       return { ...prev, [pupilId]: next }

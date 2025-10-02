@@ -24,6 +24,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
+import { Switch } from "@/components/ui/switch"
 
 interface VoiceBody {
   audioFile: string | null
@@ -48,9 +49,9 @@ interface ActivityFileInfo {
 const ACTIVITY_TYPES = [
   { value: "text", label: "Text" },
   { value: "file-download", label: "File download" },
+  { value: "upload-file", label: "Upload file" },
   { value: "display-image", label: "Display image" },
   { value: "show-video", label: "Show video" },
-  { value: "file-upload-question", label: "File upload question" },
   { value: "multiple-choice-question", label: "Multiple choice question" },
   { value: "text-question", label: "Text question" },
   { value: "voice", label: "Voice recording" },
@@ -83,11 +84,13 @@ export function LessonActivitiesManager({ unitId, lessonId, initialActivities }:
   const [imagePreviewState, setImagePreviewState] = useState<
     Record<string, { url: string | null; loading: boolean }>
   >({})
+  const [homeworkPending, setHomeworkPending] = useState<Record<string, boolean>>({})
   const voiceAudioRef = useRef<HTMLAudioElement | null>(null)
 
   useEffect(() => {
     setActivities(sortActivities(initialActivities))
     setImagePreviewState({})
+    setHomeworkPending({})
   }, [initialActivities])
 
   const typeLabelMap = useMemo(() => {
@@ -639,6 +642,62 @@ export function LessonActivitiesManager({ unitId, lessonId, initialActivities }:
     setDragOverId(null)
   }
 
+  const toggleHomework = useCallback(
+    (activity: LessonActivity, nextValue: boolean) => {
+      const activityId = activity.activity_id
+      const previousValue = activity.is_homework ?? false
+
+      setHomeworkPending((prev) => ({ ...prev, [activityId]: true }))
+      setActivities((prev) =>
+        prev.map((item) =>
+          item.activity_id === activityId ? { ...item, is_homework: nextValue } : item,
+        ),
+      )
+
+      startTransition(async () => {
+        try {
+          const result = await updateLessonActivityAction(unitId, lessonId, activityId, {
+            isHomework: nextValue,
+          })
+
+          if (!result.success || !result.data) {
+            setActivities((prev) =>
+              prev.map((item) =>
+                item.activity_id === activityId ? { ...item, is_homework: previousValue } : item,
+              ),
+            )
+            toast.error("Unable to update homework status", {
+              description: result.error ?? "Please try again later.",
+            })
+            return
+          }
+
+          setActivities((prev) =>
+            prev.map((item) => (item.activity_id === activityId ? result.data! : item)),
+          )
+          router.refresh()
+        } catch (error) {
+          console.error("[activities] Failed to update homework flag", error)
+          setActivities((prev) =>
+            prev.map((item) =>
+              item.activity_id === activityId ? { ...item, is_homework: previousValue } : item,
+            ),
+          )
+          toast.error("Unable to update homework status", {
+            description: error instanceof Error ? error.message : "Please try again later.",
+          })
+        } finally {
+          setHomeworkPending((prev) => {
+            const next = { ...prev }
+            delete next[activityId]
+            return next
+          })
+        }
+      })
+    },
+    [lessonId, router, startTransition, unitId],
+  )
+
   useEffect(() => {
     const pending = pendingReorderRef.current
     if (!pending) {
@@ -681,13 +740,16 @@ export function LessonActivitiesManager({ unitId, lessonId, initialActivities }:
               const isVoice = activity.type === "voice"
               const voiceBody = isVoice ? getVoiceBody(activity) : null
               const voiceStatus = voicePreviewState[activity.activity_id]
-              const isFileDownload = activity.type === "file-download"
+              const isFileResource = activity.type === "file-download" || activity.type === "upload-file"
               const fileStatus = fileDownloadState[activity.activity_id]
               const isDisplayImage = activity.type === "display-image"
               const imageBody = isDisplayImage ? getImageBody(activity) : null
               const imageState = isDisplayImage ? imagePreviewState[activity.activity_id] : null
               const imageThumbnail = isDisplayImage ? imageState?.url ?? imageBody?.imageUrl ?? null : null
               const isImageLoading = isDisplayImage ? imageState?.loading ?? false : false
+              const isHomework = activity.is_homework ?? false
+              const homeworkUpdating = homeworkPending[activity.activity_id] ?? false
+              const switchId = `activity-homework-${activity.activity_id}`
               return (
                 <li
                   key={activity.activity_id}
@@ -734,7 +796,7 @@ export function LessonActivitiesManager({ unitId, lessonId, initialActivities }:
                           <span className="text-xs">Play</span>
                         </Button>
                       ) : null}
-                          {isFileDownload ? (
+                          {isFileResource ? (
                             <Button
                               type="button"
                               variant="secondary"
@@ -796,11 +858,28 @@ export function LessonActivitiesManager({ unitId, lessonId, initialActivities }:
                           <div className="space-y-1">
                             <p className="font-medium text-foreground">{activity.title}</p>
                             <Badge variant="secondary" className="capitalize">
-                              {label}
-                            </Badge>
-                          </div>
-                        </div>
+                          {label}
+                        </Badge>
                         <div className="flex items-center gap-2">
+                          <Switch
+                            id={switchId}
+                            checked={isHomework}
+                            disabled={isBusy || homeworkUpdating}
+                            onCheckedChange={(checked) => toggleHomework(activity, checked)}
+                          />
+                          <Label
+                            htmlFor={switchId}
+                            className="text-xs font-medium text-muted-foreground"
+                          >
+                            Homework
+                          </Label>
+                          {homeworkUpdating ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
                           <Button
                             size="icon"
                             variant="ghost"
@@ -928,6 +1007,14 @@ function extractText(activity: LessonActivity): string {
   return typeof value === "string" ? value : ""
 }
 
+function extractUploadInstructions(activity: LessonActivity): string {
+  if (!activity.body_data || typeof activity.body_data !== "object") {
+    return ""
+  }
+  const value = (activity.body_data as Record<string, unknown>).instructions
+  return typeof value === "string" ? value : ""
+}
+
 function extractVideoUrl(activity: LessonActivity): string {
   if (!activity.body_data || typeof activity.body_data !== "object") {
     return ""
@@ -946,6 +1033,13 @@ function buildBodyData(
   }
   if (type === "show-video") {
     return { fileUrl: videoUrl }
+  }
+  if (type === "upload-file") {
+    const instructions = text
+    if (fallback && typeof fallback === "object" && fallback !== null) {
+      return { ...fallback, instructions }
+    }
+    return { instructions }
   }
   if (type === "voice") {
     if (fallback && typeof fallback === "object") {
@@ -980,6 +1074,12 @@ function renderActivityPreview(activity: LessonActivity) {
         Watch video
       </a>
     )
+  }
+
+  if (activity.type === "upload-file") {
+    const instructions = extractUploadInstructions(activity)
+    if (!instructions) return null
+    return <p className="whitespace-pre-wrap text-sm text-muted-foreground">{instructions}</p>
   }
 
   return null
@@ -1559,7 +1659,9 @@ function LessonActivityEditorSheet({
       const ensuredType = ensureActivityType(activity.type)
       setTitle(activity.title)
       setType(ensuredType)
-      setText(extractText(activity))
+      const initialText =
+        ensuredType === "upload-file" ? extractUploadInstructions(activity) : extractText(activity)
+      setText(initialText)
       setVideoUrl(extractVideoUrl(activity))
       setRawBody(activity.body_data ? JSON.stringify(activity.body_data, null, 2) : "")
       setRawBodyError(null)
@@ -1622,10 +1724,16 @@ function LessonActivityEditorSheet({
   useEffect(() => {
     setRawBodyError(null)
     if (isCreateMode) {
-      if (type === "text") {
+      if (type === "text" || type === "upload-file") {
         setVideoUrl("")
         setText("")
         setRawBody("")
+        if (type === "upload-file") {
+          setActivityFiles([])
+          setIsFilesLoading(false)
+          setIsUploadingFiles(false)
+          setIsFileDragActive(false)
+        }
         return
       }
 
@@ -1693,6 +1801,17 @@ function LessonActivityEditorSheet({
       } else {
         setPlaybackUrl(null)
         setIsPlaybackLoading(false)
+      }
+      return
+    }
+
+    if (type === "upload-file") {
+      if (activity) {
+        setText(extractUploadInstructions(activity))
+        void refreshActivityFiles(activity.activity_id)
+      } else {
+        setText("")
+        setActivityFiles([])
       }
       return
     }
@@ -2160,14 +2279,20 @@ function LessonActivityEditorSheet({
             </Select>
           </div>
 
-          {type === "text" ? (
+          {type === "text" || type === "upload-file" ? (
             <div className="space-y-2">
-              <Label htmlFor="activity-text">Instructions</Label>
+              <Label htmlFor="activity-text">
+                {type === "upload-file" ? "Instructions for pupils" : "Instructions"}
+              </Label>
               <Textarea
                 id="activity-text"
                 value={text}
                 onChange={(event) => setText(event.target.value)}
-                placeholder="Enter the activity instructions"
+                placeholder={
+                  type === "upload-file"
+                    ? "Explain what pupils should upload"
+                    : "Enter the activity instructions"
+                }
                 rows={6}
                 disabled={isPending}
               />
@@ -2354,7 +2479,7 @@ function LessonActivityEditorSheet({
             </div>
           ) : null}
 
-          {type === "file-download" ? (
+          {type === "file-download" || type === "upload-file" ? (
             <div className="space-y-3 rounded-md border border-border p-4">
               {isCreateMode || !activity ? (
                 <p className="text-sm text-muted-foreground">
@@ -2377,7 +2502,7 @@ function LessonActivityEditorSheet({
                   >
                     <p className="text-sm font-medium">Drag and drop files here</p>
                     <p className="text-xs text-muted-foreground">
-                      Files will be available for download during the lesson.
+                      Files will be available for pupils to download when viewing this activity.
                     </p>
                     <Button
                       type="button"
@@ -2439,6 +2564,7 @@ function LessonActivityEditorSheet({
           type !== "show-video" &&
           type !== "voice" &&
           type !== "file-download" &&
+          type !== "upload-file" &&
           type !== "display-image" ? (
             <div className="space-y-2">
               <Label htmlFor="activity-json">Activity details</Label>
