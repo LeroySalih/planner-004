@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Download, ExternalLink, GripVertical, Trash2, X } from "lucide-react"
+import { PupilUploadActivity } from "@/components/pupil/pupil-upload-activity"
 import {
   createLessonAction,
   deactivateLessonAction,
@@ -42,13 +43,14 @@ import {
   reorderLessonActivitiesAction,
   deleteLessonActivityAction,
 } from "@/lib/server-updates"
+import { supabaseBrowserClient } from "@/lib/supabase-browser"
 
 const ACTIVITY_TYPES = [
   { value: "text", label: "Text" },
   { value: "file-download", label: "File download" },
+  { value: "upload-file", label: "Upload file" },
   { value: "display-image", label: "Display image" },
   { value: "show-video", label: "Show video" },
-  { value: "file-upload-question", label: "File upload question" },
   { value: "multiple-choice-question", label: "Multiple choice question" },
   { value: "text-question", label: "Text question" },
   { value: "voice", label: "Voice recording" },
@@ -381,7 +383,7 @@ export function LessonSidebar({
   )
 
   useEffect(() => {
-    if (newActivityType === "text") {
+    if (newActivityType === "text" || newActivityType === "upload-file") {
       setNewActivityFileUrl("")
     } else if (newActivityType === "show-video") {
       setNewActivityText("")
@@ -391,7 +393,10 @@ export function LessonSidebar({
   useEffect(() => {
     if (!lesson) return
     const fileDownloadActivities = activities.filter(
-      (activity) => activity.type === "file-download" || activity.type === "voice",
+      (activity) =>
+        activity.type === "file-download" ||
+        activity.type === "upload-file" ||
+        activity.type === "voice",
     )
     if (fileDownloadActivities.length === 0) return
 
@@ -455,6 +460,9 @@ export function LessonSidebar({
       if (newActivityType === "text") {
         return { text: newActivityText }
       }
+      if (newActivityType === "upload-file") {
+        return { instructions: newActivityText }
+      }
       if (newActivityType === "show-video") {
         return { fileUrl: newActivityFileUrl }
       }
@@ -476,7 +484,7 @@ export function LessonSidebar({
       }
 
       setActivities((prev) => [...prev, result.data].sort(sortActivities))
-      if (result.data.type === "file-download") {
+      if (result.data.type === "file-download" || result.data.type === "upload-file") {
         setActivityFilesMap((prev) => ({ ...prev, [result.data.activity_id]: [] }))
       }
       setNewActivityTitle("")
@@ -517,7 +525,7 @@ export function LessonSidebar({
       setActivities((prev) =>
         prev.map((activity) => (activity.activity_id === activityId ? result.data! : activity)),
       )
-      if (result.data.type === "file-download") {
+      if (result.data.type === "file-download" || result.data.type === "upload-file") {
         await refreshActivityFiles(activityId)
       }
     })
@@ -540,7 +548,7 @@ export function LessonSidebar({
     })
   }
 
-  const updateActivityBodyLocally = useCallback((activityId: string, bodyData: unknown) => {
+  const updateActivityBodyLocally = useCallback((activityId: string, bodyData: LessonActivity["body_data"]) => {
     setActivities((prev) =>
       prev.map((activity) =>
         activity.activity_id === activityId ? { ...activity, body_data: bodyData } : activity,
@@ -1387,16 +1395,16 @@ export function LessonSidebar({
 
             <div className="flex-1 overflow-y-auto px-6 py-4">
               <div className="space-y-6">
-                {!isResourcesOnly && lesson && (
+                {isActivitiesOnly && lesson && (
                   <div className="space-y-3">
                     <Label>Lesson Activities</Label>
-                <div className="space-y-2 rounded-md border border-border p-3">
-                  <Input
-                    value={newActivityTitle}
-                    onChange={(event) => setNewActivityTitle(event.target.value)}
-                    placeholder="Activity title"
-                    disabled={isPending}
-                  />
+                    <div className="space-y-2 rounded-md border border-border p-3">
+                      <Input
+                        value={newActivityTitle}
+                        onChange={(event) => setNewActivityTitle(event.target.value)}
+                        placeholder="Activity title"
+                        disabled={isPending}
+                      />
                   <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
                     <Select
                       value={newActivityType}
@@ -1423,19 +1431,23 @@ export function LessonSidebar({
                       Add Activity
                     </Button>
                   </div>
-                  {newActivityType === "text" ? (
+                  {newActivityType === "text" || newActivityType === "upload-file" ? (
                     <div className="space-y-1.5">
                       <Label
                         htmlFor="new-activity-text"
                         className="text-xs font-medium text-muted-foreground"
                       >
-                        Text content
+                        {newActivityType === "upload-file" ? "Instructions for pupils" : "Text content"}
                       </Label>
                       <Textarea
                         id="new-activity-text"
                         value={newActivityText}
                         onChange={(event) => setNewActivityText(event.target.value)}
-                        placeholder="Add the instructions or text for this activity"
+                        placeholder={
+                          newActivityType === "upload-file"
+                            ? "Explain what pupils should upload"
+                            : "Add the instructions or text for this activity"
+                        }
                         disabled={isPending}
                       />
                     </div>
@@ -1461,6 +1473,11 @@ export function LessonSidebar({
                   {newActivityType === "file-download" ? (
                     <p className="text-sm text-muted-foreground">
                       Save the activity first, then upload files to it.
+                    </p>
+                  ) : null}
+                  {newActivityType === "upload-file" ? (
+                    <p className="text-sm text-muted-foreground">
+                      After saving, attach any reference files pupils should use before uploading their own work.
                     </p>
                   ) : null}
                 </div>
@@ -1546,7 +1563,34 @@ export function LessonSidebar({
                                 value={getActivityTextValue(activity)}
                                 onChange={(event) =>
                                   updateActivityBodyLocally(activity.activity_id, {
+                                    ...(typeof activity.body_data === "object" && activity.body_data !== null
+                                      ? (activity.body_data as Record<string, unknown>)
+                                      : {}),
                                     text: event.target.value,
+                                  })
+                                }
+                                onBlur={() => handleActivityBodySubmit(activity.activity_id)}
+                                disabled={isPending}
+                              />
+                            </div>
+                          ) : null}
+                          {activity.type === "upload-file" ? (
+                            <div className="mt-3 space-y-1.5">
+                              <Label
+                                htmlFor={`activity-${activity.activity_id}-instructions`}
+                                className="text-xs font-medium text-muted-foreground"
+                              >
+                                Instructions for pupils
+                              </Label>
+                              <Textarea
+                                id={`activity-${activity.activity_id}-instructions`}
+                                value={getActivityTextValue(activity)}
+                                onChange={(event) =>
+                                  updateActivityBodyLocally(activity.activity_id, {
+                                    ...(typeof activity.body_data === "object" && activity.body_data !== null
+                                      ? (activity.body_data as Record<string, unknown>)
+                                      : {}),
+                                    instructions: event.target.value,
                                   })
                                 }
                                 onBlur={() => handleActivityBodySubmit(activity.activity_id)}
@@ -1577,7 +1621,7 @@ export function LessonSidebar({
                               />
                             </div>
                           ) : null}
-                          {activity.type === "file-download" ? (
+                          {activity.type === "file-download" || activity.type === "upload-file" ? (
                             <div className="mt-3 space-y-3">
                               <div
                                 role="button"
@@ -1958,6 +2002,7 @@ export function LessonSidebar({
           currentIndex={presentationIndex}
           unitTitle={unitTitle}
           lessonTitle={lesson?.title ?? title}
+          lessonId={lesson?.lesson_id ?? ""}
           lessonObjectives={lesson?.lesson_objectives ?? []}
           lessonLinks={links}
           lessonFiles={files}
@@ -2052,8 +2097,13 @@ function getActivityTextValue(activity: LessonActivity): string {
   if (typeof activity.body_data !== "object" || activity.body_data === null) {
     return ""
   }
-  const text = (activity.body_data as Record<string, unknown>).text
-  return typeof text === "string" ? text : ""
+  const record = activity.body_data as Record<string, unknown>
+  const text = typeof record.text === "string" ? record.text : null
+  if (text != null) {
+    return text
+  }
+  const instructions = record.instructions
+  return typeof instructions === "string" ? instructions : ""
 }
 
 function getActivityFileUrlValue(activity: LessonActivity): string {
@@ -2092,9 +2142,12 @@ function getVoiceBody(activity: LessonActivity): VoiceBody {
   }
 }
 
-function getDefaultBodyDataForType(type: ActivityTypeValue): unknown {
+function getDefaultBodyDataForType(type: ActivityTypeValue): LessonActivity["body_data"] {
   if (type === "text") {
     return { text: "" }
+  }
+  if (type === "upload-file") {
+    return { instructions: "" }
   }
   if (type === "show-video") {
     return { fileUrl: "" }
@@ -2110,6 +2163,7 @@ export interface LessonPresentationProps {
   currentIndex: number
   unitTitle: string
   lessonTitle: string
+  lessonId: string
   lessonObjectives: LessonLearningObjective[]
   lessonLinks: LessonLinkInfo[]
   lessonFiles: LessonFileInfo[]
@@ -2127,6 +2181,7 @@ export function LessonPresentation({
   currentIndex,
   unitTitle,
   lessonTitle,
+  lessonId,
   lessonObjectives,
   lessonLinks,
   lessonFiles,
@@ -2144,6 +2199,32 @@ export function LessonPresentation({
   const [voicePlayback, setVoicePlayback] = useState<{ url: string | null; loading: boolean }>(
     { url: null, loading: false },
   )
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const [isUserLoaded, setIsUserLoaded] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+
+    supabaseBrowserClient.auth
+      .getUser()
+      .then(({ data }) => {
+        if (!cancelled) {
+          setCurrentUserId(data.user?.id ?? null)
+          setIsUserLoaded(true)
+        }
+      })
+      .catch((error) => {
+        console.error("[lesson-presentation] Failed to fetch current user", error)
+        if (!cancelled) {
+          setCurrentUserId(null)
+          setIsUserLoaded(true)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -2317,11 +2398,31 @@ export function LessonPresentation({
                 <h3 className="text-3xl font-bold leading-tight">{activity.title}</h3>
               </div>
               <div className="min-h-[320px] rounded-xl border bg-card p-6 shadow-sm">
-                {renderActivityPresentationContent(
-                  activity,
-                  activityFiles,
-                  (fileName) => onDownloadActivityFile(activity.activity_id, fileName),
-                  { url: voicePlayback.url, isLoading: voicePlayback.loading },
+                {activity.type === "upload-file" ? (
+                  isUserLoaded ? (
+                    <PupilUploadActivity
+                      key={`${activity.activity_id}-${currentUserId ?? "guest"}`}
+                      lessonId={lessonId}
+                      activity={activity}
+                      pupilId={currentUserId ?? ""}
+                      instructions={getActivityTextValue(activity)}
+                      resourceFiles={activityFiles}
+                      initialSubmissions={[]}
+                      canUpload={Boolean(currentUserId)}
+                      stepNumber={currentIndex + 1}
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                      Loading upload tools…
+                    </div>
+                  )
+                ) : (
+                  renderActivityPresentationContent(
+                    activity,
+                    activityFiles,
+                    (fileName) => onDownloadActivityFile(activity.activity_id, fileName),
+                    { url: voicePlayback.url, isLoading: voicePlayback.loading },
+                  )
                 )}
               </div>
             </div>
@@ -2423,6 +2524,53 @@ function renderActivityPresentationContent(
             </li>
           ))}
         </ul>
+      </div>
+    )
+  }
+
+  if (activity.type === "upload-file") {
+    const instructions = getActivityTextValue(activity)
+
+    return (
+      <div className="space-y-4">
+        {instructions.trim().length > 0 ? (
+          <p className="whitespace-pre-wrap text-lg leading-relaxed text-foreground">{instructions}</p>
+        ) : (
+          <p className="text-muted-foreground">Add instructions so pupils know what to submit.</p>
+        )}
+
+        <div className="space-y-2">
+          <p className="text-sm text-muted-foreground">
+            Share any reference files pupils should download before uploading their work.
+          </p>
+          {files.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No files attached yet.</p>
+          ) : (
+            <ul className="space-y-2">
+              {files.map((file) => (
+                <li
+                  key={file.path}
+                  className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm"
+                >
+                  <div className="flex flex-col">
+                    <span className="font-medium">{file.name}</span>
+                    {file.size ? (
+                      <span className="text-xs text-muted-foreground">{formatFileSize(file.size)}</span>
+                    ) : null}
+                  </div>
+                  <Button size="sm" variant="secondary" onClick={() => onDownload(file.name)}>
+                    Download
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          Pupils can upload their responses from the student lesson page. Their files are saved under each
+          activity.
+        </p>
       </div>
     )
   }

@@ -75,6 +75,10 @@ export {
   uploadActivityFileAction,
   deleteActivityFileAction,
   getActivityFileDownloadUrlAction,
+  listPupilActivitySubmissionsAction,
+  uploadPupilActivitySubmissionAction,
+  deletePupilActivitySubmissionAction,
+  getPupilActivitySubmissionUrlAction,
 } from "./server-actions/lesson-activity-files"
 
 export {

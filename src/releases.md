@@ -1,11 +1,6 @@
 # Dino
 ## Releases 
 
-### Release 0.0.4
-- `/lessons/[lessonId]`: Upgraded display-image activities to use the new sidebar workflow—drag-and-drop uploads, inline preview, and delete support now live for create/edit flows with automatic Supabase file management.
-- `/lessons/[lessonId]`: Activity list rows now surface 100 px thumbnails (with graceful loading states) for display-image entries, aligning with the existing video and voice affordances.
-- General: Smoothed the activity editor clean-up logic uncovered during the build to keep transition handling TypeScript-safe.
-
 ### Release 0.0.3
 - `/reports`: Restyled the hero header with white/grey copy and relocated the export controls into the gradient banner.
 - `/reports/[pupilId]`: Opened all subject accordions by default, swapped feedback captions for icon-only indicators, linked unit headings to their detail pages, and removed the back-to-assignments link.

@@ -213,6 +213,7 @@ export function LessonActivitiesLauncher({ lesson, unitTitle }: LessonActivities
             currentIndex={currentIndex}
             unitTitle={unitTitle ?? lesson.unit_id}
             lessonTitle={presentation.lesson.title}
+            lessonId={lesson.lesson_id}
             lessonObjectives={presentation.lesson.lesson_objectives ?? []}
             lessonLinks={presentation.links}
             lessonFiles={presentation.files}

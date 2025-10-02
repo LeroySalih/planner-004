@@ -269,6 +269,11 @@ export async function deleteLessonActivityAction(unitId: string, lessonId: strin
 }
 
 const TextActivityBodySchema = z.object({ text: z.string() }).passthrough()
+const UploadFileBodySchema = z
+  .object({
+    instructions: z.string().nullable().optional(),
+  })
+  .passthrough()
 const VideoActivityBodySchema = z.object({ fileUrl: z.string() }).passthrough()
 const VoiceActivityBodySchema = z
   .object({
@@ -361,6 +366,30 @@ function normalizeActivityBody(
     }
 
     return { success: false, error: "Voice activities require a recording." }
+  }
+
+  if (type === "upload-file") {
+    if (rawBody === undefined || rawBody === null) {
+      return { success: true, bodyData: { instructions: "" } }
+    }
+
+    if (typeof rawBody === "string") {
+      return { success: true, bodyData: { instructions: rawBody } }
+    }
+
+    if (typeof rawBody === "object") {
+      const parsed = UploadFileBodySchema.safeParse(rawBody)
+      if (parsed.success) {
+        const instructions = parsed.data.instructions ?? ""
+        return { success: true, bodyData: { ...parsed.data, instructions } }
+      }
+    }
+
+    if (allowFallback) {
+      return { success: true, bodyData: { instructions: "" } }
+    }
+
+    return { success: false, error: "Upload file activities require instructions." }
   }
 
   return { success: true, bodyData: rawBody ?? null }
