@@ -1,6 +1,13 @@
 # Dino
 ## Releases 
 
+### Release 0.0.4
+- Added seeding helpers for Supabase profiles and group membership so teacher/pupil fixtures populate consistently.
+- Introduced the "Upload file" lesson activity: teachers can configure instructions and resources, pupils get drag-and-drop uploads tied to their account, and show mode/presentation view now renders the new workflow.
+- Optimised lesson management UI: Show activities control moved beside Edit (renamed to Details), the default edit sidebar now focuses on title/objectives only, while dedicated sidebars handle activities/resources.
+- Refined upload behaviour for pupils—single file enforced with replacement, optimistic previews, and immediate feedback without refreshing.
+- Updated the header profile button to react in real time when users save new name details, with a Playwright regression test covering the flow.
+
 ### Release 0.0.3
 - `/reports`: Restyled the hero header with white/grey copy and relocated the export controls into the gradient banner.
 - `/reports/[pupilId]`: Opened all subject accordions by default, swapped feedback captions for icon-only indicators, linked unit headings to their detail pages, and removed the back-to-assignments link.

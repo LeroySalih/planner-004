@@ -1,0 +1,14 @@
+<testsuites id="" name="" tests="3" failures="0" skipped="0" errors="0" time="8.385969999999999">
+<testsuite name="sign-in/teacher-sign-in.spec.ts" timestamp="2025-10-02T23:33:41.348Z" hostname="chromium" tests="1" failures="0" skipped="0" time="3.49" errors="0">
+<testcase name="Teacher sign in" classname="sign-in/teacher-sign-in.spec.ts" time="3.49">
+</testcase>
+</testsuite>
+<testsuite name="sign-in/teacher-sign-in.spec.ts" timestamp="2025-10-02T23:33:41.348Z" hostname="firefox" tests="1" failures="0" skipped="0" time="3.065" errors="0">
+<testcase name="Teacher sign in" classname="sign-in/teacher-sign-in.spec.ts" time="3.065">
+</testcase>
+</testsuite>
+<testsuite name="sign-in/teacher-sign-in.spec.ts" timestamp="2025-10-02T23:33:41.348Z" hostname="webkit" tests="1" failures="0" skipped="0" time="3.516" errors="0">
+<testcase name="Teacher sign in" classname="sign-in/teacher-sign-in.spec.ts" time="3.516">
+</testcase>
+</testsuite>
+</testsuites>
