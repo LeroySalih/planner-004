@@ -42,6 +42,7 @@ export function SignupForm() {
       })
 
       if (signUpError) {
+        console.error("SignupForm: sign up error", signUpError)
         setError(signUpError.message)
         return
       }
@@ -56,6 +57,7 @@ export function SignupForm() {
 
       router.push("/profiles")
     } catch (submitError) {
+      console.error("SignupForm: unexpected sign up error", submitError)
       setError(submitError instanceof Error ? submitError.message : "Unable to complete sign up.")
     } finally {
       setIsLoading(false)
