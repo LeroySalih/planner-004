@@ -68,9 +68,39 @@ export function UserNav() {
       void loadProfile()
     })
 
+    const handleProfileUpdated = (event: Event) => {
+      const customEvent = event as CustomEvent<{
+        userId: string
+        firstName?: string
+        lastName?: string
+      }>
+      const detail = customEvent.detail
+      if (!detail?.userId) {
+        return
+      }
+
+      setProfile((previous) => {
+        if (!previous || previous.userId !== detail.userId) {
+          return previous
+        }
+
+        const first = detail.firstName?.trim() ?? ""
+        const last = detail.lastName?.trim() ?? ""
+        const combined = `${first} ${last}`.trim()
+
+        return {
+          ...previous,
+          displayName: combined.length > 0 ? combined : previous.displayName,
+        }
+      })
+    }
+
+    window.addEventListener("profile-updated", handleProfileUpdated as EventListener)
+
     return () => {
       isMounted = false
       authListener?.subscription.unsubscribe()
+      window.removeEventListener("profile-updated", handleProfileUpdated as EventListener)
     }
   }, [])
 

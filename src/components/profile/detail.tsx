@@ -87,6 +87,15 @@ export function ProfileDetailForm({ profileId }: ProfileDetailFormProps) {
     }
 
     setSuccessMessage("Profile updated successfully.")
+
+    if (typeof window !== "undefined") {
+      const detail = {
+        userId: profileId,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+      }
+      window.dispatchEvent(new CustomEvent("profile-updated", { detail }))
+    }
   }
 
   if (isLoading) {
@@ -138,7 +147,7 @@ export function ProfileDetailForm({ profileId }: ProfileDetailFormProps) {
           <p className="text-sm font-medium text-foreground">Teacher account</p>
           <p className="text-xs text-muted-foreground">This setting is managed by the system and cannot be changed here.</p>
         </div>
-        <Switch checked={isTeacher} disabled aria-readonly className="pointer-events-none opacity-60" />
+        <Switch checked={isTeacher} disabled aria-readonly data-testid="is_teacher_switch" className="pointer-events-none opacity-60" />
       </div>
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
