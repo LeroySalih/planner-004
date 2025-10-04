@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, useTransition } from "react"
 import type { ChangeEvent, DragEvent, KeyboardEvent, MouseEvent } from "react"
+import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
 import type { LessonActivity, LessonLearningObjective } from "@/types"
@@ -219,6 +220,7 @@ export function LessonSidebar({
   const isActivitiesOnly = viewMode === "activities-only"
   const isResourcesOnly = viewMode === "resources-only"
   const [isPending, startTransition] = useTransition()
+  const router = useRouter()
   const [title, setTitle] = useState("")
   const [isConfirmingDeactivate, setIsConfirmingDeactivate] = useState(false)
   const [selectedObjectiveIds, setSelectedObjectiveIds] = useState<string[]>([])
@@ -865,8 +867,8 @@ export function LessonSidebar({
       toast.info("Add at least one activity to present this lesson.")
       return
     }
-    setPresentationIndex(-1)
-    setIsPresentationOpen(true)
+    const target = `/lessons/${encodeURIComponent(lesson.lesson_id)}/activities`
+    router.push(target)
   }
 
   const closePresentation = () => {

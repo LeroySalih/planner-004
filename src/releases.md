@@ -1,6 +1,11 @@
 # Dino
 ## Releases 
 
+### Release 0.0.7
+- `/lessons/[lessonId]/activities`: Introduced a dedicated overview with blue hero header, inline learning objective summary, and rich previews (step number, text, images) for every activity.
+- `/lessons/[lessonId]/activities/activity/[activityId]`: Added deep-linked presentation view mirroring the lesson presenter with next/previous navigation and resource downloads.
+- Activity launchers: Updated all “Show activities” controls across lessons, units, and feedback tools to route into the new activities experience.
+
 ### Release 0.0.6
 - `/pupil-lessons/[pupilId]`: Replaced the legacy timeline with homework and lessons tabs, added subject/date/unit filtering, and refreshed the hero styling for consistency with lesson detail pages.
 - `/pupil-lessons/[pupilId]`: Homework cards now surface “week due” and “week issued” dates (planned week + 1 week) to clarify deadlines.

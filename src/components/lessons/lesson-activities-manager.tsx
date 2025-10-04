@@ -6,25 +6,17 @@ import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { Download, GripVertical, Loader2, Pencil, Play, Plus, Trash2 } from "lucide-react"
 
-import type { LessonActivity, LessonLearningObjective } from "@/types"
+import type { LessonActivity } from "@/types"
 import {
   createLessonActivityAction,
   deleteActivityFileAction,
   deleteLessonActivityAction,
   getActivityFileDownloadUrlAction,
-  getLessonFileDownloadUrlAction,
   listActivityFilesAction,
-  listLessonFilesAction,
-  listLessonLinksAction,
   reorderLessonActivitiesAction,
   updateLessonActivityAction,
   uploadActivityFileAction,
 } from "@/lib/server-updates"
-import {
-  LessonPresentation,
-  type LessonFileInfo,
-  type LessonLinkInfo,
-} from "@/components/units/lesson-sidebar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -54,14 +46,6 @@ interface ActivityFileInfo {
   size?: number | null
 }
 
-interface PresentationState {
-  activities: LessonActivity[]
-  files: LessonFileInfo[]
-  links: LessonLinkInfo[]
-  activityFilesMap: Record<string, LessonFileInfo[]>
-  loading: boolean
-}
-
 const ACTIVITY_TYPES = [
   { value: "text", label: "Text" },
   { value: "file-download", label: "File download" },
@@ -79,24 +63,14 @@ const NEW_ACTIVITY_ID = "__new__"
 
 interface LessonActivitiesManagerProps {
   unitId: string
-  unitTitle?: string | null
   lessonId: string
-  lessonTitle: string
-  lessonObjectives: LessonLearningObjective[]
   initialActivities: LessonActivity[]
-  initialLessonFiles: LessonFileInfo[]
-  initialLessonLinks: LessonLinkInfo[]
 }
 
 export function LessonActivitiesManager({
   unitId,
-  unitTitle,
   lessonId,
-  lessonTitle,
-  lessonObjectives,
   initialActivities,
-  initialLessonFiles,
-  initialLessonLinks,
 }: LessonActivitiesManagerProps) {
   const router = useRouter()
   const [activities, setActivities] = useState<LessonActivity[]>(() => sortActivities(initialActivities))
@@ -116,36 +90,12 @@ export function LessonActivitiesManager({
   >({})
   const [homeworkPending, setHomeworkPending] = useState<Record<string, boolean>>({})
   const voiceAudioRef = useRef<HTMLAudioElement | null>(null)
-  const [presentationState, setPresentationState] = useState<PresentationState | null>(null)
-  const [presentationIndex, setPresentationIndex] = useState(-1)
-  const [isPresentationPending, startPresentationTransition] = useTransition()
-  const [, startDownloadTransition] = useTransition()
 
   useEffect(() => {
     setActivities(sortActivities(initialActivities))
     setImagePreviewState({})
     setHomeworkPending({})
   }, [initialActivities])
-
-  useEffect(() => {
-    setPresentationState((prev) => {
-      if (!prev) {
-        return prev
-      }
-      return {
-        ...prev,
-        activities,
-      }
-    })
-
-    setPresentationIndex((prev) => {
-      if (activities.length === 0) {
-        return -1
-      }
-      const maxIndex = activities.length - 1
-      return prev > maxIndex ? maxIndex : prev
-    })
-  }, [activities])
 
   const typeLabelMap = useMemo(() => {
     return ACTIVITY_TYPES.reduce<Record<string, string>>((acc, type) => {
@@ -647,8 +597,6 @@ export function LessonActivitiesManager({
   )
 
   const isBusy = isPending
-  const isPresentationBusy = isPresentationPending || Boolean(presentationState?.loading)
-  const resolvedUnitTitle = unitTitle ?? unitId
 
   const handleDragStart = (activityId: string) => (event: DragEvent<HTMLButtonElement>) => {
     event.dataTransfer.effectAllowed = "move"
@@ -755,121 +703,12 @@ export function LessonActivitiesManager({
   )
 
   const handleOpenPresentation = () => {
-    if (isPresentationPending || presentationState?.loading || presentationState) {
-      return
-    }
-
     if (activities.length === 0) {
       toast.info("This lesson doesn't have any activities yet.")
       return
     }
 
-    setPresentationState({
-      activities,
-      files: initialLessonFiles,
-      links: initialLessonLinks,
-      activityFilesMap: {},
-      loading: true,
-    })
-    setPresentationIndex(-1)
-
-    startPresentationTransition(async () => {
-      try {
-        const [filesResult, linksResult] = await Promise.all([
-          listLessonFilesAction(lessonId),
-          listLessonLinksAction(lessonId),
-        ])
-
-        if (filesResult.error) {
-          toast.error("Failed to load lesson files", {
-            description: filesResult.error,
-          })
-        }
-        if (linksResult.error) {
-          toast.error("Failed to load lesson links", {
-            description: linksResult.error,
-          })
-        }
-
-        const files = filesResult.data ?? initialLessonFiles
-        const links = linksResult.data ?? initialLessonLinks
-
-        const activitiesRequiringFiles = activities.filter(
-          (activity) =>
-            activity.type === "file-download" ||
-            activity.type === "upload-file" ||
-            activity.type === "voice",
-        )
-
-        const activityFilesEntries = await Promise.all(
-          activitiesRequiringFiles.map(async (activity) => {
-            const result = await listActivityFilesAction(lessonId, activity.activity_id)
-            if (result.error) {
-              toast.error("Failed to load activity files", {
-                description: result.error,
-              })
-              return [activity.activity_id, []] as const
-            }
-            return [activity.activity_id, result.data ?? []] as const
-          }),
-        )
-
-        const activityFilesMap = Object.fromEntries(activityFilesEntries)
-
-        setPresentationState((prev) => {
-          if (!prev) {
-            return prev
-          }
-          return {
-            activities,
-            files,
-            links,
-            activityFilesMap,
-            loading: false,
-          }
-        })
-        setPresentationIndex((prev) => {
-          if (activities.length === 0) {
-            return -1
-          }
-          if (prev > activities.length - 1) {
-            return activities.length - 1
-          }
-          return prev
-        })
-      } catch (error) {
-        console.error("[activities] Failed to open lesson presentation:", error)
-        toast.error("Unable to load activities", {
-          description: error instanceof Error ? error.message : "Please try again later.",
-        })
-        setPresentationState(null)
-        setPresentationIndex(-1)
-      }
-    })
-  }
-
-  const handleClosePresentation = () => {
-    setPresentationState(null)
-    setPresentationIndex(-1)
-  }
-
-  const handlePresentationNext = () => {
-    setPresentationIndex((previous) => {
-      if (!presentationState || presentationState.activities.length === 0) {
-        return previous
-      }
-      if (previous < 0) {
-        return 0
-      }
-      if (previous < presentationState.activities.length - 1) {
-        return previous + 1
-      }
-      return previous
-    })
-  }
-
-  const handlePresentationPrevious = () => {
-    setPresentationIndex((previous) => (previous <= 0 ? -1 : previous - 1))
+    router.push(`/lessons/${encodeURIComponent(lessonId)}/activities`)
   }
 
   useEffect(() => {
@@ -892,7 +731,7 @@ export function LessonActivitiesManager({
               <Button
                 onClick={handleOpenPresentation}
                 variant="outline"
-                disabled={isPresentationBusy || activities.length === 0}
+                disabled={activities.length === 0}
                 className="w-full sm:w-auto"
               >
                 <Play className="mr-2 h-4 w-4" /> Show Activities
@@ -1125,66 +964,6 @@ export function LessonActivitiesManager({
         lessonId={lessonId}
       />
 
-      {presentationState ? (
-        <>
-          <LessonPresentation
-            activities={presentationState.activities}
-            currentIndex={presentationIndex}
-            unitTitle={resolvedUnitTitle}
-            lessonTitle={lessonTitle}
-            lessonId={lessonId}
-            lessonObjectives={lessonObjectives}
-            lessonLinks={presentationState.links}
-            lessonFiles={presentationState.files}
-            activityFilesMap={presentationState.activityFilesMap}
-            onClose={handleClosePresentation}
-            onNext={handlePresentationNext}
-            onPrevious={handlePresentationPrevious}
-            onDownloadFile={(fileName) => {
-              startDownloadTransition(async () => {
-                const result = await getLessonFileDownloadUrlAction(lessonId, fileName)
-                if (!result.success || !result.url) {
-                  toast.error("Failed to download file", {
-                    description: result.error ?? "Please try again later.",
-                  })
-                  return
-                }
-                window.open(result.url, "_blank")
-              })
-            }}
-            onDownloadActivityFile={(activityId, fileName) => {
-              startDownloadTransition(async () => {
-                const result = await getActivityFileDownloadUrlAction(lessonId, activityId, fileName)
-                if (!result.success || !result.url) {
-                  toast.error("Failed to download activity file", {
-                    description: result.error ?? "Please try again later.",
-                  })
-                  return
-                }
-                window.open(result.url, "_blank")
-              })
-            }}
-            fetchActivityFileUrl={async (activityId, fileName) => {
-              const result = await getActivityFileDownloadUrlAction(lessonId, activityId, fileName)
-              if (!result.success || !result.url) {
-                toast.error("Failed to load file", {
-                  description: result.error ?? "Please try again later.",
-                })
-                return null
-              }
-              return result.url
-            }}
-          />
-
-          {presentationState.loading || isPresentationPending ? (
-            <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40">
-              <div className="rounded-md bg-background px-4 py-2 text-sm text-foreground shadow-md">
-                Loading activities…
-              </div>
-            </div>
-          ) : null}
-        </>
-      ) : null}
     </>
   )
 }

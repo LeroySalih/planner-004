@@ -1,17 +1,13 @@
 "use client"
 
 import Link from "next/link"
-import { useCallback, useEffect, useState, useTransition } from "react"
+import { useCallback, useState, useTransition } from "react"
 import { BookOpen, GripVertical, Plus, ChevronRight } from "lucide-react"
 
 import type { LessonWithObjectives, LearningObjectiveWithCriteria } from "@/lib/server-updates"
 import {
   getActivityFileDownloadUrlAction,
   getLessonFileDownloadUrlAction,
-  listActivityFilesAction,
-  listLessonActivitiesAction,
-  listLessonFilesAction,
-  listLessonLinksAction,
   reorderLessonsAction,
 } from "@/lib/server-updates"
 import type { LessonActivity } from "@/types"
@@ -62,8 +58,6 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
   const [draggingLessonId, setDraggingLessonId] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [, startTransition] = useTransition()
-  const [lessonActivityCounts, setLessonActivityCounts] = useState<Record<string, number>>({})
-  const [lessonActivitiesMap, setLessonActivitiesMap] = useState<Record<string, LessonActivity[]>>({})
   const [expandedLessons, setExpandedLessons] = useState<Record<string, boolean>>({})
 
   const openCreateSidebar = () => {
@@ -109,8 +103,6 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
 
   const handleActivitiesChange = useCallback(
     (lessonId: string, updatedActivities: LessonActivity[]) => {
-      setLessonActivitiesMap((prev) => ({ ...prev, [lessonId]: updatedActivities }))
-      setLessonActivityCounts((prev) => ({ ...prev, [lessonId]: updatedActivities.length }))
       setPresentationState((prev) => {
         if (!prev || prev.lesson.lesson_id !== lessonId) {
           return prev
@@ -192,16 +184,6 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
       }
       return [...prev, lesson].sort((a, b) => (a.order_by ?? 0) - (b.order_by ?? 0))
     })
-    setLessonActivityCounts((prev) => {
-      const next = { ...prev }
-      delete next[lesson.lesson_id]
-      return next
-    })
-    setLessonActivitiesMap((prev) => {
-      const next = { ...prev }
-      delete next[lesson.lesson_id]
-      return next
-    })
     setPresentationState((prev) =>
       prev && prev.lesson.lesson_id === lesson.lesson_id
         ? { ...prev, lesson }
@@ -220,16 +202,6 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
         )
         .sort((a, b) => (a.order_by ?? 0) - (b.order_by ?? 0)),
     )
-    setLessonActivityCounts((prev) => {
-      const next = { ...prev }
-      delete next[lessonId]
-      return next
-    })
-    setLessonActivitiesMap((prev) => {
-      const next = { ...prev }
-      delete next[lessonId]
-      return next
-    })
     setPresentationState((prev) => (prev?.lesson.lesson_id === lessonId ? null : prev))
     if (presentationState?.lesson.lesson_id === lessonId) {
       setPresentationIndex(-1)
@@ -237,158 +209,6 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
   }
 
   const activeLessons = lessons.filter((lesson) => lesson.active !== false)
-
-  useEffect(() => {
-    const missingLessons = activeLessons.filter(
-      (lesson) => lessonActivityCounts[lesson.lesson_id] === undefined,
-    )
-
-    if (missingLessons.length === 0) {
-      return
-    }
-
-    let isCancelled = false
-
-    startTransition(async () => {
-      const entries: Array<[string, LessonActivity[]]> = []
-      for (const lesson of missingLessons) {
-        const result = await listLessonActivitiesAction(lesson.lesson_id)
-        if (result.error) {
-          toast.error("Failed to load activities", {
-            description: result.error,
-          })
-          continue
-        }
-        const activities = (result.data ?? []).slice()
-        entries.push([lesson.lesson_id, activities])
-      }
-
-      if (isCancelled || entries.length === 0) {
-        return
-      }
-
-      setLessonActivityCounts((prev) => {
-        const next = { ...prev }
-        for (const [lessonId, activities] of entries) {
-          next[lessonId] = activities.length
-        }
-        return next
-      })
-
-      setLessonActivitiesMap((prev) => {
-        const next = { ...prev }
-        for (const [lessonId, activities] of entries) {
-          next[lessonId] = activities
-        }
-        return next
-      })
-    })
-
-    return () => {
-      isCancelled = true
-    }
-  }, [activeLessons, lessonActivityCounts, startTransition])
-
-  const handleShowActivities = (lesson: LessonWithObjectives) => {
-    if (!lesson) return
-    if (lessonActivityCounts[lesson.lesson_id] === 0) {
-      return
-    }
-
-    const cachedActivities = lessonActivitiesMap[lesson.lesson_id]
-
-    setPresentationState({
-      lesson,
-      activities: cachedActivities ?? [],
-      files: [],
-      links: [],
-      activityFilesMap: {},
-      loading: true,
-    })
-    setPresentationIndex(-1)
-
-    startTransition(async () => {
-      try {
-        let activities = cachedActivities
-
-        if (!activities) {
-          const activitiesResult = await listLessonActivitiesAction(lesson.lesson_id)
-          if (activitiesResult.error) {
-            throw new Error(activitiesResult.error)
-          }
-          activities = (activitiesResult.data ?? []).slice()
-          setLessonActivitiesMap((prev) => ({ ...prev, [lesson.lesson_id]: activities! }))
-          setLessonActivityCounts((prev) => ({ ...prev, [lesson.lesson_id]: activities!.length }))
-        }
-
-        if (!activities || activities.length === 0) {
-          toast.info("This lesson doesn't have any activities yet.")
-          setPresentationState(null)
-          setPresentationIndex(-1)
-          return
-        }
-
-        const [filesResult, linksResult] = await Promise.all([
-          listLessonFilesAction(lesson.lesson_id),
-          listLessonLinksAction(lesson.lesson_id),
-        ])
-
-        if (filesResult.error) {
-          toast.error("Failed to load lesson files", {
-            description: filesResult.error,
-          })
-        }
-        if (linksResult.error) {
-          toast.error("Failed to load lesson links", {
-            description: linksResult.error,
-          })
-        }
-
-        const files = filesResult.data ?? []
-        const links = linksResult.data ?? []
-
-        const activitiesRequiringFiles = activities.filter(
-          (activity) => activity.type === "file-download" || activity.type === "voice",
-        )
-
-        const activityFilesEntries = await Promise.all(
-          activitiesRequiringFiles.map(async (activity) => {
-            const result = await listActivityFilesAction(lesson.lesson_id, activity.activity_id)
-            if (result.error) {
-              toast.error("Failed to load activity files", {
-                description: result.error,
-              })
-              return [activity.activity_id, []] as const
-            }
-            return [activity.activity_id, result.data ?? []] as const
-          }),
-        )
-
-        const activityFilesMap = Object.fromEntries(activityFilesEntries)
-
-        setPresentationState((prev) => {
-          if (!prev || prev.lesson.lesson_id !== lesson.lesson_id) {
-            return prev
-          }
-          return {
-            lesson,
-            activities,
-            files,
-            links,
-            activityFilesMap,
-            loading: false,
-          }
-        })
-      } catch (error) {
-        console.error("[lessons-panel] Failed to open presentation:", error)
-        toast.error("Unable to load activities", {
-          description: error instanceof Error ? error.message : "Please try again later.",
-        })
-        setPresentationState(null)
-        setPresentationIndex(-1)
-      }
-    })
-  }
 
   const handleDragStart = (lessonId: string, event: React.DragEvent) => {
     setDraggingLessonId(lessonId)
@@ -498,19 +318,15 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
                       </button>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        onClick={(event) => {
-                          event.preventDefault()
-                          event.stopPropagation()
-                          handleShowActivities(lesson)
-                        }}
-                        disabled={lessonActivityCounts[lesson.lesson_id] === 0}
-                        className="whitespace-nowrap"
-                      >
-                        {`Show activities (${lessonActivityCounts[lesson.lesson_id] ?? "…"})`}
+                      <Button asChild size="sm" variant="secondary" className="whitespace-nowrap">
+                        <Link
+                          href={`/lessons/${encodeURIComponent(lesson.lesson_id)}/activities`}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                          }}
+                        >
+                          Show activities
+                        </Link>
                       </Button>
                       <Button asChild variant="ghost" size="sm">
                         <Link href={`/lessons/${lesson.lesson_id}`}>Details</Link>
