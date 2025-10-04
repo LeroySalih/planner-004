@@ -34,7 +34,16 @@ function formatDetails(details: Record<string, unknown>) {
 }
 
 export function ClientSupabaseStatus({ env }: { env: ClientEnvSnapshot }) {
-  const envDetails = useMemo(() => ({ ...env }), [env.supabaseUrl, env.supabaseAnonKey])
+  const supabaseUrl = env.supabaseUrl ?? null
+  const supabaseAnonKey = env.supabaseAnonKey ?? null
+
+  const envDetails = useMemo(
+    () => ({
+      supabaseUrl,
+      supabaseAnonKey,
+    }),
+    [supabaseUrl, supabaseAnonKey]
+  )
   const [checks, setChecks] = useState<ClientCheckResult[]>(() => [
     {
       label: "Supabase Database (Client)",
@@ -51,12 +60,11 @@ export function ClientSupabaseStatus({ env }: { env: ClientEnvSnapshot }) {
   ])
 
   const authHealthUrl = useMemo(() => {
-    if (!env.supabaseUrl) return null
-    return `${env.supabaseUrl}/auth/v1/health`
-  }, [env.supabaseUrl])
+    if (!supabaseUrl) return null
+    return `${supabaseUrl}/auth/v1/health`
+  }, [supabaseUrl])
 
   useEffect(() => {
-    const { supabaseUrl, supabaseAnonKey } = env
     let cancelled = false
 
     async function runChecks() {
@@ -83,16 +91,18 @@ export function ClientSupabaseStatus({ env }: { env: ClientEnvSnapshot }) {
 
       const supabase = createBrowserClient(supabaseUrl, supabaseAnonKey)
 
-      const dbPromise = supabase
-        .from("profiles")
-        .select("id")
-        .limit(1)
-        .then(({ data, error, status, statusText }) => {
+      const dbPromise = (async () => {
+        try {
+          const { data, error, status, statusText } = await supabase
+            .from("profiles")
+            .select("user_id")
+            .limit(1)
+
           if (error) {
             return {
               label: "Supabase Database (Client)",
               status: "fail" as CheckStatus,
-              summary: "Client query against profiles table failed",
+              summary: "Client query against profiles.user_id failed",
               details: { env: envDetails, status, statusText, error },
             }
           }
@@ -100,16 +110,18 @@ export function ClientSupabaseStatus({ env }: { env: ClientEnvSnapshot }) {
           return {
             label: "Supabase Database (Client)",
             status: "ok" as CheckStatus,
-            summary: "Client successfully queried profiles table",
+            summary: "Client successfully queried profiles.user_id",
             details: { env: envDetails, status, statusText, rowCount: data?.length ?? 0, rows: data },
           }
-        })
-        .catch((error) => ({
-          label: "Supabase Database (Client)",
-          status: "fail" as CheckStatus,
-          summary: "Unexpected client error when querying Supabase",
-          details: { env: envDetails, error: serializeError(error) },
-        }))
+        } catch (error) {
+          return {
+            label: "Supabase Database (Client)",
+            status: "fail" as CheckStatus,
+            summary: "Unexpected client error when querying Supabase",
+            details: { env: envDetails, error: serializeError(error) },
+          }
+        }
+      })()
 
       const authPromise = (authHealthUrl
         ? fetch(authHealthUrl, {
@@ -172,7 +184,7 @@ export function ClientSupabaseStatus({ env }: { env: ClientEnvSnapshot }) {
     return () => {
       cancelled = true
     }
-  }, [authHealthUrl, env.supabaseAnonKey, env.supabaseUrl, envDetails])
+  }, [authHealthUrl, supabaseAnonKey, supabaseUrl, envDetails])
 
   return (
     <section className="rounded-md border border-border bg-card p-4">

@@ -82,7 +82,7 @@ async function checkDatabase(env: EnvSnapshot): Promise<CheckResult> {
 
     const { data, error, status, statusText } = await supabase
       .from("profiles")
-      .select("id")
+      .select("user_id")
       .limit(1)
 
     if (error) {
@@ -97,7 +97,7 @@ async function checkDatabase(env: EnvSnapshot): Promise<CheckResult> {
     return {
       label: "Supabase Database",
       status: "ok",
-      summary: "Successfully queried profiles table",
+      summary: "Successfully queried profiles.user_id",
       details: { env, status, statusText, rowCount: data?.length ?? 0, rows: data },
     }
   } catch (error) {
@@ -165,7 +165,7 @@ async function checkAuth(env: EnvSnapshot): Promise<CheckResult> {
   }
 }
 
-function formatDetails(details: Record<string, unknown>) {
+function formatDetails(details: unknown) {
   return JSON.stringify(details, null, 2)
 }
 
