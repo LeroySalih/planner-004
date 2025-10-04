@@ -1,6 +1,10 @@
 # Dino
 ## Releases 
 
+### Release 0.0.5
+- Added a dedicated loading screen for `/lessons/[lessonId]`, keeping route transitions consistent with other app sections.
+- Introduced a `Show Activities` launcher beside the `Add Activity` control on lesson detail, opening the presentation overlay with lesson files, links, and downloads wired up.
+
 ### Release 0.0.4
 - Added seeding helpers for Supabase profiles and group membership so teacher/pupil fixtures populate consistently.
 - Introduced the "Upload file" lesson activity: teachers can configure instructions and resources, pupils get drag-and-drop uploads tied to their account, and show mode/presentation view now renders the new workflow.

@@ -182,8 +182,13 @@ export function LessonDetailClient({
           <CardContent>
             <LessonActivitiesManager
               unitId={unit?.unit_id ?? currentLesson.unit_id}
+              unitTitle={unit?.title ?? null}
               lessonId={currentLesson.lesson_id}
+              lessonTitle={currentLesson.title}
+              lessonObjectives={currentLesson.lesson_objectives ?? []}
               initialActivities={lessonActivities}
+              initialLessonFiles={lessonFiles}
+              initialLessonLinks={currentLesson.lesson_links ?? []}
             />
           </CardContent>
         </Card>
