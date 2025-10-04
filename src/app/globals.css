@@ -1,6 +1,12 @@
 @import "tailwindcss";
 @plugin "tailwindcss-animate";
 
+/* Limit Tailwind source scanning to app code; exclude heavy/locked dirs to avoid permission errors (e.g., volumes/). */
+@source "../**/*.{js,ts,jsx,tsx,mdx}";
+@source "!../../node_modules/**";
+@source "!../../.next/**";
+@source "!../../volumes/**";
+
 @custom-variant dark (&:is(.dark *));
 
 :root {

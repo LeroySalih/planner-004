@@ -9,10 +9,9 @@
     "lint": "eslint",
     "test": "npx playwright test",
     "record-test": "sh -c 'npx playwright codegen http://localhost:3000 --output tests/sign-in/$1.spec.ts' --",
-
     "db:reset": "dotenv -e .env -- sh -c 'supabase db dump --data-only -f supabase/seed.sql --db-url \"$SUPABASE_HOSTED_DB_URL\"' && dotenv -e .env -- supabase db reset && dotenv -e .env -- node supabase/seed-users.mjs",
     "db:diff": "dotenv -e .env -- sh -c 'PGSSLMODE=disable npx supabase db diff -f \"$1\"' --",
-    "db:push" : "npx supabase db push --linked" 
+    "db:push": "npx supabase db push --linked"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -84,7 +83,7 @@
     "dotenv-cli": "^10.0.0",
     "eslint": "^9",
     "eslint-config-next": "15.5.3",
-    "supabase": "^2.47.2",
+    "supabase": "^2.48.3",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
