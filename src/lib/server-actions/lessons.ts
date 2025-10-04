@@ -414,7 +414,9 @@ async function readLessonWithObjectives(lessonId: string) {
     return LessonReturnValue.parse({ data: null, error: null })
   }
 
-  const { lessons: enrichedLessons, error: scError } = await enrichLessonsWithSuccessCriteria([data])
+  const { lessons: enrichedLessons, error: scError } = await enrichLessonsWithSuccessCriteria([data], {
+    unitId: data.unit_id,
+  })
 
   if (scError) {
     console.error("[v0] Failed to read success criteria for lesson:", scError)

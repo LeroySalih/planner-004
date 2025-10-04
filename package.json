@@ -15,8 +15,8 @@
     "db:diff": "dotenv -e .env -- sh -c 'PGSSLMODE=disable npx supabase db diff -f \"$1\"' --",
     "db:push" : "npx supabase db push --linked" ,
 
-    "pm2:restart": "pm2 stop dino.mr-salih.org || true && pm2 delete dino.mr-salih.org || true && npm run start",
-    "pm2:start": "pm2 start ecosystem.config.js --name dino.mr-salih.org"
+    "pm2:restart": "pm2 stop dino.mr-salih.org || true && pm2 delete dino.mr-salih.org || true",
+    "pm2:start": "pm2 start npm --name dino.mr-salih.org -- run start"
 
   },
   "dependencies": {

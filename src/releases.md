@@ -7,6 +7,7 @@
 - `/pupil-lessons/[pupilId]`: Introduced a Units tab listing every subject, assigned unit, and associated learning objectives (with success criteria) for the signed-in pupil.
 - `/pupil-lessons/[pupilId]/lessons/[lessonId]`: Highlight homework activities with a red “Homework” pill across both standard and upload steps.
 - Navigation: Pupils now see a top-level Dashboard link to `/reports/<pupil_id>` and the three-dot user menu no longer duplicates the destination.
+- `/lessons/[lessonId]`: Learning Objectives now respect unit links, only showing the success criteria assigned to the unit instead of every criterion on the objective.
 
 ### Release 0.0.5
 - Added a dedicated loading screen for `/lessons/[lessonId]`, keeping route transitions consistent with other app sections.

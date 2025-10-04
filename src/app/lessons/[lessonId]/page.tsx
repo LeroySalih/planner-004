@@ -15,9 +15,11 @@ import {
 export default async function LessonDetailPage({
   params,
 }: {
-  params: { lessonId: string }
+  params: Promise<{ lessonId: string }>
 }) {
-  const lessonResult = await readLessonAction(params.lessonId)
+  const { lessonId } = await params
+
+  const lessonResult = await readLessonAction(lessonId)
 
   if (lessonResult.error) {
     return (
