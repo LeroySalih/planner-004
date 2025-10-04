@@ -4,6 +4,7 @@ import {
   readLessonAssignmentsAction,
   readLessonAction,
   readUnitsAction,
+  readLearningObjectivesByUnitAction,
   listLessonActivitiesAction,
 } from "@/lib/server-updates"
 import { compareDesc, format, parseISO, startOfWeek } from "date-fns"
@@ -68,10 +69,29 @@ export type PupilLessonWeek = {
   subjects: PupilLessonWeekSubject[]
 }
 
+export type PupilSubjectUnitsEntry = {
+  subject: string
+  units: Array<{
+    unitId: string
+    unitTitle: string
+    learningObjectives: Array<{
+      id: string
+      title: string
+      assessmentObjectiveCode: string | null
+      successCriteria: Array<{
+        id: string
+        description: string
+        level: number | null
+      }>
+    }>
+  }>
+}
+
 export type PupilLessonsDetail = {
   summary: PupilLessonsSummary | null
   homework: PupilHomeworkSection[]
   weeks: PupilLessonWeek[]
+  units: PupilSubjectUnitsEntry[]
 }
 
 export async function loadPupilLessonsSummaries(targetPupilId?: string): Promise<PupilLessonsSummary[]> {
@@ -356,6 +376,7 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
   const uniqueUnitIds = Array.from(new Set(lessonAssignments.map((entry) => entry.unitId)))
 
   const unitTitleMap = new Map<string, string>()
+  const unitSubjectMap = new Map<string, string | null>()
 
   if (uniqueUnitIds.length > 0) {
     try {
@@ -368,11 +389,29 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
         ?.filter((unit) => uniqueUnitIds.includes(unit.unit_id))
         .forEach((unit) => {
           unitTitleMap.set(unit.unit_id, unit.title ?? unit.unit_id)
+          unitSubjectMap.set(unit.unit_id, unit.subject ?? null)
         })
     } catch (error) {
       console.error("[pupil-lessons] Unexpected error loading units", error)
     }
   }
+
+  const unitObjectivesMap = new Map<string, Awaited<ReturnType<typeof readLearningObjectivesByUnitAction>>["data"]>()
+
+  await Promise.all(
+    uniqueUnitIds.map(async (unitId) => {
+      try {
+        const result = await readLearningObjectivesByUnitAction(unitId)
+        if (result.error) {
+          console.error("[pupil-lessons] Failed to load learning objectives", unitId, result.error)
+          return
+        }
+        unitObjectivesMap.set(unitId, result.data ?? [])
+      } catch (error) {
+        console.error("[pupil-lessons] Unexpected error loading learning objectives", unitId, error)
+      }
+    }),
+  )
 
   const activityResults = await Promise.all(
     uniqueLessonIds.map(async (lessonId) => {
@@ -453,6 +492,8 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
     }
   >()
 
+  const subjectUnitsMap = new Map<string, Set<string>>()
+
   lessonAssignments.forEach((assignment) => {
     const dateValue = parseDate(assignment.date)
     if (!dateValue) {
@@ -489,6 +530,11 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
 
     existingWeek.subjects.set(subjectKey, subjectEntry)
     weeksMap.set(weekKey, existingWeek)
+
+    const subjectName = assignment.subject ?? unitSubjectMap.get(assignment.unitId) ?? "Subject not set"
+    const unitSet = subjectUnitsMap.get(subjectName) ?? new Set<string>()
+    unitSet.add(assignment.unitId)
+    subjectUnitsMap.set(subjectName, unitSet)
   })
 
   const weeks: PupilLessonWeek[] = Array.from(weeksMap.values())
@@ -507,9 +553,39 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
     }))
     .sort((a, b) => compareDesc(parseISO(a.weekStart), parseISO(b.weekStart)))
 
+  const units: PupilSubjectUnitsEntry[] = Array.from(subjectUnitsMap.entries())
+    .map(([subject, unitSet]) => {
+      const unitsList = Array.from(unitSet)
+        .map((unitId) => {
+          const objectives = unitObjectivesMap.get(unitId) ?? []
+          return {
+            unitId,
+            unitTitle: unitTitleMap.get(unitId) ?? unitId,
+            learningObjectives: (objectives ?? []).map((objective, objectiveIndex) => ({
+              id: objective.learning_objective_id ?? `${unitId}-objective-${objectiveIndex}`,
+              title: objective.title ?? "Untitled objective",
+              assessmentObjectiveCode: objective.assessment_objective_code ?? null,
+              successCriteria: (objective.success_criteria ?? []).map((criterion, criterionIndex) => ({
+                id: criterion.success_criteria_id ?? `${unitId}-${objectiveIndex}-criterion-${criterionIndex}`,
+                description: criterion.description ?? "No success criterion description provided.",
+                level: criterion.level ?? null,
+              })),
+            })),
+          }
+        })
+        .sort((a, b) => a.unitTitle.localeCompare(b.unitTitle))
+
+      return {
+        subject,
+        units: unitsList,
+      }
+    })
+    .sort((a, b) => a.subject.localeCompare(b.subject))
+
   return {
     summary,
     homework: homeworkSections,
     weeks,
+    units,
   }
 }

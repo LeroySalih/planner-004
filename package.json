@@ -13,7 +13,11 @@
 
     "db:reset": "dotenv -e .env -- sh -c 'supabase db dump --data-only -f supabase/seed.sql --db-url \"$SUPABASE_HOSTED_DB_URL\"' && dotenv -e .env -- supabase db reset && dotenv -e .env -- node supabase/seed-users.mjs",
     "db:diff": "dotenv -e .env -- sh -c 'PGSSLMODE=disable npx supabase db diff -f \"$1\"' --",
-    "db:push" : "npx supabase db push --linked" 
+    "db:push" : "npx supabase db push --linked" ,
+
+    "pm2:restart": "pm2 stop dino.mr-salih.org || true && pm2 delete dino.mr-salih.org || true && npm run start",
+    "pm2:start": "pm2 start ecosystem.config.js --name dino.mr-salih.org"
+
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

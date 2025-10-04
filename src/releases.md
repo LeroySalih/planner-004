@@ -4,6 +4,7 @@
 ### Release 0.0.6
 - `/pupil-lessons/[pupilId]`: Replaced the legacy timeline with homework and lessons tabs, added subject/date/unit filtering, and refreshed the hero styling for consistency with lesson detail pages.
 - `/pupil-lessons/[pupilId]`: Homework cards now surface “week due” and “week issued” dates (planned week + 1 week) to clarify deadlines.
+- `/pupil-lessons/[pupilId]`: Introduced a Units tab listing every subject, assigned unit, and associated learning objectives (with success criteria) for the signed-in pupil.
 - `/pupil-lessons/[pupilId]/lessons/[lessonId]`: Highlight homework activities with a red “Homework” pill across both standard and upload steps.
 - Navigation: Pupils now see a top-level Dashboard link to `/reports/<pupil_id>` and the three-dot user menu no longer duplicates the destination.
 

@@ -65,7 +65,7 @@ type PupilLessonsDetailClientProps = {
 }
 
 export function PupilLessonsDetailClient({ detail, pupilId }: PupilLessonsDetailClientProps) {
-  const { homework, weeks } = detail
+  const { homework, weeks, units } = detail
   const [lessonFilter, setLessonFilter] = useState("")
 
   const filteredWeeks = useMemo(() => {
@@ -114,9 +114,10 @@ export function PupilLessonsDetailClient({ detail, pupilId }: PupilLessonsDetail
 
   return (
     <Tabs defaultValue="homework" className="space-y-6">
-      <TabsList className="grid w-full gap-2 sm:grid-cols-2">
+      <TabsList className="grid w-full gap-2 sm:grid-cols-3">
         <TabsTrigger value="homework">Homework</TabsTrigger>
         <TabsTrigger value="lessons">Lessons</TabsTrigger>
+        <TabsTrigger value="units">Units</TabsTrigger>
       </TabsList>
 
       <TabsContent value="homework" className="space-y-6">
@@ -217,6 +218,67 @@ export function PupilLessonsDetailClient({ detail, pupilId }: PupilLessonsDetail
               ))
             )}
           </>
+        )}
+      </TabsContent>
+
+      <TabsContent value="units" className="space-y-6">
+        {units.length === 0 ? (
+          <p className="text-sm text-muted-foreground">We couldn&apos;t find any units for this pupil yet.</p>
+        ) : (
+          units.map((subjectEntry) => (
+            <section key={subjectEntry.subject} className="space-y-4">
+              <div>
+                <h2 className="text-base font-semibold text-foreground">{subjectEntry.subject}</h2>
+                <p className="text-xs text-muted-foreground">Units and learning objectives linked to this subject.</p>
+              </div>
+
+              <div className="space-y-4">
+                {subjectEntry.units.map((unit) => (
+                  <div key={unit.unitId} className="space-y-3 rounded-lg border border-border/70 bg-muted/30 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h3 className="text-sm font-semibold text-foreground">{unit.unitTitle}</h3>
+                      <span className="text-xs text-muted-foreground">Unit ID: {unit.unitId}</span>
+                    </div>
+
+                    {unit.learningObjectives.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">No learning objectives recorded yet.</p>
+                    ) : (
+                      <ul className="space-y-3 text-sm">
+                        {unit.learningObjectives.map((objective) => (
+                          <li key={objective.id} className="space-y-2 rounded-md border border-border/50 bg-background p-3">
+                            <div className="space-y-1">
+                              <p className="text-sm font-medium text-foreground">{objective.title}</p>
+                              {objective.assessmentObjectiveCode ? (
+                                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                                  AO {objective.assessmentObjectiveCode}
+                                </p>
+                              ) : null}
+                            </div>
+
+                            {objective.successCriteria.length > 0 ? (
+                              <div className="space-y-1">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                  Success criteria
+                                </p>
+                                <ul className="list-disc space-y-1 pl-4 text-xs text-muted-foreground">
+                                  {objective.successCriteria.map((criterion) => (
+                                    <li key={criterion.id}>
+                                      {criterion.description}
+                                      {criterion.level ? ` (Level ${criterion.level})` : null}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+          ))
         )}
       </TabsContent>
     </Tabs>
