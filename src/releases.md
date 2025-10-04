@@ -1,6 +1,12 @@
 # Dino
 ## Releases 
 
+### Release 0.0.6
+- `/pupil-lessons/[pupilId]`: Replaced the legacy timeline with homework and lessons tabs, added subject/date/unit filtering, and refreshed the hero styling for consistency with lesson detail pages.
+- `/pupil-lessons/[pupilId]`: Homework cards now surface “week due” and “week issued” dates (planned week + 1 week) to clarify deadlines.
+- `/pupil-lessons/[pupilId]/lessons/[lessonId]`: Highlight homework activities with a red “Homework” pill across both standard and upload steps.
+- Navigation: Pupils now see a top-level Dashboard link to `/reports/<pupil_id>` and the three-dot user menu no longer duplicates the destination.
+
 ### Release 0.0.5
 - Added a dedicated loading screen for `/lessons/[lessonId]`, keeping route transitions consistent with other app sections.
 - Introduced a `Show Activities` launcher beside the `Add Activity` control on lesson detail, opening the presentation overlay with lesson files, links, and downloads wired up.

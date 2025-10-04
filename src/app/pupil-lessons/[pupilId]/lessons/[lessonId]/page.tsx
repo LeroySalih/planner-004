@@ -13,6 +13,7 @@ import {
   listPupilActivitySubmissionsAction,
 } from "@/lib/server-updates"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
 import { PupilUploadActivity } from "@/components/pupil/pupil-upload-activity"
 
 function formatDateLabel(value: string | null | undefined) {
@@ -291,7 +292,7 @@ export default async function PupilLessonFriendlyPage({
                         <div className="flex items-start gap-2">
                           <span className="text-xs font-semibold text-muted-foreground">{index + 1}.</span>
                           <div className="flex flex-col gap-1">
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
                               {icon}
                               {linkUrl ? (
                                 <Link
@@ -305,6 +306,11 @@ export default async function PupilLessonFriendlyPage({
                               ) : (
                                 <span className="font-medium text-foreground">{activity.title}</span>
                               )}
+                              {activity.is_homework ? (
+                                <Badge variant="destructive" className="uppercase tracking-wide">
+                                  Homework
+                                </Badge>
+                              ) : null}
                             </div>
                             <span className="text-xs text-muted-foreground">{formatActivityType(activity.type)}</span>
                             {linkUrl ? <span className="break-all text-xs text-muted-foreground">{linkUrl}</span> : null}

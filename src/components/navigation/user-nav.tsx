@@ -158,11 +158,6 @@ export function UserNav() {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-44">
-          <DropdownMenuItem asChild>
-            <Link href={`/reports/${encodeURIComponent(profile.userId)}`} className="w-full">
-              Dashboard
-            </Link>
-          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={handleSignOutSelect}>Sign out</DropdownMenuItem>
         </DropdownMenuContent>

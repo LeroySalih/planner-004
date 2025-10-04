@@ -107,6 +107,12 @@ export function TeacherNavLinks() {
         >
           My Lessons
         </Link>
+        <Link
+          href={`/reports/${encodeURIComponent(state.userId)}`}
+          className="text-muted-foreground transition-colors hover:text-primary"
+        >
+          Dashboard
+        </Link>
       </>
     )
   }

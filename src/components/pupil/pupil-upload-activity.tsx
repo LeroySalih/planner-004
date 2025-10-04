@@ -13,6 +13,7 @@ import {
   getPupilActivitySubmissionUrlAction,
 } from "@/lib/server-updates"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 
 export interface ActivityFileInfo {
   name: string
@@ -241,12 +242,19 @@ export function PupilUploadActivity({
   return (
     <div className="space-y-3 px-1">
       <div className="space-y-1">
-        <div className="flex items-start justify-between">
-          <div className="flex flex-col gap-0.5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-col gap-1">
             <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Step {stepNumber}
             </span>
-            <h3 className="text-base font-semibold text-foreground">{activity.title}</h3>
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-base font-semibold text-foreground">{activity.title}</h3>
+              {activity.is_homework ? (
+                <Badge variant="destructive" className="uppercase tracking-wide">
+                  Homework
+                </Badge>
+              ) : null}
+            </div>
           </div>
           <span className="text-xs font-medium uppercase tracking-wide text-primary">Upload file</span>
         </div>
