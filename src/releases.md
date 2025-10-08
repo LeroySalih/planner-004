@@ -1,6 +1,10 @@
 # Dino
 ## Releases 
 
+### Release 0.0.8
+- `/lessons/[lessonId]/activities/activity/[activityId]`: Display Image activities now load their stored files or external URLs and present them with a zoomable overlay plus a close control for full-screen viewing.
+- Components: Added an `ActivityImagePreview` utility to handle image zoom overlays inside lesson presentation flows.
+
 ### Release 0.0.7
 - `/lessons/[lessonId]/activities`: Introduced a dedicated overview with blue hero header, inline learning objective summary, and rich previews (step number, text, images) for every activity.
 - `/lessons/[lessonId]/activities/activity/[activityId]`: Added deep-linked presentation view mirroring the lesson presenter with next/previous navigation and resource downloads.

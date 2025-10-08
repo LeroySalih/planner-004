@@ -2,7 +2,7 @@
 # https://supabase.com/docs/guides/local-development/cli/config
 # A string used to distinguish different Supabase projects on the same host. Defaults to the
 # working directory name when running `supabase init`.
-project_id = "planner-004"
+project_id = "planner-005"
 
 [api]
 enabled = true
@@ -53,10 +53,7 @@ max_client_conn = 100
 enabled = true
 # Specifies an ordered list of schema files that describe your database.
 # Supports glob patterns relative to supabase directory: "./schemas/*.sql"
-schema_paths = [
-    "./schemas/prod.sql",
-    "./schemas/*.sql"
-]
+schema_paths = []
 
 [db.seed]
 # If enabled, seeds the database after migrations during a db reset.

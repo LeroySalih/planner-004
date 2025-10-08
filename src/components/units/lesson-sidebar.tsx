@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Download, ExternalLink, GripVertical, Trash2, X } from "lucide-react"
+import { ActivityImagePreview } from "@/components/lessons/activity-image-preview"
 import { PupilUploadActivity } from "@/components/pupil/pupil-upload-activity"
 import {
   createLessonAction,
@@ -2116,6 +2117,47 @@ function getActivityFileUrlValue(activity: LessonActivity): string {
   return typeof fileUrl === "string" ? fileUrl : ""
 }
 
+interface ImageBody {
+  imageFile: string | null
+  imageUrl?: string | null
+  [key: string]: unknown
+}
+
+function isAbsoluteUrl(value: string | null): boolean {
+  if (!value) return false
+  return /^https?:\/\//i.test(value) || value.startsWith("data:")
+}
+
+function getImageBody(activity: LessonActivity): ImageBody {
+  if (typeof activity.body_data !== "object" || activity.body_data === null) {
+    return { imageFile: null, imageUrl: null }
+  }
+
+  const body = activity.body_data as Record<string, unknown>
+  const rawImageFile = typeof body.imageFile === "string" ? body.imageFile : null
+  const rawImageUrl = typeof body.imageUrl === "string" ? body.imageUrl : null
+  const rawFileUrl = typeof body.fileUrl === "string" ? body.fileUrl : null
+
+  let imageFile = rawImageFile
+  let imageUrl = rawImageUrl
+
+  if (!imageFile && rawFileUrl && !isAbsoluteUrl(rawFileUrl)) {
+    imageFile = rawFileUrl
+  }
+
+  if (!imageUrl && rawFileUrl && isAbsoluteUrl(rawFileUrl)) {
+    imageUrl = rawFileUrl
+  }
+
+  const next: ImageBody = {
+    ...(body as ImageBody),
+    imageFile,
+    imageUrl: imageUrl ?? null,
+  }
+
+  return next
+}
+
 interface VoiceBody {
   audioFile: string | null
   mimeType?: string | null
@@ -2424,6 +2466,7 @@ export function LessonPresentation({
                     activityFiles,
                     (fileName) => onDownloadActivityFile(activity.activity_id, fileName),
                     { url: voicePlayback.url, isLoading: voicePlayback.loading },
+                    fetchActivityFileUrl,
                   )
                 )}
               </div>
@@ -2451,6 +2494,114 @@ export function LessonPresentation({
           {nextButtonLabel}
         </Button>
       </footer>
+    </div>
+  )
+}
+
+function DisplayImagePresentation({
+  activity,
+  fetchActivityFileUrl,
+}: {
+  activity: LessonActivity
+  fetchActivityFileUrl?: (activityId: string, fileName: string) => Promise<string | null>
+}) {
+  const [state, setState] = useState<{ url: string | null; loading: boolean; error: string | null }>({
+    url: null,
+    loading: false,
+    error: null,
+  })
+
+  useEffect(() => {
+    let cancelled = false
+    const body = getImageBody(activity)
+    const record = (activity.body_data ?? {}) as Record<string, unknown>
+    const rawFileUrl = typeof record.fileUrl === "string" ? record.fileUrl : null
+
+    const directUrl =
+      (body.imageUrl && isAbsoluteUrl(body.imageUrl) ? body.imageUrl : null) ||
+      (rawFileUrl && isAbsoluteUrl(rawFileUrl) ? rawFileUrl : null)
+
+    if (directUrl) {
+      setState({ url: directUrl, loading: false, error: null })
+      return
+    }
+
+    const candidateFile =
+      body.imageFile && !isAbsoluteUrl(body.imageFile) ? body.imageFile : null
+    const fallbackFile =
+      !candidateFile && rawFileUrl && !isAbsoluteUrl(rawFileUrl) ? rawFileUrl : null
+    const finalFileName = candidateFile ?? fallbackFile
+
+    if (!finalFileName) {
+      setState({ url: null, loading: false, error: null })
+      return
+    }
+
+    if (!fetchActivityFileUrl) {
+      setState({
+        url: null,
+        loading: false,
+        error: "Unable to load image for this activity.",
+      })
+      return
+    }
+
+    setState({ url: null, loading: true, error: null })
+    fetchActivityFileUrl(activity.activity_id, finalFileName)
+      .then((url) => {
+        if (cancelled) return
+        if (url) {
+          setState({ url, loading: false, error: null })
+        } else {
+          setState({ url: null, loading: false, error: "Unable to load image." })
+        }
+      })
+      .catch((error) => {
+        if (cancelled) return
+        console.error("[lesson-presentation] Failed to fetch activity image:", error)
+        setState({ url: null, loading: false, error: "Unable to load image." })
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [activity, fetchActivityFileUrl])
+
+  const { url, loading, error } = state
+
+  if (loading) {
+    return (
+      <div className="flex h-full min-h-[240px] w-full items-center justify-center text-sm text-muted-foreground">
+        Loading image…
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex h-full min-h-[240px] w-full items-center justify-center text-sm text-muted-foreground">
+        {error}
+      </div>
+    )
+  }
+
+  if (!url) {
+    return (
+      <div className="flex h-full min-h-[240px] w-full items-center justify-center text-sm text-muted-foreground">
+        No image available for this activity.
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex h-full min-h-[240px] w-full items-center justify-center">
+      <ActivityImagePreview
+        imageUrl={url}
+        alt={activity.title ? `${activity.title} image` : "Activity image"}
+        objectFit="contain"
+        className="flex max-h-[60vh] w-full max-w-3xl items-center justify-center bg-muted/10 p-4"
+        imageClassName="max-h-[60vh]"
+      />
     </div>
   )
 }
@@ -2492,6 +2643,7 @@ function renderActivityPresentationContent(
   files: LessonFileInfo[],
   onDownload: (fileName: string) => void,
   voicePlayback?: { url: string | null; isLoading: boolean },
+  fetchActivityFileUrl?: LessonPresentationProps["fetchActivityFileUrl"],
 ) {
   if (activity.type === "text") {
     const text = getActivityTextValue(activity)
@@ -2500,6 +2652,10 @@ function renderActivityPresentationContent(
     }
 
     return <p className="whitespace-pre-wrap text-lg leading-relaxed">{text}</p>
+  }
+
+  if (activity.type === "display-image") {
+    return <DisplayImagePresentation activity={activity} fetchActivityFileUrl={fetchActivityFileUrl} />
   }
 
   if (activity.type === "file-download") {
