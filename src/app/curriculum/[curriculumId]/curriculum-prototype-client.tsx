@@ -1,13 +1,12 @@
 "use client"
 
-import { useEffect, useMemo, useState, useTransition } from "react"
-import type { MouseEvent as ReactMouseEvent } from "react"
+import { useEffect, useMemo, useRef, useState, useTransition } from "react"
+import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react"
 import Link from "next/link"
-import { Check, Pencil, Plus, Trash2, X, Boxes } from "lucide-react"
+import { Check, Pencil, Plus, Trash2, X } from "lucide-react"
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
-import { Checkbox } from "@/components/ui/checkbox"
 import type { CurriculumDetail, Units } from "@/types"
 import {
   createCurriculumAssessmentObjectiveAction,
@@ -155,6 +154,7 @@ export default function CurriculumPrototypeClient({
       }
     | null
   >(null)
+  const editingTextareaRef = useRef<HTMLTextAreaElement | null>(null)
 
   useEffect(() => {
     setAssessmentObjectives(mapCurriculumToAssessmentObjectives(curriculum))
@@ -173,6 +173,15 @@ export default function CurriculumPrototypeClient({
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [unitPickerContext])
+
+  useEffect(() => {
+    if (!editingContext) return
+    const animationFrame = requestAnimationFrame(() => {
+      editingTextareaRef.current?.focus()
+      editingTextareaRef.current?.select()
+    })
+    return () => cancelAnimationFrame(animationFrame)
+  }, [editingContext])
 
   const unitMetadata = useMemo(
     () =>
@@ -665,22 +674,6 @@ export default function CurriculumPrototypeClient({
     })
   }
 
-  const toggleUnitPickerPopover = (
-    event: ReactMouseEvent<HTMLButtonElement>,
-    aoIndex: number,
-    loIndex: number,
-    criterionId: string,
-  ) => {
-    event.stopPropagation()
-    setUnitPickerContext((prev) => {
-      if (prev && prev.aoIndex === aoIndex && prev.loIndex === loIndex && prev.criterionId === criterionId) {
-        return null
-      }
-      setUnitFilter("")
-      return { aoIndex, loIndex, criterionId }
-    })
-  }
-
   const toggleUnitForCriterion = (
     aoIndex: number,
     loIndex: number,
@@ -1093,29 +1086,76 @@ export default function CurriculumPrototypeClient({
                             editingContext?.loIndex === loIndex &&
                             editingContext?.criterionId === sc.id
                           const levelStyles = levelStyleMap[sc.level] ?? levelStyleMap[1]
-                          const isPickingUnits =
-                            unitPickerContext?.aoIndex === aoIndex &&
-                            unitPickerContext?.loIndex === loIndex &&
-                            unitPickerContext?.criterionId === sc.id
                           const isSelected = selectedCriteriaIds.has(sc.id)
+
+                          const handleCriterionClick = (event: ReactMouseEvent<HTMLDivElement>) => {
+                            const target = event.target as HTMLElement
+                            if (target.closest("button, select, textarea, input, a")) {
+                              return
+                            }
+
+                            if (event.metaKey || event.ctrlKey || event.shiftKey) {
+                              toggleCriterionSelection(sc.id, !isSelected)
+                              return
+                            }
+
+                            if (!isSelected) {
+                              toggleCriterionSelection(sc.id, true)
+                            }
+
+                            if (!isEditing) {
+                              startEditingCriterion(aoIndex, loIndex, sc)
+                            }
+                          }
+
+                          const handleCriterionKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+                            if (event.key === " ") {
+                              event.preventDefault()
+                              toggleCriterionSelection(sc.id, !isSelected)
+                              return
+                            }
+
+                            if (event.key === "Enter") {
+                              event.preventDefault()
+                              if (!isSelected) {
+                                toggleCriterionSelection(sc.id, true)
+                              }
+                              if (!isEditing) {
+                                startEditingCriterion(aoIndex, loIndex, sc)
+                              }
+                            }
+                          }
 
                           return (
                             <div
                               key={sc.id}
-                              className={`flex flex-col gap-2 rounded-lg border border-border bg-muted/80 p-3 text-sm transition-colors ${
-                                isSelected ? "border-primary/60 bg-primary/10" : ""
+                              role="button"
+                              tabIndex={0}
+                              aria-pressed={isSelected}
+                              onClick={handleCriterionClick}
+                              onKeyDown={handleCriterionKeyDown}
+                              className={`group flex flex-col gap-3 rounded-lg border border-border bg-muted/80 p-3 text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 cursor-pointer ${
+                                isSelected ? "border-primary/60 bg-primary/10" : "hover:border-primary/30 hover:bg-card/40"
                               }`}
                             >
-                              <div className="flex flex-wrap items-center gap-2">
-                                <div className="flex items-center gap-2">
-                                  <Checkbox
-                                    checked={isSelected}
-                                    onCheckedChange={(checked) => toggleCriterionSelection(sc.id, checked === true)}
-                                    aria-label="Select success criterion"
-                                  />
+                              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+                                <div className="flex-1 text-sm text-foreground">
+                                  {isEditing ? (
+                                    <textarea
+                                      ref={editingTextareaRef}
+                                      value={editingTitle}
+                                      onChange={(event) => setEditingTitle(event.target.value)}
+                                      className="min-h-[60px] w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+                                    />
+                                  ) : (
+                                    <p className="text-sm text-foreground">{sc.description}</p>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                   <select
                                     className={`rounded-md border border-border px-2 py-1 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary/40 ${levelStyles.badge}`}
                                     value={sc.level}
+                                    aria-label="Change success criterion level"
                                     onChange={(event) =>
                                       handleLevelChange(aoIndex, loIndex, sc.id, Number(event.target.value))
                                     }
@@ -1125,30 +1165,7 @@ export default function CurriculumPrototypeClient({
                                     ))}
                                   </select>
                                 </div>
-                                <div className="flex flex-1 flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                                  {sc.units.length > 0 ? (
-                                    sc.units.map((unitId) => {
-                                      const meta = unitLookup.get(unitId)
-                                      const badgeClass = meta?.year
-                                        ? yearBadgeMap[meta.year] ?? "bg-primary/10 text-primary"
-                                        : "bg-primary/10 text-primary"
-                                      const badgeLabel = meta?.year ? `Y${meta.year}` : meta?.subject ?? "Unit"
-                                      const unitLabel = meta?.title ?? unitId
-                                      return (
-                                        <span
-                                          key={unitId}
-                                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${badgeClass}`}
-                                        >
-                                          <span className="font-semibold">{badgeLabel}</span>
-                                          <span>{unitLabel}</span>
-                                        </span>
-                                      )
-                                    })
-                                  ) : (
-                                    <span className="italic text-muted-foreground/70">No units associated yet.</span>
-                                  )}
-                                </div>
-                                <div className="ml-auto flex items-center gap-1 text-muted-foreground">
+                                <div className="flex items-center gap-1 text-muted-foreground sm:pl-2">
                                   {isEditing ? (
                                     <>
                                       <button
@@ -1164,24 +1181,7 @@ export default function CurriculumPrototypeClient({
                                         <X className="h-3.5 w-3.5" />
                                       </button>
                                     </>
-                                  ) : (
-                                    <button
-                                      className="rounded border border-border p-1 transition hover:bg-card"
-                                      onClick={() => startEditingCriterion(aoIndex, loIndex, sc)}
-                                    >
-                                      <Pencil className="h-3.5 w-3.5" />
-                                    </button>
-                                  )}
-                                  <button
-                                    className={`rounded border border-border p-1 transition hover:bg-card ${
-                                      isPickingUnits ? "bg-card" : ""
-                                    }`}
-                                    onClick={(event) =>
-                                      toggleUnitPickerPopover(event, aoIndex, loIndex, sc.id)
-                                    }
-                                  >
-                                    <Boxes className="h-3.5 w-3.5" />
-                                  </button>
+                                  ) : null}
                                   <button
                                     className="rounded border border-destructive/50 p-1 text-destructive transition hover:bg-destructive hover:text-destructive-foreground"
                                     onClick={() => handleDeleteCriterion(aoIndex, loIndex, sc.id)}
@@ -1190,15 +1190,6 @@ export default function CurriculumPrototypeClient({
                                   </button>
                                 </div>
                               </div>
-                              {isEditing ? (
-                                <textarea
-                                  value={editingTitle}
-                                  onChange={(event) => setEditingTitle(event.target.value)}
-                                  className="min-h-[60px] rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
-                                />
-                              ) : (
-                                <p className="text-foreground">{sc.description}</p>
-                              )}
                             </div>
                           )
                         })}
