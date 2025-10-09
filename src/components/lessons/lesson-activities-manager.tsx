@@ -24,6 +24,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
+import { RichTextEditor } from "@/components/ui/rich-text-editor"
 import { Switch } from "@/components/ui/switch"
 import {
   getImageBody,
@@ -2222,19 +2223,18 @@ function LessonActivityEditorSheet({
 
           {type === "text" || type === "upload-file" ? (
             <div className="space-y-2">
-              <Label htmlFor="activity-text">
+              <Label>
                 {type === "upload-file" ? "Instructions for pupils" : "Instructions"}
               </Label>
-              <Textarea
+              <RichTextEditor
                 id="activity-text"
                 value={text}
-                onChange={(event) => setText(event.target.value)}
+                onChange={setText}
                 placeholder={
                   type === "upload-file"
                     ? "Explain what pupils should upload"
                     : "Enter the activity instructions"
                 }
-                rows={6}
                 disabled={isPending}
               />
             </div>

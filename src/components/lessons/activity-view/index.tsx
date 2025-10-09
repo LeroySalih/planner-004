@@ -63,24 +63,29 @@ export function LessonActivityView(props: LessonActivityViewProps) {
   }
 }
 
-function ActivityShortView({
-  activity,
-  lessonId,
-  resolvedImageUrl,
-  showImageBorder = true,
-}: LessonActivityShortViewProps) {
-
-
+function ActivityShortView({ activity, lessonId, resolvedImageUrl, showImageBorder = true }: LessonActivityShortViewProps) {
   if (activity.type === "text") {
     const text = getActivityTextValue(activity)
-    if (!text.trim()) return null
-    return <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{text}</p>
+    const markup = getRichTextMarkup(text)
+    if (!markup) return null
+    return (
+      <div
+        className="prose prose-sm max-w-none text-muted-foreground"
+        dangerouslySetInnerHTML={{ __html: markup }}
+      />
+    )
   }
 
   if (activity.type === "upload-file") {
     const text = getActivityTextValue(activity)
-    if (!text.trim()) return null
-    return <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{text}</p>
+    const markup = getRichTextMarkup(text)
+    if (!markup) return null
+    return (
+      <div
+        className="prose prose-sm max-w-none text-muted-foreground"
+        dangerouslySetInnerHTML={{ __html: markup }}
+      />
+    )
   }
 
   if (activity.type === "show-video") {
@@ -296,10 +301,16 @@ function ActivityPresentView({
 }: LessonActivityPresentViewProps) {
   if (activity.type === "text") {
     const text = getActivityTextValue(activity)
-    if (text.trim().length === 0) {
+    const markup = getRichTextMarkup(text)
+    if (!markup) {
       return <p className="text-muted-foreground">No text content provided for this activity.</p>
     }
-    return <p className="whitespace-pre-wrap text-lg leading-relaxed">{text}</p>
+    return (
+      <div
+        className="prose prose-lg max-w-none text-foreground"
+        dangerouslySetInnerHTML={{ __html: markup }}
+      />
+    )
   }
 
   if (activity.type === "display-image") {
@@ -341,11 +352,15 @@ function ActivityPresentView({
 
   if (activity.type === "upload-file") {
     const instructions = getActivityTextValue(activity)
+    const markup = getRichTextMarkup(instructions)
 
     return (
       <div className="space-y-4">
-        {instructions.trim().length > 0 ? (
-          <p className="whitespace-pre-wrap text-lg leading-relaxed text-foreground">{instructions}</p>
+        {markup ? (
+          <div
+            className="prose prose-lg max-w-none text-foreground"
+            dangerouslySetInnerHTML={{ __html: markup }}
+          />
         ) : (
           <p className="text-muted-foreground">Add instructions so pupils know what to submit.</p>
         )}
@@ -467,14 +482,26 @@ function ActivityPresentView({
 function ActivityEditView({ activity, resolvedImageUrl }: LessonActivityEditViewProps) {
   if (activity.type === "text") {
     const text = getActivityTextValue(activity)
-    if (!text.trim()) return null
-    return <p className="whitespace-pre-wrap text-sm text-muted-foreground">{text}</p>
+    const markup = getRichTextMarkup(text)
+    if (!markup) return null
+    return (
+      <div
+        className="prose prose-sm max-w-none text-muted-foreground"
+        dangerouslySetInnerHTML={{ __html: markup }}
+      />
+    )
   }
 
   if (activity.type === "upload-file") {
     const instructions = getActivityTextValue(activity)
-    if (!instructions.trim()) return null
-    return <p className="whitespace-pre-wrap text-sm text-muted-foreground">{instructions}</p>
+    const markup = getRichTextMarkup(instructions)
+    if (!markup) return null
+    return (
+      <div
+        className="prose prose-sm max-w-none text-muted-foreground"
+        dangerouslySetInnerHTML={{ __html: markup }}
+      />
+    )
   }
 
   if (activity.type === "show-video") {
@@ -508,7 +535,8 @@ function ActivityEditView({ activity, resolvedImageUrl }: LessonActivityEditView
       )
     }
     if (body.imageFile) {
-      return <p className="text-sm text-muted-foreground">Image file: {body.imageFile}</p>
+      const attemptedUrl = resolvedImageUrl ?? body.imageUrl ?? body.imageFile
+      return <p className="break-all text-sm text-muted-foreground">{attemptedUrl}</p>
     }
     return <p className="text-sm text-muted-foreground">No image selected.</p>
   }
@@ -630,6 +658,33 @@ function DisplayImagePresent({
       />
     </div>
   )
+}
+
+function getRichTextMarkup(value: string): string | null {
+  if (!value) return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  if (/<[a-z][\s\S]*>/i.test(trimmed)) {
+    return trimmed
+  }
+
+  const escaped = escapeHtml(trimmed)
+  const paragraphs = escaped
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.replace(/\n/g, "<br />"))
+    .map((paragraph) => `<p>${paragraph}</p>`)
+    .join("")
+
+  return paragraphs || `<p>${escaped}</p>`
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
 }
 
 function formatFileSize(size: number): string {
