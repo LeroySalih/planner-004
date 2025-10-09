@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation"
 
-import { readCurriculumDetailAction, readUnitsAction } from "@/lib/server-updates"
-import type { CurriculumDetail, Units } from "@/types"
+import { readCurriculumDetailAction, readLessonsAction, readUnitsAction } from "@/lib/server-updates"
+import type { CurriculumDetail, LessonWithObjectives, Units } from "@/types"
 
 import CurriculumPrototypeClient from "./curriculum-prototype-client"
 import { requireTeacherProfile } from "@/lib/auth"
@@ -14,9 +14,10 @@ export default async function CurriculumDetailPage({
   await requireTeacherProfile()
   const { curriculumId } = await params
 
-  const [curriculumResult, unitsResult] = await Promise.all([
+  const [curriculumResult, unitsResult, lessonsResult] = await Promise.all([
     readCurriculumDetailAction(curriculumId),
     readUnitsAction(),
+    readLessonsAction(),
   ])
 
   if (curriculumResult.error) {
@@ -34,12 +35,15 @@ export default async function CurriculumDetailPage({
   }
 
   const units: Units = unitsResult.data ?? []
+  const lessons: LessonWithObjectives[] = (lessonsResult.data ?? []) as LessonWithObjectives[]
 
   return (
     <CurriculumPrototypeClient
       curriculum={curriculum as CurriculumDetail}
       units={units}
       unitsError={unitsResult.error}
+      lessons={lessons}
+      lessonsError={lessonsResult.error}
     />
   )
 }

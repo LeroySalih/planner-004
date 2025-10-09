@@ -1,6 +1,12 @@
 # Dino
 ## Releases 
 
+
+### Release 0.0.9
+- `/curriculum/[curriculumId]`: Replaced the inline “saving changes” banner with toast notifications so teachers get unobtrusive feedback on curriculum edits.
+- `/curriculum/[curriculumId]`: Curriculum Mapper tab now shows a sticky learning-objective column with lesson columns only, including full-cell toggles, loading spinners, and green highlights when lessons are linked.
+- `/curriculum/[curriculumId]`: Unit filter relocated into the mapper header and success-criteria pills/columns removed for a cleaner grid layout.
+
 ### Release 0.0.8
 - `/lessons/[lessonId]/activities/activity/[activityId]`: Display Image activities now load their stored files or external URLs and present them with a zoomable overlay plus a close control for full-screen viewing.
 - Components: Added an `ActivityImagePreview` utility to handle image zoom overlays inside lesson presentation flows.

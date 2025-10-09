@@ -1,13 +1,13 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react"
 import Link from "next/link"
-import { Check, Pencil, Plus, Trash2, X } from "lucide-react"
+import { Check, Pencil, Plus, Trash2, X, Loader2 } from "lucide-react"
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
-import type { CurriculumDetail, Units } from "@/types"
+import type { CurriculumDetail, LessonWithObjectives, Units } from "@/types"
 import {
   createCurriculumAssessmentObjectiveAction,
   createCurriculumLearningObjectiveAction,
@@ -17,12 +17,16 @@ import {
   updateCurriculumSuccessCriterionAction,
   deleteCurriculumSuccessCriterionAction,
   readCurriculumDetailAction,
+  updateLessonAction,
 } from "@/lib/server-updates"
+import { useToast } from "@/components/ui/use-toast"
 
 interface CurriculumPrototypeClientProps {
   curriculum: CurriculumDetail
   units: Units
+  lessons: LessonWithObjectives[]
   unitsError?: string | null
+  lessonsError?: string | null
 }
 
 type SuccessCriterion = {
@@ -121,7 +125,9 @@ function deriveUnitYear(text: string | null | undefined): number | undefined {
 export default function CurriculumPrototypeClient({
   curriculum,
   units,
+  lessons,
   unitsError,
+  lessonsError,
 }: CurriculumPrototypeClientProps) {
   const curriculumId = curriculum.curriculum_id
   const curriculumName = curriculum.title
@@ -130,9 +136,10 @@ export default function CurriculumPrototypeClient({
     mapCurriculumToAssessmentObjectives(curriculum),
   )
   const [visualFilter, setVisualFilter] = useState("")
-  const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null)
   const [isPending, startTransition] = useTransition()
   const [unitFilter, setUnitFilter] = useState("")
+  const [lessonState, setLessonState] = useState<LessonWithObjectives[]>(lessons)
+  const [pendingLessonIds, setPendingLessonIds] = useState<Set<string>>(new Set())
   const [selectedCriteriaIds, setSelectedCriteriaIds] = useState<Set<string>>(() => new Set<string>())
   const [bulkUnitId, setBulkUnitId] = useState("")
 
@@ -155,11 +162,29 @@ export default function CurriculumPrototypeClient({
     | null
   >(null)
   const editingTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const [mapperUnitId, setMapperUnitId] = useState("")
+  const mapperStickyWidth = "clamp(14rem, 33.3333%, 22rem)"
+  const { toast } = useToast()
+
+  const showToast = useCallback(
+    (type: "success" | "error", message: string) => {
+      toast({
+        title: type === "error" ? "Error" : "Success",
+        description: message,
+        variant: type === "error" ? "destructive" : "default",
+      })
+    },
+    [toast],
+  )
 
   useEffect(() => {
     setAssessmentObjectives(mapCurriculumToAssessmentObjectives(curriculum))
     setSelectedCriteriaIds(new Set<string>())
   }, [curriculum])
+
+  useEffect(() => {
+    setLessonState(lessons)
+  }, [lessons])
 
   useEffect(() => {
     if (!unitPickerContext) return
@@ -207,6 +232,7 @@ export default function CurriculumPrototypeClient({
   useEffect(() => {
     if (subjectUnitOptions.length === 0) {
       setBulkUnitId("")
+      setMapperUnitId("")
       return
     }
 
@@ -216,7 +242,64 @@ export default function CurriculumPrototypeClient({
       }
       return subjectUnitOptions[0]?.unit_id ?? ""
     })
+
+    setMapperUnitId((prev) => {
+      if (prev && subjectUnitOptions.some((unit) => unit.unit_id === prev)) {
+        return prev
+      }
+      return subjectUnitOptions[0]?.unit_id ?? ""
+    })
   }, [subjectUnitOptions])
+
+  const lessonsByUnit = useMemo(() => {
+    const map = new Map<string, LessonWithObjectives[]>()
+    if (!lessonState || lessonState.length === 0) {
+      return map
+    }
+
+    const relevantUnitIds = new Set(subjectUnitOptions.map((unit) => unit.unit_id))
+
+    lessonState.forEach((lesson) => {
+      if (!lesson.unit_id || lesson.active === false) {
+        return
+      }
+      if (relevantUnitIds.size > 0 && !relevantUnitIds.has(lesson.unit_id)) {
+        return
+      }
+      const existing = map.get(lesson.unit_id)
+      if (existing) {
+        existing.push(lesson)
+      } else {
+        map.set(lesson.unit_id, [lesson])
+      }
+    })
+
+    map.forEach((entries, unitId) => {
+      entries.sort((a, b) => {
+        const orderDiff = (a.order_by ?? 0) - (b.order_by ?? 0)
+        if (orderDiff !== 0) return orderDiff
+        return a.title.localeCompare(b.title)
+      })
+      map.set(unitId, entries)
+    })
+
+    return map
+  }, [lessonState, subjectUnitOptions])
+
+  const selectedMapperUnit = useMemo(
+    () => subjectUnitOptions.find((unit) => unit.unit_id === mapperUnitId) ?? null,
+    [mapperUnitId, subjectUnitOptions],
+  )
+
+  const mapperLessons = useMemo(
+    () => (selectedMapperUnit ? lessonsByUnit.get(selectedMapperUnit.unit_id) ?? [] : []),
+    [lessonsByUnit, selectedMapperUnit],
+  )
+
+  const hasAnyLearningObjectives = useMemo(
+    () => assessmentObjectives.some((ao) => ao.lessonObjectives.length > 0),
+    [assessmentObjectives],
+  )
 
   const levelsView = useMemo(() => {
     return levels
@@ -369,7 +452,7 @@ export default function CurriculumPrototypeClient({
   const refreshCurriculum = async (focus?: { aoId?: string; loId?: string; scId?: string }) => {
     const result = await readCurriculumDetailAction(curriculumId)
     if (result.error) {
-      setFeedback({ type: "error", message: result.error })
+      showToast("error", result.error)
       return
     }
 
@@ -387,7 +470,6 @@ export default function CurriculumPrototypeClient({
     const defaultCriterionDescription = "New success criterion"
 
     startTransition(async () => {
-      setFeedback(null)
       const aoResult = await createCurriculumAssessmentObjectiveAction(curriculumId, {
         code: newAoCode,
         title: "New assessment objective",
@@ -395,7 +477,7 @@ export default function CurriculumPrototypeClient({
       })
 
       if (aoResult.error || !aoResult.data) {
-        setFeedback({ type: "error", message: aoResult.error ?? "Failed to create assessment objective." })
+        showToast("error", aoResult.error ?? "Failed to create assessment objective.")
         return
       }
 
@@ -408,7 +490,7 @@ export default function CurriculumPrototypeClient({
       )
 
       if (loResult.error || !loResult.data) {
-        setFeedback({ type: "error", message: loResult.error ?? "Failed to create learning objective." })
+        showToast("error", loResult.error ?? "Failed to create learning objective.")
         await refreshCurriculum()
         return
       }
@@ -423,13 +505,13 @@ export default function CurriculumPrototypeClient({
       })
 
       if (scResult.error || !scResult.data) {
-        setFeedback({ type: "error", message: scResult.error ?? "Failed to create success criterion." })
+        showToast("error", scResult.error ?? "Failed to create success criterion.")
         await refreshCurriculum({ aoId, loId })
         return
       }
 
       await refreshCurriculum({ aoId, loId, scId: scResult.data.success_criteria_id })
-      setFeedback({ type: "success", message: "Assessment objective added." })
+      showToast("success", "Assessment objective added.")
     })
   }
 
@@ -440,7 +522,6 @@ export default function CurriculumPrototypeClient({
     const newSequence = targetAo.lessonObjectives.length
 
     startTransition(async () => {
-      setFeedback(null)
       const loResult = await createCurriculumLearningObjectiveAction(
         targetAo.id,
         { title: "New learning objective", order_index: newSequence },
@@ -448,7 +529,7 @@ export default function CurriculumPrototypeClient({
       )
 
       if (loResult.error || !loResult.data) {
-        setFeedback({ type: "error", message: loResult.error ?? "Failed to create learning objective." })
+        showToast("error", loResult.error ?? "Failed to create learning objective.")
         await refreshCurriculum({ aoId: targetAo.id })
         return
       }
@@ -463,13 +544,13 @@ export default function CurriculumPrototypeClient({
       })
 
       if (scResult.error || !scResult.data) {
-        setFeedback({ type: "error", message: scResult.error ?? "Failed to create success criterion." })
+        showToast("error", scResult.error ?? "Failed to create success criterion.")
         await refreshCurriculum({ aoId: targetAo.id, loId })
         return
       }
 
       await refreshCurriculum({ aoId: targetAo.id, loId, scId: scResult.data.success_criteria_id })
-      setFeedback({ type: "success", message: "Learning objective added." })
+      showToast("success", "Learning objective added.")
     })
   }
 
@@ -479,7 +560,6 @@ export default function CurriculumPrototypeClient({
     if (!targetAo || !targetLo) return
 
     startTransition(async () => {
-      setFeedback(null)
       const scResult = await createCurriculumSuccessCriterionAction(targetLo.id, curriculumId, {
         description: "New success criterion",
         level: 1,
@@ -488,13 +568,13 @@ export default function CurriculumPrototypeClient({
       })
 
       if (scResult.error || !scResult.data) {
-        setFeedback({ type: "error", message: scResult.error ?? "Failed to create success criterion." })
+        showToast("error", scResult.error ?? "Failed to create success criterion.")
         await refreshCurriculum({ aoId: targetAo.id, loId: targetLo.id })
         return
       }
 
       await refreshCurriculum({ aoId: targetAo.id, loId: targetLo.id, scId: scResult.data.success_criteria_id })
-      setFeedback({ type: "success", message: "Success criterion added." })
+      showToast("success", "Success criterion added.")
     })
   }
 
@@ -517,12 +597,12 @@ export default function CurriculumPrototypeClient({
     const newDescription = editingTitle.trim()
 
     if (!targetAo || !targetLo) {
-      setFeedback({ type: "error", message: "Unable to locate success criterion." })
+      showToast("error", "Unable to locate success criterion.")
       return
     }
 
     if (newDescription.length === 0) {
-      setFeedback({ type: "error", message: "Description cannot be empty." })
+      showToast("error", "Description cannot be empty.")
       return
     }
 
@@ -549,18 +629,17 @@ export default function CurriculumPrototypeClient({
     cancelEditingCriterion()
 
     startTransition(async () => {
-      setFeedback(null)
       const result = await updateCurriculumSuccessCriterionAction(criterionId, curriculumId, {
         description: newDescription,
       })
 
       if (result.error) {
-        setFeedback({ type: "error", message: result.error })
+        showToast("error", result.error)
         await refreshCurriculum({ aoId: targetAo.id, loId: targetLo.id, scId: criterionId })
         return
       }
 
-      setFeedback({ type: "success", message: "Success criterion updated." })
+      showToast("success", "Success criterion updated.")
     })
   }
 
@@ -595,18 +674,17 @@ export default function CurriculumPrototypeClient({
     )
 
     startTransition(async () => {
-      setFeedback(null)
       const result = await updateCurriculumSuccessCriterionAction(criterionId, curriculumId, {
         level: newLevel,
       })
 
       if (result.error) {
-        setFeedback({ type: "error", message: result.error })
+        showToast("error", result.error)
         await refreshCurriculum({ aoId: targetAo.id, loId: targetLo.id, scId: criterionId })
         return
       }
 
-      setFeedback({ type: "success", message: "Success criterion updated." })
+      showToast("success", "Success criterion updated.")
     })
   }
 
@@ -661,16 +739,120 @@ export default function CurriculumPrototypeClient({
     })
 
     startTransition(async () => {
-      setFeedback(null)
       const result = await deleteCurriculumSuccessCriterionAction(criterionId, curriculumId)
 
       if (!result.success) {
-        setFeedback({ type: "error", message: result.error ?? "Failed to delete success criterion." })
+        showToast("error", result.error ?? "Failed to delete success criterion.")
         await refreshCurriculum({ aoId: targetAo.id, loId: targetLo.id })
         return
       }
 
-      setFeedback({ type: "success", message: "Success criterion removed." })
+      showToast("success", "Success criterion removed.")
+    })
+  }
+
+  const toggleLessonAssignment = (
+    lessonId: string,
+    unitId: string,
+    learningObjectiveId: string,
+    loTitle: string,
+    successCriteriaForObjective: SuccessCriterion[],
+  ) => {
+    const lesson = lessonState.find((entry) => entry.lesson_id === lessonId)
+    if (!lesson) return
+
+    const existingObjectives = lesson.lesson_objectives ?? []
+    const normalizedIds = existingObjectives
+      .map((entry) => entry.learning_objective_id ?? entry.learning_objective?.learning_objective_id ?? "")
+      .filter((id) => id.length > 0)
+    const hasAssignment = normalizedIds.includes(learningObjectiveId)
+
+    const nextObjectiveIds = hasAssignment
+      ? normalizedIds.filter((id) => id !== learningObjectiveId)
+      : [...normalizedIds, learningObjectiveId]
+
+    const nextLessonObjectives = hasAssignment
+      ? existingObjectives.filter(
+          (entry) =>
+            (entry.learning_objective_id ?? entry.learning_objective?.learning_objective_id ?? "") !==
+            learningObjectiveId,
+        )
+      : [
+          ...existingObjectives,
+          {
+            learning_objective_id: learningObjectiveId,
+            lesson_id: lessonId,
+            order_index: existingObjectives.length,
+            order_by: existingObjectives.length,
+            title: loTitle,
+            active: true,
+            learning_objective: {
+              learning_objective_id: learningObjectiveId,
+              title: loTitle,
+              success_criteria: successCriteriaForObjective.map((criterion) => ({
+                success_criteria_id: criterion.id,
+                description: criterion.description,
+                level: criterion.level,
+                order_index: criterion.orderIndex,
+                active: criterion.active,
+                units: criterion.units,
+              })),
+            },
+          },
+        ]
+
+    const previousLessons = lessonState.map((entry) => ({
+      ...entry,
+      lesson_objectives: (entry.lesson_objectives ?? []).map((objective) => ({
+        ...objective,
+        learning_objective: objective.learning_objective
+          ? {
+              ...objective.learning_objective,
+              success_criteria: (objective.learning_objective.success_criteria ?? []).map((criterion) => ({
+                ...criterion,
+              })),
+            }
+          : undefined,
+      })),
+      lesson_links: entry.lesson_links ? [...entry.lesson_links] : entry.lesson_links,
+    }))
+    setLessonState((prev) =>
+      prev.map((entry) =>
+        entry.lesson_id === lessonId ? { ...entry, lesson_objectives: nextLessonObjectives } : entry,
+      ),
+    )
+
+    const pendingKey = `${lessonId}-${learningObjectiveId}`
+    setPendingLessonIds((prev) => {
+      const next = new Set(prev)
+      next.add(pendingKey)
+      return next
+    })
+
+    startTransition(async () => {
+      const result = await updateLessonAction(lessonId, unitId, lesson.title, nextObjectiveIds)
+
+      if (result.error || !result.data) {
+        showToast("error", result.error ?? "Failed to update lesson assignment.")
+        setLessonState(previousLessons)
+        setPendingLessonIds((prev) => {
+          const next = new Set(prev)
+          next.delete(pendingKey)
+          return next
+        })
+        return
+      }
+
+      const updatedLesson = result.data
+      setLessonState((prev) =>
+        prev.map((entry) => (entry.lesson_id === lessonId && updatedLesson ? updatedLesson : entry)),
+      )
+      setPendingLessonIds((prev) => {
+        const next = new Set(prev)
+        next.delete(pendingKey)
+        return next
+      })
+      showToast("success", "Lesson mapping updated.")
     })
   }
 
@@ -711,18 +893,17 @@ export default function CurriculumPrototypeClient({
     )
 
     startTransition(async () => {
-      setFeedback(null)
       const result = await updateCurriculumSuccessCriterionAction(criterionId, curriculumId, {
         unit_ids: nextUnits,
       })
 
       if (result.error) {
-        setFeedback({ type: "error", message: result.error })
+        showToast("error", result.error)
         await refreshCurriculum({ aoId: targetAo.id, loId: targetLo.id, scId: criterionId })
         return
       }
 
-      setFeedback({ type: "success", message: "Success criterion updated." })
+      showToast("success", "Success criterion updated.")
     })
   }
 
@@ -731,12 +912,12 @@ export default function CurriculumPrototypeClient({
     const targetIds = Array.from(selectedCriteriaIds)
 
     if (!unitId) {
-      setFeedback({ type: "error", message: "Select a unit to assign before continuing." })
+      showToast("error", "Select a unit to assign before continuing.")
       return
     }
 
     if (targetIds.length === 0) {
-      setFeedback({ type: "error", message: "Select at least one success criterion to update." })
+      showToast("error", "Select at least one success criterion to update.")
       return
     }
 
@@ -771,17 +952,13 @@ export default function CurriculumPrototypeClient({
     })
 
     if (updates.length === 0) {
-      setFeedback({
-        type: "error",
-        message: "Selected success criteria already include the chosen unit.",
-      })
+      showToast("error", "Selected success criteria already include the chosen unit.")
       return
     }
 
     setAssessmentObjectives(nextAssessmentObjectives)
 
     startTransition(async () => {
-      setFeedback(null)
       const results = await Promise.all(
         updates.map(({ criterionId, nextUnits }) =>
           updateCurriculumSuccessCriterionAction(criterionId, curriculumId, { unit_ids: nextUnits }),
@@ -791,12 +968,12 @@ export default function CurriculumPrototypeClient({
       const failed = results.find((result) => result.error)
 
       if (failed) {
-        setFeedback({ type: "error", message: failed.error ?? "Failed to update success criteria." })
+        showToast("error", failed.error ?? "Failed to update success criteria.")
         await refreshCurriculum()
         return
       }
 
-      setFeedback({ type: "success", message: "Unit assigned to selected success criteria." })
+      showToast("success", "Unit assigned to selected success criteria.")
       setSelectedCriteriaIds(new Set<string>())
     })
   }
@@ -820,12 +997,12 @@ export default function CurriculumPrototypeClient({
     const newTitle = editingLessonObjectiveTitle.trim()
 
     if (!targetAo || !targetLo) {
-      setFeedback({ type: "error", message: "Unable to locate learning objective." })
+      showToast("error", "Unable to locate learning objective.")
       return
     }
 
     if (newTitle.length === 0) {
-      setFeedback({ type: "error", message: "Title cannot be empty." })
+      showToast("error", "Title cannot be empty.")
       return
     }
 
@@ -845,18 +1022,17 @@ export default function CurriculumPrototypeClient({
     cancelLessonObjectiveEdit()
 
     startTransition(async () => {
-      setFeedback(null)
       const result = await updateCurriculumLearningObjectiveAction(targetLo.id, curriculumId, {
         title: newTitle,
       })
 
       if (result.error) {
-        setFeedback({ type: "error", message: result.error })
+        showToast("error", result.error)
         await refreshCurriculum({ aoId: targetAo.id, loId: targetLo.id })
         return
       }
 
-      setFeedback({ type: "success", message: "Learning objective updated." })
+      showToast("success", "Learning objective updated.")
     })
   }
 
@@ -878,12 +1054,12 @@ export default function CurriculumPrototypeClient({
     const newTitle = editingAssessmentObjectiveTitle.trim()
 
     if (!targetAo) {
-      setFeedback({ type: "error", message: "Unable to locate assessment objective." })
+      showToast("error", "Unable to locate assessment objective.")
       return
     }
 
     if (newTitle.length === 0) {
-      setFeedback({ type: "error", message: "Title cannot be empty." })
+      showToast("error", "Title cannot be empty.")
       return
     }
 
@@ -894,18 +1070,17 @@ export default function CurriculumPrototypeClient({
     cancelAssessmentObjectiveEdit()
 
     startTransition(async () => {
-      setFeedback(null)
       const result = await updateCurriculumAssessmentObjectiveAction(targetAo.id, curriculumId, {
         title: newTitle,
       })
 
       if (result.error) {
-        setFeedback({ type: "error", message: result.error })
+        showToast("error", result.error)
         await refreshCurriculum({ aoId: targetAo.id })
         return
       }
 
-      setFeedback({ type: "success", message: "Assessment objective updated." })
+      showToast("success", "Assessment objective updated.")
     })
   }
 
@@ -932,23 +1107,10 @@ export default function CurriculumPrototypeClient({
           </div>
         ) : null}
 
-        {feedback ? (
-          <div
-            className={`rounded-lg border px-4 py-3 text-sm ${
-              feedback.type === "success"
-                ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                : "border-destructive/40 bg-destructive/10 text-destructive"
-            }`}
-          >
-            {feedback.message}
-          </div>
-        ) : null}
-
-        {isPending ? <p className="text-xs text-muted-foreground">Saving changes…</p> : null}
-
         <Tabs defaultValue="builder" className="space-y-6">
-          <TabsList className="grid w-full gap-2 sm:grid-cols-3">
+          <TabsList className="grid w-full gap-2 sm:grid-cols-4">
             <TabsTrigger value="builder">Curriculum Builder</TabsTrigger>
+            <TabsTrigger value="mapper">Curriculum Mapper</TabsTrigger>
             <TabsTrigger value="levels">Levels Output</TabsTrigger>
             <TabsTrigger value="units">Units Output</TabsTrigger>
           </TabsList>
@@ -1263,6 +1425,190 @@ export default function CurriculumPrototypeClient({
             </section>
           </TabsContent>
 
+          <TabsContent value="mapper" className="mt-0">
+            <section className="flex h-[70vh] flex-col overflow-hidden rounded-xl border bg-card shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-foreground">Curriculum Mapper</h2>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Click a lesson cell to toggle its link to a learning objective.
+                  </p>
+                </div>
+                {subjectUnitOptions.length > 0 ? (
+                  <div className="flex items-end gap-2">
+                    <label
+                      htmlFor="mapper-unit-select"
+                      className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                    >
+                      Unit
+                    </label>
+                    <select
+                      id="mapper-unit-select"
+                      value={mapperUnitId}
+                      onChange={(event) => setMapperUnitId(event.target.value)}
+                      className="rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    >
+                      {subjectUnitOptions.map((unit) => (
+                        <option key={unit.unit_id} value={unit.unit_id}>
+                          {unit.title}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
+              </div>
+              {lessonsError ? (
+                <div className="border-b border-destructive/40 bg-destructive/10 px-5 py-3 text-xs text-destructive">
+                  Unable to load lesson metadata: {lessonsError}
+                </div>
+              ) : null}
+              <div className="flex-1 overflow-hidden">
+                {subjectUnitOptions.length === 0 ? (
+                  <div className="flex h-full items-center justify-center px-6 text-sm text-muted-foreground">
+                    Add units for this subject to start mapping learning objectives.
+                  </div>
+                ) : !selectedMapperUnit ? (
+                  <div className="flex h-full items-center justify-center px-6 text-sm text-muted-foreground">
+                    Select a unit to start mapping lessons.
+                  </div>
+                ) : mapperLessons.length === 0 ? (
+                  <div className="flex h-full items-center justify-center px-6 text-sm text-muted-foreground">
+                    No lessons available for this unit yet.
+                  </div>
+                ) : !hasAnyLearningObjectives ? (
+                  <div className="flex h-full items-center justify-center px-6 text-sm text-muted-foreground">
+                    Add learning objectives to begin mapping lessons.
+                  </div>
+                ) : (
+                  <div className="h-full overflow-auto">
+                    <table className="w-full min-w-[900px] border-collapse text-sm">
+                      <thead className="bg-muted text-xs uppercase tracking-wide text-muted-foreground">
+                        <tr>
+                          <th
+                            className="sticky left-0 top-0 z-30 border border-border bg-card px-3 py-2 text-left font-semibold text-foreground shadow-sm"
+                            style={{ minWidth: "14rem", width: mapperStickyWidth, maxWidth: "33.3333%" }}
+                          >
+                            Learning Objective
+                          </th>
+                          {mapperLessons.map((lesson) => (
+                            <th
+                              key={`mapper-lesson-${lesson.lesson_id}`}
+                              className="sticky top-0 z-20 border border-border bg-card px-3 py-2 text-left font-medium text-foreground shadow-sm"
+                              title={lesson.title}
+                            >
+                              {lesson.title}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {assessmentObjectives.map((ao) => {
+                          const orderedLessonObjectives = ao.lessonObjectives
+                            .slice()
+                            .sort((a, b) => a.orderIndex - b.orderIndex)
+
+                          const placeholderLessonTitle =
+                            orderedLessonObjectives[0]?.title ?? "No learning objectives yet."
+
+                          if (orderedLessonObjectives.length === 0) {
+                            return (
+                              <tr key={`mapper-ao-${ao.id}-empty`}>
+                                <td
+                                  className="sticky left-0 z-20 border border-border bg-card px-3 py-3 align-top shadow-sm"
+                                  style={{ minWidth: "14rem", width: mapperStickyWidth, maxWidth: "33.3333%" }}
+                                >
+                                  <p className="text-sm font-semibold text-foreground">{placeholderLessonTitle}</p>
+                                </td>
+                                <td
+                                  className="border border-border px-3 py-3 text-xs text-muted-foreground"
+                                  colSpan={Math.max(mapperLessons.length, 1)}
+                                >
+                                  Add learning objectives to map lessons for this assessment objective.
+                                </td>
+                              </tr>
+                            )
+                          }
+
+                          return orderedLessonObjectives.map((lo) => {
+                            const rowKey = `mapper-lo-${lo.id}`
+
+                            return (
+                              <tr key={rowKey} className="odd:bg-muted/30">
+                                <td
+                                  className="sticky left-0 z-20 border border-border bg-card px-3 py-3 align-top shadow-sm"
+                                  style={{ minWidth: "14rem", width: mapperStickyWidth, maxWidth: "33.3333%" }}
+                                >
+                                  <p className="text-sm font-medium text-foreground">{lo.title}</p>
+                                </td>
+                                {mapperLessons.map((lesson) => {
+                                  const lessonHasObjective =
+                                    lesson.lesson_objectives?.some((entry) => {
+                                      const entryId =
+                                        entry.learning_objective_id ?? entry.learning_objective?.learning_objective_id ?? ""
+                                      return entryId === lo.id
+                                    }) ?? false
+                                  const pendingKey = `${lesson.lesson_id}-${lo.id}`
+                                  const isPendingCell = pendingLessonIds.has(pendingKey)
+
+                                  const handleCellToggle = () =>
+                                    toggleLessonAssignment(
+                                      lesson.lesson_id,
+                                      lesson.unit_id ?? selectedMapperUnit.unit_id,
+                                      lo.id,
+                                      lo.title,
+                                      lo.successCriteria,
+                                    )
+
+                                  const cellStateClass = lessonHasObjective
+                                    ? "bg-emerald-100 text-emerald-900"
+                                    : "text-muted-foreground hover:bg-emerald-50"
+                                  const pendingStateClass = isPendingCell ? "bg-emerald-50 text-emerald-700" : ""
+
+                                  return (
+                                    <td
+                                      key={`${rowKey}-${lesson.lesson_id}`}
+                                      role="button"
+                                      tabIndex={0}
+                                      onClick={handleCellToggle}
+                                      onKeyDown={(event) => {
+                                        if (event.key === "Enter" || event.key === " ") {
+                                          event.preventDefault()
+                                          handleCellToggle()
+                                        }
+                                      }}
+                                      aria-pressed={lessonHasObjective}
+                                      aria-label={`Toggle link between ${lo.title} and ${lesson.title}`}
+                                      className={`border border-border p-0 align-middle transition-colors cursor-pointer ${cellStateClass} ${pendingStateClass}`}
+                                    >
+                                      <div className="flex h-full w-full items-center justify-center px-2 py-3 text-xs font-medium">
+                                        {isPendingCell ? (
+                                          <>
+                                            <Loader2 className="h-4 w-4 animate-spin text-emerald-700" />
+                                            <span className="sr-only">Updating assignment…</span>
+                                          </>
+                                        ) : lessonHasObjective ? (
+                                          <>
+                                            <Check className="h-3.5 w-3.5 text-emerald-700" />
+                                            <span className="sr-only">Remove link between {lo.title} and {lesson.title}</span>
+                                          </>
+                                        ) : (
+                                          <span className="text-xs font-medium text-muted-foreground/70">Add</span>
+                                        )}
+                                      </div>
+                                    </td>
+                                  )
+                                })}
+                              </tr>
+                            )
+                          })
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </section>
+          </TabsContent>
           <TabsContent value="levels" className="mt-0">
             <section className="flex h-[70vh] flex-col overflow-hidden rounded-xl border bg-card shadow-sm">
               <div className="flex items-center justify-between border-b px-5 py-4">
@@ -1623,4 +1969,3 @@ export default function CurriculumPrototypeClient({
       ) : null}
     </main>
   )
-}
