@@ -144,6 +144,7 @@ export const LearningObjectiveSchema = z.object({
     assessment_objective_id: z.string(),
     title: z.string().min(1).max(255),
     order_index: z.number().default(0),
+    active: z.boolean().default(true),
     assessment_objective_code: z.string().nullable().optional(),
     assessment_objective_title: z.string().nullable().optional(),
     assessment_objective_order_index: z.number().nullable().optional(),

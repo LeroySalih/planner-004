@@ -189,7 +189,8 @@ CREATE TABLE IF NOT EXISTS "public"."learning_objectives" (
     "learning_objective_id" "text" DEFAULT "gen_random_uuid"() NOT NULL,
     "assessment_objective_id" "text" NOT NULL,
     "title" "text" NOT NULL,
-    "order_index" integer DEFAULT 0 NOT NULL
+    "order_index" integer DEFAULT 0 NOT NULL,
+    "active" boolean DEFAULT true NOT NULL
 );
 
 

@@ -85,16 +85,18 @@ function mapCurriculumToAssessmentObjectives(curriculum: CurriculumDetail): Asse
     .map((ao, aoIndex) => {
       const learningObjectives = ao.learning_objectives ?? []
 
+      const activeLearningObjectives = learningObjectives
+        .filter((lo) => lo.active !== false)
+        .slice()
+        .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0))
+
       return {
         id: ao.assessment_objective_id,
         code: ao.code,
         title: ao.title,
         orderIndex: ao.order_index ?? aoIndex,
         unitId: ao.unit_id ?? null,
-        lessonObjectives: learningObjectives
-          .slice()
-          .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0))
-          .map((lo, loIndex) => ({
+        lessonObjectives: activeLearningObjectives.map((lo, loIndex) => ({
             id: lo.learning_objective_id,
             title: lo.title,
             orderIndex: lo.order_index ?? loIndex,
@@ -141,7 +143,6 @@ export default function CurriculumPrototypeClient({
   const [lessonState, setLessonState] = useState<LessonWithObjectives[]>(lessons)
   const [pendingLessonIds, setPendingLessonIds] = useState<Set<string>>(new Set())
   const [selectedCriteriaIds, setSelectedCriteriaIds] = useState<Set<string>>(() => new Set<string>())
-  const [bulkUnitId, setBulkUnitId] = useState("")
 
   const [editingContext, setEditingContext] = useState<
     { aoIndex: number; loIndex: number; criterionId: string } | null
@@ -231,17 +232,9 @@ export default function CurriculumPrototypeClient({
 
   useEffect(() => {
     if (subjectUnitOptions.length === 0) {
-      setBulkUnitId("")
       setMapperUnitId("")
       return
     }
-
-    setBulkUnitId((prev) => {
-      if (prev && subjectUnitOptions.some((unit) => unit.unit_id === prev)) {
-        return prev
-      }
-      return subjectUnitOptions[0]?.unit_id ?? ""
-    })
 
     setMapperUnitId((prev) => {
       if (prev && subjectUnitOptions.some((unit) => unit.unit_id === prev)) {
@@ -907,77 +900,6 @@ export default function CurriculumPrototypeClient({
     })
   }
 
-  const handleBulkAssignUnit = () => {
-    const unitId = bulkUnitId
-    const targetIds = Array.from(selectedCriteriaIds)
-
-    if (!unitId) {
-      showToast("error", "Select a unit to assign before continuing.")
-      return
-    }
-
-    if (targetIds.length === 0) {
-      showToast("error", "Select at least one success criterion to update.")
-      return
-    }
-
-    const targetSet = new Set(targetIds)
-    const updates: {
-      aoId: string
-      loId: string
-      criterionId: string
-      nextUnits: string[]
-    }[] = []
-
-    const nextAssessmentObjectives = assessmentObjectives.map((ao) => {
-      let aoChanged = false
-      const nextLessonObjectives = ao.lessonObjectives.map((lo) => {
-        let loChanged = false
-        const nextSuccessCriteria = lo.successCriteria.map((sc) => {
-          if (!targetSet.has(sc.id) || sc.units.includes(unitId)) {
-            return sc
-          }
-
-          const nextUnits = [...sc.units, unitId]
-          updates.push({ aoId: ao.id, loId: lo.id, criterionId: sc.id, nextUnits })
-          loChanged = true
-          aoChanged = true
-          return { ...sc, units: nextUnits }
-        })
-
-        return loChanged ? { ...lo, successCriteria: nextSuccessCriteria } : lo
-      })
-
-      return aoChanged ? { ...ao, lessonObjectives: nextLessonObjectives } : ao
-    })
-
-    if (updates.length === 0) {
-      showToast("error", "Selected success criteria already include the chosen unit.")
-      return
-    }
-
-    setAssessmentObjectives(nextAssessmentObjectives)
-
-    startTransition(async () => {
-      const results = await Promise.all(
-        updates.map(({ criterionId, nextUnits }) =>
-          updateCurriculumSuccessCriterionAction(criterionId, curriculumId, { unit_ids: nextUnits }),
-        ),
-      )
-
-      const failed = results.find((result) => result.error)
-
-      if (failed) {
-        showToast("error", failed.error ?? "Failed to update success criteria.")
-        await refreshCurriculum()
-        return
-      }
-
-      showToast("success", "Unit assigned to selected success criteria.")
-      setSelectedCriteriaIds(new Set<string>())
-    })
-  }
-
   const startLessonObjectiveEdit = (aoIndex: number, loIndex: number, currentTitle: string) => {
     setEditingLessonObjective({ aoIndex, loIndex })
     setEditingLessonObjectiveTitle(currentTitle)
@@ -1036,6 +958,77 @@ export default function CurriculumPrototypeClient({
     })
   }
 
+  const removeLearningObjective = (aoIndex: number, loIndex: number) => {
+    const targetAo = assessmentObjectives[aoIndex]
+    const targetLo = targetAo?.lessonObjectives[loIndex]
+    if (!targetAo || !targetLo) return
+
+    setAssessmentObjectives((prev) =>
+      prev.map((ao, aoIdx) =>
+        aoIdx === aoIndex
+          ? {
+              ...ao,
+              lessonObjectives: ao.lessonObjectives.filter((_, loIdx) => loIdx !== loIndex),
+            }
+          : ao,
+      ),
+    )
+
+    setSelectedCriteriaIds((prev) => {
+      if (targetLo.successCriteria.length === 0) {
+        return prev
+      }
+
+      const next = new Set(prev)
+      let changed = false
+      targetLo.successCriteria.forEach((criterion) => {
+        if (next.delete(criterion.id)) {
+          changed = true
+        }
+      })
+      return changed ? next : prev
+    })
+
+    if (
+      editingContext &&
+      editingContext.aoIndex === aoIndex &&
+      editingContext.loIndex === loIndex
+    ) {
+      cancelEditingCriterion()
+    }
+
+    if (
+      unitPickerContext &&
+      unitPickerContext.aoIndex === aoIndex &&
+      unitPickerContext.loIndex === loIndex
+    ) {
+      setUnitPickerContext(null)
+    }
+
+    if (
+      editingLessonObjective &&
+      editingLessonObjective.aoIndex === aoIndex &&
+      editingLessonObjective.loIndex === loIndex
+    ) {
+      cancelLessonObjectiveEdit()
+    }
+
+    startTransition(async () => {
+      const result = await updateCurriculumLearningObjectiveAction(targetLo.id, curriculumId, {
+        active: false,
+      })
+
+      if (result.error) {
+        showToast("error", result.error)
+        await refreshCurriculum({ aoId: targetAo.id })
+        return
+      }
+
+      showToast("success", "Learning objective removed.")
+      await refreshCurriculum({ aoId: targetAo.id })
+    })
+  }
+
   const startAssessmentObjectiveEdit = (aoIndex: number, currentTitle: string) => {
     setEditingAssessmentObjective({ aoIndex })
     setEditingAssessmentObjectiveTitle(currentTitle)
@@ -1090,8 +1083,6 @@ export default function CurriculumPrototypeClient({
       ]?.successCriteria.find((criterion) => criterion.id === unitPickerContext.criterionId)
     : null
 
-  const bulkAssignmentDisabled = selectedCriteriaIds.size === 0 || !bulkUnitId || subjectUnitOptions.length === 0
-
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-6 py-10">
       <div className="space-y-8">
@@ -1126,44 +1117,6 @@ export default function CurriculumPrototypeClient({
                     disabled={isPending}
                   >
                     <Plus className="h-4 w-4" /> AO
-                  </button>
-                </div>
-                <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-                  <div className="flex flex-col gap-1">
-                    <label htmlFor="bulk-unit-select" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Assign unit
-                    </label>
-                    <select
-                      id="bulk-unit-select"
-                      className="rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-60"
-                      value={bulkUnitId}
-                      onChange={(event) => setBulkUnitId(event.target.value)}
-                      disabled={subjectUnitOptions.length === 0}
-                    >
-                      <option value="" disabled>
-                        {subjectUnitOptions.length === 0
-                          ? "No units available"
-                          : "Select a unit"}
-                      </option>
-                      {subjectUnitOptions.map((unit) => (
-                        <option key={unit.unit_id} value={unit.unit_id}>
-                          {unit.title}
-                        </option>
-                      ))}
-                    </select>
-                    {subjectUnitOptions.length === 0 ? (
-                      <span className="text-xs text-muted-foreground">
-                        No units match this subject yet.
-                      </span>
-                    ) : null}
-                  </div>
-                  <button
-                    type="button"
-                    className="inline-flex items-center justify-center rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
-                    onClick={handleBulkAssignUnit}
-                    disabled={bulkAssignmentDisabled || isPending}
-                  >
-                    Add unit to selected SC
                   </button>
                 </div>
               </div>
@@ -1237,6 +1190,14 @@ export default function CurriculumPrototypeClient({
                               aria-label="Add success criterion"
                             >
                               <Plus className="h-4 w-4" />
+                            </button>
+                            <button
+                              className="rounded-full border border-destructive/50 p-1 text-destructive transition hover:bg-destructive hover:text-destructive-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                              onClick={() => removeLearningObjective(aoIndex, loIndex)}
+                              disabled={isPending}
+                              aria-label="Remove learning objective"
+                            >
+                              <Trash2 className="h-4 w-4" />
                             </button>
                           </div>
                         </div>

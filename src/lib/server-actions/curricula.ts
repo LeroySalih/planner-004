@@ -212,7 +212,8 @@ export async function readCurriculumDetailAction(curriculumId: string) {
             learning_objective_id,
             assessment_objective_id,
             title,
-            order_index
+            order_index,
+            active
           )
         )`
     )
@@ -257,6 +258,7 @@ export async function readCurriculumDetailAction(curriculumId: string) {
         .map((lo, index) => ({
           ...lo,
           order_index: lo.order_index ?? index,
+          active: lo.active ?? true,
           success_criteria: successCriteriaMap.get(lo.learning_objective_id ?? "") ?? [],
         }))
         .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0)),
@@ -505,6 +507,7 @@ export async function createCurriculumLearningObjectiveAction(
     assessment_objective_id: assessmentObjectiveId,
     title: payload.title.trim(),
     order_index: payload.order_index ?? 0,
+    active: true,
   }
 
   if (sanitized.title.length === 0) {
@@ -514,7 +517,7 @@ export async function createCurriculumLearningObjectiveAction(
   const { data, error } = await supabase
     .from("learning_objectives")
     .insert(sanitized)
-    .select("learning_objective_id, assessment_objective_id, title, order_index")
+    .select("learning_objective_id, assessment_objective_id, title, order_index, active")
     .single()
 
   if (error) {
@@ -530,7 +533,7 @@ export async function createCurriculumLearningObjectiveAction(
 export async function updateCurriculumLearningObjectiveAction(
   learningObjectiveId: string,
   curriculumId: string,
-  updates: { title?: string; order_index?: number },
+  updates: { title?: string; order_index?: number; active?: boolean },
 ) {
   console.log("[curricula] updateCurriculumLearningObjectiveAction:start", {
     learningObjectiveId,
@@ -551,12 +554,15 @@ export async function updateCurriculumLearningObjectiveAction(
   if (typeof updates.order_index === "number") {
     payload.order_index = updates.order_index
   }
+  if (typeof updates.active === "boolean") {
+    payload.active = updates.active
+  }
 
   const { data, error } = await supabase
     .from("learning_objectives")
     .update(payload)
     .eq("learning_objective_id", learningObjectiveId)
-    .select("learning_objective_id, assessment_objective_id, title, order_index")
+    .select("learning_objective_id, assessment_objective_id, title, order_index, active")
     .single()
 
   if (error) {
@@ -632,6 +638,7 @@ export async function reorderCurriculumLearningObjectivesAction(
         assessment_objective_id,
         title,
         order_index,
+        active,
         success_criteria(
           success_criteria_id,
           learning_objective_id,
@@ -652,6 +659,7 @@ export async function reorderCurriculumLearningObjectivesAction(
 
   const normalized = (data ?? []).map((lo) => ({
     ...lo,
+    active: lo.active ?? true,
     success_criteria: (lo.success_criteria ?? []).map((criterion) => ({
       success_criteria_id: criterion.success_criteria_id,
       learning_objective_id: criterion.learning_objective_id,

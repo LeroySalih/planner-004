@@ -65,6 +65,7 @@ export async function readLearningObjectivesByUnitAction(unitId: string) {
         assessment_objective_id,
         title,
         order_index,
+        active,
         assessment_objective:assessment_objectives(
           assessment_objective_id,
           code,
@@ -99,6 +100,7 @@ export async function readLearningObjectivesByUnitAction(unitId: string) {
         assessment_objective_order_index: assessmentObjective?.order_index ?? null,
         title: meta?.title ?? "",
         order_index: meta?.order_index ?? index,
+        active: meta?.active ?? true,
         success_criteria: criteria,
       }
     })
