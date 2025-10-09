@@ -1,5 +1,13 @@
 import { test, expect } from '@playwright/test';
 
+import dotenv from 'dotenv';
+import path from "path";
+
+// Load Variables
+const env_path = path.resolve(__dirname,"../",".env.test");
+console.log("Env Path is", env_path);
+dotenv.config({path: env_path});
+
 test('test', async ({ page }) => {
   await page.goto('http://localhost:3000/');
   await page.getByRole('link', { name: 'Sign in' }).click();

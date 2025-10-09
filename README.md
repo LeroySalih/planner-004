@@ -2,6 +2,8 @@
 
 Planner 004 is a Next.js prototype for lesson, unit, and curriculum planning workflows. The project exposes a curriculum explorer at `/curriculum` that now reads and persists data against Supabase via server actions.
 
+See [Repository Guidelines](AGENTS.md) for contributor workflows, coding style, and PR expectations.
+
 ## Development
 
 ```bash

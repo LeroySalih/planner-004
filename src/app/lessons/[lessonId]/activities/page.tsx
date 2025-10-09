@@ -2,102 +2,10 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 import { ArrowLeft, ChevronRight } from "lucide-react"
 
+import { LessonActivityView } from "@/components/lessons/activity-view"
 import { Button } from "@/components/ui/button"
-import type { LessonActivity } from "@/types"
-import {
-  getActivityFileDownloadUrlAction,
-  listActivityFilesAction,
-  listLessonActivitiesAction,
-  readLessonAction,
-  readUnitAction,
-} from "@/lib/server-updates"
-
-interface ActivityPreview {
-  activity: LessonActivity & { orderIndex: number }
-  textContent: string | null
-  imageUrl: string | null
-}
-
-function extractActivityText(activity: LessonActivity): string | null {
-  if (typeof activity.body_data !== "object" || activity.body_data === null) {
-    return null
-  }
-
-  const record = activity.body_data as Record<string, unknown>
-  const candidateKeys = ["text", "instructions", "prompt", "question", "body", "description"]
-
-  for (const key of candidateKeys) {
-    const value = record[key]
-    if (typeof value === "string" && value.trim().length > 0) {
-      return value.trim()
-    }
-  }
-
-  return null
-}
-
-function extractImageDescriptor(activity: LessonActivity): { url: string | null; fileName: string | null } {
-  if (activity.type !== "display-image") {
-    return { url: null, fileName: null }
-  }
-
-  if (typeof activity.body_data !== "object" || activity.body_data === null) {
-    return { url: null, fileName: null }
-  }
-
-  const record = activity.body_data as Record<string, unknown>
-  const url = typeof record.imageUrl === "string" && record.imageUrl.trim().length > 0 ? record.imageUrl : null
-  const fileName =
-    typeof record.imageFile === "string" && record.imageFile.trim().length > 0 ? record.imageFile : null
-
-  return { url, fileName }
-}
-
-async function resolveActivityImageUrl(
-  lessonId: string,
-  activity: LessonActivity,
-): Promise<string | null> {
-  const { url, fileName } = extractImageDescriptor(activity)
-  if (url) {
-    return url
-  }
-
-  if (activity.type !== "display-image") {
-    return null
-  }
-
-  const candidateFileName = fileName ?? (await fetchFirstActivityFileName(lessonId, activity.activity_id))
-  if (!candidateFileName) {
-    return null
-  }
-
-  try {
-    const result = await getActivityFileDownloadUrlAction(lessonId, activity.activity_id, candidateFileName)
-    if (!result.success || !result.url) {
-      console.error("[activities] Failed to create signed image URL", result.error)
-      return null
-    }
-    return result.url
-  } catch (error) {
-    console.error("[activities] Unexpected error resolving image URL", error)
-    return null
-  }
-}
-
-async function fetchFirstActivityFileName(lessonId: string, activityId: string): Promise<string | null> {
-  try {
-    const filesResult = await listActivityFilesAction(lessonId, activityId)
-    if (filesResult.error) {
-      console.error("[activities] Failed to list activity files:", filesResult.error)
-      return null
-    }
-    const firstFile = filesResult.data?.[0]
-    return firstFile?.name ?? null
-  } catch (error) {
-    console.error("[activities] Unexpected error listing activity files", error)
-    return null
-  }
-}
+import { resolveActivityAssets } from "@/lib/activity-assets"
+import { listLessonActivitiesAction, readLessonAction, readUnitAction } from "@/lib/server-updates"
 
 export default async function LessonActivitiesOverviewPage({
   params,
@@ -147,13 +55,7 @@ export default async function LessonActivitiesOverviewPage({
     orderIndex: index,
   }))
 
-  const activitiesWithPreview: ActivityPreview[] = await Promise.all(
-    orderedActivities.map(async (activity) => {
-      const textContent = extractActivityText(activity)
-      const imageUrl = await resolveActivityImageUrl(lesson.lesson_id, activity)
-      return { activity, textContent, imageUrl }
-    }),
-  )
+  const { activitiesWithPreview } = await resolveActivityAssets(lesson.lesson_id, orderedActivities)
 
   const unitTitle = unitResult.data?.title ?? lesson.unit_id
 
@@ -240,7 +142,7 @@ export default async function LessonActivitiesOverviewPage({
             </div>
           ) : (
             <ul className="space-y-4">
-              {activitiesWithPreview.map(({ activity, textContent, imageUrl }) => {
+              {activitiesWithPreview.map(({ activity, imageUrl }) => {
                 const stepNumber = activity.orderIndex + 1
                 const displayTitle = activity.title?.trim().length ? activity.title : `Activity ${stepNumber}`
 
@@ -262,23 +164,12 @@ export default async function LessonActivitiesOverviewPage({
                             ) : null}
                           </div>
 
-                          {textContent ? (
-                            <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
-                              {textContent}
-                            </p>
-                          ) : null}
-
-                          {imageUrl ? (
-                            <div className="overflow-hidden rounded-lg border border-border">
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src={imageUrl}
-                                alt={displayTitle}
-                                className="h-auto w-full max-h-[320px] object-cover"
-                                loading="lazy"
-                              />
-                            </div>
-                          ) : null}
+                          <LessonActivityView
+                            mode="short"
+                            activity={activity}
+                            lessonId={lesson.lesson_id}
+                            resolvedImageUrl={imageUrl}
+                          />
                         </div>
                         <ChevronRight className="mt-2 h-5 w-5 shrink-0 text-muted-foreground transition group-hover:text-primary" />
                       </div>

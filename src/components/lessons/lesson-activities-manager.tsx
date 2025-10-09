@@ -25,20 +25,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
-
-interface VoiceBody {
-  audioFile: string | null
-  mimeType?: string | null
-  duration?: number | null
-  size?: number | null
-  [key: string]: unknown
-}
-
-interface ImageBody {
-  imageFile: string | null
-  imageUrl?: string | null
-  [key: string]: unknown
-}
+import {
+  getImageBody,
+  getVoiceBody,
+  isAbsoluteUrl,
+  type ImageBody,
+  type VoiceBody,
+} from "@/components/lessons/activity-view/utils"
+import { LessonActivityView } from "@/components/lessons/activity-view"
 
 interface ActivityFileInfo {
   name: string
@@ -86,7 +80,7 @@ export function LessonActivitiesManager({
   >({})
   const [fileDownloadState, setFileDownloadState] = useState<Record<string, { loading: boolean }>>({})
   const [imagePreviewState, setImagePreviewState] = useState<
-    Record<string, { url: string | null; loading: boolean }>
+    Record<string, { url: string | null; loading: boolean; error: boolean }>
   >({})
   const [homeworkPending, setHomeworkPending] = useState<Record<string, boolean>>({})
   const voiceAudioRef = useRef<HTMLAudioElement | null>(null)
@@ -123,6 +117,7 @@ export function LessonActivitiesManager({
         [activity.activity_id]: {
           url: prev[activity.activity_id]?.url ?? null,
           loading: true,
+          error: false,
         },
       }))
 
@@ -138,6 +133,7 @@ export function LessonActivitiesManager({
             [activity.activity_id]: {
               url: null,
               loading: false,
+              error: true,
             },
           }))
           if (result.error) {
@@ -151,6 +147,7 @@ export function LessonActivitiesManager({
           [activity.activity_id]: {
             url: result.url,
             loading: false,
+            error: false,
           },
         }))
       } catch (error) {
@@ -160,6 +157,7 @@ export function LessonActivitiesManager({
           [activity.activity_id]: {
             url: null,
             loading: false,
+            error: true,
           },
         }))
       }
@@ -171,12 +169,7 @@ export function LessonActivitiesManager({
     const pendingFetches: { activity: LessonActivity; fileName: string }[] = []
 
     setImagePreviewState((prev) => {
-      const next: Record<string, { url: string | null; loading: boolean }> = { ...prev }
-      const isAbsolute = (value: string | null) => {
-        if (!value) return false
-        return /^https?:\/\//i.test(value) || value.startsWith("data:")
-      }
-
+      const next: Record<string, { url: string | null; loading: boolean; error: boolean }> = { ...prev }
       for (const activity of activities) {
         if (activity.type !== "display-image") {
           continue
@@ -186,28 +179,34 @@ export function LessonActivitiesManager({
         const raw = (activity.body_data ?? {}) as Record<string, unknown>
         const rawFileUrl = typeof raw.fileUrl === "string" ? raw.fileUrl : null
 
-        const directUrl = body.imageUrl && isAbsolute(body.imageUrl) ? body.imageUrl : null
-        const fallbackDirect = directUrl || (rawFileUrl && isAbsolute(rawFileUrl) ? rawFileUrl : null)
+        const directUrl = body.imageUrl && isAbsoluteUrl(body.imageUrl) ? body.imageUrl : null
+        const fallbackDirect =
+          directUrl || (rawFileUrl && isAbsoluteUrl(rawFileUrl) ? rawFileUrl : null)
 
-        const fileNameCandidate = body.imageFile && !isAbsolute(body.imageFile) ? body.imageFile : null
-        const fallbackFileName = !fileNameCandidate && rawFileUrl && !isAbsolute(rawFileUrl) ? rawFileUrl : null
+        const fileNameCandidate = body.imageFile && !isAbsoluteUrl(body.imageFile) ? body.imageFile : null
+        const fallbackFileName =
+          !fileNameCandidate && rawFileUrl && !isAbsoluteUrl(rawFileUrl) ? rawFileUrl : null
         const finalFileName = fileNameCandidate ?? fallbackFileName
 
         if (fallbackDirect) {
-          next[activity.activity_id] = { url: fallbackDirect, loading: false }
+          next[activity.activity_id] = { url: fallbackDirect, loading: false, error: false }
           continue
         }
 
         if (finalFileName) {
           const existing = prev[activity.activity_id]
-          if (!existing || (!existing.url && !existing.loading)) {
+          if (!existing || (!existing.url && !existing.loading && !existing.error)) {
             pendingFetches.push({ activity, fileName: finalFileName })
-            next[activity.activity_id] = { url: existing?.url ?? null, loading: true }
+            next[activity.activity_id] = {
+              url: existing?.url ?? null,
+              loading: true,
+              error: false,
+            }
           }
           continue
         }
 
-        next[activity.activity_id] = { url: null, loading: false }
+        next[activity.activity_id] = { url: null, loading: false, error: false }
       }
 
       return next
@@ -319,7 +318,7 @@ export function LessonActivitiesManager({
           setActivities((prev) => sortActivities([...prev, createdActivity]))
           setImagePreviewState((prev) => ({
             ...prev,
-            [createdActivity.activity_id]: { url: null, loading: false },
+            [createdActivity.activity_id]: { url: null, loading: false, error: false },
           }))
           toast.success("Activity created")
           closeEditor()
@@ -422,7 +421,7 @@ export function LessonActivitiesManager({
         )
         setImagePreviewState((prev) => ({
           ...prev,
-          [activityId]: { url: null, loading: false },
+          [activityId]: { url: null, loading: false, error: false },
         }))
         toast.success("Activity updated")
         closeEditor()
@@ -769,7 +768,7 @@ export function LessonActivitiesManager({
                 const imageBody = isDisplayImage ? getImageBody(activity) : null
                 const imageState = isDisplayImage ? imagePreviewState[activity.activity_id] : null
                 const imageThumbnail = isDisplayImage ? imageState?.url ?? imageBody?.imageUrl ?? null : null
-                const isImageLoading = isDisplayImage ? imageState?.loading ?? false : false
+                const hasImageError = isDisplayImage ? imageState?.error ?? false : false
                 const isHomework = activity.is_homework ?? false
                 const homeworkUpdating = homeworkPending[activity.activity_id] ?? false
                 const switchId = `activity-homework-${activity.activity_id}`
@@ -852,9 +851,9 @@ export function LessonActivitiesManager({
                                   loading="lazy"
                                 />
                               </a>
-                            ) : isImageLoading ? (
-                              <div className="flex h-[60px] w-[100px] shrink-0 items-center justify-center rounded-md border border-border bg-muted/30">
-                                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                            ) : hasImageError ? (
+                              <div className="flex h-[60px] w-[100px] shrink-0 items-center justify-center rounded-md border border-destructive bg-destructive/10 text-[11px] text-destructive">
+                                Failed to load
                               </div>
                             ) : (
                               <div className="flex h-[60px] w-[100px] shrink-0 items-center justify-center rounded-md border border-dashed border-border text-[11px] text-muted-foreground">
@@ -924,7 +923,7 @@ export function LessonActivitiesManager({
                         </div>
                       </div>
                     </div>
-                    {renderActivityPreview(activity)}
+                    {renderActivityPreview(activity, imageThumbnail)}
                   </div>
                 </li>
               )
@@ -1074,39 +1073,15 @@ function buildBodyData(
   return fallback ?? null
 }
 
-function renderActivityPreview(activity: LessonActivity) {
-  if (activity.type === "text") {
-    const text = extractText(activity)
-    if (!text) return null
-    return <p className="whitespace-pre-wrap text-sm text-muted-foreground">{text}</p>
-  }
-
-  if (activity.type === "show-video") {
-    const url = extractVideoUrl(activity)
-    if (!url) return null
-    const thumbnail = getYouTubeThumbnailUrl(url)
-    if (thumbnail) {
-      return null
-    }
-    return (
-      <a
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex items-center text-sm font-medium text-primary underline-offset-2 hover:underline break-all"
-      >
-        Watch video
-      </a>
-    )
-  }
-
-  if (activity.type === "upload-file") {
-    const instructions = extractUploadInstructions(activity)
-    if (!instructions) return null
-    return <p className="whitespace-pre-wrap text-sm text-muted-foreground">{instructions}</p>
-  }
-
-  return null
+function renderActivityPreview(activity: LessonActivity, resolvedImageUrl: string | null) {
+  return (
+    <LessonActivityView
+      mode="short"
+      activity={activity}
+      lessonId={activity.lesson_id ?? ""}
+      resolvedImageUrl={resolvedImageUrl ?? null}
+    />
+  )
 }
 
 interface ImageSubmissionPayload {
@@ -1132,59 +1107,6 @@ interface LessonActivityEditorSheetProps {
   }) => void
   unitId: string
   lessonId: string
-}
-
-function getVoiceBody(activity: LessonActivity): VoiceBody {
-  if (!activity.body_data || typeof activity.body_data !== "object") {
-    return { audioFile: null }
-  }
-
-  const body = activity.body_data as Record<string, unknown>
-  const audioFile = typeof body.audioFile === "string" ? body.audioFile : null
-  const mimeType = typeof body.mimeType === "string" ? body.mimeType : null
-  const duration = typeof body.duration === "number" ? body.duration : null
-  const size = typeof body.size === "number" ? body.size : null
-
-  return {
-    ...body,
-    audioFile,
-    mimeType,
-    duration,
-    size,
-  }
-}
-
-function getImageBody(activity: LessonActivity): ImageBody {
-  if (!activity.body_data || typeof activity.body_data !== "object") {
-    return { imageFile: null, imageUrl: null }
-  }
-
-  const body = activity.body_data as Record<string, unknown>
-  const rawImageFile = typeof body.imageFile === "string" ? body.imageFile : null
-  const rawImageUrl = typeof body.imageUrl === "string" ? body.imageUrl : null
-  const rawFileUrl = typeof body.fileUrl === "string" ? body.fileUrl : null
-
-  const isAbsolute = (value: string | null) => {
-    if (!value) return false
-    return /^https?:\/\//i.test(value) || value.startsWith("data:")
-  }
-
-  let imageFile = rawImageFile
-  let imageUrl = rawImageUrl
-
-  if (!imageFile && rawFileUrl && !isAbsolute(rawFileUrl)) {
-    imageFile = rawFileUrl
-  }
-
-  if (!imageUrl && rawFileUrl && isAbsolute(rawFileUrl)) {
-    imageUrl = rawFileUrl
-  }
-
-  return {
-    ...body,
-    imageFile,
-    imageUrl: imageUrl ?? null,
-  }
 }
 
 function LessonActivityEditorSheet({
@@ -1320,11 +1242,6 @@ function LessonActivityEditorSheet({
         typeof nextBody.imageUrl === "string" && nextBody.imageUrl.trim().length > 0
           ? nextBody.imageUrl
           : null
-
-      const isAbsoluteUrl = (value: string | null) => {
-        if (!value) return false
-        return /^https?:\/\//i.test(value) || value.startsWith("data:")
-      }
 
       if (candidateFile && isAbsoluteUrl(candidateFile)) {
         setImagePreviewUrl(candidateFile)
