@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 
 import { requireTeacherProfile } from "@/lib/auth"
 import { readCurriculumDetailAction } from "@/lib/server-actions/curricula"
+import { createExportBasename } from "@/lib/export-utils"
 
 export const runtime = "nodejs"
 
@@ -328,7 +329,7 @@ export async function GET(_: NextRequest, context: { params: RouteParams }) {
   }
 
   const buffer = Buffer.from(await workbook.xlsx.writeBuffer())
-  const filename = `${createFilename(curriculum.title, curriculumId)}.xlsx`
+  const filename = `${createExportBasename(curriculum.title, curriculumId)}.xlsx`
 
   return new NextResponse(buffer, {
     status: 200,
@@ -350,20 +351,4 @@ function buildAssessmentObjectiveLabel(code?: string | null, title?: string | nu
   }
 
   return trimmedCode ?? trimmedTitle ?? "Assessment objective"
-}
-
-function createFilename(title: string, fallbackId: string) {
-  const base = title
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-
-  if (base.length === 0) {
-    return `curriculum-${fallbackId}`
-  }
-
-  return base.slice(0, 80)
 }
