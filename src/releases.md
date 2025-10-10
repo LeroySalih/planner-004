@@ -1,6 +1,9 @@
 # Dino
 ## Releases 
 
+### Release 0.0.10
+- `/pupil-lessons/[pupilId]/lessons/[lessonId]`: Upload activity submissions now save to `lessons/<lessonId>/activities/<activityId>/<pupilId>/<fileName>`, keeping multiple upload steps isolated per lesson.
+
 
 ### Release 0.0.9
 - `/curriculum/[curriculumId]`: Replaced the inline “saving changes” banner with toast notifications so teachers get unobtrusive feedback on curriculum edits.
