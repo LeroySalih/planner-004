@@ -1087,9 +1087,8 @@ export default function CurriculumPrototypeClient({
     <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-6 py-10">
       <div className="space-y-8">
         <header className="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 px-8 py-6 text-white shadow-lg">
-          <p className="text-sm uppercase tracking-wide text-white/70">Curriculum Prototype</p>
+          <p className="text-sm uppercase tracking-wide text-white/70">Curriculum</p>
           <h1 className="text-3xl font-semibold">{curriculumName}</h1>
-          <p className="mt-2 text-sm text-white/80">Prototype view for {curriculum.subject ?? "Unassigned subject"}</p>
         </header>
 
         {unitsError ? (
