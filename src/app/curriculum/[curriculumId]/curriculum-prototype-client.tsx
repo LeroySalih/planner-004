@@ -146,6 +146,7 @@ export default function CurriculumPrototypeClient({
   const [pendingLessonIds, setPendingLessonIds] = useState<Set<string>>(new Set())
   const [selectedCriteriaIds, setSelectedCriteriaIds] = useState<Set<string>>(() => new Set<string>())
   const [isExportingLevels, setIsExportingLevels] = useState(false)
+  const [isExportingUnits, setIsExportingUnits] = useState(false)
 
   const [editingContext, setEditingContext] = useState<
     { aoIndex: number; loIndex: number; criterionId: string } | null
@@ -225,6 +226,53 @@ export default function CurriculumPrototypeClient({
       showToast("error", message)
     } finally {
       setIsExportingLevels(false)
+    }
+  }, [curriculumId, curriculumName, showToast])
+
+  const handleUnitsExport = useCallback(async () => {
+    try {
+      setIsExportingUnits(true)
+
+      const response = await fetch(`/api/curriculum/${curriculumId}/export/units`, {
+        method: "GET",
+        cache: "no-store",
+      })
+
+      if (!response.ok) {
+        let errorMessage = "Failed to export units."
+        try {
+          const payload = await response.json()
+          if (typeof payload?.error === "string") {
+            errorMessage = payload.error
+          }
+        } catch {
+          // Non-JSON error payloads are ignored, fallback message used.
+        }
+        throw new Error(errorMessage)
+      }
+
+      const blob = await response.blob()
+      const downloadUrl = window.URL.createObjectURL(blob)
+      const contentDisposition = response.headers.get("content-disposition") ?? ""
+      const filenameMatch = contentDisposition.match(/filename="([^"]+)"/i)
+      const fallbackFilename = `${createExportBasename(curriculumName, curriculumId, { suffix: "units" })}.docx`
+      const filename = filenameMatch?.[1] ?? fallbackFilename
+
+      const link = document.createElement("a")
+      link.href = downloadUrl
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(downloadUrl)
+
+      showToast("success", "Units export is ready.")
+    } catch (error) {
+      console.error("[curricula] Failed to export units", error)
+      const message = error instanceof Error ? error.message : "Failed to export units."
+      showToast("error", message)
+    } finally {
+      setIsExportingUnits(false)
     }
   }, [curriculumId, curriculumName, showToast])
 
@@ -1732,6 +1780,19 @@ export default function CurriculumPrototypeClient({
             <section className="flex h-[70vh] flex-col overflow-hidden rounded-xl border bg-card shadow-sm">
               <div className="flex items-center justify-between border-b px-5 py-4">
                 <h2 className="text-lg font-semibold">Units Visualization</h2>
+                <button
+                  type="button"
+                  onClick={handleUnitsExport}
+                  disabled={isExportingUnits}
+                  className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isExportingUnits ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4" />
+                  )}
+                  <span>{isExportingUnits ? "Exporting..." : "Export DOCX"}</span>
+                </button>
               </div>
               <div className="border-b px-5 pb-4">
                 <Input
