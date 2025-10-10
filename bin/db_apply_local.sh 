@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# shellcheck source=bin/env_load.sh
+. "$(dirname "$0")/env_load.sh"
+
+# Ensure local stack is up
+supabase start >/dev/null
+
+LOCAL_HOST="${LOCAL_HOST:-127.0.0.1}"
+LOCAL_PORT="${LOCAL_PORT:-54322}"
+LOCAL_DB="${LOCAL_DB:-postgres}"
+LOCAL_USER="${LOCAL_USER:-supabase_admin}"
+LOCAL_PASSWORD="${LOCAL_PASSWORD:-postgres}"
+
+export PGPASSWORD="${LOCAL_PASSWORD}"
+
+psql -h "${LOCAL_HOST}" -p "${LOCAL_PORT}" -U "${LOCAL_USER}" -d "${LOCAL_DB}" \
+  -v ON_ERROR_STOP=1 -1 -f supabase/schemas/prod.sql
+
+echo "✅ Applied supabase/schemas/prod.sql to local ${LOCAL_HOST}:${LOCAL_PORT}/${LOCAL_DB}"
