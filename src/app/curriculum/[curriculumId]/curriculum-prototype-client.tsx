@@ -750,6 +750,8 @@ export default function CurriculumPrototypeClient({
     learningObjectiveId: string,
     loTitle: string,
     successCriteriaForObjective: SuccessCriterion[],
+    assessmentObjectiveId: string,
+    learningObjectiveOrderIndex: number,
   ) => {
     const lesson = lessonState.find((entry) => entry.lesson_id === lessonId)
     if (!lesson) return
@@ -781,9 +783,13 @@ export default function CurriculumPrototypeClient({
             active: true,
             learning_objective: {
               learning_objective_id: learningObjectiveId,
+              assessment_objective_id: assessmentObjectiveId,
               title: loTitle,
+              order_index: learningObjectiveOrderIndex,
+              active: true,
               success_criteria: successCriteriaForObjective.map((criterion) => ({
                 success_criteria_id: criterion.id,
+                learning_objective_id: learningObjectiveId,
                 description: criterion.description,
                 level: criterion.level,
                 order_index: criterion.orderIndex,
@@ -1486,8 +1492,8 @@ export default function CurriculumPrototypeClient({
                                   Add learning objectives to map lessons for this assessment objective.
                                 </td>
                               </tr>
-                            )
-                          }
+  )
+}
 
                           return orderedLessonObjectives.map((lo) => {
                             const rowKey = `mapper-lo-${lo.id}`
@@ -1517,6 +1523,8 @@ export default function CurriculumPrototypeClient({
                                       lo.id,
                                       lo.title,
                                       lo.successCriteria,
+                                      ao.id,
+                                      lo.orderIndex,
                                     )
 
                                   const cellStateClass = lessonHasObjective
@@ -1929,3 +1937,4 @@ export default function CurriculumPrototypeClient({
       ) : null}
     </main>
   )
+}
