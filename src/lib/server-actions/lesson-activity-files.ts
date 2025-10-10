@@ -22,7 +22,7 @@ const ActivityFilesReturnValue = z.object({
 })
 
 function buildDirectory(lessonId: string, activityId: string) {
-  return `${lessonId}/activities/${activityId}`
+  return `lessons/${lessonId}/activities/${activityId}`
 }
 
 function buildFilePath(lessonId: string, activityId: string, fileName: string) {
