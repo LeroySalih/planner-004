@@ -1709,7 +1709,7 @@ export default function CurriculumPrototypeClient({
                               <ul className="mt-2 space-y-1 pl-5 text-sm text-foreground">
                                 {group.items.map((item) => (
                                   <li key={item.id} className="list-disc">
-                                    {item.description} — {item.loTitle}
+                                    {item.description}
                                   </li>
                                 ))}
                               </ul>
