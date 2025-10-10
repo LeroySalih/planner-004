@@ -4,7 +4,7 @@ SET session_replication_role = replica;
 -- PostgreSQL database dump
 --
 
--- \restrict xepchSNs2P7u8oJhTu1dvhXLO8rnhxCBD3Zr6vqniP4RSSrRpPtA0I06KZNNQJD
+-- \restrict AznBZVki5wMdRu8yucj8dT6PVQ6IxciOXq2gZYeE471zy6cgzsvCldtd3OgdyPa
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -710,7 +710,8 @@ INSERT INTO "auth"."audit_log_entries" ("instance_id", "id", "payload", "created
 	('00000000-0000-0000-0000-000000000000', 'f08d7e86-fa94-4ae8-bb41-31e0c5f769af', '{"action":"token_refreshed","actor_id":"50304a54-2c10-44a1-8c87-b3535a960e28","actor_username":"leroysalih@bisak.org","actor_via_sso":false,"log_type":"token"}', '2025-10-09 10:38:23.481469+00', ''),
 	('00000000-0000-0000-0000-000000000000', '984771e4-c401-47b5-9069-2361f2b64153', '{"action":"token_revoked","actor_id":"50304a54-2c10-44a1-8c87-b3535a960e28","actor_username":"leroysalih@bisak.org","actor_via_sso":false,"log_type":"token"}', '2025-10-09 10:38:23.48271+00', ''),
 	('00000000-0000-0000-0000-000000000000', '72139ee5-58a3-43ee-8605-f4ade26d105c', '{"action":"token_refreshed","actor_id":"5a0490f9-9492-4249-b978-22d05612df5c","actor_username":"eboom@bisak.org","actor_via_sso":false,"log_type":"token"}', '2025-10-09 13:46:18.112656+00', ''),
-	('00000000-0000-0000-0000-000000000000', '3c01cccd-a9d3-4e30-a5d7-c9991e6818c2', '{"action":"token_revoked","actor_id":"5a0490f9-9492-4249-b978-22d05612df5c","actor_username":"eboom@bisak.org","actor_via_sso":false,"log_type":"token"}', '2025-10-09 13:46:18.113739+00', '');
+	('00000000-0000-0000-0000-000000000000', '3c01cccd-a9d3-4e30-a5d7-c9991e6818c2', '{"action":"token_revoked","actor_id":"5a0490f9-9492-4249-b978-22d05612df5c","actor_username":"eboom@bisak.org","actor_via_sso":false,"log_type":"token"}', '2025-10-09 13:46:18.113739+00', ''),
+	('00000000-0000-0000-0000-000000000000', 'b3f1e21b-57b4-4a4b-be4b-965dac73fff8', '{"action":"login","actor_id":"50304a54-2c10-44a1-8c87-b3535a960e28","actor_username":"leroysalih@bisak.org","actor_via_sso":false,"log_type":"account","traits":{"provider":"email"}}', '2025-10-10 08:08:44.706509+00', '');
 
 
 --
@@ -759,6 +760,7 @@ INSERT INTO "auth"."users" ("instance_id", "id", "aud", "role", "email", "encryp
 	('00000000-0000-0000-0000-000000000000', '299700ea-30c7-4da4-996b-59f1ad159a19', 'authenticated', 'authenticated', 'ruddin@bisak.org', '$2a$10$WROrYAp0iVse9qtpw4F55.wU9sskwAvSz.zIwYGv7QEZlbvtz6/Xy', '2025-09-28 08:05:45.600595+00', NULL, '', NULL, '', NULL, '', '', NULL, '2025-09-28 08:05:45.603788+00', '{"provider": "email", "providers": ["email"]}', '{"sub": "299700ea-30c7-4da4-996b-59f1ad159a19", "email": "ruddin@bisak.org", "email_verified": true, "phone_verified": false}', NULL, '2025-09-28 08:05:45.595396+00', '2025-09-28 08:05:45.605466+00', NULL, NULL, '', '', NULL, '', 0, NULL, '', NULL, false, NULL, false),
 	('00000000-0000-0000-0000-000000000000', '25e0ec02-c0f2-4a5b-b705-49976155939d', 'authenticated', 'authenticated', 'zsiddiqui@bisak.org', '$2a$10$DQr6rEPaq82BXivQN/w8Uu/f9LElS8QHFhhDAvXUDY7GxqONt3bFq', '2025-09-28 08:04:27.934171+00', NULL, '', NULL, '', NULL, '', '', NULL, '2025-09-28 08:04:27.937534+00', '{"provider": "email", "providers": ["email"]}', '{"sub": "25e0ec02-c0f2-4a5b-b705-49976155939d", "email": "zsiddiqui@bisak.org", "email_verified": true, "phone_verified": false}', NULL, '2025-09-28 08:04:27.929377+00', '2025-09-28 08:04:27.939253+00', NULL, NULL, '', '', NULL, '', 0, NULL, '', NULL, false, NULL, false),
 	('00000000-0000-0000-0000-000000000000', '221ad246-e0a0-4f41-9fce-a245b9a857f7', 'authenticated', 'authenticated', 'rjohnson@bisak.org', '$2a$10$fVy.IZhqhmN.EPhhrZ.mKOPiecsjpxYpp6dR8DwEQH4tuyn0pJVza', '2025-09-28 08:04:44.914642+00', NULL, '', NULL, '', NULL, '', '', NULL, '2025-09-28 08:04:44.917958+00', '{"provider": "email", "providers": ["email"]}', '{"sub": "221ad246-e0a0-4f41-9fce-a245b9a857f7", "email": "rjohnson@bisak.org", "email_verified": true, "phone_verified": false}', NULL, '2025-09-28 08:04:44.909523+00', '2025-09-28 08:04:44.919568+00', NULL, NULL, '', '', NULL, '', 0, NULL, '', NULL, false, NULL, false),
+	('00000000-0000-0000-0000-000000000000', '50304a54-2c10-44a1-8c87-b3535a960e28', 'authenticated', 'authenticated', 'leroysalih@bisak.org', '$2a$10$aDoEsdB1YmESpPvOE/gamOGagkpSfDiLsDOfKpg8mzR0KiExbj9t6', '2025-09-28 12:32:01.584697+00', NULL, '', NULL, '', NULL, '', '', NULL, '2025-10-10 08:08:44.707592+00', '{"provider": "email", "providers": ["email"]}', '{"sub": "50304a54-2c10-44a1-8c87-b3535a960e28", "email": "leroysalih@bisak.org", "email_verified": true, "phone_verified": false}', NULL, '2025-09-28 12:32:01.576666+00', '2025-10-10 08:08:44.710543+00', NULL, NULL, '', '', NULL, '', 0, NULL, '', NULL, false, NULL, false),
 	('00000000-0000-0000-0000-000000000000', 'e67e364e-6521-471f-afad-d1b2002733c7', 'authenticated', 'authenticated', 'sabouelela@bisak.org', '$2a$10$oTmFT3CMx.XEHROnLRf.neU8KGuLJ1qZfIqdDeWxOHDvXDRAPbWF2', '2025-09-28 08:04:43.876622+00', NULL, '', NULL, '', NULL, '', '', NULL, '2025-09-28 08:04:43.879927+00', '{"provider": "email", "providers": ["email"]}', '{"sub": "e67e364e-6521-471f-afad-d1b2002733c7", "email": "sabouelela@bisak.org", "email_verified": true, "phone_verified": false}', NULL, '2025-09-28 08:04:43.869248+00', '2025-09-28 08:04:43.881682+00', NULL, NULL, '', '', NULL, '', 0, NULL, '', NULL, false, NULL, false),
 	('00000000-0000-0000-0000-000000000000', '2ec08e87-597a-4c62-91f5-7611d54019f7', 'authenticated', 'authenticated', 'speterson@bisak.org', '$2a$10$.iuShD8WaWh4IlWQY99er.JXWjOynLEVJCbICtZ/CvI7XF6PlXfg2', '2025-09-28 08:04:31.226332+00', NULL, '', NULL, '', NULL, '', '', NULL, '2025-09-28 08:04:31.229432+00', '{"provider": "email", "providers": ["email"]}', '{"sub": "2ec08e87-597a-4c62-91f5-7611d54019f7", "email": "speterson@bisak.org", "email_verified": true, "phone_verified": false}', NULL, '2025-09-28 08:04:31.221538+00', '2025-09-28 08:04:31.231044+00', NULL, NULL, '', '', NULL, '', 0, NULL, '', NULL, false, NULL, false),
 	('00000000-0000-0000-0000-000000000000', '693e7720-4a1b-4379-993d-4a99b1ab4c15', 'authenticated', 'authenticated', 'lmahmoud@bisak.org', '$2a$10$J3C9yijxb/YTkodxkFjY6.WQDGokPTO1euBrcnSJT4Zk5G8TdfKUu', '2025-09-28 08:05:29.925555+00', NULL, '', NULL, '', NULL, '', '', NULL, '2025-09-28 08:05:29.929139+00', '{"provider": "email", "providers": ["email"]}', '{"sub": "693e7720-4a1b-4379-993d-4a99b1ab4c15", "email": "lmahmoud@bisak.org", "email_verified": true, "phone_verified": false}', NULL, '2025-09-28 08:05:29.918854+00', '2025-09-28 08:05:29.931033+00', NULL, NULL, '', '', NULL, '', 0, NULL, '', NULL, false, NULL, false),
@@ -767,7 +769,6 @@ INSERT INTO "auth"."users" ("instance_id", "id", "aud", "role", "email", "encryp
 	('00000000-0000-0000-0000-000000000000', '9bfaa2e6-87ca-423c-af3a-b29b40f5f5db', 'authenticated', 'authenticated', 'halhaddad@bisak.org', '$2a$10$HDfM7J7O0jdlwzDwlsPCg.qrhEHd96hFJuLZxRVwfe0fMLu0S5E9S', '2025-09-28 08:04:45.98081+00', NULL, '', NULL, '', NULL, '', '', NULL, '2025-09-28 08:04:45.984079+00', '{"provider": "email", "providers": ["email"]}', '{"sub": "9bfaa2e6-87ca-423c-af3a-b29b40f5f5db", "email": "halhaddad@bisak.org", "email_verified": true, "phone_verified": false}', NULL, '2025-09-28 08:04:45.976137+00', '2025-09-28 08:04:45.985686+00', NULL, NULL, '', '', NULL, '', 0, NULL, '', NULL, false, NULL, false),
 	('00000000-0000-0000-0000-000000000000', '69c807fb-46f0-4f30-a711-5cdb092dd602', 'authenticated', 'authenticated', 'sleroy@bisak.org', '$2a$10$AEgGdqFCh/c0vxeI/pgj6.ROsTIW6yqlkVwiMZEClMeLcogTOFKt.', '2025-09-28 13:22:29.935547+00', NULL, '', NULL, '', NULL, '', '', NULL, '2025-09-28 16:59:55.89592+00', '{"provider": "email", "providers": ["email"]}', '{"sub": "69c807fb-46f0-4f30-a711-5cdb092dd602", "email": "sleroy@bisak.org", "email_verified": true, "phone_verified": false}', NULL, '2025-09-28 13:22:29.928221+00', '2025-09-28 16:59:55.898195+00', NULL, NULL, '', '', NULL, '', 0, NULL, '', NULL, false, NULL, false),
 	('00000000-0000-0000-0000-000000000000', 'a5121160-1fcd-4a2f-86d5-e5e018b4a2a5', 'authenticated', 'authenticated', 'ptest@bisak.org', '$2a$10$guAlH2bqRcqpA1GMcI3CS.kjlfazpkvtu3m4fEUnm7LftAxLlGHWe', '2025-09-28 18:19:10.478509+00', NULL, '', NULL, '', NULL, '', '', NULL, '2025-09-28 18:19:10.483057+00', '{"provider": "email", "providers": ["email"]}', '{"sub": "a5121160-1fcd-4a2f-86d5-e5e018b4a2a5", "email": "ptest@bisak.org", "email_verified": true, "phone_verified": false}', NULL, '2025-09-28 18:19:10.470855+00', '2025-09-28 18:19:10.485003+00', NULL, NULL, '', '', NULL, '', 0, NULL, '', NULL, false, NULL, false),
-	('00000000-0000-0000-0000-000000000000', '50304a54-2c10-44a1-8c87-b3535a960e28', 'authenticated', 'authenticated', 'leroysalih@bisak.org', '$2a$10$aDoEsdB1YmESpPvOE/gamOGagkpSfDiLsDOfKpg8mzR0KiExbj9t6', '2025-09-28 12:32:01.584697+00', NULL, '', NULL, '', NULL, '', '', NULL, '2025-10-09 04:11:07.957443+00', '{"provider": "email", "providers": ["email"]}', '{"sub": "50304a54-2c10-44a1-8c87-b3535a960e28", "email": "leroysalih@bisak.org", "email_verified": true, "phone_verified": false}', NULL, '2025-09-28 12:32:01.576666+00', '2025-10-09 10:38:23.48559+00', NULL, NULL, '', '', NULL, '', 0, NULL, '', NULL, false, NULL, false),
 	('00000000-0000-0000-0000-000000000000', '6df706e1-deb4-4548-81cc-82d2fd481c05', 'authenticated', 'authenticated', 'melshiekh@bisak.org', '$2a$10$GFpF5W44rHpZCu/z5qJnPu6ROjI5CYSDOyphOHY1hyVXmp.VrKje.', '2025-09-29 05:48:32.449899+00', NULL, '', NULL, '', NULL, '', '', NULL, '2025-09-29 05:48:32.455455+00', '{"provider": "email", "providers": ["email"]}', '{"sub": "6df706e1-deb4-4548-81cc-82d2fd481c05", "email": "melshiekh@bisak.org", "email_verified": true, "phone_verified": false}', NULL, '2025-09-29 05:48:32.442224+00', '2025-09-29 05:48:32.457589+00', NULL, NULL, '', '', NULL, '', 0, NULL, '', NULL, false, NULL, false),
 	('00000000-0000-0000-0000-000000000000', '5a2b3e7a-2276-43b0-8bde-bec7677c3ed2', 'authenticated', 'authenticated', 'hnoor@bisak.org', '$2a$10$4UcwHOYBT/9ePuz9cSYbRukUxLtKPup93OKyOMPslLp0apUW2Stv2', '2025-09-29 05:48:36.585637+00', NULL, '', NULL, '', NULL, '', '', NULL, '2025-09-29 05:48:36.589089+00', '{"provider": "email", "providers": ["email"]}', '{"sub": "5a2b3e7a-2276-43b0-8bde-bec7677c3ed2", "email": "hnoor@bisak.org", "email_verified": true, "phone_verified": false}', NULL, '2025-09-29 05:48:36.580416+00', '2025-09-29 05:48:36.590761+00', NULL, NULL, '', '', NULL, '', 0, NULL, '', NULL, false, NULL, false),
 	('00000000-0000-0000-0000-000000000000', '7ce65557-6f3b-4637-b771-b903f70ab024', 'authenticated', 'authenticated', 'shaouari@bisak.org', '$2a$10$Vi5o29l.N0ga7bjs8WY3bu9Yi5NUnv1xi7apUZQxDEhkgnqjnliHO', '2025-09-29 05:48:44.219847+00', NULL, '', NULL, '', NULL, '', '', NULL, '2025-09-29 05:48:44.223169+00', '{"provider": "email", "providers": ["email"]}', '{"sub": "7ce65557-6f3b-4637-b771-b903f70ab024", "email": "shaouari@bisak.org", "email_verified": true, "phone_verified": false}', NULL, '2025-09-29 05:48:44.214914+00', '2025-09-29 05:48:44.224772+00', NULL, NULL, '', '', NULL, '', 0, NULL, '', NULL, false, NULL, false),
@@ -995,7 +996,8 @@ INSERT INTO "auth"."sessions" ("id", "user_id", "created_at", "updated_at", "fac
 	('8e64e316-873a-4120-b4d1-bbd448ebad64', 'cf469225-6736-45e1-8653-81a487bef9fd', '2025-10-09 06:49:48.58538+00', '2025-10-09 06:49:48.58538+00', NULL, 'aal1', NULL, NULL, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36', '143.92.233.21', NULL),
 	('d24540a3-b646-4ac2-8bf3-4358eda0a2ca', '2a93e990-de8d-4198-a28a-f9e03f63d0f1', '2025-10-09 06:56:58.953565+00', '2025-10-09 06:56:58.953565+00', NULL, 'aal1', NULL, NULL, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36', '178.80.43.35', NULL),
 	('a7359ae9-0be3-4a0b-9b47-d1b02914e763', '50304a54-2c10-44a1-8c87-b3535a960e28', '2025-10-09 04:11:07.957525+00', '2025-10-09 10:38:23.487253+00', NULL, 'aal1', NULL, '2025-10-09 10:38:23.487177', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36', '167.100.229.127', NULL),
-	('1d397afc-c73c-4193-ab93-695962763c62', '5a0490f9-9492-4249-b978-22d05612df5c', '2025-10-09 06:47:40.877733+00', '2025-10-09 13:46:18.118337+00', NULL, 'aal1', NULL, '2025-10-09 13:46:18.118251', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36', '146.70.179.101', NULL);
+	('1d397afc-c73c-4193-ab93-695962763c62', '5a0490f9-9492-4249-b978-22d05612df5c', '2025-10-09 06:47:40.877733+00', '2025-10-09 13:46:18.118337+00', NULL, 'aal1', NULL, '2025-10-09 13:46:18.118251', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36', '146.70.179.101', NULL),
+	('4796a492-6d4e-4d9e-b00f-9b7ba1813377', '50304a54-2c10-44a1-8c87-b3535a960e28', '2025-10-10 08:08:44.707681+00', '2025-10-10 08:08:44.707681+00', NULL, 'aal1', NULL, NULL, 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36', '128.234.121.248', NULL);
 
 
 --
@@ -1047,6 +1049,7 @@ INSERT INTO "auth"."mfa_amr_claims" ("session_id", "created_at", "updated_at", "
 	('8893f3c3-20ff-4777-8ddc-5f292352a386', '2025-09-28 08:07:05.983628+00', '2025-09-28 08:07:05.983628+00', 'password', 'a885a4ad-82a5-4d3f-92f2-b4cd0aa303d9'),
 	('4b1ecfee-f270-4d99-97b9-22032fae1899', '2025-09-29 06:00:22.97748+00', '2025-09-29 06:00:22.97748+00', 'password', '21e59852-8da6-4f79-b94e-7c72a7d82d33'),
 	('d24540a3-b646-4ac2-8bf3-4358eda0a2ca', '2025-10-09 06:56:58.956941+00', '2025-10-09 06:56:58.956941+00', 'password', '24c1de5e-cf5f-459e-b85a-29084e1b1032'),
+	('4796a492-6d4e-4d9e-b00f-9b7ba1813377', '2025-10-10 08:08:44.711269+00', '2025-10-10 08:08:44.711269+00', 'password', 'f4678dd2-f1c0-4f86-b505-348514edbe6c'),
 	('b2ca3200-7f83-4855-9f06-910cf1f7bb74', '2025-10-06 05:07:42.912814+00', '2025-10-06 05:07:42.912814+00', 'password', '3f6e169f-3760-4332-b7a4-cf7fc2d79c42'),
 	('a65ebaf8-c281-4b45-9d16-849456245c77', '2025-10-06 05:07:59.514754+00', '2025-10-06 05:07:59.514754+00', 'password', '2349056c-6a5a-4248-a25c-b860bb646f44'),
 	('2b906ae9-9b25-48c1-accf-6c3581750eb7', '2025-10-06 05:08:06.564146+00', '2025-10-06 05:08:06.564146+00', 'password', '9836a38e-7ae6-495d-a416-785f0ab75175'),
@@ -1135,6 +1138,7 @@ INSERT INTO "auth"."refresh_tokens" ("instance_id", "id", "token", "user_id", "r
 	('00000000-0000-0000-0000-000000000000', 230, 'n23v5lktunzl', '50174a72-4c63-464e-bc8f-76d0cdb9caf0', false, '2025-10-06 05:08:06.562829+00', '2025-10-06 05:08:06.562829+00', NULL, '2b906ae9-9b25-48c1-accf-6c3581750eb7'),
 	('00000000-0000-0000-0000-000000000000', 275, '33lf4cvyf6oa', '50304a54-2c10-44a1-8c87-b3535a960e28', false, '2025-10-09 10:38:23.484237+00', '2025-10-09 10:38:23.484237+00', 'z6uvggitilsf', 'a7359ae9-0be3-4a0b-9b47-d1b02914e763'),
 	('00000000-0000-0000-0000-000000000000', 263, 'jmofkmtmp5va', '5a0490f9-9492-4249-b978-22d05612df5c', true, '2025-10-09 06:47:40.87837+00', '2025-10-09 13:46:18.114469+00', NULL, '1d397afc-c73c-4193-ab93-695962763c62'),
+	('00000000-0000-0000-0000-000000000000', 277, '362nlfoqvcll', '50304a54-2c10-44a1-8c87-b3535a960e28', false, '2025-10-10 08:08:44.708922+00', '2025-10-10 08:08:44.708922+00', NULL, '4796a492-6d4e-4d9e-b00f-9b7ba1813377'),
 	('00000000-0000-0000-0000-000000000000', 236, 'qmsltgfvvgl2', '7fe51a55-fa11-4763-b075-acbf88b2fba3', false, '2025-10-06 05:10:15.333594+00', '2025-10-06 05:10:15.333594+00', NULL, '6601e09b-19b4-4069-8c72-4cb878c761ec');
 
 
@@ -1208,7 +1212,7 @@ INSERT INTO "public"."lessons" ("lesson_id", "unit_id", "title", "active", "orde
 	('0a8d6d77-4479-4998-9a41-98e674ead134', '701-ISOMETRIC-SKETCHING', 'Practice Lesson', true, 1),
 	('fb2eb631-0dda-4b84-b5b2-5c5d7afeae2e', '701-ISOMETRIC-SKETCHING', '3 – Solids: Prisms and Pyramids', true, 3),
 	('5b4f0a5e-d001-443d-a141-1605d5f5d831', '701-ISOMETRIC-SKETCHING', '2 – Adding and Subtracting Shapes', true, 2),
-	('894d0db3-8267-419c-b809-7d602f4837ae', '10-2-ONSHAPE-BASIC-SKILLS', 'OnShape Extrusions', true, 2),
+	('8115af17-90c5-4e35-aa58-722afd856ace', '10-2-ONSHAPE-BASIC-SKILLS', 'OnShape Extrustions - Ex 1', true, 3),
 	('b576b985-26c9-4f86-a465-b683d657f5d7', 'CATS', 'CATS Session 2', true, 16),
 	('1250315e-5053-4f99-804c-40561ecbc346', 'UNIT001', 'l2', true, 1),
 	('2b797faf-8639-4551-a3ad-bad3a8c2799c', 'UNIT001', 'L3', true, 2),
@@ -1227,18 +1231,16 @@ INSERT INTO "public"."lessons" ("lesson_id", "unit_id", "title", "active", "orde
 	('726e9467-3e08-4e30-b06c-ac603a576e3d', '801-CANDLE-HOLDER', 'Evaluate', true, 8),
 	('7b7d9425-e54b-4fa9-95ac-dc71b7ec46c3', '1001-CORE-1', 'Emerging Technology', true, 22),
 	('26d09acd-24fd-40d5-b631-457ae13dded3', '1001-CORE-1', 'Emerging Technology Assessment', true, 23),
-	('8115af17-90c5-4e35-aa58-722afd856ace', '10-2-ONSHAPE-BASIC-SKILLS', 'OnShape Extrustions - Ex 1', true, 3),
+	('3a5487f9-7e76-4d97-b452-094b4409d560', '10-2-ONSHAPE-BASIC-SKILLS', 'OnShape Planes', true, 7),
 	('65871063-5469-4da7-bf88-dc3af13a522c', '801-CANDLE-HOLDER', 'Writing a Design Specification', false, 11),
 	('07bf233b-a07f-426b-948d-486cbb43b204', '801-CANDLE-HOLDER', 'Des: Ideation - Initial Ideas', true, 3),
-	('e6e4e70d-8fcf-4e7b-bbfe-8b37b5712886', '10-2-ONSHAPE-BASIC-SKILLS', 'OnShape 3D tools', true, 4),
 	('47cbfb42-2e8d-4ee7-ac0e-b732f95ab8c1', 'UNIT004', 'Des: Flat Prototype', true, 3),
-	('bde9f1d5-c81b-4639-9efe-18d05a3a132f', '10-2-ONSHAPE-BASIC-SKILLS', 'OnShape Boolean Tools', true, 5),
 	('513d5ef7-b6a4-4c2c-b5c1-3cca7aef38cc', '801-CANDLE-HOLDER', 'Inv: Structures in Design: Slots, Tabs & Stability', true, 0),
 	('f525bbed-179b-4ec0-a60b-1d8e9ec8c575', 'NEW-UNIT', 'Test', true, 7),
 	('abccd308-abc1-4433-ac35-207d0c2a3dbc', '1001-CORE-1', 'Smart & Composite materials and technical textiles - Overview.', true, 24),
 	('a6f08b0a-115e-4b3a-97e8-7a0a4533d017', 'DT-INDUCTION', 'DT Induction', false, 10),
 	('a95b9992-5eab-4720-850c-164062a036a5', '1001-CORE-1', 'Smart Materials', true, 25),
-	('8d96130b-2336-46a1-a214-73ec4e7e980d', 'DT-INDUCTION', 'DT Induction Lesson', true, 9),
+	('db7a9daa-f08a-4776-b60e-21cb06a25333', '10-2-ONSHAPE-BASIC-SKILLS', 'Onshape Introduction', true, 0),
 	('879a4c7f-9a62-41d5-ac4f-5d8dbfc59d94', 'DT-INDUCTION-KS4', 'DT Induction to KS4', true, 11),
 	('79315679-c71e-4998-a121-3464829aaff1', '801-CANDLE-HOLDER', 'Inv: Investigating existing designs', true, 1),
 	('a1cad678-35ea-4a5b-b799-12ac2eb7c51f', '701-ISOMETRIC-SKETCHING', '6-Assessment', true, 6),
@@ -1254,18 +1256,20 @@ INSERT INTO "public"."lessons" ("lesson_id", "unit_id", "title", "active", "orde
 	('0b4d75e6-162d-4513-aca7-4ed842aa2f8d', 'UNIT004', 'Make:', true, 6),
 	('bdd6500e-cdfa-475e-9f33-496b5daf98b9', 'UNIT004', 'Make: Lightburn', true, 7),
 	('96f9a9a3-20ad-4166-8368-33919a235436', 'UNIT004', 'Evaluate', true, 8),
-	('467a1b3c-20a4-4960-8d2e-7b163c0821d4', '10-2-ONSHAPE-BASIC-SKILLS', 'OnShape Variables', true, 6),
+	('8265e3e2-cd36-49dd-ba4f-66e6a95cdef5', '10-2-ONSHAPE-BASIC-SKILLS', 'OnShape 2D Basic Sketches', true, 1),
 	('ba6232e8-d343-4583-9f6a-3cf3c8602de2', '801-CANDLE-HOLDER', 'Des: Prototype Candle Handle', true, 4),
 	('57f6e550-c3a0-40ab-a655-b04d9d957b43', '801-CANDLE-HOLDER', 'Make: Using Lightburn', true, 5),
 	('a4b64a59-c06d-46af-ba54-d225fe038340', '801-CANDLE-HOLDER', 'Make: Assemble', true, 6),
 	('0fb3433e-c64c-425f-b1e3-02d3eac7336c', '801-CANDLE-HOLDER', 'Make: Finishing', true, 7),
 	('0556b2f1-06f2-4270-b3bb-1e37779145a5', 'UNIT004', 'Inv: Posca Colour Grid', true, 9),
 	('4c6ae118-4296-4830-a82a-aba00760e314', 'UNIT004', 'Des:Initial Designs', true, 2),
-	('db7a9daa-f08a-4776-b60e-21cb06a25333', '10-2-ONSHAPE-BASIC-SKILLS', 'Onshape Introduction', true, 0),
-	('8265e3e2-cd36-49dd-ba4f-66e6a95cdef5', '10-2-ONSHAPE-BASIC-SKILLS', 'OnShape 2D Basic Sketches', true, 1),
-	('3a5487f9-7e76-4d97-b452-094b4409d560', '10-2-ONSHAPE-BASIC-SKILLS', 'OnShape Planes', true, 7),
+	('e6e4e70d-8fcf-4e7b-bbfe-8b37b5712886', '10-2-ONSHAPE-BASIC-SKILLS', 'OnShape 3D tools', true, 4),
+	('bde9f1d5-c81b-4639-9efe-18d05a3a132f', '10-2-ONSHAPE-BASIC-SKILLS', 'OnShape Boolean Tools', true, 5),
+	('467a1b3c-20a4-4960-8d2e-7b163c0821d4', '10-2-ONSHAPE-BASIC-SKILLS', 'OnShape Variables', true, 6),
 	('20404875-be5c-42c9-9023-ed4539b45f1c', '10-2-ONSHAPE-BASIC-SKILLS', 'Make a Box', true, 8),
-	('92a3d29d-8cb4-464f-8f67-83c7f8f4aba3', '10-01-ICT-DIGITAL-DEVICES', 'Lesson 1 - Types of Digital Device', true, 29);
+	('92a3d29d-8cb4-464f-8f67-83c7f8f4aba3', '10-01-ICT-DIGITAL-DEVICES', 'Lesson 1 - Types of Digital Device', true, 29),
+	('8d96130b-2336-46a1-a214-73ec4e7e980d', 'DT-INDUCTION', 'DT Induction Lesson', true, 9),
+	('894d0db3-8267-419c-b809-7d602f4837ae', '10-2-ONSHAPE-BASIC-SKILLS', 'OnShape Extrusions', true, 2);
 
 
 --
@@ -2012,7 +2016,6 @@ INSERT INTO "public"."lesson_links" ("lesson_link_id", "lesson_id", "url", "desc
 --
 
 INSERT INTO "public"."lessons_learning_objective" ("learning_objective_id", "lesson_id", "order_index", "title", "active", "order_by") VALUES
-	('51f016ec-d795-4dae-bd45-e9b6d2731da6', '8d96130b-2336-46a1-a214-73ec4e7e980d', 0, 'DT Induction Lesson', true, 0),
 	('51f016ec-d795-4dae-bd45-e9b6d2731da6', '879a4c7f-9a62-41d5-ac4f-5d8dbfc59d94', 0, 'DT Induction to KS4', true, 0),
 	('bae2ae66-9237-47b2-bbf0-2eee71ba2d27', 'a1cad678-35ea-4a5b-b799-12ac2eb7c51f', 0, '6-Assessment', true, 0),
 	('e9d2203e-2854-486f-a9bf-9dacb37d8035', 'a1cad678-35ea-4a5b-b799-12ac2eb7c51f', 0, '6-Assessment', true, 1),
@@ -2023,16 +2026,12 @@ INSERT INTO "public"."lessons_learning_objective" ("learning_objective_id", "les
 	('bae2ae66-9237-47b2-bbf0-2eee71ba2d27', '0a8d6d77-4479-4998-9a41-98e674ead134', 0, 'Practice Lesson', true, 0),
 	('5572f4d9-1904-4a79-a462-684677c1c950', 'fb2eb631-0dda-4b84-b5b2-5c5d7afeae2e', 0, '3 – Solids: Prisms and Pyramids', true, 0),
 	('e9d2203e-2854-486f-a9bf-9dacb37d8035', '5b4f0a5e-d001-443d-a141-1605d5f5d831', 0, '2 – Adding and Subtracting Shapes', true, 0),
-	('c00e9974-47b9-47e8-a757-df111e41c9a6', 'db7a9daa-f08a-4776-b60e-21cb06a25333', 0, 'Onshape Introduction', true, 0),
-	('c00e9974-47b9-47e8-a757-df111e41c9a6', '8265e3e2-cd36-49dd-ba4f-66e6a95cdef5', 0, 'OnShape Sketches', true, 0),
-	('ca58a8a2-dddd-4842-b799-3cb52bf5ae09', '894d0db3-8267-419c-b809-7d602f4837ae', 0, 'OnShape Extrusions', true, 0),
 	('76db4bbb-e19d-4258-95b2-8b550ada9199', 'cedd9f2e-34c0-46ed-88a5-a3fdfd9fc7cf', 0, 'Induction 1', true, 0),
 	('76db4bbb-e19d-4258-95b2-8b550ada9199', '0c60fa60-a7ed-47f5-822e-94b3a02dc3a2', 0, 'Induction 2', true, 0),
 	('4da307cc-d611-4088-a03a-0624faa6b19c', 'a95b9992-5eab-4720-850c-164062a036a5', 0, 'Smart Materials', true, 0),
 	('bae2ae66-9237-47b2-bbf0-2eee71ba2d27', 'ca8445e2-364b-410d-922f-57c1c2f9bf44', 0, '1 – Cubes and Cuboids', true, 0),
 	('f08a310a-707d-489e-a20b-8f3faf7531e8', 'a433c9cb-aee5-4280-9b25-62a43ae4a53e', 0, 'Investigate History', true, 0),
 	('ca2438ad-4506-4433-98ae-88ec599dcf50', '9d3dd129-0a25-4f9e-a793-7a6edb45518e', 0, 'Investigate Cams, Followers and Rockers', true, 0),
-	('ca58a8a2-dddd-4842-b799-3cb52bf5ae09', 'e6e4e70d-8fcf-4e7b-bbfe-8b37b5712886', 0, 'OnShape 3D tools', true, 0),
 	('68b6deef-b853-4216-81c8-67b97f5957fe', '85bf23e8-0031-46dc-948e-cb5c6a9143d4', 0, 'Energy Generation Assessment', true, 0),
 	('00197581-b55c-4569-aa1a-f7e627519d4a', '85bf23e8-0031-46dc-948e-cb5c6a9143d4', 0, 'Energy Generation Assessment', true, 1),
 	('071a529f-ece6-4c63-8880-ee7e3adbec2d', '85bf23e8-0031-46dc-948e-cb5c6a9143d4', 0, 'Energy Generation Assessment', true, 2),
@@ -2044,7 +2043,6 @@ INSERT INTO "public"."lessons_learning_objective" ("learning_objective_id", "les
 	('4b12c990-0712-44d0-ac6d-c7aa20f4d9e0', '42dbd5b1-162c-4c27-9547-79eb39b34b4d', 0, 'Technical Textiles', true, 0),
 	('4f5ee621-f38c-4086-b81a-9b1321e0fc26', '7b7d9425-e54b-4fa9-95ac-dc71b7ec46c3', 0, 'Emerging Technology', true, 0),
 	('4f5ee621-f38c-4086-b81a-9b1321e0fc26', '26d09acd-24fd-40d5-b631-457ae13dded3', 0, 'Emerging Technology Assessment', true, 0),
-	('ca58a8a2-dddd-4842-b799-3cb52bf5ae09', '8115af17-90c5-4e35-aa58-722afd856ace', 0, 'OnShape Extrustions - Ex 1', true, 0),
 	('4da307cc-d611-4088-a03a-0624faa6b19c', 'abccd308-abc1-4433-ac35-207d0c2a3dbc', 0, 'Smart & Composite materials and technical textiles.', true, 0),
 	('be57b13f-0670-4a5d-965b-81ac7d96db10', 'abccd308-abc1-4433-ac35-207d0c2a3dbc', 0, 'Smart & Composite materials and technical textiles.', true, 1),
 	('4b12c990-0712-44d0-ac6d-c7aa20f4d9e0', 'abccd308-abc1-4433-ac35-207d0c2a3dbc', 0, 'Smart & Composite materials and technical textiles - Overview.', true, 2),
@@ -2062,7 +2060,8 @@ INSERT INTO "public"."lessons_learning_objective" ("learning_objective_id", "les
 	('79fa10e0-9e6a-4665-b62a-6a6877ca0b67', '07bf233b-a07f-426b-948d-486cbb43b204', 0, 'Des: Ideation - Initial Ideas', true, 0),
 	('79fa10e0-9e6a-4665-b62a-6a6877ca0b67', '4c6ae118-4296-4830-a82a-aba00760e314', 0, 'Des:Initial Designs', true, 0),
 	('e08c9f58-4420-4aed-9fdb-f16efaa398b5', '92a3d29d-8cb4-464f-8f67-83c7f8f4aba3', 0, 'Lesson 1 - Types of Digital Device', true, 0),
-	('c75ce05e-0b46-4b3d-8150-5ab27bba2cb9', '92a3d29d-8cb4-464f-8f67-83c7f8f4aba3', 0, 'Lesson 1 - Types of Digital Device', true, 1);
+	('c75ce05e-0b46-4b3d-8150-5ab27bba2cb9', '92a3d29d-8cb4-464f-8f67-83c7f8f4aba3', 0, 'Lesson 1 - Types of Digital Device', true, 1),
+	('51f016ec-d795-4dae-bd45-e9b6d2731da6', '8d96130b-2336-46a1-a214-73ec4e7e980d', 0, 'DT Induction Lesson', true, 0);
 
 
 --
@@ -2412,7 +2411,7 @@ INSERT INTO "storage"."prefixes" ("bucket_id", "name", "created_at", "updated_at
 -- Name: refresh_tokens_id_seq; Type: SEQUENCE SET; Schema: auth; Owner: supabase_auth_admin
 --
 
-SELECT pg_catalog.setval('"auth"."refresh_tokens_id_seq"', 276, true);
+SELECT pg_catalog.setval('"auth"."refresh_tokens_id_seq"', 277, true);
 
 
 --
@@ -2426,6 +2425,6 @@ SELECT pg_catalog.setval('"public"."feedback_id_seq"', 634, true);
 -- PostgreSQL database dump complete
 --
 
--- \unrestrict xepchSNs2P7u8oJhTu1dvhXLO8rnhxCBD3Zr6vqniP4RSSrRpPtA0I06KZNNQJD
+-- \unrestrict AznBZVki5wMdRu8yucj8dT6PVQ6IxciOXq2gZYeE471zy6cgzsvCldtd3OgdyPa
 
 RESET ALL;
