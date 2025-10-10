@@ -19,7 +19,7 @@
   "db:dump:data": "bash ./bin/db_dump_data.sh",
 
   "db:sync": "bash -c './bin/db_dump_schema.sh && ./bin/db_apply_local.sh && mkdir -p supabase/migrations && touch supabase/migrations/00000000000000__baseline.sql && echo Baseline created'",
-
+  
   "dev:fresh": "bash -c './bin/dev_db_sync.sh && next dev --turbopack'",
   "dev:fresh:data": "bash -c 'DEV_IMPORT_DATA=1 ./bin/dev_db_sync.sh && next dev --turbopack'",
 
