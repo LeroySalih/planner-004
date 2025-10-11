@@ -4,14 +4,18 @@ import { useEffect, useMemo, useState } from "react"
 import type { LessonActivity } from "@/types"
 import { ActivityImagePreview } from "@/components/lessons/activity-image-preview"
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 import {
   getActivityFileUrlValue,
   getActivityTextValue,
   getImageBody,
+  getMcqBody,
+  getRichTextMarkup,
   getVoiceBody,
   isAbsoluteUrl,
 } from "@/components/lessons/activity-view/utils"
 import { getActivityFileDownloadUrlAction } from "@/lib/server-updates"
+import { CheckCircle2, Eye, EyeOff } from "lucide-react"
 
 export type LessonActivityViewMode = "short" | "present" | "edit"
 
@@ -38,6 +42,7 @@ export interface LessonActivityPresentViewProps extends LessonActivityViewBasePr
   onDownloadFile: (fileName: string) => void
   voicePlayback?: { url: string | null; isLoading: boolean }
   fetchActivityFileUrl?: (activityId: string, fileName: string) => Promise<string | null>
+  viewerCanReveal?: boolean
 }
 
 export interface LessonActivityEditViewProps extends LessonActivityViewBaseProps {
@@ -85,6 +90,24 @@ function ActivityShortView({ activity, lessonId, resolvedImageUrl, showImageBord
         className="prose prose-sm max-w-none text-muted-foreground"
         dangerouslySetInnerHTML={{ __html: markup }}
       />
+    )
+  }
+
+  if (activity.type === "multiple-choice-question") {
+    const mcq = getMcqBody(activity)
+    const markup = getRichTextMarkup(mcq.question)
+    if (!markup) {
+      return <p className="text-sm text-muted-foreground">Multiple choice question awaiting setup.</p>
+    }
+
+    return (
+      <div className="space-y-1">
+        <p className="text-xs font-semibold uppercase tracking-wide text-primary">Multiple choice</p>
+        <div
+          className="prose prose-sm line-clamp-3 max-w-none text-muted-foreground"
+          dangerouslySetInnerHTML={{ __html: markup }}
+        />
+      </div>
     )
   }
 
@@ -292,12 +315,189 @@ function DisplayImageShortView({
   )
 }
 
+function McqPresentView({
+  activity,
+  fetchActivityFileUrl,
+  canReveal = false,
+}: {
+  activity: LessonActivity
+  fetchActivityFileUrl?: (activityId: string, fileName: string) => Promise<string | null>
+  canReveal?: boolean
+}) {
+  const mcq = getMcqBody(activity)
+  const [imageState, setImageState] = useState<{
+    url: string | null
+    loading: boolean
+    error: string | null
+  }>({ url: null, loading: false, error: null })
+  const [isRevealed, setIsRevealed] = useState(false)
+
+  useEffect(() => {
+    setIsRevealed(false)
+  }, [activity.activity_id])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const directUrl =
+      mcq.imageUrl && isAbsoluteUrl(mcq.imageUrl) ? mcq.imageUrl : null
+
+    if (directUrl) {
+      setImageState({ url: directUrl, loading: false, error: null })
+      return () => {
+        cancelled = true
+      }
+    }
+
+    const fileName =
+      mcq.imageFile && !isAbsoluteUrl(mcq.imageFile) ? mcq.imageFile : null
+
+    if (!fileName) {
+      setImageState({ url: null, loading: false, error: null })
+      return () => {
+        cancelled = true
+      }
+    }
+
+    if (!fetchActivityFileUrl) {
+      setImageState({
+        url: null,
+        loading: false,
+        error: "Upload handling is not available for this image.",
+      })
+      return () => {
+        cancelled = true
+      }
+    }
+
+    setImageState({ url: null, loading: true, error: null })
+    fetchActivityFileUrl(activity.activity_id, fileName)
+      .then((url) => {
+        if (cancelled) return
+        if (url) {
+          setImageState({ url, loading: false, error: null })
+        } else {
+          setImageState({
+            url: null,
+            loading: false,
+            error: "Unable to load the image for this question.",
+          })
+        }
+      })
+      .catch((error) => {
+        if (cancelled) return
+        console.error("[lesson-activities] Failed to load MCQ image:", error)
+        setImageState({
+          url: null,
+          loading: false,
+          error: "Unable to load the image for this question.",
+        })
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [activity.activity_id, fetchActivityFileUrl, mcq.imageFile, mcq.imageUrl])
+
+  const questionMarkup = getRichTextMarkup(mcq.question)
+  const fallbackQuestion = (mcq.question || activity.title || "Multiple choice question").trim()
+  const revealEnabled = canReveal && isRevealed
+
+  return (
+    <div className="space-y-6">
+      <div className="space-y-2">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-4">
+          {questionMarkup ? (
+            <div
+              className="prose prose-lg max-w-none text-foreground"
+              dangerouslySetInnerHTML={{ __html: questionMarkup }}
+            />
+          ) : (
+            <h3 className="text-2xl font-semibold text-foreground">
+              {fallbackQuestion || "Multiple choice question"}
+            </h3>
+          )}
+          {canReveal ? (
+            <Button
+              type="button"
+              size="sm"
+              variant={revealEnabled ? "secondary" : "outline"}
+              onClick={() => setIsRevealed((previous) => !previous)}
+              aria-pressed={revealEnabled}
+              className="shrink-0"
+            >
+              {revealEnabled ? (
+                <>
+                  <EyeOff className="mr-2 h-4 w-4" aria-hidden="true" />
+                  Hide answer
+                </>
+              ) : (
+                <>
+                  <Eye className="mr-2 h-4 w-4" aria-hidden="true" />
+                  Reveal answer
+                </>
+              )}
+            </Button>
+          ) : null}
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Pupils respond on their devices. Use reveal when you are ready to discuss the answer.
+        </p>
+      </div>
+
+      {imageState.loading ? (
+        <p className="text-sm text-muted-foreground">Loading question image…</p>
+      ) : imageState.error ? (
+        <p className="text-sm text-destructive">{imageState.error}</p>
+      ) : imageState.url ? (
+        <ActivityImagePreview
+          imageUrl={imageState.url}
+          alt={mcq.imageAlt || fallbackQuestion || "Question image"}
+          objectFit="contain"
+        />
+      ) : null}
+
+      <ul className="space-y-3">
+        {mcq.options.map((option, index) => {
+          const optionText = option.text.trim() || `Option ${index + 1}`
+          const isCorrect = option.id === mcq.correctOptionId
+
+          return (
+            <li
+              key={option.id}
+              className={cn(
+                "flex items-start justify-between rounded-lg border border-border bg-card p-3",
+                revealEnabled && isCorrect && "border-primary bg-primary/5",
+              )}
+            >
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-foreground">{optionText}</p>
+                <p className="text-xs text-muted-foreground">Choice {index + 1}</p>
+              </div>
+              {revealEnabled && isCorrect ? (
+                <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-primary">
+                  <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                  Correct answer
+                </span>
+              ) : null}
+            </li>
+          )
+        })}
+      </ul>
+
+      <p className="text-xs text-muted-foreground">
+        When presenting, ask pupils to choose their answer on their device.
+      </p>
+    </div>
+  )
+}
 function ActivityPresentView({
   activity,
   files,
   onDownloadFile,
   voicePlayback,
   fetchActivityFileUrl,
+  viewerCanReveal,
 }: LessonActivityPresentViewProps) {
   if (activity.type === "text") {
     const text = getActivityTextValue(activity)
@@ -466,6 +666,16 @@ function ActivityPresentView({
     )
   }
 
+  if (activity.type === "multiple-choice-question") {
+    return (
+      <McqPresentView
+        activity={activity}
+        fetchActivityFileUrl={fetchActivityFileUrl}
+        canReveal={viewerCanReveal}
+      />
+    )
+  }
+
   return (
     <div className="space-y-3">
       <p className="text-lg text-muted-foreground">
@@ -516,6 +726,45 @@ function ActivityEditView({ activity, resolvedImageUrl }: LessonActivityEditView
       >
         Watch video
       </a>
+    )
+  }
+
+  if (activity.type === "multiple-choice-question") {
+    const mcq = getMcqBody(activity)
+    const questionMarkup = getRichTextMarkup(mcq.question)
+    const fallbackQuestion = mcq.question.trim()
+
+    return (
+      <div className="space-y-2 text-sm text-muted-foreground">
+        {questionMarkup ? (
+          <div
+            className="prose prose-sm max-w-none text-foreground"
+            dangerouslySetInnerHTML={{ __html: questionMarkup }}
+          />
+        ) : (
+          <p className="font-medium text-foreground">
+            {fallbackQuestion || "Multiple choice question"}
+          </p>
+        )}
+        <ul className="space-y-1 pl-4">
+          {mcq.options.map((option) => (
+            <li
+              key={option.id}
+              className={cn(
+                "list-disc",
+                option.id === mcq.correctOptionId && "font-medium text-primary",
+              )}
+            >
+              {option.text.trim() || "Untitled option"}
+              {option.id === mcq.correctOptionId ? (
+                <span className="ml-1 text-xs uppercase tracking-wide text-primary/80">
+                  Correct
+                </span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      </div>
     )
   }
 
@@ -658,33 +907,6 @@ function DisplayImagePresent({
       />
     </div>
   )
-}
-
-function getRichTextMarkup(value: string): string | null {
-  if (!value) return null
-  const trimmed = value.trim()
-  if (!trimmed) return null
-  if (/<[a-z][\s\S]*>/i.test(trimmed)) {
-    return trimmed
-  }
-
-  const escaped = escapeHtml(trimmed)
-  const paragraphs = escaped
-    .split(/\n{2,}/)
-    .map((paragraph) => paragraph.replace(/\n/g, "<br />"))
-    .map((paragraph) => `<p>${paragraph}</p>`)
-    .join("")
-
-  return paragraphs || `<p>${escaped}</p>`
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;")
 }
 
 function formatFileSize(size: number): string {

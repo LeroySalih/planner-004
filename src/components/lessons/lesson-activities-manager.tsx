@@ -25,12 +25,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
 import { RichTextEditor } from "@/components/ui/rich-text-editor"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Switch } from "@/components/ui/switch"
 import {
   getImageBody,
+  getMcqBody,
   getVoiceBody,
   isAbsoluteUrl,
   type ImageBody,
+  type McqBody,
   type VoiceBody,
 } from "@/components/lessons/activity-view/utils"
 import { LessonActivityView } from "@/components/lessons/activity-view"
@@ -1145,6 +1148,53 @@ function LessonActivityEditorSheet({
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null)
   const [isImageLoading, setIsImageLoading] = useState(false)
   const [isImageDragActive, setIsImageDragActive] = useState(false)
+  const [mcqBody, setMcqBody] = useState<McqBody>(() => createDefaultMcqBody())
+
+  const mcqOptionSlots = useMemo(() => ensureOptionSlots(mcqBody.options), [mcqBody.options])
+  const mcqValidationMessage = useMemo(() => validateMcqBody(mcqBody), [mcqBody])
+
+  const updateMcqBody = useCallback((updater: (current: McqBody) => McqBody) => {
+    setMcqBody((previous) => normalizeMcqBody(updater(normalizeMcqBody(previous))))
+  }, [])
+
+  const handleMcqQuestionChange = useCallback(
+    (value: string) => {
+      updateMcqBody((current) => ({ ...current, question: value }))
+    },
+    [updateMcqBody],
+  )
+
+  const handleMcqCommit = useCallback(() => {
+    setMcqBody((prev) => normalizeMcqBody(prev))
+  }, [])
+
+  const handleMcqOptionTextChange = useCallback(
+    (optionId: string, value: string) => {
+      updateMcqBody((current) => ({
+        ...current,
+        options: current.options.map((option) =>
+          option.id === optionId ? { ...option, text: value } : option,
+        ),
+      }))
+    },
+    [updateMcqBody],
+  )
+
+  const handleMcqCorrectOptionChange = useCallback(
+    (optionId: string) => {
+      const target = mcqOptionSlots.find((option) => option.id === optionId)
+      if (!target || target.text.trim().length === 0) {
+        toast.error("Add text to this answer before marking it correct.")
+        return
+      }
+
+      updateMcqBody((current) => ({
+        ...current,
+        correctOptionId: optionId,
+      }))
+    },
+    [mcqOptionSlots, updateMcqBody],
+  )
 
   const originalVoiceBodyRef = useRef<VoiceBody | null>(null)
   const pendingObjectUrlRef = useRef<string | null>(null)
@@ -1594,6 +1644,7 @@ function LessonActivityEditorSheet({
       setIsUploadingFiles(false)
       setIsFileDragActive(false)
       resetImageState()
+      setMcqBody(createDefaultMcqBody())
       return
     }
 
@@ -1633,6 +1684,11 @@ function LessonActivityEditorSheet({
       } else {
         resetImageState()
       }
+      if (ensuredType === "multiple-choice-question") {
+        setMcqBody(normalizeMcqBody(getMcqBody(activity)))
+      } else {
+        setMcqBody(createDefaultMcqBody())
+      }
     }
 
     if (!open) {
@@ -1660,6 +1716,7 @@ function LessonActivityEditorSheet({
       setIsFilesLoading(false)
       setIsUploadingFiles(false)
       setIsFileDragActive(false)
+      setMcqBody(createDefaultMcqBody())
     }
   }, [activity, applyImageFromActivity, isCreateMode, mode, open, refreshActivityFiles, resetImageState])
 
@@ -1682,6 +1739,14 @@ function LessonActivityEditorSheet({
       if (type === "show-video") {
         setText("")
         setRawBody("")
+        return
+      }
+
+      if (type === "multiple-choice-question") {
+        setText("")
+        setVideoUrl("")
+        setRawBody("")
+        setMcqBody(createDefaultMcqBody())
         return
       }
 
@@ -1772,6 +1837,15 @@ function LessonActivityEditorSheet({
         applyImageFromActivity(activity)
       } else {
         resetImageState()
+      }
+      return
+    }
+
+    if (type === "multiple-choice-question") {
+      if (activity) {
+        setMcqBody(normalizeMcqBody(getMcqBody(activity)))
+      } else {
+        setMcqBody(createDefaultMcqBody())
       }
       return
     }
@@ -2137,6 +2211,13 @@ function LessonActivityEditorSheet({
             : null,
         finalBody: sanitizedBody,
       }
+    } else if (type === "multiple-choice-question") {
+      const { bodyData: preparedMcqBody, error } = prepareMcqBodyForSave(mcqBody)
+      if (error) {
+        toast.error(error)
+        return
+      }
+      bodyData = preparedMcqBody
     } else {
       let fallbackBody: unknown = !isCreateMode && activity ? activity.body_data ?? null : null
       if (!isCreateMode && type !== "text" && type !== "show-video") {
@@ -2176,7 +2257,8 @@ function LessonActivityEditorSheet({
     isProcessing ||
     isRecording ||
     title.trim().length === 0 ||
-    (type !== "voice" && rawBodyError !== null)
+    (type !== "voice" && rawBodyError !== null) ||
+    (type === "multiple-choice-question" && mcqValidationMessage !== null)
 
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>
@@ -2357,6 +2439,62 @@ function LessonActivityEditorSheet({
             </div>
           ) : null}
 
+          {type === "multiple-choice-question" ? (
+            <div className="rounded-md border border-border bg-muted/20 p-4">
+              <div className="space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground">Question</Label>
+                <RichTextEditor
+                  id="mcq-question"
+                  value={mcqBody.question}
+                  onChange={handleMcqQuestionChange}
+                  onBlur={handleMcqCommit}
+                  placeholder="Ask your question here"
+                  disabled={isPending}
+                />
+              </div>
+
+              <div className="mt-4 space-y-3">
+                <Label className="text-xs font-medium text-muted-foreground">Answers</Label>
+                <div className="space-y-2 rounded-md border border-border bg-background p-3">
+                  <RadioGroup
+                    value={mcqBody.correctOptionId}
+                    onValueChange={handleMcqCorrectOptionChange}
+                    className="space-y-2"
+                  >
+                    {mcqOptionSlots.map((option, index) => (
+                      <label
+                        key={option.id}
+                        htmlFor={`mcq-option-${option.id}`}
+                        className="flex items-center gap-3"
+                      >
+                        <RadioGroupItem
+                          value={option.id}
+                          id={`mcq-option-${option.id}`}
+                          disabled={isPending}
+                          className="mt-0.5"
+                        />
+                        <Input
+                          value={option.text}
+                          onChange={(event) => handleMcqOptionTextChange(option.id, event.target.value)}
+                          onBlur={handleMcqCommit}
+                          placeholder={`Answer ${index + 1}`}
+                          disabled={isPending}
+                        />
+                      </label>
+                    ))}
+                  </RadioGroup>
+                </div>
+              </div>
+
+              <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+                <p>Provide up to four answers; at least two must contain text before saving.</p>
+                {mcqValidationMessage ? (
+                  <p className="text-destructive">{mcqValidationMessage}</p>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
           {type === "voice" ? (
             <div className="space-y-3 rounded-md border border-border p-4">
               <div className="space-y-2">
@@ -2506,7 +2644,8 @@ function LessonActivityEditorSheet({
           type !== "voice" &&
           type !== "file-download" &&
           type !== "upload-file" &&
-          type !== "display-image" ? (
+          type !== "display-image" &&
+          type !== "multiple-choice-question" ? (
             <div className="space-y-2">
               <Label htmlFor="activity-json">Activity details</Label>
               <Textarea
@@ -2545,6 +2684,145 @@ function LessonActivityEditorSheet({
 function ensureActivityType(value: string | null | undefined): ActivityTypeValue {
   const match = ACTIVITY_TYPES.find((item) => item.value === value)
   return match ? match.value : ACTIVITY_TYPES[0].value
+}
+
+function createMcqOptionId(existingIds: Set<string>): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    let candidate = crypto.randomUUID()
+    while (existingIds.has(candidate)) {
+      candidate = crypto.randomUUID()
+    }
+    return candidate
+  }
+
+  let candidate = ""
+  do {
+    candidate = `option-${Math.random().toString(36).slice(2, 10)}`
+  } while (existingIds.has(candidate))
+  return candidate
+}
+
+function ensureOptionSlots(options: McqBody["options"]): McqBody["options"] {
+  const maxOptions = 4
+  const defaults = ["option-a", "option-b", "option-c", "option-d"]
+  const normalized = (options ?? []).slice(0, maxOptions)
+
+  const result = normalized.map((option, index) => {
+    const rawId = typeof option.id === "string" && option.id.trim().length > 0 ? option.id.trim() : `option-${index + 1}`
+    return {
+      id: rawId,
+      text: typeof option.text === "string" ? option.text : "",
+      imageUrl: typeof option.imageUrl === "string" ? option.imageUrl : null,
+    }
+  })
+
+  const used = new Set(result.map((option) => option.id))
+
+  for (const fallbackId of defaults) {
+    if (result.length >= maxOptions) break
+    if (!used.has(fallbackId)) {
+      used.add(fallbackId)
+      result.push({ id: fallbackId, text: "", imageUrl: null })
+    }
+  }
+
+  while (result.length < maxOptions) {
+    const generated = createMcqOptionId(used)
+    used.add(generated)
+    result.push({ id: generated, text: "", imageUrl: null })
+  }
+
+  return result
+}
+
+function createDefaultMcqBody(): McqBody {
+  const options = ensureOptionSlots([])
+  return {
+    question: "",
+    imageFile: null,
+    imageUrl: null,
+    imageAlt: null,
+    options,
+    correctOptionId: options[0]?.id ?? "option-a",
+  }
+}
+
+function normalizeMcqBody(body: McqBody): McqBody {
+  const question = typeof body.question === "string" ? body.question : ""
+  const normalizedOptions = ensureOptionSlots(body.options).map((option, index) => {
+    const id = option.id && option.id.trim().length > 0 ? option.id.trim() : `option-${index + 1}`
+    const text = typeof option.text === "string" ? option.text.trim() : ""
+    const imageUrl = typeof option.imageUrl === "string" && option.imageUrl.trim().length > 0 ? option.imageUrl.trim() : null
+    return { id, text, imageUrl }
+  })
+
+  const correctExists = normalizedOptions.some((option) => option.id === body.correctOptionId)
+  const correctOptionId = correctExists ? body.correctOptionId : normalizedOptions[0]?.id ?? "option-a"
+
+  const imageFile = typeof body.imageFile === "string" && body.imageFile.trim().length > 0 ? body.imageFile.trim() : null
+  const imageUrl = typeof body.imageUrl === "string" && body.imageUrl.trim().length > 0 ? body.imageUrl.trim() : null
+  const imageAlt = typeof body.imageAlt === "string" && body.imageAlt.trim().length > 0 ? body.imageAlt.trim() : null
+
+  return {
+    question,
+    options: normalizedOptions,
+    correctOptionId,
+    imageFile,
+    imageUrl,
+    imageAlt,
+  }
+}
+
+function validateNormalizedMcqBody(body: McqBody): string | null {
+  const trimmedQuestion = body.question.trim()
+  if (!trimmedQuestion) {
+    return "Add the question text."
+  }
+
+  const filledOptions = body.options.filter((option) => option.text.trim().length > 0)
+  if (filledOptions.length < 2) {
+    return "Add at least two answers."
+  }
+
+  if (!filledOptions.some((option) => option.id === body.correctOptionId)) {
+    return "Select which answer is correct."
+  }
+
+  return null
+}
+
+function validateMcqBody(body: McqBody): string | null {
+  const normalized = normalizeMcqBody(body)
+  return validateNormalizedMcqBody(normalized)
+}
+
+function prepareMcqBodyForSave(body: McqBody): { bodyData: McqBody; error: string | null } {
+  const normalized = normalizeMcqBody(body)
+  const validation = validateNormalizedMcqBody(normalized)
+  if (validation) {
+    return { bodyData: normalized, error: validation }
+  }
+
+  const filledOptions = normalized.options.filter((option) => option.text.trim().length > 0)
+  const correctOptionId = filledOptions.some((option) => option.id === normalized.correctOptionId)
+    ? normalized.correctOptionId
+    : filledOptions[0].id
+
+  return {
+    bodyData: {
+      question: normalized.question,
+      options: filledOptions.map((option) => ({
+        id: option.id,
+        text: option.text.trim(),
+        imageUrl: option.imageUrl ?? null,
+      })),
+      correctOptionId,
+      imageFile: normalized.imageFile ?? null,
+      imageUrl: normalized.imageUrl ?? null,
+      imageAlt: normalized.imageAlt ?? null,
+    },
+    error: null,
+  }
 }
 
 function getYouTubeVideoId(url: string | null | undefined): string | null {

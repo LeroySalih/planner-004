@@ -11,10 +11,13 @@ import {
   listLessonFilesAction,
   listActivityFilesAction,
   listPupilActivitySubmissionsAction,
+  getLatestSubmissionForActivityAction,
 } from "@/lib/server-updates"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { PupilUploadActivity } from "@/components/pupil/pupil-upload-activity"
+import { PupilMcqActivity } from "@/components/pupil/pupil-mcq-activity"
+import { LegacyMcqSubmissionBodySchema, McqSubmissionBodySchema } from "@/types"
 
 function formatDateLabel(value: string | null | undefined) {
   if (!value) {
@@ -183,6 +186,38 @@ export default async function PupilLessonFriendlyPage({
   const resourceMap = new Map(uploadActivityData.map((item) => [item.activityId, item.resources]))
   const submissionMap = new Map(uploadActivityData.map((item) => [item.activityId, item.submissions]))
 
+  const mcqActivities = activities.filter((activity) => activity.type === "multiple-choice-question")
+
+  const mcqSubmissionEntries = await Promise.all(
+    mcqActivities.map(async (activity) => {
+      const result = await getLatestSubmissionForActivityAction(activity.activity_id, pupilId)
+      if (result.error || !result.data) {
+        return { activityId: activity.activity_id, optionId: null as string | null }
+      }
+
+      const parsedBody = McqSubmissionBodySchema.safeParse(result.data.body)
+      if (parsedBody.success) {
+        return {
+          activityId: activity.activity_id,
+          optionId: parsedBody.data.answer_chosen,
+        }
+      }
+
+      const legacyBody = LegacyMcqSubmissionBodySchema.safeParse(result.data.body)
+      if (legacyBody.success) {
+        return {
+          activityId: activity.activity_id,
+          optionId: legacyBody.data.optionId,
+        }
+      }
+
+      console.warn("[pupil-lessons] Ignoring malformed MCQ submission body", parsedBody.error)
+      return { activityId: activity.activity_id, optionId: null as string | null }
+    }),
+  )
+
+  const mcqSelectionMap = new Map(mcqSubmissionEntries.map((entry) => [entry.activityId, entry.optionId]))
+
   const canUpload = !profile.isTeacher && profile.userId === pupilId
 
   const assignments = summary
@@ -286,6 +321,15 @@ export default async function PupilLessonFriendlyPage({
                         initialSubmissions={submissionMap.get(activity.activity_id) ?? []}
                         canUpload={canUpload}
                         stepNumber={index + 1}
+                      />
+                    ) : activity.type === "multiple-choice-question" ? (
+                      <PupilMcqActivity
+                        lessonId={lesson.lesson_id}
+                        activity={activity}
+                        pupilId={pupilId}
+                        canAnswer={canUpload}
+                        stepNumber={index + 1}
+                        initialSelection={mcqSelectionMap.get(activity.activity_id) ?? null}
                       />
                     ) : (
                       <>

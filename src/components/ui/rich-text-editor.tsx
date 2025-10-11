@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef } from "react"
-import { Bold, Code, Italic, Underline } from "lucide-react"
+import { AlignJustify, Bold, Code, Italic } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -13,6 +13,7 @@ interface RichTextEditorProps {
   placeholder?: string
   disabled?: boolean
   className?: string
+  onBlur?: () => void
 }
 
 export function RichTextEditor({
@@ -22,6 +23,7 @@ export function RichTextEditor({
   placeholder,
   disabled = false,
   className,
+  onBlur,
 }: RichTextEditorProps) {
   const editorRef = useRef<HTMLDivElement | null>(null)
 
@@ -85,9 +87,9 @@ export function RichTextEditor({
         <ToolbarButton icon={Bold} label="Bold" onClick={() => exec("bold")} disabled={disabled} />
         <ToolbarButton icon={Italic} label="Italic" onClick={() => exec("italic")} disabled={disabled} />
         <ToolbarButton
-          icon={Underline}
-          label="Underline"
-          onClick={() => exec("underline")}
+          icon={AlignJustify}
+          label="Justify"
+          onClick={() => exec("justifyFull")}
           disabled={disabled}
         />
         <ToolbarButton icon={Code} label="Code block" onClick={insertCodeBlock} disabled={disabled} />
@@ -104,6 +106,7 @@ export function RichTextEditor({
         contentEditable={!disabled}
         suppressContentEditableWarning
         data-placeholder={placeholder}
+        onBlur={onBlur}
       />
       <style jsx>{`
         [data-placeholder]:empty::before {

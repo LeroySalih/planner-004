@@ -1,7 +1,14 @@
 # Dino
 ## Releases 
 
+### Release 0.0.11
+- Multiple choice questions now store structured submissions (`answer_chosen`/`is_correct`) with new server actions powering pupil experiences and reveal controls.
+- Pupil lessons load saved MCQ selections, while presentation mode keeps answers hidden until teachers reveal them.
+- Lesson activity editor replaces the MCQ JSON block with a compact rich-text question editor and inline answer list, validating at least two options before save.
+
 ### Release 0.0.10
+- Activities: Added a multiple choice question flow covering teacher authoring, lesson presentation, and pupil answering with submission tracking.
+- Activities: MCQ authoring now supports rich-text questions, four answer slots with inline correct-answer selection, and a teacher-only reveal control during presentation.
 - `/pupil-lessons/[pupilId]/lessons/[lessonId]`: Upload activity submissions now save to `lessons/<lessonId>/activities/<activityId>/<pupilId>/<fileName>`, keeping multiple upload steps isolated per lesson.
 
 

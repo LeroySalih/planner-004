@@ -67,6 +67,21 @@ export const FeedbacksSchema = z.array(FeedbackSchema);
 export type Feedback = z.infer<typeof FeedbackSchema>;
 export type Feedbacks = z.infer<typeof FeedbacksSchema>;
 
+export const SubmissionSchema = z.object({
+    submission_id: z.string(),
+    activity_id: z.string(),
+    user_id: z.string(),
+    submitted_at: z
+        .union([z.string(), z.date()])
+        .transform((value) => (value instanceof Date ? value.toISOString() : value)),
+    body: z.unknown().nullable().default(null),
+});
+
+export const SubmissionsSchema = z.array(SubmissionSchema);
+
+export type Submission = z.infer<typeof SubmissionSchema>;
+export type Submissions = z.infer<typeof SubmissionsSchema>;
+
 export const GroupWithMembershipSchema = GroupSchema.extend({
     members: GroupMembershipsSchema.default([]),
 });
@@ -243,6 +258,43 @@ export const LessonLinksSchema = z.array(LessonLinkSchema);
 
 export type LessonLink = z.infer<typeof LessonLinkSchema>;
 export type LessonLinks = z.infer<typeof LessonLinksSchema>;
+
+export const McqOptionSchema = z.object({
+    id: z.string().min(1),
+    text: z.string().max(500),
+    imageUrl: z.string().nullable().optional(),
+});
+
+export const McqActivityBodySchema = z
+    .object({
+        question: z.string().min(1),
+        imageFile: z.string().min(1).nullable().optional(),
+        imageUrl: z.string().nullable().optional(),
+        imageAlt: z.string().nullable().optional(),
+        options: z.array(McqOptionSchema).min(2).max(4),
+        correctOptionId: z.string().min(1),
+    })
+    .refine(
+        (value) => value.options.some((option) => option.id === value.correctOptionId),
+        {
+            message: "Correct option must match one of the provided options.",
+            path: ["correctOptionId"],
+        },
+    );
+
+export const LegacyMcqSubmissionBodySchema = z.object({
+    optionId: z.string().min(1),
+});
+
+export const McqSubmissionBodySchema = z.object({
+    answer_chosen: z.string().min(1),
+    is_correct: z.boolean(),
+});
+
+export type McqOption = z.infer<typeof McqOptionSchema>;
+export type McqActivityBody = z.infer<typeof McqActivityBodySchema>;
+export type LegacyMcqSubmissionBody = z.infer<typeof LegacyMcqSubmissionBodySchema>;
+export type McqSubmissionBody = z.infer<typeof McqSubmissionBodySchema>;
 
 export const LessonWithObjectivesSchema = LessonSchema.extend({
     lesson_objectives: LessonLearningObjectivesSchema.default([]),
