@@ -98,6 +98,7 @@ export {
 
 export {
   getLatestSubmissionForActivityAction,
+  readLessonSubmissionSummariesAction,
   upsertMcqSubmissionAction,
 } from "./server-actions/submissions"
 

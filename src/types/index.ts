@@ -296,6 +296,42 @@ export type McqActivityBody = z.infer<typeof McqActivityBodySchema>;
 export type LegacyMcqSubmissionBody = z.infer<typeof LegacyMcqSubmissionBodySchema>;
 export type McqSubmissionBody = z.infer<typeof McqSubmissionBodySchema>;
 
+export interface LessonSubmissionScore {
+    userId: string;
+    score: number | null;
+    isCorrect?: boolean;
+}
+
+export interface LessonSubmissionSummary {
+    activityId: string;
+    activityTitle: string;
+    activityType: string;
+    totalSubmissions: number;
+    averageScore: number | null;
+    correctCount: number | null;
+    scores: LessonSubmissionScore[];
+    correctAnswer: string | null;
+}
+
+export const FeedbackActivityGroupSettingsSchema = z
+    .object({
+        isEnabled: z.boolean().default(false),
+        showScore: z.boolean().default(false),
+        showCorrectAnswers: z.boolean().default(false),
+    })
+    .passthrough();
+
+export const FeedbackActivityBodySchema = z
+    .object({
+        groups: z
+            .record(z.string().min(1), FeedbackActivityGroupSettingsSchema)
+            .default({}),
+    })
+    .passthrough();
+
+export type FeedbackActivityGroupSettings = z.infer<typeof FeedbackActivityGroupSettingsSchema>;
+export type FeedbackActivityBody = z.infer<typeof FeedbackActivityBodySchema>;
+
 export const LessonWithObjectivesSchema = LessonSchema.extend({
     lesson_objectives: LessonLearningObjectivesSchema.default([]),
     lesson_links: LessonLinksSchema.default([]),

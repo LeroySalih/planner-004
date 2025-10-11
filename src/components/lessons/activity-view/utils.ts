@@ -1,6 +1,10 @@
 "use client"
 
-import type { LessonActivity } from "@/types"
+import type {
+  FeedbackActivityBody,
+  FeedbackActivityGroupSettings,
+  LessonActivity,
+} from "@/types"
 
 export interface VoiceBody {
   audioFile: string | null
@@ -29,6 +33,12 @@ export interface McqBody {
   imageFile?: string | null
   imageUrl?: string | null
   imageAlt?: string | null
+}
+
+const FEEDBACK_GROUP_DEFAULTS: FeedbackActivityGroupSettings = {
+  isEnabled: false,
+  showScore: false,
+  showCorrectAnswers: false,
 }
 
 export function isAbsoluteUrl(value: string | null): boolean {
@@ -165,6 +175,44 @@ export function getMcqBody(activity: LessonActivity): McqBody {
     imageUrl,
     imageAlt,
   }
+}
+
+export type { FeedbackActivityBody, FeedbackActivityGroupSettings } from "@/types"
+
+export function getFeedbackBody(activity: LessonActivity): FeedbackActivityBody {
+  if (!activity.body_data || typeof activity.body_data !== "object") {
+    return { groups: {} }
+  }
+
+  const record = activity.body_data as Record<string, unknown>
+  const { groups: rawGroups, ...rest } = record
+  const normalizedGroups: Record<string, FeedbackActivityGroupSettings> = {}
+
+  if (rawGroups && typeof rawGroups === "object" && !Array.isArray(rawGroups)) {
+    Object.entries(rawGroups as Record<string, unknown>).forEach(([groupId, value]) => {
+      const trimmedId = groupId.trim()
+      if (!trimmedId) {
+        return
+      }
+
+      if (value && typeof value === "object") {
+        const config = value as Record<string, unknown>
+        normalizedGroups[trimmedId] = {
+          ...FEEDBACK_GROUP_DEFAULTS,
+          isEnabled: config.isEnabled === true,
+          showScore: config.showScore === true,
+          showCorrectAnswers: config.showCorrectAnswers === true,
+        }
+      } else {
+        normalizedGroups[trimmedId] = { ...FEEDBACK_GROUP_DEFAULTS }
+      }
+    })
+  }
+
+  return {
+    ...(rest as Record<string, unknown>),
+    groups: normalizedGroups,
+  } as FeedbackActivityBody
 }
 
 export function getRichTextMarkup(value: string): string | null {

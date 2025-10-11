@@ -1,4 +1,4 @@
-# Activities Specifications
+# MCQ Activities Specifications
 This file contains the specifications for the activities
 
 # Change Log.
@@ -6,7 +6,7 @@ This file contains the specifications for the activities
 25-10-11-06:17: Changed the Multiple Choice Question Present Mode section to discuss showing the correct answer.
 25-10-11-06:15: Changed the Multiple Choice Question Edit Mode section to add details to how theteacher will injteract with the MCQ activity.
 
-## Multichoice Questions.
+## Description.
 
 The purpose of this activity is to allwo the teacher to specify a question, 4 possible answers, and a correct answer.  When in present mode, the pupil is able to select a answer, which is recorded in the body field of the submissions table.  The pupil is not given feedback on whether the quesiton is correct or not.
 
@@ -32,7 +32,8 @@ In edit mode that the teacher will be presented with 4 text boxes to speciy the 
 #### UI Improvements
 1. Compress the UI for the MCQ Edit Side Side Bar
 2. Remove the term "option 1", etc, from each answer.
-3. Remove the "Set the radio button to mark this answer as correct."43. Remove the card fo rthe answer, the answers can all belong in the same card
+3. Remove the "Set the radio button to mark this answer as correct."
+4. Remove the card fo rthe answer, the answers can all belong in the same card
 5. Move the validation text "Provide up to four answers and make sure at least two contain text before saving."
 
 

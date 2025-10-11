@@ -7,6 +7,8 @@ import {
   LessonActivitySchema,
   LessonActivitiesSchema,
   McqActivityBodySchema,
+  FeedbackActivityBodySchema,
+  type FeedbackActivityGroupSettings,
 } from "@/types"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
@@ -287,6 +289,11 @@ const VoiceActivityBodySchema = z
     size: z.number().nonnegative().nullable().optional(),
   })
   .passthrough()
+const FeedbackGroupDefaults: FeedbackActivityGroupSettings = {
+  isEnabled: false,
+  showScore: false,
+  showCorrectAnswers: false,
+}
 
 function normalizeActivityBody(
   type: string,
@@ -457,6 +464,45 @@ function normalizeActivityBody(
     }
 
     return { success: false, error: "Multiple choice activities require a question and options." }
+  }
+
+  if (type === "feedback") {
+    const defaultBody = { groups: {} as Record<string, FeedbackActivityGroupSettings> }
+
+    if (rawBody === undefined || rawBody === null) {
+      return { success: true, bodyData: defaultBody }
+    }
+
+    if (typeof rawBody === "object") {
+      const parsed = FeedbackActivityBodySchema.safeParse(rawBody)
+      if (parsed.success) {
+        const normalizedGroups = Object.entries(parsed.data.groups ?? {}).reduce<
+          Record<string, FeedbackActivityGroupSettings>
+        >((acc, [groupId, settings]) => {
+          const trimmedId = groupId.trim()
+          if (trimmedId.length === 0) {
+            return acc
+          }
+          acc[trimmedId] = {
+            ...FeedbackGroupDefaults,
+            isEnabled: settings?.isEnabled === true,
+            showScore: settings?.showScore === true,
+            showCorrectAnswers: settings?.showCorrectAnswers === true,
+          }
+          return acc
+        }, {})
+
+        const rest = { ...parsed.data } as Record<string, unknown>
+        delete rest.groups
+        return { success: true, bodyData: { ...rest, groups: normalizedGroups } }
+      }
+    }
+
+    if (allowFallback) {
+      return { success: true, bodyData: defaultBody }
+    }
+
+    return { success: false, error: "Feedback activities require configuration for assigned groups." }
   }
 
   return { success: true, bodyData: rawBody ?? null }

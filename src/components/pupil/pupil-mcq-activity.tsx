@@ -19,6 +19,7 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
+import { triggerFeedbackRefresh } from "@/lib/feedback-events"
 
 interface PupilMcqActivityProps {
   lessonId: string
@@ -153,9 +154,19 @@ export function PupilMcqActivity({
         setLastSaved(optionId)
         setFeedback({ type: "success", message: "Answer saved" })
         onSelectionChange?.(optionId)
+        triggerFeedbackRefresh(lessonId)
       })
     },
-    [activity.activity_id, canAnswer, onSelectionChange, optionMap, pupilId, selection, startTransition],
+    [
+      activity.activity_id,
+      canAnswer,
+      lessonId,
+      onSelectionChange,
+      optionMap,
+      pupilId,
+      selection,
+      startTransition,
+    ],
   )
 
   const question = mcqBody.question.trim()
@@ -173,7 +184,6 @@ export function PupilMcqActivity({
           Step {stepNumber}
         </span>
         <h4 className="text-lg font-semibold text-foreground">{activity.title || "Multiple choice question"}</h4>
-        <span className="text-xs text-muted-foreground">Multiple choice question</span>
       </header>
 
       <section className="space-y-2">

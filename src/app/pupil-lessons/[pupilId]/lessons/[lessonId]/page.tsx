@@ -17,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { PupilUploadActivity } from "@/components/pupil/pupil-upload-activity"
 import { PupilMcqActivity } from "@/components/pupil/pupil-mcq-activity"
+import { PupilFeedbackActivity } from "@/components/pupil/pupil-feedback-activity"
 import { LegacyMcqSubmissionBodySchema, McqSubmissionBodySchema } from "@/types"
 
 function formatDateLabel(value: string | null | undefined) {
@@ -330,6 +331,11 @@ export default async function PupilLessonFriendlyPage({
                         canAnswer={canUpload}
                         stepNumber={index + 1}
                         initialSelection={mcqSelectionMap.get(activity.activity_id) ?? null}
+                      />
+                    ) : activity.type === "feedback" ? (
+                      <PupilFeedbackActivity
+                        activity={activity}
+                        lessonId={lesson.lesson_id}
                       />
                     ) : (
                       <>
