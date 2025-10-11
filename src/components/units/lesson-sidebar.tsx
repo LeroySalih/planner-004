@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import type { ChangeEvent, DragEvent, KeyboardEvent, MouseEvent } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
@@ -13,6 +13,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
+import { RichTextEditor } from "@/components/ui/rich-text-editor"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Select,
@@ -26,6 +28,8 @@ import { LessonActivityView } from "@/components/lessons/activity-view"
 import {
   getActivityFileUrlValue,
   getActivityTextValue,
+  getMcqBody,
+  type McqBody,
   getVoiceBody,
 } from "@/components/lessons/activity-view/utils"
 import { PupilUploadActivity } from "@/components/pupil/pupil-upload-activity"
@@ -464,6 +468,11 @@ export function LessonSidebar({
       return
     }
 
+    if (newActivityType === "multiple-choice-question" && newActivityText.trim().length === 0) {
+      toast.error("A question is required for multiple choice activities")
+      return
+    }
+
     const bodyData = (() => {
       if (newActivityType === "text") {
         return { text: newActivityText }
@@ -473,6 +482,20 @@ export function LessonSidebar({
       }
       if (newActivityType === "show-video") {
         return { fileUrl: newActivityFileUrl }
+      }
+      if (newActivityType === "multiple-choice-question") {
+        const defaultOptions = [
+          { id: "option-a", text: "" },
+          { id: "option-b", text: "" },
+        ]
+        return {
+          question: newActivityText,
+          imageFile: null,
+          imageUrl: null,
+          imageAlt: null,
+          options: defaultOptions,
+          correctOptionId: defaultOptions[0].id,
+        }
       }
       return null
     })()
@@ -568,6 +591,23 @@ export function LessonSidebar({
     if (!lesson) return
     const activity = activities.find((entry) => entry.activity_id === activityId)
     if (!activity) return
+
+    if (activity.type === "multiple-choice-question") {
+      const mcq = getMcqBody(activity)
+      const slots = ensureOptionSlots(mcq.options)
+      const filledOptions = slots.filter((option) => option.text.trim().length > 0)
+
+      if (filledOptions.length < 2) {
+        toast.error("Multiple choice questions need at least two answers.")
+        return
+      }
+
+      const correctOption = filledOptions.find((option) => option.id === mcq.correctOptionId)
+      if (!correctOption) {
+        toast.error("Select which answer is correct before saving.")
+        return
+      }
+    }
 
     const pendingBody = activity.body_data ?? null
 
@@ -1434,18 +1474,28 @@ export function LessonSidebar({
                       type="button"
                       size="sm"
                       onClick={handleAddActivity}
-                      disabled={isPending || newActivityTitle.trim().length === 0}
+                      disabled={
+                        isPending ||
+                        newActivityTitle.trim().length === 0 ||
+                        (newActivityType === "multiple-choice-question" && newActivityText.trim().length === 0)
+                      }
                     >
                       Add Activity
                     </Button>
                   </div>
-                  {newActivityType === "text" || newActivityType === "upload-file" ? (
+                  {newActivityType === "text" ||
+                  newActivityType === "upload-file" ||
+                  newActivityType === "multiple-choice-question" ? (
                     <div className="space-y-1.5">
                       <Label
                         htmlFor="new-activity-text"
                         className="text-xs font-medium text-muted-foreground"
                       >
-                        {newActivityType === "upload-file" ? "Instructions for pupils" : "Text content"}
+                        {newActivityType === "upload-file"
+                          ? "Instructions for pupils"
+                          : newActivityType === "multiple-choice-question"
+                            ? "Question text"
+                            : "Text content"}
                       </Label>
                       <Textarea
                         id="new-activity-text"
@@ -1454,10 +1504,17 @@ export function LessonSidebar({
                         placeholder={
                           newActivityType === "upload-file"
                             ? "Explain what pupils should upload"
+                            : newActivityType === "multiple-choice-question"
+                              ? "Ask the question pupils should answer"
                             : "Add the instructions or text for this activity"
                         }
                         disabled={isPending}
                       />
+                      {newActivityType === "multiple-choice-question" ? (
+                        <p className="text-xs text-muted-foreground">
+                          You can add answer options after the activity has been created.
+                        </p>
+                      ) : null}
                     </div>
                   ) : null}
                   {newActivityType === "show-video" ? (
@@ -1504,6 +1561,7 @@ export function LessonSidebar({
                         {activities.map((activity, index) => {
                           const activityType =
                             ACTIVITY_TYPES.find((option) => option.value === activity.type)?.value ?? ACTIVITY_TYPES[0].value
+                          const activityFiles = activityFilesMap[activity.activity_id] ?? []
 
                           return (
                             <div
@@ -1629,7 +1687,19 @@ export function LessonSidebar({
                               />
                             </div>
                           ) : null}
-                          {activity.type === "file-download" || activity.type === "upload-file" ? (
+                          {activity.type === "multiple-choice-question" ? (
+                            <McqActivityEditor
+                              key={activity.activity_id}
+                              activity={activity}
+                              files={activityFiles}
+                              isDisabled={isPending}
+                              onBodyChange={(body) => updateActivityBodyLocally(activity.activity_id, body)}
+                              onCommit={() => handleActivityBodySubmit(activity.activity_id)}
+                            />
+                          ) : null}
+                          {activity.type === "file-download" ||
+                          activity.type === "upload-file" ||
+                          activity.type === "multiple-choice-question" ? (
                             <div className="mt-3 space-y-3">
                               <div
                                 role="button"
@@ -1672,11 +1742,11 @@ export function LessonSidebar({
                               ) : null}
                               {activityFilesLoading[activity.activity_id] ? (
                                 <p className="text-sm text-muted-foreground">Loading files...</p>
-                              ) : (activityFilesMap[activity.activity_id] ?? []).length === 0 ? (
+                              ) : activityFiles.length === 0 ? (
                                 <p className="text-sm text-muted-foreground">No files uploaded yet.</p>
                               ) : (
                                 <ul className="space-y-2">
-                                  {(activityFilesMap[activity.activity_id] ?? []).map((file) => (
+                                  {activityFiles.map((file) => (
                                     <li
                                       key={file.path}
                                       className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm"
@@ -2114,6 +2184,21 @@ function getDefaultBodyDataForType(type: ActivityTypeValue): LessonActivity["bod
   if (type === "voice") {
     return { audioFile: null }
   }
+  if (type === "multiple-choice-question") {
+    return {
+      question: "",
+      imageFile: null,
+      imageUrl: null,
+      imageAlt: null,
+      options: [
+        { id: "option-a", text: "" },
+        { id: "option-b", text: "" },
+        { id: "option-c", text: "" },
+        { id: "option-d", text: "" },
+      ],
+      correctOptionId: "option-a",
+    }
+  }
   return null
 }
 
@@ -2384,6 +2469,7 @@ export function LessonPresentation({
                     onDownloadFile={(fileName) => onDownloadActivityFile(activity.activity_id, fileName)}
                     voicePlayback={{ url: voicePlayback.url, isLoading: voicePlayback.loading }}
                     fetchActivityFileUrl={fetchActivityFileUrl}
+                    viewerCanReveal
                   />
                 )}
               </div>
@@ -2411,6 +2497,302 @@ export function LessonPresentation({
           {nextButtonLabel}
         </Button>
       </footer>
+    </div>
+  )
+}
+
+interface McqActivityEditorProps {
+  activity: LessonActivity
+  files: LessonFileInfo[]
+  isDisabled: boolean
+  onBodyChange: (body: LessonActivity["body_data"]) => void
+  onCommit: () => void
+}
+
+function createMcqOptionId(existingIds: Set<string>): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    let candidate = crypto.randomUUID()
+    while (existingIds.has(candidate)) {
+      candidate = crypto.randomUUID()
+    }
+    return candidate
+  }
+  let candidate = ""
+  do {
+    candidate = `option-${Math.random().toString(36).slice(2, 10)}`
+  } while (existingIds.has(candidate))
+  return candidate
+}
+
+function ensureOptionSlots(options: McqBody["options"]): McqBody["options"] {
+  const maxOptions = 4
+  const defaults = ["option-a", "option-b", "option-c", "option-d"]
+  const result = options.slice(0, maxOptions).map((option) => ({
+    id: option.id,
+    text: option.text,
+    imageUrl: option.imageUrl ?? null,
+  }))
+
+  const used = new Set(result.map((option) => option.id))
+
+  for (const defaultId of defaults) {
+    if (result.length >= maxOptions) break
+    if (!used.has(defaultId)) {
+      used.add(defaultId)
+      result.push({ id: defaultId, text: "", imageUrl: null })
+    }
+  }
+
+  while (result.length < maxOptions) {
+    const newId = createMcqOptionId(used)
+    used.add(newId)
+    result.push({ id: newId, text: "", imageUrl: null })
+  }
+
+  return result
+}
+
+function McqActivityEditor({
+  activity,
+  files,
+  isDisabled,
+  onBodyChange,
+  onCommit,
+}: McqActivityEditorProps) {
+  const mcqBody = getMcqBody(activity)
+  const optionSlots = useMemo(() => ensureOptionSlots(mcqBody.options), [mcqBody.options])
+
+  const applyChanges = useCallback(
+    (updater: (current: McqBody) => McqBody) => {
+      const base: McqBody = {
+        ...mcqBody,
+        options: ensureOptionSlots(mcqBody.options),
+      }
+      const next = updater(base)
+      const normalizedOptions = ensureOptionSlots(next.options).map((option) => ({
+        id: option.id,
+        text: option.text.trim(),
+        imageUrl: option.imageUrl ?? null,
+      }))
+
+      onBodyChange({
+        question: next.question,
+        imageFile: next.imageFile ?? null,
+        imageUrl: next.imageUrl ?? null,
+        imageAlt: next.imageAlt ?? null,
+        options: normalizedOptions,
+        correctOptionId: next.correctOptionId,
+      })
+    },
+    [mcqBody, onBodyChange],
+  )
+
+  const handleQuestionChange = useCallback(
+    (value: string) => {
+      applyChanges((current) => ({ ...current, question: value }))
+    },
+    [applyChanges],
+  )
+
+  const handleOptionTextChange = useCallback(
+    (optionId: string, value: string) => {
+      applyChanges((current) => ({
+        ...current,
+        options: ensureOptionSlots(current.options).map((option) =>
+          option.id === optionId ? { ...option, text: value } : option,
+        ),
+      }))
+    },
+    [applyChanges],
+  )
+
+  const handleCommit = useCallback(() => {
+    const slots = ensureOptionSlots(mcqBody.options)
+    const filledOptions = slots.filter((option) => option.text.trim().length > 0)
+
+    if (filledOptions.length < 2) {
+      toast.error("Add at least two answers before saving.")
+      return
+    }
+
+    const correctOption = slots.find((option) => option.id === mcqBody.correctOptionId)
+    if (!correctOption || correctOption.text.trim().length === 0) {
+      toast.error("Select which answer is correct before saving.")
+      return
+    }
+
+    onCommit()
+  }, [mcqBody.correctOptionId, mcqBody.options, onCommit])
+
+  const handleCorrectOptionChange = useCallback(
+    (optionId: string) => {
+      if (isDisabled || optionId === mcqBody.correctOptionId) {
+        return
+      }
+
+      const slots = ensureOptionSlots(mcqBody.options)
+      const selectedOption = slots.find((option) => option.id === optionId)
+
+      if (!selectedOption || selectedOption.text.trim().length === 0) {
+        toast.error("Add text to this answer before marking it correct.")
+        return
+      }
+
+      applyChanges((current) => ({
+        ...current,
+        correctOptionId: optionId,
+      }))
+
+      onCommit()
+    },
+    [applyChanges, isDisabled, mcqBody.correctOptionId, mcqBody.options, onCommit],
+  )
+
+  const handleImageFileSelect = useCallback(
+    (fileName: string | null) => {
+      if (isDisabled) {
+        return
+      }
+
+      applyChanges((current) => ({
+        ...current,
+        imageFile: fileName,
+      }))
+      onCommit()
+    },
+    [applyChanges, isDisabled, onCommit],
+  )
+
+  const handleImageUrlChange = useCallback(
+    (value: string) => {
+      applyChanges((current) => ({
+        ...current,
+        imageUrl: value,
+      }))
+    },
+    [applyChanges],
+  )
+
+  const handleImageAltChange = useCallback(
+    (value: string) => {
+      applyChanges((current) => ({
+        ...current,
+        imageAlt: value,
+      }))
+    },
+    [applyChanges],
+  )
+
+  return (
+    <div className="mt-4 space-y-4 rounded-lg border border-border bg-muted/30 p-4">
+      <div className="space-y-1.5">
+        <Label className="text-xs font-medium text-muted-foreground">Question text</Label>
+        <RichTextEditor
+          value={mcqBody.question}
+          onChange={handleQuestionChange}
+          onBlur={handleCommit}
+          placeholder="Ask your question here"
+          disabled={isDisabled}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label className="text-xs font-medium text-muted-foreground">Answer options</Label>
+
+        <RadioGroup
+          value={mcqBody.correctOptionId}
+          onValueChange={handleCorrectOptionChange}
+          className="space-y-3"
+        >
+          {optionSlots.map((option, index) => {
+            const optionInputId = `mcq-${activity.activity_id}-${option.id}`
+            return (
+              <div
+                key={option.id}
+                className="flex items-center gap-3 rounded-md border border-border bg-background p-3 shadow-xs"
+              >
+                <RadioGroupItem
+                  value={option.id}
+                  id={optionInputId}
+                  disabled={isDisabled}
+                  className="mt-1"
+                />
+                <div className="flex w-full flex-col gap-1.5">
+                  <Label
+                    htmlFor={optionInputId}
+                    className="text-xs font-medium text-muted-foreground"
+                  >
+                    Option {index + 1}
+                  </Label>
+                  <Input
+                    value={option.text}
+                    onChange={(event) => handleOptionTextChange(option.id, event.target.value)}
+                    onBlur={handleCommit}
+                    placeholder="Enter option text"
+                    disabled={isDisabled}
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    Choose the radio button to mark this answer as correct.
+                  </span>
+                </div>
+              </div>
+            )
+          })}
+        </RadioGroup>
+        <p className="text-xs text-muted-foreground">
+          Provide up to four answers and make sure at least two contain text before saving.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <Label className="text-xs font-medium text-muted-foreground">Question image (optional)</Label>
+        <Select
+          value={mcqBody.imageFile ?? "none"}
+          onValueChange={(value) => handleImageFileSelect(value === "none" ? null : value)}
+          disabled={isDisabled || files.length === 0}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Select an uploaded image" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">No image</SelectItem>
+            {files.map((file) => (
+              <SelectItem key={file.path} value={file.name}>
+                {file.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          Upload images using the resources uploader above, then choose one here.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <Label className="text-xs font-medium text-muted-foreground">External image URL</Label>
+        <Input
+          type="url"
+          value={mcqBody.imageUrl ?? ""}
+          onChange={(event) => handleImageUrlChange(event.target.value)}
+          onBlur={handleCommit}
+          placeholder="https://example.com/image.png"
+          disabled={isDisabled}
+        />
+        <p className="text-xs text-muted-foreground">
+          Leave blank to use the uploaded image. Provide a full URL for externally hosted images.
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label className="text-xs font-medium text-muted-foreground">Image description</Label>
+        <Input
+          value={mcqBody.imageAlt ?? ""}
+          onChange={(event) => handleImageAltChange(event.target.value)}
+          onBlur={handleCommit}
+          placeholder="Describe the image for accessibility"
+          disabled={isDisabled}
+        />
+      </div>
     </div>
   )
 }

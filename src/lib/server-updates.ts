@@ -96,6 +96,12 @@ export {
   deleteLessonActivityAction,
 } from "./server-actions/lesson-activities"
 
+export {
+  getLatestSubmissionForActivityAction,
+  readLessonSubmissionSummariesAction,
+  upsertMcqSubmissionAction,
+} from "./server-actions/submissions"
+
 export { fetchLessonLinkMetadataAction } from "./server-actions/link-metadata"
 
 export {

@@ -3,7 +3,13 @@
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
-import { LessonActivitySchema, LessonActivitiesSchema } from "@/types"
+import {
+  LessonActivitySchema,
+  LessonActivitiesSchema,
+  McqActivityBodySchema,
+  FeedbackActivityBodySchema,
+  type FeedbackActivityGroupSettings,
+} from "@/types"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 const LessonActivitiesReturnValue = z.object({
@@ -283,6 +289,11 @@ const VoiceActivityBodySchema = z
     size: z.number().nonnegative().nullable().optional(),
   })
   .passthrough()
+const FeedbackGroupDefaults: FeedbackActivityGroupSettings = {
+  isEnabled: false,
+  showScore: false,
+  showCorrectAnswers: false,
+}
 
 function normalizeActivityBody(
   type: string,
@@ -390,6 +401,108 @@ function normalizeActivityBody(
     }
 
     return { success: false, error: "Upload file activities require instructions." }
+  }
+
+  if (type === "multiple-choice-question") {
+    const defaultOptions = [
+      { id: "option-a", text: "" },
+      { id: "option-b", text: "" },
+      { id: "option-c", text: "" },
+      { id: "option-d", text: "" },
+    ] as const
+
+    const defaultBody = {
+      question: "",
+      imageFile: null,
+      imageUrl: null,
+      imageAlt: null,
+      options: [...defaultOptions],
+      correctOptionId: defaultOptions[0].id,
+    }
+
+    if (rawBody === undefined || rawBody === null) {
+      return { success: true, bodyData: defaultBody }
+    }
+
+    if (typeof rawBody === "object") {
+      const parsed = McqActivityBodySchema.safeParse(rawBody)
+      if (parsed.success) {
+        const normalizedOptions = parsed.data.options.map((option, index) => {
+          const trimmedId = option.id.trim()
+          const trimmedText = option.text.trim()
+          return {
+            id: trimmedId || `option-${index + 1}`,
+            text: trimmedText,
+            imageUrl: typeof option.imageUrl === "string" ? option.imageUrl.trim() || null : null,
+          }
+        })
+
+        const hasValidCorrectOption = normalizedOptions.some(
+          (option) => option.id === parsed.data.correctOptionId,
+        )
+
+        const fallbackCorrectOptionId = normalizedOptions[0]?.id ?? defaultBody.correctOptionId
+
+        return {
+          success: true,
+          bodyData: {
+            question: parsed.data.question.trim(),
+            imageFile: parsed.data.imageFile?.trim() || null,
+            imageUrl: parsed.data.imageUrl?.trim() || null,
+            imageAlt: parsed.data.imageAlt?.trim() || null,
+            options: normalizedOptions,
+            correctOptionId: hasValidCorrectOption
+              ? parsed.data.correctOptionId
+              : fallbackCorrectOptionId,
+          },
+        }
+      }
+    }
+
+    if (allowFallback) {
+      return { success: true, bodyData: defaultBody }
+    }
+
+    return { success: false, error: "Multiple choice activities require a question and options." }
+  }
+
+  if (type === "feedback") {
+    const defaultBody = { groups: {} as Record<string, FeedbackActivityGroupSettings> }
+
+    if (rawBody === undefined || rawBody === null) {
+      return { success: true, bodyData: defaultBody }
+    }
+
+    if (typeof rawBody === "object") {
+      const parsed = FeedbackActivityBodySchema.safeParse(rawBody)
+      if (parsed.success) {
+        const normalizedGroups = Object.entries(parsed.data.groups ?? {}).reduce<
+          Record<string, FeedbackActivityGroupSettings>
+        >((acc, [groupId, settings]) => {
+          const trimmedId = groupId.trim()
+          if (trimmedId.length === 0) {
+            return acc
+          }
+          acc[trimmedId] = {
+            ...FeedbackGroupDefaults,
+            isEnabled: settings?.isEnabled === true,
+            showScore: settings?.showScore === true,
+            showCorrectAnswers: settings?.showCorrectAnswers === true,
+          }
+          return acc
+        }, {})
+
+        const rest = { ...parsed.data } as Record<string, unknown>
+        delete rest.groups
+        return { success: true, bodyData: { ...rest, groups: normalizedGroups } }
+      }
+    }
+
+    if (allowFallback) {
+      return { success: true, bodyData: defaultBody }
+    }
+
+    return { success: false, error: "Feedback activities require configuration for assigned groups." }
   }
 
   return { success: true, bodyData: rawBody ?? null }

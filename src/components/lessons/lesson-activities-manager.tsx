@@ -6,13 +6,15 @@ import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { Download, GripVertical, Loader2, Pencil, Play, Plus, Trash2 } from "lucide-react"
 
-import type { LessonActivity } from "@/types"
+import type { FeedbackActivityBody, FeedbackActivityGroupSettings, LessonActivity } from "@/types"
 import {
   createLessonActivityAction,
   deleteActivityFileAction,
   deleteLessonActivityAction,
   getActivityFileDownloadUrlAction,
   listActivityFilesAction,
+  readLessonAssignmentsAction,
+  readGroupsAction,
   reorderLessonActivitiesAction,
   updateLessonActivityAction,
   uploadActivityFileAction,
@@ -25,12 +27,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
 import { RichTextEditor } from "@/components/ui/rich-text-editor"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Switch } from "@/components/ui/switch"
 import {
   getImageBody,
+  getFeedbackBody,
+  getMcqBody,
   getVoiceBody,
   isAbsoluteUrl,
   type ImageBody,
+  type McqBody,
   type VoiceBody,
 } from "@/components/lessons/activity-view/utils"
 import { LessonActivityView } from "@/components/lessons/activity-view"
@@ -41,6 +47,13 @@ interface ActivityFileInfo {
   size?: number | null
 }
 
+interface AssignedGroupInfo {
+  groupId: string
+  label: string
+  subject: string | null
+  startDate: string | null
+}
+
 const ACTIVITY_TYPES = [
   { value: "text", label: "Text" },
   { value: "file-download", label: "File download" },
@@ -48,6 +61,7 @@ const ACTIVITY_TYPES = [
   { value: "display-image", label: "Display image" },
   { value: "show-video", label: "Show video" },
   { value: "multiple-choice-question", label: "Multiple choice question" },
+  { value: "feedback", label: "Feedback" },
   { value: "text-question", label: "Text question" },
   { value: "voice", label: "Voice recording" },
 ] as const
@@ -55,6 +69,12 @@ const ACTIVITY_TYPES = [
 type ActivityTypeValue = (typeof ACTIVITY_TYPES)[number]["value"]
 
 const NEW_ACTIVITY_ID = "__new__"
+
+const FEEDBACK_GROUP_DEFAULTS: FeedbackActivityGroupSettings = {
+  isEnabled: false,
+  showScore: false,
+  showCorrectAnswers: false,
+}
 
 interface LessonActivitiesManagerProps {
   unitId: string
@@ -84,6 +104,8 @@ export function LessonActivitiesManager({
     Record<string, { url: string | null; loading: boolean; error: boolean }>
   >({})
   const [homeworkPending, setHomeworkPending] = useState<Record<string, boolean>>({})
+  const [assignedGroups, setAssignedGroups] = useState<AssignedGroupInfo[]>([])
+  const [assignedGroupsLoading, setAssignedGroupsLoading] = useState(false)
   const voiceAudioRef = useRef<HTMLAudioElement | null>(null)
 
   useEffect(() => {
@@ -91,6 +113,78 @@ export function LessonActivitiesManager({
     setImagePreviewState({})
     setHomeworkPending({})
   }, [initialActivities])
+
+  useEffect(() => {
+    let cancelled = false
+    setAssignedGroupsLoading(true)
+
+    const loadAssignedGroups = async () => {
+      try {
+        const [assignmentsResult, groupsResult] = await Promise.all([
+          readLessonAssignmentsAction(),
+          readGroupsAction(),
+        ])
+
+        if (cancelled) {
+          return
+        }
+
+        if (assignmentsResult.error) {
+          toast.error("Failed to load lesson group assignments", {
+            description: assignmentsResult.error,
+          })
+          setAssignedGroups([])
+          return
+        }
+
+        if (groupsResult.error) {
+          toast.error("Failed to load groups", {
+            description: groupsResult.error,
+          })
+        }
+
+        const assignments = (assignmentsResult.data ?? []).filter(
+          (assignment) => assignment.lesson_id === lessonId,
+        )
+        const groups = groupsResult.data ?? []
+        const groupMap = new Map(groups.map((group) => [group.group_id, group]))
+
+        const unique = new Map<string, AssignedGroupInfo>()
+        assignments.forEach((assignment) => {
+          const group = groupMap.get(assignment.group_id)
+          const subject = group?.subject ?? null
+          const label =
+            (subject && subject.trim().length > 0 ? subject.trim() : null) ?? assignment.group_id
+
+          unique.set(assignment.group_id, {
+            groupId: assignment.group_id,
+            label,
+            subject,
+            startDate: assignment.start_date ?? null,
+          })
+        })
+
+        const ordered = Array.from(unique.values()).sort((a, b) => a.label.localeCompare(b.label))
+        setAssignedGroups(ordered)
+      } catch (error) {
+        if (!cancelled) {
+          console.error("[activities] Failed to load assigned groups", error)
+          toast.error("Failed to load lesson group assignments")
+          setAssignedGroups([])
+        }
+      } finally {
+        if (!cancelled) {
+          setAssignedGroupsLoading(false)
+        }
+      }
+    }
+
+    void loadAssignedGroups()
+
+    return () => {
+      cancelled = true
+    }
+  }, [lessonId])
 
   const typeLabelMap = useMemo(() => {
     return ACTIVITY_TYPES.reduce<Record<string, string>>((acc, type) => {
@@ -962,6 +1056,8 @@ export function LessonActivitiesManager({
         onSubmit={handleEditorSubmit}
         unitId={unitId}
         lessonId={lessonId}
+        assignedGroups={assignedGroups}
+        assignedGroupsLoading={assignedGroupsLoading}
       />
 
     </>
@@ -1108,6 +1204,8 @@ interface LessonActivityEditorSheetProps {
   }) => void
   unitId: string
   lessonId: string
+  assignedGroups: AssignedGroupInfo[]
+  assignedGroupsLoading: boolean
 }
 
 function LessonActivityEditorSheet({
@@ -1119,6 +1217,8 @@ function LessonActivityEditorSheet({
   onSubmit,
   unitId,
   lessonId,
+  assignedGroups,
+  assignedGroupsLoading,
 }: LessonActivityEditorSheetProps) {
   const isCreateMode = mode === "create"
   const [title, setTitle] = useState("")
@@ -1145,6 +1245,89 @@ function LessonActivityEditorSheet({
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null)
   const [isImageLoading, setIsImageLoading] = useState(false)
   const [isImageDragActive, setIsImageDragActive] = useState(false)
+  const [mcqBody, setMcqBody] = useState<McqBody>(() => createDefaultMcqBody())
+  const [feedbackBody, setFeedbackBody] = useState<FeedbackActivityBody>(() => createDefaultFeedbackBody())
+
+  const mcqOptionSlots = useMemo(() => ensureOptionSlots(mcqBody.options), [mcqBody.options])
+  const mcqValidationMessage = useMemo(() => validateMcqBody(mcqBody), [mcqBody])
+
+  const updateMcqBody = useCallback((updater: (current: McqBody) => McqBody) => {
+    setMcqBody((previous) => normalizeMcqBody(updater(normalizeMcqBody(previous))))
+  }, [])
+
+  const handleMcqQuestionChange = useCallback(
+    (value: string) => {
+      updateMcqBody((current) => ({ ...current, question: value }))
+    },
+    [updateMcqBody],
+  )
+
+  const handleMcqCommit = useCallback(() => {
+    setMcqBody((prev) => normalizeMcqBody(prev))
+  }, [])
+
+  const handleMcqOptionTextChange = useCallback(
+    (optionId: string, value: string) => {
+      updateMcqBody((current) => ({
+        ...current,
+        options: current.options.map((option) =>
+          option.id === optionId ? { ...option, text: value } : option,
+        ),
+      }))
+    },
+    [updateMcqBody],
+  )
+
+  const handleMcqCorrectOptionChange = useCallback(
+    (optionId: string) => {
+      const target = mcqOptionSlots.find((option) => option.id === optionId)
+      if (!target || target.text.trim().length === 0) {
+        toast.error("Add text to this answer before marking it correct.")
+        return
+      }
+
+      updateMcqBody((current) => ({
+        ...current,
+        correctOptionId: optionId,
+      }))
+    },
+    [mcqOptionSlots, updateMcqBody],
+  )
+
+  const updateFeedbackSettings = useCallback(
+    (groupId: string, changes: Partial<FeedbackActivityGroupSettings>) => {
+      setFeedbackBody((previous) => {
+        const normalized = normalizeFeedbackBody(previous)
+        const nextGroups = { ...normalized.groups }
+        const existing = nextGroups[groupId] ?? FEEDBACK_GROUP_DEFAULTS
+        const next: FeedbackActivityGroupSettings = {
+          ...FEEDBACK_GROUP_DEFAULTS,
+          ...existing,
+          ...changes,
+        }
+
+        if (changes.isEnabled === false) {
+          next.showScore = false
+          next.showCorrectAnswers = false
+        }
+
+        if (changes.showScore === true || changes.showCorrectAnswers === true) {
+          next.isEnabled = true
+        }
+
+        nextGroups[groupId] = next
+        return { ...normalized, groups: nextGroups }
+      })
+    },
+    [setFeedbackBody],
+  )
+
+  const feedbackRows = useMemo(() => {
+    return assignedGroups.map((group) => ({
+      group,
+      settings: feedbackBody.groups[group.groupId] ?? FEEDBACK_GROUP_DEFAULTS,
+    }))
+  }, [assignedGroups, feedbackBody])
 
   const originalVoiceBodyRef = useRef<VoiceBody | null>(null)
   const pendingObjectUrlRef = useRef<string | null>(null)
@@ -1591,11 +1774,13 @@ function LessonActivityEditorSheet({
       setIsProcessing(false)
       setActivityFiles([])
       setIsFilesLoading(false)
-      setIsUploadingFiles(false)
-      setIsFileDragActive(false)
-      resetImageState()
-      return
-    }
+    setIsUploadingFiles(false)
+    setIsFileDragActive(false)
+    resetImageState()
+    setMcqBody(createDefaultMcqBody())
+    setFeedbackBody(createDefaultFeedbackBody())
+    return
+  }
 
     if (open && activity && mode === "edit") {
       const ensuredType = ensureActivityType(activity.type)
@@ -1633,6 +1818,21 @@ function LessonActivityEditorSheet({
       } else {
         resetImageState()
       }
+      if (ensuredType === "multiple-choice-question") {
+        setMcqBody(normalizeMcqBody(getMcqBody(activity)))
+      } else {
+        setMcqBody(createDefaultMcqBody())
+      }
+      if (ensuredType === "feedback") {
+        setFeedbackBody(
+          syncFeedbackBodyWithGroups(
+            normalizeFeedbackBody(getFeedbackBody(activity)),
+            assignedGroups,
+          ),
+        )
+      } else {
+        setFeedbackBody(createDefaultFeedbackBody())
+      }
     }
 
     if (!open) {
@@ -1658,10 +1858,28 @@ function LessonActivityEditorSheet({
       setIsProcessing(false)
       setActivityFiles([])
       setIsFilesLoading(false)
-      setIsUploadingFiles(false)
-      setIsFileDragActive(false)
+    setIsUploadingFiles(false)
+    setIsFileDragActive(false)
+    setMcqBody(createDefaultMcqBody())
+    setFeedbackBody(createDefaultFeedbackBody())
+  }
+}, [
+  activity,
+  applyImageFromActivity,
+  assignedGroups,
+  isCreateMode,
+  mode,
+  open,
+  refreshActivityFiles,
+  resetImageState,
+])
+
+  useEffect(() => {
+    if (!open || type !== "feedback") {
+      return
     }
-  }, [activity, applyImageFromActivity, isCreateMode, mode, open, refreshActivityFiles, resetImageState])
+    setFeedbackBody((prev) => syncFeedbackBodyWithGroups(normalizeFeedbackBody(prev), assignedGroups))
+  }, [assignedGroups, open, type])
 
   useEffect(() => {
     setRawBodyError(null)
@@ -1682,6 +1900,22 @@ function LessonActivityEditorSheet({
       if (type === "show-video") {
         setText("")
         setRawBody("")
+        return
+      }
+
+      if (type === "multiple-choice-question") {
+        setText("")
+        setVideoUrl("")
+        setRawBody("")
+        setMcqBody(createDefaultMcqBody())
+        return
+      }
+
+      if (type === "feedback") {
+        setText("")
+        setVideoUrl("")
+        setRawBody("")
+        setFeedbackBody(createDefaultFeedbackBody())
         return
       }
 
@@ -1772,6 +2006,15 @@ function LessonActivityEditorSheet({
         applyImageFromActivity(activity)
       } else {
         resetImageState()
+      }
+      return
+    }
+
+    if (type === "multiple-choice-question") {
+      if (activity) {
+        setMcqBody(normalizeMcqBody(getMcqBody(activity)))
+      } else {
+        setMcqBody(createDefaultMcqBody())
       }
       return
     }
@@ -2137,6 +2380,15 @@ function LessonActivityEditorSheet({
             : null,
         finalBody: sanitizedBody,
       }
+    } else if (type === "multiple-choice-question") {
+      const { bodyData: preparedMcqBody, error } = prepareMcqBodyForSave(mcqBody)
+      if (error) {
+        toast.error(error)
+        return
+      }
+      bodyData = preparedMcqBody
+    } else if (type === "feedback") {
+      bodyData = syncFeedbackBodyWithGroups(normalizeFeedbackBody(feedbackBody), assignedGroups)
     } else {
       let fallbackBody: unknown = !isCreateMode && activity ? activity.body_data ?? null : null
       if (!isCreateMode && type !== "text" && type !== "show-video") {
@@ -2176,7 +2428,8 @@ function LessonActivityEditorSheet({
     isProcessing ||
     isRecording ||
     title.trim().length === 0 ||
-    (type !== "voice" && rawBodyError !== null)
+    (type !== "voice" && rawBodyError !== null) ||
+    (type === "multiple-choice-question" && mcqValidationMessage !== null)
 
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>
@@ -2357,6 +2610,130 @@ function LessonActivityEditorSheet({
             </div>
           ) : null}
 
+          {type === "multiple-choice-question" ? (
+            <div className="rounded-md border border-border bg-muted/20 p-4">
+              <div className="space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground">Question</Label>
+                <RichTextEditor
+                  id="mcq-question"
+                  value={mcqBody.question}
+                  onChange={handleMcqQuestionChange}
+                  onBlur={handleMcqCommit}
+                  placeholder="Ask your question here"
+                  disabled={isPending}
+                />
+              </div>
+
+              <div className="mt-4 space-y-3">
+                <Label className="text-xs font-medium text-muted-foreground">Answers</Label>
+                <div className="space-y-2 rounded-md border border-border bg-background p-3">
+                  <RadioGroup
+                    value={mcqBody.correctOptionId}
+                    onValueChange={handleMcqCorrectOptionChange}
+                    className="space-y-2"
+                  >
+                    {mcqOptionSlots.map((option, index) => (
+                      <label
+                        key={option.id}
+                        htmlFor={`mcq-option-${option.id}`}
+                        className="flex items-center gap-3"
+                      >
+                        <RadioGroupItem
+                          value={option.id}
+                          id={`mcq-option-${option.id}`}
+                          disabled={isPending}
+                          className="mt-0.5"
+                        />
+                        <Input
+                          value={option.text}
+                          onChange={(event) => handleMcqOptionTextChange(option.id, event.target.value)}
+                          onBlur={handleMcqCommit}
+                          placeholder={`Answer ${index + 1}`}
+                          disabled={isPending}
+                        />
+                      </label>
+                    ))}
+                  </RadioGroup>
+                </div>
+              </div>
+
+              <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+                <p>Provide up to four answers; at least two must contain text before saving.</p>
+                {mcqValidationMessage ? (
+                  <p className="text-destructive">{mcqValidationMessage}</p>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          {type === "feedback" ? (
+            <div className="space-y-3 rounded-md border border-border bg-muted/20 p-4">
+              <div className="space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground">Group configuration</Label>
+                {assignedGroupsLoading ? (
+                  <p className="text-sm text-muted-foreground">Loading group assignments…</p>
+                ) : feedbackRows.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    This lesson is not assigned to any groups yet. Assign the lesson to a class to enable feedback.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto rounded-md border border-border bg-background">
+                    <table className="min-w-full divide-y divide-border text-left text-sm">
+                      <thead className="bg-muted/40 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        <tr>
+                          <th className="px-3 py-2">Group</th>
+                          <th className="px-3 py-2 text-center">Enabled</th>
+                          <th className="px-3 py-2 text-center">Show score</th>
+                          <th className="px-3 py-2 text-center">Show correct answers</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {feedbackRows.map(({ group, settings }) => (
+                          <tr key={group.groupId}>
+                            <td className="px-3 py-2 align-middle">
+                              <div className="font-medium text-foreground">{group.label}</div>
+                              <div className="text-xs text-muted-foreground">{group.groupId}</div>
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              <Switch
+                                checked={settings.isEnabled}
+                                onCheckedChange={(checked) =>
+                                  updateFeedbackSettings(group.groupId, { isEnabled: checked })
+                                }
+                                disabled={isPending}
+                              />
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              <Switch
+                                checked={settings.showScore}
+                                onCheckedChange={(checked) =>
+                                  updateFeedbackSettings(group.groupId, { showScore: checked })
+                                }
+                                disabled={isPending || !settings.isEnabled}
+                              />
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              <Switch
+                                checked={settings.showCorrectAnswers}
+                                onCheckedChange={(checked) =>
+                                  updateFeedbackSettings(group.groupId, { showCorrectAnswers: checked })
+                                }
+                                disabled={isPending || !settings.isEnabled}
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Pupils see “Not enabled for group &lt;group_id&gt;” when the activity is disabled for their class.
+                </p>
+              </div>
+            </div>
+          ) : null}
+
           {type === "voice" ? (
             <div className="space-y-3 rounded-md border border-border p-4">
               <div className="space-y-2">
@@ -2506,7 +2883,9 @@ function LessonActivityEditorSheet({
           type !== "voice" &&
           type !== "file-download" &&
           type !== "upload-file" &&
-          type !== "display-image" ? (
+          type !== "display-image" &&
+          type !== "multiple-choice-question" &&
+          type !== "feedback" ? (
             <div className="space-y-2">
               <Label htmlFor="activity-json">Activity details</Label>
               <Textarea
@@ -2545,6 +2924,199 @@ function LessonActivityEditorSheet({
 function ensureActivityType(value: string | null | undefined): ActivityTypeValue {
   const match = ACTIVITY_TYPES.find((item) => item.value === value)
   return match ? match.value : ACTIVITY_TYPES[0].value
+}
+
+function createMcqOptionId(existingIds: Set<string>): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    let candidate = crypto.randomUUID()
+    while (existingIds.has(candidate)) {
+      candidate = crypto.randomUUID()
+    }
+    return candidate
+  }
+
+  let candidate = ""
+  do {
+    candidate = `option-${Math.random().toString(36).slice(2, 10)}`
+  } while (existingIds.has(candidate))
+  return candidate
+}
+
+function ensureOptionSlots(options: McqBody["options"]): McqBody["options"] {
+  const maxOptions = 4
+  const defaults = ["option-a", "option-b", "option-c", "option-d"]
+  const normalized = (options ?? []).slice(0, maxOptions)
+
+  const result = normalized.map((option, index) => {
+    const rawId = typeof option.id === "string" && option.id.trim().length > 0 ? option.id.trim() : `option-${index + 1}`
+    return {
+      id: rawId,
+      text: typeof option.text === "string" ? option.text : "",
+      imageUrl: typeof option.imageUrl === "string" ? option.imageUrl : null,
+    }
+  })
+
+  const used = new Set(result.map((option) => option.id))
+
+  for (const fallbackId of defaults) {
+    if (result.length >= maxOptions) break
+    if (!used.has(fallbackId)) {
+      used.add(fallbackId)
+      result.push({ id: fallbackId, text: "", imageUrl: null })
+    }
+  }
+
+  while (result.length < maxOptions) {
+    const generated = createMcqOptionId(used)
+    used.add(generated)
+    result.push({ id: generated, text: "", imageUrl: null })
+  }
+
+  return result
+}
+
+function createDefaultMcqBody(): McqBody {
+  const options = ensureOptionSlots([])
+  return {
+    question: "",
+    imageFile: null,
+    imageUrl: null,
+    imageAlt: null,
+    options,
+    correctOptionId: options[0]?.id ?? "option-a",
+  }
+}
+
+function createDefaultFeedbackBody(): FeedbackActivityBody {
+  return { groups: {} }
+}
+
+function normalizeFeedbackBody(body: FeedbackActivityBody | null | undefined): FeedbackActivityBody {
+  if (!body || typeof body !== "object") {
+    return createDefaultFeedbackBody()
+  }
+
+  const rawGroups = body.groups ?? {}
+  const normalizedGroups: Record<string, FeedbackActivityGroupSettings> = {}
+
+  Object.entries(rawGroups).forEach(([groupId, settings]) => {
+    const trimmedId = groupId.trim()
+    if (!trimmedId) {
+      return
+    }
+    normalizedGroups[trimmedId] = {
+      ...FEEDBACK_GROUP_DEFAULTS,
+      ...(settings ?? {}),
+      isEnabled: settings?.isEnabled === true,
+      showScore: settings?.showScore === true,
+      showCorrectAnswers: settings?.showCorrectAnswers === true,
+    }
+  })
+
+  return { ...body, groups: normalizedGroups }
+}
+
+function syncFeedbackBodyWithGroups(
+  body: FeedbackActivityBody,
+  groups: AssignedGroupInfo[],
+): FeedbackActivityBody {
+  const normalized = normalizeFeedbackBody(body)
+  if (groups.length === 0) {
+    return { ...normalized, groups: {} }
+  }
+
+  const syncedGroups: Record<string, FeedbackActivityGroupSettings> = {}
+
+  groups.forEach(({ groupId }) => {
+    const existing = normalized.groups[groupId]
+    syncedGroups[groupId] = {
+      ...FEEDBACK_GROUP_DEFAULTS,
+      ...existing,
+      isEnabled: existing?.isEnabled === true,
+      showScore: existing?.showScore === true,
+      showCorrectAnswers: existing?.showCorrectAnswers === true,
+    }
+  })
+
+  return { ...normalized, groups: syncedGroups }
+}
+
+function normalizeMcqBody(body: McqBody): McqBody {
+  const question = typeof body.question === "string" ? body.question : ""
+  const normalizedOptions = ensureOptionSlots(body.options).map((option, index) => {
+    const id = option.id && option.id.trim().length > 0 ? option.id.trim() : `option-${index + 1}`
+    const text = typeof option.text === "string" ? option.text.trim() : ""
+    const imageUrl = typeof option.imageUrl === "string" && option.imageUrl.trim().length > 0 ? option.imageUrl.trim() : null
+    return { id, text, imageUrl }
+  })
+
+  const correctExists = normalizedOptions.some((option) => option.id === body.correctOptionId)
+  const correctOptionId = correctExists ? body.correctOptionId : normalizedOptions[0]?.id ?? "option-a"
+
+  const imageFile = typeof body.imageFile === "string" && body.imageFile.trim().length > 0 ? body.imageFile.trim() : null
+  const imageUrl = typeof body.imageUrl === "string" && body.imageUrl.trim().length > 0 ? body.imageUrl.trim() : null
+  const imageAlt = typeof body.imageAlt === "string" && body.imageAlt.trim().length > 0 ? body.imageAlt.trim() : null
+
+  return {
+    question,
+    options: normalizedOptions,
+    correctOptionId,
+    imageFile,
+    imageUrl,
+    imageAlt,
+  }
+}
+
+function validateNormalizedMcqBody(body: McqBody): string | null {
+  const trimmedQuestion = body.question.trim()
+  if (!trimmedQuestion) {
+    return "Add the question text."
+  }
+
+  const filledOptions = body.options.filter((option) => option.text.trim().length > 0)
+  if (filledOptions.length < 2) {
+    return "Add at least two answers."
+  }
+
+  if (!filledOptions.some((option) => option.id === body.correctOptionId)) {
+    return "Select which answer is correct."
+  }
+
+  return null
+}
+
+function validateMcqBody(body: McqBody): string | null {
+  const normalized = normalizeMcqBody(body)
+  return validateNormalizedMcqBody(normalized)
+}
+
+function prepareMcqBodyForSave(body: McqBody): { bodyData: McqBody; error: string | null } {
+  const normalized = normalizeMcqBody(body)
+  const validation = validateNormalizedMcqBody(normalized)
+  if (validation) {
+    return { bodyData: normalized, error: validation }
+  }
+
+  const filledOptions = normalized.options.filter((option) => option.text.trim().length > 0)
+  const correctOptionId = filledOptions.some((option) => option.id === normalized.correctOptionId)
+    ? normalized.correctOptionId
+    : filledOptions[0].id
+
+  return {
+    bodyData: {
+      question: normalized.question,
+      options: filledOptions.map((option) => ({
+        id: option.id,
+        text: option.text.trim(),
+        imageUrl: option.imageUrl ?? null,
+      })),
+      correctOptionId,
+      imageFile: normalized.imageFile ?? null,
+      imageUrl: normalized.imageUrl ?? null,
+      imageAlt: normalized.imageAlt ?? null,
+    },
+    error: null,
+  }
 }
 
 function getYouTubeVideoId(url: string | null | undefined): string | null {

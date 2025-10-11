@@ -1,7 +1,19 @@
 # Dino
 ## Releases 
 
+### Release 0.0.12
+- Feedback activity now refreshes automatically when pupils submit answers, showing a single lesson-wide average based on the signed-in pupil’s scores while keeping per-activity breakdowns informational.
+- Lesson feedback presenter listens for client-side refresh events, fetches pupil-specific aggregates, and drops redundant per-activity average rows to keep the card focused on the new lesson average banner.
+- Pupil MCQ cards streamline their header by removing the “Multiple choice question” subtitle.
+
+### Release 0.0.11
+- Multiple choice questions now store structured submissions (`answer_chosen`/`is_correct`) with new server actions powering pupil experiences and reveal controls.
+- Pupil lessons load saved MCQ selections, while presentation mode keeps answers hidden until teachers reveal them.
+- Lesson activity editor replaces the MCQ JSON block with a compact rich-text question editor and inline answer list, validating at least two options before save.
+
 ### Release 0.0.10
+- Activities: Added a multiple choice question flow covering teacher authoring, lesson presentation, and pupil answering with submission tracking.
+- Activities: MCQ authoring now supports rich-text questions, four answer slots with inline correct-answer selection, and a teacher-only reveal control during presentation.
 - `/pupil-lessons/[pupilId]/lessons/[lessonId]`: Upload activity submissions now save to `lessons/<lessonId>/activities/<activityId>/<pupilId>/<fileName>`, keeping multiple upload steps isolated per lesson.
 
 

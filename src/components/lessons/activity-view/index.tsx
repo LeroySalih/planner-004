@@ -4,14 +4,25 @@ import { useEffect, useMemo, useState } from "react"
 import type { LessonActivity } from "@/types"
 import { ActivityImagePreview } from "@/components/lessons/activity-image-preview"
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 import {
   getActivityFileUrlValue,
   getActivityTextValue,
+  getFeedbackBody,
   getImageBody,
+  getMcqBody,
+  getRichTextMarkup,
   getVoiceBody,
   isAbsoluteUrl,
 } from "@/components/lessons/activity-view/utils"
-import { getActivityFileDownloadUrlAction } from "@/lib/server-updates"
+import {
+  getActivityFileDownloadUrlAction,
+  readLessonSubmissionSummariesAction,
+} from "@/lib/server-updates"
+import { supabaseBrowserClient } from "@/lib/supabase-browser"
+import { CheckCircle2, Eye, EyeOff, Loader2 } from "lucide-react"
+import type { LessonSubmissionSummary } from "@/types"
+import { addFeedbackRefreshListener } from "@/lib/feedback-events"
 
 export type LessonActivityViewMode = "short" | "present" | "edit"
 
@@ -26,6 +37,12 @@ export interface LessonActivityViewBaseProps {
   lessonId?: string
 }
 
+const FEEDBACK_GROUP_DEFAULTS = {
+  isEnabled: false,
+  showScore: false,
+  showCorrectAnswers: false,
+}
+
 export interface LessonActivityShortViewProps extends LessonActivityViewBaseProps {
   mode: "short"
   resolvedImageUrl?: string | null
@@ -38,6 +55,7 @@ export interface LessonActivityPresentViewProps extends LessonActivityViewBasePr
   onDownloadFile: (fileName: string) => void
   voicePlayback?: { url: string | null; isLoading: boolean }
   fetchActivityFileUrl?: (activityId: string, fileName: string) => Promise<string | null>
+  viewerCanReveal?: boolean
 }
 
 export interface LessonActivityEditViewProps extends LessonActivityViewBaseProps {
@@ -85,6 +103,49 @@ function ActivityShortView({ activity, lessonId, resolvedImageUrl, showImageBord
         className="prose prose-sm max-w-none text-muted-foreground"
         dangerouslySetInnerHTML={{ __html: markup }}
       />
+    )
+  }
+
+  if (activity.type === "multiple-choice-question") {
+    const mcq = getMcqBody(activity)
+    const markup = getRichTextMarkup(mcq.question)
+    if (!markup) {
+      return <p className="text-sm text-muted-foreground">Multiple choice question awaiting setup.</p>
+    }
+
+    return (
+      <div className="space-y-1">
+        <p className="text-xs font-semibold uppercase tracking-wide text-primary">Multiple choice</p>
+        <div
+          className="prose prose-sm line-clamp-3 max-w-none text-muted-foreground"
+          dangerouslySetInnerHTML={{ __html: markup }}
+        />
+      </div>
+    )
+  }
+
+  if (activity.type === "feedback") {
+    const feedback = getFeedbackBody(activity)
+    const entries = Object.entries(feedback.groups)
+
+    if (entries.length === 0) {
+      return <p className="text-sm text-muted-foreground">No groups configured yet.</p>
+    }
+
+    return (
+      <div className="space-y-2 text-sm">
+        {entries.map(([groupId, settings]) => (
+          <div
+            key={groupId}
+            className="flex items-center justify-between rounded-md border border-border/60 px-3 py-2"
+          >
+            <span className="font-medium text-foreground">{groupId}</span>
+            <span className={cn("text-xs", settings.isEnabled ? "text-emerald-600" : "text-muted-foreground")}>
+              {settings.isEnabled ? `Enabled for group ${groupId}` : `Not enabled for group ${groupId}`}
+            </span>
+          </div>
+        ))}
+      </div>
     )
   }
 
@@ -292,13 +353,195 @@ function DisplayImageShortView({
   )
 }
 
+function McqPresentView({
+  activity,
+  fetchActivityFileUrl,
+  canReveal = false,
+}: {
+  activity: LessonActivity
+  fetchActivityFileUrl?: (activityId: string, fileName: string) => Promise<string | null>
+  canReveal?: boolean
+}) {
+  const mcq = getMcqBody(activity)
+  const [imageState, setImageState] = useState<{
+    url: string | null
+    loading: boolean
+    error: string | null
+  }>({ url: null, loading: false, error: null })
+  const [isRevealed, setIsRevealed] = useState(false)
+
+  useEffect(() => {
+    setIsRevealed(false)
+  }, [activity.activity_id])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const directUrl =
+      mcq.imageUrl && isAbsoluteUrl(mcq.imageUrl) ? mcq.imageUrl : null
+
+    if (directUrl) {
+      setImageState({ url: directUrl, loading: false, error: null })
+      return () => {
+        cancelled = true
+      }
+    }
+
+    const fileName =
+      mcq.imageFile && !isAbsoluteUrl(mcq.imageFile) ? mcq.imageFile : null
+
+    if (!fileName) {
+      setImageState({ url: null, loading: false, error: null })
+      return () => {
+        cancelled = true
+      }
+    }
+
+    if (!fetchActivityFileUrl) {
+      setImageState({
+        url: null,
+        loading: false,
+        error: "Upload handling is not available for this image.",
+      })
+      return () => {
+        cancelled = true
+      }
+    }
+
+    setImageState({ url: null, loading: true, error: null })
+    fetchActivityFileUrl(activity.activity_id, fileName)
+      .then((url) => {
+        if (cancelled) return
+        if (url) {
+          setImageState({ url, loading: false, error: null })
+        } else {
+          setImageState({
+            url: null,
+            loading: false,
+            error: "Unable to load the image for this question.",
+          })
+        }
+      })
+      .catch((error) => {
+        if (cancelled) return
+        console.error("[lesson-activities] Failed to load MCQ image:", error)
+        setImageState({
+          url: null,
+          loading: false,
+          error: "Unable to load the image for this question.",
+        })
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [activity.activity_id, fetchActivityFileUrl, mcq.imageFile, mcq.imageUrl])
+
+  const questionMarkup = getRichTextMarkup(mcq.question)
+  const fallbackQuestion = (mcq.question || activity.title || "Multiple choice question").trim()
+  const revealEnabled = canReveal && isRevealed
+
+  return (
+    <div className="space-y-6">
+      <div className="space-y-2">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-4">
+          {questionMarkup ? (
+            <div
+              className="prose prose-lg max-w-none text-foreground"
+              dangerouslySetInnerHTML={{ __html: questionMarkup }}
+            />
+          ) : (
+            <h3 className="text-2xl font-semibold text-foreground">
+              {fallbackQuestion || "Multiple choice question"}
+            </h3>
+          )}
+          {canReveal ? (
+            <Button
+              type="button"
+              size="sm"
+              variant={revealEnabled ? "secondary" : "outline"}
+              onClick={() => setIsRevealed((previous) => !previous)}
+              aria-pressed={revealEnabled}
+              className="shrink-0"
+            >
+              {revealEnabled ? (
+                <>
+                  <EyeOff className="mr-2 h-4 w-4" aria-hidden="true" />
+                  Hide answer
+                </>
+              ) : (
+                <>
+                  <Eye className="mr-2 h-4 w-4" aria-hidden="true" />
+                  Reveal answer
+                </>
+              )}
+            </Button>
+          ) : null}
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Pupils respond on their devices. Use reveal when you are ready to discuss the answer.
+        </p>
+      </div>
+
+      {imageState.loading ? (
+        <p className="text-sm text-muted-foreground">Loading question image…</p>
+      ) : imageState.error ? (
+        <p className="text-sm text-destructive">{imageState.error}</p>
+      ) : imageState.url ? (
+        <ActivityImagePreview
+          imageUrl={imageState.url}
+          alt={mcq.imageAlt || fallbackQuestion || "Question image"}
+          objectFit="contain"
+        />
+      ) : null}
+
+      <ul className="space-y-3">
+        {mcq.options.map((option, index) => {
+          const optionText = option.text.trim() || `Option ${index + 1}`
+          const isCorrect = option.id === mcq.correctOptionId
+
+          return (
+            <li
+              key={option.id}
+              className={cn(
+                "flex items-start justify-between rounded-lg border border-border bg-card p-3",
+                revealEnabled && isCorrect && "border-primary bg-primary/5",
+              )}
+            >
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-foreground">{optionText}</p>
+                <p className="text-xs text-muted-foreground">Choice {index + 1}</p>
+              </div>
+              {revealEnabled && isCorrect ? (
+                <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-primary">
+                  <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                  Correct answer
+                </span>
+              ) : null}
+            </li>
+          )
+        })}
+      </ul>
+
+      <p className="text-xs text-muted-foreground">
+        When presenting, ask pupils to choose their answer on their device.
+      </p>
+    </div>
+  )
+}
 function ActivityPresentView({
   activity,
   files,
   onDownloadFile,
   voicePlayback,
   fetchActivityFileUrl,
+  viewerCanReveal,
+  lessonId,
 }: LessonActivityPresentViewProps) {
+  if (activity.type === "feedback") {
+    return <FeedbackPresentView activity={activity} lessonId={lessonId} />
+  }
+
   if (activity.type === "text") {
     const text = getActivityTextValue(activity)
     const markup = getRichTextMarkup(text)
@@ -466,6 +709,16 @@ function ActivityPresentView({
     )
   }
 
+  if (activity.type === "multiple-choice-question") {
+    return (
+      <McqPresentView
+        activity={activity}
+        fetchActivityFileUrl={fetchActivityFileUrl}
+        canReveal={viewerCanReveal}
+      />
+    )
+  }
+
   return (
     <div className="space-y-3">
       <p className="text-lg text-muted-foreground">
@@ -519,6 +772,70 @@ function ActivityEditView({ activity, resolvedImageUrl }: LessonActivityEditView
     )
   }
 
+  if (activity.type === "multiple-choice-question") {
+    const mcq = getMcqBody(activity)
+    const questionMarkup = getRichTextMarkup(mcq.question)
+    const fallbackQuestion = mcq.question.trim()
+
+    return (
+      <div className="space-y-2 text-sm text-muted-foreground">
+        {questionMarkup ? (
+          <div
+            className="prose prose-sm max-w-none text-foreground"
+            dangerouslySetInnerHTML={{ __html: questionMarkup }}
+          />
+        ) : (
+          <p className="font-medium text-foreground">
+            {fallbackQuestion || "Multiple choice question"}
+          </p>
+        )}
+        <ul className="space-y-1 pl-4">
+          {mcq.options.map((option) => (
+            <li
+              key={option.id}
+              className={cn(
+                "list-disc",
+                option.id === mcq.correctOptionId && "font-medium text-primary",
+              )}
+            >
+              {option.text.trim() || "Untitled option"}
+              {option.id === mcq.correctOptionId ? (
+                <span className="ml-1 text-xs uppercase tracking-wide text-primary/80">
+                  Correct
+                </span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      </div>
+    )
+  }
+
+  if (activity.type === "feedback") {
+    const feedback = getFeedbackBody(activity)
+    const entries = Object.entries(feedback.groups)
+
+    if (entries.length === 0) {
+      return <p className="text-sm text-muted-foreground">No groups configured yet.</p>
+    }
+
+    return (
+      <div className="space-y-2 text-sm">
+        {entries.map(([groupId, settings]) => (
+          <div
+            key={groupId}
+            className="flex items-center justify-between rounded-md border border-border/60 px-3 py-2"
+          >
+            <span className="font-medium text-foreground">{groupId}</span>
+            <span className={cn("text-xs", settings.isEnabled ? "text-emerald-600" : "text-muted-foreground")}> 
+              {settings.isEnabled ? `Enabled for group ${groupId}` : `Not enabled for group ${groupId}`}
+            </span>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
   if (activity.type === "display-image") {
     const body = getImageBody(activity)
     const url = resolvedImageUrl ?? body.imageUrl ?? null
@@ -550,6 +867,280 @@ function ActivityEditView({ activity, resolvedImageUrl }: LessonActivityEditView
   }
 
   return null
+}
+
+function FeedbackPresentView({ activity, lessonId }: { activity: LessonActivity; lessonId?: string }) {
+  const feedbackBody = useMemo(() => getFeedbackBody(activity), [activity])
+  const assignedEntries = useMemo(() => Object.entries(feedbackBody.groups), [feedbackBody])
+  const assignedGroupIds = useMemo(
+    () => assignedEntries.map(([groupId]) => groupId),
+    [assignedEntries],
+  )
+
+  const [summaryState, setSummaryState] = useState<{
+    summaries: LessonSubmissionSummary[]
+    lessonAverage: number | null
+  }>({ summaries: [], lessonAverage: null })
+  const [summaryError, setSummaryError] = useState<string | null>(null)
+  const [isSummaryLoading, setIsSummaryLoading] = useState(false)
+  const [memberships, setMemberships] = useState<Array<{ groupId: string; role: string }>>([])
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  const candidateConfigs = useMemo(() => {
+    const pupilGroups = memberships
+      .filter((entry) => entry.role.trim().toLowerCase() === "pupil")
+      .map((entry) => entry.groupId)
+    const teacherGroups = memberships.map((entry) => entry.groupId)
+
+    const baseGroupIds = pupilGroups.length > 0
+      ? pupilGroups
+      : teacherGroups.length > 0
+        ? teacherGroups
+        : assignedGroupIds
+
+    const uniqueGroupIds = Array.from(new Set(baseGroupIds))
+
+    if (uniqueGroupIds.length === 0) {
+      return assignedEntries.map(([groupId, settings]) => ({
+        groupId,
+        settings,
+      }))
+    }
+
+    return uniqueGroupIds.map((groupId) => ({
+      groupId,
+      settings: feedbackBody.groups[groupId] ?? FEEDBACK_GROUP_DEFAULTS,
+    }))
+  }, [assignedEntries, assignedGroupIds, feedbackBody.groups, memberships])
+
+  const hasGroupConfiguration = candidateConfigs.length > 0
+  const hasEnabledGroup = candidateConfigs.some((entry) => entry.settings.isEnabled)
+  const showScores = candidateConfigs.some((entry) => entry.settings.showScore)
+  const showCorrectAnswers = candidateConfigs.some((entry) => entry.settings.showCorrectAnswers)
+
+  useEffect(() => {
+    if (!lessonId) return
+    return addFeedbackRefreshListener((targetLessonId) => {
+      if (targetLessonId && targetLessonId !== lessonId) {
+        return
+      }
+      setRefreshKey((previous) => previous + 1)
+    })
+  }, [lessonId])
+
+  useEffect(() => {
+    let cancelled = false
+
+    supabaseBrowserClient.auth
+      .getUser()
+      .then(async ({ data, error }) => {
+        if (cancelled) return
+        if (error) {
+          console.error("[feedback-present] Failed to load current user", error)
+          setMemberships([])
+          return
+        }
+
+        const userId = data.user?.id ?? null
+        setCurrentUserId(userId)
+        if (!userId) {
+          setMemberships([])
+          return
+        }
+
+        const { data: membershipRows, error: membershipError } = await supabaseBrowserClient
+          .from("group_membership")
+          .select("group_id, role")
+          .eq("user_id", userId)
+
+        if (cancelled) return
+
+        if (membershipError) {
+          console.error("[feedback-present] Failed to read memberships", membershipError)
+          setMemberships([])
+        } else {
+          setMemberships(
+            (membershipRows ?? []).map((row) => ({
+              groupId: row.group_id,
+              role: typeof row.role === "string" ? row.role : "",
+            })),
+          )
+        }
+
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          console.error("[feedback-present] Failed to resolve viewer membership", error)
+          setMemberships([])
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!lessonId || !hasEnabledGroup) {
+      setSummaryState({ summaries: [], lessonAverage: null })
+      setSummaryError(lessonId ? null : "Lesson context not available.")
+      setIsSummaryLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setIsSummaryLoading(true)
+    readLessonSubmissionSummariesAction(lessonId, { userId: currentUserId })
+      .then((result) => {
+        if (cancelled) return
+        if (result.error) {
+          setSummaryError(result.error)
+          setSummaryState({ summaries: [], lessonAverage: null })
+        } else {
+          setSummaryError(null)
+          setSummaryState({
+            summaries: result.data ?? [],
+            lessonAverage: result.lessonAverage ?? null,
+          })
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          console.error("[feedback-present] Failed to load submission summaries", error)
+          setSummaryError("Unable to load submission summaries.")
+          setSummaryState({ summaries: [], lessonAverage: null })
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsSummaryLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [activity.activity_id, hasEnabledGroup, lessonId, currentUserId, refreshKey])
+
+  const filteredSummaries = useMemo(() => {
+    return summaryState.summaries.filter((summary) => summary.activityId !== activity.activity_id)
+  }, [summaryState.summaries, activity.activity_id])
+
+  if (!hasGroupConfiguration) {
+    return <p className="text-sm text-muted-foreground">No groups configured yet.</p>
+  }
+
+  if (!hasEnabledGroup) {
+    return (
+      <div className="space-y-2 text-sm text-muted-foreground">
+        {candidateConfigs.map((entry) => (
+          <p key={entry.groupId}>Not enabled for group {entry.groupId}</p>
+        ))}
+      </div>
+    )
+  }
+
+  if (!lessonId) {
+    return <p className="text-sm text-muted-foreground">Lesson context not available.</p>
+  }
+
+  if (isSummaryLoading) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Loading lesson results…
+      </div>
+    )
+  }
+
+  if (summaryError) {
+    return <p className="text-sm text-destructive">{summaryError}</p>
+  }
+
+  if (!filteredSummaries || filteredSummaries.length === 0) {
+    return (
+      <div className="space-y-3">
+        {showScores ? (
+          <div className="rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+            Lesson average not available yet.
+          </div>
+        ) : null}
+        <p className="text-sm text-muted-foreground">No submissions have been recorded yet.</p>
+      </div>
+    )
+  }
+
+  const lessonAverageDisplay =
+    showScores && summaryState.lessonAverage !== null
+      ? formatAverageScore(summaryState.lessonAverage, "lesson-average")
+      : null
+
+  return (
+    <div className="space-y-4">
+      {showScores ? (
+        <div className="rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm font-semibold text-primary">
+          Lesson average: {lessonAverageDisplay ?? "Not available yet"}
+        </div>
+      ) : null}
+      {filteredSummaries.map((summary) => {
+        const isMcq = summary.activityType === "multiple-choice-question"
+        const numericScores = summary.scores.filter((entry) => typeof entry.score === "number") as Array<{
+          userId: string
+          score: number
+          isCorrect?: boolean
+        }>
+        const correctCount = isMcq ? summary.correctCount ?? 0 : null
+        const incorrectCount = isMcq && typeof correctCount === "number"
+          ? summary.totalSubmissions - correctCount
+          : null
+
+        return (
+          <div key={summary.activityId} className="rounded-md border border-border bg-card/60 p-4">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-base font-medium text-foreground">{summary.activityTitle}</p>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  {formatActivityTypeLabel(summary.activityType)}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-3 space-y-2 text-sm text-muted-foreground">
+              <p>Total submissions: {summary.totalSubmissions}</p>
+              {showScores ? (
+                numericScores.length > 0 ? (
+                  <div className="flex flex-wrap gap-4">
+                    <span>Scores recorded: {numericScores.length}</span>
+                    {isMcq && typeof correctCount === "number" ? (
+                      <span>
+                        Correct: {correctCount}
+                        {typeof incorrectCount === "number" ? ` • Incorrect: ${incorrectCount}` : ""}
+                      </span>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p>No numeric scores recorded yet.</p>
+                )
+              ) : (
+                <p>Scores hidden for this group.</p>
+              )}
+
+              {showCorrectAnswers ? (
+                summary.correctAnswer ? (
+                  <p>
+                    Correct answer: <span className="font-medium text-foreground">{summary.correctAnswer}</span>
+                  </p>
+                ) : (
+                  <p>No correct answer available for this activity.</p>
+                )
+              ) : null}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 function DisplayImagePresent({
@@ -660,31 +1251,25 @@ function DisplayImagePresent({
   )
 }
 
-function getRichTextMarkup(value: string): string | null {
-  if (!value) return null
-  const trimmed = value.trim()
-  if (!trimmed) return null
-  if (/<[a-z][\s\S]*>/i.test(trimmed)) {
-    return trimmed
+function formatAverageScore(value: number | null, type: string): string {
+  if (value === null || Number.isNaN(value)) {
+    return "n/a"
   }
 
-  const escaped = escapeHtml(trimmed)
-  const paragraphs = escaped
-    .split(/\n{2,}/)
-    .map((paragraph) => paragraph.replace(/\n/g, "<br />"))
-    .map((paragraph) => `<p>${paragraph}</p>`)
-    .join("")
+  if (type === "multiple-choice-question") {
+    return `${Math.round(value * 100)}%`
+  }
 
-  return paragraphs || `<p>${escaped}</p>`
+  const rounded = Math.round(value * 100) / 100
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2)
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;")
+function formatActivityTypeLabel(type: string): string {
+  if (!type) return "Activity"
+  return type
+    .split("-")
+    .map((segment) => (segment ? segment[0]?.toUpperCase() + segment.slice(1) : ""))
+    .join(" ")
 }
 
 function formatFileSize(size: number): string {
