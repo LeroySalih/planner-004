@@ -7,6 +7,7 @@ import {
   LessonActivitySchema,
   LessonActivitiesSchema,
   McqActivityBodySchema,
+  ShortTextActivityBodySchema,
   FeedbackActivityBodySchema,
   type FeedbackActivityGroupSettings,
 } from "@/types"
@@ -464,6 +465,34 @@ function normalizeActivityBody(
     }
 
     return { success: false, error: "Multiple choice activities require a question and options." }
+  }
+
+  if (type === "short-text-question") {
+    const defaultBody = { question: "", modelAnswer: "" }
+
+    if (rawBody === undefined || rawBody === null) {
+      return { success: true, bodyData: defaultBody }
+    }
+
+    if (typeof rawBody === "object") {
+      const parsed = ShortTextActivityBodySchema.safeParse(rawBody)
+      if (parsed.success) {
+        return {
+          success: true,
+          bodyData: {
+            ...parsed.data,
+            question: parsed.data.question.trim(),
+            modelAnswer: parsed.data.modelAnswer.trim(),
+          },
+        }
+      }
+    }
+
+    if (allowFallback) {
+      return { success: true, bodyData: defaultBody }
+    }
+
+    return { success: false, error: "Short text activities require a question and model answer." }
   }
 
   if (type === "feedback") {

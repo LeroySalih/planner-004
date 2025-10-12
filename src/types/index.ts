@@ -296,6 +296,25 @@ export type McqActivityBody = z.infer<typeof McqActivityBodySchema>;
 export type LegacyMcqSubmissionBody = z.infer<typeof LegacyMcqSubmissionBodySchema>;
 export type McqSubmissionBody = z.infer<typeof McqSubmissionBodySchema>;
 
+export const ShortTextActivityBodySchema = z
+    .object({
+        question: z.string().min(1),
+        modelAnswer: z.string().min(1),
+    })
+    .passthrough();
+
+export const ShortTextSubmissionBodySchema = z
+    .object({
+        answer: z.string().default(""),
+        ai_model_score: z.number().min(0).max(1).nullable().optional(),
+        teacher_override_score: z.number().min(0).max(1).nullable().optional(),
+        is_correct: z.boolean().default(false),
+    })
+    .passthrough();
+
+export type ShortTextActivityBody = z.infer<typeof ShortTextActivityBodySchema>;
+export type ShortTextSubmissionBody = z.infer<typeof ShortTextSubmissionBodySchema>;
+
 export interface LessonSubmissionScore {
     userId: string;
     score: number | null;

@@ -18,7 +18,8 @@ import { Badge } from "@/components/ui/badge"
 import { PupilUploadActivity } from "@/components/pupil/pupil-upload-activity"
 import { PupilMcqActivity } from "@/components/pupil/pupil-mcq-activity"
 import { PupilFeedbackActivity } from "@/components/pupil/pupil-feedback-activity"
-import { LegacyMcqSubmissionBodySchema, McqSubmissionBodySchema } from "@/types"
+import { PupilShortTextActivity } from "@/components/pupil/pupil-short-text-activity"
+import { LegacyMcqSubmissionBodySchema, McqSubmissionBodySchema, ShortTextSubmissionBodySchema } from "@/types"
 
 function formatDateLabel(value: string | null | undefined) {
   if (!value) {
@@ -219,6 +220,29 @@ export default async function PupilLessonFriendlyPage({
 
   const mcqSelectionMap = new Map(mcqSubmissionEntries.map((entry) => [entry.activityId, entry.optionId]))
 
+  const shortTextActivities = activities.filter((activity) => activity.type === "short-text-question")
+
+  const shortTextSubmissionEntries = await Promise.all(
+    shortTextActivities.map(async (activity) => {
+      const result = await getLatestSubmissionForActivityAction(activity.activity_id, pupilId)
+      if (result.error || !result.data) {
+        return { activityId: activity.activity_id, answer: "" }
+      }
+
+      const parsedBody = ShortTextSubmissionBodySchema.safeParse(result.data.body)
+      if (parsedBody.success) {
+        return {
+          activityId: activity.activity_id,
+          answer: parsedBody.data.answer ?? "",
+        }
+      }
+
+      return { activityId: activity.activity_id, answer: "" }
+    }),
+  )
+
+  const shortTextAnswerMap = new Map(shortTextSubmissionEntries.map((entry) => [entry.activityId, entry.answer ?? ""]))
+
   const canUpload = !profile.isTeacher && profile.userId === pupilId
 
   const assignments = summary
@@ -322,6 +346,15 @@ export default async function PupilLessonFriendlyPage({
                         initialSubmissions={submissionMap.get(activity.activity_id) ?? []}
                         canUpload={canUpload}
                         stepNumber={index + 1}
+                      />
+                    ) : activity.type === "short-text-question" ? (
+                      <PupilShortTextActivity
+                        lessonId={lesson.lesson_id}
+                        activity={activity}
+                        pupilId={pupilId}
+                        canAnswer={canUpload}
+                        stepNumber={index + 1}
+                        initialAnswer={shortTextAnswerMap.get(activity.activity_id) ?? ""}
                       />
                     ) : activity.type === "multiple-choice-question" ? (
                       <PupilMcqActivity

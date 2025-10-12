@@ -33,10 +33,12 @@ import {
   getImageBody,
   getFeedbackBody,
   getMcqBody,
+  getShortTextBody,
   getVoiceBody,
   isAbsoluteUrl,
   type ImageBody,
   type McqBody,
+  type ShortTextBody,
   type VoiceBody,
 } from "@/components/lessons/activity-view/utils"
 import { LessonActivityView } from "@/components/lessons/activity-view"
@@ -61,6 +63,7 @@ const ACTIVITY_TYPES = [
   { value: "display-image", label: "Display image" },
   { value: "show-video", label: "Show video" },
   { value: "multiple-choice-question", label: "Multiple choice question" },
+  { value: "short-text-question", label: "Short text question" },
   { value: "feedback", label: "Feedback" },
   { value: "text-question", label: "Text question" },
   { value: "voice", label: "Voice recording" },
@@ -1247,6 +1250,13 @@ function LessonActivityEditorSheet({
   const [isImageDragActive, setIsImageDragActive] = useState(false)
   const [mcqBody, setMcqBody] = useState<McqBody>(() => createDefaultMcqBody())
   const [feedbackBody, setFeedbackBody] = useState<FeedbackActivityBody>(() => createDefaultFeedbackBody())
+  const [shortTextBody, setShortTextBody] = useState<ShortTextBody>(() => createDefaultShortTextBody())
+
+  const normalizedShortTextBody = useMemo(() => normalizeShortTextBody(shortTextBody), [shortTextBody])
+  const shortTextValidationMessage = useMemo(
+    () => validateShortTextBody(normalizedShortTextBody),
+    [normalizedShortTextBody],
+  )
 
   const mcqOptionSlots = useMemo(() => ensureOptionSlots(mcqBody.options), [mcqBody.options])
   const mcqValidationMessage = useMemo(() => validateMcqBody(mcqBody), [mcqBody])
@@ -1293,6 +1303,18 @@ function LessonActivityEditorSheet({
     },
     [mcqOptionSlots, updateMcqBody],
   )
+
+  const handleShortTextQuestionChange = useCallback((value: string) => {
+    setShortTextBody((current) => ({ ...current, question: value }))
+  }, [])
+
+  const handleShortTextModelAnswerChange = useCallback((value: string) => {
+    setShortTextBody((current) => ({ ...current, modelAnswer: value }))
+  }, [])
+
+  const handleShortTextCommit = useCallback(() => {
+    setShortTextBody((current) => normalizeShortTextBody(current))
+  }, [])
 
   const updateFeedbackSettings = useCallback(
     (groupId: string, changes: Partial<FeedbackActivityGroupSettings>) => {
@@ -1778,6 +1800,7 @@ function LessonActivityEditorSheet({
     setIsFileDragActive(false)
     resetImageState()
     setMcqBody(createDefaultMcqBody())
+    setShortTextBody(createDefaultShortTextBody())
     setFeedbackBody(createDefaultFeedbackBody())
     return
   }
@@ -1823,6 +1846,11 @@ function LessonActivityEditorSheet({
       } else {
         setMcqBody(createDefaultMcqBody())
       }
+      if (ensuredType === "short-text-question") {
+        setShortTextBody(normalizeShortTextBody(getShortTextBody(activity)))
+      } else {
+        setShortTextBody(createDefaultShortTextBody())
+      }
       if (ensuredType === "feedback") {
         setFeedbackBody(
           syncFeedbackBodyWithGroups(
@@ -1861,6 +1889,7 @@ function LessonActivityEditorSheet({
     setIsUploadingFiles(false)
     setIsFileDragActive(false)
     setMcqBody(createDefaultMcqBody())
+    setShortTextBody(createDefaultShortTextBody())
     setFeedbackBody(createDefaultFeedbackBody())
   }
 }, [
@@ -1908,6 +1937,14 @@ function LessonActivityEditorSheet({
         setVideoUrl("")
         setRawBody("")
         setMcqBody(createDefaultMcqBody())
+        return
+      }
+
+      if (type === "short-text-question") {
+        setText("")
+        setVideoUrl("")
+        setRawBody("")
+        setShortTextBody(createDefaultShortTextBody())
         return
       }
 
@@ -2015,6 +2052,15 @@ function LessonActivityEditorSheet({
         setMcqBody(normalizeMcqBody(getMcqBody(activity)))
       } else {
         setMcqBody(createDefaultMcqBody())
+      }
+      return
+    }
+
+    if (type === "short-text-question") {
+      if (activity) {
+        setShortTextBody(normalizeShortTextBody(getShortTextBody(activity)))
+      } else {
+        setShortTextBody(createDefaultShortTextBody())
       }
       return
     }
@@ -2387,6 +2433,12 @@ function LessonActivityEditorSheet({
         return
       }
       bodyData = preparedMcqBody
+    } else if (type === "short-text-question") {
+      if (shortTextValidationMessage) {
+        toast.error(shortTextValidationMessage)
+        return
+      }
+      bodyData = normalizedShortTextBody
     } else if (type === "feedback") {
       bodyData = syncFeedbackBodyWithGroups(normalizeFeedbackBody(feedbackBody), assignedGroups)
     } else {
@@ -2429,7 +2481,8 @@ function LessonActivityEditorSheet({
     isRecording ||
     title.trim().length === 0 ||
     (type !== "voice" && rawBodyError !== null) ||
-    (type === "multiple-choice-question" && mcqValidationMessage !== null)
+    (type === "multiple-choice-question" && mcqValidationMessage !== null) ||
+    (type === "short-text-question" && shortTextValidationMessage !== null)
 
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>
@@ -2666,6 +2719,44 @@ function LessonActivityEditorSheet({
             </div>
           ) : null}
 
+          {type === "short-text-question" ? (
+            <div className="rounded-md border border-border bg-muted/20 p-4">
+              <div className="space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground" htmlFor="short-text-question">
+                  Question
+                </Label>
+                <RichTextEditor
+                  id="short-text-question"
+                  value={shortTextBody.question}
+                  onChange={handleShortTextQuestionChange}
+                  onBlur={handleShortTextCommit}
+                  placeholder="Ask your short answer question"
+                  disabled={isPending}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground" htmlFor="short-text-model-answer">
+                  Model answer (required)
+                </Label>
+                <Input
+                  id="short-text-model-answer"
+                  value={shortTextBody.modelAnswer}
+                  onChange={(event) => handleShortTextModelAnswerChange(event.target.value)}
+                  onBlur={handleShortTextCommit}
+                  placeholder="Enter the exemplar response"
+                  disabled={isPending}
+                />
+              </div>
+              {shortTextValidationMessage ? (
+                <p className="mt-2 text-xs text-destructive">{shortTextValidationMessage}</p>
+              ) : (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  The AI uses the model answer to evaluate pupil responses when you mark work.
+                </p>
+              )}
+            </div>
+          ) : null}
+
           {type === "feedback" ? (
             <div className="space-y-3 rounded-md border border-border bg-muted/20 p-4">
               <div className="space-y-2">
@@ -2885,6 +2976,7 @@ function LessonActivityEditorSheet({
           type !== "upload-file" &&
           type !== "display-image" &&
           type !== "multiple-choice-question" &&
+          type !== "short-text-question" &&
           type !== "feedback" ? (
             <div className="space-y-2">
               <Label htmlFor="activity-json">Activity details</Label>
@@ -2940,6 +3032,45 @@ function createMcqOptionId(existingIds: Set<string>): string {
     candidate = `option-${Math.random().toString(36).slice(2, 10)}`
   } while (existingIds.has(candidate))
   return candidate
+}
+
+function createDefaultShortTextBody(): ShortTextBody {
+  return {
+    question: "",
+    modelAnswer: "",
+  }
+}
+
+function normalizeShortTextBody(body: ShortTextBody | null | undefined): ShortTextBody {
+  if (!body || typeof body !== "object") {
+    return createDefaultShortTextBody()
+  }
+
+  const question =
+    typeof body.question === "string" ? body.question.trim() : ""
+  const modelAnswer =
+    typeof body.modelAnswer === "string" ? body.modelAnswer.trim() : ""
+
+  return {
+    ...(body as Record<string, unknown>),
+    question,
+    modelAnswer,
+  } as ShortTextBody
+}
+
+function validateShortTextBody(body: ShortTextBody): string | null {
+  const question = typeof body.question === "string" ? body.question.trim() : ""
+  if (!question) {
+    return "Add the question text before saving."
+  }
+
+  const modelAnswer =
+    typeof body.modelAnswer === "string" ? body.modelAnswer.trim() : ""
+  if (!modelAnswer) {
+    return "Model answer is required."
+  }
+
+  return null
 }
 
 function ensureOptionSlots(options: McqBody["options"]): McqBody["options"] {

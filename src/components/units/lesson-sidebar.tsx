@@ -63,6 +63,7 @@ const ACTIVITY_TYPES = [
   { value: "display-image", label: "Display image" },
   { value: "show-video", label: "Show video" },
   { value: "multiple-choice-question", label: "Multiple choice question" },
+  { value: "short-text-question", label: "Short text question" },
   { value: "text-question", label: "Text question" },
   { value: "voice", label: "Voice recording" },
 ] as const

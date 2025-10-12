@@ -4,6 +4,7 @@ import type {
   FeedbackActivityBody,
   FeedbackActivityGroupSettings,
   LessonActivity,
+  ShortTextActivityBody,
 } from "@/types"
 
 export interface VoiceBody {
@@ -34,6 +35,8 @@ export interface McqBody {
   imageUrl?: string | null
   imageAlt?: string | null
 }
+
+export type ShortTextBody = ShortTextActivityBody
 
 const FEEDBACK_GROUP_DEFAULTS: FeedbackActivityGroupSettings = {
   isEnabled: false,
@@ -175,6 +178,22 @@ export function getMcqBody(activity: LessonActivity): McqBody {
     imageUrl,
     imageAlt,
   }
+}
+
+export function getShortTextBody(activity: LessonActivity): ShortTextBody {
+  if (!activity.body_data || typeof activity.body_data !== "object") {
+    return { question: "", modelAnswer: "" }
+  }
+
+  const record = activity.body_data as Record<string, unknown>
+  const question = typeof record.question === "string" ? record.question : ""
+  const modelAnswer = typeof record.modelAnswer === "string" ? record.modelAnswer : ""
+
+  return {
+    ...(record as Record<string, unknown>),
+    question,
+    modelAnswer,
+  } as ShortTextBody
 }
 
 export type { FeedbackActivityBody, FeedbackActivityGroupSettings } from "@/types"

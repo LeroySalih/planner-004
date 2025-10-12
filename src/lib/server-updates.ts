@@ -102,6 +102,13 @@ export {
   upsertMcqSubmissionAction,
 } from "./server-actions/submissions"
 
+export {
+  saveShortTextAnswerAction,
+  listShortTextSubmissionsAction,
+  markShortTextActivityAction,
+  overrideShortTextSubmissionScoreAction,
+} from "./server-actions/short-text"
+
 export { fetchLessonLinkMetadataAction } from "./server-actions/link-metadata"
 
 export {
