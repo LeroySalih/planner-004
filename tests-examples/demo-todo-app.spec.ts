@@ -426,12 +426,14 @@ async function checkNumberOfTodosInLocalStorage(page: Page, expected: number) {
 
 async function checkNumberOfCompletedTodosInLocalStorage(page: Page, expected: number) {
   return await page.waitForFunction(e => {
-    return JSON.parse(localStorage['react-todos']).filter((todo: any) => todo.completed).length === e;
+    const todos = JSON.parse(localStorage['react-todos']) as Array<{ completed?: boolean }>;
+    return todos.filter(todo => todo.completed).length === e;
   }, expected);
 }
 
 async function checkTodosInLocalStorage(page: Page, title: string) {
   return await page.waitForFunction(t => {
-    return JSON.parse(localStorage['react-todos']).map((todo: any) => todo.title).includes(t);
+    const todos = JSON.parse(localStorage['react-todos']) as Array<{ title?: string }>;
+    return todos.map(todo => todo.title).includes(t);
   }, title);
 }

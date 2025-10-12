@@ -1,9 +1,11 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, useTransition, type ReactNode } from "react"
 import type { LessonActivity } from "@/types"
 import { ActivityImagePreview } from "@/components/lessons/activity-image-preview"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
 import {
   getActivityFileUrlValue,
@@ -11,6 +13,7 @@ import {
   getFeedbackBody,
   getImageBody,
   getMcqBody,
+  getShortTextBody,
   getRichTextMarkup,
   getVoiceBody,
   isAbsoluteUrl,
@@ -18,11 +21,15 @@ import {
 import {
   getActivityFileDownloadUrlAction,
   readLessonSubmissionSummariesAction,
+  listShortTextSubmissionsAction,
+  markShortTextActivityAction,
+  overrideShortTextSubmissionScoreAction,
 } from "@/lib/server-updates"
 import { supabaseBrowserClient } from "@/lib/supabase-browser"
 import { CheckCircle2, Eye, EyeOff, Loader2 } from "lucide-react"
 import type { LessonSubmissionSummary } from "@/types"
-import { addFeedbackRefreshListener } from "@/lib/feedback-events"
+import { addFeedbackRefreshListener, triggerFeedbackRefresh } from "@/lib/feedback-events"
+import { toast } from "sonner"
 
 export type LessonActivityViewMode = "short" | "present" | "edit"
 
@@ -35,6 +42,22 @@ export interface LessonActivityFile {
 export interface LessonActivityViewBaseProps {
   activity: LessonActivity
   lessonId?: string
+}
+
+type ShortTextSubmissionRow = {
+  submissionId: string
+  activityId: string
+  userId: string
+  submittedAt: string | null
+  answer: string
+  aiModelScore: number | null
+  teacherOverrideScore: number | null
+  isCorrect: boolean
+  profile: {
+    userId: string
+    firstName: string | null
+    lastName: string | null
+  } | null
 }
 
 const FEEDBACK_GROUP_DEFAULTS = {
@@ -81,28 +104,87 @@ export function LessonActivityView(props: LessonActivityViewProps) {
   }
 }
 
+function ActivitySuccessCriteria({
+  activity,
+  variant = "default",
+}: {
+  activity: LessonActivity
+  variant?: "compact" | "default"
+}) {
+  const items = Array.isArray(activity.success_criteria) ? activity.success_criteria : []
+  if (items.length === 0) {
+    return null
+  }
+
+  const wrapperClasses = variant === "compact" ? "space-y-1" : "space-y-2"
+  const containerClasses = variant === "compact" ? "flex flex-wrap gap-1.5" : "flex flex-wrap gap-2"
+  const badgeClasses =
+    variant === "compact"
+      ? "rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary"
+      : "rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary"
+
+  const heading =
+    variant === "compact" ? (
+      <span className="sr-only">Success criteria</span>
+    ) : (
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Success criteria</p>
+    )
+
+  return (
+    <div className={wrapperClasses}>
+      {heading}
+      <div className={containerClasses}>
+        {items.map((item) => {
+          const identifier = typeof item?.success_criteria_id === "string" ? item.success_criteria_id : undefined
+          const label =
+            typeof item?.title === "string" && item.title.trim().length > 0
+              ? item.title.trim()
+              : "Success criterion"
+          return (
+            <span key={identifier ?? label} className={badgeClasses}>
+              {label}
+            </span>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function ActivityShortView({ activity, lessonId, resolvedImageUrl, showImageBorder = true }: LessonActivityShortViewProps) {
+  const hasSuccessCriteria = Array.isArray(activity.success_criteria) && activity.success_criteria.length > 0
+
+  const wrap = (node: ReactNode) => {
+    if (!hasSuccessCriteria) {
+      return node
+    }
+    return (
+      <div className="space-y-2">
+        <ActivitySuccessCriteria activity={activity} variant="compact" />
+        {node}
+      </div>
+    )
+  }
+
   if (activity.type === "text") {
     const text = getActivityTextValue(activity)
     const markup = getRichTextMarkup(text)
-    if (!markup) return null
-    return (
-      <div
-        className="prose prose-sm max-w-none text-muted-foreground"
-        dangerouslySetInnerHTML={{ __html: markup }}
-      />
+    if (!markup) {
+      return wrap(null)
+    }
+    return wrap(
+      <div className="prose prose-sm max-w-none text-muted-foreground" dangerouslySetInnerHTML={{ __html: markup }} />
     )
   }
 
   if (activity.type === "upload-file") {
     const text = getActivityTextValue(activity)
     const markup = getRichTextMarkup(text)
-    if (!markup) return null
-    return (
-      <div
-        className="prose prose-sm max-w-none text-muted-foreground"
-        dangerouslySetInnerHTML={{ __html: markup }}
-      />
+    if (!markup) {
+      return wrap(null)
+    }
+    return wrap(
+      <div className="prose prose-sm max-w-none text-muted-foreground" dangerouslySetInnerHTML={{ __html: markup }} />
     )
   }
 
@@ -110,12 +192,30 @@ function ActivityShortView({ activity, lessonId, resolvedImageUrl, showImageBord
     const mcq = getMcqBody(activity)
     const markup = getRichTextMarkup(mcq.question)
     if (!markup) {
-      return <p className="text-sm text-muted-foreground">Multiple choice question awaiting setup.</p>
+      return wrap(<p className="text-sm text-muted-foreground">Multiple choice question awaiting setup.</p>)
     }
 
-    return (
+    return wrap(
       <div className="space-y-1">
         <p className="text-xs font-semibold uppercase tracking-wide text-primary">Multiple choice</p>
+        <div
+          className="prose prose-sm line-clamp-3 max-w-none text-muted-foreground"
+          dangerouslySetInnerHTML={{ __html: markup }}
+        />
+      </div>
+    )
+  }
+
+  if (activity.type === "short-text-question") {
+    const shortText = getShortTextBody(activity)
+    const markup = getRichTextMarkup(shortText.question)
+    if (!markup) {
+      return wrap(<p className="text-sm text-muted-foreground">Short text question awaiting setup.</p>)
+    }
+
+    return wrap(
+      <div className="space-y-1">
+        <p className="text-xs font-semibold uppercase tracking-wide text-primary">Short text question</p>
         <div
           className="prose prose-sm line-clamp-3 max-w-none text-muted-foreground"
           dangerouslySetInnerHTML={{ __html: markup }}
@@ -129,10 +229,10 @@ function ActivityShortView({ activity, lessonId, resolvedImageUrl, showImageBord
     const entries = Object.entries(feedback.groups)
 
     if (entries.length === 0) {
-      return <p className="text-sm text-muted-foreground">No groups configured yet.</p>
+      return wrap(<p className="text-sm text-muted-foreground">No groups configured yet.</p>)
     }
 
-    return (
+    return wrap(
       <div className="space-y-2 text-sm">
         {entries.map(([groupId, settings]) => (
           <div
@@ -151,8 +251,10 @@ function ActivityShortView({ activity, lessonId, resolvedImageUrl, showImageBord
 
   if (activity.type === "show-video") {
     const url = getActivityFileUrlValue(activity)
-    if (!url) return null
-    return (
+    if (!url) {
+      return wrap(null)
+    }
+    return wrap(
       <span
         role="link"
         tabIndex={0}
@@ -172,7 +274,7 @@ function ActivityShortView({ activity, lessonId, resolvedImageUrl, showImageBord
             }
           }
         }}
-        className="inline-flex cursor-pointer items-center text-sm font-medium text-primary underline-offset-2 hover:underline break-all"
+        className="inline-flex cursor-pointer items-center break-all text-sm font-medium text-primary underline-offset-2 hover:underline"
       >
         Watch video
       </span>
@@ -180,7 +282,7 @@ function ActivityShortView({ activity, lessonId, resolvedImageUrl, showImageBord
   }
 
   if (activity.type === "display-image") {
-    return (
+    return wrap(
       <DisplayImageShortView
         activity={activity}
         lessonId={lessonId ?? null}
@@ -193,12 +295,12 @@ function ActivityShortView({ activity, lessonId, resolvedImageUrl, showImageBord
   if (activity.type === "voice") {
     const body = getVoiceBody(activity)
     if (body.audioFile) {
-      return <p className="text-sm text-muted-foreground">Voice recording attached.</p>
+      return wrap(<p className="text-sm text-muted-foreground">Voice recording attached.</p>)
     }
-    return <p className="text-sm text-muted-foreground">No recording uploaded yet.</p>
+    return wrap(<p className="text-sm text-muted-foreground">No recording uploaded yet.</p>)
   }
 
-  return null
+  return wrap(null)
 }
 
 function DisplayImageShortView({
@@ -538,17 +640,31 @@ function ActivityPresentView({
   viewerCanReveal,
   lessonId,
 }: LessonActivityPresentViewProps) {
+  const hasSuccessCriteria = Array.isArray(activity.success_criteria) && activity.success_criteria.length > 0
+
+  const wrap = (node: ReactNode) => {
+    if (!hasSuccessCriteria) {
+      return node
+    }
+    return (
+      <div className="space-y-4">
+        <ActivitySuccessCriteria activity={activity} variant="default" />
+        {node}
+      </div>
+    )
+  }
+
   if (activity.type === "feedback") {
-    return <FeedbackPresentView activity={activity} lessonId={lessonId} />
+    return wrap(<FeedbackPresentView activity={activity} lessonId={lessonId} />)
   }
 
   if (activity.type === "text") {
     const text = getActivityTextValue(activity)
     const markup = getRichTextMarkup(text)
     if (!markup) {
-      return <p className="text-muted-foreground">No text content provided for this activity.</p>
+      return wrap(<p className="text-muted-foreground">No text content provided for this activity.</p>)
     }
-    return (
+    return wrap(
       <div
         className="prose prose-lg max-w-none text-foreground"
         dangerouslySetInnerHTML={{ __html: markup }}
@@ -556,8 +672,12 @@ function ActivityPresentView({
     )
   }
 
+  if (activity.type === "short-text-question") {
+    return wrap(<ShortTextPresentView activity={activity} lessonId={lessonId} />)
+  }
+
   if (activity.type === "display-image") {
-    return (
+    return wrap(
       <DisplayImagePresent
         activity={activity}
         fetchActivityFileUrl={fetchActivityFileUrl}
@@ -567,10 +687,10 @@ function ActivityPresentView({
 
   if (activity.type === "file-download") {
     if (files.length === 0) {
-      return <p className="text-muted-foreground">No files added yet. Upload files to share with learners.</p>
+      return wrap(<p className="text-muted-foreground">No files added yet. Upload files to share with learners.</p>)
     }
 
-    return (
+    return wrap(
       <div className="space-y-3">
         <p className="text-sm text-muted-foreground">Download the resources for this step.</p>
         <ul className="space-y-2">
@@ -597,7 +717,7 @@ function ActivityPresentView({
     const instructions = getActivityTextValue(activity)
     const markup = getRichTextMarkup(instructions)
 
-    return (
+    return wrap(
       <div className="space-y-4">
         {markup ? (
           <div
@@ -646,12 +766,12 @@ function ActivityPresentView({
   if (activity.type === "show-video") {
     const url = getActivityFileUrlValue(activity)
     if (!url) {
-      return <p className="text-muted-foreground">Add a video URL to present this activity.</p>
+      return wrap(<p className="text-muted-foreground">Add a video URL to present this activity.</p>)
     }
 
     const embedUrl = getVideoEmbedUrl(url)
     if (embedUrl) {
-      return (
+      return wrap(
         <div className="flex flex-col gap-3">
           <div className="aspect-video w-full overflow-hidden rounded-lg border">
             <iframe
@@ -672,7 +792,7 @@ function ActivityPresentView({
       )
     }
 
-    return (
+    return wrap(
       <div className="flex flex-col gap-3">
         <video src={url} controls className="w-full max-h-[480px] rounded-lg border" />
         <p className="text-sm text-muted-foreground">
@@ -688,16 +808,16 @@ function ActivityPresentView({
   if (activity.type === "voice") {
     const playback = voicePlayback ?? { url: null, isLoading: false }
     if (playback.isLoading) {
-      return <p className="text-sm text-muted-foreground">Loading recording…</p>
+      return wrap(<p className="text-sm text-muted-foreground">Loading recording…</p>)
     }
 
     if (!playback.url) {
-      return <p className="text-sm text-muted-foreground">No recording available yet.</p>
+      return wrap(<p className="text-sm text-muted-foreground">No recording available yet.</p>)
     }
 
     const body = getVoiceBody(activity)
 
-    return (
+    return wrap(
       <div className="space-y-3">
         <audio controls src={playback.url} className="w-full" />
         {body.duration ? (
@@ -710,7 +830,7 @@ function ActivityPresentView({
   }
 
   if (activity.type === "multiple-choice-question") {
-    return (
+    return wrap(
       <McqPresentView
         activity={activity}
         fetchActivityFileUrl={fetchActivityFileUrl}
@@ -719,7 +839,7 @@ function ActivityPresentView({
     )
   }
 
-  return (
+  return wrap(
     <div className="space-y-3">
       <p className="text-lg text-muted-foreground">
         This activity type is not yet supported in the presentation view.
@@ -807,6 +927,32 @@ function ActivityEditView({ activity, resolvedImageUrl }: LessonActivityEditView
             </li>
           ))}
         </ul>
+      </div>
+    )
+  }
+
+  if (activity.type === "short-text-question") {
+    const shortText = getShortTextBody(activity)
+    const questionMarkup = getRichTextMarkup(shortText.question)
+    const modelAnswer = shortText.modelAnswer?.trim()
+
+    return (
+      <div className="space-y-3 text-sm text-muted-foreground">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-primary">Question</p>
+          {questionMarkup ? (
+            <div
+              className="prose prose-sm max-w-none text-foreground"
+              dangerouslySetInnerHTML={{ __html: questionMarkup }}
+            />
+          ) : (
+            <p className="text-foreground">Short text question</p>
+          )}
+        </div>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-primary">Model answer</p>
+          <p className="mt-1 font-medium text-foreground">{modelAnswer || "Not provided"}</p>
+        </div>
       </div>
     )
   }
@@ -1247,6 +1393,365 @@ function DisplayImagePresent({
         className="flex max-h-[60vh] w-full max-w-3xl items-center justify-center bg-muted/10 p-4"
         imageClassName="max-h-[60vh]"
       />
+    </div>
+  )
+}
+
+function ShortTextPresentView({ activity, lessonId }: { activity: LessonActivity; lessonId?: string }) {
+  const shortText = useMemo(() => getShortTextBody(activity), [activity])
+  const questionMarkup = getRichTextMarkup(shortText.question)
+  const modelAnswer = shortText.modelAnswer?.trim() ?? ""
+
+  const [submissions, setSubmissions] = useState<ShortTextSubmissionRow[]>([])
+  const [overrideDrafts, setOverrideDrafts] = useState<Record<string, string>>({})
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [isMarking, startMarkingTransition] = useTransition()
+  const [overrideSaving, setOverrideSaving] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setIsLoading(true)
+
+    listShortTextSubmissionsAction(activity.activity_id)
+      .then((result) => {
+        if (cancelled) return
+        if (!result.success) {
+          setError(result.error ?? "Unable to load submissions.")
+          setSubmissions([])
+          setOverrideDrafts({})
+          return
+        }
+
+        setError(result.error ?? null)
+        const rows = result.data ?? []
+        setSubmissions(rows)
+        const drafts: Record<string, string> = {}
+        rows.forEach((row) => {
+          drafts[row.submissionId] =
+            row.teacherOverrideScore !== null && Number.isFinite(row.teacherOverrideScore)
+              ? row.teacherOverrideScore.toFixed(2)
+              : ""
+        })
+        setOverrideDrafts(drafts)
+      })
+      .catch((loadError) => {
+        if (cancelled) return
+        console.error("[short-text] Failed to load submissions in present view:", loadError)
+        setError("Unable to load submissions right now.")
+        setSubmissions([])
+        setOverrideDrafts({})
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [activity.activity_id, refreshKey])
+
+  const totalSubmissions = submissions.length
+  const markedCount = submissions.filter(
+    (submission) =>
+      submission.aiModelScore !== null || submission.teacherOverrideScore !== null,
+  ).length
+  const progressValue =
+    totalSubmissions > 0 ? Math.round((markedCount / totalSubmissions) * 100) : 0
+
+  const formatScore = (score: number | null) => {
+    if (typeof score !== "number" || Number.isNaN(score)) {
+      return "—"
+    }
+    return score.toFixed(2)
+  }
+
+  const formatSubmittedAt = (timestamp: string | null) => {
+    if (!timestamp) return "Not yet submitted"
+    const date = new Date(timestamp)
+    if (Number.isNaN(date.getTime())) {
+      return timestamp
+    }
+    return date.toLocaleString()
+  }
+
+  const resolveName = (row: ShortTextSubmissionRow) => {
+    const first = row.profile?.firstName?.trim() ?? ""
+    const last = row.profile?.lastName?.trim() ?? ""
+    const combined = `${first} ${last}`.trim()
+    return combined || row.userId
+  }
+
+  const handleMarkWork = () => {
+    if (totalSubmissions === 0) {
+      toast.error("There are no pupil answers to mark yet.")
+      return
+    }
+
+    startMarkingTransition(() => {
+      void (async () => {
+        try {
+          const result = await markShortTextActivityAction({
+            activityId: activity.activity_id,
+            lessonId,
+          })
+
+          if (!result.success) {
+            toast.error("Unable to mark work", {
+              description: result.error ?? "Please try again shortly.",
+            })
+          } else {
+            const failedCount = result.failed.filter((entry) => entry.error).length
+            if (failedCount > 0) {
+              toast.warning("Marked with warnings", {
+                description: `${result.updated} answers updated, ${failedCount} could not be processed.`,
+              })
+            } else {
+              toast.success("All answers have been marked.")
+            }
+            setRefreshKey((previous) => previous + 1)
+            triggerFeedbackRefresh(lessonId ?? null)
+          }
+        } catch (error) {
+          console.error("[short-text] Failed to mark submissions:", error)
+          toast.error("Unable to mark work", {
+            description: error instanceof Error ? error.message : "Unexpected error occurred.",
+          })
+        }
+      })()
+    })
+  }
+
+  const handleOverrideChange = (submissionId: string, value: string) => {
+    setOverrideDrafts((previous) => ({
+      ...previous,
+      [submissionId]: value,
+    }))
+  }
+
+  const handleOverrideSave = async (submission: ShortTextSubmissionRow) => {
+    const draft = (overrideDrafts[submission.submissionId] ?? "").trim()
+    let overrideScore: number | null = null
+
+    if (draft.length > 0) {
+      const parsed = Number.parseFloat(draft)
+      if (Number.isNaN(parsed) || parsed < 0 || parsed > 1) {
+        toast.error("Enter a score between 0 and 1.")
+        return
+      }
+      overrideScore = Number.parseFloat(parsed.toFixed(3))
+    }
+
+    const currentOverride = submission.teacherOverrideScore
+    const matchesCurrent =
+      (overrideScore === null && currentOverride === null) ||
+      (typeof overrideScore === "number" &&
+        typeof currentOverride === "number" &&
+        Math.abs(overrideScore - currentOverride) < 0.0005)
+
+    if (matchesCurrent) {
+      toast.info("Override already up to date.")
+      return
+    }
+
+    setOverrideSaving(submission.submissionId)
+    try {
+      const result = await overrideShortTextSubmissionScoreAction({
+        submissionId: submission.submissionId,
+        activityId: activity.activity_id,
+        lessonId,
+        overrideScore,
+      })
+
+      if (!result.success) {
+        toast.error("Unable to save override", {
+          description: result.error ?? "Please try again later.",
+        })
+        return
+      }
+
+      toast.success(overrideScore === null ? "Override cleared." : "Override saved.")
+      setRefreshKey((previous) => previous + 1)
+      triggerFeedbackRefresh(lessonId ?? null)
+    } catch (error) {
+      console.error("[short-text] Failed to override score:", error)
+      toast.error("Unable to save override", {
+        description: error instanceof Error ? error.message : "Unexpected error occurred.",
+      })
+    } finally {
+      setOverrideSaving(null)
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <section className="space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-primary">Question</p>
+        {questionMarkup ? (
+          <div
+            className="prose prose-lg max-w-none text-foreground"
+            dangerouslySetInnerHTML={{ __html: questionMarkup }}
+          />
+        ) : (
+          <p className="text-base text-foreground">
+            {shortText.question?.trim() || "Short text question"}
+          </p>
+        )}
+        <div className="rounded-md border border-dashed border-border/60 bg-muted/20 px-3 py-2">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">Model answer</p>
+          <p className="text-sm font-medium text-foreground">
+            {modelAnswer || "Add a model answer so the AI can mark responses accurately."}
+          </p>
+        </div>
+      </section>
+
+      <section className="space-y-3 rounded-md border border-border bg-muted/10 p-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">Pupil responses</h3>
+            <p className="text-xs text-muted-foreground">
+              Marking runs the AI scorer across every saved answer. Overrides take priority.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              onClick={handleMarkWork}
+              disabled={isMarking || totalSubmissions === 0}
+            >
+              {isMarking ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Mark work
+            </Button>
+          </div>
+        </div>
+        <div className="space-y-1">
+          <Progress value={progressValue} className="h-2" />
+          <p className="text-xs text-muted-foreground">
+            {markedCount} of {totalSubmissions} answers marked
+          </p>
+        </div>
+        {error ? (
+          <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {error}
+          </div>
+        ) : null}
+        {isLoading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading pupil answers…
+          </div>
+        ) : submissions.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No pupils have submitted an answer yet.</p>
+        ) : (
+          <div className="space-y-3">
+            {submissions.map((submission) => {
+              const draftValue = overrideDrafts[submission.submissionId] ?? ""
+              const trimmedDraft = draftValue.trim()
+              const currentOverride = submission.teacherOverrideScore
+              const matchesCurrent =
+                (trimmedDraft.length === 0 && currentOverride === null) ||
+                (trimmedDraft.length > 0 &&
+                  currentOverride !== null &&
+                  Math.abs(Number.parseFloat(trimmedDraft) - currentOverride) < 0.0005)
+              const finalScore =
+                submission.teacherOverrideScore ?? submission.aiModelScore ?? null
+              const hasAiScore = submission.aiModelScore !== null
+              const awaitingMark = !hasAiScore && submission.teacherOverrideScore === null
+
+              return (
+                <div
+                  key={submission.submissionId}
+                  className={cn(
+                    "space-y-3 rounded-md border border-border bg-background p-4",
+                    submission.isCorrect && "border-emerald-500/60 bg-emerald-500/5",
+                  )}
+                >
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">
+                        {resolveName(submission)}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Saved {formatSubmittedAt(submission.submittedAt)}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2 text-xs">
+                      <span className="rounded-full bg-muted px-2 py-1 font-medium text-foreground">
+                        Final score: {formatScore(finalScore)}
+                      </span>
+                      {submission.teacherOverrideScore !== null ? (
+                        <span className="rounded-full bg-amber-500/10 px-2 py-1 font-medium text-amber-600">
+                          Teacher override
+                        </span>
+                      ) : null}
+                      {hasAiScore ? (
+                        <span className="rounded-full bg-primary/10 px-2 py-1 font-medium text-primary">
+                          AI score {formatScore(submission.aiModelScore)}
+                        </span>
+                      ) : null}
+                      {submission.isCorrect ? (
+                        <span className="rounded-full bg-emerald-500/10 px-2 py-1 font-semibold text-emerald-600">
+                          Marked correct
+                        </span>
+                      ) : awaitingMark ? (
+                        <span className="rounded-full bg-muted px-2 py-1 font-medium text-muted-foreground">
+                          Awaiting marking
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-muted px-2 py-1 font-medium text-muted-foreground">
+                          Needs review
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Pupil answer</p>
+                    <p className="text-sm text-foreground whitespace-pre-wrap">
+                      {submission.answer?.trim().length ? submission.answer.trim() : "No answer provided."}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <Input
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      value={draftValue}
+                      onChange={(event) =>
+                        handleOverrideChange(submission.submissionId, event.target.value)
+                      }
+                      placeholder="Override score (0-1)"
+                      className="sm:max-w-[160px]"
+                    />
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      <span>
+                        Leave blank to clear the override. Scores are between 0 and 1.
+                      </span>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => void handleOverrideSave(submission)}
+                      disabled={overrideSaving === submission.submissionId || matchesCurrent}
+                    >
+                      {overrideSaving === submission.submissionId ? (
+                        <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                      ) : null}
+                      {trimmedDraft.length === 0 ? "Clear override" : "Apply override"}
+                    </Button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </section>
     </div>
   )
 }

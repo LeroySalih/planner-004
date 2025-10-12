@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { ArrowLeft, ArrowRight, BookOpen, LinkIcon, List, Target, Upload } from "lucide-react"
@@ -47,6 +47,17 @@ export function LessonDetailClient({
   const [isObjectivesSidebarOpen, setIsObjectivesSidebarOpen] = useState(false)
 
   const isActive = currentLesson.active !== false
+
+  const lessonSuccessCriteria = useMemo(() => {
+    return (currentLesson.lesson_success_criteria ?? []).map((criterion) => ({
+      successCriteriaId: criterion.success_criteria_id,
+      title: criterion.title,
+      learningObjectiveId: criterion.learning_objective_id ?? null,
+      learningObjectiveTitle: currentLesson.lesson_objectives
+        .find((objective) => objective.learning_objective_id === (criterion.learning_objective_id ?? ""))
+        ?.learning_objective?.title ?? null,
+    }))
+  }, [currentLesson.lesson_objectives, currentLesson.lesson_success_criteria])
 
   const handleLessonUpdated = (updated: LessonWithObjectives) => {
     setCurrentLesson(updated)
@@ -184,6 +195,7 @@ export function LessonDetailClient({
               unitId={unit?.unit_id ?? currentLesson.unit_id}
               lessonId={currentLesson.lesson_id}
               initialActivities={lessonActivities}
+              availableSuccessCriteria={lessonSuccessCriteria}
             />
           </CardContent>
         </Card>

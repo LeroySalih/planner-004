@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type JSX } from "react"
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react"
 import Link from "next/link"
 import { Check, Download, Loader2, Pencil, Plus, Trash2, X } from "lucide-react"
@@ -17,7 +17,8 @@ import {
   updateCurriculumSuccessCriterionAction,
   deleteCurriculumSuccessCriterionAction,
   readCurriculumDetailAction,
-  updateLessonAction,
+  linkLessonSuccessCriterionAction,
+  unlinkLessonSuccessCriterionAction,
 } from "@/lib/server-updates"
 import { useToast } from "@/components/ui/use-toast"
 import { createExportBasename } from "@/lib/export-utils"
@@ -142,8 +143,13 @@ export default function CurriculumPrototypeClient({
   const [visualFilter, setVisualFilter] = useState("")
   const [isPending, startTransition] = useTransition()
   const [unitFilter, setUnitFilter] = useState("")
-  const [lessonState, setLessonState] = useState<LessonWithObjectives[]>(lessons)
-  const [pendingLessonIds, setPendingLessonIds] = useState<Set<string>>(new Set())
+  const [lessonState, setLessonState] = useState<LessonWithObjectives[]>(() =>
+    lessons.map((lesson) => ({
+      ...lesson,
+      lesson_success_criteria: lesson.lesson_success_criteria ?? [],
+    })),
+  )
+  const [pendingLessonSuccessCriteria, setPendingLessonSuccessCriteria] = useState<Set<string>>(new Set())
   const [selectedCriteriaIds, setSelectedCriteriaIds] = useState<Set<string>>(() => new Set<string>())
   const [isExportingLevels, setIsExportingLevels] = useState(false)
   const [isExportingUnits, setIsExportingUnits] = useState(false)
@@ -282,7 +288,12 @@ export default function CurriculumPrototypeClient({
   }, [curriculum])
 
   useEffect(() => {
-    setLessonState(lessons)
+    setLessonState(
+      lessons.map((lesson) => ({
+        ...lesson,
+        lesson_success_criteria: lesson.lesson_success_criteria ?? [],
+      })),
+    )
   }, [lessons])
 
   useEffect(() => {
@@ -847,114 +858,82 @@ export default function CurriculumPrototypeClient({
     })
   }
 
-  const toggleLessonAssignment = (
+  const toggleLessonSuccessCriterion = (
     lessonId: string,
-    unitId: string,
+    lessonTitle: string,
     learningObjectiveId: string,
-    loTitle: string,
-    successCriteriaForObjective: SuccessCriterion[],
-    assessmentObjectiveId: string,
-    learningObjectiveOrderIndex: number,
+    criterion: SuccessCriterion,
   ) => {
     const lesson = lessonState.find((entry) => entry.lesson_id === lessonId)
     if (!lesson) return
 
-    const existingObjectives = lesson.lesson_objectives ?? []
-    const normalizedIds = existingObjectives
-      .map((entry) => entry.learning_objective_id ?? entry.learning_objective?.learning_objective_id ?? "")
-      .filter((id) => id.length > 0)
-    const hasAssignment = normalizedIds.includes(learningObjectiveId)
-
-    const nextObjectiveIds = hasAssignment
-      ? normalizedIds.filter((id) => id !== learningObjectiveId)
-      : [...normalizedIds, learningObjectiveId]
-
-    const nextLessonObjectives = hasAssignment
-      ? existingObjectives.filter(
-          (entry) =>
-            (entry.learning_objective_id ?? entry.learning_objective?.learning_objective_id ?? "") !==
-            learningObjectiveId,
-        )
-      : [
-          ...existingObjectives,
-          {
-            learning_objective_id: learningObjectiveId,
-            lesson_id: lessonId,
-            order_index: existingObjectives.length,
-            order_by: existingObjectives.length,
-            title: loTitle,
-            active: true,
-            learning_objective: {
-              learning_objective_id: learningObjectiveId,
-              assessment_objective_id: assessmentObjectiveId,
-              title: loTitle,
-              order_index: learningObjectiveOrderIndex,
-              active: true,
-              success_criteria: successCriteriaForObjective.map((criterion) => ({
-                success_criteria_id: criterion.id,
-                learning_objective_id: learningObjectiveId,
-                description: criterion.description,
-                level: criterion.level,
-                order_index: criterion.orderIndex,
-                active: criterion.active,
-                units: criterion.units,
-              })),
-            },
-          },
-        ]
+    const existingCriteria = lesson.lesson_success_criteria ?? []
+    const hasLink = existingCriteria.some((entry) => entry.success_criteria_id === criterion.id)
 
     const previousLessons = lessonState.map((entry) => ({
       ...entry,
-      lesson_objectives: (entry.lesson_objectives ?? []).map((objective) => ({
-        ...objective,
-        learning_objective: objective.learning_objective
-          ? {
-              ...objective.learning_objective,
-              success_criteria: (objective.learning_objective.success_criteria ?? []).map((criterion) => ({
-                ...criterion,
-              })),
-            }
-          : undefined,
-      })),
-      lesson_links: entry.lesson_links ? [...entry.lesson_links] : entry.lesson_links,
+      lesson_success_criteria: entry.lesson_success_criteria
+        ? entry.lesson_success_criteria.map((item) => ({ ...item }))
+        : [],
     }))
+
+    const title =
+      criterion.description && criterion.description.trim().length > 0
+        ? criterion.description.trim()
+        : "Success criterion"
+
+    const nextLessonSuccessCriteria = hasLink
+      ? existingCriteria.filter((entry) => entry.success_criteria_id !== criterion.id)
+      : [...existingCriteria, {
+          lesson_id: lessonId,
+          success_criteria_id: criterion.id,
+          title,
+          description: criterion.description ?? null,
+          level: criterion.level ?? null,
+          learning_objective_id: learningObjectiveId,
+        }].sort((a, b) => a.title.localeCompare(b.title))
+
     setLessonState((prev) =>
       prev.map((entry) =>
-        entry.lesson_id === lessonId ? { ...entry, lesson_objectives: nextLessonObjectives } : entry,
+        entry.lesson_id === lessonId
+          ? {
+              ...entry,
+              lesson_success_criteria: nextLessonSuccessCriteria,
+            }
+          : entry,
       ),
     )
 
-    const pendingKey = `${lessonId}-${learningObjectiveId}`
-    setPendingLessonIds((prev) => {
+    const pendingKey = `${lessonId}-${criterion.id}`
+    setPendingLessonSuccessCriteria((prev) => {
       const next = new Set(prev)
       next.add(pendingKey)
       return next
     })
 
     startTransition(async () => {
-      const result = await updateLessonAction(lessonId, unitId, lesson.title, nextObjectiveIds)
+      const result = hasLink
+        ? await unlinkLessonSuccessCriterionAction({ lessonId, successCriteriaId: criterion.id })
+        : await linkLessonSuccessCriterionAction({ lessonId, successCriteriaId: criterion.id })
 
-      if (result.error || !result.data) {
-        showToast("error", result.error ?? "Failed to update lesson assignment.")
-        setLessonState(previousLessons)
-        setPendingLessonIds((prev) => {
-          const next = new Set(prev)
-          next.delete(pendingKey)
-          return next
-        })
-        return
-      }
-
-      const updatedLesson = result.data
-      setLessonState((prev) =>
-        prev.map((entry) => (entry.lesson_id === lessonId && updatedLesson ? updatedLesson : entry)),
-      )
-      setPendingLessonIds((prev) => {
+      setPendingLessonSuccessCriteria((prev) => {
         const next = new Set(prev)
         next.delete(pendingKey)
         return next
       })
-      showToast("success", "Lesson mapping updated.")
+
+      if (!result.success) {
+        showToast("error", result.error ?? "Failed to update success criterion mapping.")
+        setLessonState(previousLessons)
+        return
+      }
+
+      showToast(
+        "success",
+        hasLink
+          ? `Removed success criterion from ${lessonTitle}.`
+          : `Linked success criterion to ${lessonTitle}.`,
+      )
     })
   }
 
@@ -1500,7 +1479,7 @@ export default function CurriculumPrototypeClient({
                 <div>
                   <h2 className="text-lg font-semibold text-foreground">Curriculum Mapper</h2>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Click a lesson cell to toggle its link to a learning objective.
+                    Click a lesson cell to toggle its link to a learning objective or success criterion.
                   </p>
                 </div>
                 {subjectUnitOptions.length > 0 ? (
@@ -1598,10 +1577,12 @@ export default function CurriculumPrototypeClient({
   )
 }
 
-                          return orderedLessonObjectives.map((lo) => {
+                          return orderedLessonObjectives.flatMap((lo) => {
                             const rowKey = `mapper-lo-${lo.id}`
 
-                            return (
+                            const rows: JSX.Element[] = []
+
+                            rows.push(
                               <tr key={rowKey} className="odd:bg-muted/30">
                                 <td
                                   className="sticky left-0 z-20 border border-border bg-card px-3 py-3 align-top shadow-sm"
@@ -1610,57 +1591,106 @@ export default function CurriculumPrototypeClient({
                                   <p className="text-sm font-medium text-foreground">{lo.title}</p>
                                 </td>
                                 {mapperLessons.map((lesson) => {
-                                  const lessonHasObjective =
-                                    lesson.lesson_objectives?.some((entry) => {
-                                      const entryId =
-                                        entry.learning_objective_id ?? entry.learning_objective?.learning_objective_id ?? ""
-                                      return entryId === lo.id
-                                    }) ?? false
-                                  const pendingKey = `${lesson.lesson_id}-${lo.id}`
-                                  const isPendingCell = pendingLessonIds.has(pendingKey)
-
-                                  const handleCellToggle = () =>
-                                    toggleLessonAssignment(
-                                      lesson.lesson_id,
-                                      lesson.unit_id ?? selectedMapperUnit.unit_id,
-                                      lo.id,
-                                      lo.title,
-                                      lo.successCriteria,
-                                      ao.id,
-                                      lo.orderIndex,
-                                    )
-
-                                  const cellStateClass = lessonHasObjective
-                                    ? "bg-emerald-100 text-emerald-900"
-                                    : "text-muted-foreground hover:bg-emerald-50"
-                                  const pendingStateClass = isPendingCell ? "bg-emerald-50 text-emerald-700" : ""
+                                  const linkedCount =
+                                    lesson.lesson_success_criteria?.filter(
+                                      (entry) => (entry.learning_objective_id ?? "") === lo.id,
+                                    ).length ?? 0
 
                                   return (
                                     <td
                                       key={`${rowKey}-${lesson.lesson_id}`}
+                                      className="border border-border px-3 py-3 text-xs text-muted-foreground align-middle"
+                                    >
+                                      {linkedCount > 0 ? (
+                                        <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-900">
+                                          {linkedCount} linked
+                                        </span>
+                                      ) : (
+                                        <span className="text-[11px] font-medium text-muted-foreground/60">No links</span>
+                                      )}
+                                    </td>
+                                  )
+                                })}
+                              </tr>,
+                            )
+
+                            const sortedCriteria = lo.successCriteria
+                              .filter((criterion) => criterion.active !== false)
+                              .slice()
+                              .sort((a, b) => a.orderIndex - b.orderIndex)
+
+                            sortedCriteria.forEach((criterion) => {
+                              const criterionRowKey = `${rowKey}-criterion-${criterion.id}`
+                              const levelBadge =
+                                typeof criterion.level === "number"
+                                  ? `Level ${criterion.level}`
+                                  : "Success criterion"
+
+                              rows.push(
+                                <tr key={criterionRowKey} className="bg-muted/10">
+                                  <td
+                                    className="sticky left-0 z-10 border border-border bg-card px-3 py-3 align-top"
+                                    style={{ minWidth: "14rem", width: mapperStickyWidth, maxWidth: "33.3333%" }}
+                                  >
+                                    <div className="pl-6">
+                                      <div className="flex items-start gap-2">
+                                        <span className="mt-0.5 inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-primary">
+                                          {levelBadge}
+                                        </span>
+                                        <p className="text-sm text-muted-foreground">{criterion.description}</p>
+                                      </div>
+                                    </div>
+                                  </td>
+                                {mapperLessons.map((lesson) => {
+                                  const lessonCriteriaSet = new Set(
+                                    (lesson.lesson_success_criteria ?? []).map(
+                                      (entry) => entry.success_criteria_id,
+                                    ),
+                                  )
+                                  const hasCriterion = lessonCriteriaSet.has(criterion.id)
+                                  const criterionPendingKey = `${lesson.lesson_id}-${criterion.id}`
+                                  const isPendingCriterion = pendingLessonSuccessCriteria.has(criterionPendingKey)
+
+                                  const handleCriterionToggle = () =>
+                                    toggleLessonSuccessCriterion(
+                                      lesson.lesson_id,
+                                      lesson.title,
+                                      lo.id,
+                                      criterion,
+                                    )
+
+                                  const baseClasses = "border border-border p-0 align-middle transition-colors"
+                                  const interactiveClasses = hasCriterion
+                                    ? "bg-sky-100 text-sky-900 cursor-pointer"
+                                    : "text-muted-foreground hover:bg-sky-50 cursor-pointer"
+                                  const pendingClasses = isPendingCriterion ? "bg-sky-50 text-sky-700 cursor-wait" : ""
+
+                                  return (
+                                    <td
+                                      key={`${criterionRowKey}-${lesson.lesson_id}`}
                                       role="button"
                                       tabIndex={0}
-                                      onClick={handleCellToggle}
+                                      onClick={handleCriterionToggle}
                                       onKeyDown={(event) => {
                                         if (event.key === "Enter" || event.key === " ") {
                                           event.preventDefault()
-                                          handleCellToggle()
+                                          handleCriterionToggle()
                                         }
                                       }}
-                                      aria-pressed={lessonHasObjective}
-                                      aria-label={`Toggle link between ${lo.title} and ${lesson.title}`}
-                                      className={`border border-border p-0 align-middle transition-colors cursor-pointer ${cellStateClass} ${pendingStateClass}`}
+                                      aria-pressed={hasCriterion}
+                                      aria-label={`${hasCriterion ? "Remove" : "Link"} success criterion to ${lesson.title}`}
+                                      className={`${baseClasses} ${interactiveClasses} ${pendingClasses}`}
                                     >
                                       <div className="flex h-full w-full items-center justify-center px-2 py-3 text-xs font-medium">
-                                        {isPendingCell ? (
+                                        {isPendingCriterion ? (
                                           <>
-                                            <Loader2 className="h-4 w-4 animate-spin text-emerald-700" />
-                                            <span className="sr-only">Updating assignment…</span>
+                                            <Loader2 className="h-4 w-4 animate-spin text-sky-700" />
+                                            <span className="sr-only">Updating success criterion…</span>
                                           </>
-                                        ) : lessonHasObjective ? (
+                                        ) : hasCriterion ? (
                                           <>
-                                            <Check className="h-3.5 w-3.5 text-emerald-700" />
-                                            <span className="sr-only">Remove link between {lo.title} and {lesson.title}</span>
+                                            <Check className="h-3.5 w-3.5 text-sky-700" />
+                                            <span className="sr-only">Remove success criterion from {lesson.title}</span>
                                           </>
                                         ) : (
                                           <span className="text-xs font-medium text-muted-foreground/70">Add</span>
@@ -1669,8 +1699,11 @@ export default function CurriculumPrototypeClient({
                                     </td>
                                   )
                                 })}
-                              </tr>
-                            )
+                                </tr>,
+                              )
+                            })
+
+                            return rows
                           })
                         })}
                       </tbody>

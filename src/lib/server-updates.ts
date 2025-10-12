@@ -97,10 +97,23 @@ export {
 } from "./server-actions/lesson-activities"
 
 export {
+  listLessonSuccessCriteriaAction,
+  linkLessonSuccessCriterionAction,
+  unlinkLessonSuccessCriterionAction,
+} from "./server-actions/lesson-success-criteria"
+
+export {
   getLatestSubmissionForActivityAction,
   readLessonSubmissionSummariesAction,
   upsertMcqSubmissionAction,
 } from "./server-actions/submissions"
+
+export {
+  saveShortTextAnswerAction,
+  listShortTextSubmissionsAction,
+  markShortTextActivityAction,
+  overrideShortTextSubmissionScoreAction,
+} from "./server-actions/short-text"
 
 export { fetchLessonLinkMetadataAction } from "./server-actions/link-metadata"
 

@@ -22,6 +22,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet"
@@ -33,10 +34,12 @@ import {
   getImageBody,
   getFeedbackBody,
   getMcqBody,
+  getShortTextBody,
   getVoiceBody,
   isAbsoluteUrl,
   type ImageBody,
   type McqBody,
+  type ShortTextBody,
   type VoiceBody,
 } from "@/components/lessons/activity-view/utils"
 import { LessonActivityView } from "@/components/lessons/activity-view"
@@ -54,6 +57,13 @@ interface AssignedGroupInfo {
   startDate: string | null
 }
 
+interface LessonActivitySuccessCriterionOption {
+  successCriteriaId: string
+  title: string
+  learningObjectiveId: string | null
+  learningObjectiveTitle: string | null
+}
+
 const ACTIVITY_TYPES = [
   { value: "text", label: "Text" },
   { value: "file-download", label: "File download" },
@@ -61,6 +71,7 @@ const ACTIVITY_TYPES = [
   { value: "display-image", label: "Display image" },
   { value: "show-video", label: "Show video" },
   { value: "multiple-choice-question", label: "Multiple choice question" },
+  { value: "short-text-question", label: "Short text question" },
   { value: "feedback", label: "Feedback" },
   { value: "text-question", label: "Text question" },
   { value: "voice", label: "Voice recording" },
@@ -80,12 +91,14 @@ interface LessonActivitiesManagerProps {
   unitId: string
   lessonId: string
   initialActivities: LessonActivity[]
+  availableSuccessCriteria: LessonActivitySuccessCriterionOption[]
 }
 
 export function LessonActivitiesManager({
   unitId,
   lessonId,
   initialActivities,
+  availableSuccessCriteria,
 }: LessonActivitiesManagerProps) {
   const router = useRouter()
   const [activities, setActivities] = useState<LessonActivity[]>(() => sortActivities(initialActivities))
@@ -345,6 +358,7 @@ export function LessonActivitiesManager({
     type,
     bodyData,
     imageSubmission,
+    successCriteriaIds,
   }: {
     mode: "create" | "edit"
     activityId?: string
@@ -352,17 +366,19 @@ export function LessonActivitiesManager({
     type: ActivityTypeValue
     bodyData: unknown
     imageSubmission?: ImageSubmissionPayload
+    successCriteriaIds: string[]
   }) => {
     startTransition(async () => {
       if (mode === "create") {
         if (type === "display-image" && imageSubmission) {
           const createBody = imageSubmission.pendingFile ? { imageFile: null, imageUrl: null, fileUrl: null } : bodyData
 
-          const createResult = await createLessonActivityAction(unitId, lessonId, {
-            title,
-            type,
-            bodyData: createBody,
-          })
+        const createResult = await createLessonActivityAction(unitId, lessonId, {
+          title,
+          type,
+          bodyData: createBody,
+          successCriteriaIds,
+        })
 
           if (!createResult.success || !createResult.data) {
             toast.error("Unable to create activity", {
@@ -425,6 +441,7 @@ export function LessonActivitiesManager({
           title,
           type,
           bodyData,
+          successCriteriaIds,
         })
 
         if (!result.success || !result.data) {
@@ -472,6 +489,7 @@ export function LessonActivitiesManager({
           title,
           type,
           bodyData: imageSubmission.finalBody ?? null,
+          successCriteriaIds,
         })
 
         if (!updateResult.success || !updateResult.data) {
@@ -528,6 +546,7 @@ export function LessonActivitiesManager({
         title,
         type,
         bodyData,
+        successCriteriaIds,
       })
 
       if (!result.success || !result.data) {
@@ -1058,6 +1077,7 @@ export function LessonActivitiesManager({
         lessonId={lessonId}
         assignedGroups={assignedGroups}
         assignedGroupsLoading={assignedGroupsLoading}
+        availableSuccessCriteria={availableSuccessCriteria}
       />
 
     </>
@@ -1201,11 +1221,13 @@ interface LessonActivityEditorSheetProps {
     type: ActivityTypeValue
     bodyData: unknown
     imageSubmission?: ImageSubmissionPayload
+    successCriteriaIds: string[]
   }) => void
   unitId: string
   lessonId: string
   assignedGroups: AssignedGroupInfo[]
   assignedGroupsLoading: boolean
+  availableSuccessCriteria: LessonActivitySuccessCriterionOption[]
 }
 
 function LessonActivityEditorSheet({
@@ -1219,6 +1241,7 @@ function LessonActivityEditorSheet({
   lessonId,
   assignedGroups,
   assignedGroupsLoading,
+  availableSuccessCriteria,
 }: LessonActivityEditorSheetProps) {
   const isCreateMode = mode === "create"
   const [title, setTitle] = useState("")
@@ -1247,9 +1270,23 @@ function LessonActivityEditorSheet({
   const [isImageDragActive, setIsImageDragActive] = useState(false)
   const [mcqBody, setMcqBody] = useState<McqBody>(() => createDefaultMcqBody())
   const [feedbackBody, setFeedbackBody] = useState<FeedbackActivityBody>(() => createDefaultFeedbackBody())
+  const [shortTextBody, setShortTextBody] = useState<ShortTextBody>(() => createDefaultShortTextBody())
+  const [selectedSuccessCriteriaIds, setSelectedSuccessCriteriaIds] = useState<string[]>([])
+
+  const normalizedShortTextBody = useMemo(() => normalizeShortTextBody(shortTextBody), [shortTextBody])
+  const shortTextValidationMessage = useMemo(
+    () => validateShortTextBody(normalizedShortTextBody),
+    [normalizedShortTextBody],
+  )
 
   const mcqOptionSlots = useMemo(() => ensureOptionSlots(mcqBody.options), [mcqBody.options])
   const mcqValidationMessage = useMemo(() => validateMcqBody(mcqBody), [mcqBody])
+
+  const successCriteriaOptions = useMemo(() => {
+    return availableSuccessCriteria
+      .slice()
+      .sort((a, b) => a.title.localeCompare(b.title))
+  }, [availableSuccessCriteria])
 
   const updateMcqBody = useCallback((updater: (current: McqBody) => McqBody) => {
     setMcqBody((previous) => normalizeMcqBody(updater(normalizeMcqBody(previous))))
@@ -1292,6 +1329,34 @@ function LessonActivityEditorSheet({
       }))
     },
     [mcqOptionSlots, updateMcqBody],
+  )
+
+  const handleShortTextQuestionChange = useCallback((value: string) => {
+    setShortTextBody((current) => ({ ...current, question: value }))
+  }, [])
+
+  const handleShortTextModelAnswerChange = useCallback((value: string) => {
+    setShortTextBody((current) => ({ ...current, modelAnswer: value }))
+  }, [])
+
+  const handleShortTextCommit = useCallback(() => {
+    setShortTextBody((current) => normalizeShortTextBody(current))
+  }, [])
+
+  const handleSuccessCriteriaToggle = useCallback(
+    (successCriteriaId: string, value: boolean | "indeterminate") => {
+      const shouldSelect = value === true
+      setSelectedSuccessCriteriaIds((previous) => {
+        if (shouldSelect) {
+          if (previous.includes(successCriteriaId)) {
+            return previous
+          }
+          return [...previous, successCriteriaId]
+        }
+        return previous.filter((id) => id !== successCriteriaId)
+      })
+    },
+    [],
   )
 
   const updateFeedbackSettings = useCallback(
@@ -1774,13 +1839,15 @@ function LessonActivityEditorSheet({
       setIsProcessing(false)
       setActivityFiles([])
       setIsFilesLoading(false)
-    setIsUploadingFiles(false)
-    setIsFileDragActive(false)
-    resetImageState()
-    setMcqBody(createDefaultMcqBody())
-    setFeedbackBody(createDefaultFeedbackBody())
-    return
-  }
+      setIsUploadingFiles(false)
+      setIsFileDragActive(false)
+      resetImageState()
+      setMcqBody(createDefaultMcqBody())
+      setShortTextBody(createDefaultShortTextBody())
+      setFeedbackBody(createDefaultFeedbackBody())
+      setSelectedSuccessCriteriaIds([])
+      return
+    }
 
     if (open && activity && mode === "edit") {
       const ensuredType = ensureActivityType(activity.type)
@@ -1800,11 +1867,7 @@ function LessonActivityEditorSheet({
       setPlaybackUrl(null)
       setRecordingError(null)
       if (ensuredType === "voice") {
-        if (voice.audioFile) {
-          setIsPlaybackLoading(true)
-        } else {
-          setIsPlaybackLoading(false)
-        }
+        setIsPlaybackLoading(Boolean(voice.audioFile))
       } else {
         setIsPlaybackLoading(false)
       }
@@ -1823,6 +1886,11 @@ function LessonActivityEditorSheet({
       } else {
         setMcqBody(createDefaultMcqBody())
       }
+      if (ensuredType === "short-text-question") {
+        setShortTextBody(normalizeShortTextBody(getShortTextBody(activity)))
+      } else {
+        setShortTextBody(createDefaultShortTextBody())
+      }
       if (ensuredType === "feedback") {
         setFeedbackBody(
           syncFeedbackBodyWithGroups(
@@ -1833,6 +1901,17 @@ function LessonActivityEditorSheet({
       } else {
         setFeedbackBody(createDefaultFeedbackBody())
       }
+
+      const activitySuccessCriteriaIds = Array.isArray(activity.success_criteria_ids)
+        ? activity.success_criteria_ids.filter((id): id is string => typeof id === "string")
+        : []
+
+      const orderedSelection = successCriteriaOptions
+        .map((option) => option.successCriteriaId)
+        .filter((id) => activitySuccessCriteriaIds.includes(id))
+
+      setSelectedSuccessCriteriaIds(orderedSelection)
+      return
     }
 
     if (!open) {
@@ -1858,21 +1937,35 @@ function LessonActivityEditorSheet({
       setIsProcessing(false)
       setActivityFiles([])
       setIsFilesLoading(false)
-    setIsUploadingFiles(false)
-    setIsFileDragActive(false)
-    setMcqBody(createDefaultMcqBody())
-    setFeedbackBody(createDefaultFeedbackBody())
-  }
-}, [
-  activity,
-  applyImageFromActivity,
-  assignedGroups,
-  isCreateMode,
-  mode,
-  open,
-  refreshActivityFiles,
-  resetImageState,
-])
+      setIsUploadingFiles(false)
+      setIsFileDragActive(false)
+      setMcqBody(createDefaultMcqBody())
+      setShortTextBody(createDefaultShortTextBody())
+      setFeedbackBody(createDefaultFeedbackBody())
+      setSelectedSuccessCriteriaIds([])
+    }
+  }, [
+    activity,
+    applyImageFromActivity,
+    assignedGroups,
+    isCreateMode,
+    mode,
+    open,
+    refreshActivityFiles,
+    resetImageState,
+    successCriteriaOptions,
+  ])
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+    setSelectedSuccessCriteriaIds((previous) =>
+      successCriteriaOptions
+        .map((option) => option.successCriteriaId)
+        .filter((id) => previous.includes(id)),
+    )
+  }, [open, successCriteriaOptions])
 
   useEffect(() => {
     if (!open || type !== "feedback") {
@@ -1908,6 +2001,14 @@ function LessonActivityEditorSheet({
         setVideoUrl("")
         setRawBody("")
         setMcqBody(createDefaultMcqBody())
+        return
+      }
+
+      if (type === "short-text-question") {
+        setText("")
+        setVideoUrl("")
+        setRawBody("")
+        setShortTextBody(createDefaultShortTextBody())
         return
       }
 
@@ -2015,6 +2116,15 @@ function LessonActivityEditorSheet({
         setMcqBody(normalizeMcqBody(getMcqBody(activity)))
       } else {
         setMcqBody(createDefaultMcqBody())
+      }
+      return
+    }
+
+    if (type === "short-text-question") {
+      if (activity) {
+        setShortTextBody(normalizeShortTextBody(getShortTextBody(activity)))
+      } else {
+        setShortTextBody(createDefaultShortTextBody())
       }
       return
     }
@@ -2387,6 +2497,12 @@ function LessonActivityEditorSheet({
         return
       }
       bodyData = preparedMcqBody
+    } else if (type === "short-text-question") {
+      if (shortTextValidationMessage) {
+        toast.error(shortTextValidationMessage)
+        return
+      }
+      bodyData = normalizedShortTextBody
     } else if (type === "feedback") {
       bodyData = syncFeedbackBodyWithGroups(normalizeFeedbackBody(feedbackBody), assignedGroups)
     } else {
@@ -2413,6 +2529,10 @@ function LessonActivityEditorSheet({
       })
     }
 
+    const sanitizedSuccessCriteriaIds = successCriteriaOptions
+      .map((option) => option.successCriteriaId)
+      .filter((id) => selectedSuccessCriteriaIds.includes(id))
+
     onSubmit({
       mode: isCreateMode ? "create" : "edit",
       activityId: activity?.activity_id,
@@ -2420,6 +2540,7 @@ function LessonActivityEditorSheet({
       type,
       bodyData,
       imageSubmission,
+      successCriteriaIds: sanitizedSuccessCriteriaIds,
     })
   }
 
@@ -2429,7 +2550,8 @@ function LessonActivityEditorSheet({
     isRecording ||
     title.trim().length === 0 ||
     (type !== "voice" && rawBodyError !== null) ||
-    (type === "multiple-choice-question" && mcqValidationMessage !== null)
+    (type === "multiple-choice-question" && mcqValidationMessage !== null) ||
+    (type === "short-text-question" && shortTextValidationMessage !== null)
 
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>
@@ -2472,6 +2594,40 @@ function LessonActivityEditorSheet({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Success criteria</Label>
+            {successCriteriaOptions.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Link success criteria to this lesson to associate them with this activity.
+              </p>
+            ) : (
+              <div className="space-y-2 rounded-md border border-border bg-muted/20 p-3">
+                {successCriteriaOptions.map((criterion) => {
+                  const checked = selectedSuccessCriteriaIds.includes(criterion.successCriteriaId)
+                  return (
+                    <label
+                      key={criterion.successCriteriaId}
+                      className="flex items-start gap-3 rounded-md border border-transparent px-2 py-2 text-sm transition hover:border-primary/40"
+                    >
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={(value) => handleSuccessCriteriaToggle(criterion.successCriteriaId, value)}
+                        disabled={isPending}
+                        className="mt-0.5"
+                      />
+                      <div className="space-y-1">
+                        <span className="font-medium text-foreground">{criterion.title}</span>
+                        {criterion.learningObjectiveTitle ? (
+                          <p className="text-xs text-muted-foreground">{criterion.learningObjectiveTitle}</p>
+                        ) : null}
+                      </div>
+                    </label>
+                  )
+                })}
+              </div>
+            )}
           </div>
 
           {type === "text" || type === "upload-file" ? (
@@ -2663,6 +2819,44 @@ function LessonActivityEditorSheet({
                   <p className="text-destructive">{mcqValidationMessage}</p>
                 ) : null}
               </div>
+            </div>
+          ) : null}
+
+          {type === "short-text-question" ? (
+            <div className="rounded-md border border-border bg-muted/20 p-4">
+              <div className="space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground" htmlFor="short-text-question">
+                  Question
+                </Label>
+                <RichTextEditor
+                  id="short-text-question"
+                  value={shortTextBody.question}
+                  onChange={handleShortTextQuestionChange}
+                  onBlur={handleShortTextCommit}
+                  placeholder="Ask your short answer question"
+                  disabled={isPending}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground" htmlFor="short-text-model-answer">
+                  Model answer (required)
+                </Label>
+                <Input
+                  id="short-text-model-answer"
+                  value={shortTextBody.modelAnswer}
+                  onChange={(event) => handleShortTextModelAnswerChange(event.target.value)}
+                  onBlur={handleShortTextCommit}
+                  placeholder="Enter the exemplar response"
+                  disabled={isPending}
+                />
+              </div>
+              {shortTextValidationMessage ? (
+                <p className="mt-2 text-xs text-destructive">{shortTextValidationMessage}</p>
+              ) : (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  The AI uses the model answer to evaluate pupil responses when you mark work.
+                </p>
+              )}
             </div>
           ) : null}
 
@@ -2885,6 +3079,7 @@ function LessonActivityEditorSheet({
           type !== "upload-file" &&
           type !== "display-image" &&
           type !== "multiple-choice-question" &&
+          type !== "short-text-question" &&
           type !== "feedback" ? (
             <div className="space-y-2">
               <Label htmlFor="activity-json">Activity details</Label>
@@ -2940,6 +3135,45 @@ function createMcqOptionId(existingIds: Set<string>): string {
     candidate = `option-${Math.random().toString(36).slice(2, 10)}`
   } while (existingIds.has(candidate))
   return candidate
+}
+
+function createDefaultShortTextBody(): ShortTextBody {
+  return {
+    question: "",
+    modelAnswer: "",
+  }
+}
+
+function normalizeShortTextBody(body: ShortTextBody | null | undefined): ShortTextBody {
+  if (!body || typeof body !== "object") {
+    return createDefaultShortTextBody()
+  }
+
+  const question =
+    typeof body.question === "string" ? body.question.trim() : ""
+  const modelAnswer =
+    typeof body.modelAnswer === "string" ? body.modelAnswer.trim() : ""
+
+  return {
+    ...(body as Record<string, unknown>),
+    question,
+    modelAnswer,
+  } as ShortTextBody
+}
+
+function validateShortTextBody(body: ShortTextBody): string | null {
+  const question = typeof body.question === "string" ? body.question.trim() : ""
+  if (!question) {
+    return "Add the question text before saving."
+  }
+
+  const modelAnswer =
+    typeof body.modelAnswer === "string" ? body.modelAnswer.trim() : ""
+  if (!modelAnswer) {
+    return "Model answer is required."
+  }
+
+  return null
 }
 
 function ensureOptionSlots(options: McqBody["options"]): McqBody["options"] {

@@ -5,6 +5,8 @@ import { z } from "zod"
 import {
   McqActivityBodySchema,
   McqSubmissionBodySchema,
+  ShortTextActivityBodySchema,
+  ShortTextSubmissionBodySchema,
   SubmissionSchema,
   type LessonSubmissionSummary,
   type Submission,
@@ -185,6 +187,69 @@ export async function readLessonSubmissionSummariesAction(
           overallTotals.count += scoreEntries.length
           if (viewerUserId) {
             scoreEntries
+              .filter((entry) => entry.userId === viewerUserId)
+              .forEach((entry) => {
+                viewerTotals.total += entry.score
+                viewerTotals.count += 1
+              })
+          }
+        }
+      } else if (activityType === "short-text-question") {
+        const parsedActivity = ShortTextActivityBodySchema.safeParse(activity.body_data)
+        if (parsedActivity.success) {
+          const modelAnswer = parsedActivity.data.modelAnswer?.trim()
+          if (modelAnswer) {
+            summary.correctAnswer = modelAnswer
+          }
+        }
+
+        const scoreEntries = submissionList
+          .map((submission) => {
+            const parsedSubmission = ShortTextSubmissionBodySchema.safeParse(submission.body)
+            if (!parsedSubmission.success) {
+              return null
+            }
+
+            const aiScore =
+              typeof parsedSubmission.data.ai_model_score === "number"
+              && Number.isFinite(parsedSubmission.data.ai_model_score)
+                ? parsedSubmission.data.ai_model_score
+                : null
+            const overrideScore =
+              typeof parsedSubmission.data.teacher_override_score === "number"
+              && Number.isFinite(parsedSubmission.data.teacher_override_score)
+                ? parsedSubmission.data.teacher_override_score
+                : null
+            const effectiveScore = overrideScore ?? aiScore
+
+            return {
+              userId: submission.user_id,
+              score: typeof effectiveScore === "number" ? effectiveScore : null,
+              isCorrect: parsedSubmission.data.is_correct === true,
+            }
+          })
+          .filter((entry): entry is { userId: string; score: number | null; isCorrect: boolean } => entry !== null)
+
+        summary.scores = scoreEntries.map((entry) => ({
+          userId: entry.userId,
+          score: entry.score,
+          isCorrect: entry.isCorrect,
+        }))
+
+        summary.correctCount = scoreEntries.filter((entry) => entry.isCorrect).length
+
+        const numericScores = scoreEntries.filter(
+          (entry): entry is { userId: string; score: number; isCorrect: boolean } =>
+            typeof entry.score === "number" && Number.isFinite(entry.score),
+        )
+
+        if (numericScores.length > 0) {
+          const totalScore = numericScores.reduce((acc, entry) => acc + entry.score, 0)
+          summary.averageScore = totalScore / numericScores.length
+          overallTotals.total += totalScore
+          overallTotals.count += numericScores.length
+          if (viewerUserId) {
+            numericScores
               .filter((entry) => entry.userId === viewerUserId)
               .forEach((entry) => {
                 viewerTotals.total += entry.score

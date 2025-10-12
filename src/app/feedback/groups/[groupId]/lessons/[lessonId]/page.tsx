@@ -115,34 +115,34 @@ export default async function FeedbackLessonPage({
   const membershipError = groupResult.error
 
   const objectives = lesson.lesson_objectives ?? []
+  const lessonSuccessCriteria = lesson.lesson_success_criteria ?? []
   const feedbackEntries = feedbackResult.data ?? []
   const feedbackError = feedbackResult.error
-  const groupAssignments = assignmentsResult.data ?? []
-  const groupUnitIds = new Set(groupAssignments.map((assignment) => assignment.unit_id))
   const lessonLinks = lesson.lesson_links ?? []
   const lessonFiles = lessonFilesResult.data ?? []
   const lessonFilesError = lessonFilesResult.error
 
-  const allSuccessCriteria = objectives
-    .flatMap((objective) => {
-      const learningObjective = objective.learning_objective
-      const successCriteria = learningObjective?.success_criteria ?? []
-      const relevantCriteria = successCriteria.filter((criterion) => {
-        const units = criterion.units ?? []
-        if (groupUnitIds.size === 0) return false
-        return units.some((unitId) => groupUnitIds.has(unitId))
-      })
+  const learningObjectiveById = new Map(
+    objectives.map((objective) => {
+      const id = objective.learning_objective_id ?? objective.learning_objective?.learning_objective_id ?? ""
+      const title =
+        objective.learning_objective?.title ??
+        objective.title ??
+        "Learning objective"
+      return [id, title]
+    }),
+  )
 
-      return relevantCriteria.map((criterion) => ({
-        criterion,
-        learningObjective,
-      }))
-    })
+  const allSuccessCriteria = lessonSuccessCriteria
+    .map((criterion) => ({
+      criterion,
+      learningObjectiveTitle: learningObjectiveById.get(criterion.learning_objective_id ?? "") ?? null,
+    }))
     .sort((a, b) => {
-      if (a.criterion.level !== b.criterion.level) {
-        return a.criterion.level - b.criterion.level
+      if ((a.criterion.level ?? 0) !== (b.criterion.level ?? 0)) {
+        return (a.criterion.level ?? 0) - (b.criterion.level ?? 0)
       }
-      return a.criterion.description.localeCompare(b.criterion.description)
+      return a.criterion.title.localeCompare(b.criterion.title)
     })
 
   const getMemberDisplayName = (member: (typeof group.members)[number]) => {
@@ -157,11 +157,11 @@ export default async function FeedbackLessonPage({
     .slice()
     .sort((a, b) => getMemberDisplayName(a).localeCompare(getMemberDisplayName(b)))
 
-  const successCriteriaColumns = allSuccessCriteria.map(({ criterion, learningObjective }) => ({
+  const successCriteriaColumns = allSuccessCriteria.map(({ criterion, learningObjectiveTitle }) => ({
     id: criterion.success_criteria_id,
-    description: criterion.description,
-    level: criterion.level,
-    learningObjectiveTitle: learningObjective?.title ?? null,
+    description: criterion.description ?? criterion.title,
+    level: criterion.level ?? 1,
+    learningObjectiveTitle,
   }))
 
   const pupilRows = pupils.map((member) => ({
