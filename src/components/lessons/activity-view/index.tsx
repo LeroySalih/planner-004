@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState, useTransition } from "react"
+import { useEffect, useMemo, useState, useTransition, type ReactNode } from "react"
 import type { LessonActivity } from "@/types"
 import { ActivityImagePreview } from "@/components/lessons/activity-image-preview"
 import { Button } from "@/components/ui/button"
@@ -104,28 +104,87 @@ export function LessonActivityView(props: LessonActivityViewProps) {
   }
 }
 
+function ActivitySuccessCriteria({
+  activity,
+  variant = "default",
+}: {
+  activity: LessonActivity
+  variant?: "compact" | "default"
+}) {
+  const items = Array.isArray(activity.success_criteria) ? activity.success_criteria : []
+  if (items.length === 0) {
+    return null
+  }
+
+  const wrapperClasses = variant === "compact" ? "space-y-1" : "space-y-2"
+  const containerClasses = variant === "compact" ? "flex flex-wrap gap-1.5" : "flex flex-wrap gap-2"
+  const badgeClasses =
+    variant === "compact"
+      ? "rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary"
+      : "rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary"
+
+  const heading =
+    variant === "compact" ? (
+      <span className="sr-only">Success criteria</span>
+    ) : (
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Success criteria</p>
+    )
+
+  return (
+    <div className={wrapperClasses}>
+      {heading}
+      <div className={containerClasses}>
+        {items.map((item) => {
+          const identifier = typeof item?.success_criteria_id === "string" ? item.success_criteria_id : undefined
+          const label =
+            typeof item?.title === "string" && item.title.trim().length > 0
+              ? item.title.trim()
+              : "Success criterion"
+          return (
+            <span key={identifier ?? label} className={badgeClasses}>
+              {label}
+            </span>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function ActivityShortView({ activity, lessonId, resolvedImageUrl, showImageBorder = true }: LessonActivityShortViewProps) {
+  const hasSuccessCriteria = Array.isArray(activity.success_criteria) && activity.success_criteria.length > 0
+
+  const wrap = (node: ReactNode) => {
+    if (!hasSuccessCriteria) {
+      return node
+    }
+    return (
+      <div className="space-y-2">
+        <ActivitySuccessCriteria activity={activity} variant="compact" />
+        {node}
+      </div>
+    )
+  }
+
   if (activity.type === "text") {
     const text = getActivityTextValue(activity)
     const markup = getRichTextMarkup(text)
-    if (!markup) return null
-    return (
-      <div
-        className="prose prose-sm max-w-none text-muted-foreground"
-        dangerouslySetInnerHTML={{ __html: markup }}
-      />
+    if (!markup) {
+      return wrap(null)
+    }
+    return wrap(
+      <div className="prose prose-sm max-w-none text-muted-foreground" dangerouslySetInnerHTML={{ __html: markup }} />
     )
   }
 
   if (activity.type === "upload-file") {
     const text = getActivityTextValue(activity)
     const markup = getRichTextMarkup(text)
-    if (!markup) return null
-    return (
-      <div
-        className="prose prose-sm max-w-none text-muted-foreground"
-        dangerouslySetInnerHTML={{ __html: markup }}
-      />
+    if (!markup) {
+      return wrap(null)
+    }
+    return wrap(
+      <div className="prose prose-sm max-w-none text-muted-foreground" dangerouslySetInnerHTML={{ __html: markup }} />
     )
   }
 
@@ -133,10 +192,10 @@ function ActivityShortView({ activity, lessonId, resolvedImageUrl, showImageBord
     const mcq = getMcqBody(activity)
     const markup = getRichTextMarkup(mcq.question)
     if (!markup) {
-      return <p className="text-sm text-muted-foreground">Multiple choice question awaiting setup.</p>
+      return wrap(<p className="text-sm text-muted-foreground">Multiple choice question awaiting setup.</p>)
     }
 
-    return (
+    return wrap(
       <div className="space-y-1">
         <p className="text-xs font-semibold uppercase tracking-wide text-primary">Multiple choice</p>
         <div
@@ -151,10 +210,10 @@ function ActivityShortView({ activity, lessonId, resolvedImageUrl, showImageBord
     const shortText = getShortTextBody(activity)
     const markup = getRichTextMarkup(shortText.question)
     if (!markup) {
-      return <p className="text-sm text-muted-foreground">Short text question awaiting setup.</p>
+      return wrap(<p className="text-sm text-muted-foreground">Short text question awaiting setup.</p>)
     }
 
-    return (
+    return wrap(
       <div className="space-y-1">
         <p className="text-xs font-semibold uppercase tracking-wide text-primary">Short text question</p>
         <div
@@ -170,10 +229,10 @@ function ActivityShortView({ activity, lessonId, resolvedImageUrl, showImageBord
     const entries = Object.entries(feedback.groups)
 
     if (entries.length === 0) {
-      return <p className="text-sm text-muted-foreground">No groups configured yet.</p>
+      return wrap(<p className="text-sm text-muted-foreground">No groups configured yet.</p>)
     }
 
-    return (
+    return wrap(
       <div className="space-y-2 text-sm">
         {entries.map(([groupId, settings]) => (
           <div
@@ -192,8 +251,10 @@ function ActivityShortView({ activity, lessonId, resolvedImageUrl, showImageBord
 
   if (activity.type === "show-video") {
     const url = getActivityFileUrlValue(activity)
-    if (!url) return null
-    return (
+    if (!url) {
+      return wrap(null)
+    }
+    return wrap(
       <span
         role="link"
         tabIndex={0}
@@ -213,7 +274,7 @@ function ActivityShortView({ activity, lessonId, resolvedImageUrl, showImageBord
             }
           }
         }}
-        className="inline-flex cursor-pointer items-center text-sm font-medium text-primary underline-offset-2 hover:underline break-all"
+        className="inline-flex cursor-pointer items-center break-all text-sm font-medium text-primary underline-offset-2 hover:underline"
       >
         Watch video
       </span>
@@ -221,7 +282,7 @@ function ActivityShortView({ activity, lessonId, resolvedImageUrl, showImageBord
   }
 
   if (activity.type === "display-image") {
-    return (
+    return wrap(
       <DisplayImageShortView
         activity={activity}
         lessonId={lessonId ?? null}
@@ -234,12 +295,12 @@ function ActivityShortView({ activity, lessonId, resolvedImageUrl, showImageBord
   if (activity.type === "voice") {
     const body = getVoiceBody(activity)
     if (body.audioFile) {
-      return <p className="text-sm text-muted-foreground">Voice recording attached.</p>
+      return wrap(<p className="text-sm text-muted-foreground">Voice recording attached.</p>)
     }
-    return <p className="text-sm text-muted-foreground">No recording uploaded yet.</p>
+    return wrap(<p className="text-sm text-muted-foreground">No recording uploaded yet.</p>)
   }
 
-  return null
+  return wrap(null)
 }
 
 function DisplayImageShortView({
@@ -579,17 +640,31 @@ function ActivityPresentView({
   viewerCanReveal,
   lessonId,
 }: LessonActivityPresentViewProps) {
+  const hasSuccessCriteria = Array.isArray(activity.success_criteria) && activity.success_criteria.length > 0
+
+  const wrap = (node: ReactNode) => {
+    if (!hasSuccessCriteria) {
+      return node
+    }
+    return (
+      <div className="space-y-4">
+        <ActivitySuccessCriteria activity={activity} variant="default" />
+        {node}
+      </div>
+    )
+  }
+
   if (activity.type === "feedback") {
-    return <FeedbackPresentView activity={activity} lessonId={lessonId} />
+    return wrap(<FeedbackPresentView activity={activity} lessonId={lessonId} />)
   }
 
   if (activity.type === "text") {
     const text = getActivityTextValue(activity)
     const markup = getRichTextMarkup(text)
     if (!markup) {
-      return <p className="text-muted-foreground">No text content provided for this activity.</p>
+      return wrap(<p className="text-muted-foreground">No text content provided for this activity.</p>)
     }
-    return (
+    return wrap(
       <div
         className="prose prose-lg max-w-none text-foreground"
         dangerouslySetInnerHTML={{ __html: markup }}
@@ -598,11 +673,11 @@ function ActivityPresentView({
   }
 
   if (activity.type === "short-text-question") {
-    return <ShortTextPresentView activity={activity} lessonId={lessonId} />
+    return wrap(<ShortTextPresentView activity={activity} lessonId={lessonId} />)
   }
 
   if (activity.type === "display-image") {
-    return (
+    return wrap(
       <DisplayImagePresent
         activity={activity}
         fetchActivityFileUrl={fetchActivityFileUrl}
@@ -612,10 +687,10 @@ function ActivityPresentView({
 
   if (activity.type === "file-download") {
     if (files.length === 0) {
-      return <p className="text-muted-foreground">No files added yet. Upload files to share with learners.</p>
+      return wrap(<p className="text-muted-foreground">No files added yet. Upload files to share with learners.</p>)
     }
 
-    return (
+    return wrap(
       <div className="space-y-3">
         <p className="text-sm text-muted-foreground">Download the resources for this step.</p>
         <ul className="space-y-2">
@@ -642,7 +717,7 @@ function ActivityPresentView({
     const instructions = getActivityTextValue(activity)
     const markup = getRichTextMarkup(instructions)
 
-    return (
+    return wrap(
       <div className="space-y-4">
         {markup ? (
           <div
@@ -691,12 +766,12 @@ function ActivityPresentView({
   if (activity.type === "show-video") {
     const url = getActivityFileUrlValue(activity)
     if (!url) {
-      return <p className="text-muted-foreground">Add a video URL to present this activity.</p>
+      return wrap(<p className="text-muted-foreground">Add a video URL to present this activity.</p>)
     }
 
     const embedUrl = getVideoEmbedUrl(url)
     if (embedUrl) {
-      return (
+      return wrap(
         <div className="flex flex-col gap-3">
           <div className="aspect-video w-full overflow-hidden rounded-lg border">
             <iframe
@@ -717,7 +792,7 @@ function ActivityPresentView({
       )
     }
 
-    return (
+    return wrap(
       <div className="flex flex-col gap-3">
         <video src={url} controls className="w-full max-h-[480px] rounded-lg border" />
         <p className="text-sm text-muted-foreground">
@@ -733,16 +808,16 @@ function ActivityPresentView({
   if (activity.type === "voice") {
     const playback = voicePlayback ?? { url: null, isLoading: false }
     if (playback.isLoading) {
-      return <p className="text-sm text-muted-foreground">Loading recording…</p>
+      return wrap(<p className="text-sm text-muted-foreground">Loading recording…</p>)
     }
 
     if (!playback.url) {
-      return <p className="text-sm text-muted-foreground">No recording available yet.</p>
+      return wrap(<p className="text-sm text-muted-foreground">No recording available yet.</p>)
     }
 
     const body = getVoiceBody(activity)
 
-    return (
+    return wrap(
       <div className="space-y-3">
         <audio controls src={playback.url} className="w-full" />
         {body.duration ? (
@@ -755,7 +830,7 @@ function ActivityPresentView({
   }
 
   if (activity.type === "multiple-choice-question") {
-    return (
+    return wrap(
       <McqPresentView
         activity={activity}
         fetchActivityFileUrl={fetchActivityFileUrl}
@@ -764,7 +839,7 @@ function ActivityPresentView({
     )
   }
 
-  return (
+  return wrap(
     <div className="space-y-3">
       <p className="text-lg text-muted-foreground">
         This activity type is not yet supported in the presentation view.

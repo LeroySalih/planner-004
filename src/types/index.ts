@@ -154,6 +154,34 @@ export const SuccessCriteriaUnitsSchema = z.array(SuccessCriterionUnitSchema);
 export type SuccessCriterionUnit = z.infer<typeof SuccessCriterionUnitSchema>;
 export type SuccessCriteriaUnits = z.infer<typeof SuccessCriteriaUnitsSchema>;
 
+export const LessonSuccessCriterionSchema = z.object({
+    lesson_id: z.string(),
+    success_criteria_id: z.string(),
+    title: z.string().min(1),
+    description: z.string().nullable().optional(),
+    level: z.number().nullable().optional(),
+    learning_objective_id: z.string().nullable().optional(),
+});
+
+export const LessonSuccessCriteriaSchema = z.array(LessonSuccessCriterionSchema);
+
+export type LessonSuccessCriterion = z.infer<typeof LessonSuccessCriterionSchema>;
+export type LessonSuccessCriteria = z.infer<typeof LessonSuccessCriteriaSchema>;
+
+export const ActivitySuccessCriterionSchema = z.object({
+    success_criteria_id: z.string(),
+    learning_objective_id: z.string().nullable().optional(),
+    title: z.string().min(1),
+    description: z.string().nullable().optional(),
+    level: z.number().nullable().optional(),
+    active: z.boolean().nullable().optional(),
+});
+
+export const ActivitySuccessCriteriaSchema = z.array(ActivitySuccessCriterionSchema);
+
+export type ActivitySuccessCriterion = z.infer<typeof ActivitySuccessCriterionSchema>;
+export type ActivitySuccessCriteria = z.infer<typeof ActivitySuccessCriteriaSchema>;
+
 export const LearningObjectiveSchema = z.object({
     learning_objective_id: z.string(),
     assessment_objective_id: z.string(),
@@ -354,6 +382,7 @@ export type FeedbackActivityBody = z.infer<typeof FeedbackActivityBodySchema>;
 export const LessonWithObjectivesSchema = LessonSchema.extend({
     lesson_objectives: LessonLearningObjectivesSchema.default([]),
     lesson_links: LessonLinksSchema.default([]),
+    lesson_success_criteria: LessonSuccessCriteriaSchema.default([]),
 });
 
 export const LessonsWithObjectivesSchema = z.array(LessonWithObjectivesSchema);
@@ -371,6 +400,8 @@ export const LessonActivitySchema = z.object({
     notes: z.string().nullish().transform((value) => value ?? ""),
     order_by: z.number().nullish().transform((value) => (typeof value === "number" ? value : null)),
     active: z.boolean().nullish().transform((value) => value ?? true),
+    success_criteria_ids: z.array(z.string()).default([]),
+    success_criteria: ActivitySuccessCriteriaSchema.default([]),
 });
 
 export const LessonActivitiesSchema = z.array(LessonActivitySchema);

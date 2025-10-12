@@ -196,14 +196,16 @@ export async function fetchSuccessCriteriaForLearningObjectives(
     unitsByCriterion.set(link.success_criteria_id, units)
   }
 
-  const allowedCriterionIds = filterUnitId
-    ? new Set(
-        (linkRows ?? [])
-          .filter((link) => link.unit_id === filterUnitId)
-          .map((link) => link.success_criteria_id)
-          .filter((id): id is string => Boolean(id)),
-      )
-    : null
+  let allowedCriterionIds: Set<string> | null = null
+
+  if (filterUnitId) {
+    allowedCriterionIds = new Set(
+      (linkRows ?? [])
+        .filter((link) => link.unit_id === filterUnitId)
+        .map((link) => link.success_criteria_id)
+        .filter((id): id is string => Boolean(id)),
+    )
+  }
 
   const map = new Map<string, NormalizedSuccessCriterion[]>()
   const learningObjectiveIdSet = new Set<string>()
@@ -213,7 +215,13 @@ export async function fetchSuccessCriteriaForLearningObjectives(
     const learningObjectiveId = criterion.learning_objective_id
 
     if (!criterionId || !learningObjectiveId) continue
-    if (allowedCriterionIds && !allowedCriterionIds.has(criterionId)) continue
+
+    if (filterUnitId) {
+      const units = unitsByCriterion.get(criterionId) ?? []
+      if (units.length > 0 && allowedCriterionIds && !allowedCriterionIds.has(criterionId)) {
+        continue
+      }
+    }
 
     const entry: NormalizedSuccessCriterion = {
       success_criteria_id: criterionId,

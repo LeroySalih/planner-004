@@ -1,6 +1,15 @@
 # Dino
 ## Releases 
 
+### Release 0.0.13 
+
+- Shifted activity/lesson data to the shared lesson_success_criteria link: new types and server actions load/update those rows, every lesson query now hydrates success criteria (plus inferred learning objectives) from that table, and activity editors use it when selecting criteria.
+
+- Revamped Curriculum Mapper & lesson detail flows: mapper exposes nested success-criterion toggles per lesson (objective rows are read-only), lesson detail and unit curriculum panels display the linked criteria, and activity short/present views badge them for teachers/pupils.
+
+- Feedback lesson workspace now draws its objective/criterion columns from lesson-level links instead of unit assignments, keeping the matrix accurate even when only success criteria are mapped.
+
+
 ### Release 0.0.12
 - Feedback activity now refreshes automatically when pupils submit answers, showing a single lesson-wide average based on the signed-in pupil’s scores while keeping per-activity breakdowns informational.
 - Lesson feedback presenter listens for client-side refresh events, fetches pupil-specific aggregates, and drops redundant per-activity average rows to keep the card focused on the new lesson average banner.

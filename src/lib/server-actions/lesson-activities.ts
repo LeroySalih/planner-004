@@ -13,6 +13,8 @@ import {
 } from "@/types"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
+type SupabaseServerClient = Awaited<ReturnType<typeof createSupabaseServerClient>>
+
 const LessonActivitiesReturnValue = z.object({
   data: LessonActivitiesSchema.nullable(),
   error: z.string().nullable(),
@@ -23,6 +25,7 @@ const CreateActivityInputSchema = z.object({
   type: z.string().min(1),
   bodyData: z.unknown().nullable().optional(),
   isHomework: z.boolean().optional(),
+  successCriteriaIds: z.array(z.string().min(1)).optional(),
 })
 
 const UpdateActivityInputSchema = z.object({
@@ -30,6 +33,7 @@ const UpdateActivityInputSchema = z.object({
   type: z.string().min(1).optional(),
   bodyData: z.unknown().nullable().optional(),
   isHomework: z.boolean().optional(),
+  successCriteriaIds: z.array(z.string().min(1)).optional(),
 })
 
 const ReorderActivityInputSchema = z
@@ -66,7 +70,14 @@ export async function listLessonActivitiesAction(lessonId: string) {
     return (a.title ?? "").localeCompare(b.title ?? "")
   })
 
-  return LessonActivitiesReturnValue.parse({ data: sorted, error: null })
+  const { data: enriched, error: scError } = await enrichActivitiesWithSuccessCriteria(supabase, sorted)
+
+  if (scError) {
+    console.error("[v0] Failed to read activity success criteria:", scError)
+    return LessonActivitiesReturnValue.parse({ data: null, error: scError })
+  }
+
+  return LessonActivitiesReturnValue.parse({ data: enriched, error: null })
 }
 
 export async function createLessonActivityAction(
@@ -81,6 +92,8 @@ export async function createLessonActivityAction(
   if (!normalizedBody.success) {
     return { success: false, error: normalizedBody.error, data: null }
   }
+
+  const successCriteriaIds = normalizeSuccessCriteriaIds(payload.successCriteriaIds)
 
   const supabase = await createSupabaseServerClient()
 
@@ -118,12 +131,42 @@ export async function createLessonActivityAction(
     return { success: false, error: error.message, data: null }
   }
 
+  if (successCriteriaIds.length > 0) {
+    const { error: linkError } = await supabase
+      .from("activity_success_criteria")
+      .insert(
+        successCriteriaIds.map((successCriteriaId) => ({
+          activity_id: data.activity_id,
+          success_criteria_id: successCriteriaId,
+        })),
+      )
+
+    if (linkError) {
+      console.error("[v0] Failed to link success criteria to activity:", linkError)
+      await supabase.from("activities").delete().eq("activity_id", data.activity_id)
+      return { success: false, error: linkError.message, data: null }
+    }
+  }
+
+  const { data: hydratedRows, error: hydrationError } = await enrichActivitiesWithSuccessCriteria(supabase, [data])
+
+  if (hydrationError) {
+    console.error("[v0] Failed to hydrate created activity success criteria:", hydrationError)
+    return { success: false, error: hydrationError, data: null }
+  }
+
+  const hydratedActivity = hydratedRows[0] ?? {
+    ...data,
+    success_criteria_ids: successCriteriaIds,
+    success_criteria: [],
+  }
+
   revalidatePath(`/units/${unitId}`)
   revalidatePath(`/lessons/${lessonId}`)
 
   return {
     success: true,
-    data: LessonActivitySchema.parse(data),
+    data: LessonActivitySchema.parse(hydratedActivity),
   }
 }
 
@@ -138,9 +181,14 @@ export async function updateLessonActivityAction(
 
   const supabase = await createSupabaseServerClient()
 
+  const nextSuccessCriteriaIds =
+    payload.successCriteriaIds !== undefined
+      ? normalizeSuccessCriteriaIds(payload.successCriteriaIds)
+      : null
+
   const { data: existing, error: existingError } = await supabase
     .from("activities")
-    .select("activity_id, type, body_data")
+    .select("*")
     .eq("activity_id", activityId)
     .eq("lesson_id", lessonId)
     .single()
@@ -182,26 +230,102 @@ export async function updateLessonActivityAction(
   }
 
   if (Object.keys(updates).length === 0) {
-    return { success: true, data: null }
+    if (nextSuccessCriteriaIds === null) {
+      return { success: true, data: null }
+    }
   }
 
-  const { data, error } = await supabase
-    .from("activities")
-    .update(updates)
-    .eq("activity_id", activityId)
-    .eq("lesson_id", lessonId)
-    .select("*")
-    .single()
+  let updatedActivityRow = existing
 
-  if (error) {
-    console.error("[v0] Failed to update lesson activity:", error)
-    return { success: false, error: error.message, data: null }
+  if (Object.keys(updates).length > 0) {
+    const { data, error } = await supabase
+      .from("activities")
+      .update(updates)
+      .eq("activity_id", activityId)
+      .eq("lesson_id", lessonId)
+      .select("*")
+      .single()
+
+    if (error) {
+      console.error("[v0] Failed to update lesson activity:", error)
+      return { success: false, error: error.message, data: null }
+    }
+
+    updatedActivityRow = data
+  }
+
+  if (nextSuccessCriteriaIds !== null) {
+    const { data: existingLinksRows, error: readLinksError } = await supabase
+      .from("activity_success_criteria")
+      .select("success_criteria_id")
+      .eq("activity_id", activityId)
+
+    if (readLinksError) {
+      console.error("[v0] Failed to read existing activity success criteria:", readLinksError)
+      return { success: false, error: readLinksError.message, data: null }
+    }
+
+    const existingIds = Array.from(
+      new Set(
+        (existingLinksRows ?? [])
+          .map((row) => row?.success_criteria_id)
+          .filter((id): id is string => typeof id === "string" && id.trim().length > 0),
+      ),
+    )
+
+    const toInsert = nextSuccessCriteriaIds.filter((id) => !existingIds.includes(id))
+    const toDelete = existingIds.filter((id) => !nextSuccessCriteriaIds.includes(id))
+
+    if (toDelete.length > 0) {
+      const { error: deleteLinksError } = await supabase
+        .from("activity_success_criteria")
+        .delete()
+        .eq("activity_id", activityId)
+        .in("success_criteria_id", toDelete)
+
+      if (deleteLinksError) {
+        console.error("[v0] Failed to remove activity success criteria links:", deleteLinksError)
+        return { success: false, error: deleteLinksError.message, data: null }
+      }
+    }
+
+    if (toInsert.length > 0) {
+      const { error: insertLinksError } = await supabase
+        .from("activity_success_criteria")
+        .insert(
+          toInsert.map((successCriteriaId) => ({
+            activity_id: activityId,
+            success_criteria_id: successCriteriaId,
+          })),
+        )
+
+      if (insertLinksError) {
+        console.error("[v0] Failed to add activity success criteria links:", insertLinksError)
+        return { success: false, error: insertLinksError.message, data: null }
+      }
+    }
+  }
+
+  const { data: hydratedRows, error: hydrationError } = await enrichActivitiesWithSuccessCriteria(
+    supabase,
+    [updatedActivityRow],
+  )
+
+  if (hydrationError) {
+    console.error("[v0] Failed to hydrate updated activity success criteria:", hydrationError)
+    return { success: false, error: hydrationError, data: null }
+  }
+
+  const hydratedActivity = hydratedRows[0] ?? {
+    ...updatedActivityRow,
+    success_criteria_ids: nextSuccessCriteriaIds ?? [],
+    success_criteria: [],
   }
 
   revalidatePath(`/units/${unitId}`)
   revalidatePath(`/lessons/${lessonId}`)
 
-  return { success: true, data: LessonActivitySchema.parse(data) }
+  return { success: true, data: LessonActivitySchema.parse(hydratedActivity) }
 }
 
 export async function reorderLessonActivitiesAction(
@@ -258,6 +382,16 @@ export async function reorderLessonActivitiesAction(
 export async function deleteLessonActivityAction(unitId: string, lessonId: string, activityId: string) {
   const supabase = await createSupabaseServerClient()
 
+  const { error: linkDeleteError } = await supabase
+    .from("activity_success_criteria")
+    .delete()
+    .eq("activity_id", activityId)
+
+  if (linkDeleteError) {
+    console.error("[v0] Failed to remove success criteria for activity:", linkDeleteError)
+    return { success: false, error: linkDeleteError.message }
+  }
+
   const { error } = await supabase
     .from("activities")
     .delete()
@@ -273,6 +407,207 @@ export async function deleteLessonActivityAction(unitId: string, lessonId: strin
   revalidatePath(`/lessons/${lessonId}`)
 
   return { success: true }
+}
+
+function normalizeSuccessCriteriaIds(value: readonly string[] | undefined): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const deduped: string[] = []
+  value.forEach((raw) => {
+    if (typeof raw !== "string") {
+      return
+    }
+    const trimmed = raw.trim()
+    if (trimmed.length === 0) {
+      return
+    }
+    if (!deduped.includes(trimmed)) {
+      deduped.push(trimmed)
+    }
+  })
+  return deduped
+}
+
+async function enrichActivitiesWithSuccessCriteria(
+  supabase: SupabaseServerClient,
+  activities: Array<Record<string, unknown>>,
+): Promise<{ data: Array<Record<string, unknown>>; error: string | null }> {
+  if (activities.length === 0) {
+    return {
+      data: activities.map((activity) => ({
+        ...activity,
+        success_criteria_ids: [],
+        success_criteria: [],
+      })),
+      error: null,
+    }
+  }
+
+  const activityIds = Array.from(
+    new Set(
+      activities
+        .map((activity) => activity.activity_id)
+        .filter((id): id is string => typeof id === "string" && id.trim().length > 0),
+    ),
+  )
+
+  if (activityIds.length === 0) {
+    return {
+      data: activities.map((activity) => ({
+        ...activity,
+        success_criteria_ids: [],
+        success_criteria: [],
+      })),
+      error: null,
+    }
+  }
+
+  const { data: linkRows, error: linksError } = await supabase
+    .from("activity_success_criteria")
+    .select("activity_id, success_criteria_id")
+    .in("activity_id", activityIds)
+
+  if (linksError) {
+    return { data: [], error: linksError.message }
+  }
+
+  const normalizedLinks =
+    linkRows?.filter(
+      (row): row is { activity_id: string; success_criteria_id: string } =>
+        typeof row?.activity_id === "string" &&
+        row.activity_id.trim().length > 0 &&
+        typeof row?.success_criteria_id === "string" &&
+        row.success_criteria_id.trim().length > 0,
+    ) ?? []
+
+  const criteriaIds = Array.from(new Set(normalizedLinks.map((row) => row.success_criteria_id)))
+
+  const criteriaMap = new Map<
+    string,
+    { success_criteria_id: string; learning_objective_id: string | null; description: string | null; level: number | null; active: boolean | null }
+  >()
+
+  const objectiveMap = new Map<string, { title: string | null }>()
+
+  if (criteriaIds.length > 0) {
+    const { data: criteriaRows, error: criteriaError } = await supabase
+      .from("success_criteria")
+      .select("success_criteria_id, learning_objective_id, description, level, active")
+      .in("success_criteria_id", criteriaIds)
+
+    if (criteriaError) {
+      return { data: [], error: criteriaError.message }
+    }
+
+    const normalizedCriteria =
+      criteriaRows?.map((row) => ({
+        success_criteria_id: row?.success_criteria_id ?? "",
+        learning_objective_id: row?.learning_objective_id ?? null,
+        description: typeof row?.description === "string" ? row.description : null,
+        level: typeof row?.level === "number" ? row.level : null,
+        active: typeof row?.active === "boolean" ? row.active : null,
+      })) ?? []
+
+    normalizedCriteria.forEach((criterion) => {
+      if (criterion.success_criteria_id) {
+        criteriaMap.set(criterion.success_criteria_id, criterion)
+      }
+    })
+
+    const objectiveIds = Array.from(
+      new Set(
+        normalizedCriteria
+          .map((criterion) => criterion.learning_objective_id)
+          .filter((id): id is string => typeof id === "string" && id.trim().length > 0),
+      ),
+    )
+
+    if (objectiveIds.length > 0) {
+      const { data: objectiveRows, error: objectiveError } = await supabase
+        .from("learning_objectives")
+        .select("learning_objective_id, title")
+        .in("learning_objective_id", objectiveIds)
+
+      if (objectiveError) {
+        return { data: [], error: objectiveError.message }
+      }
+
+      objectiveRows?.forEach((objective) => {
+        const id = typeof objective?.learning_objective_id === "string" ? objective.learning_objective_id : null
+        if (!id) return
+        const title =
+          typeof objective?.title === "string" && objective.title.trim().length > 0
+            ? objective.title.trim()
+            : null
+        objectiveMap.set(id, { title })
+      })
+    }
+  }
+
+  const linksByActivity = normalizedLinks.reduce<Map<string, string[]>>((acc, row) => {
+    const existing = acc.get(row.activity_id) ?? []
+    if (!existing.includes(row.success_criteria_id)) {
+      existing.push(row.success_criteria_id)
+    }
+    acc.set(row.activity_id, existing)
+    return acc
+  }, new Map())
+
+  const enriched = activities.map((activity) => {
+    const activityId = typeof activity.activity_id === "string" ? activity.activity_id : ""
+    const linkedIds = linksByActivity.get(activityId) ?? []
+    const uniqueIds = Array.from(new Set(linkedIds))
+
+    const successCriteria = uniqueIds
+      .map((id) => {
+        const base = criteriaMap.get(id)
+        if (!base) {
+          return null
+        }
+
+        const objectiveTitle =
+          base.learning_objective_id && objectiveMap.has(base.learning_objective_id)
+            ? objectiveMap.get(base.learning_objective_id)?.title ?? null
+            : null
+
+        const rawTitle =
+          (typeof base.description === "string" && base.description.trim().length > 0
+            ? base.description.trim()
+            : null) ??
+          (objectiveTitle && objectiveTitle.trim().length > 0 ? objectiveTitle.trim() : null)
+
+        return {
+          success_criteria_id: id,
+          learning_objective_id: base.learning_objective_id,
+          title: rawTitle ?? "Success criterion",
+          description: base.description,
+          level: base.level,
+          active: base.active,
+        }
+      })
+      .filter(
+        (
+          entry,
+        ): entry is {
+          success_criteria_id: string
+          learning_objective_id: string | null
+          title: string
+          description: string | null
+          level: number | null
+          active: boolean | null
+        } => entry !== null,
+      )
+
+    return {
+      ...activity,
+      success_criteria_ids: uniqueIds,
+      success_criteria: successCriteria,
+    }
+  })
+
+  return { data: enriched, error: null }
 }
 
 const TextActivityBodySchema = z.object({ text: z.string() }).passthrough()

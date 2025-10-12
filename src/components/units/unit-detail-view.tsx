@@ -70,6 +70,16 @@ export function UnitDetailView({
   )
 
   const groupedAssessmentObjectives = useMemo(() => {
+    type ObjectiveCriterion = {
+      success_criteria_id: string
+      learning_objective_id: string
+      description: string
+      level: number
+      active: boolean
+      order_index: number
+      units: string[]
+    }
+
     const map = new Map<
       string,
       {
@@ -77,59 +87,113 @@ export function UnitDetailView({
         code: string
         title: string
         orderIndex: number
-        objectives: Array<LearningObjectiveWithCriteria & { success_criteria: LearningObjectiveWithCriteria["success_criteria"] }>
+        objectives: Array<{
+          id: string
+          title: string
+          successCriteria: ObjectiveCriterion[]
+        }>
       }
     >()
 
-    orderedObjectives.forEach((objective) => {
-      const aoId = objective.assessment_objective_id ?? "unassigned"
-      const aoCode = objective.assessment_objective_code ?? "Unassigned"
-      const aoTitle = objective.assessment_objective_title ?? "Unassigned Assessment Objective"
-      const aoOrder = objective.assessment_objective_order_index ?? Number.MAX_SAFE_INTEGER
+    lessons.forEach((lesson) => {
+      const lessonObjectives = lesson.lesson_objectives ?? []
+      const lessonCriteria = lesson.lesson_success_criteria ?? []
 
-      if (!map.has(aoId)) {
-        map.set(aoId, {
-          id: aoId,
-          code: aoCode,
-          title: aoTitle,
-          orderIndex: aoOrder,
-          objectives: [],
-        })
-      }
+      lessonObjectives.forEach((objective) => {
+        const learningObjectiveId =
+          objective.learning_objective_id ?? objective.learning_objective?.learning_objective_id
+        if (!learningObjectiveId) {
+          return
+        }
 
-      const entry = map.get(aoId)
-      if (!entry) return
+        const learningObjective = objective.learning_objective
+        const assessmentObjectiveId = learningObjective?.assessment_objective_id ?? "unassigned"
+        const assessmentObjectiveCode = learningObjective?.assessment_objective_code ?? "Unassigned"
+        const assessmentObjectiveTitle =
+          learningObjective?.assessment_objective_title ?? "Unassigned Assessment Objective"
+        const assessmentObjectiveOrder =
+          learningObjective?.assessment_objective_order_index ?? Number.MAX_SAFE_INTEGER
 
-      entry.orderIndex = Math.min(entry.orderIndex, aoOrder)
+        if (!map.has(assessmentObjectiveId)) {
+          map.set(assessmentObjectiveId, {
+            id: assessmentObjectiveId,
+            code: assessmentObjectiveCode,
+            title: assessmentObjectiveTitle,
+            orderIndex: assessmentObjectiveOrder,
+            objectives: [],
+          })
+        }
 
-      entry.objectives.push({
-        ...objective,
-        success_criteria: [...(objective.success_criteria ?? [])]
-          .map((criterion, index) => ({
-            ...criterion,
-            order_index: criterion.order_index ?? index,
-          }))
-          .sort((a, b) => {
-            if (a.level !== b.level) {
-              return a.level - b.level
+        const group = map.get(assessmentObjectiveId)
+        if (!group) return
+        group.orderIndex = Math.min(group.orderIndex, assessmentObjectiveOrder)
+
+        let objectiveEntry = group.objectives.find((entry) => entry.id === learningObjectiveId)
+
+        if (!objectiveEntry) {
+          objectiveEntry = {
+            id: learningObjectiveId,
+            title: learningObjective?.title ?? objective.title ?? "Learning objective",
+            successCriteria: [] as ObjectiveCriterion[],
+          }
+          group.objectives.push(objectiveEntry)
+        }
+
+        const existingIds = new Set(objectiveEntry.successCriteria.map((item) => item.success_criteria_id))
+
+        lessonCriteria
+          .filter((criterion) => criterion.learning_objective_id === learningObjectiveId)
+          .forEach((criterion) => {
+            if (existingIds.has(criterion.success_criteria_id)) {
+              return
             }
-            return (a.order_index ?? 0) - (b.order_index ?? 0)
-          }),
+
+            const description =
+              typeof criterion.description === "string" && criterion.description.trim().length > 0
+                ? criterion.description.trim()
+                : criterion.title
+
+            objectiveEntry.successCriteria.push({
+              success_criteria_id: criterion.success_criteria_id,
+              learning_objective_id: learningObjectiveId,
+              description,
+              level: typeof criterion.level === "number" ? Math.max(1, Math.min(criterion.level, 7)) : 1,
+              active: true,
+              order_index: 0,
+              units: [],
+            })
+            existingIds.add(criterion.success_criteria_id)
+          })
+
+        const sortedCriteria = objectiveEntry.successCriteria.sort((a, b) => {
+          if (a.level !== b.level) {
+            return a.level - b.level
+          }
+          return a.description.localeCompare(b.description)
+        })
+
+        objectiveEntry.successCriteria = sortedCriteria.map((criterion, index) => ({
+          ...criterion,
+          order_index: index,
+        }))
       })
     })
 
     return Array.from(map.values())
       .map((group) => ({
         ...group,
-        objectives: group.objectives.sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0)),
+        objectives: group.objectives
+          .filter((objective) => objective.successCriteria.length > 0)
+          .sort((a, b) => a.title.localeCompare(b.title)),
       }))
+      .filter((group) => group.objectives.length > 0)
       .sort((a, b) => {
         if (a.orderIndex !== b.orderIndex) {
           return a.orderIndex - b.orderIndex
         }
-        return a.code.localeCompare(b.code)
+        return a.title.localeCompare(b.title)
       })
-  }, [orderedObjectives])
+  }, [lessons])
 
   const formatDate = (value: string) =>
     new Date(value).toLocaleDateString("en-US", {
@@ -203,20 +267,20 @@ export function UnitDetailView({
                 <tbody>
                   {groupedAssessmentObjectives.map((group) => {
                     const rowSpan = group.objectives.reduce(
-                      (count, objective) => count + Math.max(objective.success_criteria.length, 1),
+                      (count, objective) => count + Math.max(objective.successCriteria.length, 1),
                       0,
                     )
 
                     let aoCellRendered = false
 
                     return group.objectives.map((objective) => {
-                      const criteria = objective.success_criteria.length > 0
-                        ? objective.success_criteria
+                      const criteria = objective.successCriteria.length > 0
+                        ? objective.successCriteria
                         : [null]
 
                       return criteria.map((criterion, index) => {
                         const isFirstCriterionForObjective = index === 0
-                        const objectiveRowSpan = objective.success_criteria.length || 1
+                        const objectiveRowSpan = objective.successCriteria.length || 1
 
                         const aoCell = !aoCellRendered ? (
                           <td
@@ -235,7 +299,7 @@ export function UnitDetailView({
                         }
 
                         return (
-                          <tr key={`${group.id}-${objective.learning_objective_id}-${criterion?.success_criteria_id ?? index}`} className="border-b border-border">
+                          <tr key={`${group.id}-${objective.id}-${criterion?.success_criteria_id ?? index}`} className="border-b border-border">
                             {aoCell}
                             {isFirstCriterionForObjective ? (
                               <td

@@ -300,6 +300,12 @@ CREATE TABLE IF NOT EXISTS "public"."activity_success_criteria"(
     PRIMARY KEY ("activity_id", "success_criteria_id")
 );
 
+CREATE TABLE IF NOT EXISTS "public"."lesson_success_criteria"(
+    "lesson_id" "text" NOT NULL,
+    "success_criteria_id" "text" NOT NULL,
+    PRIMARY KEY ("lesson_id", "success_criteria_id")
+);
+
 
 ALTER TABLE "public"."units" OWNER TO "postgres";
 

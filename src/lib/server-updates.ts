@@ -97,6 +97,12 @@ export {
 } from "./server-actions/lesson-activities"
 
 export {
+  listLessonSuccessCriteriaAction,
+  linkLessonSuccessCriterionAction,
+  unlinkLessonSuccessCriterionAction,
+} from "./server-actions/lesson-success-criteria"
+
+export {
   getLatestSubmissionForActivityAction,
   readLessonSubmissionSummariesAction,
   upsertMcqSubmissionAction,

@@ -22,6 +22,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet"
@@ -56,6 +57,13 @@ interface AssignedGroupInfo {
   startDate: string | null
 }
 
+interface LessonActivitySuccessCriterionOption {
+  successCriteriaId: string
+  title: string
+  learningObjectiveId: string | null
+  learningObjectiveTitle: string | null
+}
+
 const ACTIVITY_TYPES = [
   { value: "text", label: "Text" },
   { value: "file-download", label: "File download" },
@@ -83,12 +91,14 @@ interface LessonActivitiesManagerProps {
   unitId: string
   lessonId: string
   initialActivities: LessonActivity[]
+  availableSuccessCriteria: LessonActivitySuccessCriterionOption[]
 }
 
 export function LessonActivitiesManager({
   unitId,
   lessonId,
   initialActivities,
+  availableSuccessCriteria,
 }: LessonActivitiesManagerProps) {
   const router = useRouter()
   const [activities, setActivities] = useState<LessonActivity[]>(() => sortActivities(initialActivities))
@@ -348,6 +358,7 @@ export function LessonActivitiesManager({
     type,
     bodyData,
     imageSubmission,
+    successCriteriaIds,
   }: {
     mode: "create" | "edit"
     activityId?: string
@@ -355,17 +366,19 @@ export function LessonActivitiesManager({
     type: ActivityTypeValue
     bodyData: unknown
     imageSubmission?: ImageSubmissionPayload
+    successCriteriaIds: string[]
   }) => {
     startTransition(async () => {
       if (mode === "create") {
         if (type === "display-image" && imageSubmission) {
           const createBody = imageSubmission.pendingFile ? { imageFile: null, imageUrl: null, fileUrl: null } : bodyData
 
-          const createResult = await createLessonActivityAction(unitId, lessonId, {
-            title,
-            type,
-            bodyData: createBody,
-          })
+        const createResult = await createLessonActivityAction(unitId, lessonId, {
+          title,
+          type,
+          bodyData: createBody,
+          successCriteriaIds,
+        })
 
           if (!createResult.success || !createResult.data) {
             toast.error("Unable to create activity", {
@@ -428,6 +441,7 @@ export function LessonActivitiesManager({
           title,
           type,
           bodyData,
+          successCriteriaIds,
         })
 
         if (!result.success || !result.data) {
@@ -475,6 +489,7 @@ export function LessonActivitiesManager({
           title,
           type,
           bodyData: imageSubmission.finalBody ?? null,
+          successCriteriaIds,
         })
 
         if (!updateResult.success || !updateResult.data) {
@@ -531,6 +546,7 @@ export function LessonActivitiesManager({
         title,
         type,
         bodyData,
+        successCriteriaIds,
       })
 
       if (!result.success || !result.data) {
@@ -1061,6 +1077,7 @@ export function LessonActivitiesManager({
         lessonId={lessonId}
         assignedGroups={assignedGroups}
         assignedGroupsLoading={assignedGroupsLoading}
+        availableSuccessCriteria={availableSuccessCriteria}
       />
 
     </>
@@ -1204,11 +1221,13 @@ interface LessonActivityEditorSheetProps {
     type: ActivityTypeValue
     bodyData: unknown
     imageSubmission?: ImageSubmissionPayload
+    successCriteriaIds: string[]
   }) => void
   unitId: string
   lessonId: string
   assignedGroups: AssignedGroupInfo[]
   assignedGroupsLoading: boolean
+  availableSuccessCriteria: LessonActivitySuccessCriterionOption[]
 }
 
 function LessonActivityEditorSheet({
@@ -1222,6 +1241,7 @@ function LessonActivityEditorSheet({
   lessonId,
   assignedGroups,
   assignedGroupsLoading,
+  availableSuccessCriteria,
 }: LessonActivityEditorSheetProps) {
   const isCreateMode = mode === "create"
   const [title, setTitle] = useState("")
@@ -1251,6 +1271,7 @@ function LessonActivityEditorSheet({
   const [mcqBody, setMcqBody] = useState<McqBody>(() => createDefaultMcqBody())
   const [feedbackBody, setFeedbackBody] = useState<FeedbackActivityBody>(() => createDefaultFeedbackBody())
   const [shortTextBody, setShortTextBody] = useState<ShortTextBody>(() => createDefaultShortTextBody())
+  const [selectedSuccessCriteriaIds, setSelectedSuccessCriteriaIds] = useState<string[]>([])
 
   const normalizedShortTextBody = useMemo(() => normalizeShortTextBody(shortTextBody), [shortTextBody])
   const shortTextValidationMessage = useMemo(
@@ -1260,6 +1281,12 @@ function LessonActivityEditorSheet({
 
   const mcqOptionSlots = useMemo(() => ensureOptionSlots(mcqBody.options), [mcqBody.options])
   const mcqValidationMessage = useMemo(() => validateMcqBody(mcqBody), [mcqBody])
+
+  const successCriteriaOptions = useMemo(() => {
+    return availableSuccessCriteria
+      .slice()
+      .sort((a, b) => a.title.localeCompare(b.title))
+  }, [availableSuccessCriteria])
 
   const updateMcqBody = useCallback((updater: (current: McqBody) => McqBody) => {
     setMcqBody((previous) => normalizeMcqBody(updater(normalizeMcqBody(previous))))
@@ -1315,6 +1342,22 @@ function LessonActivityEditorSheet({
   const handleShortTextCommit = useCallback(() => {
     setShortTextBody((current) => normalizeShortTextBody(current))
   }, [])
+
+  const handleSuccessCriteriaToggle = useCallback(
+    (successCriteriaId: string, value: boolean | "indeterminate") => {
+      const shouldSelect = value === true
+      setSelectedSuccessCriteriaIds((previous) => {
+        if (shouldSelect) {
+          if (previous.includes(successCriteriaId)) {
+            return previous
+          }
+          return [...previous, successCriteriaId]
+        }
+        return previous.filter((id) => id !== successCriteriaId)
+      })
+    },
+    [],
+  )
 
   const updateFeedbackSettings = useCallback(
     (groupId: string, changes: Partial<FeedbackActivityGroupSettings>) => {
@@ -1796,14 +1839,15 @@ function LessonActivityEditorSheet({
       setIsProcessing(false)
       setActivityFiles([])
       setIsFilesLoading(false)
-    setIsUploadingFiles(false)
-    setIsFileDragActive(false)
-    resetImageState()
-    setMcqBody(createDefaultMcqBody())
-    setShortTextBody(createDefaultShortTextBody())
-    setFeedbackBody(createDefaultFeedbackBody())
-    return
-  }
+      setIsUploadingFiles(false)
+      setIsFileDragActive(false)
+      resetImageState()
+      setMcqBody(createDefaultMcqBody())
+      setShortTextBody(createDefaultShortTextBody())
+      setFeedbackBody(createDefaultFeedbackBody())
+      setSelectedSuccessCriteriaIds([])
+      return
+    }
 
     if (open && activity && mode === "edit") {
       const ensuredType = ensureActivityType(activity.type)
@@ -1823,11 +1867,7 @@ function LessonActivityEditorSheet({
       setPlaybackUrl(null)
       setRecordingError(null)
       if (ensuredType === "voice") {
-        if (voice.audioFile) {
-          setIsPlaybackLoading(true)
-        } else {
-          setIsPlaybackLoading(false)
-        }
+        setIsPlaybackLoading(Boolean(voice.audioFile))
       } else {
         setIsPlaybackLoading(false)
       }
@@ -1861,6 +1901,17 @@ function LessonActivityEditorSheet({
       } else {
         setFeedbackBody(createDefaultFeedbackBody())
       }
+
+      const activitySuccessCriteriaIds = Array.isArray(activity.success_criteria_ids)
+        ? activity.success_criteria_ids.filter((id): id is string => typeof id === "string")
+        : []
+
+      const orderedSelection = successCriteriaOptions
+        .map((option) => option.successCriteriaId)
+        .filter((id) => activitySuccessCriteriaIds.includes(id))
+
+      setSelectedSuccessCriteriaIds(orderedSelection)
+      return
     }
 
     if (!open) {
@@ -1886,22 +1937,35 @@ function LessonActivityEditorSheet({
       setIsProcessing(false)
       setActivityFiles([])
       setIsFilesLoading(false)
-    setIsUploadingFiles(false)
-    setIsFileDragActive(false)
-    setMcqBody(createDefaultMcqBody())
-    setShortTextBody(createDefaultShortTextBody())
-    setFeedbackBody(createDefaultFeedbackBody())
-  }
-}, [
-  activity,
-  applyImageFromActivity,
-  assignedGroups,
-  isCreateMode,
-  mode,
-  open,
-  refreshActivityFiles,
-  resetImageState,
-])
+      setIsUploadingFiles(false)
+      setIsFileDragActive(false)
+      setMcqBody(createDefaultMcqBody())
+      setShortTextBody(createDefaultShortTextBody())
+      setFeedbackBody(createDefaultFeedbackBody())
+      setSelectedSuccessCriteriaIds([])
+    }
+  }, [
+    activity,
+    applyImageFromActivity,
+    assignedGroups,
+    isCreateMode,
+    mode,
+    open,
+    refreshActivityFiles,
+    resetImageState,
+    successCriteriaOptions,
+  ])
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+    setSelectedSuccessCriteriaIds((previous) =>
+      successCriteriaOptions
+        .map((option) => option.successCriteriaId)
+        .filter((id) => previous.includes(id)),
+    )
+  }, [open, successCriteriaOptions])
 
   useEffect(() => {
     if (!open || type !== "feedback") {
@@ -2465,6 +2529,10 @@ function LessonActivityEditorSheet({
       })
     }
 
+    const sanitizedSuccessCriteriaIds = successCriteriaOptions
+      .map((option) => option.successCriteriaId)
+      .filter((id) => selectedSuccessCriteriaIds.includes(id))
+
     onSubmit({
       mode: isCreateMode ? "create" : "edit",
       activityId: activity?.activity_id,
@@ -2472,6 +2540,7 @@ function LessonActivityEditorSheet({
       type,
       bodyData,
       imageSubmission,
+      successCriteriaIds: sanitizedSuccessCriteriaIds,
     })
   }
 
@@ -2525,6 +2594,40 @@ function LessonActivityEditorSheet({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Success criteria</Label>
+            {successCriteriaOptions.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Link success criteria to this lesson to associate them with this activity.
+              </p>
+            ) : (
+              <div className="space-y-2 rounded-md border border-border bg-muted/20 p-3">
+                {successCriteriaOptions.map((criterion) => {
+                  const checked = selectedSuccessCriteriaIds.includes(criterion.successCriteriaId)
+                  return (
+                    <label
+                      key={criterion.successCriteriaId}
+                      className="flex items-start gap-3 rounded-md border border-transparent px-2 py-2 text-sm transition hover:border-primary/40"
+                    >
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={(value) => handleSuccessCriteriaToggle(criterion.successCriteriaId, value)}
+                        disabled={isPending}
+                        className="mt-0.5"
+                      />
+                      <div className="space-y-1">
+                        <span className="font-medium text-foreground">{criterion.title}</span>
+                        {criterion.learningObjectiveTitle ? (
+                          <p className="text-xs text-muted-foreground">{criterion.learningObjectiveTitle}</p>
+                        ) : null}
+                      </div>
+                    </label>
+                  )
+                })}
+              </div>
+            )}
           </div>
 
           {type === "text" || type === "upload-file" ? (
