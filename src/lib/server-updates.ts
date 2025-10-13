@@ -49,6 +49,12 @@ export {
 } from "./server-actions/assignments"
 
 export {
+  readAssignmentResultsAction,
+  overrideAssignmentScoreAction,
+  resetAssignmentScoreAction,
+} from "./server-actions/assignment-results"
+
+export {
   readLessonAssignmentsAction,
   upsertLessonAssignmentAction,
   deleteLessonAssignmentAction,
