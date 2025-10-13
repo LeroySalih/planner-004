@@ -1,6 +1,11 @@
 # Dino
 ## Releases 
 
+### Release 0.0.15
+- Reworked assignment results scoring to persist scores per success criterion, added normalization helpers, and updated build/test scripts accordingly.
+- MCQ and short-text submissions now fan out auto and override scores across linked criteria, with per-criterion overrides and averages reflected everywhere the data is consumed.
+- Results dashboard sidebar shows each criterion’s editable score plus the original question, correct answer, and pupil response for quick teacher review.
+
 ### Release 0.0.14
 
 - `/results/assignments/[assignmentId]`: Added an assignment results dashboard that builds a pupil × activity matrix on the server, surfaces colour-banded score cells, sticky headers, and lesson/group context cards.
