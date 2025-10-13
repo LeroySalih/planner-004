@@ -38,3 +38,10 @@ The UI will be a grid of the groups that the lesson has been assigned to, Is ena
 
 ## submissions
 There are no submissions for this activity.
+
+## Assignment Results Dashboard
+- Route: `/results/assignments/{group_id}__{lesson_id}` builds the teacher-facing matrix using existing submissions and lesson/group context.
+- Grid: columns list only scorable activities (MCQ, short text, any submission with numeric score). Rows list pupils in the assigned group with sticky headers.
+- Colour bands: >0.7 green, 0.3–0.7 amber, <0.3 red, and grey for unmarked/null scores.
+- Sidebar: clicking any cell opens a drawer showing the submission timestamp, current score, and controls to set a 0–1 override or optional feedback. Save/reset buttons stay disabled if no submission exists yet.
+- Overrides persist by updating the submission record (`teacher_override_score`, `teacher_feedback`), and the dashboard refreshes optimistically then revalidates the route.

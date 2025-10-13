@@ -501,18 +501,19 @@ export function AssignmentGrid({
                                           const showSummaryBreakdown =
                                             hasPupils && (normalizedPositive > 0 || normalizedNegative > 0)
 
+                                          const resultsAssignmentId = `${cell.assignment!.group_id}__${lesson.lesson_id}`
                                           return (
                                             <Link
                                               key={lesson.lesson_id}
-                                              href={`/feedback/groups/${encodeURIComponent(cell.assignment!.group_id)}/lessons/${encodeURIComponent(lesson.lesson_id)}`}
+                                              href={`/results/assignments/${encodeURIComponent(resultsAssignmentId)}`}
                                               className="block rounded-md border border-border/70 px-2 py-2 text-xs font-medium shadow-sm transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                                              title={`${lesson.title} • ${formatShortDate(lessonAssignment.start_date)}`}
+                                              title={`View assignment results for ${lesson.title} • ${formatShortDate(lessonAssignment.start_date)}`}
                                               style={{
                                                 backgroundImage: gradient,
                                                 backgroundColor: UNMARKED_SEGMENT_COLOR,
                                               }}
                                             >
-                                              <div className="flex flex-col gap-1">
+                                              <div className="flex flex-col gap-2">
                                                 <span
                                                   className="truncate text-xs font-semibold"
                                                   style={{ color: LESSON_TITLE_COLOR }}

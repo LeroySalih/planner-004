@@ -314,10 +314,17 @@ export const LegacyMcqSubmissionBodySchema = z.object({
     optionId: z.string().min(1),
 });
 
-export const McqSubmissionBodySchema = z.object({
-    answer_chosen: z.string().min(1),
-    is_correct: z.boolean(),
-});
+export const McqSubmissionBodySchema = z
+    .object({
+        answer_chosen: z.string().min(1),
+        is_correct: z.boolean(),
+        teacher_override_score: z.number().min(0).max(1).nullable().optional(),
+        teacher_feedback: z.string().nullable().optional(),
+        success_criteria_scores: z
+            .record(z.string(), z.number().min(0).max(1).nullable())
+            .default({}),
+    })
+    .passthrough();
 
 export type McqOption = z.infer<typeof McqOptionSchema>;
 export type McqActivityBody = z.infer<typeof McqActivityBodySchema>;
@@ -337,6 +344,10 @@ export const ShortTextSubmissionBodySchema = z
         ai_model_score: z.number().min(0).max(1).nullable().optional(),
         teacher_override_score: z.number().min(0).max(1).nullable().optional(),
         is_correct: z.boolean().default(false),
+        teacher_feedback: z.string().nullable().optional(),
+        success_criteria_scores: z
+            .record(z.string(), z.number().min(0).max(1).nullable())
+            .default({}),
     })
     .passthrough();
 
@@ -444,3 +455,109 @@ export const AssignmentsWithUnitSchema = z.array(AssignmentWithUnitSchema);
 
 export type AssignmentWithUnit = z.infer<typeof AssignmentWithUnitSchema>;
 export type AssignmentsWithUnit = z.infer<typeof AssignmentsWithUnitSchema>;
+
+export const AssignmentResultPupilSchema = z.object({
+    userId: z.string(),
+    displayName: z.string(),
+    firstName: z.string().nullable().optional(),
+    lastName: z.string().nullable().optional(),
+});
+
+export const AssignmentResultActivitySuccessCriterionSchema = z.object({
+    successCriteriaId: z.string(),
+    title: z.string().nullable().optional(),
+    description: z.string().nullable().optional(),
+    level: z.number().nullable().optional(),
+});
+
+export const AssignmentResultCriterionScoresSchema = z.record(
+    z.string(),
+    z.number().min(0).max(1).nullable(),
+);
+
+export const AssignmentResultActivitySchema = z.object({
+    activityId: z.string(),
+    title: z.string().default(""),
+    type: z.string().default(""),
+    orderIndex: z.number().nullable().optional(),
+    successCriteria: z.array(AssignmentResultActivitySuccessCriterionSchema).default([]),
+});
+
+export const AssignmentResultCellSchema = z.object({
+    activityId: z.string(),
+    pupilId: z.string(),
+    submissionId: z.string().nullable(),
+    score: z.number().min(0).max(1).nullable(),
+    autoScore: z.number().min(0).max(1).nullable(),
+    overrideScore: z.number().min(0).max(1).nullable(),
+    status: z.enum(["missing", "auto", "override"]).default("missing"),
+    submittedAt: z.string().nullable(),
+    feedback: z.string().nullable(),
+    successCriteriaScores: AssignmentResultCriterionScoresSchema,
+    autoSuccessCriteriaScores: AssignmentResultCriterionScoresSchema.optional(),
+    overrideSuccessCriteriaScores: AssignmentResultCriterionScoresSchema.optional(),
+    question: z.string().nullable().optional(),
+    correctAnswer: z.string().nullable().optional(),
+    pupilAnswer: z.string().nullable().optional(),
+});
+
+export const AssignmentResultRowSchema = z.object({
+    pupil: AssignmentResultPupilSchema,
+    cells: z.array(AssignmentResultCellSchema),
+    averageScore: z.number().min(0).max(1).nullable(),
+});
+
+export const AssignmentResultActivitySummarySchema = z.object({
+    activityId: z.string(),
+    averageScore: z.number().min(0).max(1).nullable(),
+    submittedCount: z.number().int().min(0),
+});
+
+export const AssignmentResultSuccessCriterionSummarySchema = z.object({
+    successCriteriaId: z.string(),
+    title: z.string().nullable().optional(),
+    description: z.string().nullable().optional(),
+    averageScore: z.number().min(0).max(1).nullable(),
+    submittedCount: z.number().int().min(0),
+    activityCount: z.number().int().min(0),
+});
+
+export const AssignmentResultMatrixSchema = z.object({
+    assignmentId: z.string(),
+    group: z
+        .object({
+            groupId: z.string(),
+            subject: z.string().nullable(),
+        })
+        .nullable(),
+    lesson: z
+        .object({
+            lessonId: z.string(),
+            title: z.string().default(""),
+            unitId: z.string().nullable(),
+        })
+        .nullable(),
+    assignment: z
+        .object({
+            groupId: z.string(),
+            lessonId: z.string(),
+            startDate: z.string().nullable(),
+        })
+        .nullable(),
+    pupils: z.array(AssignmentResultPupilSchema),
+    activities: z.array(AssignmentResultActivitySchema),
+    rows: z.array(AssignmentResultRowSchema),
+    activitySummaries: z.array(AssignmentResultActivitySummarySchema).optional(),
+    successCriteriaSummaries: z.array(AssignmentResultSuccessCriterionSummarySchema).optional(),
+    overallAverage: z.number().min(0).max(1).nullable().optional(),
+});
+
+export type AssignmentResultPupil = z.infer<typeof AssignmentResultPupilSchema>;
+export type AssignmentResultActivitySuccessCriterion = z.infer<typeof AssignmentResultActivitySuccessCriterionSchema>;
+export type AssignmentResultCriterionScores = z.infer<typeof AssignmentResultCriterionScoresSchema>;
+export type AssignmentResultActivity = z.infer<typeof AssignmentResultActivitySchema>;
+export type AssignmentResultCell = z.infer<typeof AssignmentResultCellSchema>;
+export type AssignmentResultRow = z.infer<typeof AssignmentResultRowSchema>;
+export type AssignmentResultActivitySummary = z.infer<typeof AssignmentResultActivitySummarySchema>;
+export type AssignmentResultSuccessCriterionSummary = z.infer<typeof AssignmentResultSuccessCriterionSummarySchema>;
+export type AssignmentResultMatrix = z.infer<typeof AssignmentResultMatrixSchema>;

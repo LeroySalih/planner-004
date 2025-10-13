@@ -12,6 +12,11 @@ import {
   type Submission,
 } from "@/types"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+import {
+  computeAverageSuccessCriteriaScore,
+  fetchActivitySuccessCriteriaIds,
+  normaliseSuccessCriteriaScores,
+} from "@/lib/scoring/success-criteria"
 
 const SubmissionResultSchema = z.object({
   data: SubmissionSchema.nullable(),
@@ -94,12 +99,35 @@ export async function readLessonSubmissionSummariesAction(
       }
     }
 
-    const activities = LessonActivitySummaryRowSchema.array().parse(activityRows ?? [])
-    if (activities.length === 0) {
-      return { data: [], lessonAverage: null, error: null }
-    }
+  const activities = LessonActivitySummaryRowSchema.array().parse(activityRows ?? [])
+  if (activities.length === 0) {
+    return { data: [], lessonAverage: null, error: null }
+  }
 
-    const activityIds = activities.map((activity) => activity.activity_id)
+  const activityIds = activities.map((activity) => activity.activity_id)
+
+  const activitySuccessCriteriaMap = new Map<string, string[]>()
+
+  if (activityIds.length > 0) {
+    const { data: activityCriteriaRows, error: activityCriteriaError } = await supabase
+      .from("activity_success_criteria")
+      .select("activity_id, success_criteria_id")
+      .in("activity_id", activityIds)
+
+    if (activityCriteriaError) {
+      console.error("[submissions] Failed to load activity success criteria for summaries:", activityCriteriaError)
+    } else {
+      for (const row of activityCriteriaRows ?? []) {
+        const activityId = typeof row?.activity_id === "string" ? row.activity_id : null
+        const successCriteriaId = typeof row?.success_criteria_id === "string" ? row.success_criteria_id : null
+        if (!activityId || !successCriteriaId) continue
+
+        const list = activitySuccessCriteriaMap.get(activityId) ?? []
+        list.push(successCriteriaId)
+        activitySuccessCriteriaMap.set(activityId, list)
+      }
+    }
+  }
 
     const { data: submissionRows, error: submissionsError } = await supabase
       .from("submissions")
@@ -162,6 +190,8 @@ export async function readLessonSubmissionSummariesAction(
           summary.correctAnswer = correctOptionId
         }
 
+        const successCriteriaIds = activitySuccessCriteriaMap.get(activity.activity_id) ?? []
+
         const scoreEntries = submissionList
           .map((submission) => {
             const parsedSubmission = McqSubmissionBodySchema.safeParse(submission.body)
@@ -169,9 +199,15 @@ export async function readLessonSubmissionSummariesAction(
               return null
             }
             const isCorrect = parsedSubmission.data.is_correct === true
+            const successCriteriaScores = normaliseSuccessCriteriaScores({
+              successCriteriaIds,
+              existingScores: parsedSubmission.data.success_criteria_scores,
+              fillValue: isCorrect ? 1 : 0,
+            })
+            const score = computeAverageSuccessCriteriaScore(successCriteriaScores) ?? 0
             return {
               userId: submission.user_id,
-              score: isCorrect ? 1 : 0,
+              score,
               isCorrect,
             }
           })
@@ -203,6 +239,8 @@ export async function readLessonSubmissionSummariesAction(
           }
         }
 
+        const successCriteriaIds = activitySuccessCriteriaMap.get(activity.activity_id) ?? []
+
         const scoreEntries = submissionList
           .map((submission) => {
             const parsedSubmission = ShortTextSubmissionBodySchema.safeParse(submission.body)
@@ -221,14 +259,20 @@ export async function readLessonSubmissionSummariesAction(
                 ? parsedSubmission.data.teacher_override_score
                 : null
             const effectiveScore = overrideScore ?? aiScore
+            const successCriteriaScores = normaliseSuccessCriteriaScores({
+              successCriteriaIds,
+              existingScores: parsedSubmission.data.success_criteria_scores,
+              fillValue: effectiveScore ?? 0,
+            })
+            const averagedScore = computeAverageSuccessCriteriaScore(successCriteriaScores) ?? 0
 
             return {
               userId: submission.user_id,
-              score: typeof effectiveScore === "number" ? effectiveScore : null,
+              score: averagedScore,
               isCorrect: parsedSubmission.data.is_correct === true,
             }
           })
-          .filter((entry): entry is { userId: string; score: number | null; isCorrect: boolean } => entry !== null)
+          .filter((entry): entry is { userId: string; score: number; isCorrect: boolean } => entry !== null)
 
         summary.scores = scoreEntries.map((entry) => ({
           userId: entry.userId,
@@ -360,9 +404,17 @@ export async function upsertMcqSubmissionAction(input: z.infer<typeof McqSubmiss
     return { success: false, error: "Selected option is no longer available.", data: null as Submission | null }
   }
 
+  const successCriteriaIds = await fetchActivitySuccessCriteriaIds(supabase, payload.activityId)
+  const isCorrect = mcqBody.correctOptionId === payload.optionId
+  const successCriteriaScores = normaliseSuccessCriteriaScores({
+    successCriteriaIds,
+    fillValue: isCorrect ? 1 : 0,
+  })
+
   const submissionBody = McqSubmissionBodySchema.parse({
     answer_chosen: payload.optionId,
-    is_correct: mcqBody.correctOptionId === payload.optionId,
+    is_correct: isCorrect,
+    success_criteria_scores: successCriteriaScores,
   })
 
   const existing = await supabase
