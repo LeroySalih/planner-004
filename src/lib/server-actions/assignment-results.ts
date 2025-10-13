@@ -10,7 +10,9 @@ import {
   AssignmentResultMatrixSchema,
   AssignmentResultRowSchema,
   LegacyMcqSubmissionBodySchema,
+  McqActivityBodySchema,
   McqSubmissionBodySchema,
+  ShortTextActivityBodySchema,
   ShortTextSubmissionBodySchema,
 } from "@/types"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
@@ -121,12 +123,16 @@ type SubmissionExtraction = {
   overrideSuccessCriteriaScores: Record<string, number | null> | null
   successCriteriaScores: Record<string, number | null>
   feedback: string | null
+  question: string | null
+  correctAnswer: string | null
+  pupilAnswer: string | null
 }
 
 function extractScoreFromSubmission(
   activityType: string,
   submissionBody: unknown,
   successCriteriaIds: string[],
+  metadata: { question: string | null; correctAnswer: string | null; optionTextMap?: Record<string, string> },
 ): SubmissionExtraction {
   if (activityType === "multiple-choice-question") {
     const parsed = McqSubmissionBodySchema.safeParse(submissionBody)
@@ -154,6 +160,10 @@ function extractScoreFromSubmission(
         typeof parsed.data.teacher_feedback === "string" && parsed.data.teacher_feedback.trim().length > 0
           ? parsed.data.teacher_feedback.trim()
           : null
+      const questionText = metadata.question
+      const correctAnswerText = metadata.correctAnswer
+      const pupilAnswerId = parsed.data.answer_chosen
+      const pupilAnswerText = metadata.optionTextMap?.[pupilAnswerId] ?? pupilAnswerId ?? null
       return {
         autoScore: auto,
         overrideScore: override,
@@ -162,6 +172,9 @@ function extractScoreFromSubmission(
         overrideSuccessCriteriaScores: overrideScores,
         successCriteriaScores,
         feedback,
+        question: questionText,
+        correctAnswer: correctAnswerText,
+        pupilAnswer: pupilAnswerText,
       }
     }
 
@@ -180,6 +193,9 @@ function extractScoreFromSubmission(
           successCriteriaIds,
           fillValue: 0,
         }),
+        question: metadata.question,
+        correctAnswer: metadata.correctAnswer,
+        pupilAnswer: null,
         feedback: null,
       }
     }
@@ -196,6 +212,9 @@ function extractScoreFromSubmission(
       autoSuccessCriteriaScores: fallbackScores,
       overrideSuccessCriteriaScores: null,
       successCriteriaScores: fallbackScores,
+      question: metadata.question,
+      correctAnswer: metadata.correctAnswer,
+      pupilAnswer: null,
       feedback: null,
     }
   }
@@ -240,6 +259,9 @@ function extractScoreFromSubmission(
         overrideSuccessCriteriaScores: overrideScores,
         successCriteriaScores,
         feedback,
+        question: metadata.question,
+        correctAnswer: metadata.correctAnswer,
+        pupilAnswer: parsed.data.answer?.trim() ?? null,
       }
     }
 
@@ -256,6 +278,9 @@ function extractScoreFromSubmission(
       overrideSuccessCriteriaScores: null,
       successCriteriaScores: fallbackScores,
       feedback: null,
+      question: metadata.question,
+      correctAnswer: metadata.correctAnswer,
+      pupilAnswer: null,
     }
   }
 
@@ -303,6 +328,10 @@ function extractScoreFromSubmission(
             fillValue: override,
           })
         : null
+    const pupilAnswer =
+      typeof record.answer === "string" && record.answer.trim().length > 0
+        ? record.answer.trim()
+        : null
 
     return {
       autoScore: auto,
@@ -312,6 +341,9 @@ function extractScoreFromSubmission(
       overrideSuccessCriteriaScores: overrideScores,
       successCriteriaScores,
       feedback,
+      question: metadata.question,
+      correctAnswer: metadata.correctAnswer,
+      pupilAnswer,
     }
   }
 
@@ -328,6 +360,9 @@ function extractScoreFromSubmission(
     overrideSuccessCriteriaScores: null,
     successCriteriaScores: fallbackScores,
     feedback: null,
+    question: metadata.question,
+    correctAnswer: metadata.correctAnswer,
+    pupilAnswer: null,
   }
 }
 
@@ -489,6 +524,14 @@ export async function readAssignmentResultsAction(assignmentId: string) {
         level: number | null
       }>
     >()
+    const activityQuestionMetadata = new Map<
+      string,
+      {
+        question: string | null
+        correctAnswer: string | null
+        optionTextMap?: Record<string, string>
+      }
+    >()
 
     if (activityIds.length > 0) {
       const { data: activitySuccessCriteriaRows, error: activitySuccessCriteriaError } = await supabase
@@ -564,6 +607,37 @@ export async function readAssignmentResultsAction(assignmentId: string) {
       }
     }
 
+    for (const activity of scorableActivities) {
+      const type = (activity.type ?? "").trim()
+      let question: string | null = null
+      let correctAnswer: string | null = null
+      let optionTextMap: Record<string, string> | undefined
+
+      if (type === "multiple-choice-question") {
+        const parsedBody = McqActivityBodySchema.safeParse(activity.body_data)
+        if (parsedBody.success) {
+          question = parsedBody.data.question?.trim() ?? null
+          optionTextMap = Object.fromEntries(
+            parsedBody.data.options.map((option) => [option.id, option.text?.trim() ?? option.id]),
+          )
+          const correctOption = optionTextMap[parsedBody.data.correctOptionId]
+          correctAnswer = correctOption ?? parsedBody.data.correctOptionId
+        }
+      } else if (type === "short-text-question") {
+        const parsedBody = ShortTextActivityBodySchema.safeParse(activity.body_data)
+        if (parsedBody.success) {
+          question = parsedBody.data.question?.trim() ?? null
+          correctAnswer = parsedBody.data.modelAnswer?.trim() ?? null
+        }
+      }
+
+      activityQuestionMetadata.set(activity.activity_id, {
+        question,
+        correctAnswer,
+        optionTextMap,
+      })
+    }
+
     const activities = scorableActivities.map((activity) =>
       AssignmentResultActivitySchema.parse({
         activityId: activity.activity_id,
@@ -614,6 +688,11 @@ export async function readAssignmentResultsAction(assignmentId: string) {
           successCriteriaIds,
           fillValue: 0,
         })
+        const metadata = activityQuestionMetadata.get(activity.activityId) ?? {
+          question: null,
+          correctAnswer: null,
+          optionTextMap: undefined,
+        }
 
         const baseCell = AssignmentResultCellSchema.parse({
           activityId: activity.activityId,
@@ -627,6 +706,9 @@ export async function readAssignmentResultsAction(assignmentId: string) {
           feedback: null,
           successCriteriaScores: zeroScores,
           autoSuccessCriteriaScores: zeroScores,
+          question: metadata.question,
+          correctAnswer: metadata.correctAnswer,
+          pupilAnswer: null,
         })
         baseCellMap.set(`${pupil.userId}::${activity.activityId}`, baseCell)
       }
@@ -650,14 +732,19 @@ export async function readAssignmentResultsAction(assignmentId: string) {
         continue
       }
 
-      const activity = activityMap.get(activityId)
-      if (!activity) {
-        continue
-      }
+    const activity = activityMap.get(activityId)
+    if (!activity) {
+      continue
+    }
 
-      const activityType = activityTypeMap.get(activityId) ?? ""
-      const successCriteriaIds = activity.successCriteria.map((criterion) => criterion.successCriteriaId)
-      const extracted = extractScoreFromSubmission(activityType, submission.body, successCriteriaIds)
+    const activityType = activityTypeMap.get(activityId) ?? ""
+    const successCriteriaIds = activity.successCriteria.map((criterion) => criterion.successCriteriaId)
+    const metadata = activityQuestionMetadata.get(activityId) ?? {
+      question: null,
+      correctAnswer: null,
+      optionTextMap: undefined,
+    }
+    const extracted = extractScoreFromSubmission(activityType, submission.body, successCriteriaIds, metadata)
       const status =
         typeof extracted.overrideScore === "number"
           ? "override"
@@ -705,6 +792,11 @@ export async function readAssignmentResultsAction(assignmentId: string) {
             successCriteriaIds,
             fillValue: 0,
           })
+          const metadata = activityQuestionMetadata.get(activity.activityId) ?? {
+            question: null,
+            correctAnswer: null,
+            optionTextMap: undefined,
+          }
 
           return AssignmentResultCellSchema.parse({
             activityId: activity.activityId,
@@ -718,6 +810,9 @@ export async function readAssignmentResultsAction(assignmentId: string) {
             feedback: null,
             successCriteriaScores: zeroScores,
             autoSuccessCriteriaScores: zeroScores,
+            question: metadata.question,
+            correctAnswer: metadata.correctAnswer,
+            pupilAnswer: null,
           })
         }
         const entry = activityTotals.get(activity.activityId) ?? {

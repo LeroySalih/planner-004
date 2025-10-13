@@ -812,6 +812,31 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                 ) : null}
 
                 <div className="space-y-3">
+                  {selection.cell.question ? (
+                    <div className="rounded-md border border-border/60 bg-muted/40 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Question
+                      </p>
+                      <p className="text-sm text-foreground">{selection.cell.question}</p>
+                    </div>
+                  ) : null}
+                  {selection.cell.correctAnswer ? (
+                    <div className="rounded-md border border-emerald-300/70 bg-emerald-100/40 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                        Correct answer
+                      </p>
+                      <p className="text-sm text-emerald-900">{selection.cell.correctAnswer}</p>
+                    </div>
+                  ) : null}
+                  {selection.cell.pupilAnswer ? (
+                    <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                        Pupil answer
+                      </p>
+                      <p className="text-sm text-primary-foreground/90">{selection.cell.pupilAnswer}</p>
+                    </div>
+                  ) : null}
+
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-medium text-foreground">Override per success criterion</p>
                     <span className="text-xs text-muted-foreground">

@@ -14,7 +14,8 @@ interface AssignmentResultsPageProps {
 export default async function AssignmentResultsPage({ params }: AssignmentResultsPageProps) {
   await requireTeacherProfile()
 
-  const assignmentId = decodeURIComponent(params.assignmentId ?? "")
+  const awaitedParams = await params
+  const assignmentId = decodeURIComponent(awaitedParams?.assignmentId ?? "")
   const { data, error } = await readAssignmentResultsAction(assignmentId)
 
   if (!data) {

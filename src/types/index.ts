@@ -496,6 +496,9 @@ export const AssignmentResultCellSchema = z.object({
     successCriteriaScores: AssignmentResultCriterionScoresSchema,
     autoSuccessCriteriaScores: AssignmentResultCriterionScoresSchema.optional(),
     overrideSuccessCriteriaScores: AssignmentResultCriterionScoresSchema.optional(),
+    question: z.string().nullable().optional(),
+    correctAnswer: z.string().nullable().optional(),
+    pupilAnswer: z.string().nullable().optional(),
 });
 
 export const AssignmentResultRowSchema = z.object({
