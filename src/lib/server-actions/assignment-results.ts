@@ -6,6 +6,7 @@ import { z } from "zod"
 import {
   AssignmentResultActivitySchema,
   AssignmentResultCellSchema,
+  AssignmentResultCriterionScoresSchema,
   AssignmentResultMatrixSchema,
   AssignmentResultRowSchema,
   LegacyMcqSubmissionBodySchema,
@@ -14,6 +15,11 @@ import {
 } from "@/types"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import { requireTeacherProfile } from "@/lib/auth"
+import {
+  computeAverageSuccessCriteriaScore,
+  fetchActivitySuccessCriteriaIds,
+  normaliseSuccessCriteriaScores,
+} from "@/lib/scoring/success-criteria"
 
 const ASSIGNMENT_ID_SEPARATOR = "__"
 
@@ -28,6 +34,7 @@ const AssignmentOverrideInputSchema = z.object({
   submissionId: z.string().min(1).nullable(),
   score: z.number().min(0).max(1),
   feedback: z.string().trim().max(2000).nullable().optional(),
+  criterionScores: AssignmentResultCriterionScoresSchema.optional(),
 })
 
 const AssignmentResetInputSchema = z.object({
@@ -110,12 +117,16 @@ type SubmissionExtraction = {
   autoScore: number | null
   overrideScore: number | null
   effectiveScore: number | null
+  autoSuccessCriteriaScores: Record<string, number | null>
+  overrideSuccessCriteriaScores: Record<string, number | null> | null
+  successCriteriaScores: Record<string, number | null>
   feedback: string | null
 }
 
 function extractScoreFromSubmission(
   activityType: string,
   submissionBody: unknown,
+  successCriteriaIds: string[],
 ): SubmissionExtraction {
   if (activityType === "multiple-choice-question") {
     const parsed = McqSubmissionBodySchema.safeParse(submissionBody)
@@ -123,6 +134,22 @@ function extractScoreFromSubmission(
       const override =
         typeof parsed.data.teacher_override_score === "number" ? parsed.data.teacher_override_score : null
       const auto = parsed.data.is_correct ? 1 : 0
+      const successCriteriaScores = normaliseSuccessCriteriaScores({
+        successCriteriaIds,
+        existingScores: parsed.data.success_criteria_scores,
+        fillValue: override ?? auto,
+      })
+      const overrideScores =
+        typeof override === "number"
+          ? normaliseSuccessCriteriaScores({
+              successCriteriaIds,
+              fillValue: override,
+            })
+          : null
+      const autoScores = normaliseSuccessCriteriaScores({
+        successCriteriaIds,
+        fillValue: auto,
+      })
       const feedback =
         typeof parsed.data.teacher_feedback === "string" && parsed.data.teacher_feedback.trim().length > 0
           ? parsed.data.teacher_feedback.trim()
@@ -131,6 +158,9 @@ function extractScoreFromSubmission(
         autoScore: auto,
         overrideScore: override,
         effectiveScore: override ?? auto,
+        autoSuccessCriteriaScores: autoScores,
+        overrideSuccessCriteriaScores: overrideScores,
+        successCriteriaScores,
         feedback,
       }
     }
@@ -141,11 +171,33 @@ function extractScoreFromSubmission(
         autoScore: null,
         overrideScore: null,
         effectiveScore: null,
+        autoSuccessCriteriaScores: normaliseSuccessCriteriaScores({
+          successCriteriaIds,
+          fillValue: 0,
+        }),
+        overrideSuccessCriteriaScores: null,
+        successCriteriaScores: normaliseSuccessCriteriaScores({
+          successCriteriaIds,
+          fillValue: 0,
+        }),
         feedback: null,
       }
     }
 
-    return { autoScore: null, overrideScore: null, effectiveScore: null, feedback: null }
+    const fallbackScores = normaliseSuccessCriteriaScores({
+      successCriteriaIds,
+      fillValue: 0,
+    })
+
+    return {
+      autoScore: null,
+      overrideScore: null,
+      effectiveScore: null,
+      autoSuccessCriteriaScores: fallbackScores,
+      overrideSuccessCriteriaScores: null,
+      successCriteriaScores: fallbackScores,
+      feedback: null,
+    }
   }
 
   if (activityType === "short-text-question") {
@@ -164,15 +216,47 @@ function extractScoreFromSubmission(
         typeof parsed.data.teacher_feedback === "string" && parsed.data.teacher_feedback.trim().length > 0
           ? parsed.data.teacher_feedback.trim()
           : null
+      const successCriteriaScores = normaliseSuccessCriteriaScores({
+        successCriteriaIds,
+        existingScores: parsed.data.success_criteria_scores,
+        fillValue: override ?? auto ?? 0,
+      })
+      const autoScores = normaliseSuccessCriteriaScores({
+        successCriteriaIds,
+        fillValue: auto ?? 0,
+      })
+      const overrideScores =
+        typeof override === "number"
+          ? normaliseSuccessCriteriaScores({
+              successCriteriaIds,
+              fillValue: override,
+            })
+          : null
       return {
         autoScore: auto,
         overrideScore: override,
         effectiveScore: override ?? auto,
+        autoSuccessCriteriaScores: autoScores,
+        overrideSuccessCriteriaScores: overrideScores,
+        successCriteriaScores,
         feedback,
       }
     }
 
-    return { autoScore: null, overrideScore: null, effectiveScore: null, feedback: null }
+    const fallbackScores = normaliseSuccessCriteriaScores({
+      successCriteriaIds,
+      fillValue: 0,
+    })
+
+    return {
+      autoScore: null,
+      overrideScore: null,
+      effectiveScore: null,
+      autoSuccessCriteriaScores: fallbackScores,
+      overrideSuccessCriteriaScores: null,
+      successCriteriaScores: fallbackScores,
+      feedback: null,
+    }
   }
 
   if (submissionBody && typeof submissionBody === "object") {
@@ -199,16 +283,52 @@ function extractScoreFromSubmission(
       typeof record.teacher_feedback === "string" && record.teacher_feedback.trim().length > 0
         ? record.teacher_feedback.trim()
         : null
+    const existingScores =
+      record.success_criteria_scores && typeof record.success_criteria_scores === "object"
+        ? (record.success_criteria_scores as Record<string, number | null>)
+        : undefined
+    const successCriteriaScores = normaliseSuccessCriteriaScores({
+      successCriteriaIds,
+      existingScores,
+      fillValue: override ?? auto ?? 0,
+    })
+    const autoScores = normaliseSuccessCriteriaScores({
+      successCriteriaIds,
+      fillValue: auto ?? 0,
+    })
+    const overrideScores =
+      typeof override === "number"
+        ? normaliseSuccessCriteriaScores({
+            successCriteriaIds,
+            fillValue: override,
+          })
+        : null
 
     return {
       autoScore: auto,
       overrideScore: override,
       effectiveScore: override ?? auto,
+      autoSuccessCriteriaScores: autoScores,
+      overrideSuccessCriteriaScores: overrideScores,
+      successCriteriaScores,
       feedback,
     }
   }
 
-  return { autoScore: null, overrideScore: null, effectiveScore: null, feedback: null }
+  const fallbackScores = normaliseSuccessCriteriaScores({
+    successCriteriaIds,
+    fillValue: 0,
+  })
+
+  return {
+    autoScore: null,
+    overrideScore: null,
+    effectiveScore: null,
+    autoSuccessCriteriaScores: fallbackScores,
+    overrideSuccessCriteriaScores: null,
+    successCriteriaScores: fallbackScores,
+    feedback: null,
+  }
 }
 
 function selectLatestSubmission(existing: { submittedAt: string | null }, nextSubmittedAt: string | null) {
@@ -489,16 +609,24 @@ export async function readAssignmentResultsAction(assignmentId: string) {
 
     for (const pupil of pupils) {
       for (const activity of activities) {
+        const successCriteriaIds = activity.successCriteria.map((criterion) => criterion.successCriteriaId)
+        const zeroScores = normaliseSuccessCriteriaScores({
+          successCriteriaIds,
+          fillValue: 0,
+        })
+
         const baseCell = AssignmentResultCellSchema.parse({
           activityId: activity.activityId,
           pupilId: pupil.userId,
           submissionId: null,
-          score: null,
-          autoScore: null,
+          score: 0,
+          autoScore: 0,
           overrideScore: null,
           status: "missing",
           submittedAt: null,
           feedback: null,
+          successCriteriaScores: zeroScores,
+          autoSuccessCriteriaScores: zeroScores,
         })
         baseCellMap.set(`${pupil.userId}::${activity.activityId}`, baseCell)
       }
@@ -522,8 +650,14 @@ export async function readAssignmentResultsAction(assignmentId: string) {
         continue
       }
 
+      const activity = activityMap.get(activityId)
+      if (!activity) {
+        continue
+      }
+
       const activityType = activityTypeMap.get(activityId) ?? ""
-      const extracted = extractScoreFromSubmission(activityType, submission.body)
+      const successCriteriaIds = activity.successCriteria.map((criterion) => criterion.successCriteriaId)
+      const extracted = extractScoreFromSubmission(activityType, submission.body, successCriteriaIds)
       const status =
         typeof extracted.overrideScore === "number"
           ? "override"
@@ -531,18 +665,24 @@ export async function readAssignmentResultsAction(assignmentId: string) {
             ? "auto"
             : "missing"
 
+      const finalScore =
+        computeAverageSuccessCriteriaScore(extracted.successCriteriaScores) ?? extracted.effectiveScore ?? 0
+
       baseCellMap.set(
         key,
         AssignmentResultCellSchema.parse({
           activityId,
           pupilId,
           submissionId: submission.submission_id ?? null,
-          score: extracted.effectiveScore,
-          autoScore: extracted.autoScore,
+          score: finalScore,
+          autoScore: extracted.autoScore ?? finalScore,
           overrideScore: extracted.overrideScore,
           status,
           submittedAt,
           feedback: extracted.feedback,
+          successCriteriaScores: extracted.successCriteriaScores,
+          autoSuccessCriteriaScores: extracted.autoSuccessCriteriaScores,
+          overrideSuccessCriteriaScores: extracted.overrideSuccessCriteriaScores ?? undefined,
         }),
       )
     }
@@ -560,16 +700,24 @@ export async function readAssignmentResultsAction(assignmentId: string) {
         const key = `${pupil.userId}::${activity.activityId}`
         const resolved = baseCellMap.get(key)
         if (!resolved) {
+          const successCriteriaIds = activity.successCriteria.map((criterion) => criterion.successCriteriaId)
+          const zeroScores = normaliseSuccessCriteriaScores({
+            successCriteriaIds,
+            fillValue: 0,
+          })
+
           return AssignmentResultCellSchema.parse({
             activityId: activity.activityId,
             pupilId: pupil.userId,
             submissionId: null,
-            score: null,
-            autoScore: null,
+            score: 0,
+            autoScore: 0,
             overrideScore: null,
             status: "missing",
             submittedAt: null,
             feedback: null,
+            successCriteriaScores: zeroScores,
+            autoSuccessCriteriaScores: zeroScores,
           })
         }
         const entry = activityTotals.get(activity.activityId) ?? {
@@ -577,11 +725,10 @@ export async function readAssignmentResultsAction(assignmentId: string) {
           count: 0,
           submittedCount: 0,
         }
-        if (typeof resolved.score === "number") {
-          entry.total += resolved.score
+        const numericScore = typeof resolved.score === "number" ? resolved.score : 0
+        entry.total += numericScore
+        if (resolved.status !== "missing") {
           entry.submittedCount += 1
-        } else {
-          entry.total += 0
         }
         entry.count += 1
         activityTotals.set(activity.activityId, entry)
@@ -635,36 +782,39 @@ export async function readAssignmentResultsAction(assignmentId: string) {
       }
     >()
 
-    for (const activity of activities) {
-      const totalsEntry = activityTotals.get(activity.activityId) ?? {
-        total: 0,
-        count: 0,
-        submittedCount: 0,
-      }
+    for (const row of rows) {
+      for (const cell of row.cells) {
+        const activity = activityMap.get(cell.activityId)
+        if (!activity) continue
 
-      for (const criterion of activity.successCriteria) {
-        const existing = successCriteriaTotals.get(criterion.successCriteriaId) ?? {
-          total: 0,
-          count: 0,
-          submittedCount: 0,
-          activityIds: new Set<string>(),
-          title: criterion.title ?? null,
-          description: criterion.description ?? null,
+        for (const criterion of activity.successCriteria) {
+          const existing = successCriteriaTotals.get(criterion.successCriteriaId) ?? {
+            total: 0,
+            count: 0,
+            submittedCount: 0,
+            activityIds: new Set<string>(),
+            title: criterion.title ?? null,
+            description: criterion.description ?? null,
+          }
+
+          const rawValue = cell.successCriteriaScores[criterion.successCriteriaId]
+          const numeric = typeof rawValue === "number" && Number.isFinite(rawValue) ? rawValue : 0
+          existing.total += numeric
+          existing.count += 1
+          if (cell.status !== "missing") {
+            existing.submittedCount += 1
+          }
+          existing.activityIds.add(activity.activityId)
+
+          if (!existing.title && criterion.title) {
+            existing.title = criterion.title
+          }
+          if ((!existing.description || existing.description.trim().length === 0) && criterion.description) {
+            existing.description = criterion.description
+          }
+
+          successCriteriaTotals.set(criterion.successCriteriaId, existing)
         }
-
-        existing.total += totalsEntry.total
-        existing.count += totalsEntry.count
-        existing.submittedCount += totalsEntry.submittedCount
-        existing.activityIds.add(activity.activityId)
-
-        if (!existing.title && criterion.title) {
-          existing.title = criterion.title
-        }
-        if ((!existing.description || existing.description.trim().length === 0) && criterion.description) {
-          existing.description = criterion.description
-        }
-
-        successCriteriaTotals.set(criterion.successCriteriaId, existing)
       }
     }
 
@@ -829,6 +979,21 @@ export async function overrideAssignmentScoreAction(input: z.infer<typeof Assign
     const body = submissionLookup.data.body ?? {}
     const type = (activityRow.type ?? "").trim()
 
+    const successCriteriaIds = await fetchActivitySuccessCriteriaIds(supabase, parsed.data.activityId)
+
+    const buildOverrideScores = (existing?: Record<string, number | null>) =>
+      parsed.data.criterionScores
+        ? normaliseSuccessCriteriaScores({
+            successCriteriaIds,
+            existingScores: parsed.data.criterionScores,
+            fillValue: parsed.data.score,
+          })
+        : normaliseSuccessCriteriaScores({
+            successCriteriaIds,
+            existingScores: existing,
+            fillValue: parsed.data.score,
+          })
+
     let nextBody: Record<string, unknown> = {}
 
     if (type === "short-text-question") {
@@ -845,6 +1010,7 @@ export async function overrideAssignmentScoreAction(input: z.infer<typeof Assign
         ...parsedBody.data,
         teacher_override_score: parsed.data.score,
         teacher_feedback: parsed.data.feedback ?? null,
+        success_criteria_scores: buildOverrideScores(parsedBody.data.success_criteria_scores),
       }
     } else if (type === "multiple-choice-question") {
       const parsedBody = McqSubmissionBodySchema.safeParse(body)
@@ -860,6 +1026,7 @@ export async function overrideAssignmentScoreAction(input: z.infer<typeof Assign
         ...parsedBody.data,
         teacher_override_score: parsed.data.score,
         teacher_feedback: parsed.data.feedback ?? null,
+        success_criteria_scores: buildOverrideScores(parsedBody.data.success_criteria_scores),
       }
     } else {
       if (body && typeof body === "object") {
@@ -868,11 +1035,17 @@ export async function overrideAssignmentScoreAction(input: z.infer<typeof Assign
           ...record,
           teacher_override_score: parsed.data.score,
           teacher_feedback: parsed.data.feedback ?? null,
+          success_criteria_scores: buildOverrideScores(
+            typeof record.success_criteria_scores === "object"
+              ? (record.success_criteria_scores as Record<string, number | null>)
+              : undefined,
+          ),
         }
       } else {
         nextBody = {
           teacher_override_score: parsed.data.score,
           teacher_feedback: parsed.data.feedback ?? null,
+          success_criteria_scores: buildOverrideScores(),
         }
       }
     }
@@ -927,6 +1100,27 @@ export async function resetAssignmentScoreAction(input: z.infer<typeof Assignmen
   try {
     const supabase = await createSupabaseServerClient()
 
+    const { data: activityRow, error: activityError } = await supabase
+      .from("activities")
+      .select("activity_id, type")
+      .eq("activity_id", parsed.data.activityId)
+      .maybeSingle()
+
+    if (activityError) {
+      console.error("[assignment-results] Failed to load activity for reset:", activityError)
+      return MutateAssignmentScoreReturnSchema.parse({
+        success: false,
+        error: "Unable to load activity.",
+      })
+    }
+
+    if (!activityRow) {
+      return MutateAssignmentScoreReturnSchema.parse({
+        success: false,
+        error: "Activity not found.",
+      })
+    }
+
     const submissionLookup = await getSubmissionRow(
       supabase,
       parsed.data.activityId,
@@ -953,17 +1147,56 @@ export async function resetAssignmentScoreAction(input: z.infer<typeof Assignmen
     const body = submissionLookup.data.body ?? {}
 
     let nextBody: Record<string, unknown> = {}
+    const successCriteriaIds = await fetchActivitySuccessCriteriaIds(supabase, parsed.data.activityId)
+    const type = (activityRow.type ?? "").trim()
 
     if (body && typeof body === "object") {
+      const record = body as Record<string, unknown>
+
+      let baseScore = 0
+      let existingScores: Record<string, number | null> | undefined
+      if (type === "multiple-choice-question") {
+        const parsedBody = McqSubmissionBodySchema.safeParse(body)
+        if (parsedBody.success) {
+          baseScore = parsedBody.data.is_correct ? 1 : 0
+          existingScores = parsedBody.data.success_criteria_scores
+        }
+      } else if (type === "short-text-question") {
+        const parsedBody = ShortTextSubmissionBodySchema.safeParse(body)
+        if (parsedBody.success && typeof parsedBody.data.ai_model_score === "number") {
+          baseScore = parsedBody.data.ai_model_score
+          existingScores = parsedBody.data.success_criteria_scores
+        }
+      } else if (typeof record.teacher_override_score === "number") {
+        baseScore = record.teacher_override_score as number
+        const rawScores = record.success_criteria_scores
+        if (rawScores && typeof rawScores === "object") {
+          existingScores = rawScores as Record<string, number | null>
+        }
+      }
+
+      const successCriteriaScores = normaliseSuccessCriteriaScores({
+        successCriteriaIds,
+        existingScores,
+        fillValue: baseScore,
+      })
+
       nextBody = {
-        ...(body as Record<string, unknown>),
+        ...record,
         teacher_override_score: null,
         teacher_feedback: null,
+        success_criteria_scores: successCriteriaScores,
       }
     } else {
+      const successCriteriaScores = normaliseSuccessCriteriaScores({
+        successCriteriaIds,
+        fillValue: 0,
+      })
+
       nextBody = {
         teacher_override_score: null,
         teacher_feedback: null,
+        success_criteria_scores: successCriteriaScores,
       }
     }
 

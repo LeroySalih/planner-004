@@ -39,7 +39,7 @@ This guide captures the working knowledge future coding agents need to extend th
 - Toast notifications rely on `sonner`; reuse the existing pattern from Assignment Manager when showing optimistic updates.
 
 ## Testing & Quality
-- End-to-end user flows live in Playwright specs (example: `tests/sign-in/teacher-sign-in.spec.ts:1`). Follow the same organization (`tests/<area>/<feature>.spec.ts`) and use environment variables from `tests/.env.test`.
+- There are no end to end tests.
 - There are no unit test utilities yet; if you introduce them, document their usage here and wire them into `npm run test`.
 - Run `npm run lint` (Next/ESLint) and `npm run test` (Playwright) before surfacing changes. For flaky UI steps, capture traces with `TRACE=1 npm run test`.
 

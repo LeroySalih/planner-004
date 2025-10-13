@@ -29,6 +29,10 @@ import {
   resetAssignmentScoreAction,
 } from "@/lib/server-updates"
 import { resolveScoreTone } from "@/lib/results/colors"
+import {
+  computeAverageSuccessCriteriaScore,
+  normaliseSuccessCriteriaScores,
+} from "@/lib/scoring/success-criteria"
 
 type CellStatus = AssignmentResultCell["status"]
 
@@ -206,7 +210,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
   const [selection, setSelection] = useState<CellSelection | null>(null)
   const [isOverridePending, startOverride] = useTransition()
   const [isResetPending, startReset] = useTransition()
-  const [scoreDraft, setScoreDraft] = useState<string>("")
+  const [criterionDrafts, setCriterionDrafts] = useState<Record<string, string>>({})
   const [feedbackDraft, setFeedbackDraft] = useState<string>("")
   const router = useRouter()
 
@@ -228,6 +232,22 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     [groupedRows],
   )
 
+  const draftAverage = useMemo(() => {
+    if (!selection) return null
+    const criteria = selection.activity.successCriteria
+    if (criteria.length === 0) return null
+    let total = 0
+    for (const criterion of criteria) {
+      const raw = (criterionDrafts[criterion.successCriteriaId] ?? "").trim()
+      const value = Number.parseFloat(raw)
+      if (Number.isNaN(value) || value < 0 || value > 1) {
+        return null
+      }
+      total += value
+    }
+    return total / criteria.length
+  }, [selection, criterionDrafts])
+
   const overallAverageLabel = useMemo(() => formatPercent(matrixState.overallAverage ?? null), [matrixState.overallAverage])
 
   const handleCellSelect = (rowIndex: number, activityIndex: number) => {
@@ -243,19 +263,21 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       cell,
     })
 
-    const initialScore =
-      typeof cell.overrideScore === "number" && Number.isFinite(cell.overrideScore)
-        ? cell.overrideScore
-        : typeof cell.score === "number" && Number.isFinite(cell.score)
-          ? cell.score
-          : ""
-    setScoreDraft(initialScore === "" ? "" : initialScore.toFixed(2))
+    const nextCriterionDrafts: Record<string, string> = {}
+    if (activity.successCriteria.length > 0) {
+      for (const criterion of activity.successCriteria) {
+        const value = cell.successCriteriaScores[criterion.successCriteriaId]
+        const numeric = typeof value === "number" && Number.isFinite(value) ? value : 0
+        nextCriterionDrafts[criterion.successCriteriaId] = numeric.toFixed(2)
+      }
+    }
+    setCriterionDrafts(nextCriterionDrafts)
     setFeedbackDraft(cell.feedback ?? "")
   }
 
   const closeSheet = () => {
     setSelection(null)
-    setScoreDraft("")
+    setCriterionDrafts({})
     setFeedbackDraft("")
   }
 
@@ -297,15 +319,9 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
   const handleOverrideSubmit = () => {
     if (!selection) return
 
-    const trimmedScore = scoreDraft.trim()
-    if (trimmedScore.length === 0) {
-      toast.error("Enter a score between 0 and 1.")
-      return
-    }
-
-    const parsedScore = Number.parseFloat(trimmedScore)
-    if (Number.isNaN(parsedScore) || parsedScore < 0 || parsedScore > 1) {
-      toast.error("Scores must be between 0 and 1.")
+    const criteria = selection.activity.successCriteria
+    if (criteria.length === 0) {
+      toast.error("This activity has no linked success criteria to override.")
       return
     }
 
@@ -315,6 +331,29 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       return
     }
 
+    const parsedCriterionScores: Record<string, number> = {}
+
+    for (const criterion of criteria) {
+      const raw = (criterionDrafts[criterion.successCriteriaId] ?? "").trim()
+      if (!raw) {
+        toast.error("Enter a score between 0 and 1 for each success criterion.")
+        return
+      }
+      const value = Number.parseFloat(raw)
+      if (Number.isNaN(value) || value < 0 || value > 1) {
+        toast.error("Scores must be between 0 and 1.")
+        return
+      }
+      parsedCriterionScores[criterion.successCriteriaId] = Number.parseFloat(value.toFixed(3))
+    }
+
+    const successCriteriaScores = normaliseSuccessCriteriaScores({
+      successCriteriaIds: criteria.map((criterion) => criterion.successCriteriaId),
+      existingScores: parsedCriterionScores,
+      fillValue: 0,
+    })
+
+    const parsedAverage = computeAverageSuccessCriteriaScore(successCriteriaScores) ?? 0
     const feedback = feedbackDraft.trim()
 
     startOverride(async () => {
@@ -323,8 +362,9 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
         activityId: selection.activity.activityId,
         pupilId: selection.row.pupil.userId,
         submissionId: selection.cell.submissionId,
-        score: parsedScore,
+        score: parsedAverage,
         feedback: feedback.length > 0 ? feedback : null,
+        criterionScores: successCriteriaScores,
       })
 
       if (!result.success) {
@@ -332,13 +372,17 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
         return
       }
 
+      const submittedAt = new Date().toISOString()
+
       applyCellUpdate((cell) => ({
         ...cell,
-        score: parsedScore,
-        overrideScore: parsedScore,
+        score: parsedAverage,
+        overrideScore: parsedAverage,
         status: "override",
         feedback: feedback.length > 0 ? feedback : null,
-        submittedAt: new Date().toISOString(),
+        successCriteriaScores,
+        overrideSuccessCriteriaScores: successCriteriaScores,
+        submittedAt,
       }))
 
       setSelection((current) => {
@@ -347,14 +391,25 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
           ...current,
           cell: {
             ...current.cell,
-            score: parsedScore,
-            overrideScore: parsedScore,
+            score: parsedAverage,
+            overrideScore: parsedAverage,
             status: "override",
             feedback: feedback.length > 0 ? feedback : null,
-            submittedAt: new Date().toISOString(),
+            successCriteriaScores,
+            overrideSuccessCriteriaScores: successCriteriaScores,
+            submittedAt,
           },
         }
       })
+
+      setCriterionDrafts(
+        Object.fromEntries(
+          Object.entries(successCriteriaScores).map(([id, value]) => [
+            id,
+            typeof value === "number" && Number.isFinite(value) ? value.toFixed(2) : "0.00",
+          ]),
+        ),
+      )
 
       toast.success("Override saved.")
     })
@@ -382,37 +437,70 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
         return
       }
 
+      const submittedAt = new Date().toISOString()
+
       applyCellUpdate((cell) => {
-        const autoScore = typeof cell.autoScore === "number" ? cell.autoScore : null
+        const successCriteriaIds = selection.activity.successCriteria.map((criterion) => criterion.successCriteriaId)
+        const autoScore = typeof cell.autoScore === "number" ? cell.autoScore : 0
+        const autoScores = cell.autoSuccessCriteriaScores ?? normaliseSuccessCriteriaScores({
+          successCriteriaIds,
+          fillValue: autoScore,
+        })
         return {
           ...cell,
           score: autoScore,
           overrideScore: null,
-          status: typeof autoScore === "number" ? "auto" : "missing",
+          status: typeof cell.autoScore === "number" ? "auto" : "missing",
           feedback: null,
+          successCriteriaScores: autoScores,
+          autoSuccessCriteriaScores: autoScores,
+          overrideSuccessCriteriaScores: undefined,
+          submittedAt,
         }
       })
 
       setSelection((current) => {
         if (!current) return current
-        const autoScore =
-          typeof current.cell.autoScore === "number" ? current.cell.autoScore : null
+        const successCriteriaIds = current.activity.successCriteria.map((criterion) => criterion.successCriteriaId)
+        const autoScore = typeof current.cell.autoScore === "number" ? current.cell.autoScore : 0
+        const autoScores = current.cell.autoSuccessCriteriaScores ?? normaliseSuccessCriteriaScores({
+          successCriteriaIds,
+          fillValue: autoScore,
+        })
         return {
           ...current,
           cell: {
             ...current.cell,
             score: autoScore,
             overrideScore: null,
-            status: typeof autoScore === "number" ? "auto" : "missing",
+            status: typeof current.cell.autoScore === "number" ? "auto" : "missing",
             feedback: null,
+            successCriteriaScores: autoScores,
+            autoSuccessCriteriaScores: autoScores,
+            overrideSuccessCriteriaScores: undefined,
+            submittedAt,
           },
         }
       })
 
-      setScoreDraft(
-        typeof selection.cell.autoScore === "number" && Number.isFinite(selection.cell.autoScore)
-          ? selection.cell.autoScore.toFixed(2)
-          : "",
+      const resetSuccessCriteriaIds = selection.activity.successCriteria.map((criterion) => criterion.successCriteriaId)
+      const autoScoresForDrafts =
+        selection.cell.autoSuccessCriteriaScores ??
+        normaliseSuccessCriteriaScores({
+          successCriteriaIds: resetSuccessCriteriaIds,
+          fillValue: selection.cell.autoScore ?? 0,
+        })
+
+      setCriterionDrafts(
+        Object.fromEntries(
+          selection.activity.successCriteria.map((criterion) => {
+            const value = autoScoresForDrafts[criterion.successCriteriaId]
+            return [
+              criterion.successCriteriaId,
+              typeof value === "number" && Number.isFinite(value) ? value.toFixed(2) : "0.00",
+            ]
+          }),
+        ),
       )
       setFeedbackDraft("")
 
@@ -693,19 +781,82 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                   {formatPercent(selection.cell.score ?? null)}
                 </div>
 
-                <div className="grid gap-2">
-                  <label className="text-sm font-medium text-foreground" htmlFor="override-score">
-                    Override score (0–1)
-                  </label>
-                  <Input
-                    id="override-score"
-                    type="number"
-                    min={0}
-                    max={1}
-                    step={0.01}
-                    value={scoreDraft}
-                    onChange={(event) => setScoreDraft(event.target.value)}
-                  />
+                {selection.activity.successCriteria.length > 0 ? (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Current per-criterion scores
+                    </p>
+                    <div className="space-y-1 rounded-md border border-border/50 bg-muted/40 p-2">
+                      {selection.activity.successCriteria.map((criterion) => {
+                        const label =
+                          criterion.title?.trim() && criterion.title.trim().length > 0
+                            ? criterion.title.trim()
+                            : criterion.description?.trim() && criterion.description.trim().length > 0
+                              ? criterion.description.trim()
+                              : criterion.successCriteriaId
+                        const value = selection.cell.successCriteriaScores[criterion.successCriteriaId]
+                        return (
+                          <div
+                            key={criterion.successCriteriaId}
+                            className="flex items-center justify-between text-xs"
+                          >
+                            <span className="text-muted-foreground">{label}</span>
+                            <span className="font-semibold text-foreground">
+                              {formatPercent(typeof value === "number" ? value : null)}
+                            </span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium text-foreground">Override per success criterion</p>
+                    <span className="text-xs text-muted-foreground">
+                      Average: {draftAverage !== null ? formatPercent(draftAverage) : "—"}
+                    </span>
+                  </div>
+                  {selection.activity.successCriteria.length > 0 ? (
+                    <div className="space-y-3">
+                      {selection.activity.successCriteria.map((criterion) => {
+                        const criterionId = criterion.successCriteriaId
+                        const label =
+                          criterion.title?.trim() && criterion.title.trim().length > 0
+                            ? criterion.title.trim()
+                            : criterion.description?.trim() && criterion.description.trim().length > 0
+                              ? criterion.description.trim()
+                              : criterionId
+                        return (
+                          <div key={criterionId} className="space-y-1">
+                            <label className="text-xs font-semibold text-muted-foreground" htmlFor={`criterion-${criterionId}`}>
+                              {label}
+                            </label>
+                            <Input
+                              id={`criterion-${criterionId}`}
+                              type="number"
+                              min={0}
+                              max={1}
+                              step={0.01}
+                              value={criterionDrafts[criterionId] ?? ""}
+                              onChange={(event) => {
+                                const value = event.target.value
+                                setCriterionDrafts((previous) => ({
+                                  ...previous,
+                                  [criterionId]: value,
+                                }))
+                              }}
+                            />
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      No success criteria linked to this activity.
+                    </p>
+                  )}
                 </div>
 
                 <div className="grid gap-2">
@@ -731,7 +882,12 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                 <div className="flex flex-col gap-2 pt-2">
                   <Button
                     onClick={handleOverrideSubmit}
-                    disabled={isOverridePending || !selection.cell.submissionId}
+                    disabled={
+                      isOverridePending
+                      || !selection.cell.submissionId
+                      || draftAverage === null
+                      || selection.activity.successCriteria.length === 0
+                    }
                   >
                     {isOverridePending ? "Saving…" : "Save override"}
                   </Button>

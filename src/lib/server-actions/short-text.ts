@@ -15,6 +15,10 @@ import {
   scoreShortTextAnswers,
   type ShortTextEvaluationResult,
 } from "@/lib/ai/short-text-scoring"
+import {
+  fetchActivitySuccessCriteriaIds,
+  normaliseSuccessCriteriaScores,
+} from "@/lib/scoring/success-criteria"
 
 const ShortTextAnswerInputSchema = z.object({
   activityId: z.string().min(1),
@@ -64,6 +68,12 @@ export async function saveShortTextAnswerAction(input: z.infer<typeof ShortTextA
   const payload = ShortTextAnswerInputSchema.parse(input)
   const supabase = await createSupabaseServerClient()
 
+  const successCriteriaIds = await fetchActivitySuccessCriteriaIds(supabase, payload.activityId)
+  const initialScores = normaliseSuccessCriteriaScores({
+    successCriteriaIds,
+    fillValue: 0,
+  })
+
   const existing = await supabase
     .from("submissions")
     .select("submission_id")
@@ -83,6 +93,7 @@ export async function saveShortTextAnswerAction(input: z.infer<typeof ShortTextA
     ai_model_score: null,
     teacher_override_score: null,
     is_correct: false,
+    success_criteria_scores: initialScores,
   })
 
   const timestamp = new Date().toISOString()
@@ -262,6 +273,8 @@ export async function markShortTextActivityAction(input: z.infer<typeof MarkShor
   const question = parsedBody.data.question ?? ""
   const modelAnswer = parsedBody.data.modelAnswer ?? ""
 
+  const successCriteriaIds = await fetchActivitySuccessCriteriaIds(supabase, payload.activityId)
+
   const { data: submissionsResult, error: submissionsError } = await supabase
     .from("submissions")
     .select("submission_id, body")
@@ -337,12 +350,20 @@ export async function markShortTextActivityAction(input: z.infer<typeof MarkShor
     const aiScore = evaluation.score
 
     const isCorrect = computeIsCorrect(teacherOverride ?? aiScore)
+    const effectiveScore =
+      typeof teacherOverride === "number" && Number.isFinite(teacherOverride) ? teacherOverride : aiScore ?? 0
+
+    const successCriteriaScores = normaliseSuccessCriteriaScores({
+      successCriteriaIds,
+      fillValue: effectiveScore ?? 0,
+    })
 
     const submissionBody = ShortTextSubmissionBodySchema.parse({
       answer: currentBody.answer ?? entry.answer,
       ai_model_score: aiScore,
       teacher_override_score: teacherOverride,
       is_correct: isCorrect,
+      success_criteria_scores: successCriteriaScores,
     })
 
     const { error } = await supabase
@@ -410,14 +431,21 @@ export async function overrideShortTextSubmissionScoreAction(
       ? currentBody.data.ai_model_score
       : null
 
-  const effectiveScore = overrideScore ?? aiScore
-  const isCorrect = effectiveScore !== null ? computeIsCorrect(effectiveScore) : false
+  const effectiveScore = overrideScore ?? aiScore ?? 0
+  const isCorrect = computeIsCorrect(effectiveScore)
+
+  const successCriteriaIds = await fetchActivitySuccessCriteriaIds(supabase, payload.activityId)
+  const successCriteriaScores = normaliseSuccessCriteriaScores({
+    successCriteriaIds,
+    fillValue: effectiveScore,
+  })
 
   const submissionBody = ShortTextSubmissionBodySchema.parse({
     answer: currentBody.data.answer ?? "",
     ai_model_score: aiScore,
     teacher_override_score: overrideScore,
     is_correct: isCorrect,
+    success_criteria_scores: successCriteriaScores,
   })
 
   const { data, error } = await supabase

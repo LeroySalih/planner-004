@@ -320,6 +320,9 @@ export const McqSubmissionBodySchema = z
         is_correct: z.boolean(),
         teacher_override_score: z.number().min(0).max(1).nullable().optional(),
         teacher_feedback: z.string().nullable().optional(),
+        success_criteria_scores: z
+            .record(z.string(), z.number().min(0).max(1).nullable())
+            .default({}),
     })
     .passthrough();
 
@@ -342,6 +345,9 @@ export const ShortTextSubmissionBodySchema = z
         teacher_override_score: z.number().min(0).max(1).nullable().optional(),
         is_correct: z.boolean().default(false),
         teacher_feedback: z.string().nullable().optional(),
+        success_criteria_scores: z
+            .record(z.string(), z.number().min(0).max(1).nullable())
+            .default({}),
     })
     .passthrough();
 
@@ -464,6 +470,11 @@ export const AssignmentResultActivitySuccessCriterionSchema = z.object({
     level: z.number().nullable().optional(),
 });
 
+export const AssignmentResultCriterionScoresSchema = z.record(
+    z.string(),
+    z.number().min(0).max(1).nullable(),
+);
+
 export const AssignmentResultActivitySchema = z.object({
     activityId: z.string(),
     title: z.string().default(""),
@@ -482,6 +493,9 @@ export const AssignmentResultCellSchema = z.object({
     status: z.enum(["missing", "auto", "override"]).default("missing"),
     submittedAt: z.string().nullable(),
     feedback: z.string().nullable(),
+    successCriteriaScores: AssignmentResultCriterionScoresSchema,
+    autoSuccessCriteriaScores: AssignmentResultCriterionScoresSchema.optional(),
+    overrideSuccessCriteriaScores: AssignmentResultCriterionScoresSchema.optional(),
 });
 
 export const AssignmentResultRowSchema = z.object({
@@ -537,6 +551,7 @@ export const AssignmentResultMatrixSchema = z.object({
 
 export type AssignmentResultPupil = z.infer<typeof AssignmentResultPupilSchema>;
 export type AssignmentResultActivitySuccessCriterion = z.infer<typeof AssignmentResultActivitySuccessCriterionSchema>;
+export type AssignmentResultCriterionScores = z.infer<typeof AssignmentResultCriterionScoresSchema>;
 export type AssignmentResultActivity = z.infer<typeof AssignmentResultActivitySchema>;
 export type AssignmentResultCell = z.infer<typeof AssignmentResultCellSchema>;
 export type AssignmentResultRow = z.infer<typeof AssignmentResultRowSchema>;
