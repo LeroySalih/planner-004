@@ -14,6 +14,11 @@ jobs:
     - uses: actions/setup-node@v4
       with:
         node-version: lts/*
+    
+    - name: Assert secrets are present
+      run: |
+           [ -z "${{ secrets.TEACHER_EMAIL }}" ] && echo "TEACHER_EMAIL missing" && exit 1 || echo "✅ TEACHER_EMAIL present"
+           [ -z "${{ secrets.TEACHER_PASSWORD }}" ] && echo "TEACHER_PASSWORD missing" && exit 1 || echo "✅ TEACHER_PASSWORD present"
     - name: Install dependencies
       run: npm ci --force
     - name: Create tests/.env.test from secrets
