@@ -19,11 +19,11 @@ jobs:
     - name: Create tests/.env.test from secrets
       run: |
           mkdir -p tests
-          {
-            echo "TEACHER_EMAIL=${{ secrets.TEACHER_EMAIL }}"
-            echo "TEACHER_PASSWORD=${{ secrets.TEACHER_PASSWORD }}"
-            echo "BASE_URL=${{ vars.TEST_BASE_URL }}"
-          } > tests/.env.test
+          cat > tests/.env.test <<'EOF'
+          TEACHER_EMAIL=${{ secrets.TEACHER_EMAIL }}
+          TEACHER_PASSWORD=${{ secrets.TEACHER_PASSWORD }}
+          BASE_URL=${{ vars.TEST_BASE_URL }}
+          EOF
     - name: Install Playwright Browsers
       run: npx playwright install --with-deps
     - name: Run Playwright tests
