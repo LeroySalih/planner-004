@@ -27,6 +27,7 @@ jobs:
           cat > tests/.env.test <<'EOF'
           TEACHER_EMAIL=${{ secrets.TEACHER_EMAIL }}
           TEACHER_PASSWORD=${{ secrets.TEACHER_PASSWORD }}
+          TEACHER_NAME=${{ secrets.TEACHER_NAME }}
           BASE_URL=${{ vars.TEST_BASE_URL }}
           EOF
     - name: Install Playwright Browsers
