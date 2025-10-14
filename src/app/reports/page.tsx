@@ -60,7 +60,9 @@ export default async function ReportsLandingPage() {
       <header className="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 px-8 py-6 text-white shadow-lg">
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <h1 className="text-3xl font-semibold text-white">Reports</h1>
+            <h1 id="reports-page-title" className="text-3xl font-semibold text-white">
+              Reports
+            </h1>
           </div>
           <p className="text-sm text-slate-200">
             Browse groups and access individual pupil reports. Use the filter to quickly find pupils or groups.
