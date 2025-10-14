@@ -28,6 +28,8 @@ jobs:
           TEACHER_EMAIL=${{ secrets.TEACHER_EMAIL }}
           TEACHER_PASSWORD=${{ secrets.TEACHER_PASSWORD }}
           TEACHER_NAME=${{ secrets.TEACHER_NAME }}
+          NEXT_PUBLIC_SUPABASE_URL=${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}}
           BASE_URL=${{ vars.TEST_BASE_URL }}
           EOF
     - name: Install Playwright Browsers
