@@ -29,19 +29,55 @@ export async function createAssignmentAction(
 
   const supabase = await createSupabaseServerClient()
 
-  const { data, error } = await supabase
+  const payload = {
+    group_id: groupId,
+    unit_id: unitId,
+    start_date: startDate,
+    end_date: endDate,
+    active: true,
+  }
+
+  const { data: reactivatedRows, error: reactivationError } = await supabase
     .from("assignments")
-    .insert({
-      group_id: groupId,
+    .update({
       unit_id: unitId,
       start_date: startDate,
       end_date: endDate,
       active: true,
     })
+    .eq("group_id", groupId)
+    .eq("unit_id", unitId)
+    .eq("start_date", startDate)
+    .eq("active", false)
+    .select()
+
+  if (reactivationError) {
+    console.error("[v0] Server action failed while attempting assignment reactivation:", reactivationError)
+  }
+
+  if (reactivatedRows && reactivatedRows.length > 0) {
+    const assignment = reactivatedRows[0]
+    console.log("[v0] Server action completed by reactivating assignment:", { groupId, unitId, startDate, endDate })
+
+    revalidatePath("/")
+    return AssignmentReturnValue.parse({ data: assignment, error: null })
+  }
+
+  const { data, error } = await supabase
+    .from("assignments")
+    .insert(payload)
     .select()
     .single()
 
   if (error) {
+    if (error.code === "23505") {
+      console.error("[v0] Assignment creation failed because an active assignment already exists:", error)
+      return AssignmentReturnValue.parse({
+        data: null,
+        error: "An assignment already exists for this group, unit, and start date.",
+      })
+    }
+
     console.error("[v0] Server action failed for assignment creation:", error)
     return AssignmentReturnValue.parse({ data: null, error: error.message })
   }
@@ -204,17 +240,60 @@ export async function batchCreateAssignmentsAction(assignments: Assignment[]) {
 
   const supabase = await createSupabaseServerClient()
 
-  const { error } = await supabase.from("assignments").insert(payload)
+  const errors: string[] = []
+  let successCount = 0
 
-  if (error) {
-    console.error("[v0] Server action failed for batch assignment creation:", error)
-    return { success: false, error: error.message }
+  for (const assignment of payload) {
+    const { data: reactivatedRows, error: reactivationError } = await supabase
+      .from("assignments")
+      .update({
+        unit_id: assignment.unit_id,
+        start_date: assignment.start_date,
+        end_date: assignment.end_date,
+        active: assignment.active ?? true,
+      })
+      .eq("group_id", assignment.group_id)
+      .eq("unit_id", assignment.unit_id)
+      .eq("start_date", assignment.start_date)
+      .eq("active", false)
+      .select()
+
+    if (reactivationError) {
+      console.error("[v0] Batch assignment reactivation failed:", reactivationError)
+      errors.push(reactivationError.message)
+      continue
+    }
+
+    if (reactivatedRows && reactivatedRows.length > 0) {
+      successCount += 1
+      continue
+    }
+
+    const { error: insertError } = await supabase.from("assignments").insert(assignment)
+
+    if (insertError) {
+      if (insertError.code === "23505") {
+        const duplicateMessage = `Assignment already exists for group ${assignment.group_id}, unit ${assignment.unit_id}, start date ${assignment.start_date}.`
+        console.error("[v0] Batch assignment creation encountered an active duplicate:", insertError)
+        errors.push(duplicateMessage)
+      } else {
+        console.error("[v0] Batch assignment creation failed:", insertError)
+        errors.push(insertError.message)
+      }
+      continue
+    }
+
+    successCount += 1
   }
 
-  console.log("[v0] Server action completed for batch assignment creation:", { count: assignments.length })
+  if (errors.length > 0) {
+    return { success: false, error: errors.join("; ") }
+  }
+
+  console.log("[v0] Server action completed for batch assignment creation:", { count: successCount })
 
   revalidatePath("/")
-  return { success: true, count: assignments.length }
+  return { success: true, count: successCount }
 }
 
 export async function batchDeleteAssignmentsAction(assignments: { groupId: string; unitId: string; startDate: string }[]) {
