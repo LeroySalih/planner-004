@@ -1,5 +1,7 @@
 # Dino
 ## Releases 
+### Release 0.0.16
+- Working on github test flows.
 
 ### Release 0.0.15
 - Reworked assignment results scoring to persist scores per success criterion, added normalization helpers, and updated build/test scripts accordingly.
