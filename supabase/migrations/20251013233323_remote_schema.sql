@@ -13,13 +13,42 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 
-CREATE SCHEMA IF NOT EXISTS "public";
-
-
-ALTER SCHEMA "public" OWNER TO "pg_database_owner";
-
-
 COMMENT ON SCHEMA "public" IS 'standard public schema';
+
+
+
+CREATE EXTENSION IF NOT EXISTS "pg_graphql" WITH SCHEMA "graphql";
+
+
+
+
+
+
+CREATE EXTENSION IF NOT EXISTS "pg_stat_statements" WITH SCHEMA "extensions";
+
+
+
+
+
+
+CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions";
+
+
+
+
+
+
+CREATE EXTENSION IF NOT EXISTS "supabase_vault" WITH SCHEMA "vault";
+
+
+
+
+
+
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA "extensions";
+
+
+
 
 
 
@@ -552,10 +581,165 @@ ALTER TABLE "public"."curricula" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."profiles" ENABLE ROW LEVEL SECURITY;
 
 
+
+
+ALTER PUBLICATION "supabase_realtime" OWNER TO "postgres";
+
+
 GRANT USAGE ON SCHEMA "public" TO "postgres";
 GRANT USAGE ON SCHEMA "public" TO "anon";
 GRANT USAGE ON SCHEMA "public" TO "authenticated";
 GRANT USAGE ON SCHEMA "public" TO "service_role";
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -568,6 +752,21 @@ GRANT ALL ON FUNCTION "public"."set_learning_objectives_order_by"() TO "service_
 GRANT ALL ON FUNCTION "public"."set_lessons_order_by"() TO "anon";
 GRANT ALL ON FUNCTION "public"."set_lessons_order_by"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."set_lessons_order_by"() TO "service_role";
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -697,6 +896,12 @@ GRANT ALL ON TABLE "public"."units" TO "service_role";
 
 
 
+
+
+
+
+
+
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON SEQUENCES TO "postgres";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON SEQUENCES TO "anon";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON SEQUENCES TO "authenticated";
@@ -728,4 +933,137 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 RESET ALL;
+
+  create policy "All authenticated can access 1ucepb_0"
+  on "storage"."objects"
+  as permissive
+  for select
+  to authenticated, service_role, supabase_etl_admin, cli_login_postgres, supabase_read_only_user, supabase_realtime_admin, supabase_replication_admin
+using ((bucket_id = 'units'::text));
+
+
+
+  create policy "All authenticated can access 1ucepb_1"
+  on "storage"."objects"
+  as permissive
+  for insert
+  to authenticated, service_role, supabase_etl_admin, cli_login_postgres, supabase_read_only_user, supabase_realtime_admin, supabase_replication_admin
+with check ((bucket_id = 'units'::text));
+
+
+
+  create policy "All authenticated can access 1ucepb_2"
+  on "storage"."objects"
+  as permissive
+  for update
+  to authenticated, service_role, supabase_etl_admin, cli_login_postgres, supabase_read_only_user, supabase_realtime_admin, supabase_replication_admin
+using ((bucket_id = 'units'::text));
+
+
+
+  create policy "All authenticated can access 1ucepb_3"
+  on "storage"."objects"
+  as permissive
+  for delete
+  to authenticated, service_role, supabase_etl_admin, cli_login_postgres, supabase_read_only_user, supabase_realtime_admin, supabase_replication_admin
+using ((bucket_id = 'units'::text));
+
+
+
+  create policy "Authenticated can access 145d8b_0"
+  on "storage"."objects"
+  as permissive
+  for select
+  to authenticated, service_role
+using ((bucket_id = 'lessons'::text));
+
+
+
+  create policy "Authenticated can access 145d8b_1"
+  on "storage"."objects"
+  as permissive
+  for insert
+  to authenticated, service_role
+with check ((bucket_id = 'lessons'::text));
+
+
+
+  create policy "Authenticated can access 145d8b_2"
+  on "storage"."objects"
+  as permissive
+  for update
+  to authenticated, service_role
+using ((bucket_id = 'lessons'::text));
+
+
+
+  create policy "Authenticated can access 145d8b_3"
+  on "storage"."objects"
+  as permissive
+  for delete
+  to authenticated, service_role
+using ((bucket_id = 'lessons'::text));
+
+
+
+  create policy "Give annon users access to folder 1ucepb_0"
+  on "storage"."objects"
+  as permissive
+  for select
+  to public
+using (true);
+
+
+
+  create policy "Give annon users access to folder 1ucepb_1"
+  on "storage"."objects"
+  as permissive
+  for insert
+  to public
+with check (true);
+
+
+
+  create policy "Give annon users access to folder 1ucepb_2"
+  on "storage"."objects"
+  as permissive
+  for update
+  to public
+using (true);
+
+
+
+  create policy "Give annon users access to folder 1ucepb_3"
+  on "storage"."objects"
+  as permissive
+  for delete
+  to public
+using (true);
+
+
+
