@@ -14,13 +14,8 @@ import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "sonner"
 import {
@@ -753,9 +748,9 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
         </div>
       </div>
       <Sheet open={selection !== null} onOpenChange={(open) => !open && closeSheet()}>
-        <SheetContent side="right" className="w-full sm:max-w-md p-6">
+        <SheetContent side="right" className="h-full w-full sm:max-w-md p-6">
           {selection ? (
-            <>
+            <div className="flex h-full flex-col gap-4">
               <SheetHeader className="p-0">
                 <SheetTitle>
                   {selection.activity.title} • {selection.row.pupil.displayName}
@@ -768,170 +763,211 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                 </SheetDescription>
               </SheetHeader>
 
-              <div className="flex flex-col gap-4">
-                <div className="flex items-baseline justify-between">
-                  <span className="text-3xl font-semibold text-foreground">
-                    {formatPercent(selection.cell.score ?? null)}
-                  </span>
-                  <Badge variant={selection.cell.status === "override" ? "default" : "secondary"}>
-                    {selection.cell.status === "override" ? "Override" : "Auto"}
-                  </Badge>
-                </div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-3xl font-semibold text-foreground">
+                  {formatPercent(selection.cell.score ?? null)}
+                </span>
+                <Badge variant={selection.cell.status === "override" ? "default" : "secondary"}>
+                  {selection.cell.status === "override" ? "Override" : "Auto"}
+                </Badge>
+              </div>
 
-                {selection.activity.successCriteria.length > 0 ? (
-                  <div className="space-y-1 rounded-md border border-border/50 bg-muted/40 p-2">
-                    {selection.activity.successCriteria.map((criterion) => {
-                      const label =
-                        criterion.title?.trim() && criterion.title.trim().length > 0
-                          ? criterion.title.trim()
-                          : criterion.description?.trim() && criterion.description.trim().length > 0
-                            ? criterion.description.trim()
-                            : criterion.successCriteriaId
-                      const value = selection.cell.successCriteriaScores[criterion.successCriteriaId]
-                      return (
-                        <div
-                          key={criterion.successCriteriaId}
-                          className="flex items-center justify-between text-xs"
-                        >
-                          <span className="text-muted-foreground">{label}</span>
-                          <span className="font-semibold text-foreground">
-                            {formatPercent(typeof value === "number" ? value : null)}
-                          </span>
-                        </div>
-                      )
-                    })}
+              <Tabs defaultValue="details" className="flex h-full flex-col gap-4">
+                <TabsList className="w-full">
+                  <TabsTrigger value="details">Question</TabsTrigger>
+                  <TabsTrigger value="auto">Automatic score</TabsTrigger>
+                  <TabsTrigger value="override">Override</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="details" className="flex-1 overflow-hidden">
+                  <div className="flex h-full flex-col gap-3 overflow-y-auto pr-1">
+                    {selection.cell.question ? (
+                      <div className="rounded-md border border-border/60 bg-muted/40 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Question
+                        </p>
+                        <p className="text-sm text-foreground">{selection.cell.question}</p>
+                      </div>
+                    ) : null}
+                    {selection.cell.correctAnswer ? (
+                      <div className="rounded-md border border-emerald-300/70 bg-emerald-100/40 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                          Correct answer
+                        </p>
+                        <p className="text-sm text-emerald-900">{selection.cell.correctAnswer}</p>
+                      </div>
+                    ) : null}
+                    {selection.cell.pupilAnswer ? (
+                      <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                          Pupil answer
+                        </p>
+                        <p className="text-sm text-primary-foreground/90">{selection.cell.pupilAnswer}</p>
+                      </div>
+                    ) : null}
+                    {!selection.cell.question && !selection.cell.correctAnswer && !selection.cell.pupilAnswer ? (
+                      <p className="text-xs text-muted-foreground">No question or answer information is available.</p>
+                    ) : null}
                   </div>
-                ) : null}
+                </TabsContent>
 
-                <div className="space-y-3">
-                  {selection.cell.question ? (
+                <TabsContent value="auto" className="flex-1 overflow-hidden">
+                  <div className="flex h-full flex-col gap-3 overflow-y-auto pr-1">
                     <div className="rounded-md border border-border/60 bg-muted/40 p-3">
                       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        Question
+                        Automatic score
                       </p>
-                      <p className="text-sm text-foreground">{selection.cell.question}</p>
-                    </div>
-                  ) : null}
-                  {selection.cell.correctAnswer ? (
-                    <div className="rounded-md border border-emerald-300/70 bg-emerald-100/40 p-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-                        Correct answer
+                      <div className="mt-1 flex items-baseline justify-between">
+                        <span className="text-lg font-semibold text-foreground">
+                          {formatPercent(selection.cell.score ?? null)}
+                        </span>
+                        <span className="text-xs text-muted-foreground">{describeStatus(selection.cell.status)}</span>
+                      </div>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        {selection.cell.status === "override"
+                          ? "This score has been overridden. The stored automatic values are shown below for reference."
+                          : "This score was calculated automatically from the success criteria inputs."}
                       </p>
-                      <p className="text-sm text-emerald-900">{selection.cell.correctAnswer}</p>
                     </div>
-                  ) : null}
-                  {selection.cell.pupilAnswer ? (
-                    <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-primary">
-                        Pupil answer
-                      </p>
-                      <p className="text-sm text-primary-foreground/90">{selection.cell.pupilAnswer}</p>
-                    </div>
-                  ) : null}
-
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-foreground">Override per success criterion</p>
-                    <span className="text-xs text-muted-foreground">
-                      Average: {draftAverage !== null ? formatPercent(draftAverage) : "—"}
-                    </span>
-                  </div>
-                  {selection.activity.successCriteria.length > 0 ? (
-                    <div className="space-y-3">
-                      {selection.activity.successCriteria.map((criterion) => {
-                        const criterionId = criterion.successCriteriaId
-                        const label =
-                          criterion.title?.trim() && criterion.title.trim().length > 0
-                            ? criterion.title.trim()
-                            : criterion.description?.trim() && criterion.description.trim().length > 0
-                              ? criterion.description.trim()
-                              : criterionId
-                        const draftValueRaw = criterionDrafts[criterionId]
-                        const draftValue =
-                          typeof draftValueRaw === "string" && draftValueRaw.trim().length > 0
-                            ? Number.parseFloat(draftValueRaw)
-                            : null
-                        return (
-                          <div key={criterionId} className="space-y-2">
-                            <p className="text-xs font-semibold text-muted-foreground">{label}</p>
-                            <div className="grid grid-cols-3 gap-2">
-                              {[
-                                { label: "0", value: 0 },
-                                { label: "Partial", value: 0.5 },
-                                { label: "Full", value: 1 },
-                              ].map((option) => {
-                                const isActive = draftValue === option.value
-                                return (
-                                  <Button
-                                    key={option.label}
-                                    type="button"
-                                    size="sm"
-                                    variant={isActive ? "default" : "outline"}
-                                    aria-pressed={isActive}
-                                    onClick={() => {
-                                      setCriterionDrafts((previous) => ({
-                                        ...previous,
-                                        [criterionId]: option.value.toFixed(2),
-                                      }))
-                                    }}
-                                  >
-                                    {option.label}
-                                  </Button>
-                                )
-                              })}
+                    {selection.activity.successCriteria.length > 0 ? (
+                      <div className="space-y-1 rounded-md border border-border/50 bg-muted/40 p-2">
+                        {selection.activity.successCriteria.map((criterion) => {
+                          const label =
+                            criterion.title?.trim() && criterion.title.trim().length > 0
+                              ? criterion.title.trim()
+                              : criterion.description?.trim() && criterion.description.trim().length > 0
+                                ? criterion.description.trim()
+                                : criterion.successCriteriaId
+                          const value = selection.cell.successCriteriaScores[criterion.successCriteriaId]
+                          return (
+                            <div
+                              key={criterion.successCriteriaId}
+                              className="flex items-center justify-between text-xs"
+                            >
+                              <span className="text-muted-foreground">{label}</span>
+                              <span className="font-semibold text-foreground">
+                                {formatPercent(typeof value === "number" ? value : null)}
+                              </span>
                             </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      No success criteria linked to this activity.
-                    </p>
-                  )}
-                </div>
-
-                <div className="grid gap-2">
-                  <label className="text-sm font-medium text-foreground" htmlFor="override-feedback">
-                    Teacher feedback
-                  </label>
-                  <Textarea
-                    id="override-feedback"
-                    value={feedbackDraft}
-                    placeholder="Optional feedback for the pupil"
-                    onChange={(event) => setFeedbackDraft(event.target.value)}
-                    rows={4}
-                  />
-                </div>
-
-                {!selection.cell.submissionId ? (
-                  <div className="rounded-md border border-dashed border-muted-foreground/40 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                    This activity has not recorded a submission for the pupil yet. Save and reset actions are disabled
-                    until a submission exists.
+                          )
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        No success criteria linked to this activity.
+                      </p>
+                    )}
                   </div>
-                ) : null}
+                </TabsContent>
 
-                <div className="flex flex-col gap-2 pt-2">
-                  <Button
-                    onClick={handleOverrideSubmit}
-                    disabled={
-                      isOverridePending
-                      || !selection.cell.submissionId
-                      || draftAverage === null
-                      || selection.activity.successCriteria.length === 0
-                    }
-                  >
-                    {isOverridePending ? "Saving…" : "Save override"}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={handleReset}
-                    disabled={isResetPending || !selection.cell.submissionId}
-                  >
-                    {isResetPending ? "Resetting…" : "Reset to auto score"}
-                  </Button>
-                </div>
-              </div>
-            </>
+                <TabsContent value="override" className="flex-1 overflow-hidden">
+                  <div className="flex h-full flex-col">
+                    <div className="flex-1 space-y-3 overflow-y-auto pr-1">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium text-foreground">Override per success criterion</p>
+                        <span className="text-xs text-muted-foreground">
+                          Average: {draftAverage !== null ? formatPercent(draftAverage) : "—"}
+                        </span>
+                      </div>
+                      {selection.activity.successCriteria.length > 0 ? (
+                        <div className="space-y-3">
+                          {selection.activity.successCriteria.map((criterion) => {
+                            const criterionId = criterion.successCriteriaId
+                            const label =
+                              criterion.title?.trim() && criterion.title.trim().length > 0
+                                ? criterion.title.trim()
+                                : criterion.description?.trim() && criterion.description.trim().length > 0
+                                  ? criterion.description.trim()
+                                  : criterionId
+                            const draftValueRaw = criterionDrafts[criterionId]
+                            const draftValue =
+                              typeof draftValueRaw === "string" && draftValueRaw.trim().length > 0
+                                ? Number.parseFloat(draftValueRaw)
+                                : null
+                            return (
+                              <div key={criterionId} className="space-y-2">
+                                <p className="text-xs font-semibold text-muted-foreground">{label}</p>
+                                <div className="grid grid-cols-3 gap-2">
+                                  {[
+                                    { label: "0", value: 0 },
+                                    { label: "Partial", value: 0.5 },
+                                    { label: "Full", value: 1 },
+                                  ].map((option) => {
+                                    const isActive = draftValue === option.value
+                                    return (
+                                      <Button
+                                        key={option.label}
+                                        type="button"
+                                        size="sm"
+                                        variant={isActive ? "default" : "outline"}
+                                        aria-pressed={isActive}
+                                        onClick={() => {
+                                          setCriterionDrafts((previous) => ({
+                                            ...previous,
+                                            [criterionId]: option.value.toFixed(2),
+                                          }))
+                                        }}
+                                      >
+                                        {option.label}
+                                      </Button>
+                                    )
+                                  })}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          No success criteria linked to this activity.
+                        </p>
+                      )}
+
+                      <div className="grid gap-2">
+                        <label className="text-sm font-medium text-foreground" htmlFor="override-feedback">
+                          Teacher feedback
+                        </label>
+                        <Textarea
+                          id="override-feedback"
+                          value={feedbackDraft}
+                          placeholder="Optional feedback for the pupil"
+                          onChange={(event) => setFeedbackDraft(event.target.value)}
+                          rows={4}
+                        />
+                      </div>
+
+                      {!selection.cell.submissionId ? (
+                        <div className="rounded-md border border-dashed border-muted-foreground/40 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                          This activity has not recorded a submission for the pupil yet. Save and reset actions are disabled
+                          until a submission exists.
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="sticky bottom-0 left-0 right-0 mt-4 flex flex-col gap-2 border-t border-border/60 bg-background p-4">
+                      <Button
+                        onClick={handleOverrideSubmit}
+                        disabled={
+                          isOverridePending
+                          || !selection.cell.submissionId
+                          || draftAverage === null
+                          || selection.activity.successCriteria.length === 0
+                        }
+                      >
+                        {isOverridePending ? "Saving…" : "Save override"}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={handleReset}
+                        disabled={isResetPending || !selection.cell.submissionId}
+                      >
+                        {isResetPending ? "Resetting…" : "Reset to auto score"}
+                      </Button>
+                    </div>
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </div>
           ) : null}
         </SheetContent>
       </Sheet>
