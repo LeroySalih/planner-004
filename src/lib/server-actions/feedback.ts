@@ -64,17 +64,24 @@ export async function readLessonFeedbackSummariesAction(
   const groupIds = Array.from(new Set(payload.pairs.map((pair) => pair.groupId)))
   const lessonIds = Array.from(new Set(payload.pairs.map((pair) => pair.lessonId)))
 
-  const { data: membershipRows, error: membershipError } = await supabase
-    .from("group_membership")
-    .select("group_id, user_id, role")
-    .in("group_id", groupIds)
+  const membershipRowsAccumulator: unknown[] = []
+  const membershipChunkSize = 50
+  for (let index = 0; index < groupIds.length; index += membershipChunkSize) {
+    const chunk = groupIds.slice(index, index + membershipChunkSize)
+    const { data: membershipRows, error: membershipError } = await supabase
+      .from("group_membership")
+      .select("group_id, user_id, role")
+      .in("group_id", chunk)
 
-  if (membershipError) {
-    console.error("[feedback] Failed to read group membership for summaries", membershipError)
-    return LessonFeedbackSummaryResult.parse({ data: null, error: membershipError.message })
+    if (membershipError) {
+      console.error("[feedback] Failed to read group membership for summaries", membershipError)
+      return LessonFeedbackSummaryResult.parse({ data: null, error: membershipError.message })
+    }
+
+    membershipRowsAccumulator.push(...(membershipRows ?? []))
   }
 
-  const memberships = MembershipRowSchema.array().parse(membershipRows ?? [])
+  const memberships = MembershipRowSchema.array().parse(membershipRowsAccumulator)
 
   const pupilMemberships = memberships.filter((row) => row.role.trim().toLowerCase() === "pupil")
   const pupilsByGroup = new Map<string, string[]>()
@@ -99,18 +106,31 @@ export async function readLessonFeedbackSummariesAction(
     return LessonFeedbackSummaryResult.parse({ data: emptySummaries, error: null })
   }
 
-  const { data: feedbackRows, error: feedbackError } = await supabase
-    .from("feedback")
-    .select("user_id, lesson_id, rating")
-    .in("lesson_id", lessonIds)
-    .in("user_id", Array.from(pupilIds))
+  const feedbackRowsAccumulator: unknown[] = []
+  const lessonChunkSize = 25
+  const pupilChunkSize = 50
+  const pupilIdList = Array.from(pupilIds)
 
-  if (feedbackError) {
-    console.error("[feedback] Failed to read feedback entries for summaries", feedbackError)
-    return LessonFeedbackSummaryResult.parse({ data: null, error: feedbackError.message })
+  for (let lessonIndex = 0; lessonIndex < lessonIds.length; lessonIndex += lessonChunkSize) {
+    const lessonChunk = lessonIds.slice(lessonIndex, lessonIndex + lessonChunkSize)
+    for (let pupilIndex = 0; pupilIndex < pupilIdList.length; pupilIndex += pupilChunkSize) {
+      const pupilChunk = pupilIdList.slice(pupilIndex, pupilIndex + pupilChunkSize)
+      const { data: feedbackRows, error: feedbackError } = await supabase
+        .from("feedback")
+        .select("user_id, lesson_id, rating")
+        .in("lesson_id", lessonChunk)
+        .in("user_id", pupilChunk)
+
+      if (feedbackError) {
+        console.error("[feedback] Failed to read feedback entries for summaries", feedbackError)
+        return LessonFeedbackSummaryResult.parse({ data: null, error: feedbackError.message })
+      }
+
+      feedbackRowsAccumulator.push(...(feedbackRows ?? []))
+    }
   }
 
-  const feedbackEntries = FeedbackRowSchema.array().parse(feedbackRows ?? [])
+  const feedbackEntries = FeedbackRowSchema.array().parse(feedbackRowsAccumulator)
   const feedbackByLessonAndUser = new Map<string, number[]>()
   for (const entry of feedbackEntries) {
     const key = `${entry.lesson_id}::${entry.user_id}`

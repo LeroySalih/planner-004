@@ -4,7 +4,7 @@ SET session_replication_role = replica;
 -- PostgreSQL database dump
 --
 
--- \restrict BFdsUjZlc2hBQ8TRowlMo4bM4PRKacT5YLjwsnn0rRaFUxYghkfnuYsZ4es2F0n
+-- \restrict 2VJXA3g5GgVaHZgAxOQeFRvsvVQjRgsjeTOnrWWvhdtizNI38hg2pEmv4X7D1nT
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -48,6 +48,8 @@ INSERT INTO "public"."units" ("unit_id", "title", "subject", "active", "descript
 	('MICROBIT', '0803 MICROBIT', 'Computing', true, NULL, 8),
 	('701-ISOMETRIC-SKETCHING', '0701 Isometric Sketching', 'Design Technology', true, 'Pupils will learn to sketch designs in an Isometric perspective.', 7),
 	('ONTRO-TO-PYTHON-TURTLE', '0902 Intro to Python - Turtle', 'Computing', true, NULL, 8),
+	('0901-INDUCTION', '0901 Induction', 'Computing', true, NULL, 9),
+	('KS3-QUICK-DESIGN', 'KS3 - Quick Design', 'Design Technology', true, 'This short project is designed to remind pupils of the design process', 8),
 	('UNIT003', 'World War II Overview (ME)', 'History', false, 'No description provided', 7),
 	('TEST1', 'test1', 'Mathematics', false, NULL, 7),
 	('UNIT001', 'Algebra Basics (qwe)', 'Mathematics', false, 'No description provided', 7),
@@ -105,7 +107,9 @@ INSERT INTO "public"."lessons" ("lesson_id", "unit_id", "title", "active", "orde
 	('8115af17-90c5-4e35-aa58-722afd856ace', '10-2-ONSHAPE-BASIC-SKILLS', 'OnShape Extrustions - Ex 1', true, 3),
 	('879a4c7f-9a62-41d5-ac4f-5d8dbfc59d94', 'DT-INDUCTION-KS4', 'DT Induction to KS4', true, 11),
 	('79315679-c71e-4998-a121-3464829aaff1', '801-CANDLE-HOLDER', 'Inv: Investigating existing designs', true, 1),
+	('9e810b7a-7a64-4adf-9d10-c60550273b49', 'KS3-QUICK-DESIGN', 'Make and Evaluate', true, 31),
 	('a1cad678-35ea-4a5b-b799-12ac2eb7c51f', '701-ISOMETRIC-SKETCHING', '6-Assessment', true, 5),
+	('dd003478-e764-48a6-b3c5-29449b365cec', 'KS3-QUICK-DESIGN', 'Investigate & Design', true, 30),
 	('84ef0aee-3207-49fa-8049-49ce868d2b61', '1001-CORE-1', 'Composite Matererials', true, 26),
 	('42dbd5b1-162c-4c27-9547-79eb39b34b4d', '1001-CORE-1', 'Technical Textiles', true, 27),
 	('645bd8e1-2b8d-45a8-b7b3-30def0008dd1', '1001-CORE-1', 'SCT - Assessment', true, 28),
@@ -187,8 +191,11 @@ INSERT INTO "public"."activities" ("activity_id", "lesson_id", "title", "type", 
 	('4a209992-6b5f-4674-ab68-f8a06fb51d09', '47cbfb42-2e8d-4ee7-ac0e-b732f95ab8c1', 'Starter: Prototype', 'text', '{"text": "Write 3 reasons why we prototype designs."}', false, 0, true, false, NULL),
 	('81b4e7a5-ebf4-4abd-9ac5-20e647c76fb5', '47cbfb42-2e8d-4ee7-ac0e-b732f95ab8c1', 'Task: Flat Prototype', 'text', '{"text": "Create a flat prototype for your design. &nbsp;<div>Ensure that any moving parts are represented in your prototype.</div>"}', false, 1, true, false, NULL),
 	('17adbcc6-5585-4589-86d8-e2e3afb5f709', 'b576b985-26c9-4f86-a465-b683d657f5d7', 'MCQ', 'multiple-choice-question', '{"options": [{"id": "option-a", "text": "1", "imageUrl": null}, {"id": "option-b", "text": "2", "imageUrl": null}, {"id": "option-c", "text": "3", "imageUrl": null}, {"id": "option-d", "text": "4", "imageUrl": null}], "imageAlt": null, "imageUrl": null, "question": "Test&nbsp;", "imageFile": null, "correctOptionId": "option-a"}', false, 2, true, false, NULL),
+	('95082941-ab25-4576-b474-aff7b82d6476', '0c60fa60-a7ed-47f5-822e-94b3a02dc3a2', 'AFL for 5B''s', 'multiple-choice-question', '{"options": [{"id": "option-a", "text": "Break", "imageUrl": null}, {"id": "option-b", "text": "Buddy", "imageUrl": null}, {"id": "option-c", "text": "Browse", "imageUrl": null}, {"id": "option-d", "text": "Breakfast", "imageUrl": null}], "imageAlt": null, "imageUrl": null, "question": "Which is not a B", "imageFile": null, "correctOptionId": "option-d"}', false, 0, true, false, NULL),
 	('dccefe60-c3f0-4872-9a46-386653da241c', 'a1cad678-35ea-4a5b-b799-12ac2eb7c51f', 'Upload your work', 'short-text-question', '{"question": "No action required", "modelAnswer": "no asnwer required"}', false, 2, true, false, NULL),
-	('95082941-ab25-4576-b474-aff7b82d6476', '0c60fa60-a7ed-47f5-822e-94b3a02dc3a2', 'AFL for 5B''s', 'multiple-choice-question', '{"options": [{"id": "option-a", "text": "Break", "imageUrl": null}, {"id": "option-b", "text": "Buddy", "imageUrl": null}, {"id": "option-c", "text": "Browse", "imageUrl": null}, {"id": "option-d", "text": "Breakfast", "imageUrl": null}], "imageAlt": null, "imageUrl": null, "question": "Which is not a B", "imageFile": null, "correctOptionId": "option-d"}', false, 0, true, false, NULL);
+	('70790e69-9c81-433f-92e7-b5760e672c07', 'dd003478-e764-48a6-b3c5-29449b365cec', 'Homework', 'text', '{"text": "Create 3 Initial Designs and 1 selected design for your paper plane.<br><br>Remember that you must :<br>Outline<br>Annotate<br>Colour<div>Your final design</div>"}', true, 0, true, false, NULL),
+	('11b93371-eaf0-4871-9576-c9189cb0def0', '9e810b7a-7a64-4adf-9d10-c60550273b49', 'Make Plane', 'text', '{"text": ""}', false, 0, true, false, NULL),
+	('fd47b4ab-3b72-4ddc-94ff-e8f02a561230', '9e810b7a-7a64-4adf-9d10-c60550273b49', 'Evaluate Plane', 'text', '{"text": ""}', false, 1, true, false, NULL);
 
 
 --
@@ -198,7 +205,8 @@ INSERT INTO "public"."activities" ("activity_id", "lesson_id", "title", "type", 
 INSERT INTO "public"."activity_success_criteria" ("activity_id", "success_criteria_id") VALUES
 	('17adbcc6-5585-4589-86d8-e2e3afb5f709', '32c9e025-e8ad-4d50-b25c-c59d2524b0cd'),
 	('17adbcc6-5585-4589-86d8-e2e3afb5f709', '6bfdf9bd-d381-4313-b4b3-d0c6d1968a48'),
-	('95082941-ab25-4576-b474-aff7b82d6476', '32c9e025-e8ad-4d50-b25c-c59d2524b0cd');
+	('95082941-ab25-4576-b474-aff7b82d6476', '32c9e025-e8ad-4d50-b25c-c59d2524b0cd'),
+	('dccefe60-c3f0-4872-9a46-386653da241c', 'f53315cb-f3b0-4328-8133-1f2c91f91bfe');
 
 
 --
@@ -255,15 +263,15 @@ INSERT INTO "public"."assignments" ("group_id", "unit_id", "start_date", "end_da
 	('25-8B-DT', '801-CANDLE-HOLDER', '2025-09-21', '2025-12-11', true),
 	('25-8C-DT', '801-CANDLE-HOLDER', '2025-09-21', '2025-12-11', true),
 	('25-8D-DT', '801-CANDLE-HOLDER', '2025-09-21', '2025-12-11', true),
-	('25-7A-IT', 'INDUCTION', '2025-09-08', '2025-09-27', true),
-	('25-7B-IT', 'INDUCTION', '2025-09-08', '2025-09-27', true),
-	('25-7C-IT', 'INDUCTION', '2025-09-08', '2025-09-27', true),
-	('25-7D-IT', 'INDUCTION', '2025-09-08', '2025-09-27', true),
 	('25-7A-IT', 'CATS', '2025-09-21', '2025-10-04', true),
+	('25-8C-IT', 'HTML', '2025-09-07', '2025-09-20', false),
 	('25-7C-IT', 'CATS', '2025-09-21', '2025-10-04', true),
 	('25-7D-IT', 'CATS', '2025-09-21', '2025-10-04', true),
 	('25-7B-IT', 'CATS', '2025-09-21', '2025-10-04', true),
 	('25-10-DT', '10-2-ONSHAPE-BASIC-SKILLS', '2025-09-14', '2025-10-25', true),
+	('25-8D-IT', 'HTML', '2025-09-07', '2025-09-20', false),
+	('25-8A-IT', 'INDUCTION', '2025-09-07', '2025-09-20', true),
+	('25-8B-IT', 'INDUCTION', '2025-09-07', '2025-09-20', true),
 	('25-9A-DT', 'UNIT004', '2025-09-21', '2025-12-20', true),
 	('25-9B-DT', 'UNIT004', '2025-09-21', '2025-12-20', true),
 	('25-9C-DT', 'UNIT004', '2025-09-21', '2025-12-20', true),
@@ -280,21 +288,57 @@ INSERT INTO "public"."assignments" ("group_id", "unit_id", "start_date", "end_da
 	('25-11-DT', '701-ISOMETRIC-SKETCHING', '2025-09-21', '2025-10-11', false),
 	('25-11-DT', '1001-CORE-1', '2025-09-14', '2025-10-25', true),
 	('25-7A-DT', 'DT-INDUCTION', '2025-09-07', '2025-09-13', true),
+	('25-8C-IT', 'INDUCTION', '2025-09-07', '2025-09-20', true),
+	('25-8D-IT', 'INDUCTION', '2025-09-07', '2025-09-20', true),
 	('25-7B-DT', 'DT-INDUCTION', '2025-09-07', '2025-09-13', true),
+	('25-8A-IT', 'HTML', '2025-09-21', '2025-10-25', true),
 	('25-7D-DT', 'DT-INDUCTION', '2025-09-07', '2025-09-13', true),
 	('25-7C-DT', 'DT-INDUCTION', '2025-09-07', '2025-09-13', true),
 	('25-7A-DT', '701-ISOMETRIC-SKETCHING', '2025-09-14', '2025-11-15', true),
 	('25-7B-DT', '701-ISOMETRIC-SKETCHING', '2025-09-14', '2025-11-15', true),
+	('25-8B-IT', 'HTML', '2025-09-21', '2025-10-25', true),
 	('25-7D-DT', '701-ISOMETRIC-SKETCHING', '2025-09-14', '2025-11-15', true),
 	('25-7C-DT', '701-ISOMETRIC-SKETCHING', '2025-09-14', '2025-11-15', true),
 	('25-7A-IT', 'BEBRAS-7', '2025-11-02', '2025-11-15', true),
 	('25-7B-IT', 'BEBRAS-7', '2025-11-02', '2025-11-15', true),
 	('25-7C-IT', 'BEBRAS-7', '2025-11-02', '2025-11-15', true),
 	('25-7D-IT', 'BEBRAS-7', '2025-11-02', '2025-11-15', true),
-	('25-8C-IT', 'MICROBIT', '2025-11-02', '2025-11-08', false),
-	('25-8B-IT', 'MICROBIT', '2025-11-02', '2025-11-08', false),
-	('25-8A-IT', 'MICROBIT', '2025-11-02', '2025-11-08', false),
-	('25-8D-IT', 'MICROBIT', '2025-11-02', '2025-12-13', true);
+	('25-8C-IT', 'HTML', '2025-09-21', '2025-10-25', true),
+	('25-8D-IT', 'HTML', '2025-09-21', '2025-10-25', true),
+	('25-8D-IT', 'MICROBIT', '2025-11-02', '2025-12-13', true),
+	('25-8C-IT', 'MICROBIT', '2025-11-02', '2025-12-13', true),
+	('25-8A-IT', 'MICROBIT', '2025-11-02', '2025-12-13', true),
+	('25-8B-IT', 'MICROBIT', '2025-11-02', '2025-12-13', true),
+	('25-7A-IT', 'INDUCTION', '2025-09-08', '2025-10-19', true),
+	('25-7B-IT', 'INDUCTION', '2025-09-08', '2025-10-19', true),
+	('25-7C-IT', 'INDUCTION', '2025-09-08', '2025-10-19', true),
+	('25-7D-IT', 'INDUCTION', '2025-09-08', '2025-10-19', true),
+	('25-7A-IT', 'SCRATCH-BASICS', '2025-11-16', '2025-12-07', true),
+	('25-7B-IT', 'SCRATCH-BASICS', '2025-11-16', '2025-12-07', true),
+	('25-7C-IT', 'SCRATCH-BASICS', '2025-11-16', '2025-12-07', true),
+	('25-7D-IT', 'SCRATCH-BASICS', '2025-11-16', '2025-12-07', true),
+	('25-8A-IT', 'HTML', '2025-09-07', '2025-09-20', false),
+	('25-8B-IT', 'HTML', '2025-09-07', '2025-09-20', false),
+	('25-9A-IT', '0901-INDUCTION', '2025-09-07', '2025-10-25', true),
+	('25-9B-IT', '0901-INDUCTION', '2025-09-07', '2025-10-25', true),
+	('25-9D-IT', '0901-INDUCTION', '2025-09-07', '2025-10-25', true),
+	('25-9C-IT', '0901-INDUCTION', '2025-09-07', '2025-10-25', true),
+	('25-9A-IT', 'ONTRO-TO-PYTHON-TURTLE', '2025-11-02', '2025-12-13', true),
+	('25-9B-IT', 'ONTRO-TO-PYTHON-TURTLE', '2025-11-02', '2025-12-13', true),
+	('25-9C-IT', 'ONTRO-TO-PYTHON-TURTLE', '2025-11-02', '2025-12-13', true),
+	('25-9D-IT', 'ONTRO-TO-PYTHON-TURTLE', '2025-11-02', '2025-12-13', true),
+	('25-9A-DT', 'DT-INDUCTION', '2025-09-07', '2025-09-20', false),
+	('25-9B-DT', 'DT-INDUCTION', '2025-09-07', '2025-09-20', false),
+	('25-9C-DT', 'DT-INDUCTION', '2025-09-07', '2025-09-20', false),
+	('25-9D-DT', 'DT-INDUCTION', '2025-09-07', '2025-09-20', false),
+	('25-9A-DT', 'KS3-QUICK-DESIGN', '2025-09-07', '2025-09-20', true),
+	('25-8A-DT', 'KS3-QUICK-DESIGN', '2025-09-07', '2025-09-20', true),
+	('25-8B-DT', 'KS3-QUICK-DESIGN', '2025-09-07', '2025-09-20', true),
+	('25-8D-DT', 'KS3-QUICK-DESIGN', '2025-09-07', '2025-09-20', true),
+	('25-8C-DT', 'KS3-QUICK-DESIGN', '2025-09-07', '2025-09-20', true),
+	('25-9B-DT', 'KS3-QUICK-DESIGN', '2025-09-07', '2025-09-20', true),
+	('25-9C-DT', 'KS3-QUICK-DESIGN', '2025-09-07', '2025-09-20', true),
+	('25-9D-DT', 'KS3-QUICK-DESIGN', '2025-09-07', '2025-09-20', true);
 
 
 --
@@ -912,7 +956,47 @@ INSERT INTO "public"."group_membership" ("group_id", "user_id", "role") VALUES
 	('25-7B-DT', 'f3650cd7-42ec-4a68-b6fb-64f56054e603', 'pupil'),
 	('25-7B-DT', '6bbc6a35-167e-436e-8e09-456b046ae1bf', 'pupil'),
 	('25-7B-DT', '37077463-85c3-4918-80b0-e6bf5ffac82c', 'pupil'),
-	('25-7B-DT', 'e88f7c3a-95b8-4daa-acff-7d9f4714df01', 'pupil');
+	('25-7B-DT', 'e88f7c3a-95b8-4daa-acff-7d9f4714df01', 'pupil'),
+	('25-7C-DT', 'cb49f6b3-3942-43ae-85a0-c046e619d9d6', 'pupil'),
+	('25-7C-DT', '255b0b13-9462-4f1c-b7f3-2c2da194e11c', 'pupil'),
+	('25-7C-DT', '56cec57f-298f-474e-9156-efd46b3d6e5b', 'pupil'),
+	('25-7C-DT', '296bc5d4-2316-44e4-b619-77b18ad8187a', 'pupil'),
+	('25-7C-DT', '12459f9a-f630-4aa3-8099-ac4d98bf0f13', 'pupil'),
+	('25-7C-DT', '5a4c5afb-183f-4384-a983-685a130044f4', 'pupil'),
+	('25-7C-DT', 'dc7001ff-45c8-4e16-9475-38b2da804b87', 'pupil'),
+	('25-7C-DT', '3b3243b1-2a90-4ef7-8be9-2671053fa499', 'pupil'),
+	('25-7C-DT', '81ae3b82-97c3-412d-9081-79ab01bad4f7', 'pupil'),
+	('25-7C-DT', '664e7417-d6a6-4234-a294-1236e49ee813', 'pupil'),
+	('25-7C-DT', '724adbe5-ed2f-41d3-9c6d-c4b6ef713bef', 'pupil'),
+	('25-7C-DT', '78df1414-b07d-4bb1-a975-888976f0cec3', 'pupil'),
+	('25-7C-DT', '759de2b8-d6d6-4c15-9974-d2afc54fc49f', 'pupil'),
+	('25-7C-DT', '1bf70daa-7d8d-4a08-86bc-c60d1f639144', 'pupil'),
+	('25-7C-DT', 'ce965175-ccbf-4472-9d6e-1f77125fbaef', 'pupil'),
+	('25-7C-DT', '10b3aadf-d1e6-4087-9338-be2904da256e', 'pupil'),
+	('25-7C-DT', 'd6915c34-31b9-4225-9597-772452fc07bc', 'pupil'),
+	('25-7C-DT', 'a21f4f66-871a-4119-b1b9-9cac07526fc2', 'pupil'),
+	('25-7C-DT', '0b7daafd-2fad-4638-8936-6004b4ba3575', 'pupil'),
+	('25-7C-DT', 'bb22e5df-6b70-45bb-ada3-7e7a4f63984d', 'pupil'),
+	('25-7A-DT', '1f5cd3b2-9bc7-42d1-9610-6888fc2663d4', 'pupil'),
+	('25-7A-DT', 'aa0c3979-03ee-4683-a11d-ed3bd265ac71', 'pupil'),
+	('25-7A-DT', '892cdae9-dc52-4696-88e8-f876f95cc305', 'pupil'),
+	('25-7A-DT', '81ede5d3-7f5b-43f2-be8d-56df25dddb62', 'pupil'),
+	('25-7A-DT', '607b28a9-f095-4e5f-8da0-fb92a9ed368f', 'pupil'),
+	('25-7A-DT', '1bc4f3e0-552b-4d1c-a1a8-809a1a30d982', 'pupil'),
+	('25-7A-DT', 'a05e7fc3-20c5-4a0a-a26b-118e23c866c3', 'pupil'),
+	('25-7A-DT', '2dc65039-db93-46af-aeec-b0ac2ffa2a9c', 'pupil'),
+	('25-7A-DT', 'a82b8d06-7513-45e5-bd0d-ecc09e81ec10', 'pupil'),
+	('25-7A-DT', '7ae4eb4c-c279-4fc1-8243-e4ca467914db', 'pupil'),
+	('25-7A-DT', '4284fdc3-83c4-46bf-b991-aa721c6265f8', 'pupil'),
+	('25-7A-DT', '3bba498c-145d-401e-9196-1f8c67ccf30e', 'pupil'),
+	('25-7A-DT', '720174a7-fd1c-443c-a9b4-70f0589328cf', 'pupil'),
+	('25-7A-DT', '5ddc5f8b-e70c-40ce-84b8-a03f58dec57d', 'pupil'),
+	('25-7A-DT', 'a4962c40-be52-4b68-9795-ee5b8cfbd3e6', 'pupil'),
+	('25-7A-DT', 'bcb8c5d1-ccb9-4c76-a728-c0af5aef3410', 'pupil'),
+	('25-7A-DT', 'ffd45e59-2893-4f2b-90a2-4c20eb3e5eb9', 'pupil'),
+	('25-7A-DT', '6252da5f-5352-44c9-9fe3-5cf73fbf2bb3', 'pupil'),
+	('25-7A-DT', '58d719a3-c060-4a62-8032-5e0f96167a9c', 'pupil'),
+	('25-7A-DT', 'c8f8ecc7-2257-40b7-9d44-21985375c591', 'pupil');
 
 
 --
@@ -1009,6 +1093,8 @@ INSERT INTO "public"."lesson_assignments" ("group_id", "lesson_id", "start_date"
 	('25-7B-DT', 'a2aa2eb2-c7e4-4359-9801-fb2c8680584d', '2025-10-05'),
 	('25-7B-DT', 'ca8445e2-364b-410d-922f-57c1c2f9bf44', '2025-09-21'),
 	('25-7B-DT', 'fb2eb631-0dda-4b84-b5b2-5c5d7afeae2e', '2025-09-28'),
+	('25-7B-IT', '33c2b85f-3ce2-4f21-b21b-377cf20b2a21', '2025-09-21'),
+	('25-7B-IT', 'b576b985-26c9-4f86-a465-b683d657f5d7', '2025-09-28'),
 	('25-7C-DT', '5b4f0a5e-d001-443d-a141-1605d5f5d831', '2025-09-28'),
 	('25-7C-DT', '69da46b7-19db-47e0-93db-5b6fd95eef5e', '2025-11-02'),
 	('25-7C-DT', '8d96130b-2336-46a1-a214-73ec4e7e980d', '2025-09-07'),
@@ -1016,12 +1102,16 @@ INSERT INTO "public"."lesson_assignments" ("group_id", "lesson_id", "start_date"
 	('25-7C-DT', 'a2aa2eb2-c7e4-4359-9801-fb2c8680584d', '2025-10-05'),
 	('25-7C-DT', 'ca8445e2-364b-410d-922f-57c1c2f9bf44', '2025-09-21'),
 	('25-7C-DT', 'fb2eb631-0dda-4b84-b5b2-5c5d7afeae2e', '2025-09-28'),
+	('25-7C-IT', '33c2b85f-3ce2-4f21-b21b-377cf20b2a21', '2025-09-21'),
+	('25-7C-IT', 'b576b985-26c9-4f86-a465-b683d657f5d7', '2025-09-28'),
 	('25-7D-DT', '5b4f0a5e-d001-443d-a141-1605d5f5d831', '2025-09-28'),
 	('25-7D-DT', '8d96130b-2336-46a1-a214-73ec4e7e980d', '2025-09-07'),
 	('25-7D-DT', 'a1cad678-35ea-4a5b-b799-12ac2eb7c51f', '2025-10-12'),
 	('25-7D-DT', 'a2aa2eb2-c7e4-4359-9801-fb2c8680584d', '2025-10-05'),
 	('25-7D-DT', 'ca8445e2-364b-410d-922f-57c1c2f9bf44', '2025-09-21'),
 	('25-7D-DT', 'fb2eb631-0dda-4b84-b5b2-5c5d7afeae2e', '2025-09-28'),
+	('25-7D-IT', '33c2b85f-3ce2-4f21-b21b-377cf20b2a21', '2025-09-21'),
+	('25-7D-IT', 'b576b985-26c9-4f86-a465-b683d657f5d7', '2025-09-28'),
 	('25-8A-DT', '07bf233b-a07f-426b-948d-486cbb43b204', '2025-10-12'),
 	('25-8A-DT', '0fb3433e-c64c-425f-b1e3-02d3eac7336c', '2025-11-16'),
 	('25-8A-DT', '513d5ef7-b6a4-4c2c-b5c1-3cca7aef38cc', '2025-09-21'),
@@ -1069,8 +1159,10 @@ INSERT INTO "public"."lesson_assignments" ("group_id", "lesson_id", "start_date"
 	('25-9A-DT', '7ca3caa4-c8b2-4ed4-82e3-51bc15439466', '2025-10-26'),
 	('25-9A-DT', '96f9a9a3-20ad-4166-8368-33919a235436', '2025-11-16'),
 	('25-9A-DT', '9d3dd129-0a25-4f9e-a793-7a6edb45518e', '2025-09-28'),
+	('25-9A-DT', '9e810b7a-7a64-4adf-9d10-c60550273b49', '2025-09-14'),
 	('25-9A-DT', 'a433c9cb-aee5-4280-9b25-62a43ae4a53e', '2025-09-21'),
 	('25-9A-DT', 'bdd6500e-cdfa-475e-9f33-496b5daf98b9', '2025-11-09'),
+	('25-9A-DT', 'dd003478-e764-48a6-b3c5-29449b365cec', '2025-09-07'),
 	('25-9B-DT', '0556b2f1-06f2-4270-b3bb-1e37779145a5', '2025-11-23'),
 	('25-9B-DT', '0b4d75e6-162d-4513-aca7-4ed842aa2f8d', '2025-11-02'),
 	('25-9B-DT', '47cbfb42-2e8d-4ee7-ac0e-b732f95ab8c1', '2025-10-12'),
@@ -1079,8 +1171,10 @@ INSERT INTO "public"."lesson_assignments" ("group_id", "lesson_id", "start_date"
 	('25-9B-DT', '7ca3caa4-c8b2-4ed4-82e3-51bc15439466', '2025-10-26'),
 	('25-9B-DT', '96f9a9a3-20ad-4166-8368-33919a235436', '2025-11-16'),
 	('25-9B-DT', '9d3dd129-0a25-4f9e-a793-7a6edb45518e', '2025-09-28'),
+	('25-9B-DT', '9e810b7a-7a64-4adf-9d10-c60550273b49', '2025-09-14'),
 	('25-9B-DT', 'a433c9cb-aee5-4280-9b25-62a43ae4a53e', '2025-09-21'),
 	('25-9B-DT', 'bdd6500e-cdfa-475e-9f33-496b5daf98b9', '2025-11-09'),
+	('25-9B-DT', 'dd003478-e764-48a6-b3c5-29449b365cec', '2025-09-07'),
 	('25-9C-DT', '0556b2f1-06f2-4270-b3bb-1e37779145a5', '2025-11-23'),
 	('25-9C-DT', '0b4d75e6-162d-4513-aca7-4ed842aa2f8d', '2025-11-02'),
 	('25-9C-DT', '47cbfb42-2e8d-4ee7-ac0e-b732f95ab8c1', '2025-10-12'),
@@ -1089,8 +1183,10 @@ INSERT INTO "public"."lesson_assignments" ("group_id", "lesson_id", "start_date"
 	('25-9C-DT', '7ca3caa4-c8b2-4ed4-82e3-51bc15439466', '2025-10-26'),
 	('25-9C-DT', '96f9a9a3-20ad-4166-8368-33919a235436', '2025-11-16'),
 	('25-9C-DT', '9d3dd129-0a25-4f9e-a793-7a6edb45518e', '2025-09-28'),
+	('25-9C-DT', '9e810b7a-7a64-4adf-9d10-c60550273b49', '2025-09-14'),
 	('25-9C-DT', 'a433c9cb-aee5-4280-9b25-62a43ae4a53e', '2025-09-21'),
 	('25-9C-DT', 'bdd6500e-cdfa-475e-9f33-496b5daf98b9', '2025-11-09'),
+	('25-9C-DT', 'dd003478-e764-48a6-b3c5-29449b365cec', '2025-09-07'),
 	('25-9D-DT', '0556b2f1-06f2-4270-b3bb-1e37779145a5', '2025-11-23'),
 	('25-9D-DT', '0b4d75e6-162d-4513-aca7-4ed842aa2f8d', '2025-11-02'),
 	('25-9D-DT', '47cbfb42-2e8d-4ee7-ac0e-b732f95ab8c1', '2025-10-12'),
@@ -1099,8 +1195,10 @@ INSERT INTO "public"."lesson_assignments" ("group_id", "lesson_id", "start_date"
 	('25-9D-DT', '7ca3caa4-c8b2-4ed4-82e3-51bc15439466', '2025-10-26'),
 	('25-9D-DT', '96f9a9a3-20ad-4166-8368-33919a235436', '2025-11-16'),
 	('25-9D-DT', '9d3dd129-0a25-4f9e-a793-7a6edb45518e', '2025-09-28'),
+	('25-9D-DT', '9e810b7a-7a64-4adf-9d10-c60550273b49', '2025-09-14'),
 	('25-9D-DT', 'a433c9cb-aee5-4280-9b25-62a43ae4a53e', '2025-09-21'),
-	('25-9D-DT', 'bdd6500e-cdfa-475e-9f33-496b5daf98b9', '2025-11-09');
+	('25-9D-DT', 'bdd6500e-cdfa-475e-9f33-496b5daf98b9', '2025-11-09'),
+	('25-9D-DT', 'dd003478-e764-48a6-b3c5-29449b365cec', '2025-09-07');
 
 
 --
@@ -1124,7 +1222,11 @@ INSERT INTO "public"."lesson_success_criteria" ("lesson_id", "success_criteria_i
 	('a1cad678-35ea-4a5b-b799-12ac2eb7c51f', 'f53315cb-f3b0-4328-8133-1f2c91f91bfe'),
 	('cedd9f2e-34c0-46ed-88a5-a3fdfd9fc7cf', 'fa9fc3d7-d789-4aef-b4d9-afc48fa628e3'),
 	('0c60fa60-a7ed-47f5-822e-94b3a02dc3a2', '32c9e025-e8ad-4d50-b25c-c59d2524b0cd'),
-	('0c60fa60-a7ed-47f5-822e-94b3a02dc3a2', '6bfdf9bd-d381-4313-b4b3-d0c6d1968a48');
+	('0c60fa60-a7ed-47f5-822e-94b3a02dc3a2', '6bfdf9bd-d381-4313-b4b3-d0c6d1968a48'),
+	('dd003478-e764-48a6-b3c5-29449b365cec', '54b4e504-7bd3-4133-8d20-39b1ee29181d'),
+	('dd003478-e764-48a6-b3c5-29449b365cec', '5f2b7707-db53-4b6f-9890-fa65f9154e6d'),
+	('9e810b7a-7a64-4adf-9d10-c60550273b49', '54b4e504-7bd3-4133-8d20-39b1ee29181d'),
+	('9e810b7a-7a64-4adf-9d10-c60550273b49', '5f2b7707-db53-4b6f-9890-fa65f9154e6d');
 
 
 --
@@ -1292,11 +1394,13 @@ INSERT INTO "public"."profiles" ("user_id", "first_name", "last_name", "is_teach
 	('3c25ee6f-5212-40ae-9bfe-11d7ddf72fad', 'Raihan', 'Paramban', false),
 	('d38d1069-803b-45c4-8e85-4dc03c0b57fe', 'Haniya', 'Khan', false),
 	('47458c31-68f8-46ec-8746-f96e8573ed80', 'amanda', 'cardenas', false),
+	('cb49f6b3-3942-43ae-85a0-c046e619d9d6', 'Malika', 'Sharaf', false),
 	('2a93e990-de8d-4198-a28a-f9e03f63d0f1', 'Joana', 'Rifat', false),
 	('72280995-c969-4477-a0eb-859b58e3cc02', 'MAYAR', 'ELSHIEKH', false),
 	('43674f5f-609d-4eb4-bbd5-7702e25fd90c', 'Karma', 'Eldessouky', false),
 	('fb6d9eb9-bba1-4c1a-b68c-e6de19560409', 'Safiya', 'khan', false),
 	('655ba3ff-7e8b-48ef-af73-8f8ef09f50c1', 'Yasmin', 'Bendjaballah', false),
+	('dc7001ff-45c8-4e16-9475-38b2da804b87', 'Muhammad', 'Jasim', false),
 	('a150e71f-5456-47c8-9cdc-354cb555375e', 'Adonis', 'Rojas', false),
 	('a9c83066-f970-4ed1-8f7d-639924433f2e', 'Uzair', 'Saeed', false),
 	('dd6b4b3a-6917-4bc0-9b58-074005f446ff', 'Maria', 'Furqan', false),
@@ -1311,9 +1415,11 @@ INSERT INTO "public"."profiles" ("user_id", "first_name", "last_name", "is_teach
 	('061b87c2-7d60-42df-a8ce-64b6bd0a51c0', 'Abdullah', 'Muhammad', false),
 	('6c0e385b-63db-49c1-901c-045a0fab4c2e', 'Mariano', 'Flores Ibarra', false),
 	('123fa306-359e-49cf-ab4f-9d01fa0547e3', 'layla', 'kabel', false),
+	('351935f3-656b-4c74-9122-9098796a9677', 'Hana', 'Atwa', false),
 	('46699a4b-e7ab-4d37-b1d3-9e7d0ea8578b', 'Hasya', 'Zahiyyah', false),
 	('decb53c4-8145-409e-920f-92529df8e1cb', 'Iyed', 'Menacer', false),
 	('70a8b61a-29e6-490c-b817-1c12b5a852ea', 'Eryna', 'Safwan', false),
+	('1bc4f3e0-552b-4d1c-a1a8-809a1a30d982', 'Mumin', 'Ismat', false),
 	('6c0a43fc-b677-4e89-a3a6-8d5a987b91f7', 'Elena', 'Romay', false),
 	('cd922ea2-94e6-4c64-a4d3-d409dcddf89a', 'Maryam', 'Huseynova', false),
 	('c74b5968-eb5d-4913-8c9a-c8d3e712caeb', 'Abrar', 'Latif', false),
@@ -1330,14 +1436,51 @@ INSERT INTO "public"."profiles" ("user_id", "first_name", "last_name", "is_teach
 	('eb0001b7-4a89-4eef-9fb2-c9612fffe809', 'Ali', 'Usman', false),
 	('9c288a10-ca2d-4068-80d6-04bca9462151', 'Felix', 'Salim', false),
 	('0a20f144-ba6c-4eba-99cf-0a796f236738', 'Luana', 'Correa', false),
+	('5a4c5afb-183f-4384-a983-685a130044f4', 'Ezaan', 'Khawaja', false),
+	('892cdae9-dc52-4696-88e8-f876f95cc305', 'Laila', 'Shaheen', false),
+	('12459f9a-f630-4aa3-8099-ac4d98bf0f13', 'Maria', 'Haboune', false),
 	('0a7ac8b1-d098-47b8-859c-76287cdb317b', 'Aderinsola', 'Aremu', false),
 	('18afaf36-2649-4e4f-b21f-1b9c58e1a6ac', 'Naya', 'Abu-Ghazaleh', false),
 	('f7afb571-80b2-4ddd-996c-c88a55e7ad97', 'Alinur', 'Aliken', false),
 	('4459487d-e00e-4ffb-ae6c-778a55eaba4c', 'Mert', 'Birecikli', false),
 	('6bbc6a35-167e-436e-8e09-456b046ae1bf', 'Sanae', 'Bouchekif', false),
+	('255b0b13-9462-4f1c-b7f3-2c2da194e11c', 'Safiya', 'Bissengaliyeva', false),
 	('973f80b1-aa45-4cf1-bc45-7db8d5d69a56', 'Adam', 'Hedaia', false),
 	('451acd3e-8a29-4ce9-a5b2-cf2f568a9f0b', 'Jayden', 'Erebor', false),
-	('37077463-85c3-4918-80b0-e6bf5ffac82c', 'Jasmin', 'Hammoudeh', false);
+	('37077463-85c3-4918-80b0-e6bf5ffac82c', 'Jasmin', 'Hammoudeh', false),
+	('56cec57f-298f-474e-9156-efd46b3d6e5b', 'Alba', 'Gaughan', false),
+	('81ae3b82-97c3-412d-9081-79ab01bad4f7', 'Arhaan', 'Mohabir', false),
+	('296bc5d4-2316-44e4-b619-77b18ad8187a', 'Amanda', 'Wee', false),
+	('3b3243b1-2a90-4ef7-8be9-2671053fa499', 'Hamza', 'Saeed', false),
+	('664e7417-d6a6-4234-a294-1236e49ee813', 'Logan', 'Diener', false),
+	('78df1414-b07d-4bb1-a975-888976f0cec3', 'Zaid', 'Hamad', false),
+	('724adbe5-ed2f-41d3-9c6d-c4b6ef713bef', 'Talia', 'Alkhateeb', false),
+	('aa0c3979-03ee-4683-a11d-ed3bd265ac71', 'Sofia', 'Cholovskaya', false),
+	('1bf70daa-7d8d-4a08-86bc-c60d1f639144', 'haram', 'farooq', false),
+	('ce965175-ccbf-4472-9d6e-1f77125fbaef', 'saif', 'mir', false),
+	('0fb2b917-e310-4724-817f-5e1cf7508b9d', 'Yassine', 'Othman', false),
+	('10b3aadf-d1e6-4087-9338-be2904da256e', 'Lama', 'Alameddine', false),
+	('759de2b8-d6d6-4c15-9974-d2afc54fc49f', 'Raza', 'Saeed', false),
+	('d6915c34-31b9-4225-9597-772452fc07bc', 'serena', 'taleb', false),
+	('a21f4f66-871a-4119-b1b9-9cac07526fc2', 'Muhammad', 'Umer', false),
+	('0b7daafd-2fad-4638-8936-6004b4ba3575', 'SULEYMAN', 'VALIYEV', false),
+	('bb22e5df-6b70-45bb-ada3-7e7a4f63984d', 'Hani', 'Dakhia', false),
+	('1f5cd3b2-9bc7-42d1-9610-6888fc2663d4', 'Farida', 'Metwally', false),
+	('4284fdc3-83c4-46bf-b991-aa721c6265f8', 'Abdulrahman', 'Al-Zoubi', false),
+	('58d719a3-c060-4a62-8032-5e0f96167a9c', 'Anaya', 'Haider', false),
+	('81ede5d3-7f5b-43f2-be8d-56df25dddb62', 'Linda', 'Aboelela', false),
+	('a05e7fc3-20c5-4a0a-a26b-118e23c866c3', 'malak', 'elkholy', false),
+	('607b28a9-f095-4e5f-8da0-fb92a9ed368f', 'Khalifa', 'Agnia', false),
+	('5ddc5f8b-e70c-40ce-84b8-a03f58dec57d', 'Sara', 'Abou Hechme', false),
+	('2dc65039-db93-46af-aeec-b0ac2ffa2a9c', 'Azaan', 'Vajid', false),
+	('ffd45e59-2893-4f2b-90a2-4c20eb3e5eb9', 'Muhammad', 'Kashif', false),
+	('6252da5f-5352-44c9-9fe3-5cf73fbf2bb3', 'yousef', 'Radwan', false),
+	('3bba498c-145d-401e-9196-1f8c67ccf30e', 'Ibrahim', 'Raza', false),
+	('a4962c40-be52-4b68-9795-ee5b8cfbd3e6', 'Rafi', 'Al Saadi', false),
+	('7ae4eb4c-c279-4fc1-8243-e4ca467914db', 'ibrahim', 'bahomed', false),
+	('bcb8c5d1-ccb9-4c76-a728-c0af5aef3410', 'Tasnim', 'Souiai', false),
+	('c8f8ecc7-2257-40b7-9d44-21985375c591', 'Tomas', 'Aguirre', false),
+	('720174a7-fd1c-443c-a9b4-70f0589328cf', 'Azaa', 'Mahmud', false);
 
 
 --
@@ -1556,7 +1699,9 @@ INSERT INTO "storage"."objects" ("id", "bucket_id", "name", "owner", "created_at
 	('308b3e65-a230-487f-8180-46982b221971', 'lessons', 'a1cad678-35ea-4a5b-b799-12ac2eb7c51f/Assessment Question.jpeg', '50304a54-2c10-44a1-8c87-b3535a960e28', '2025-10-11 12:27:09.792028+00', '2025-10-11 12:27:09.792028+00', '2025-10-11 12:27:09.792028+00', '{"eTag": "\"3cfff59727875c7066f4eec172ee5a61\"", "size": 301559, "mimetype": "image/jpeg", "cacheControl": "max-age=3600", "lastModified": "2025-10-11T12:27:10.000Z", "contentLength": 301559, "httpStatusCode": 200}', '77dd31a0-83c9-488e-9cda-8ff7140e5d02', '50304a54-2c10-44a1-8c87-b3535a960e28', '{}', 2),
 	('8d8b4301-e264-4d28-9be1-322401889c78', 'lessons', 'a1cad678-35ea-4a5b-b799-12ac2eb7c51f/Blank Worksheet with Grid.pptx', '50304a54-2c10-44a1-8c87-b3535a960e28', '2025-10-11 12:27:37.625801+00', '2025-10-11 12:27:37.625801+00', '2025-10-11 12:27:37.625801+00', '{"eTag": "\"ec396c293ffe1a301ffdf64e561bdb81\"", "size": 32277, "mimetype": "application/vnd.openxmlformats-officedocument.presentationml.presentation", "cacheControl": "max-age=3600", "lastModified": "2025-10-11T12:27:38.000Z", "contentLength": 32277, "httpStatusCode": 200}', '1a527e97-0ddd-4b77-a774-f0b7ea582621', '50304a54-2c10-44a1-8c87-b3535a960e28', '{}', 2),
 	('068414fb-bf7b-4290-b256-0823b179f02d', 'lessons', 'lessons/8115af17-90c5-4e35-aa58-722afd856ace/activities/f46a30c5-6ea6-474b-b086-02e434cad5f5/practice_1.jpeg', '50304a54-2c10-44a1-8c87-b3535a960e28', '2025-10-11 13:01:54.977244+00', '2025-10-11 13:01:54.977244+00', '2025-10-11 13:01:54.977244+00', '{"eTag": "\"05ece44a1ffcd10dd5e31d70124d85af\"", "size": 28812, "mimetype": "image/jpeg", "cacheControl": "max-age=3600", "lastModified": "2025-10-11T13:01:55.000Z", "contentLength": 28812, "httpStatusCode": 200}', '95741580-d872-44af-86cb-a5390ddcd3ed', '50304a54-2c10-44a1-8c87-b3535a960e28', '{}', 5),
-	('12dda46f-12b4-44fc-b2ed-4f2e6d2f5921', 'lessons', 'lessons/8115af17-90c5-4e35-aa58-722afd856ace/activities/8583feed-2f15-4b02-afda-4c0de41a0417/practice_1.jpeg', '50304a54-2c10-44a1-8c87-b3535a960e28', '2025-10-11 13:02:19.44121+00', '2025-10-11 13:02:19.44121+00', '2025-10-11 13:02:19.44121+00', '{"eTag": "\"05ece44a1ffcd10dd5e31d70124d85af\"", "size": 28812, "mimetype": "image/jpeg", "cacheControl": "max-age=3600", "lastModified": "2025-10-11T13:02:20.000Z", "contentLength": 28812, "httpStatusCode": 200}', 'c4dd70ec-77ba-4d72-8476-6f43f5a48ebf', '50304a54-2c10-44a1-8c87-b3535a960e28', '{}', 5);
+	('12dda46f-12b4-44fc-b2ed-4f2e6d2f5921', 'lessons', 'lessons/8115af17-90c5-4e35-aa58-722afd856ace/activities/8583feed-2f15-4b02-afda-4c0de41a0417/practice_1.jpeg', '50304a54-2c10-44a1-8c87-b3535a960e28', '2025-10-11 13:02:19.44121+00', '2025-10-11 13:02:19.44121+00', '2025-10-11 13:02:19.44121+00', '{"eTag": "\"05ece44a1ffcd10dd5e31d70124d85af\"", "size": 28812, "mimetype": "image/jpeg", "cacheControl": "max-age=3600", "lastModified": "2025-10-11T13:02:20.000Z", "contentLength": 28812, "httpStatusCode": 200}', 'c4dd70ec-77ba-4d72-8476-6f43f5a48ebf', '50304a54-2c10-44a1-8c87-b3535a960e28', '{}', 5),
+	('c729d970-15a6-495a-9ca4-fa52ef0f7fc0', 'units', 'KS3-QUICK-DESIGN/Quick Design Process.pptx', '50304a54-2c10-44a1-8c87-b3535a960e28', '2025-10-15 11:18:44.407177+00', '2025-10-15 11:18:44.407177+00', '2025-10-15 11:18:44.407177+00', '{"eTag": "\"b484651e34065bff336c0cd2f4bee1fe\"", "size": 2424754, "mimetype": "application/vnd.openxmlformats-officedocument.presentationml.presentation", "cacheControl": "max-age=3600", "lastModified": "2025-10-15T11:18:45.000Z", "contentLength": 2424754, "httpStatusCode": 200}', 'f8b37be5-4021-4ce1-bd84-592cd4134b5d', '50304a54-2c10-44a1-8c87-b3535a960e28', '{}', 2),
+	('02fdd4cd-ab10-421f-9641-68cdacb99839', 'units', 'KS3-QUICK-DESIGN/Quick Design Sheet.pptx', '50304a54-2c10-44a1-8c87-b3535a960e28', '2025-10-15 11:18:47.520516+00', '2025-10-15 11:18:47.520516+00', '2025-10-15 11:18:47.520516+00', '{"eTag": "\"ce2f10637c700671d847d909007d1be1\"", "size": 51994, "mimetype": "application/vnd.openxmlformats-officedocument.presentationml.presentation", "cacheControl": "max-age=3600", "lastModified": "2025-10-15T11:18:48.000Z", "contentLength": 51994, "httpStatusCode": 200}', 'c2657b9b-fbeb-4493-b071-db132ef22e4f', '50304a54-2c10-44a1-8c87-b3535a960e28', '{}', 2);
 
 
 --
@@ -1609,7 +1754,8 @@ INSERT INTO "storage"."prefixes" ("bucket_id", "name", "created_at", "updated_at
 	('lessons', 'lessons/8115af17-90c5-4e35-aa58-722afd856ace', '2025-10-11 13:01:54.977244+00', '2025-10-11 13:01:54.977244+00'),
 	('lessons', 'lessons/8115af17-90c5-4e35-aa58-722afd856ace/activities', '2025-10-11 13:01:54.977244+00', '2025-10-11 13:01:54.977244+00'),
 	('lessons', 'lessons/8115af17-90c5-4e35-aa58-722afd856ace/activities/f46a30c5-6ea6-474b-b086-02e434cad5f5', '2025-10-11 13:01:54.977244+00', '2025-10-11 13:01:54.977244+00'),
-	('lessons', 'lessons/8115af17-90c5-4e35-aa58-722afd856ace/activities/8583feed-2f15-4b02-afda-4c0de41a0417', '2025-10-11 13:02:19.44121+00', '2025-10-11 13:02:19.44121+00');
+	('lessons', 'lessons/8115af17-90c5-4e35-aa58-722afd856ace/activities/8583feed-2f15-4b02-afda-4c0de41a0417', '2025-10-11 13:02:19.44121+00', '2025-10-11 13:02:19.44121+00'),
+	('units', 'KS3-QUICK-DESIGN', '2025-10-15 11:18:44.407177+00', '2025-10-15 11:18:44.407177+00');
 
 
 --
@@ -1635,6 +1781,6 @@ SELECT pg_catalog.setval('"public"."feedback_id_seq"', 810, true);
 -- PostgreSQL database dump complete
 --
 
--- \unrestrict BFdsUjZlc2hBQ8TRowlMo4bM4PRKacT5YLjwsnn0rRaFUxYghkfnuYsZ4es2F0n
+-- \unrestrict 2VJXA3g5GgVaHZgAxOQeFRvsvVQjRgsjeTOnrWWvhdtizNI38hg2pEmv4X7D1nT
 
 RESET ALL;

@@ -21,7 +21,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "sonner"
 import {
@@ -753,12 +752,11 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
           </div>
         </div>
       </div>
-
       <Sheet open={selection !== null} onOpenChange={(open) => !open && closeSheet()}>
-        <SheetContent side="right" className="w-full sm:max-w-md">
+        <SheetContent side="right" className="w-full sm:max-w-md p-6">
           {selection ? (
             <>
-              <SheetHeader className="px-0">
+              <SheetHeader className="p-0">
                 <SheetTitle>
                   {selection.activity.title} • {selection.row.pupil.displayName}
                 </SheetTitle>
@@ -770,44 +768,38 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                 </SheetDescription>
               </SheetHeader>
 
-              <div className="flex flex-col gap-4 px-0">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Current score</span>
+              <div className="flex flex-col gap-4">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-3xl font-semibold text-foreground">
+                    {formatPercent(selection.cell.score ?? null)}
+                  </span>
                   <Badge variant={selection.cell.status === "override" ? "default" : "secondary"}>
                     {selection.cell.status === "override" ? "Override" : "Auto"}
                   </Badge>
                 </div>
-                <div className="text-3xl font-semibold text-foreground">
-                  {formatPercent(selection.cell.score ?? null)}
-                </div>
 
                 {selection.activity.successCriteria.length > 0 ? (
-                  <div className="space-y-2">
-                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      Current per-criterion scores
-                    </p>
-                    <div className="space-y-1 rounded-md border border-border/50 bg-muted/40 p-2">
-                      {selection.activity.successCriteria.map((criterion) => {
-                        const label =
-                          criterion.title?.trim() && criterion.title.trim().length > 0
-                            ? criterion.title.trim()
-                            : criterion.description?.trim() && criterion.description.trim().length > 0
-                              ? criterion.description.trim()
-                              : criterion.successCriteriaId
-                        const value = selection.cell.successCriteriaScores[criterion.successCriteriaId]
-                        return (
-                          <div
-                            key={criterion.successCriteriaId}
-                            className="flex items-center justify-between text-xs"
-                          >
-                            <span className="text-muted-foreground">{label}</span>
-                            <span className="font-semibold text-foreground">
-                              {formatPercent(typeof value === "number" ? value : null)}
-                            </span>
-                          </div>
-                        )
-                      })}
-                    </div>
+                  <div className="space-y-1 rounded-md border border-border/50 bg-muted/40 p-2">
+                    {selection.activity.successCriteria.map((criterion) => {
+                      const label =
+                        criterion.title?.trim() && criterion.title.trim().length > 0
+                          ? criterion.title.trim()
+                          : criterion.description?.trim() && criterion.description.trim().length > 0
+                            ? criterion.description.trim()
+                            : criterion.successCriteriaId
+                      const value = selection.cell.successCriteriaScores[criterion.successCriteriaId]
+                      return (
+                        <div
+                          key={criterion.successCriteriaId}
+                          className="flex items-center justify-between text-xs"
+                        >
+                          <span className="text-muted-foreground">{label}</span>
+                          <span className="font-semibold text-foreground">
+                            {formatPercent(typeof value === "number" ? value : null)}
+                          </span>
+                        </div>
+                      )
+                    })}
                   </div>
                 ) : null}
 
@@ -853,26 +845,40 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                             : criterion.description?.trim() && criterion.description.trim().length > 0
                               ? criterion.description.trim()
                               : criterionId
+                        const draftValueRaw = criterionDrafts[criterionId]
+                        const draftValue =
+                          typeof draftValueRaw === "string" && draftValueRaw.trim().length > 0
+                            ? Number.parseFloat(draftValueRaw)
+                            : null
                         return (
-                          <div key={criterionId} className="space-y-1">
-                            <label className="text-xs font-semibold text-muted-foreground" htmlFor={`criterion-${criterionId}`}>
-                              {label}
-                            </label>
-                            <Input
-                              id={`criterion-${criterionId}`}
-                              type="number"
-                              min={0}
-                              max={1}
-                              step={0.01}
-                              value={criterionDrafts[criterionId] ?? ""}
-                              onChange={(event) => {
-                                const value = event.target.value
-                                setCriterionDrafts((previous) => ({
-                                  ...previous,
-                                  [criterionId]: value,
-                                }))
-                              }}
-                            />
+                          <div key={criterionId} className="space-y-2">
+                            <p className="text-xs font-semibold text-muted-foreground">{label}</p>
+                            <div className="grid grid-cols-3 gap-2">
+                              {[
+                                { label: "0", value: 0 },
+                                { label: "Partial", value: 0.5 },
+                                { label: "Full", value: 1 },
+                              ].map((option) => {
+                                const isActive = draftValue === option.value
+                                return (
+                                  <Button
+                                    key={option.label}
+                                    type="button"
+                                    size="sm"
+                                    variant={isActive ? "default" : "outline"}
+                                    aria-pressed={isActive}
+                                    onClick={() => {
+                                      setCriterionDrafts((previous) => ({
+                                        ...previous,
+                                        [criterionId]: option.value.toFixed(2),
+                                      }))
+                                    }}
+                                  >
+                                    {option.label}
+                                  </Button>
+                                )
+                              })}
+                            </div>
                           </div>
                         )
                       })}
