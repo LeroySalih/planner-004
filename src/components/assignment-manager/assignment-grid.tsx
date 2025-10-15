@@ -39,6 +39,8 @@ const NEGATIVE_SEGMENT_COLOR = "#fecaca"
 const UNMARKED_SEGMENT_COLOR = "#e5e7eb"
 const LESSON_TITLE_COLOR = "#0f172a"
 const LESSON_DETAIL_COLOR = "#334155"
+const GROUP_COLUMN_WIDTH = "12rem"
+const WEEK_COLUMN_WIDTH = "8rem"
 
 export function AssignmentGrid({
   groups,
@@ -374,10 +376,19 @@ export function AssignmentGrid({
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
-            <table className="w-full border-collapse">
+            <table className="w-full table-fixed border-collapse">
+              <colgroup>
+                <col style={{ width: GROUP_COLUMN_WIDTH }} />
+                {weekStarts.map((_, index) => (
+                  <col key={index} style={{ width: WEEK_COLUMN_WIDTH }} />
+                ))}
+              </colgroup>
               <thead>
                 <tr>
-                  <th className="sticky left-0 bg-muted p-3 text-left font-semibold border border-border min-w-32">
+                  <th
+                    className="sticky left-0 bg-muted p-3 text-left font-semibold border border-border"
+                    style={{ width: GROUP_COLUMN_WIDTH }}
+                  >
                     <div className="space-y-2">
                       <div>Group ID</div>
                       <button
@@ -389,7 +400,11 @@ export function AssignmentGrid({
                     </div>
                   </th>
                   {weekStarts.map((weekStart, index) => (
-                    <th key={index} className="p-3 text-center font-semibold border border-border min-w-32 bg-muted">
+                    <th
+                      key={index}
+                      className="p-3 text-center font-semibold border border-border bg-muted"
+                      style={{ width: WEEK_COLUMN_WIDTH }}
+                    >
                       <div className="text-sm">{formatWeekStart(weekStart)}</div>
                     </th>
                   ))}
@@ -404,6 +419,7 @@ export function AssignmentGrid({
                         <td
                           rowSpan={maxTracks}
                           className="sticky left-0 bg-background p-3 font-medium border border-border align-top"
+                          style={{ width: GROUP_COLUMN_WIDTH }}
                         >
                           <div className="flex flex-col">
                             <button
