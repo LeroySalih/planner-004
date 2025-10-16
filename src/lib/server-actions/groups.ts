@@ -17,6 +17,15 @@ const GroupsReturnValue = z.object({
   error: z.string().nullable(),
 })
 
+const RemoveGroupMemberInputSchema = z.object({
+  groupId: z.string().min(1),
+  userId: z.string().min(1),
+})
+
+const RemoveGroupMemberReturnSchema = z.object({
+  success: z.boolean(),
+  error: z.string().nullable(),
+})
 
 export type GroupActionResult = z.infer<typeof GroupReturnValue>
 
@@ -184,4 +193,43 @@ export async function deleteGroupAction(groupId: string) {
 
   revalidatePath("/")
   return { success: true, groupId }
+}
+
+export async function removeGroupMemberAction(input: { groupId: string; userId: string }) {
+  const parsed = RemoveGroupMemberInputSchema.safeParse(input)
+  if (!parsed.success) {
+    return RemoveGroupMemberReturnSchema.parse({
+      success: false,
+      error: "Invalid group member removal payload.",
+    })
+  }
+
+  const { groupId, userId } = parsed.data
+
+  console.log("[v0] Server action started for removing group member:", { groupId, userId })
+
+  const supabase = await createSupabaseServerClient()
+  const { error } = await supabase
+    .from("group_membership")
+    .delete()
+    .eq("group_id", groupId)
+    .eq("user_id", userId)
+
+  if (error) {
+    console.error("[v0] Server action failed for removing group member:", { groupId, userId, error })
+    return RemoveGroupMemberReturnSchema.parse({
+      success: false,
+      error: "Unable to remove pupil from group.",
+    })
+  }
+
+  revalidatePath(`/groups/${groupId}`)
+  revalidatePath("/groups")
+
+  console.log("[v0] Server action completed for removing group member:", { groupId, userId })
+
+  return RemoveGroupMemberReturnSchema.parse({
+    success: true,
+    error: null,
+  })
 }

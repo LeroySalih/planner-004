@@ -1,5 +1,10 @@
 # Dino
 ## Releases 
+### Release 0.0.18
+- `/results/assignments/[assignmentId]`: Converted the header cards into collapsible detail panels, surfaced the overall average inline, and tightened missing-submission counts with email fallbacks when pupil names are absent.
+- Assignment results pipeline now enriches each pupil with Supabase Auth emails (using the service role key) and extends the shared Zod schema so UI can display them safely.
+- `/groups/[groupId]`: Added per-pupil remove buttons backed by a new server action that detaches group membership without deleting learner profiles; list and detail pages revalidate after each removal.
+
 ### Release 0.0.17
 - Results sidebar now lets teachers override scores and feedback even when no learner submission exists by creating a teacher-authored submission on save.
 - Override flow updates submissions in Supabase and adjusts MCQ/short-text payloads, including neutral handling of placeholder answers.

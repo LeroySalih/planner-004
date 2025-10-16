@@ -4,6 +4,7 @@ export {
   readGroupsAction,
   updateGroupAction,
   deleteGroupAction,
+  removeGroupMemberAction,
   type GroupActionResult,
 } from "./server-actions/groups"
 
