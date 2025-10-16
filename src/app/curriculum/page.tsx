@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic"
 import { readCurriculaAction, readSubjectsAction } from "@/lib/server-updates"
 import { CurriculumPageClient } from "./curriculum-page-client"
 import { requireTeacherProfile } from "@/lib/auth"
+import { Suspense } from "react"
 
 export default async function CurriculumIndexPage() {
   await requireTeacherProfile()
@@ -18,5 +19,6 @@ export default async function CurriculumIndexPage() {
       error={curriculaResult.error ?? null}
       subjectsError={subjectsResult.error ?? null}
     />
+    
   )
 }

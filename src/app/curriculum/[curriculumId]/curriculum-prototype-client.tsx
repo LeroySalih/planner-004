@@ -1319,6 +1319,9 @@ export default function CurriculumPrototypeClient({
                           }
 
                           const handleCriterionKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+                            if (event.currentTarget !== event.target) {
+                              return
+                            }
                             if (event.key === " ") {
                               event.preventDefault()
                               toggleCriterionSelection(sc.id, !isSelected)
