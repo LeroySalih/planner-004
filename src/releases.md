@@ -1,5 +1,10 @@
 # Dino
 ## Releases 
+### Release 0.0.17
+- Results sidebar now lets teachers override scores and feedback even when no learner submission exists by creating a teacher-authored submission on save.
+- Override flow updates submissions in Supabase and adjusts MCQ/short-text payloads, including neutral handling of placeholder answers.
+- UI clarifies the new behaviour with guidance copy, optimistic state updates, and continued access to resets once overrides are in place.
+
 ### Release 0.0.16
 - Working on github test flows.
 

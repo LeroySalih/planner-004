@@ -193,8 +193,8 @@ function recalculateMatrix(
 }
 
 function getSubmissionGuard(cell: AssignmentResultCell) {
-  if (!cell.submissionId) {
-    return "No submission available to override yet."
+  if (!cell.submissionId && cell.status !== "override") {
+    return "No submission available to reset yet."
   }
   return null
 }
@@ -319,12 +319,6 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       return
     }
 
-    const submissionGuard = getSubmissionGuard(selection.cell)
-    if (submissionGuard) {
-      toast.error(submissionGuard)
-      return
-    }
-
     const parsedCriterionScores: Record<string, number> = {}
 
     for (const criterion of criteria) {
@@ -367,9 +361,11 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       }
 
       const submittedAt = new Date().toISOString()
+      const newSubmissionId = result.submissionId ?? selection.cell.submissionId ?? null
 
       applyCellUpdate((cell) => ({
         ...cell,
+        submissionId: newSubmissionId,
         score: parsedAverage,
         overrideScore: parsedAverage,
         status: "override",
@@ -385,6 +381,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
           ...current,
           cell: {
             ...current.cell,
+            submissionId: newSubmissionId,
             score: parsedAverage,
             overrideScore: parsedAverage,
             status: "override",
@@ -937,9 +934,9 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                       </div>
 
                       {!selection.cell.submissionId ? (
-                        <div className="rounded-md border border-dashed border-muted-foreground/40 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                          This activity has not recorded a submission for the pupil yet. Save and reset actions are disabled
-                          until a submission exists.
+                        <div className="rounded-md border border-dashed border-amber-500/40 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                          No learner submission has been recorded yet. Saving an override will create a submission on behalf
+                          of the pupil so you can capture scores and feedback.
                         </div>
                       ) : null}
                     </div>
@@ -949,7 +946,6 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                         onClick={handleOverrideSubmit}
                         disabled={
                           isOverridePending
-                          || !selection.cell.submissionId
                           || draftAverage === null
                           || selection.activity.successCriteria.length === 0
                         }
