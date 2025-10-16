@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
+import { createClient } from "@supabase/supabase-js"
 
 import {
   AssignmentResultActivitySchema,
@@ -455,6 +456,7 @@ export async function readAssignmentResultsAction(assignmentId: string) {
     const pupilIds = pupilMemberships.map((entry) => entry.user_id).filter((id): id is string => Boolean(id))
 
     const profilesByUserId = new Map<string, { firstName: string | null; lastName: string | null }>()
+    const emailByUserId = new Map<string, string>()
 
     if (pupilIds.length > 0) {
       const { data: profileRows, error: profileError } = await supabase
@@ -475,6 +477,50 @@ export async function readAssignmentResultsAction(assignmentId: string) {
       }
     }
 
+    const supabaseUrl =
+      process.env.NEXT_PUBLIC_SUPABASE_URL ??
+      process.env.NEXT_SUPABASE_URL ??
+      process.env.SUPABASE_URL ??
+      process.env.PUBLIC_SUPABASE_URL ??
+      null
+    const supabaseServiceRoleKey =
+      process.env.SUPABASE_SERVICE_ROLE_KEY ??
+      process.env.SERVICE_ROLE_KEY ??
+      process.env.SUPABASE_SERVICE_KEY ??
+      null
+
+    if (supabaseUrl && supabaseServiceRoleKey && pupilIds.length > 0) {
+      try {
+        const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
+          auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+          },
+          db: {
+            schema: "auth",
+          },
+        })
+
+        const { data: authUsers, error: authError } = await supabaseAdmin
+          .from("users")
+          .select("id, email")
+          .in("id", pupilIds)
+
+        if (authError) {
+          console.error("[assignment-results] Failed to load pupil emails from auth.users:", authError)
+        } else {
+          for (const user of authUsers ?? []) {
+            const email = typeof user?.email === "string" ? user.email.trim() : ""
+            if (email.length > 0 && typeof user?.id === "string") {
+              emailByUserId.set(user.id, email)
+            }
+          }
+        }
+      } catch (error) {
+        console.error("[assignment-results] Unexpected error loading pupil emails:", error)
+      }
+    }
+
     const pupils = pupilIds
       .map((userId) => {
         const profile = profilesByUserId.get(userId) ?? null
@@ -484,6 +530,7 @@ export async function readAssignmentResultsAction(assignmentId: string) {
           displayName,
           firstName: profile?.firstName ?? null,
           lastName: profile?.lastName ?? null,
+          email: emailByUserId.get(userId) ?? null,
         }
       })
       .sort((a, b) => a.displayName.localeCompare(b.displayName, undefined, { sensitivity: "base" }))

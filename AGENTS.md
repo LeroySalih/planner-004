@@ -41,7 +41,7 @@ This guide captures the working knowledge future coding agents need to extend th
 ## Testing & Quality
 - There are no end to end tests.
 - There are no unit test utilities yet; if you introduce them, document their usage here and wire them into `npm run test`.
-- Run `npm run lint` (Next/ESLint) and `npm run test` (Playwright) before surfacing changes. For flaky UI steps, capture traces with `TRACE=1 npm run test`.
+- Do not run `npm run lint` (Next/ESLint) and `npm run test` (Playwright) before surfacing changes. For flaky UI steps, capture traces with `TRACE=1 npm run test`.
 
 ## Tooling & Workflows
 - Scripts in `package.json` cover the usual dev, build, lint, and test tasks. Database helpers (`db:pull`, `db:push`, `db:diff`) assume Supabase CLI setup.

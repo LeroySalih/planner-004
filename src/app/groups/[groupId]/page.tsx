@@ -2,7 +2,9 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 
 import { readGroupAction } from "@/lib/server-updates"
+import { removeGroupMemberAction } from "@/lib/server-actions/groups"
 import { requireTeacherProfile } from "@/lib/auth"
+import { Button } from "@/components/ui/button"
 
 const roleLabelMap: Record<string, string> = {
   pupil: "Pupil",
@@ -41,6 +43,21 @@ export default async function GroupDetailPage({
     })
     .sort((a, b) => a.displayName.localeCompare(b.displayName))
 
+  async function handleRemovePupil(formData: FormData) {
+    "use server"
+
+    const userId = formData.get("userId")
+    if (typeof userId !== "string" || userId.trim().length === 0) {
+      return
+    }
+
+    const outcome = await removeGroupMemberAction({ groupId, userId })
+    if (!outcome.success) {
+      console.error("[groups] Failed to remove pupil from group:", { groupId, userId, error: outcome.error })
+      throw new Error(outcome.error ?? "Unable to remove pupil from group.")
+    }
+  }
+
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-6 py-10 text-slate-900">
       <div className="mb-6 text-sm text-slate-600">
@@ -77,7 +94,7 @@ export default async function GroupDetailPage({
               {pupils.map((member) => (
                 <li
                   key={member.user_id}
-                  className="flex items-center justify-between rounded-md border border-border/60 bg-background px-3 py-2"
+                  className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-background px-3 py-2"
                 >
                   <div className="flex flex-col">
                     <Link
@@ -90,9 +107,17 @@ export default async function GroupDetailPage({
                       <span className="text-xs text-slate-500">{member.user_id}</span>
                     ) : null}
                   </div>
-                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                    {roleLabelMap[member.role.toLowerCase()] ?? member.role}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                      {roleLabelMap[member.role.toLowerCase()] ?? member.role}
+                    </span>
+                    <form action={handleRemovePupil} className="flex items-center">
+                      <input type="hidden" name="userId" value={member.user_id} />
+                      <Button type="submit" variant="outline" size="sm" className="text-xs">
+                        Remove
+                      </Button>
+                    </form>
+                  </div>
                 </li>
               ))}
             </ul>
