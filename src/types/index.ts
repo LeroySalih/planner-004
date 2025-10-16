@@ -461,6 +461,7 @@ export const AssignmentResultPupilSchema = z.object({
     displayName: z.string(),
     firstName: z.string().nullable().optional(),
     lastName: z.string().nullable().optional(),
+    email: z.string().email().nullable().optional(),
 });
 
 export const AssignmentResultActivitySuccessCriterionSchema = z.object({

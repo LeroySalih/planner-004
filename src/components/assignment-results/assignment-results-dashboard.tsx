@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
+import { ChevronDown } from "lucide-react"
 import {
   AssignmentResultActivity,
   AssignmentResultActivitySummary,
@@ -13,7 +14,6 @@ import {
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
@@ -197,6 +197,32 @@ function getSubmissionGuard(cell: AssignmentResultCell) {
     return "No submission available to reset yet."
   }
   return null
+}
+
+function resolvePupilLabels(pupil: AssignmentResultRow["pupil"]) {
+  const email = (pupil.email ?? "").trim()
+  const hasProfileName =
+    Boolean((pupil.firstName ?? "").trim().length > 0) ||
+    Boolean((pupil.lastName ?? "").trim().length > 0)
+
+  const primaryLabel = hasProfileName
+    ? pupil.displayName
+    : email.length > 0
+      ? email
+      : pupil.displayName
+
+  let secondaryLabel: string | null = null
+  if (hasProfileName) {
+    secondaryLabel = pupil.userId
+  } else if (email.length === 0 && pupil.displayName !== pupil.userId) {
+    secondaryLabel = pupil.userId
+  }
+
+  if (secondaryLabel && secondaryLabel === primaryLabel) {
+    secondaryLabel = null
+  }
+
+  return { primaryLabel, secondaryLabel }
 }
 
 export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResultMatrix }) {
@@ -531,47 +557,53 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
         </div>
 
         <div className="grid gap-3 md:grid-cols-3">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-muted-foreground">Assignment context</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div>
-                <p className="text-lg font-semibold text-foreground">
-                  {matrixState.lesson?.title ?? "Lesson unavailable"}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Group {matrixState.group?.groupId ?? "—"}
-                  {matrixState.group?.subject ? ` · ${matrixState.group.subject}` : ""}
-                </p>
+          <details className="group rounded-lg border border-border bg-card text-sm">
+            <summary className="flex list-none cursor-pointer items-center justify-between gap-2 px-4 py-3 text-left font-semibold text-muted-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden">
+              <span>Assignment context</span>
+              <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:-rotate-180" />
+            </summary>
+            <div className="border-t border-border/60 px-4 py-4">
+              <div className="space-y-3 text-sm">
+                <div>
+                  <p className="text-lg font-semibold text-foreground">
+                    {matrixState.lesson?.title ?? "Lesson unavailable"}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Group {matrixState.group?.groupId ?? "—"}
+                    {matrixState.group?.subject ? ` · ${matrixState.group.subject}` : ""}
+                  </p>
+                </div>
+                <div className="space-y-1 text-sm">
+                  <p>
+                    <span className="font-medium text-muted-foreground">Group ID:</span>{" "}
+                    <span className="text-foreground">{matrixState.group?.groupId ?? "Not available"}</span>
+                  </p>
+                  <p>
+                    <span className="font-medium text-muted-foreground">Lesson ID:</span>{" "}
+                    <span className="text-foreground">{matrixState.lesson?.lessonId ?? "Not available"}</span>
+                  </p>
+                </div>
               </div>
-              <div className="space-y-1 text-sm">
-                <p>
-                  <span className="font-medium text-muted-foreground">Group ID:</span>{" "}
-                  <span className="text-foreground">{matrixState.group?.groupId ?? "Not available"}</span>
-                </p>
-                <p>
-                  <span className="font-medium text-muted-foreground">Lesson ID:</span>{" "}
-                  <span className="text-foreground">{matrixState.lesson?.lessonId ?? "Not available"}</span>
-                </p>
+            </div>
+          </details>
+          <details className="group rounded-lg border border-border bg-card text-sm">
+            <summary className="flex list-none cursor-pointer items-center justify-between gap-2 px-4 py-3 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden">
+              <div className="space-y-0.5">
+                <span className="text-sm font-semibold text-muted-foreground">Score overview</span>
+                <span className="text-xs text-muted-foreground">Overall average</span>
               </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2 flex flex-col gap-1">
-              <CardTitle className="text-sm text-muted-foreground">Score overview</CardTitle>
+              <div className="flex items-center gap-2">
+                <span className="text-3xl font-semibold text-foreground">{overallAverageLabel}</span>
+                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:-rotate-180" />
+              </div>
+            </summary>
+            <div className="space-y-3 border-t border-border/60 px-4 py-4">
               <p className="text-xs text-muted-foreground">
                 Overall lesson average with linked success criteria summaries.
               </p>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <p className="text-xs uppercase text-muted-foreground">Overall average</p>
-                <p className="text-3xl font-semibold text-foreground">{overallAverageLabel}</p>
-              </div>
-              <div className="space-y-2">
-                {successCriteriaSummaries.length > 0 ? (
-                  successCriteriaSummaries.map((summary) => {
+              {successCriteriaSummaries.length > 0 ? (
+                <div className="space-y-2">
+                  {successCriteriaSummaries.map((summary) => {
                     const label =
                       summary.title?.trim() && summary.title.trim().length > 0
                         ? summary.title.trim()
@@ -595,40 +627,48 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                         </span>
                       </div>
                     )
-                  })
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    No success criteria links found for the activities in this lesson.
-                  </p>
-                )}
+                  })}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No success criteria links found for the activities in this lesson.
+                </p>
+              )}
+            </div>
+          </details>
+          <details className="group rounded-lg border border-border bg-card text-sm">
+            <summary className="flex list-none cursor-pointer items-center justify-between gap-2 px-4 py-3 text-left font-semibold text-muted-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden">
+              <span>Missing submissions</span>
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary" className="text-xs font-semibold">
+                  {pupilsWithoutSubmissions.length}
+                </Badge>
+                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:-rotate-180" />
               </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2 flex flex-row items-center justify-between">
-              <CardTitle className="text-sm text-muted-foreground">Missing submissions</CardTitle>
-              <Badge variant="secondary" className="text-xs font-semibold">
-                {pupilsWithoutSubmissions.length}
-              </Badge>
-            </CardHeader>
-            <CardContent className="space-y-2">
+            </summary>
+            <div className="space-y-2 border-t border-border/60 px-4 py-4">
               {pupilsWithoutSubmissions.length > 0 ? (
                 <ul className="space-y-2 text-sm">
-                  {pupilsWithoutSubmissions.map((pupil) => (
-                    <li
-                      key={pupil.userId}
-                      className="flex flex-col rounded-md border border-border/60 px-3 py-2"
-                    >
-                      <span className="font-medium text-foreground">{pupil.displayName}</span>
-                      <span className="text-xs text-muted-foreground">{pupil.userId}</span>
-                    </li>
-                  ))}
+                  {pupilsWithoutSubmissions.map((pupil) => {
+                    const { primaryLabel, secondaryLabel } = resolvePupilLabels(pupil)
+                    return (
+                      <li
+                        key={pupil.userId}
+                        className="flex flex-col rounded-md border border-border/60 px-3 py-2"
+                      >
+                        <span className="font-medium text-foreground">{primaryLabel}</span>
+                        {secondaryLabel ? (
+                          <span className="text-xs text-muted-foreground">{secondaryLabel}</span>
+                        ) : null}
+                      </li>
+                    )
+                  })}
                 </ul>
               ) : (
                 <p className="text-sm text-muted-foreground">All pupils have submitted answers.</p>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </details>
         </div>
 
         <div className="overflow-hidden rounded-lg border border-border">
@@ -702,42 +742,47 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                     </td>
                   </tr>
                 ) : (
-                  groupedRows.map((row, rowIndex) => (
-                    <tr key={row.pupil.userId} className="even:bg-muted/30">
-                      <th
-                        scope="row"
-                        className={cn(
-                          "sticky left-0 z-10 bg-background px-4 py-3 text-left text-sm font-semibold text-foreground shadow-[1px_0_0_0_rgba(15,23,42,0.08)]",
-                          "whitespace-nowrap",
-                        )}
-                      >
-                        <div className="flex flex-col">
-                          <span>{row.pupil.displayName}</span>
-                          <span className="text-xs font-normal text-muted-foreground">{row.pupil.userId}</span>
-                        </div>
-                      </th>
-                      <td className="px-3 py-3 text-center font-medium text-foreground">
-                        {formatPercent(row.averageScore ?? null)}
-                      </td>
-                      {row.cells.map((cell, activityIndex) => {
-                        const tone = resolveScoreTone(cell.score, cell.status)
-                        return (
-                          <td key={cell.activityId} className="px-2 py-2 text-center">
-                            <button
-                              type="button"
-                              className={cn(
-                                "flex h-10 w-full items-center justify-center rounded-md text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                                tone,
-                              )}
-                              onClick={() => handleCellSelect(rowIndex, activityIndex)}
-                            >
-                              {formatPercent(cell.score ?? null)}
-                            </button>
-                          </td>
-                        )
-                      })}
-                    </tr>
-                  ))
+                  groupedRows.map((row, rowIndex) => {
+                    const { primaryLabel, secondaryLabel } = resolvePupilLabels(row.pupil)
+                    return (
+                      <tr key={row.pupil.userId} className="even:bg-muted/30">
+                        <th
+                          scope="row"
+                          className={cn(
+                            "sticky left-0 z-10 bg-background px-4 py-3 text-left text-sm font-semibold text-foreground shadow-[1px_0_0_0_rgba(15,23,42,0.08)]",
+                            "whitespace-nowrap",
+                          )}
+                        >
+                          <div className="flex flex-col">
+                            <span>{primaryLabel}</span>
+                            {secondaryLabel ? (
+                              <span className="text-xs font-normal text-muted-foreground">{secondaryLabel}</span>
+                            ) : null}
+                          </div>
+                        </th>
+                        <td className="px-3 py-3 text-center font-medium text-foreground">
+                          {formatPercent(row.averageScore ?? null)}
+                        </td>
+                        {row.cells.map((cell, activityIndex) => {
+                          const tone = resolveScoreTone(cell.score, cell.status)
+                          return (
+                            <td key={cell.activityId} className="px-2 py-2 text-center">
+                              <button
+                                type="button"
+                                className={cn(
+                                  "flex h-10 w-full items-center justify-center rounded-md text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                                  tone,
+                                )}
+                                onClick={() => handleCellSelect(rowIndex, activityIndex)}
+                              >
+                                {formatPercent(cell.score ?? null)}
+                              </button>
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    )
+                  })
                 )}
               </tbody>
             </table>
@@ -750,7 +795,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
             <div className="flex h-full flex-col gap-4">
               <SheetHeader className="p-0">
                 <SheetTitle>
-                  {selection.activity.title} • {selection.row.pupil.displayName}
+                  {selection.activity.title} • {resolvePupilLabels(selection.row.pupil).primaryLabel}
                 </SheetTitle>
                 <SheetDescription>
                   {describeStatus(selection.cell.status)} · Submitted{" "}
