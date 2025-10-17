@@ -394,7 +394,30 @@ async function enrichLessonsWithSuccessCriteria<T extends { lesson_id?: string; 
     ),
   )
 
-  let lessonCriteriaRows: Array<{ lesson_id: string; success_criteria_id: string }> = []
+  const activitySummativeFlags = new Map<string, boolean>()
+
+  if (lessonIds.length > 0) {
+    const { data: activityRows, error: activitiesError } = await supabase
+      .from("activities")
+      .select("activity_id, lesson_id, is_summative")
+      .in("lesson_id", lessonIds)
+
+    if (activitiesError) {
+      return { lessons: [], error: activitiesError.message }
+    }
+
+    for (const row of activityRows ?? []) {
+      const activityId = typeof row?.activity_id === "string" ? row.activity_id : null
+      if (!activityId) continue
+      const isSummative =
+        typeof (row as { is_summative?: unknown }).is_summative === "boolean"
+          ? ((row as { is_summative?: unknown }).is_summative as boolean)
+          : false
+      activitySummativeFlags.set(activityId, isSummative)
+    }
+  }
+
+  let lessonCriteriaRows: Array<{ lesson_id: string; success_criteria_id: string; activity_id: string | null }> = []
 
   if (lessonIds.length > 0) {
     const { data: rows, error: lessonCriteriaError } = await supabase
@@ -407,7 +430,7 @@ async function enrichLessonsWithSuccessCriteria<T extends { lesson_id?: string; 
     }
 
     lessonCriteriaRows = (rows ?? []).filter(
-      (row): row is { lesson_id: string; success_criteria_id: string } =>
+      (row): row is { lesson_id: string; success_criteria_id: string; activity_id: string | null } =>
         typeof row?.lesson_id === "string" && typeof row?.success_criteria_id === "string",
     )
 
@@ -462,7 +485,7 @@ async function enrichLessonsWithSuccessCriteria<T extends { lesson_id?: string; 
   }
 
   const lessonCriteriaMap = lessonCriteriaRows.reduce<
-    Map<string, Array<{ success_criteria_id: string; learning_objective_id: string | null }>>
+    Map<string, Array<{ success_criteria_id: string; learning_objective_id: string | null; activity_id: string | null }>>
   >(
     (acc, row) => {
       const list = acc.get(row.lesson_id) ?? []
@@ -470,6 +493,7 @@ async function enrichLessonsWithSuccessCriteria<T extends { lesson_id?: string; 
       list.push({
         success_criteria_id: row.success_criteria_id,
         learning_objective_id: details?.learning_objective_id ?? null,
+        activity_id: typeof row.activity_id === "string" ? row.activity_id : null,
       })
       acc.set(row.lesson_id, list)
       return acc
@@ -644,6 +668,8 @@ async function enrichLessonsWithSuccessCriteria<T extends { lesson_id?: string; 
         description: details.description,
         level: details.level,
         learning_objective_id: loIdFromCriterion,
+        activity_id: row.activity_id,
+        is_summative: row.activity_id ? activitySummativeFlags.get(row.activity_id) ?? false : false,
       }
     })
 

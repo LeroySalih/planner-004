@@ -191,6 +191,15 @@ export const LearningObjectiveSchema = z.object({
     assessment_objective_code: z.string().nullable().optional(),
     assessment_objective_title: z.string().nullable().optional(),
     assessment_objective_order_index: z.number().nullable().optional(),
+    assessment_objective: z
+        .object({
+            assessment_objective_id: z.string().optional(),
+            code: z.string().nullable().optional(),
+            title: z.string().nullable().optional(),
+            order_index: z.number().nullable().optional(),
+        })
+        .nullable()
+        .optional(),
 });
 
 export const LearningObjectivesSchema = z.array(LearningObjectiveSchema);
@@ -358,12 +367,14 @@ export interface LessonSubmissionScore {
     userId: string;
     score: number | null;
     isCorrect?: boolean;
+    successCriteriaScores?: Record<string, number | null>;
 }
 
 export interface LessonSubmissionSummary {
     activityId: string;
     activityTitle: string;
     activityType: string;
+    successCriteriaIds: string[];
     totalSubmissions: number;
     averageScore: number | null;
     correctCount: number | null;

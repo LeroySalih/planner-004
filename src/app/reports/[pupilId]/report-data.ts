@@ -4,7 +4,7 @@ import {
   readLessonSubmissionSummariesAction,
   readPupilReportAction,
 } from "@/lib/server-updates"
-import type { LessonWithObjectives } from "@/types"
+import type { LessonSubmissionSummary, LessonWithObjectives } from "@/types"
 
 export type ReportDataResult = Awaited<ReturnType<typeof readPupilReportAction>>
 export type LoadedReport = NonNullable<ReportDataResult["data"]>
@@ -13,9 +13,10 @@ export type ReportAssignment = LoadedReport["assignments"][number]
 
 export type ReportCriterionRow = {
   level: number
-  assessmentObjectiveCode: string
+  assessmentObjectiveCode: string | null
   assessmentObjectiveTitle: string | null
   objectiveTitle: string
+  learningObjectiveId: string | null
   criterionId: string
   criterionDescription: string | null
   totalScore: number | null
@@ -159,10 +160,11 @@ export async function getPreparedReportData(pupilId: string, groupIdFilter?: str
       (assignment) => membershipByGroupId.get(assignment.group_id)?.group_id ?? assignment.group_id,
     )
 
-    const rows = buildUnitRows({
+    const { rows, unitAverages } = buildUnitRows({
       objectives,
       lessons,
       feedbackByCriterion,
+      pupilId,
     })
 
     const groupedByLevelMap = new Map<number, typeof rows>()
@@ -199,8 +201,8 @@ export async function getPreparedReportData(pupilId: string, groupIdFilter?: str
       objectiveError,
       groupedLevels,
       workingLevel,
-      totalAverage: scoreSummary.totalAverage,
-      summativeAverage: scoreSummary.summativeAverage,
+      totalAverage: unitAverages.totalAverage ?? scoreSummary.totalAverage,
+      summativeAverage: unitAverages.summativeAverage ?? scoreSummary.summativeAverage,
       scoreError: scoreSummary.error,
     })
     unitsBySubject.set(subjectKey, existingUnits)
@@ -247,6 +249,8 @@ type LessonSuccessCriterionEntry = {
   description: string | null
   level: number | null
   learning_objective_id: string | null
+  is_summative: boolean
+  activity_id: string | null
 }
 
 type LessonScoreAverages = {
@@ -259,6 +263,7 @@ type UnitLessonContext = {
     LessonWithObjectives & {
       lesson_success_criteria?: LessonSuccessCriterionEntry[]
       scoreAverages?: LessonScoreAverages
+      submissionSummaries?: LessonSubmissionSummary[]
     }
   >
   scoreSummary: { totalAverage: number | null; summativeAverage: number | null; error: string | null }
@@ -278,6 +283,7 @@ async function loadUnitLessonContext(unitId: string, pupilId: string): Promise<U
     LessonWithObjectives & { lesson_success_criteria?: LessonSuccessCriterionEntry[] }
   >
   if (lessons.length === 0) {
+    console.log("[reports] No lessons returned for unit", { unitId })
     return {
       lessons: [],
       scoreSummary: { totalAverage: null, summativeAverage: null, error: null },
@@ -290,10 +296,23 @@ async function loadUnitLessonContext(unitId: string, pupilId: string): Promise<U
   let summativeActivityCount = 0
   let firstError: string | null = null
   const lessonAverageMap = new Map<string, LessonScoreAverages>()
+  const lessonSummariesMap = new Map<string, LessonSubmissionSummary[]>()
 
   for (const lesson of lessons) {
     const lessonId = lesson.lesson_id
     if (!lessonId) continue
+
+    const objectiveTitles = lesson.lesson_objectives?.map((entry) => ({
+      lessonObjectiveId: entry.learning_objective_id ?? entry.learning_objective?.learning_objective_id ?? null,
+      title: entry.title,
+      linkedTitle: entry.learning_objective?.title ?? null,
+    }))
+    console.log("[reports] Lesson objectives hydrated", {
+      unitId,
+      lessonId,
+      objectiveCount: objectiveTitles?.length ?? 0,
+      objectives: objectiveTitles,
+    })
 
     let lessonTotalSum = 0
     let lessonActivityCount = 0
@@ -342,10 +361,13 @@ async function loadUnitLessonContext(unitId: string, pupilId: string): Promise<U
       totalAverage: lessonTotalAverage,
       assessmentAverage: lessonAssessmentAverage,
     })
+
+    lessonSummariesMap.set(lessonId, summaries)
   }
 
   const totalAverage = totalActivityCount > 0 ? totalScoreSum / totalActivityCount : null
   const summativeAverage = summativeActivityCount > 0 ? summativeScoreSum / summativeActivityCount : null
+
 
   const enrichedLessons = lessons.map((lesson) => ({
     ...lesson,
@@ -354,6 +376,7 @@ async function loadUnitLessonContext(unitId: string, pupilId: string): Promise<U
         totalAverage: null,
         assessmentAverage: null,
       },
+    submissionSummaries: lessonSummariesMap.get(lesson.lesson_id ?? "") ?? [],
   }))
 
   return {
@@ -370,11 +393,13 @@ function buildUnitRows({
   objectives,
   lessons,
   feedbackByCriterion,
+  pupilId,
 }: {
   objectives: Awaited<ReturnType<typeof readLearningObjectivesByUnitAction>>["data"] extends infer T ? (T extends Array<infer U> ? U[] : []) : []
   lessons: UnitLessonContext["lessons"]
   feedbackByCriterion: Record<string, number>
-}): ReportCriterionRow[] {
+  pupilId: string
+}): { rows: ReportCriterionRow[]; unitAverages: { totalAverage: number | null; summativeAverage: number | null } } {
   const objectiveMeta = new Map<
     string,
     {
@@ -392,7 +417,9 @@ function buildUnitRows({
     })
   }
 
-  const lessonObjectives = lessons.flatMap((lesson) => lesson.lessons_learning_objective ?? [])
+  const criterionToObjective = new Map<string, string>()
+
+  const lessonObjectives = lessons.flatMap((lesson) => lesson.lesson_objectives ?? [])
   for (const entry of lessonObjectives) {
     const learningObjective = entry.learning_objective
     if (!learningObjective) continue
@@ -403,54 +430,193 @@ function buildUnitRows({
         assessmentObjectiveTitle: learningObjective.assessment_objective_title ?? null,
         title: learningObjective.title ?? entry.title ?? "Learning objective",
       })
+      console.log("[reports] Objective metadata populated from lesson link", {
+        learningObjectiveId: learningObjective.learning_objective_id,
+        title: learningObjective.title ?? entry.title ?? "Learning objective",
+      })
+    } else {
+      if (!existing.assessmentObjectiveCode && learningObjective.assessment_objective_code) {
+        existing.assessmentObjectiveCode = learningObjective.assessment_objective_code
+      }
+      if (!existing.assessmentObjectiveTitle && learningObjective.assessment_objective_title) {
+        existing.assessmentObjectiveTitle = learningObjective.assessment_objective_title
+      }
+      if ((!existing.title || existing.title.length === 0) && learningObjective.title) {
+        existing.title = learningObjective.title
+      }
+      objectiveMeta.set(learningObjective.learning_objective_id, existing)
     }
+  }
+
+  for (const lesson of lessons) {
+    for (const criterion of lesson.lesson_success_criteria ?? []) {
+      const criterionId = criterion.success_criteria_id
+      const objectiveId = criterion.learning_objective_id ?? null
+      if (!criterionId || !objectiveId) continue
+
+      criterionToObjective.set(criterionId, objectiveId)
+
+      if (!objectiveMeta.has(objectiveId)) {
+        objectiveMeta.set(objectiveId, {
+          assessmentObjectiveCode: null,
+          assessmentObjectiveTitle: null,
+          title: "Learning objective",
+        })
+        console.log("[reports] Missing objective metadata while mapping criteria, using placeholder", {
+          successCriteriaId: criterionId,
+          learningObjectiveId: objectiveId,
+        })
+      }
+    }
+  }
+
+  const criterionTotals = new Map<
+    string,
+    {
+      total: number
+      count: number
+      summativeTotal: number
+      summativeCount: number
+    }
+  >()
+
+  const declaredCriterionIds = new Set<string>()
+  const criterionSummativeFlags = new Map<string, boolean>()
+  for (const lesson of lessons) {
+    for (const criterion of lesson.lesson_success_criteria ?? []) {
+      if (criterion?.success_criteria_id) {
+        declaredCriterionIds.add(criterion.success_criteria_id)
+        const isSummative = criterion.is_summative ?? false
+        if (isSummative) {
+          criterionSummativeFlags.set(criterion.success_criteria_id, true)
+        } else if (!criterionSummativeFlags.has(criterion.success_criteria_id)) {
+          criterionSummativeFlags.set(criterion.success_criteria_id, false)
+        }
+      }
+    }
+  }
+
+  for (const lesson of lessons) {
+    console.log("[reports] Processing lesson summaries", {
+      lessonId: lesson.lesson_id,
+      summaryCount: lesson.submissionSummaries?.length ?? 0,
+    })
+    for (const summary of lesson.submissionSummaries ?? []) {
+      const isSummative = summary.isSummative === true
+
+      const declaredSuccessCriteria =
+        Array.isArray(summary.successCriteriaIds) && summary.successCriteriaIds.length > 0
+          ? summary.successCriteriaIds
+          : Array.from(
+              new Set(
+                (summary.scores ?? []).flatMap((entry) =>
+                  Object.keys(entry.successCriteriaScores ?? {}),
+                ),
+              ),
+            )
+
+      if (declaredSuccessCriteria.length === 0) {
+        continue
+      }
+
+      const pupilEntry = (summary.scores ?? []).find((entry) => entry.userId === pupilId)
+
+      const appendScore = (criterionId: string, raw: number | null | undefined) => {
+        if (!criterionId) return
+        const numeric = typeof raw === "number" && Number.isFinite(raw) ? raw : 0
+        console.log("[reports] Criterion score contribution", {
+          unitId: lessons[0]?.unit_id ?? null,
+          lessonId: lesson.lesson_id,
+          activityId: summary.activityId,
+          criterionId,
+          raw,
+          numeric,
+          isSummative,
+          hadSubmission: Boolean(pupilEntry),
+        })
+        const slot = criterionTotals.get(criterionId) ?? {
+          total: 0,
+          count: 0,
+          summativeTotal: 0,
+          summativeCount: 0,
+        }
+        slot.total += numeric
+        slot.count += 1
+        if (isSummative) {
+          slot.summativeTotal += numeric
+          slot.summativeCount += 1
+        }
+        criterionTotals.set(criterionId, slot)
+      }
+
+      if (pupilEntry) {
+        for (const criterionId of declaredSuccessCriteria) {
+          const raw = (pupilEntry.successCriteriaScores ?? {})[criterionId]
+          appendScore(criterionId, raw)
+        }
+      } else {
+        for (const criterionId of declaredSuccessCriteria) {
+          appendScore(criterionId, 0)
+        }
+      }
+    }
+  }
+
+  for (const criterionId of declaredCriterionIds) {
+    const isSummativeCriterion = criterionSummativeFlags.get(criterionId) === true
+    const existing = criterionTotals.get(criterionId)
+    if (!existing) {
+      criterionTotals.set(criterionId, {
+        total: 0,
+        count: 1,
+        summativeTotal: 0,
+        summativeCount: isSummativeCriterion ? 1 : 0,
+      })
+    } else if (isSummativeCriterion && existing.summativeCount === 0) {
+      existing.summativeCount += 1
+    }
+  }
+
+  const criterionAverages = new Map<
+    string,
+    {
+      totalAverage: number | null
+      assessmentAverage: number | null
+    }
+  >()
+
+  for (const [criterionId, totals] of criterionTotals.entries()) {
+    criterionAverages.set(criterionId, {
+      totalAverage: totals.count > 0 ? totals.total / totals.count : null,
+      assessmentAverage: totals.summativeCount > 0 ? totals.summativeTotal / totals.summativeCount : null,
+    })
   }
 
   const objectiveScoreTotals = new Map<
     string,
     {
       total: number
-      totalCount: number
-      assessment: number
-      assessmentCount: number
+      count: number
+      summativeTotal: number
+      summativeCount: number
     }
   >()
 
-  for (const lesson of lessons) {
-    const lessonObjectives = lesson.lessons_learning_objective ?? []
-    if (lessonObjectives.length === 0) continue
+  for (const [criterionId, totals] of criterionTotals.entries()) {
+    const objectiveId = criterionToObjective.get(criterionId)
+    if (!objectiveId) continue
 
-    const uniqueObjectiveIds = new Set<string>()
-    for (const entry of lessonObjectives) {
-      const loId = entry.learning_objective?.learning_objective_id ?? entry.learning_objective_id
-      if (loId) {
-        uniqueObjectiveIds.add(loId)
-      }
+    const slot = objectiveScoreTotals.get(objectiveId) ?? {
+      total: 0,
+      count: 0,
+      summativeTotal: 0,
+      summativeCount: 0,
     }
-
-    if (uniqueObjectiveIds.size === 0) continue
-
-    const averages = lesson.scoreAverages
-    const totalAverage = averages?.totalAverage ?? null
-    const assessmentAverage = averages?.assessmentAverage ?? null
-
-    for (const loId of uniqueObjectiveIds) {
-      const slot = objectiveScoreTotals.get(loId) ?? {
-        total: 0,
-        totalCount: 0,
-        assessment: 0,
-        assessmentCount: 0,
-      }
-      if (typeof totalAverage === "number" && Number.isFinite(totalAverage)) {
-        slot.total += totalAverage
-        slot.totalCount += 1
-      }
-      if (typeof assessmentAverage === "number" && Number.isFinite(assessmentAverage)) {
-        slot.assessment += assessmentAverage
-        slot.assessmentCount += 1
-      }
-      objectiveScoreTotals.set(loId, slot)
-    }
+    slot.total += totals.total
+    slot.count += totals.count
+    slot.summativeTotal += totals.summativeTotal
+    slot.summativeCount += totals.summativeCount
+    objectiveScoreTotals.set(objectiveId, slot)
   }
 
   const objectiveScoreAverages = new Map<
@@ -463,8 +629,8 @@ function buildUnitRows({
 
   for (const [loId, totals] of objectiveScoreTotals.entries()) {
     objectiveScoreAverages.set(loId, {
-      totalAverage: totals.totalCount > 0 ? totals.total / totals.totalCount : null,
-      assessmentAverage: totals.assessmentCount > 0 ? totals.assessment / totals.assessmentCount : null,
+      totalAverage: totals.count > 0 ? totals.total / totals.count : null,
+      assessmentAverage: totals.summativeCount > 0 ? totals.summativeTotal / totals.summativeCount : null,
     })
   }
 
@@ -485,26 +651,27 @@ function buildUnitRows({
     if (!learningObjectiveId) continue
 
     const meta = objectiveMeta.get(learningObjectiveId)
-    const assessmentObjectiveCode = meta?.assessmentObjectiveCode ?? "AO"
-    const assessmentObjectiveTitle = meta?.assessmentObjectiveTitle ?? null
+    const assessmentObjectiveCode = meta?.assessmentObjectiveCode ?? null
+    const assessmentObjectiveTitle = meta?.assessmentObjectiveTitle ?? "Unassigned Assessment Objective"
     const objectiveTitle = meta?.title ?? "Learning objective"
 
     objectivesWithCriteria.add(learningObjectiveId)
 
-    const averages = objectiveScoreAverages.get(learningObjectiveId)
+    const criterionAverage = criterionAverages.get(criterionId)
 
     rows.push({
       level: typeof criterion.level === "number" ? criterion.level : deriveLevelFromFeedback(criterionId, feedbackByCriterion),
       assessmentObjectiveCode,
       assessmentObjectiveTitle,
       objectiveTitle,
+      learningObjectiveId,
       criterionId,
       criterionDescription:
         criterion.description && criterion.description.trim().length > 0
           ? criterion.description.trim()
           : "No description provided.",
-      totalScore: averages?.totalAverage ?? null,
-      assessmentScore: averages?.assessmentAverage ?? null,
+      totalScore: criterionAverage?.totalAverage ?? null,
+      assessmentScore: criterionAverage?.assessmentAverage ?? null,
     })
   }
 
@@ -518,9 +685,10 @@ function buildUnitRows({
     const meta = objectiveMeta.get(learningObjectiveId)
     rows.push({
       level: 0,
-      assessmentObjectiveCode: meta?.assessmentObjectiveCode ?? "AO",
-      assessmentObjectiveTitle: meta?.assessmentObjectiveTitle ?? null,
+      assessmentObjectiveCode: meta?.assessmentObjectiveCode ?? null,
+      assessmentObjectiveTitle: meta?.assessmentObjectiveTitle ?? "Unassigned Assessment Objective",
       objectiveTitle: meta?.title ?? entry.title ?? "Learning objective",
+      learningObjectiveId,
       criterionId: `${learningObjectiveId}-placeholder`,
       criterionDescription: "No success criteria have been linked yet.",
       totalScore: objectiveScoreAverages.get(learningObjectiveId)?.totalAverage ?? null,
@@ -528,7 +696,23 @@ function buildUnitRows({
     })
   }
 
-  return rows
+  let aggregateTotal = 0
+  let aggregateCount = 0
+  let aggregateSummativeTotal = 0
+  let aggregateSummativeCount = 0
+  for (const totals of criterionTotals.values()) {
+    aggregateTotal += totals.total
+    aggregateCount += totals.count
+    aggregateSummativeTotal += totals.summativeTotal
+    aggregateSummativeCount += totals.summativeCount
+  }
+
+  const unitAverages = {
+    totalAverage: aggregateCount > 0 ? aggregateTotal / aggregateCount : null,
+    summativeAverage: aggregateSummativeCount > 0 ? aggregateSummativeTotal / aggregateSummativeCount : null,
+  }
+
+  return { rows, unitAverages }
 }
 
 function deriveLevelFromFeedback(criterionId: string, feedbackByCriterion: Record<string, number>): number {

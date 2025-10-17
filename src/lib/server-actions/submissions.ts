@@ -168,23 +168,25 @@ export async function readLessonSubmissionSummariesAction(
       const activityType = (activity.type ?? "").trim()
       const activityTitle = (activity.title ?? "Untitled activity").trim() || "Untitled activity"
       const submissionList = submissionsByActivity.get(activity.activity_id) ?? []
-
-      if (submissionList.length === 0) {
-        continue
-      }
-
+      const successCriteriaIds = activitySuccessCriteriaMap.get(activity.activity_id) ?? []
       const isSummative = activity.is_summative ?? false
 
       const summary: LessonSubmissionSummary = {
         activityId: activity.activity_id,
         activityTitle,
         activityType,
+        successCriteriaIds: successCriteriaIds.slice(),
         totalSubmissions: submissionList.length,
         averageScore: null,
         correctCount: null,
         scores: [],
         correctAnswer: null,
         isSummative,
+      }
+
+      if (submissionList.length === 0) {
+        summaries.push(summary)
+        continue
       }
 
       if (activityType === "multiple-choice-question") {
@@ -200,8 +202,6 @@ export async function readLessonSubmissionSummariesAction(
         } else if (correctOptionId) {
           summary.correctAnswer = correctOptionId
         }
-
-        const successCriteriaIds = activitySuccessCriteriaMap.get(activity.activity_id) ?? []
 
         const scoreEntries = submissionList
           .map((submission) => {
@@ -220,11 +220,24 @@ export async function readLessonSubmissionSummariesAction(
               userId: submission.user_id,
               score,
               isCorrect,
+              successCriteriaScores,
             }
           })
-          .filter((entry): entry is { userId: string; score: number; isCorrect: boolean } => entry !== null)
+          .filter(
+            (entry): entry is {
+              userId: string
+              score: number
+              isCorrect: boolean
+              successCriteriaScores: Record<string, number | null>
+            } => entry !== null,
+          )
 
-        summary.scores = scoreEntries
+        summary.scores = scoreEntries.map((entry) => ({
+          userId: entry.userId,
+          score: entry.score,
+          isCorrect: entry.isCorrect,
+          successCriteriaScores: entry.successCriteriaScores,
+        }))
         summary.correctCount = scoreEntries.filter((entry) => entry.isCorrect).length
 
         if (scoreEntries.length > 0) {
@@ -263,8 +276,6 @@ export async function readLessonSubmissionSummariesAction(
           }
         }
 
-        const successCriteriaIds = activitySuccessCriteriaMap.get(activity.activity_id) ?? []
-
         const scoreEntries = submissionList
           .map((submission) => {
             const parsedSubmission = ShortTextSubmissionBodySchema.safeParse(submission.body)
@@ -294,14 +305,23 @@ export async function readLessonSubmissionSummariesAction(
               userId: submission.user_id,
               score: averagedScore,
               isCorrect: parsedSubmission.data.is_correct === true,
+              successCriteriaScores,
             }
           })
-          .filter((entry): entry is { userId: string; score: number; isCorrect: boolean } => entry !== null)
+          .filter(
+            (entry): entry is {
+              userId: string
+              score: number
+              isCorrect: boolean
+              successCriteriaScores: Record<string, number | null>
+            } => entry !== null,
+          )
 
         summary.scores = scoreEntries.map((entry) => ({
           userId: entry.userId,
           score: entry.score,
           isCorrect: entry.isCorrect,
+          successCriteriaScores: entry.successCriteriaScores,
         }))
 
         summary.correctCount = scoreEntries.filter((entry) => entry.isCorrect).length
@@ -362,6 +382,7 @@ export async function readLessonSubmissionSummariesAction(
           return {
             userId: submission.user_id,
             score,
+            successCriteriaScores: {},
           }
         })
 
