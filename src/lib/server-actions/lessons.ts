@@ -640,9 +640,18 @@ async function enrichLessonsWithSuccessCriteria<T extends { lesson_id?: string; 
     })
 
     const existingObjectiveIds = new Set(
-      updatedObjectives.map(
-        (objective) => objective.learning_objective_id ?? objective.learning_objective?.learning_objective_id ?? "",
-      ),
+      updatedObjectives
+        .map((objective) => {
+          const direct = (objective as { learning_objective_id?: string | null }).learning_objective_id
+          if (typeof direct === "string" && direct.length > 0) {
+            return direct
+          }
+          const nested = (objective as {
+            learning_objective?: { learning_objective_id?: string | null }
+          }).learning_objective?.learning_objective_id
+          return typeof nested === "string" && nested.length > 0 ? nested : null
+        })
+        .filter((id): id is string => Boolean(id && id.length > 0)),
     )
 
     const lessonCriteria = (lessonCriteriaMap.get(lesson.lesson_id ?? "") ?? []).map((row) => {

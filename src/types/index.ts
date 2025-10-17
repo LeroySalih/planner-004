@@ -161,6 +161,8 @@ export const LessonSuccessCriterionSchema = z.object({
     description: z.string().nullable().optional(),
     level: z.number().nullable().optional(),
     learning_objective_id: z.string().nullable().optional(),
+    activity_id: z.string().nullable().optional(),
+    is_summative: z.boolean().nullable().optional(),
 });
 
 export const LessonSuccessCriteriaSchema = z.array(LessonSuccessCriterionSchema);
@@ -523,8 +525,8 @@ export const AssignmentResultRowSchema = z.object({
 
 export const AssignmentResultActivitySummarySchema = z.object({
     activityId: z.string(),
-    totalAverage: z.number().min(0).max(1).nullable(),
-    summativeAverage: z.number().min(0).max(1).nullable(),
+    activitiesAverage: z.number().min(0).max(1).nullable(),
+    assessmentAverage: z.number().min(0).max(1).nullable(),
     submittedCount: z.number().int().min(0),
 });
 
@@ -532,15 +534,15 @@ export const AssignmentResultSuccessCriterionSummarySchema = z.object({
     successCriteriaId: z.string(),
     title: z.string().nullable().optional(),
     description: z.string().nullable().optional(),
-    totalAverage: z.number().min(0).max(1).nullable(),
-    summativeAverage: z.number().min(0).max(1).nullable(),
+    activitiesAverage: z.number().min(0).max(1).nullable(),
+    assessmentAverage: z.number().min(0).max(1).nullable(),
     submittedCount: z.number().int().min(0),
     activityCount: z.number().int().min(0),
 });
 
 export const AssignmentResultOverallAveragesSchema = z.object({
-    totalAverage: z.number().min(0).max(1).nullable(),
-    summativeAverage: z.number().min(0).max(1).nullable(),
+    activitiesAverage: z.number().min(0).max(1).nullable(),
+    assessmentAverage: z.number().min(0).max(1).nullable(),
 });
 
 export const AssignmentResultMatrixSchema = z.object({
@@ -589,8 +591,8 @@ export const UnitScoreSummarySchema = z.object({
     lessonCount: z.number().int().min(0),
     activityCount: z.number().int().min(0),
     summativeActivityCount: z.number().int().min(0),
-    totalAverage: z.number().min(0).max(1).nullable(),
-    summativeAverage: z.number().min(0).max(1).nullable(),
+    activitiesAverage: z.number().min(0).max(1).nullable(),
+    assessmentAverage: z.number().min(0).max(1).nullable(),
 });
 
 export type UnitScoreSummary = z.infer<typeof UnitScoreSummarySchema>;

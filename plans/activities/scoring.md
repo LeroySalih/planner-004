@@ -2,7 +2,7 @@
 
 ## 1. Domain Decisions & Data Contracts
 - Audit `activities.is_summative` usage and document the new scoring rules: activity totals still include every scorable activity, but *assessment* lesson and unit totals must only consider records where `is_summative = true`.
-- Extend Zod schemas so lesson/unit summary payloads expose both `totalAverage` (all scored activities) and `summativeAverage` (assessment-only). Update type aliases so components cannot ignore the new fields (`src/types/index.ts`).
+- Extend Zod schemas so lesson/unit summary payloads expose both `activitiesAverage` (all scored activities) and `assessmentAverage` (assessment-only). Update type aliases so components cannot ignore the new fields (`src/types/index.ts`).
 - Decide on rounding/formatting strategy (retain raw 0–1 values, push formatting to UI) and capture it in `specs/scoring.md` for future contributors.
 
 ## 2. Supabase & Persistence
@@ -12,7 +12,7 @@
 
 ## 3. Server Actions & Aggregations
 - Update `readLessonSubmissionSummariesAction` to emit both averages: recompute totals twice (once across all scored activities, once filtering `is_summative` IDs). Thread the new values through to consumers.
-- Enhance assignment results builder (`readAssignmentResultsAction`) so `activitySummaries`, `successCriteriaSummaries`, and `overallAverage` clarify total vs. summative, exposing `{ totalAverage, summativeAverage }`, with both derived at request time.
+- Enhance assignment results builder (`readAssignmentResultsAction`) so `activitySummaries`, `successCriteriaSummaries`, and `overallAverage` clarify total vs. summative, exposing `{ activitiesAverage, assessmentAverage }`, with both derived at request time.
 - Introduce reusable helpers in `src/lib/scoring/success-criteria.ts` for “filter to summative” and “average with null=0” to keep calculations consistent.
 - Create a new server action that produces per-unit aggregates: gather lessons → activities → submissions and return both totals, computed in-process and never persisted. Export from the server-updates barrel for UI use.
 

@@ -884,12 +884,12 @@ export async function readAssignmentResultsAction(assignmentId: string) {
       })
 
       const activityCount = activities.length
-      const totalScore = cells.reduce(
+      const activitiesScore = cells.reduce(
         (acc, cell) => acc + (typeof cell.score === "number" ? cell.score : 0),
         0,
       )
       const averageScore =
-        activityCount > 0 ? totalScore / activityCount : null
+        activityCount > 0 ? activitiesScore / activityCount : null
 
       return AssignmentResultRowSchema.parse({
         pupil,
@@ -905,7 +905,7 @@ export async function readAssignmentResultsAction(assignmentId: string) {
 
     const activitySummaries = activities.map((activity) => {
       const entry = activityTotals.get(activity.activityId)
-      const totalAverage = entry && entry.count > 0 ? entry.total / entry.count : null
+      const activitiesAverage = entry && entry.count > 0 ? entry.total / entry.count : null
 
       if (entry) {
         overallTotal += entry.total
@@ -918,8 +918,8 @@ export async function readAssignmentResultsAction(assignmentId: string) {
 
       return {
         activityId: activity.activityId,
-        totalAverage,
-        summativeAverage: activity.isSummative ? totalAverage : null,
+        activitiesAverage,
+        assessmentAverage: activity.isSummative ? activitiesAverage : null,
         submittedCount: entry?.submittedCount ?? 0,
       }
     })
@@ -984,8 +984,8 @@ export async function readAssignmentResultsAction(assignmentId: string) {
       successCriteriaId,
       title: entry.title ?? null,
       description: entry.description ?? null,
-      totalAverage: entry.count > 0 ? entry.total / entry.count : null,
-      summativeAverage: entry.summativeCount > 0 ? entry.summativeTotal / entry.summativeCount : null,
+      activitiesAverage: entry.count > 0 ? entry.total / entry.count : null,
+      assessmentAverage: entry.summativeCount > 0 ? entry.summativeTotal / entry.summativeCount : null,
       submittedCount: entry.submittedCount,
       activityCount: entry.activityIds.size,
     }))
@@ -1022,8 +1022,8 @@ export async function readAssignmentResultsAction(assignmentId: string) {
       activitySummaries,
       successCriteriaSummaries,
       overallAverages: {
-        totalAverage: overallCount > 0 ? overallTotal / overallCount : null,
-        summativeAverage:
+        activitiesAverage: overallCount > 0 ? overallTotal / overallCount : null,
+        assessmentAverage:
           summativeOverallCount > 0 ? summativeOverallTotal / summativeOverallCount : null,
       },
     })

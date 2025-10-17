@@ -131,7 +131,7 @@ function renderUnit(
     .font(FONT_PRIMARY)
     .fontSize(9)
     .fillColor("#4b5563")
-    .text(`Scores — Total: ${formatPercent(unit.totalAverage)} · Assessment: ${formatPercent(unit.summativeAverage)}`)
+    .text(`Scores — Activities: ${formatPercent(unit.activitiesAverage)} · Assessment: ${formatPercent(unit.assessmentAverage)}`)
   doc
     .font(FONT_PRIMARY)
     .fontSize(9)
@@ -191,7 +191,7 @@ function renderUnit(
         .fontSize(9)
         .fillColor("#4b5563")
         .text(
-          `Scores — Total: ${formatPercent(row.totalScore)} · Assessment: ${formatPercent(row.assessmentScore)}`,
+          `Scores — Activities: ${formatPercent(row.activitiesScore)} · Assessment: ${formatPercent(row.assessmentScore)}`,
           { indent: 30 },
         )
 

@@ -13,10 +13,10 @@
 
 ## Lesson Scores
 - `readLessonSubmissionSummariesAction` iterates a lesson’s activities, normalises each submission’s success-criteria map, and averages those per-submission scores to build the per-activity summaries used in lesson feedback views (`src/lib/server-actions/submissions.ts`).
-- The action now returns an `averages` payload with `totalAverage` (all scorable activities) and `summativeAverage` (activities where `is_summative = true`, surfaced to users as the *assessment* average). When a `userId` is provided, both averages are recalculated using only that pupil’s submissions.
+- The action now returns an `averages` payload with `activitiesAverage` (all scorable activities) and `assessmentAverage` (activities where `is_summative = true`, surfaced to users as the *assessment* average). When a `userId` is provided, both averages are recalculated using only that pupil’s submissions.
 - Lesson-facing views show both totals: overall and assessment percentages surface in the feedback panel alongside per-activity breakdowns (`src/components/lessons/activity-view/index.tsx`).
 
 ## Unit Scores
 - Assignment results now surface both totals and assessment averages per activity, success criterion, and for the overall grid (`src/lib/server-actions/assignment-results.ts`, `src/components/assignment-results/assignment-results-dashboard.tsx`).
-- Unit-level rollups are derived on demand by walking lesson submission summaries and calculating `totalAverage` / `summativeAverage` (displayed as total vs assessment) together with activity counts.
+- Unit-level rollups are derived on demand by walking lesson submission summaries and calculating `activitiesAverage` / `assessmentAverage` (displayed as total vs assessment) together with activity counts.
 - Unit dashboards should display both totals so staff can contrast overall progress with assessment-only performance; values are always computed on demand and are not stored in Supabase.

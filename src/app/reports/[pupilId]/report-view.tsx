@@ -200,9 +200,9 @@ export async function PupilReportView({
                               <td className="border border-border px-4 py-2 align-top">
                                 <div className="flex flex-col gap-1 text-xs text-muted-foreground">
                                   <span>
-                                    Total:{" "}
+                                    Activities:{" "}
                                     <span className="font-semibold text-foreground">
-                                      {formatPercent(row.totalScore)}
+                                      {formatPercent(row.activitiesScore)}
                                     </span>
                                   </span>
                                   <span>
@@ -248,13 +248,13 @@ export async function PupilReportView({
                         </p>
                         <div className="flex flex-wrap gap-3 text-xs text-muted-foreground sm:text-sm">
                           <span>
-                            Total:{" "}
-                            <span className="font-semibold text-foreground">{formatPercent(unit.totalAverage)}</span>
+                            Activities:{" "}
+                            <span className="font-semibold text-foreground">{formatPercent(unit.activitiesAverage)}</span>
                           </span>
                           <span>
                             Assessment:{" "}
                             <span className="font-semibold text-foreground">
-                              {formatPercent(unit.summativeAverage)}
+                              {formatPercent(unit.assessmentAverage)}
                             </span>
                           </span>
                           {unit.relatedGroups.length > 0 ? (

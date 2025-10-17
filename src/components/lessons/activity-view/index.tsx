@@ -1061,8 +1061,8 @@ function FeedbackPresentView({ activity, lessonId }: { activity: LessonActivity;
 
   const [summaryState, setSummaryState] = useState<{
     summaries: LessonSubmissionSummary[]
-    averages: { totalAverage: number | null; summativeAverage: number | null }
-  }>({ summaries: [], averages: { totalAverage: null, summativeAverage: null } })
+    averages: { activitiesAverage: number | null; assessmentAverage: number | null }
+  }>({ summaries: [], averages: { activitiesAverage: null, assessmentAverage: null } })
   const [summaryError, setSummaryError] = useState<string | null>(null)
   const [isSummaryLoading, setIsSummaryLoading] = useState(false)
   const [memberships, setMemberships] = useState<Array<{ groupId: string; role: string }>>([])
@@ -1165,7 +1165,7 @@ function FeedbackPresentView({ activity, lessonId }: { activity: LessonActivity;
 
   useEffect(() => {
     if (!lessonId || !hasEnabledGroup) {
-      setSummaryState({ summaries: [], lessonAverage: null })
+      setSummaryState({ summaries: [], averages: { activitiesAverage: null, assessmentAverage: null } })
       setSummaryError(lessonId ? null : "Lesson context not available.")
       setIsSummaryLoading(false)
       return
@@ -1178,12 +1178,12 @@ function FeedbackPresentView({ activity, lessonId }: { activity: LessonActivity;
         if (cancelled) return
         if (result.error) {
           setSummaryError(result.error)
-          setSummaryState({ summaries: [], averages: { totalAverage: null, summativeAverage: null } })
+          setSummaryState({ summaries: [], averages: { activitiesAverage: null, assessmentAverage: null } })
         } else {
           setSummaryError(null)
           setSummaryState({
             summaries: result.data ?? [],
-            averages: result.averages ?? { totalAverage: null, summativeAverage: null },
+            averages: result.averages ?? { activitiesAverage: null, assessmentAverage: null },
           })
         }
       })
@@ -1191,7 +1191,7 @@ function FeedbackPresentView({ activity, lessonId }: { activity: LessonActivity;
         if (!cancelled) {
           console.error("[feedback-present] Failed to load submission summaries", error)
           setSummaryError("Unable to load submission summaries.")
-          setSummaryState({ summaries: [], averages: { totalAverage: null, summativeAverage: null } })
+          setSummaryState({ summaries: [], averages: { activitiesAverage: null, assessmentAverage: null } })
         }
       })
       .finally(() => {
@@ -1253,23 +1253,23 @@ function FeedbackPresentView({ activity, lessonId }: { activity: LessonActivity;
     )
   }
 
-  const totalAverageDisplay =
-    showScores && summaryState.averages.totalAverage !== null
-      ? formatAverageScore(summaryState.averages.totalAverage, "lesson-average")
+  const activitiesAverageDisplay =
+    showScores && summaryState.averages.activitiesAverage !== null
+      ? formatAverageScore(summaryState.averages.activitiesAverage, "lesson-average")
       : null
-  const summativeAverageDisplay =
-    showScores && summaryState.averages.summativeAverage !== null
-      ? formatAverageScore(summaryState.averages.summativeAverage, "lesson-average")
+  const assessmentAverageDisplay =
+    showScores && summaryState.averages.assessmentAverage !== null
+      ? formatAverageScore(summaryState.averages.assessmentAverage, "lesson-average")
       : null
 
   return (
     <div className="space-y-4">
       {showScores ? (
         <div className="flex flex-wrap gap-3 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm font-semibold text-primary">
-          <span>Overall: {totalAverageDisplay ?? "Not available yet"}</span>
-      <span className="text-primary/80">
-        Assessment: {summativeAverageDisplay ?? "Not available yet"}
-      </span>
+          <span>Activities: {activitiesAverageDisplay ?? "Not available yet"}</span>
+          <span className="text-primary/80">
+            Assessment: {assessmentAverageDisplay ?? "Not available yet"}
+          </span>
         </div>
       ) : null}
       {filteredSummaries.map((summary) => {

@@ -19,7 +19,7 @@ export type ReportCriterionRow = {
   learningObjectiveId: string | null
   criterionId: string
   criterionDescription: string | null
-  totalScore: number | null
+  activitiesScore: number | null
   assessmentScore: number | null
 }
 
@@ -35,8 +35,8 @@ export type ReportUnitSummary = {
     rows: ReportCriterionRow[]
   }>
   workingLevel: number | null
-  totalAverage: number | null
-  summativeAverage: number | null
+  activitiesAverage: number | null
+  assessmentAverage: number | null
   scoreError: string | null
 }
 
@@ -201,8 +201,8 @@ export async function getPreparedReportData(pupilId: string, groupIdFilter?: str
       objectiveError,
       groupedLevels,
       workingLevel,
-      totalAverage: unitAverages.totalAverage ?? scoreSummary.totalAverage,
-      summativeAverage: unitAverages.summativeAverage ?? scoreSummary.summativeAverage,
+      activitiesAverage: unitAverages.activitiesAverage ?? scoreSummary.activitiesAverage,
+      assessmentAverage: unitAverages.assessmentAverage ?? scoreSummary.assessmentAverage,
       scoreError: scoreSummary.error,
     })
     unitsBySubject.set(subjectKey, existingUnits)
@@ -254,7 +254,7 @@ type LessonSuccessCriterionEntry = {
 }
 
 type LessonScoreAverages = {
-  totalAverage: number | null
+  activitiesAverage: number | null
   assessmentAverage: number | null
 }
 
@@ -266,7 +266,7 @@ type UnitLessonContext = {
       submissionSummaries?: LessonSubmissionSummary[]
     }
   >
-  scoreSummary: { totalAverage: number | null; summativeAverage: number | null; error: string | null }
+  scoreSummary: { activitiesAverage: number | null; assessmentAverage: number | null; error: string | null }
 }
 
 async function loadUnitLessonContext(unitId: string, pupilId: string): Promise<UnitLessonContext> {
@@ -275,7 +275,7 @@ async function loadUnitLessonContext(unitId: string, pupilId: string): Promise<U
   if (lessonsResult.error) {
     return {
       lessons: [],
-      scoreSummary: { totalAverage: null, summativeAverage: null, error: lessonsResult.error },
+      scoreSummary: { activitiesAverage: null, assessmentAverage: null, error: lessonsResult.error },
     }
   }
 
@@ -286,11 +286,11 @@ async function loadUnitLessonContext(unitId: string, pupilId: string): Promise<U
     console.log("[reports] No lessons returned for unit", { unitId })
     return {
       lessons: [],
-      scoreSummary: { totalAverage: null, summativeAverage: null, error: null },
+      scoreSummary: { activitiesAverage: null, assessmentAverage: null, error: null },
     }
   }
 
-  let totalScoreSum = 0
+  let activitiesScoreSum = 0
   let totalActivityCount = 0
   let summativeScoreSum = 0
   let summativeActivityCount = 0
@@ -338,7 +338,7 @@ async function loadUnitLessonContext(unitId: string, pupilId: string): Promise<U
       const activityAverage =
         pupilScores.reduce((acc, entry) => acc + (entry.score ?? 0), 0) / pupilScores.length
 
-      totalScoreSum += activityAverage
+      activitiesScoreSum += activityAverage
       totalActivityCount += 1
 
       lessonTotalSum += activityAverage
@@ -358,22 +358,22 @@ async function loadUnitLessonContext(unitId: string, pupilId: string): Promise<U
       lessonAssessmentCount > 0 ? lessonAssessmentSum / lessonAssessmentCount : null
 
     lessonAverageMap.set(lessonId, {
-      totalAverage: lessonTotalAverage,
+      activitiesAverage: lessonTotalAverage,
       assessmentAverage: lessonAssessmentAverage,
     })
 
     lessonSummariesMap.set(lessonId, summaries)
   }
 
-  const totalAverage = totalActivityCount > 0 ? totalScoreSum / totalActivityCount : null
-  const summativeAverage = summativeActivityCount > 0 ? summativeScoreSum / summativeActivityCount : null
+  const activitiesAverage = totalActivityCount > 0 ? activitiesScoreSum / totalActivityCount : null
+  const assessmentAverage = summativeActivityCount > 0 ? summativeScoreSum / summativeActivityCount : null
 
 
   const enrichedLessons = lessons.map((lesson) => ({
     ...lesson,
     scoreAverages:
       lessonAverageMap.get(lesson.lesson_id ?? "") ?? {
-        totalAverage: null,
+        activitiesAverage: null,
         assessmentAverage: null,
       },
     submissionSummaries: lessonSummariesMap.get(lesson.lesson_id ?? "") ?? [],
@@ -382,8 +382,8 @@ async function loadUnitLessonContext(unitId: string, pupilId: string): Promise<U
   return {
     lessons: enrichedLessons,
     scoreSummary: {
-      totalAverage,
-      summativeAverage,
+      activitiesAverage,
+      assessmentAverage,
       error: firstError,
     },
   }
@@ -399,7 +399,7 @@ function buildUnitRows({
   lessons: UnitLessonContext["lessons"]
   feedbackByCriterion: Record<string, number>
   pupilId: string
-}): { rows: ReportCriterionRow[]; unitAverages: { totalAverage: number | null; summativeAverage: number | null } } {
+}): { rows: ReportCriterionRow[]; unitAverages: { activitiesAverage: number | null; assessmentAverage: number | null } } {
   const objectiveMeta = new Map<
     string,
     {
@@ -551,11 +551,17 @@ function buildUnitRows({
 
       if (pupilEntry) {
         for (const criterionId of declaredSuccessCriteria) {
+          if (isSummative) {
+            criterionSummativeFlags.set(criterionId, true)
+          }
           const raw = (pupilEntry.successCriteriaScores ?? {})[criterionId]
           appendScore(criterionId, raw)
         }
       } else {
         for (const criterionId of declaredSuccessCriteria) {
+          if (isSummative) {
+            criterionSummativeFlags.set(criterionId, true)
+          }
           appendScore(criterionId, 0)
         }
       }
@@ -580,14 +586,14 @@ function buildUnitRows({
   const criterionAverages = new Map<
     string,
     {
-      totalAverage: number | null
+      activitiesAverage: number | null
       assessmentAverage: number | null
     }
   >()
 
   for (const [criterionId, totals] of criterionTotals.entries()) {
     criterionAverages.set(criterionId, {
-      totalAverage: totals.count > 0 ? totals.total / totals.count : null,
+      activitiesAverage: totals.count > 0 ? totals.total / totals.count : null,
       assessmentAverage: totals.summativeCount > 0 ? totals.summativeTotal / totals.summativeCount : null,
     })
   }
@@ -622,14 +628,14 @@ function buildUnitRows({
   const objectiveScoreAverages = new Map<
     string,
     {
-      totalAverage: number | null
+      activitiesAverage: number | null
       assessmentAverage: number | null
     }
   >()
 
   for (const [loId, totals] of objectiveScoreTotals.entries()) {
     objectiveScoreAverages.set(loId, {
-      totalAverage: totals.count > 0 ? totals.total / totals.count : null,
+      activitiesAverage: totals.count > 0 ? totals.total / totals.count : null,
       assessmentAverage: totals.summativeCount > 0 ? totals.summativeTotal / totals.summativeCount : null,
     })
   }
@@ -670,7 +676,7 @@ function buildUnitRows({
         criterion.description && criterion.description.trim().length > 0
           ? criterion.description.trim()
           : "No description provided.",
-      totalScore: criterionAverage?.totalAverage ?? null,
+      activitiesScore: criterionAverage?.activitiesAverage ?? null,
       assessmentScore: criterionAverage?.assessmentAverage ?? null,
     })
   }
@@ -691,25 +697,35 @@ function buildUnitRows({
       learningObjectiveId,
       criterionId: `${learningObjectiveId}-placeholder`,
       criterionDescription: "No success criteria have been linked yet.",
-      totalScore: objectiveScoreAverages.get(learningObjectiveId)?.totalAverage ?? null,
+      activitiesScore: objectiveScoreAverages.get(learningObjectiveId)?.activitiesAverage ?? null,
       assessmentScore: objectiveScoreAverages.get(learningObjectiveId)?.assessmentAverage ?? null,
     })
   }
 
-  let aggregateTotal = 0
-  let aggregateCount = 0
-  let aggregateSummativeTotal = 0
-  let aggregateSummativeCount = 0
-  for (const totals of criterionTotals.values()) {
-    aggregateTotal += totals.total
-    aggregateCount += totals.count
-    aggregateSummativeTotal += totals.summativeTotal
-    aggregateSummativeCount += totals.summativeCount
+  let aggregateActivitiesSum = 0
+  let aggregateActivitiesCount = 0
+  let aggregateAssessmentSum = 0
+  let aggregateAssessmentCount = 0
+
+  for (const averages of criterionAverages.values()) {
+    const activitiesAverage = averages.activitiesAverage
+    const assessmentAverage = averages.assessmentAverage
+
+    if (typeof activitiesAverage === "number" && Number.isFinite(activitiesAverage)) {
+      aggregateActivitiesSum += activitiesAverage
+      aggregateActivitiesCount += 1
+    }
+    if (typeof assessmentAverage === "number" && Number.isFinite(assessmentAverage)) {
+      aggregateAssessmentSum += assessmentAverage
+      aggregateAssessmentCount += 1
+    }
   }
 
   const unitAverages = {
-    totalAverage: aggregateCount > 0 ? aggregateTotal / aggregateCount : null,
-    summativeAverage: aggregateSummativeCount > 0 ? aggregateSummativeTotal / aggregateSummativeCount : null,
+    activitiesAverage:
+      aggregateActivitiesCount > 0 ? aggregateActivitiesSum / aggregateActivitiesCount : null,
+    assessmentAverage:
+      aggregateAssessmentCount > 0 ? aggregateAssessmentSum / aggregateAssessmentCount : null,
   }
 
   return { rows, unitAverages }
