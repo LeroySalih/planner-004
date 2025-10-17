@@ -25,6 +25,7 @@ const CreateActivityInputSchema = z.object({
   type: z.string().min(1),
   bodyData: z.unknown().nullable().optional(),
   isHomework: z.boolean().optional(),
+  isSummative: z.boolean().optional(),
   successCriteriaIds: z.array(z.string().min(1)).optional(),
 })
 
@@ -33,6 +34,7 @@ const UpdateActivityInputSchema = z.object({
   type: z.string().min(1).optional(),
   bodyData: z.unknown().nullable().optional(),
   isHomework: z.boolean().optional(),
+  isSummative: z.boolean().optional(),
   successCriteriaIds: z.array(z.string().min(1)).optional(),
 })
 
@@ -120,6 +122,7 @@ export async function createLessonActivityAction(
       type: payload.type,
       body_data: normalizedBody.bodyData,
       is_homework: payload.isHomework ?? false,
+      is_summative: payload.isSummative ?? false,
       order_by: nextOrder,
       active: true,
     })
@@ -227,6 +230,9 @@ export async function updateLessonActivityAction(
   }
   if (payload.isHomework !== undefined) {
     updates.is_homework = payload.isHomework ?? false
+  }
+  if (payload.isSummative !== undefined) {
+    updates.is_summative = payload.isSummative ?? false
   }
 
   if (Object.keys(updates).length === 0) {

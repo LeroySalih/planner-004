@@ -117,6 +117,7 @@ export function LessonActivitiesManager({
     Record<string, { url: string | null; loading: boolean; error: boolean }>
   >({})
   const [homeworkPending, setHomeworkPending] = useState<Record<string, boolean>>({})
+  const [summativePending, setSummativePending] = useState<Record<string, boolean>>({})
   const [assignedGroups, setAssignedGroups] = useState<AssignedGroupInfo[]>([])
   const [assignedGroupsLoading, setAssignedGroupsLoading] = useState(false)
   const voiceAudioRef = useRef<HTMLAudioElement | null>(null)
@@ -125,6 +126,7 @@ export function LessonActivitiesManager({
     setActivities(sortActivities(initialActivities))
     setImagePreviewState({})
     setHomeworkPending({})
+    setSummativePending({})
   }, [initialActivities])
 
   useEffect(() => {
@@ -815,6 +817,62 @@ export function LessonActivitiesManager({
     [lessonId, router, startTransition, unitId],
   )
 
+  const toggleSummative = useCallback(
+    (activity: LessonActivity, nextValue: boolean) => {
+      const activityId = activity.activity_id
+      const previousValue = activity.is_summative ?? false
+
+      setSummativePending((prev) => ({ ...prev, [activityId]: true }))
+      setActivities((prev) =>
+        prev.map((item) =>
+          item.activity_id === activityId ? { ...item, is_summative: nextValue } : item,
+        ),
+      )
+
+      startTransition(async () => {
+        try {
+          const result = await updateLessonActivityAction(unitId, lessonId, activityId, {
+            isSummative: nextValue,
+          })
+
+          if (!result.success || !result.data) {
+            setActivities((prev) =>
+              prev.map((item) =>
+                item.activity_id === activityId ? { ...item, is_summative: previousValue } : item,
+              ),
+            )
+            toast.error("Unable to update summative status", {
+              description: result.error ?? "Please try again later.",
+            })
+            return
+          }
+
+          setActivities((prev) =>
+            prev.map((item) => (item.activity_id === activityId ? result.data! : item)),
+          )
+          router.refresh()
+        } catch (error) {
+          console.error("[activities] Failed to update summative flag", error)
+          setActivities((prev) =>
+            prev.map((item) =>
+              item.activity_id === activityId ? { ...item, is_summative: previousValue } : item,
+            ),
+          )
+          toast.error("Unable to update summative status", {
+            description: error instanceof Error ? error.message : "Please try again later.",
+          })
+        } finally {
+          setSummativePending((prev) => {
+            const next = { ...prev }
+            delete next[activityId]
+            return next
+          })
+        }
+      })
+    },
+    [lessonId, router, startTransition, unitId],
+  )
+
   const handleOpenPresentation = () => {
     if (activities.length === 0) {
       toast.info("This lesson doesn't have any activities yet.")
@@ -885,6 +943,7 @@ export function LessonActivitiesManager({
                 const hasImageError = isDisplayImage ? imageState?.error ?? false : false
                 const isHomework = activity.is_homework ?? false
                 const homeworkUpdating = homeworkPending[activity.activity_id] ?? false
+                const summativeUpdating = summativePending[activity.activity_id] ?? false
                 const switchId = `activity-homework-${activity.activity_id}`
                 return (
                   <li
@@ -1037,7 +1096,10 @@ export function LessonActivitiesManager({
                         </div>
                       </div>
                     </div>
-                    {renderActivityPreview(activity, imageThumbnail)}
+                    {renderActivityPreview(activity, imageThumbnail, {
+                      onSummativeChange: (checked) => toggleSummative(activity, checked),
+                      summativeUpdating,
+                    })}
                   </div>
                 </li>
               )
@@ -1190,13 +1252,19 @@ function buildBodyData(
   return fallback ?? null
 }
 
-function renderActivityPreview(activity: LessonActivity, resolvedImageUrl: string | null) {
+function renderActivityPreview(
+  activity: LessonActivity,
+  resolvedImageUrl: string | null,
+  options?: { onSummativeChange?: (nextValue: boolean) => void; summativeUpdating?: boolean },
+) {
   return (
     <LessonActivityView
       mode="short"
       activity={activity}
       lessonId={activity.lesson_id ?? ""}
       resolvedImageUrl={resolvedImageUrl ?? null}
+      onSummativeChange={options?.onSummativeChange}
+      summativeUpdating={options?.summativeUpdating}
     />
   )
 }

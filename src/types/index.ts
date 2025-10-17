@@ -481,6 +481,7 @@ export const AssignmentResultActivitySchema = z.object({
     title: z.string().default(""),
     type: z.string().default(""),
     orderIndex: z.number().nullable().optional(),
+    isSummative: z.boolean().nullish().transform((value) => value ?? false),
     successCriteria: z.array(AssignmentResultActivitySuccessCriterionSchema).default([]),
 });
 
