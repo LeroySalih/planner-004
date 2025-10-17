@@ -33,6 +33,7 @@ export async function listLessonSuccessCriteriaAction(lessonId: string) {
     return LessonSuccessCriteriaReturnValue.parse({ data: [], error: linkError.message })
   }
 
+
   const ids = Array.from(
     new Set(
       (linkRows ?? [])
@@ -54,6 +55,7 @@ export async function listLessonSuccessCriteriaAction(lessonId: string) {
     console.error("[lesson-success-criteria] Failed to load success criteria metadata:", criteriaError)
     return LessonSuccessCriteriaReturnValue.parse({ data: [], error: criteriaError.message })
   }
+
 
   const detailMap = new Map<string, { description: string | null; level: number | null; learning_objective_id: string | null }>()
   for (const row of criteriaRows ?? []) {

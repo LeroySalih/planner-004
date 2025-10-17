@@ -34,6 +34,7 @@ const LessonActivitySummaryRowSchema = z.object({
   title: z.string().nullable(),
   type: z.string().nullable(),
   body_data: z.unknown().nullable(),
+  is_summative: z.boolean().nullish().transform((value) => value ?? false),
 })
 
 export async function getLatestSubmissionForActivityAction(activityId: string, userId: string) {
@@ -71,13 +72,18 @@ export async function getLatestSubmissionForActivityAction(activityId: string, u
   return SubmissionResultSchema.parse({ data: parsed.data, error: null })
 }
 
+type LessonAverageBreakdown = {
+  totalAverage: number | null
+  summativeAverage: number | null
+}
+
 export async function readLessonSubmissionSummariesAction(
   lessonId: string,
   options: { userId?: string | null } = {},
-): Promise<{ data: LessonSubmissionSummary[]; lessonAverage: number | null; error: string | null }> {
+): Promise<{ data: LessonSubmissionSummary[]; averages: LessonAverageBreakdown; error: string | null }> {
   const trimmedLessonId = lessonId.trim()
   if (!trimmedLessonId) {
-    return { data: [], lessonAverage: null, error: null }
+    return { data: [], averages: { totalAverage: null, summativeAverage: null }, error: null }
   }
 
   try {
@@ -86,7 +92,7 @@ export async function readLessonSubmissionSummariesAction(
 
     const { data: activityRows, error: activitiesError } = await supabase
       .from("activities")
-      .select("activity_id, title, type, body_data, active")
+      .select("activity_id, title, type, body_data, active, is_summative")
       .eq("lesson_id", trimmedLessonId)
       .eq("active", true)
 
@@ -94,14 +100,14 @@ export async function readLessonSubmissionSummariesAction(
       console.error("[submissions] Failed to read lesson activities for feedback summary:", activitiesError)
       return {
         data: [],
-        lessonAverage: null,
+        averages: { totalAverage: null, summativeAverage: null },
         error: activitiesError.message ?? "Unable to load activities.",
       }
     }
 
   const activities = LessonActivitySummaryRowSchema.array().parse(activityRows ?? [])
   if (activities.length === 0) {
-    return { data: [], lessonAverage: null, error: null }
+    return { data: [], averages: { totalAverage: null, summativeAverage: null }, error: null }
   }
 
   const activityIds = activities.map((activity) => activity.activity_id)
@@ -138,7 +144,7 @@ export async function readLessonSubmissionSummariesAction(
       console.error("[submissions] Failed to read lesson submissions for feedback summary:", submissionsError)
       return {
         data: [],
-        lessonAverage: null,
+        averages: { totalAverage: null, summativeAverage: null },
         error: submissionsError.message ?? "Unable to load submissions.",
       }
     }
@@ -154,7 +160,9 @@ export async function readLessonSubmissionSummariesAction(
 
   const summaries: LessonSubmissionSummary[] = []
   const overallTotals = { total: 0, count: 0 }
+  const overallSummativeTotals = { total: 0, count: 0 }
   const viewerTotals = { total: 0, count: 0 }
+  const viewerSummativeTotals = { total: 0, count: 0 }
 
     for (const activity of activities) {
       const activityType = (activity.type ?? "").trim()
@@ -165,6 +173,8 @@ export async function readLessonSubmissionSummariesAction(
         continue
       }
 
+      const isSummative = activity.is_summative ?? false
+
       const summary: LessonSubmissionSummary = {
         activityId: activity.activity_id,
         activityTitle,
@@ -174,6 +184,7 @@ export async function readLessonSubmissionSummariesAction(
         correctCount: null,
         scores: [],
         correctAnswer: null,
+        isSummative,
       }
 
       if (activityType === "multiple-choice-question") {
@@ -218,9 +229,14 @@ export async function readLessonSubmissionSummariesAction(
 
         if (scoreEntries.length > 0) {
           const totalScore = scoreEntries.reduce((acc, entry) => acc + entry.score, 0)
-          summary.averageScore = totalScore / scoreEntries.length
+          const averageScore = totalScore / scoreEntries.length
+          summary.averageScore = averageScore
           overallTotals.total += totalScore
           overallTotals.count += scoreEntries.length
+          if (isSummative) {
+            overallSummativeTotals.total += totalScore
+            overallSummativeTotals.count += scoreEntries.length
+          }
           if (viewerUserId) {
             scoreEntries
               .filter((entry) => entry.userId === viewerUserId)
@@ -228,6 +244,14 @@ export async function readLessonSubmissionSummariesAction(
                 viewerTotals.total += entry.score
                 viewerTotals.count += 1
               })
+            if (isSummative) {
+              scoreEntries
+                .filter((entry) => entry.userId === viewerUserId)
+                .forEach((entry) => {
+                  viewerSummativeTotals.total += entry.score
+                  viewerSummativeTotals.count += 1
+                })
+            }
           }
         }
       } else if (activityType === "short-text-question") {
@@ -289,9 +313,14 @@ export async function readLessonSubmissionSummariesAction(
 
         if (numericScores.length > 0) {
           const totalScore = numericScores.reduce((acc, entry) => acc + entry.score, 0)
-          summary.averageScore = totalScore / numericScores.length
+          const averageScore = totalScore / numericScores.length
+          summary.averageScore = averageScore
           overallTotals.total += totalScore
           overallTotals.count += numericScores.length
+          if (isSummative) {
+            overallSummativeTotals.total += totalScore
+            overallSummativeTotals.count += numericScores.length
+          }
           if (viewerUserId) {
             numericScores
               .filter((entry) => entry.userId === viewerUserId)
@@ -299,6 +328,14 @@ export async function readLessonSubmissionSummariesAction(
                 viewerTotals.total += entry.score
                 viewerTotals.count += 1
               })
+            if (isSummative) {
+              numericScores
+                .filter((entry) => entry.userId === viewerUserId)
+                .forEach((entry) => {
+                  viewerSummativeTotals.total += entry.score
+                  viewerSummativeTotals.count += 1
+                })
+            }
           }
         }
       } else {
@@ -337,9 +374,14 @@ export async function readLessonSubmissionSummariesAction(
 
         if (numericScores.length > 0) {
           const totalScore = numericScores.reduce((acc, entry) => acc + entry.score, 0)
-          summary.averageScore = totalScore / numericScores.length
+          const averageScore = totalScore / numericScores.length
+          summary.averageScore = averageScore
           overallTotals.total += totalScore
           overallTotals.count += numericScores.length
+          if (isSummative) {
+            overallSummativeTotals.total += totalScore
+            overallSummativeTotals.count += numericScores.length
+          }
           if (viewerUserId) {
             numericScores
               .filter((entry) => entry.userId === viewerUserId)
@@ -347,6 +389,14 @@ export async function readLessonSubmissionSummariesAction(
                 viewerTotals.total += entry.score
                 viewerTotals.count += 1
               })
+            if (isSummative) {
+              numericScores
+                .filter((entry) => entry.userId === viewerUserId)
+                .forEach((entry) => {
+                  viewerSummativeTotals.total += entry.score
+                  viewerSummativeTotals.count += 1
+                })
+            }
           }
         }
       }
@@ -357,14 +407,24 @@ export async function readLessonSubmissionSummariesAction(
   const computeAverage = (totals: { total: number; count: number }) =>
     totals.count > 0 ? totals.total / totals.count : null
 
-  const lessonAverage = viewerUserId
-    ? computeAverage(viewerTotals)
-    : computeAverage(overallTotals)
+  const lessonAverages: LessonAverageBreakdown = viewerUserId
+    ? {
+        totalAverage: computeAverage(viewerTotals),
+        summativeAverage: computeAverage(viewerSummativeTotals),
+      }
+    : {
+        totalAverage: computeAverage(overallTotals),
+        summativeAverage: computeAverage(overallSummativeTotals),
+      }
 
-    return { data: summaries, lessonAverage, error: null }
+    return { data: summaries, averages: lessonAverages, error: null }
   } catch (error) {
     console.error("[submissions] Unexpected error building submission summaries:", error)
-    return { data: [], lessonAverage: null, error: "Unable to load submission summaries." }
+    return {
+      data: [],
+      averages: { totalAverage: null, summativeAverage: null },
+      error: "Unable to load submission summaries.",
+    }
   }
 }
 

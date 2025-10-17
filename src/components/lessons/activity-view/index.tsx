@@ -180,7 +180,7 @@ function ActivityShortView({
             onCheckedChange={(checked) => onSummativeChange?.(checked)}
           />
           <Label htmlFor={summativeSwitchId} className="text-xs font-medium text-muted-foreground">
-            Summative
+            Assessment
           </Label>
           {summativeUpdating ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
@@ -193,7 +193,7 @@ function ActivityShortView({
       return (
         <div key="summative" className="flex items-center gap-2">
           <Badge variant="secondary" className="bg-primary/10 text-primary">
-            Summative
+            Assessment
           </Badge>
         </div>
       )
@@ -1061,8 +1061,8 @@ function FeedbackPresentView({ activity, lessonId }: { activity: LessonActivity;
 
   const [summaryState, setSummaryState] = useState<{
     summaries: LessonSubmissionSummary[]
-    lessonAverage: number | null
-  }>({ summaries: [], lessonAverage: null })
+    averages: { totalAverage: number | null; summativeAverage: number | null }
+  }>({ summaries: [], averages: { totalAverage: null, summativeAverage: null } })
   const [summaryError, setSummaryError] = useState<string | null>(null)
   const [isSummaryLoading, setIsSummaryLoading] = useState(false)
   const [memberships, setMemberships] = useState<Array<{ groupId: string; role: string }>>([])
@@ -1178,12 +1178,12 @@ function FeedbackPresentView({ activity, lessonId }: { activity: LessonActivity;
         if (cancelled) return
         if (result.error) {
           setSummaryError(result.error)
-          setSummaryState({ summaries: [], lessonAverage: null })
+          setSummaryState({ summaries: [], averages: { totalAverage: null, summativeAverage: null } })
         } else {
           setSummaryError(null)
           setSummaryState({
             summaries: result.data ?? [],
-            lessonAverage: result.lessonAverage ?? null,
+            averages: result.averages ?? { totalAverage: null, summativeAverage: null },
           })
         }
       })
@@ -1191,7 +1191,7 @@ function FeedbackPresentView({ activity, lessonId }: { activity: LessonActivity;
         if (!cancelled) {
           console.error("[feedback-present] Failed to load submission summaries", error)
           setSummaryError("Unable to load submission summaries.")
-          setSummaryState({ summaries: [], lessonAverage: null })
+          setSummaryState({ summaries: [], averages: { totalAverage: null, summativeAverage: null } })
         }
       })
       .finally(() => {
@@ -1245,7 +1245,7 @@ function FeedbackPresentView({ activity, lessonId }: { activity: LessonActivity;
       <div className="space-y-3">
         {showScores ? (
           <div className="rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-            Lesson average not available yet.
+            Lesson averages not available yet.
           </div>
         ) : null}
         <p className="text-sm text-muted-foreground">No submissions have been recorded yet.</p>
@@ -1253,16 +1253,23 @@ function FeedbackPresentView({ activity, lessonId }: { activity: LessonActivity;
     )
   }
 
-  const lessonAverageDisplay =
-    showScores && summaryState.lessonAverage !== null
-      ? formatAverageScore(summaryState.lessonAverage, "lesson-average")
+  const totalAverageDisplay =
+    showScores && summaryState.averages.totalAverage !== null
+      ? formatAverageScore(summaryState.averages.totalAverage, "lesson-average")
+      : null
+  const summativeAverageDisplay =
+    showScores && summaryState.averages.summativeAverage !== null
+      ? formatAverageScore(summaryState.averages.summativeAverage, "lesson-average")
       : null
 
   return (
     <div className="space-y-4">
       {showScores ? (
-        <div className="rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm font-semibold text-primary">
-          Lesson average: {lessonAverageDisplay ?? "Not available yet"}
+        <div className="flex flex-wrap gap-3 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm font-semibold text-primary">
+          <span>Overall: {totalAverageDisplay ?? "Not available yet"}</span>
+      <span className="text-primary/80">
+        Assessment: {summativeAverageDisplay ?? "Not available yet"}
+      </span>
         </div>
       ) : null}
       {filteredSummaries.map((summary) => {

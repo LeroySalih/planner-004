@@ -49,14 +49,18 @@ export function LessonDetailClient({
   const isActive = currentLesson.active !== false
 
   const lessonSuccessCriteria = useMemo(() => {
-    return (currentLesson.lesson_success_criteria ?? []).map((criterion) => ({
-      successCriteriaId: criterion.success_criteria_id,
-      title: criterion.title,
-      learningObjectiveId: criterion.learning_objective_id ?? null,
-      learningObjectiveTitle: currentLesson.lesson_objectives
-        .find((objective) => objective.learning_objective_id === (criterion.learning_objective_id ?? ""))
-        ?.learning_objective?.title ?? null,
-    }))
+    return (currentLesson.lesson_success_criteria ?? []).map((criterion) => {
+      const learningObjective = currentLesson.lesson_objectives.find(
+        (objective) => objective.learning_objective_id === (criterion.learning_objective_id ?? ""),
+      )
+
+      return {
+        successCriteriaId: criterion.success_criteria_id,
+        title: criterion.title,
+        learningObjectiveId: criterion.learning_objective_id ?? null,
+        learningObjectiveTitle: learningObjective?.learning_objective?.title ?? learningObjective?.title ?? null,
+      }
+    })
   }, [currentLesson.lesson_objectives, currentLesson.lesson_success_criteria])
 
   const handleLessonUpdated = (updated: LessonWithObjectives) => {

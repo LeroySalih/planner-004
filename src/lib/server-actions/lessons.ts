@@ -10,10 +10,7 @@ import {
   LessonsWithObjectivesSchema,
 } from "@/types"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
-import {
-  fetchSuccessCriteriaForLearningObjectives,
-  type NormalizedSuccessCriterion,
-} from "./learning-objectives"
+import { type NormalizedSuccessCriterion } from "./learning-objectives"
 
 const LessonsReturnValue = z.object({
   data: LessonsWithObjectivesSchema.nullable(),
@@ -359,49 +356,26 @@ async function enrichLessonsWithSuccessCriteria<T extends { lesson_id?: string; 
     }
   }
 
-  let loCriteriaMap = new Map<string, NormalizedSuccessCriterion[]>()
-
-  if (ids.size > 0) {
-    const { map, error } = await fetchSuccessCriteriaForLearningObjectives([...ids], options.unitId, supabase)
-
-    if (error) {
-      return { lessons: [], error }
-    }
-
-    loCriteriaMap = map
-  }
+  const loCriteriaMap = new Map<string, NormalizedSuccessCriterion[]>()
+  let criteriaMetadataRows: Array<{
+    success_criteria_id: string
+    learning_objective_id: string | null
+    description: string | null
+    level: number | null
+  }> = []
 
   const learningObjectiveMetadata = new Map<
     string,
     {
       title: string | null
       assessment_objective_id: string | null
+      assessment_objective_title: string | null
+      assessment_objective_code: string | null
+      assessment_objective_order_index: number | null
       order_index: number | null
       active: boolean | null
     }
   >()
-
-  if (ids.size > 0) {
-    const { data: learningObjectiveRows, error: learningObjectiveError } = await supabase
-      .from("learning_objectives")
-      .select("learning_objective_id, title, assessment_objective_id, order_index, active")
-      .in("learning_objective_id", [...ids])
-
-    if (learningObjectiveError) {
-      return { lessons: [], error: learningObjectiveError.message }
-    }
-
-    for (const row of learningObjectiveRows ?? []) {
-      if (!row?.learning_objective_id) continue
-      learningObjectiveMetadata.set(row.learning_objective_id, {
-        title: typeof row.title === "string" ? row.title : null,
-        assessment_objective_id:
-          typeof row.assessment_objective_id === "string" ? row.assessment_objective_id : null,
-        order_index: typeof row.order_index === "number" ? row.order_index : null,
-        active: typeof row.active === "boolean" ? row.active : null,
-      })
-    }
-  }
 
   const detailMap = new Map<
     string,
@@ -411,16 +385,6 @@ async function enrichLessonsWithSuccessCriteria<T extends { lesson_id?: string; 
       learning_objective_id: string | null
     }
   >()
-
-  for (const list of loCriteriaMap.values()) {
-    for (const criterion of list) {
-      detailMap.set(criterion.success_criteria_id, {
-        description: criterion.description,
-        level: criterion.level,
-        learning_objective_id: criterion.learning_objective_id ?? null,
-      })
-    }
-  }
 
   const lessonIds = Array.from(
     new Set(
@@ -467,39 +431,187 @@ async function enrichLessonsWithSuccessCriteria<T extends { lesson_id?: string; 
 
       for (const row of missingRows ?? []) {
         if (!row?.success_criteria_id) continue
+        const description = typeof row.description === "string" ? row.description : null
+        const level = typeof row.level === "number" ? row.level : null
+        const learningObjectiveId =
+          typeof row.learning_objective_id === "string" ? row.learning_objective_id : null
+
         detailMap.set(row.success_criteria_id, {
-          description: typeof row.description === "string" ? row.description : null,
-          level: typeof row.level === "number" ? row.level : null,
-          learning_objective_id:
-            typeof row.learning_objective_id === "string" ? row.learning_objective_id : null,
+          description,
+          level,
+          learning_objective_id: learningObjectiveId,
         })
+
+        if (learningObjectiveId) {
+          const normalized: NormalizedSuccessCriterion = {
+            success_criteria_id: row.success_criteria_id,
+            learning_objective_id: learningObjectiveId,
+            level: level ?? 1,
+            description: description ?? "",
+            order_index: null,
+            active: true,
+            units: [],
+          }
+          const list = loCriteriaMap.get(learningObjectiveId) ?? []
+          list.push(normalized)
+          loCriteriaMap.set(learningObjectiveId, list)
+          ids.add(learningObjectiveId)
+        }
       }
     }
   }
 
-  const lessonCriteriaMap = lessonCriteriaRows.reduce<Map<string, Array<{ success_criteria_id: string }>>>(
+  const lessonCriteriaMap = lessonCriteriaRows.reduce<
+    Map<string, Array<{ success_criteria_id: string; learning_objective_id: string | null }>>
+  >(
     (acc, row) => {
       const list = acc.get(row.lesson_id) ?? []
-      list.push({ success_criteria_id: row.success_criteria_id })
+      const details = detailMap.get(row.success_criteria_id)
+      list.push({
+        success_criteria_id: row.success_criteria_id,
+        learning_objective_id: details?.learning_objective_id ?? null,
+      })
       acc.set(row.lesson_id, list)
       return acc
     },
     new Map(),
   )
 
+  if (lessonCriteriaRows.length > 0) {
+    const { data, error: criteriaMetadataError } = await supabase
+      .from("success_criteria")
+      .select("success_criteria_id, learning_objective_id, description, level")
+      .in(
+        "success_criteria_id",
+        Array.from(new Set(lessonCriteriaRows.map((row) => row.success_criteria_id))).filter((id) => Boolean(id)),
+      )
+
+    if (criteriaMetadataError) {
+      return { lessons: [], error: criteriaMetadataError.message }
+    }
+
+    criteriaMetadataRows = data ?? []
+  }
+
+  for (const row of criteriaMetadataRows) {
+    if (!row?.success_criteria_id) continue
+    const description = typeof row.description === "string" ? row.description : null
+    const level = typeof row.level === "number" ? row.level : null
+    const learningObjectiveId =
+      typeof row.learning_objective_id === "string" ? row.learning_objective_id : null
+
+    if (!detailMap.has(row.success_criteria_id)) {
+      detailMap.set(row.success_criteria_id, {
+        description,
+        level,
+        learning_objective_id: learningObjectiveId,
+      })
+    }
+
+    if (learningObjectiveId) {
+      const list = loCriteriaMap.get(learningObjectiveId) ?? []
+      if (!list.some((entry) => entry.success_criteria_id === row.success_criteria_id)) {
+        list.push({
+          success_criteria_id: row.success_criteria_id,
+          learning_objective_id: learningObjectiveId,
+          level: level ?? 1,
+          description: description ?? "",
+          order_index: null,
+          active: true,
+          units: [],
+        })
+        loCriteriaMap.set(learningObjectiveId, list)
+      }
+      ids.add(learningObjectiveId)
+    }
+  }
+
+  const criteriaToObjectiveMap = new Map<string, string>()
+  for (const row of criteriaMetadataRows ?? []) {
+    if (row?.success_criteria_id && row?.learning_objective_id) {
+      criteriaToObjectiveMap.set(row.success_criteria_id, row.learning_objective_id)
+      ids.add(row.learning_objective_id)
+    }
+  }
+
+  const metadataIdsToFetch = Array.from(ids).filter((id) => !learningObjectiveMetadata.has(id))
+
+  if (metadataIdsToFetch.length > 0) {
+    const { data: learningObjectiveRows, error: learningObjectiveError } = await supabase
+      .from("learning_objectives")
+      .select(
+        "learning_objective_id, title, assessment_objective_id, order_index, active, assessment_objective:assessment_objectives(code, title, order_index)"
+      )
+      .in("learning_objective_id", metadataIdsToFetch)
+
+    if (learningObjectiveError) {
+      return { lessons: [], error: learningObjectiveError.message }
+    }
+
+    for (const row of learningObjectiveRows ?? []) {
+      if (!row?.learning_objective_id) continue
+      const assessmentObjective = Array.isArray(row.assessment_objective)
+        ? row.assessment_objective[0]
+        : row.assessment_objective
+      learningObjectiveMetadata.set(row.learning_objective_id, {
+        title: typeof row.title === "string" ? row.title : null,
+        assessment_objective_id:
+          typeof row.assessment_objective_id === "string" ? row.assessment_objective_id : null,
+        assessment_objective_title:
+          typeof assessmentObjective?.title === "string" ? assessmentObjective.title : null,
+        assessment_objective_code:
+          typeof assessmentObjective?.code === "string" ? assessmentObjective.code : null,
+        assessment_objective_order_index:
+          typeof assessmentObjective?.order_index === "number" ? assessmentObjective.order_index : null,
+        order_index: typeof row.order_index === "number" ? row.order_index : null,
+        active: typeof row.active === "boolean" ? row.active : null,
+      })
+    }
+  }
+
+
   const enriched = lessons.map((lesson) => {
+    const linkedCriteria = lessonCriteriaMap.get(lesson.lesson_id ?? "") ?? []
     const updatedObjectives = (lesson.lessons_learning_objective ?? []).map((entry) => {
       const loId = entry.learning_objective_id ?? entry.learning_objective?.learning_objective_id ?? ""
       const successCriteria = loId ? loCriteriaMap.get(loId) ?? [] : []
+      const metadata = loId ? learningObjectiveMetadata.get(loId) : null
+
+      const mergedLearningObjective = loId
+        ? {
+            learning_objective_id: loId,
+            assessment_objective_id: metadata?.assessment_objective_id ?? entry.learning_objective?.assessment_objective_id ?? null,
+            assessment_objective_title: metadata?.assessment_objective_title ?? entry.learning_objective?.assessment_objective_title ?? null,
+            assessment_objective_code: metadata?.assessment_objective_code ?? entry.learning_objective?.assessment_objective_code ?? null,
+            assessment_objective_order_index:
+              metadata?.assessment_objective_order_index ?? entry.learning_objective?.assessment_objective_order_index ?? null,
+            title:
+              metadata?.title ?? entry.learning_objective?.title ?? entry.title ?? "Learning objective",
+            order_index: metadata?.order_index ?? entry.learning_objective?.order_index ?? entry.order_by ?? 0,
+            active: metadata?.active ?? entry.learning_objective?.active ?? true,
+            success_criteria: successCriteria,
+            assessment_objective:
+              metadata?.assessment_objective_id
+                ? {
+                    assessment_objective_id: metadata.assessment_objective_id,
+                    code: metadata.assessment_objective_code,
+                    title: metadata.assessment_objective_title,
+                    order_index: metadata.assessment_objective_order_index,
+                  }
+                : entry.learning_objective && 'assessment_objective' in entry.learning_objective
+                  ? (entry.learning_objective as Record<string, unknown>)?.assessment_objective ?? null
+                  : null,
+          }
+        : entry.learning_objective
 
       return {
         ...entry,
+        title: metadata?.title ?? entry.title ?? "Learning objective",
         learning_objective: entry.learning_objective
           ? {
-              ...entry.learning_objective,
-              success_criteria: successCriteria,
+              ...mergedLearningObjective,
             }
-          : entry.learning_objective,
+          : mergedLearningObjective,
       }
     })
 
@@ -517,6 +629,9 @@ async function enrichLessonsWithSuccessCriteria<T extends { lesson_id?: string; 
           learning_objective_id: null,
         } as const)
 
+      const loIdFromCriterion =
+        row.learning_objective_id ?? criteriaToObjectiveMap.get(row.success_criteria_id) ?? details.learning_objective_id
+
       const title =
         (details.description && details.description.trim().length > 0
           ? details.description.trim()
@@ -528,7 +643,7 @@ async function enrichLessonsWithSuccessCriteria<T extends { lesson_id?: string; 
         title,
         description: details.description,
         level: details.level,
-        learning_objective_id: details.learning_objective_id,
+        learning_objective_id: loIdFromCriterion,
       }
     })
 
@@ -553,6 +668,9 @@ async function enrichLessonsWithSuccessCriteria<T extends { lesson_id?: string; 
       const metadata = learningObjectiveMetadata.get(loId) ?? {
         title: null,
         assessment_objective_id: null,
+        assessment_objective_title: null,
+        assessment_objective_code: null,
+        assessment_objective_order_index: null,
         order_index: null,
         active: true,
       }
@@ -570,6 +688,9 @@ async function enrichLessonsWithSuccessCriteria<T extends { lesson_id?: string; 
         learning_objective: {
           learning_objective_id: loId,
           assessment_objective_id: metadata.assessment_objective_id ?? "",
+          assessment_objective_title: metadata.assessment_objective_title ?? null,
+          assessment_objective_code: metadata.assessment_objective_code ?? null,
+          assessment_objective_order_index: metadata.assessment_objective_order_index ?? null,
           title: metadata.title ?? "Learning objective",
           order_index: orderIndex,
           active: metadata.active ?? true,
@@ -582,6 +703,14 @@ async function enrichLessonsWithSuccessCriteria<T extends { lesson_id?: string; 
             active: true,
             units: [],
           })),
+          assessment_objective: metadata.assessment_objective_id
+            ? {
+                assessment_objective_id: metadata.assessment_objective_id,
+                code: metadata.assessment_objective_code,
+                title: metadata.assessment_objective_title,
+                order_index: metadata.assessment_objective_order_index,
+              }
+            : null,
         },
       })
     }
