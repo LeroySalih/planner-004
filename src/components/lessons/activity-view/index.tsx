@@ -1,11 +1,14 @@
 "use client"
 
-import { useEffect, useMemo, useState, useTransition, type ReactNode } from "react"
+import { Fragment, useEffect, useMemo, useState, useTransition, type ReactNode } from "react"
 import type { LessonActivity } from "@/types"
 import { ActivityImagePreview } from "@/components/lessons/activity-image-preview"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
+import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
 import {
   getActivityFileUrlValue,
@@ -70,6 +73,8 @@ export interface LessonActivityShortViewProps extends LessonActivityViewBaseProp
   mode: "short"
   resolvedImageUrl?: string | null
   showImageBorder?: boolean
+  onSummativeChange?: (nextValue: boolean) => void
+  summativeUpdating?: boolean
 }
 
 export interface LessonActivityPresentViewProps extends LessonActivityViewBaseProps {
@@ -151,51 +156,74 @@ function ActivitySuccessCriteria({
   )
 }
 
-function ActivityShortView({ activity, lessonId, resolvedImageUrl, showImageBorder = true }: LessonActivityShortViewProps) {
+function ActivityShortView({
+  activity,
+  lessonId,
+  resolvedImageUrl,
+  showImageBorder = true,
+  onSummativeChange,
+  summativeUpdating = false,
+}: LessonActivityShortViewProps) {
   const hasSuccessCriteria = Array.isArray(activity.success_criteria) && activity.success_criteria.length > 0
+  const isSummative = activity.is_summative ?? false
+  const canToggleSummative = typeof onSummativeChange === "function"
+  const summativeSwitchId = `activity-summative-${activity.activity_id}`
 
-  const wrap = (node: ReactNode) => {
-    if (!hasSuccessCriteria) {
-      return node
+  const summativeSection = (() => {
+    if (canToggleSummative) {
+      return (
+        <div key="summative" className="flex items-center gap-2">
+          <Switch
+            id={summativeSwitchId}
+            checked={isSummative}
+            disabled={summativeUpdating}
+            onCheckedChange={(checked) => onSummativeChange?.(checked)}
+          />
+          <Label htmlFor={summativeSwitchId} className="text-xs font-medium text-muted-foreground">
+            Summative
+          </Label>
+          {summativeUpdating ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+          ) : null}
+        </div>
+      )
     }
-    return (
-      <div className="space-y-2">
-        <ActivitySuccessCriteria activity={activity} variant="compact" />
-        {node}
-      </div>
-    )
-  }
+
+    if (isSummative) {
+      return (
+        <div key="summative" className="flex items-center gap-2">
+          <Badge variant="secondary" className="bg-primary/10 text-primary">
+            Summative
+          </Badge>
+        </div>
+      )
+    }
+
+    return null
+  })()
+
+  let content: ReactNode = null
 
   if (activity.type === "text") {
     const text = getActivityTextValue(activity)
     const markup = getRichTextMarkup(text)
-    if (!markup) {
-      return wrap(null)
+    if (markup) {
+      content = (
+        <div className="prose prose-sm max-w-none text-muted-foreground" dangerouslySetInnerHTML={{ __html: markup }} />
+      )
     }
-    return wrap(
-      <div className="prose prose-sm max-w-none text-muted-foreground" dangerouslySetInnerHTML={{ __html: markup }} />
-    )
-  }
-
-  if (activity.type === "upload-file") {
+  } else if (activity.type === "upload-file") {
     const text = getActivityTextValue(activity)
     const markup = getRichTextMarkup(text)
-    if (!markup) {
-      return wrap(null)
+    if (markup) {
+      content = (
+        <div className="prose prose-sm max-w-none text-muted-foreground" dangerouslySetInnerHTML={{ __html: markup }} />
+      )
     }
-    return wrap(
-      <div className="prose prose-sm max-w-none text-muted-foreground" dangerouslySetInnerHTML={{ __html: markup }} />
-    )
-  }
-
-  if (activity.type === "multiple-choice-question") {
+  } else if (activity.type === "multiple-choice-question") {
     const mcq = getMcqBody(activity)
     const markup = getRichTextMarkup(mcq.question)
-    if (!markup) {
-      return wrap(<p className="text-sm text-muted-foreground">Multiple choice question awaiting setup.</p>)
-    }
-
-    return wrap(
+    content = markup ? (
       <div className="space-y-1">
         <p className="text-xs font-semibold uppercase tracking-wide text-primary">Multiple choice</p>
         <div
@@ -203,17 +231,13 @@ function ActivityShortView({ activity, lessonId, resolvedImageUrl, showImageBord
           dangerouslySetInnerHTML={{ __html: markup }}
         />
       </div>
+    ) : (
+      <p className="text-sm text-muted-foreground">Multiple choice question awaiting setup.</p>
     )
-  }
-
-  if (activity.type === "short-text-question") {
+  } else if (activity.type === "short-text-question") {
     const shortText = getShortTextBody(activity)
     const markup = getRichTextMarkup(shortText.question)
-    if (!markup) {
-      return wrap(<p className="text-sm text-muted-foreground">Short text question awaiting setup.</p>)
-    }
-
-    return wrap(
+    content = markup ? (
       <div className="space-y-1">
         <p className="text-xs font-semibold uppercase tracking-wide text-primary">Short text question</p>
         <div
@@ -221,68 +245,62 @@ function ActivityShortView({ activity, lessonId, resolvedImageUrl, showImageBord
           dangerouslySetInnerHTML={{ __html: markup }}
         />
       </div>
+    ) : (
+      <p className="text-sm text-muted-foreground">Short text question awaiting setup.</p>
     )
-  }
-
-  if (activity.type === "feedback") {
+  } else if (activity.type === "feedback") {
     const feedback = getFeedbackBody(activity)
     const entries = Object.entries(feedback.groups)
 
-    if (entries.length === 0) {
-      return wrap(<p className="text-sm text-muted-foreground">No groups configured yet.</p>)
-    }
-
-    return wrap(
-      <div className="space-y-2 text-sm">
-        {entries.map(([groupId, settings]) => (
-          <div
-            key={groupId}
-            className="flex items-center justify-between rounded-md border border-border/60 px-3 py-2"
-          >
-            <span className="font-medium text-foreground">{groupId}</span>
-            <span className={cn("text-xs", settings.isEnabled ? "text-emerald-600" : "text-muted-foreground")}>
-              {settings.isEnabled ? `Enabled for group ${groupId}` : `Not enabled for group ${groupId}`}
-            </span>
-          </div>
-        ))}
-      </div>
-    )
-  }
-
-  if (activity.type === "show-video") {
+    content =
+      entries.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No groups configured yet.</p>
+      ) : (
+        <div className="space-y-2 text-sm">
+          {entries.map(([groupId, settings]) => (
+            <div
+              key={groupId}
+              className="flex items-center justify-between rounded-md border border-border/60 px-3 py-2"
+            >
+              <span className="font-medium text-foreground">{groupId}</span>
+              <span className={cn("text-xs", settings.isEnabled ? "text-emerald-600" : "text-muted-foreground")}>
+                {settings.isEnabled ? `Enabled for group ${groupId}` : `Not enabled for group ${groupId}`}
+              </span>
+            </div>
+          ))}
+        </div>
+      )
+  } else if (activity.type === "show-video") {
     const url = getActivityFileUrlValue(activity)
-    if (!url) {
-      return wrap(null)
-    }
-    return wrap(
-      <span
-        role="link"
-        tabIndex={0}
-        onClick={(event) => {
-          event.preventDefault()
-          event.stopPropagation()
-          if (typeof window !== "undefined") {
-            window.open(url, "_blank", "noopener,noreferrer")
-          }
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
+    if (url) {
+      content = (
+        <span
+          role="link"
+          tabIndex={0}
+          onClick={(event) => {
             event.preventDefault()
             event.stopPropagation()
             if (typeof window !== "undefined") {
               window.open(url, "_blank", "noopener,noreferrer")
             }
-          }
-        }}
-        className="inline-flex cursor-pointer items-center break-all text-sm font-medium text-primary underline-offset-2 hover:underline"
-      >
-        Watch video
-      </span>
-    )
-  }
-
-  if (activity.type === "display-image") {
-    return wrap(
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault()
+              event.stopPropagation()
+              if (typeof window !== "undefined") {
+                window.open(url, "_blank", "noopener,noreferrer")
+              }
+            }
+          }}
+          className="inline-flex cursor-pointer items-center break-all text-sm font-medium text-primary underline-offset-2 hover:underline"
+        >
+          Watch video
+        </span>
+      )
+    }
+  } else if (activity.type === "display-image") {
+    content = (
       <DisplayImageShortView
         activity={activity}
         lessonId={lessonId ?? null}
@@ -290,17 +308,35 @@ function ActivityShortView({ activity, lessonId, resolvedImageUrl, showImageBord
         showImageBorder={showImageBorder}
       />
     )
-  }
-
-  if (activity.type === "voice") {
+  } else if (activity.type === "voice") {
     const body = getVoiceBody(activity)
-    if (body.audioFile) {
-      return wrap(<p className="text-sm text-muted-foreground">Voice recording attached.</p>)
-    }
-    return wrap(<p className="text-sm text-muted-foreground">No recording uploaded yet.</p>)
+    content = body.audioFile ? (
+      <p className="text-sm text-muted-foreground">Voice recording attached.</p>
+    ) : (
+      <p className="text-sm text-muted-foreground">No recording uploaded yet.</p>
+    )
   }
 
-  return wrap(null)
+  const sections: ReactNode[] = []
+  if (summativeSection) {
+    sections.push(summativeSection)
+  }
+  if (hasSuccessCriteria) {
+    sections.push(<ActivitySuccessCriteria key="success-criteria" activity={activity} variant="compact" />)
+  }
+  if (content) {
+    sections.push(<Fragment key="content">{content}</Fragment>)
+  }
+
+  if (sections.length === 0) {
+    return null
+  }
+
+  if (sections.length === 1) {
+    return <>{sections[0]}</>
+  }
+
+  return <div className="space-y-3">{sections}</div>
 }
 
 function DisplayImageShortView({
