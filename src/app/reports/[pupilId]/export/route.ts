@@ -9,6 +9,13 @@ const FONT_PRIMARY_BOLD = "Helvetica-Bold"
 
 const PDFDocument = PDFDocumentFactory as unknown as typeof PDFKit
 
+function formatPercent(value: number | null): string {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return "—"
+  }
+  return `${Math.round(value * 100)}%`
+}
+
 export async function GET(request: Request, { params }: { params: Promise<{ pupilId: string }> }) {
   const { pupilId } = await params
   const { searchParams } = new URL(request.url)
@@ -83,14 +90,13 @@ function renderReport(doc: PDFKit.PDFDocument, data: PreparedReportData & { pupi
       doc.addPage()
     }
 
-    renderSubjectSection(doc, subjectEntry, data)
+    renderSubjectSection(doc, subjectEntry)
   })
 }
 
 function renderSubjectSection(
   doc: PDFKit.PDFDocument,
   subjectEntry: PreparedReportData["subjectEntries"][number],
-  data: PreparedReportData,
 ) {
   doc.font(FONT_PRIMARY_BOLD).fontSize(16).fillColor("#0f172a").text(subjectEntry.subject)
   doc
@@ -102,7 +108,7 @@ function renderSubjectSection(
   doc.moveDown(0.75)
 
   subjectEntry.units.forEach((unit, unitIndex) => {
-    renderUnit(doc, unit, unitIndex > 0, data.feedbackByCriterion)
+    renderUnit(doc, unit, unitIndex > 0)
   })
 }
 
@@ -110,7 +116,6 @@ function renderUnit(
   doc: PDFKit.PDFDocument,
   unit: PreparedReportData["subjectEntries"][number]["units"][number],
   addSpacing: boolean,
-  feedbackByCriterion: Record<string, number>,
 ) {
   if (addSpacing) {
     doc.moveDown(0.5)
@@ -126,6 +131,11 @@ function renderUnit(
     .font(FONT_PRIMARY)
     .fontSize(9)
     .fillColor("#4b5563")
+    .text(`Scores — Activities: ${formatPercent(unit.activitiesAverage)} · Assessment: ${formatPercent(unit.assessmentAverage)}`)
+  doc
+    .font(FONT_PRIMARY)
+    .fontSize(9)
+    .fillColor("#4b5563")
     .text(`Working at: ${unit.workingLevel ? `Level ${unit.workingLevel}` : "Not established"}`)
 
   if (unit.relatedGroups.length > 0) {
@@ -136,7 +146,15 @@ function renderUnit(
 
   if (unit.objectiveError) {
     doc.font(FONT_PRIMARY).fontSize(9).fillColor("#b91c1c").text(`Unable to load objectives: ${unit.objectiveError}`)
+    if (unit.scoreError) {
+      doc.font(FONT_PRIMARY).fontSize(9).fillColor("#b91c1c").text(`Unable to load scores: ${unit.scoreError}`)
+    }
     return
+  }
+
+  if (unit.scoreError) {
+    doc.font(FONT_PRIMARY).fontSize(9).fillColor("#b91c1c").text(`Unable to load scores: ${unit.scoreError}`)
+    doc.moveDown(0.35)
   }
 
   if (unit.groupedLevels.length === 0) {
@@ -151,9 +169,6 @@ function renderUnit(
     doc.font(FONT_PRIMARY_BOLD).fontSize(11).fillColor("#0f172a").text(`Level ${group.level}`)
 
     group.rows.forEach((row) => {
-      const rating = feedbackByCriterion[row.criterionId] ?? 0
-      const criterionColor = rating > 0 ? "#047857" : rating < 0 ? "#b91c1c" : "#6b7280"
-
       doc
         .font(FONT_PRIMARY_BOLD)
         .fontSize(9)
@@ -169,8 +184,16 @@ function renderUnit(
       doc
         .font(FONT_PRIMARY)
         .fontSize(9)
-        .fillColor(criterionColor)
+        .fillColor("#1f2937")
         .text(`Criterion: ${row.criterionDescription ?? "No description provided."}`, { indent: 30 })
+      doc
+        .font(FONT_PRIMARY)
+        .fontSize(9)
+        .fillColor("#4b5563")
+        .text(
+          `Scores — Activities: ${formatPercent(row.activitiesScore)} · Assessment: ${formatPercent(row.assessmentScore)}`,
+          { indent: 30 },
+        )
 
       doc.moveDown(0.2)
     })

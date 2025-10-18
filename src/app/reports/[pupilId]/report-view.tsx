@@ -1,9 +1,14 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
-import { ThumbsDown, ThumbsUp } from "lucide-react"
-
 import { ExportPdfButton } from "./export-pdf-button"
 import { getPreparedReportData, type ReportUnitSummary } from "./report-data"
+
+function formatPercent(value: number | null) {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return "—"
+  }
+  return `${Math.round(value * 100)}%`
+}
 
 export async function PupilReportView({
   pupilId,
@@ -20,34 +25,7 @@ export async function PupilReportView({
     notFound()
   }
 
-  const { profileName, formattedDate, exportFileName, primaryMembership, feedbackByCriterion, subjectEntries } =
-    prepared
-
-  const renderFeedbackIndicator = (criterionId: string) => {
-    const rating = feedbackByCriterion[criterionId] ?? 0
-
-    if (rating === 0) {
-      return (
-        <span className="inline-flex items-center text-muted-foreground" aria-label="No feedback yet">
-          <ThumbsUp className="h-4 w-4" />
-        </span>
-      )
-    }
-
-    if (rating > 0) {
-      return (
-        <span className="inline-flex items-center text-emerald-600" aria-label="Positive feedback">
-          <ThumbsUp className="h-4 w-4" />
-        </span>
-      )
-    }
-
-    return (
-      <span className="inline-flex items-center text-destructive" aria-label="Needs attention">
-        <ThumbsDown className="h-4 w-4" />
-      </span>
-    )
-  }
+  const { profileName, formattedDate, exportFileName, primaryMembership, subjectEntries } = prepared
 
   const printLink = groupIdFilter ? `/reports/${pupilId}/groups/${groupIdFilter}/print` : null
   return (
@@ -135,7 +113,7 @@ export async function PupilReportView({
                       <th className="border border-border px-4 py-2" colSpan={5}>
                         Assessment Objective
                       </th>
-                      <th className="border border-border px-4 py-2">Feedback</th>
+                      <th className="border border-border px-4 py-2">Scores</th>
                     </tr>
                   </thead>
                   <tbody className="text-sm">
@@ -220,7 +198,20 @@ export async function PupilReportView({
                                 {row.criterionDescription ?? "No description provided."}
                               </td>
                               <td className="border border-border px-4 py-2 align-top">
-                                {renderFeedbackIndicator(row.criterionId)}
+                                <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+                                  <span>
+                                    Activities:{" "}
+                                    <span className="font-semibold text-foreground">
+                                      {formatPercent(row.activitiesScore)}
+                                    </span>
+                                  </span>
+                                  <span>
+                                    Assessment:{" "}
+                                    <span className="font-semibold text-foreground">
+                                      {formatPercent(row.assessmentScore)}
+                                    </span>
+                                  </span>
+                                </div>
                               </td>
                             </tr>
                           )),
@@ -245,8 +236,8 @@ export async function PupilReportView({
                         : "space-y-4 rounded-lg border border-border bg-card p-5 shadow-sm"
                     }
                   >
-                    <header className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
+                    <header className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="space-y-2">
                         <h4 className="text-lg font-semibold text-foreground">
                           <Link href={`/units/${unit.unitId}`} className="underline-offset-4 hover:underline">
                             {unit.unitTitle}
@@ -255,18 +246,61 @@ export async function PupilReportView({
                         <p className="text-xs text-muted-foreground">
                           {unit.unitDescription ?? "No description available."}
                         </p>
+                        <div className="flex flex-wrap gap-3 text-xs text-muted-foreground sm:text-sm">
+                          <span>
+                            Activities:{" "}
+                            <span className="font-semibold text-foreground">{formatPercent(unit.activitiesAverage)}</span>
+                          </span>
+                          <span>
+                            Assessment:{" "}
+                            <span className="font-semibold text-foreground">
+                              {formatPercent(unit.assessmentAverage)}
+                            </span>
+                          </span>
+                          {unit.relatedGroups.length > 0 ? (
+                            <span>
+                              Groups:{" "}
+                              <span className="font-medium text-foreground">
+                                {unit.relatedGroups.join(", ")}
+                              </span>
+                            </span>
+                          ) : null}
+                        </div>
+                        {unit.scoreError ? (
+                          <p className="text-xs text-destructive">
+                            Unable to load recent scores: {unit.scoreError}
+                          </p>
+                        ) : null}
                       </div>
                       <span className="text-sm text-muted-foreground">
-                        Working at: <span className="text-lg font-semibold text-foreground">{unit.workingLevel ? `Level ${unit.workingLevel}` : "Not established"}</span>
+                        Working at:{" "}
+                        <span className="text-lg font-semibold text-foreground">
+                          {unit.workingLevel ? `Level ${unit.workingLevel}` : "Not established"}
+                        </span>
                       </span>
                     </header>
 
                     {unit.objectiveError ? (
                       <p className="text-sm text-destructive">Unable to load learning objectives: {unit.objectiveError}</p>
+                    ) : variant === "print" ? (
+                      unit.groupedLevels.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                          No success criteria are assigned to this group for the current units.
+                        </p>
+                      ) : (
+                        renderUnitTable(unit.groupedLevels)
+                      )
                     ) : unit.groupedLevels.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">No success criteria are assigned to this group for the current units.</p>
+                      <p className="text-sm text-muted-foreground">
+                        No success criteria are assigned to this group for the current units.
+                      </p>
                     ) : (
-                      renderUnitTable(unit.groupedLevels)
+                      <details className="rounded-lg border border-dashed border-border bg-muted/10 p-4">
+                        <summary className="cursor-pointer text-sm font-semibold text-foreground">
+                          Learning objectives & success criteria
+                        </summary>
+                        <div className="pt-3">{renderUnitTable(unit.groupedLevels)}</div>
+                      </details>
                     )}
                   </article>
                 ))}

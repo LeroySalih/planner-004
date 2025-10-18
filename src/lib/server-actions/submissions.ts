@@ -34,6 +34,7 @@ const LessonActivitySummaryRowSchema = z.object({
   title: z.string().nullable(),
   type: z.string().nullable(),
   body_data: z.unknown().nullable(),
+  is_summative: z.boolean().nullish().transform((value) => value ?? false),
 })
 
 export async function getLatestSubmissionForActivityAction(activityId: string, userId: string) {
@@ -71,13 +72,18 @@ export async function getLatestSubmissionForActivityAction(activityId: string, u
   return SubmissionResultSchema.parse({ data: parsed.data, error: null })
 }
 
+type LessonAverageBreakdown = {
+  activitiesAverage: number | null
+  assessmentAverage: number | null
+}
+
 export async function readLessonSubmissionSummariesAction(
   lessonId: string,
   options: { userId?: string | null } = {},
-): Promise<{ data: LessonSubmissionSummary[]; lessonAverage: number | null; error: string | null }> {
+): Promise<{ data: LessonSubmissionSummary[]; averages: LessonAverageBreakdown; error: string | null }> {
   const trimmedLessonId = lessonId.trim()
   if (!trimmedLessonId) {
-    return { data: [], lessonAverage: null, error: null }
+    return { data: [], averages: { activitiesAverage: null, assessmentAverage: null }, error: null }
   }
 
   try {
@@ -86,7 +92,7 @@ export async function readLessonSubmissionSummariesAction(
 
     const { data: activityRows, error: activitiesError } = await supabase
       .from("activities")
-      .select("activity_id, title, type, body_data, active")
+      .select("activity_id, title, type, body_data, active, is_summative")
       .eq("lesson_id", trimmedLessonId)
       .eq("active", true)
 
@@ -94,14 +100,14 @@ export async function readLessonSubmissionSummariesAction(
       console.error("[submissions] Failed to read lesson activities for feedback summary:", activitiesError)
       return {
         data: [],
-        lessonAverage: null,
+        averages: { activitiesAverage: null, assessmentAverage: null },
         error: activitiesError.message ?? "Unable to load activities.",
       }
     }
 
   const activities = LessonActivitySummaryRowSchema.array().parse(activityRows ?? [])
   if (activities.length === 0) {
-    return { data: [], lessonAverage: null, error: null }
+    return { data: [], averages: { activitiesAverage: null, assessmentAverage: null }, error: null }
   }
 
   const activityIds = activities.map((activity) => activity.activity_id)
@@ -138,7 +144,7 @@ export async function readLessonSubmissionSummariesAction(
       console.error("[submissions] Failed to read lesson submissions for feedback summary:", submissionsError)
       return {
         data: [],
-        lessonAverage: null,
+        averages: { activitiesAverage: null, assessmentAverage: null },
         error: submissionsError.message ?? "Unable to load submissions.",
       }
     }
@@ -154,26 +160,33 @@ export async function readLessonSubmissionSummariesAction(
 
   const summaries: LessonSubmissionSummary[] = []
   const overallTotals = { total: 0, count: 0 }
+  const overallSummativeTotals = { total: 0, count: 0 }
   const viewerTotals = { total: 0, count: 0 }
+  const viewerSummativeTotals = { total: 0, count: 0 }
 
     for (const activity of activities) {
       const activityType = (activity.type ?? "").trim()
       const activityTitle = (activity.title ?? "Untitled activity").trim() || "Untitled activity"
       const submissionList = submissionsByActivity.get(activity.activity_id) ?? []
-
-      if (submissionList.length === 0) {
-        continue
-      }
+      const successCriteriaIds = activitySuccessCriteriaMap.get(activity.activity_id) ?? []
+      const isSummative = activity.is_summative ?? false
 
       const summary: LessonSubmissionSummary = {
         activityId: activity.activity_id,
         activityTitle,
         activityType,
+        successCriteriaIds: successCriteriaIds.slice(),
         totalSubmissions: submissionList.length,
         averageScore: null,
         correctCount: null,
         scores: [],
         correctAnswer: null,
+        isSummative,
+      }
+
+      if (submissionList.length === 0) {
+        summaries.push(summary)
+        continue
       }
 
       if (activityType === "multiple-choice-question") {
@@ -189,8 +202,6 @@ export async function readLessonSubmissionSummariesAction(
         } else if (correctOptionId) {
           summary.correctAnswer = correctOptionId
         }
-
-        const successCriteriaIds = activitySuccessCriteriaMap.get(activity.activity_id) ?? []
 
         const scoreEntries = submissionList
           .map((submission) => {
@@ -209,18 +220,36 @@ export async function readLessonSubmissionSummariesAction(
               userId: submission.user_id,
               score,
               isCorrect,
+              successCriteriaScores,
             }
           })
-          .filter((entry): entry is { userId: string; score: number; isCorrect: boolean } => entry !== null)
+          .filter(
+            (entry): entry is {
+              userId: string
+              score: number
+              isCorrect: boolean
+              successCriteriaScores: Record<string, number | null>
+            } => entry !== null,
+          )
 
-        summary.scores = scoreEntries
+        summary.scores = scoreEntries.map((entry) => ({
+          userId: entry.userId,
+          score: entry.score,
+          isCorrect: entry.isCorrect,
+          successCriteriaScores: entry.successCriteriaScores,
+        }))
         summary.correctCount = scoreEntries.filter((entry) => entry.isCorrect).length
 
         if (scoreEntries.length > 0) {
-          const totalScore = scoreEntries.reduce((acc, entry) => acc + entry.score, 0)
-          summary.averageScore = totalScore / scoreEntries.length
-          overallTotals.total += totalScore
+          const activitiesScore = scoreEntries.reduce((acc, entry) => acc + entry.score, 0)
+          const averageScore = activitiesScore / scoreEntries.length
+          summary.averageScore = averageScore
+          overallTotals.total += activitiesScore
           overallTotals.count += scoreEntries.length
+          if (isSummative) {
+            overallSummativeTotals.total += activitiesScore
+            overallSummativeTotals.count += scoreEntries.length
+          }
           if (viewerUserId) {
             scoreEntries
               .filter((entry) => entry.userId === viewerUserId)
@@ -228,6 +257,14 @@ export async function readLessonSubmissionSummariesAction(
                 viewerTotals.total += entry.score
                 viewerTotals.count += 1
               })
+            if (isSummative) {
+              scoreEntries
+                .filter((entry) => entry.userId === viewerUserId)
+                .forEach((entry) => {
+                  viewerSummativeTotals.total += entry.score
+                  viewerSummativeTotals.count += 1
+                })
+            }
           }
         }
       } else if (activityType === "short-text-question") {
@@ -238,8 +275,6 @@ export async function readLessonSubmissionSummariesAction(
             summary.correctAnswer = modelAnswer
           }
         }
-
-        const successCriteriaIds = activitySuccessCriteriaMap.get(activity.activity_id) ?? []
 
         const scoreEntries = submissionList
           .map((submission) => {
@@ -270,28 +305,46 @@ export async function readLessonSubmissionSummariesAction(
               userId: submission.user_id,
               score: averagedScore,
               isCorrect: parsedSubmission.data.is_correct === true,
+              successCriteriaScores,
             }
           })
-          .filter((entry): entry is { userId: string; score: number; isCorrect: boolean } => entry !== null)
+          .filter(
+            (entry): entry is {
+              userId: string
+              score: number
+              isCorrect: boolean
+              successCriteriaScores: Record<string, number | null>
+            } => entry !== null,
+          )
 
         summary.scores = scoreEntries.map((entry) => ({
           userId: entry.userId,
           score: entry.score,
           isCorrect: entry.isCorrect,
+          successCriteriaScores: entry.successCriteriaScores,
         }))
 
         summary.correctCount = scoreEntries.filter((entry) => entry.isCorrect).length
 
-        const numericScores = scoreEntries.filter(
-          (entry): entry is { userId: string; score: number; isCorrect: boolean } =>
-            typeof entry.score === "number" && Number.isFinite(entry.score),
-        )
+        const numericScores = scoreEntries
+          .filter((entry) => typeof entry.score === "number" && Number.isFinite(entry.score))
+          .map((entry) => ({
+            userId: entry.userId,
+            score: entry.score as number,
+            isCorrect: entry.isCorrect,
+            successCriteriaScores: entry.successCriteriaScores ?? {},
+          }))
 
         if (numericScores.length > 0) {
-          const totalScore = numericScores.reduce((acc, entry) => acc + entry.score, 0)
-          summary.averageScore = totalScore / numericScores.length
-          overallTotals.total += totalScore
+          const activitiesScore = numericScores.reduce((acc, entry) => acc + entry.score, 0)
+          const averageScore = activitiesScore / numericScores.length
+          summary.averageScore = averageScore
+          overallTotals.total += activitiesScore
           overallTotals.count += numericScores.length
+          if (isSummative) {
+            overallSummativeTotals.total += activitiesScore
+            overallSummativeTotals.count += numericScores.length
+          }
           if (viewerUserId) {
             numericScores
               .filter((entry) => entry.userId === viewerUserId)
@@ -299,6 +352,14 @@ export async function readLessonSubmissionSummariesAction(
                 viewerTotals.total += entry.score
                 viewerTotals.count += 1
               })
+            if (isSummative) {
+              numericScores
+                .filter((entry) => entry.userId === viewerUserId)
+                .forEach((entry) => {
+                  viewerSummativeTotals.total += entry.score
+                  viewerSummativeTotals.count += 1
+                })
+            }
           }
         }
       } else {
@@ -325,6 +386,7 @@ export async function readLessonSubmissionSummariesAction(
           return {
             userId: submission.user_id,
             score,
+            successCriteriaScores: {},
           }
         })
 
@@ -336,10 +398,15 @@ export async function readLessonSubmissionSummariesAction(
         }>
 
         if (numericScores.length > 0) {
-          const totalScore = numericScores.reduce((acc, entry) => acc + entry.score, 0)
-          summary.averageScore = totalScore / numericScores.length
-          overallTotals.total += totalScore
+          const activitiesScore = numericScores.reduce((acc, entry) => acc + entry.score, 0)
+          const averageScore = activitiesScore / numericScores.length
+          summary.averageScore = averageScore
+          overallTotals.total += activitiesScore
           overallTotals.count += numericScores.length
+          if (isSummative) {
+            overallSummativeTotals.total += activitiesScore
+            overallSummativeTotals.count += numericScores.length
+          }
           if (viewerUserId) {
             numericScores
               .filter((entry) => entry.userId === viewerUserId)
@@ -347,6 +414,14 @@ export async function readLessonSubmissionSummariesAction(
                 viewerTotals.total += entry.score
                 viewerTotals.count += 1
               })
+            if (isSummative) {
+              numericScores
+                .filter((entry) => entry.userId === viewerUserId)
+                .forEach((entry) => {
+                  viewerSummativeTotals.total += entry.score
+                  viewerSummativeTotals.count += 1
+                })
+            }
           }
         }
       }
@@ -357,14 +432,24 @@ export async function readLessonSubmissionSummariesAction(
   const computeAverage = (totals: { total: number; count: number }) =>
     totals.count > 0 ? totals.total / totals.count : null
 
-  const lessonAverage = viewerUserId
-    ? computeAverage(viewerTotals)
-    : computeAverage(overallTotals)
+  const lessonAverages: LessonAverageBreakdown = viewerUserId
+    ? {
+        activitiesAverage: computeAverage(viewerTotals),
+        assessmentAverage: computeAverage(viewerSummativeTotals),
+      }
+    : {
+        activitiesAverage: computeAverage(overallTotals),
+        assessmentAverage: computeAverage(overallSummativeTotals),
+      }
 
-    return { data: summaries, lessonAverage, error: null }
+    return { data: summaries, averages: lessonAverages, error: null }
   } catch (error) {
     console.error("[submissions] Unexpected error building submission summaries:", error)
-    return { data: [], lessonAverage: null, error: "Unable to load submission summaries." }
+    return {
+      data: [],
+      averages: { activitiesAverage: null, assessmentAverage: null },
+      error: "Unable to load submission summaries.",
+    }
   }
 }
 

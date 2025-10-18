@@ -67,7 +67,7 @@ function recalculateMatrix(
   rows: AssignmentResultRow[]
   activitySummaries: AssignmentResultActivitySummary[]
   successCriteriaSummaries: AssignmentResultSuccessCriterionSummary[]
-  overallAverage: number | null
+  overallAverages: { activitiesAverage: number | null; assessmentAverage: number | null }
 } {
   const totals = new Map<
     string,
@@ -105,27 +105,34 @@ function recalculateMatrix(
     })
 
     const activityCount = activities.length
-    const totalScore = nextCells.reduce(
+    const activitiesScore = nextCells.reduce(
       (acc, cell) => acc + (typeof cell.score === "number" ? cell.score : 0),
       0,
     )
-    const averageScore = activityCount > 0 ? totalScore / activityCount : null
+    const averageScore = activityCount > 0 ? activitiesScore / activityCount : null
 
     return { ...row, cells: nextCells, averageScore }
   })
 
   let overallTotal = 0
   let overallCount = 0
+  let summativeOverallTotal = 0
+  let summativeOverallCount = 0
 
   const activitySummaries: AssignmentResultActivitySummary[] = activities.map((activity) => {
     const entry = totals.get(activity.activityId) ?? { total: 0, count: 0, submittedCount: 0 }
     if (entry.count > 0) {
       overallTotal += entry.total
       overallCount += entry.count
+      if (activity.isSummative) {
+        summativeOverallTotal += entry.total
+        summativeOverallCount += entry.count
+      }
     }
     return {
       activityId: activity.activityId,
-      averageScore: entry.count > 0 ? entry.total / entry.count : null,
+      activitiesAverage: entry.count > 0 ? entry.total / entry.count : null,
+      assessmentAverage: activity.isSummative && entry.count > 0 ? entry.total / entry.count : null,
       submittedCount: entry.submittedCount,
     }
   })
@@ -135,6 +142,8 @@ function recalculateMatrix(
     {
       total: number
       count: number
+      assessmentTotal: number
+      assessmentCount: number
       submittedCount: number
       activityIds: Set<string>
       title: string | null
@@ -146,6 +155,8 @@ function recalculateMatrix(
     const totalsEntry = totals.get(activity.activityId) ?? {
       total: 0,
       count: 0,
+      assessmentTotal: 0,
+      assessmentCount: 0,
       submittedCount: 0,
     }
 
@@ -153,6 +164,8 @@ function recalculateMatrix(
       const existing = successCriteriaTotals.get(criterion.successCriteriaId) ?? {
         total: 0,
         count: 0,
+        assessmentTotal: 0,
+        assessmentCount: 0,
         submittedCount: 0,
         activityIds: new Set<string>(),
         title: criterion.title ?? null,
@@ -161,6 +174,10 @@ function recalculateMatrix(
 
       existing.total += totalsEntry.total
       existing.count += totalsEntry.count
+      if (activity.isSummative) {
+        existing.assessmentTotal += totalsEntry.total
+        existing.assessmentCount += totalsEntry.count
+      }
       existing.submittedCount += totalsEntry.submittedCount
       existing.activityIds.add(activity.activityId)
 
@@ -182,14 +199,18 @@ function recalculateMatrix(
     successCriteriaId,
     title: entry.title ?? null,
     description: entry.description ?? null,
-    averageScore: entry.count > 0 ? entry.total / entry.count : null,
+    activitiesAverage: entry.count > 0 ? entry.total / entry.count : null,
+    assessmentAverage: entry.assessmentCount > 0 ? entry.assessmentTotal / entry.assessmentCount : null,
     submittedCount: entry.submittedCount,
     activityCount: entry.activityIds.size,
   }))
 
-  const overallAverage = overallCount > 0 ? overallTotal / overallCount : null
+  const overallAverages = {
+    activitiesAverage: overallCount > 0 ? overallTotal / overallCount : null,
+    assessmentAverage: summativeOverallCount > 0 ? summativeOverallTotal / summativeOverallCount : null,
+  }
 
-  return { rows: nextRows, activitySummaries, successCriteriaSummaries, overallAverage }
+  return { rows: nextRows, activitySummaries, successCriteriaSummaries, overallAverages }
 }
 
 function getSubmissionGuard(cell: AssignmentResultCell) {
@@ -268,7 +289,14 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     return total / criteria.length
   }, [selection, criterionDrafts])
 
-  const overallAverageLabel = useMemo(() => formatPercent(matrixState.overallAverage ?? null), [matrixState.overallAverage])
+  const overallActivitiesLabel = useMemo(
+    () => formatPercent(matrixState.overallAverages?.activitiesAverage ?? null),
+    [matrixState.overallAverages?.activitiesAverage],
+  )
+  const overallSummativeLabel = useMemo(
+    () => formatPercent(matrixState.overallAverages?.assessmentAverage ?? null),
+    [matrixState.overallAverages?.assessmentAverage],
+  )
 
   const handleCellSelect = (rowIndex: number, activityIndex: number) => {
     const row = groupedRows[rowIndex]
@@ -331,7 +359,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
         rows: recalculated.rows,
         activitySummaries: recalculated.activitySummaries,
         successCriteriaSummaries: recalculated.successCriteriaSummaries,
-        overallAverage: recalculated.overallAverage,
+        overallAverages: recalculated.overallAverages,
       }
     })
   }
@@ -590,17 +618,22 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
             <summary className="flex list-none cursor-pointer items-center justify-between gap-2 px-4 py-3 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden">
               <div className="space-y-0.5">
                 <span className="text-sm font-semibold text-muted-foreground">Score overview</span>
-                <span className="text-xs text-muted-foreground">Overall average</span>
+                <span className="text-xs text-muted-foreground">Overall & assessment averages</span>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-3xl font-semibold text-foreground">{overallAverageLabel}</span>
+              <div className="flex items-center gap-3">
+                <div className="flex flex-col items-end text-right">
+                  <span className="text-3xl font-semibold text-foreground">{overallActivitiesLabel}</span>
+                  <span className="text-xs text-muted-foreground">Assessment {overallSummativeLabel}</span>
+                </div>
                 <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:-rotate-180" />
               </div>
             </summary>
             <div className="space-y-3 border-t border-border/60 px-4 py-4">
-              <p className="text-xs text-muted-foreground">
-                Overall lesson average with linked success criteria summaries.
-              </p>
+              <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                <span>Overall lesson averages with linked success criteria summaries.</span>
+                <span>Activities: {overallActivitiesLabel}</span>
+                <span>Assessment: {overallSummativeLabel}</span>
+              </div>
               {successCriteriaSummaries.length > 0 ? (
                 <div className="space-y-2">
                   {successCriteriaSummaries.map((summary) => {
@@ -622,9 +655,14 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                             {summary.submittedCount} submission{summary.submittedCount === 1 ? "" : "s"}
                           </p>
                         </div>
-                        <span className="text-sm font-semibold text-foreground">
-                          {formatPercent(summary.averageScore ?? null)}
-                        </span>
+                        <div className="flex flex-col items-end gap-0.5 text-right">
+                          <span className="text-sm font-semibold text-foreground">
+                            Activities {formatPercent(summary.activitiesAverage ?? null)}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            Assessment {formatPercent(summary.assessmentAverage ?? null)}
+                          </span>
+                        </div>
                       </div>
                     )
                   })}
@@ -723,9 +761,16 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                         ) : (
                           <span className="text-[10px] text-muted-foreground">No linked success criteria</span>
                         )}
-                        <span className="text-xs font-semibold text-foreground">
-                          {formatPercent(activitySummariesById[activity.activityId]?.averageScore ?? null)}
-                        </span>
+                        <div className="flex flex-col text-xs text-muted-foreground">
+                          <span className="font-semibold text-foreground">
+                            Activities {formatPercent(activitySummariesById[activity.activityId]?.activitiesAverage ?? null)}
+                          </span>
+                          <span>
+                            {activity.isSummative
+                              ? `Assessment ${formatPercent(activitySummariesById[activity.activityId]?.assessmentAverage ?? null)}`
+                              : "Not marked as assessment"}
+                          </span>
+                        </div>
                       </div>
                     </th>
                   ))}
