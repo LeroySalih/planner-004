@@ -1,12 +1,16 @@
 # Calculating Levels
 
-This file describes how to calculat a current level.
+This file describes how to calculate a current level.
+
+A level is a conversion of the percentage to the standard school reporting system.
 
 The Level Boundaries are different for each year of the pupil.  The first row is the pupil year.  The first column is the level that will be awarded.
 
+Levels are based on the assessment/summative score, not the total score.
+Levels are only applied to the unit, no other layer of thehierachy calculates a level.
 
 ### Level Boundary Table
-     Yr 7	8	9	10	11
+Level id	7	8	9	10   11
 0	0	0	0	0	0	0
 1L	1	6	6	5	4	4
 1M	2	11	11	10	8	7
@@ -40,3 +44,7 @@ The Level Boundaries are different for each year of the pupil.  The first row is
 ### Examples
 A year 7 pupil that scores 54% will be awarded a 3M
 A year 8 pupil that scores 73% will be awarded a 5L
+
+### Implementation Notes
+- Level thresholds are codified in `src/lib/levels/index.ts`. Update that helper when these boundaries change so all reports stay in sync.
+- Call `getLevelForYearScore(year, summativeAverage)` with a summative score (0–1 or 0–100); it returns the correct level string or `null` when no mapping exists.

@@ -61,6 +61,8 @@ export {
   deleteLessonAssignmentAction,
 } from "./server-actions/lesson-assignments"
 
+export { readLessonAssignmentScoreSummariesAction } from "./server-actions/lesson-assignment-scores"
+
 export { readSubjectsAction } from "./server-actions/subjects"
 
 export {
@@ -146,7 +148,6 @@ export {
 export {
   readFeedbackForLessonAction,
   upsertFeedbackAction,
-  readLessonFeedbackSummariesAction,
 } from "./server-actions/feedback"
 
 export { readPupilReportAction } from "./server-actions/pupils"

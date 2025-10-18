@@ -75,6 +75,7 @@ export interface LessonActivityShortViewProps extends LessonActivityViewBaseProp
   showImageBorder?: boolean
   onSummativeChange?: (nextValue: boolean) => void
   summativeUpdating?: boolean
+  summativeDisabled?: boolean
 }
 
 export interface LessonActivityPresentViewProps extends LessonActivityViewBaseProps {
@@ -163,11 +164,13 @@ function ActivityShortView({
   showImageBorder = true,
   onSummativeChange,
   summativeUpdating = false,
+  summativeDisabled = false,
 }: LessonActivityShortViewProps) {
   const hasSuccessCriteria = Array.isArray(activity.success_criteria) && activity.success_criteria.length > 0
   const isSummative = activity.is_summative ?? false
   const canToggleSummative = typeof onSummativeChange === "function"
   const summativeSwitchId = `activity-summative-${activity.activity_id}`
+  const disableSummativeToggle = summativeUpdating || (summativeDisabled && !isSummative)
 
   const summativeSection = (() => {
     if (canToggleSummative) {
@@ -176,7 +179,7 @@ function ActivityShortView({
           <Switch
             id={summativeSwitchId}
             checked={isSummative}
-            disabled={summativeUpdating}
+            disabled={disableSummativeToggle}
             onCheckedChange={(checked) => onSummativeChange?.(checked)}
           />
           <Label htmlFor={summativeSwitchId} className="text-xs font-medium text-muted-foreground">
@@ -184,6 +187,10 @@ function ActivityShortView({
           </Label>
           {summativeUpdating ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+          ) : summativeDisabled ? (
+            <Badge variant="secondary" className="bg-muted/80 text-muted-foreground">
+              Not available for this activity type
+            </Badge>
           ) : null}
         </div>
       )

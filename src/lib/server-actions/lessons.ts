@@ -11,6 +11,7 @@ import {
 } from "@/types"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import { type NormalizedSuccessCriterion } from "./learning-objectives"
+import { isScorableActivityType } from "@/dino.config"
 
 const LessonsReturnValue = z.object({
   data: LessonsWithObjectivesSchema.nullable(),
@@ -399,7 +400,7 @@ async function enrichLessonsWithSuccessCriteria<T extends { lesson_id?: string; 
   if (lessonIds.length > 0) {
     const { data: activityRows, error: activitiesError } = await supabase
       .from("activities")
-      .select("activity_id, lesson_id, is_summative")
+      .select("activity_id, lesson_id, is_summative, type")
       .in("lesson_id", lessonIds)
 
     if (activitiesError) {
@@ -409,11 +410,15 @@ async function enrichLessonsWithSuccessCriteria<T extends { lesson_id?: string; 
     for (const row of activityRows ?? []) {
       const activityId = typeof row?.activity_id === "string" ? row.activity_id : null
       if (!activityId) continue
-      const isSummative =
+      const rawIsSummative =
         typeof (row as { is_summative?: unknown }).is_summative === "boolean"
           ? ((row as { is_summative?: unknown }).is_summative as boolean)
           : false
-      activitySummativeFlags.set(activityId, isSummative)
+      const activityType =
+        typeof (row as { type?: unknown }).type === "string"
+          ? ((row as { type?: unknown }).type as string)
+          : null
+      activitySummativeFlags.set(activityId, rawIsSummative && isScorableActivityType(activityType))
     }
   }
 

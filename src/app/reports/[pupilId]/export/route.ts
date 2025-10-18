@@ -127,11 +127,17 @@ function renderUnit(
     .fontSize(9)
     .fillColor("#4b5563")
     .text(unit.unitDescription ?? "No description available.")
+  const assessmentSummary = unit.assessmentLevel
+    ? `Assessment: ${formatPercent(unit.assessmentAverage)} (Level ${unit.assessmentLevel})`
+    : `Assessment: ${formatPercent(unit.assessmentAverage)}`
+
   doc
     .font(FONT_PRIMARY)
     .fontSize(9)
     .fillColor("#4b5563")
-    .text(`Scores — Activities: ${formatPercent(unit.activitiesAverage)} · Assessment: ${formatPercent(unit.assessmentAverage)}`)
+    .text(
+      `Scores — Activities: ${formatPercent(unit.activitiesAverage)} · ${assessmentSummary}`,
+    )
   doc
     .font(FONT_PRIMARY)
     .fontSize(9)

@@ -11,7 +11,7 @@ import {
   readUnitsAction,
   readLessonsAction,
   readLessonAssignmentsAction,
-  readLessonFeedbackSummariesAction,
+  readLessonAssignmentScoreSummariesAction,
 } from "@/lib/server-updates"
 import { requireTeacherProfile } from "@/lib/auth"
 
@@ -77,13 +77,13 @@ export default async function Home() {
     ).values(),
   )
 
-  const { data: lessonFeedbackSummaries, error: lessonFeedbackSummariesError } =
-    await readLessonFeedbackSummariesAction({ pairs: summaryPairs })
+  const { data: lessonScoreSummaries, error: lessonScoreSummariesError } =
+    await readLessonAssignmentScoreSummariesAction({ pairs: summaryPairs })
 
-  if (lessonFeedbackSummariesError) {
+  if (lessonScoreSummariesError) {
     return <div className="container mx-auto p-6">
-      <h1 className="text-2xl font-bold mb-4">Error Loading Feedback Summaries</h1>
-      <p className="text-red-600">There was an error loading the feedback summaries: {lessonFeedbackSummariesError}</p>
+      <h1 className="text-2xl font-bold mb-4">Error Loading Lesson Scores</h1>
+      <p className="text-red-600">There was an error loading the lesson score summaries: {lessonScoreSummariesError}</p>
     </div>
   }
 
@@ -115,7 +115,7 @@ export default async function Home() {
         units={(units ?? []).filter((unit) => unit.active ?? true)}
         lessons={lessons.filter((lesson) => lesson.active ?? true)}
         lessonAssignments={lessonAssignments}
-        lessonFeedbackSummaries={lessonFeedbackSummaries}
+        lessonScoreSummaries={lessonScoreSummaries}
       />
     </main>
   )

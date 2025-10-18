@@ -5,6 +5,7 @@ import {
   readPupilReportAction,
 } from "@/lib/server-updates"
 import type { LessonSubmissionSummary, LessonWithObjectives } from "@/types"
+import { getLevelForYearScore } from "@/lib/levels"
 
 export type ReportDataResult = Awaited<ReturnType<typeof readPupilReportAction>>
 export type LoadedReport = NonNullable<ReportDataResult["data"]>
@@ -28,6 +29,7 @@ export type ReportUnitSummary = {
   unitTitle: string
   unitSubject: string | null
   unitDescription: string | null
+  unitYear: number | null
   relatedGroups: string[]
   objectiveError: string | null | undefined
   groupedLevels: Array<{
@@ -37,6 +39,7 @@ export type ReportUnitSummary = {
   workingLevel: number | null
   activitiesAverage: number | null
   assessmentAverage: number | null
+  assessmentLevel: string | null
   scoreError: string | null
 }
 
@@ -103,6 +106,7 @@ export async function getPreparedReportData(pupilId: string, groupIdFilter?: str
       title: string
       subject: string | null
       description: string | null
+      year: number | null
     }
   >()
 
@@ -117,6 +121,7 @@ export async function getPreparedReportData(pupilId: string, groupIdFilter?: str
         title: meta?.title ?? assignment.unit_id,
         subject: meta?.subject ?? null,
         description: meta?.description ?? null,
+        year: meta?.year ?? null,
       })
     }
   }
@@ -190,6 +195,14 @@ export async function getPreparedReportData(pupilId: string, groupIdFilter?: str
       return candidate
     })()
 
+    const activitiesAverage = unitAverages.activitiesAverage ?? scoreSummary.activitiesAverage
+    const assessmentAverage = unitAverages.assessmentAverage ?? scoreSummary.assessmentAverage
+    const unitYear = meta?.year ?? null
+    const assessmentLevel =
+      typeof unitYear === "number" && assessmentAverage !== null
+        ? getLevelForYearScore(unitYear, assessmentAverage)
+        : null
+
     const subjectKey = meta?.subject ?? "Subject not set"
     const existingUnits = unitsBySubject.get(subjectKey) ?? []
     existingUnits.push({
@@ -197,12 +210,14 @@ export async function getPreparedReportData(pupilId: string, groupIdFilter?: str
       unitTitle: meta?.title ?? unitId,
       unitSubject: meta?.subject ?? null,
       unitDescription: meta?.description ?? null,
+      unitYear,
       relatedGroups: Array.from(new Set(relatedGroups)),
       objectiveError,
       groupedLevels,
       workingLevel,
-      activitiesAverage: unitAverages.activitiesAverage ?? scoreSummary.activitiesAverage,
-      assessmentAverage: unitAverages.assessmentAverage ?? scoreSummary.assessmentAverage,
+      activitiesAverage,
+      assessmentAverage,
+      assessmentLevel,
       scoreError: scoreSummary.error,
     })
     unitsBySubject.set(subjectKey, existingUnits)

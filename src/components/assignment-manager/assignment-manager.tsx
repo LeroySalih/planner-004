@@ -19,7 +19,7 @@ import type {
   LessonAssignment,
   LessonAssignments,
   Lessons,
-  LessonFeedbackSummaries,
+  LessonAssignmentScoreSummaries,
   Subjects,
   Unit,
   Units,
@@ -47,7 +47,7 @@ export interface AssignmentManagerProps {
   units?: Units | null
   lessons?: Lessons | null
   lessonAssignments?: LessonAssignments | null
-  lessonFeedbackSummaries?: LessonFeedbackSummaries | null
+  lessonScoreSummaries?: LessonAssignmentScoreSummaries | null
   onChange?: (assignment: Assignment, eventType: AssignmentChangeEvent) => void
 }
 
@@ -58,7 +58,7 @@ export function AssignmentManager({
     units: initialUnits,
     lessons: initialLessons,
     lessonAssignments: initialLessonAssignments,
-    lessonFeedbackSummaries: initialLessonFeedbackSummaries,
+    lessonScoreSummaries: initialLessonScoreSummaries,
     onChange }: AssignmentManagerProps) {
   const [groups, setGroups] = useState<Groups>(initialGroups ?? [])
   const subjects = initialSubjects ?? []
@@ -66,9 +66,9 @@ export function AssignmentManager({
   const lessons = useMemo(() => initialLessons ?? [], [initialLessons])
   const [assignments, setAssignments] = useState<Assignments>(initialAssignments ?? [])
   const [lessonAssignments, setLessonAssignments] = useState<LessonAssignments>(initialLessonAssignments ?? [])
-  const lessonFeedbackSummaries = useMemo(
-    () => initialLessonFeedbackSummaries ?? [],
-    [initialLessonFeedbackSummaries],
+  const lessonScoreSummaries = useMemo(
+    () => initialLessonScoreSummaries ?? [],
+    [initialLessonScoreSummaries],
   )
   const [, startTransition] = useTransition()
   //const { toast: showToast } = useToast()
@@ -601,18 +601,18 @@ export function AssignmentManager({
           </div>
         </div>
 
-      <AssignmentGrid
-        groups={filteredGroups}
-        units={units}
-        assignments={filteredAssignments}
-        lessons={lessons}
-      lessonAssignments={lessonAssignments}
-      lessonFeedbackSummaries={lessonFeedbackSummaries}
-      onAssignmentClick={handleAssignmentClick}
-      onEmptyCellClick={handleEmptyCellClick}
-      onAddGroupClick={handleAddGroupClick}
-      onGroupTitleClick={handleGroupTitleClick}
-    />
+        <AssignmentGrid
+          groups={filteredGroups}
+          units={units}
+          assignments={filteredAssignments}
+          lessons={lessons}
+          lessonAssignments={lessonAssignments}
+          lessonScoreSummaries={lessonScoreSummaries}
+          onAssignmentClick={handleAssignmentClick}
+          onEmptyCellClick={handleEmptyCellClick}
+          onAddGroupClick={handleAddGroupClick}
+          onGroupTitleClick={handleGroupTitleClick}
+        />
 
       <AssignmentSidebar
         isOpen={isSidebarOpen}

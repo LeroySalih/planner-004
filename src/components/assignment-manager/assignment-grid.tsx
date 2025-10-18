@@ -4,7 +4,7 @@ import type React from "react"
 import { useMemo } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import type { Group, Unit, Assignment, Lesson, LessonAssignment, LessonFeedbackSummary } from "@/types"
+import type { Group, Unit, Assignment, Lesson, LessonAssignment, LessonAssignmentScoreSummary } from "@/types"
 
 
 interface AssignmentGridProps {
@@ -13,7 +13,7 @@ interface AssignmentGridProps {
   assignments: Assignment[]
   lessons: Lesson[]
   lessonAssignments: LessonAssignment[]
-  lessonFeedbackSummaries: LessonFeedbackSummary[]
+  lessonScoreSummaries: LessonAssignmentScoreSummary[]
   onAssignmentClick?: (assignment: Assignment) => void
   onEmptyCellClick?: (groupId: string, weekStart: Date) => void
   onAddGroupClick?: () => void // Changed from onAddGroup to onAddGroupClick to trigger sidebar
@@ -48,19 +48,19 @@ export function AssignmentGrid({
   assignments,
   lessons,
   lessonAssignments,
-  lessonFeedbackSummaries,
+  lessonScoreSummaries,
   onAssignmentClick,
   onEmptyCellClick,
   onAddGroupClick, // Updated prop name
   onGroupTitleClick, // Added onGroupTitleClick prop
 }: AssignmentGridProps) {
-  const feedbackSummaryMap = useMemo(() => {
-    const map = new Map<string, LessonFeedbackSummary>()
-    lessonFeedbackSummaries.forEach((summary) => {
+  const scoreSummaryMap = useMemo(() => {
+    const map = new Map<string, LessonAssignmentScoreSummary>()
+    lessonScoreSummaries.forEach((summary) => {
       map.set(`${summary.group_id}::${summary.lesson_id}`, summary)
     })
     return map
-  }, [lessonFeedbackSummaries])
+  }, [lessonScoreSummaries])
 
   const { weekStarts, gridData } = useMemo(() => {
     const startDate = new Date("2025-09-07")
@@ -492,30 +492,21 @@ export function AssignmentGrid({
                                       <div key={weekIndex} className="flex flex-col gap-1">
                                         {weekLessons.map(({ lesson, assignment: lessonAssignment }) => {
                                           const summaryKey = `${cell.assignment!.group_id}::${lesson.lesson_id}`
-                                          const summary = feedbackSummaryMap.get(summaryKey)
-                                          const totalPupils = summary?.total_pupils ?? 0
-                                          const hasPupils = totalPupils > 0
-                                          const positiveCount = summary?.positive_count ?? 0
-                                          const negativeCount = summary?.negative_count ?? 0
-                                          const rawPositive = hasPupils
-                                            ? Math.round((positiveCount / totalPupils) * 100)
-                                            : 0
-                                          const rawNegative = hasPupils
-                                            ? Math.round((negativeCount / totalPupils) * 100)
-                                            : 0
-                                          const normalizedPositive = Math.min(100, Math.max(0, rawPositive))
-                                          const normalizedNegative = Math.min(
-                                            100 - normalizedPositive,
-                                            Math.max(0, rawNegative),
-                                          )
-                                          const normalizedUnmarked = hasPupils
-                                            ? Math.max(0, 100 - normalizedPositive - normalizedNegative)
-                                            : 100
-                                          const gradient = hasPupils
-                                            ? `linear-gradient(to right, ${POSITIVE_SEGMENT_COLOR} 0%, ${POSITIVE_SEGMENT_COLOR} ${normalizedPositive}%, ${NEGATIVE_SEGMENT_COLOR} ${normalizedPositive}%, ${NEGATIVE_SEGMENT_COLOR} ${normalizedPositive + normalizedNegative}%, ${UNMARKED_SEGMENT_COLOR} ${normalizedPositive + normalizedNegative}%, ${UNMARKED_SEGMENT_COLOR} 100%)`
-                                            : `linear-gradient(to right, ${UNMARKED_SEGMENT_COLOR}, ${UNMARKED_SEGMENT_COLOR})`
-                                          const showSummaryBreakdown =
-                                            hasPupils && (normalizedPositive > 0 || normalizedNegative > 0)
+                                          const scoreSummary = scoreSummaryMap.get(summaryKey)
+                                          const rawAverage = scoreSummary?.activities_average ?? null
+                                          const clampedAverage =
+                                            typeof rawAverage === "number" && Number.isFinite(rawAverage)
+                                              ? Math.min(1, Math.max(0, rawAverage))
+                                              : null
+                                          const scorePercent = clampedAverage !== null ? clampedAverage * 100 : null
+                                          const gradient =
+                                            scorePercent !== null
+                                              ? `linear-gradient(to right, ${POSITIVE_SEGMENT_COLOR} 0%, ${POSITIVE_SEGMENT_COLOR} ${scorePercent}%, ${NEGATIVE_SEGMENT_COLOR} ${scorePercent}%, ${NEGATIVE_SEGMENT_COLOR} 100%)`
+                                              : `linear-gradient(to right, ${UNMARKED_SEGMENT_COLOR}, ${UNMARKED_SEGMENT_COLOR})`
+                                          const scoreLabel =
+                                            scorePercent !== null
+                                              ? `${scorePercent.toLocaleString()}%`
+                                              : null
 
                                           const resultsAssignmentId = `${cell.assignment!.group_id}__${lesson.lesson_id}`
                                           return (
@@ -536,30 +527,19 @@ export function AssignmentGrid({
                                                 >
                                                   {lesson.title}
                                                 </span>
-                                                {hasPupils ? (
-                                                  showSummaryBreakdown ? (
-                                                    <div
-                                                      className="flex items-center justify-between text-[10px] font-medium"
-                                                      style={{ color: LESSON_DETAIL_COLOR }}
-                                                    >
-                                                      <span>Pos {normalizedPositive}%</span>
-                                                      <span>Neg {normalizedNegative}%</span>
-                                                      <span>None {normalizedUnmarked}%</span>
-                                                    </div>
-                                                  ) : (
-                                                    <span
-                                                      className="text-[10px] font-medium"
-                                                      style={{ color: LESSON_DETAIL_COLOR }}
-                                                    >
-                                                      No feedback yet
-                                                    </span>
-                                                  )
+                                                {scoreLabel ? (
+                                                  <span
+                                                    className="text-[10px] font-medium"
+                                                    style={{ color: LESSON_DETAIL_COLOR }}
+                                                  >
+                                                    Total score {scoreLabel}
+                                                  </span>
                                                 ) : (
                                                   <span
                                                     className="text-[10px] font-medium"
                                                     style={{ color: LESSON_DETAIL_COLOR }}
                                                   >
-                                                    No pupils yet
+                                                    No score yet
                                                   </span>
                                                 )}
                                               </div>

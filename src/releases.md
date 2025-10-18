@@ -5,6 +5,11 @@
 - Assignment results pipeline now enriches each pupil with Supabase Auth emails (using the service role key) and extends the shared Zod schema so UI can display them safely.
 - `/groups/[groupId]`: Added per-pupil remove buttons backed by a new server action that detaches group membership without deleting learner profiles; list and detail pages revalidate after each removal.
 
+### Release 0.0.19
+- Replaced assignment grid feedback colours with lesson score gradients: server now aggregates lesson scores via `readLessonAssignmentScoreSummariesAction`, the grid renders green/red bands driven by totals, and the `/assignments` page no longer loads feedback summaries.
+- Centralised scorable activity rules in `src/dino.config.ts`, refactoring scoring/intake paths to reuse `isScorableActivityType` and disallow summative flags on non-scorable types through validation and UI safeguards.
+- Added level calculations driven by `specs/calc-levels.md`; `src/lib/levels/index.ts` exposes reusable helpers that feed pupil reports, which now display the calculated level alongside summative percentages in both the web view and PDF export.
+
 ### Release 0.0.17
 - Results sidebar now lets teachers override scores and feedback even when no learner submission exists by creating a teacher-authored submission on save.
 - Override flow updates submissions in Supabase and adjusts MCQ/short-text payloads, including neutral handling of placeholder answers.
