@@ -12,6 +12,7 @@ import {
   type Submission,
 } from "@/types"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { isScorableActivityType } from "@/dino.config"
 import {
   computeAverageSuccessCriteriaScore,
   fetchActivitySuccessCriteriaIds,
@@ -106,11 +107,13 @@ export async function readLessonSubmissionSummariesAction(
     }
 
   const activities = LessonActivitySummaryRowSchema.array().parse(activityRows ?? [])
-  if (activities.length === 0) {
+  const scorableActivities = activities.filter((activity) => isScorableActivityType(activity.type))
+
+  if (scorableActivities.length === 0) {
     return { data: [], averages: { activitiesAverage: null, assessmentAverage: null }, error: null }
   }
 
-  const activityIds = activities.map((activity) => activity.activity_id)
+  const activityIds = scorableActivities.map((activity) => activity.activity_id)
 
   const activitySuccessCriteriaMap = new Map<string, string[]>()
 
@@ -164,7 +167,7 @@ export async function readLessonSubmissionSummariesAction(
   const viewerTotals = { total: 0, count: 0 }
   const viewerSummativeTotals = { total: 0, count: 0 }
 
-    for (const activity of activities) {
+    for (const activity of scorableActivities) {
       const activityType = (activity.type ?? "").trim()
       const activityTitle = (activity.title ?? "Untitled activity").trim() || "Untitled activity"
       const submissionList = submissionsByActivity.get(activity.activity_id) ?? []

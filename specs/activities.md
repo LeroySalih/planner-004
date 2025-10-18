@@ -2,6 +2,7 @@
 # Assignment Results Dashboard – Clarifications
 
 ## Change 
+25-10-18 18:48    Updated the activity scoring section to note a scorable activity list. 
 25-10-17 03:24    Added is_summative property to activity
 25-10-13 15:56    Added Activity Scoring Section
 
@@ -23,6 +24,13 @@ When an activity score is calculted, as in the Multiple Choice Question or Short
 A teacher has the abiity to override the individual scores for each success criteria through the edit side bar. 
 
 Null or empty scores are counted as 0 for the purposed of average calculations.
+
+The configuration of activities indocates with types are scorable.  The remainder are non-scorable.
+
+Only Scorable activities may be marked as is_summative
+Only Scorable acitvities are counted when calculating the denomonator for total and summative scores.
+
+the config file is stored [here](/Users/leroysalih/nodejs/planner-005/src/dino.config.ts)
 
 ### Data and Keys
 

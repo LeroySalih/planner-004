@@ -234,7 +234,8 @@ function resolvePupilLabels(pupil: AssignmentResultRow["pupil"]) {
 
   let secondaryLabel: string | null = null
   if (hasProfileName) {
-    secondaryLabel = pupil.userId
+    // Only show the user ID when no profile name is available.
+    secondaryLabel = null
   } else if (email.length === 0 && pupil.displayName !== pupil.userId) {
     secondaryLabel = pupil.userId
   }

@@ -22,7 +22,8 @@ This guide captures the working knowledge future coding agents need to extend th
 ## Core Domain & Data Contracts
 - Treat Zod schemas in `src/types/index.ts` as the source of truth for planner entities (groups, units, lessons, assignments, feedback). Extend or reuse these instead of recreating ad-hoc shapes.
 - Many server actions parse and return `{ data, error }` envelopes validated with these schemas (see `src/lib/server-actions/groups.ts`). When adding APIs, stick to the same pattern for consistency and predictable error handling.
-- Assignment-related UI expects `Assignments`, `LessonAssignments`, and `LessonFeedbackSummaries` shaped exactly like the schemas; ensure backend changes keep these contracts intact (`src/components/assignment-manager/assignment-manager.tsx`).
+- Assignment-related UI expects `Assignments`, `LessonAssignments`, and `LessonAssignmentScoreSummaries` shaped exactly like the schemas; ensure backend changes keep these contracts intact (`src/components/assignment-manager/assignment-manager.tsx`).
+- Report level lookups reference the boundary helper in `src/lib/levels/index.ts`; update that file (not ad-hoc math) if the scale shifts.
 
 ## Supabase & Server Actions
 - Use `createSupabaseServerClient()` for server components/actions (`src/lib/supabase/server.ts:1`). It wires cookies for authenticated requests.

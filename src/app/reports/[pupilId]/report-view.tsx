@@ -256,6 +256,11 @@ export async function PupilReportView({
                             <span className="font-semibold text-foreground">
                               {formatPercent(unit.assessmentAverage)}
                             </span>
+                            {unit.assessmentLevel ? (
+                              <span className="ml-1 text-xs font-semibold uppercase text-primary">
+                                (Level {unit.assessmentLevel})
+                              </span>
+                            ) : null}
                           </span>
                           {unit.relatedGroups.length > 0 ? (
                             <span>

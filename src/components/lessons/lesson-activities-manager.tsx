@@ -43,6 +43,7 @@ import {
   type VoiceBody,
 } from "@/components/lessons/activity-view/utils"
 import { LessonActivityView } from "@/components/lessons/activity-view"
+import { isScorableActivityType, SCORABLE_ACTIVITY_TYPES } from "@/dino.config"
 
 interface ActivityFileInfo {
   name: string
@@ -78,6 +79,10 @@ const ACTIVITY_TYPES = [
 ] as const
 
 type ActivityTypeValue = (typeof ACTIVITY_TYPES)[number]["value"]
+
+const SUMMATIVE_ELIGIBLE_ACTIVITY_LABELS = ACTIVITY_TYPES.filter((entry) =>
+  SCORABLE_ACTIVITY_TYPES.includes(entry.value),
+).map((entry) => entry.label)
 
 const NEW_ACTIVITY_ID = "__new__"
 
@@ -819,6 +824,18 @@ export function LessonActivitiesManager({
 
   const toggleSummative = useCallback(
     (activity: LessonActivity, nextValue: boolean) => {
+      const activityType = activity.type ?? ""
+      if (nextValue && !isScorableActivityType(activityType)) {
+        const allowedList =
+          SUMMATIVE_ELIGIBLE_ACTIVITY_LABELS.length > 0
+            ? SUMMATIVE_ELIGIBLE_ACTIVITY_LABELS.join(", ")
+            : SCORABLE_ACTIVITY_TYPES.join(", ")
+        toast.error("Only scorable activity types can be marked as assessments.", {
+          description: `Allowed types: ${allowedList || "none configured"}.`,
+        })
+        return
+      }
+
       const activityId = activity.activity_id
       const previousValue = activity.is_summative ?? false
 
@@ -944,6 +961,7 @@ export function LessonActivitiesManager({
                 const isHomework = activity.is_homework ?? false
                 const homeworkUpdating = homeworkPending[activity.activity_id] ?? false
                 const summativeUpdating = summativePending[activity.activity_id] ?? false
+                const summativeDisabled = !isScorableActivityType(activity.type)
                 const switchId = `activity-homework-${activity.activity_id}`
                 return (
                   <li
@@ -1099,6 +1117,7 @@ export function LessonActivitiesManager({
                     {renderActivityPreview(activity, imageThumbnail, {
                       onSummativeChange: (checked) => toggleSummative(activity, checked),
                       summativeUpdating,
+                      summativeDisabled,
                     })}
                   </div>
                 </li>
@@ -1255,7 +1274,11 @@ function buildBodyData(
 function renderActivityPreview(
   activity: LessonActivity,
   resolvedImageUrl: string | null,
-  options?: { onSummativeChange?: (nextValue: boolean) => void; summativeUpdating?: boolean },
+  options?: {
+    onSummativeChange?: (nextValue: boolean) => void
+    summativeUpdating?: boolean
+    summativeDisabled?: boolean
+  },
 ) {
   return (
     <LessonActivityView
@@ -1265,6 +1288,7 @@ function renderActivityPreview(
       resolvedImageUrl={resolvedImageUrl ?? null}
       onSummativeChange={options?.onSummativeChange}
       summativeUpdating={options?.summativeUpdating}
+      summativeDisabled={options?.summativeDisabled}
     />
   )
 }

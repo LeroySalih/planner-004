@@ -12,6 +12,7 @@ import {
   type FeedbackActivityGroupSettings,
 } from "@/types"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { isScorableActivityType } from "@/dino.config"
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createSupabaseServerClient>>
 
@@ -79,7 +80,12 @@ export async function listLessonActivitiesAction(lessonId: string) {
     return LessonActivitiesReturnValue.parse({ data: null, error: scError })
   }
 
-  return LessonActivitiesReturnValue.parse({ data: enriched, error: null })
+  const sanitizedActivities = (enriched ?? []).map((activity) => {
+    const activityType = typeof activity.type === "string" ? activity.type : null
+    return isScorableActivityType(activityType) ? activity : { ...activity, is_summative: false }
+  })
+
+  return LessonActivitiesReturnValue.parse({ data: sanitizedActivities, error: null })
 }
 
 export async function createLessonActivityAction(
@@ -96,6 +102,16 @@ export async function createLessonActivityAction(
   }
 
   const successCriteriaIds = normalizeSuccessCriteriaIds(payload.successCriteriaIds)
+  const isSummativeRequested = payload.isSummative ?? false
+  const isSummativeAllowed = isScorableActivityType(payload.type)
+
+  if (isSummativeRequested && !isSummativeAllowed) {
+    return {
+      success: false,
+      error: "Only scorable activity types can be marked as assessments.",
+      data: null,
+    }
+  }
 
   const supabase = await createSupabaseServerClient()
 
@@ -122,7 +138,7 @@ export async function createLessonActivityAction(
       type: payload.type,
       body_data: normalizedBody.bodyData,
       is_homework: payload.isHomework ?? false,
-      is_summative: payload.isSummative ?? false,
+      is_summative: isSummativeAllowed ? isSummativeRequested : false,
       order_by: nextOrder,
       active: true,
     })
@@ -202,6 +218,16 @@ export async function updateLessonActivityAction(
   }
 
   const finalType = typeof payload.type === "string" ? payload.type : existing.type
+  const isSummativeAllowed = isScorableActivityType(finalType)
+  const requestedSummative = payload.isSummative
+
+  if (requestedSummative === true && !isSummativeAllowed) {
+    return {
+      success: false,
+      error: "Only scorable activity types can be marked as assessments.",
+      data: null,
+    }
+  }
 
   const normalizedBody = (() => {
     if (payload.bodyData !== undefined) {
@@ -231,8 +257,10 @@ export async function updateLessonActivityAction(
   if (payload.isHomework !== undefined) {
     updates.is_homework = payload.isHomework ?? false
   }
-  if (payload.isSummative !== undefined) {
-    updates.is_summative = payload.isSummative ?? false
+  if (!isSummativeAllowed) {
+    updates.is_summative = false
+  } else if (requestedSummative !== undefined) {
+    updates.is_summative = requestedSummative ?? false
   }
 
   if (Object.keys(updates).length === 0) {
