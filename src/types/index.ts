@@ -121,7 +121,9 @@ export const AssessmentObjectiveSchema = z.object({
     unit_id: z.string().nullable(),
     code: z.string().min(1).max(10),
     title: z.string().min(1).max(255),
-    order_index: z.number().default(0),
+    order_index: z
+        .union([z.number(), z.null(), z.undefined()])
+        .transform((val) => (typeof val === "number" && Number.isFinite(val) ? val : 0)),
 });
 
 export const AssessmentObjectivesSchema = z.array(AssessmentObjectiveSchema);
@@ -134,7 +136,9 @@ export const SuccessCriterionSchema = z.object({
     learning_objective_id: z.string(),
     level: z.number().min(1).max(7).default(1),
     description: z.string().min(1),
-    order_index: z.number().default(0),
+    order_index: z
+        .union([z.number(), z.null(), z.undefined()])
+        .transform((val) => (typeof val === "number" && Number.isFinite(val) ? val : 0)),
     active: z.boolean().default(true),
     units: z.array(z.string()).default([]),
 });
