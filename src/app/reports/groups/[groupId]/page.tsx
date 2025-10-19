@@ -68,9 +68,17 @@ export default async function GroupReportPage({
       return {
         userId: member.user_id,
         displayName: displayName.length > 0 ? displayName : member.user_id,
+        lastName: last,
+        firstName: first,
       }
     })
-    .sort((a, b) => a.displayName.localeCompare(b.displayName))
+    .sort((a, b) => {
+      const lastNameCompare = a.lastName.localeCompare(b.lastName)
+      if (lastNameCompare !== 0) {
+        return lastNameCompare
+      }
+      return a.firstName.localeCompare(b.firstName)
+    })
 
   const pupilReports = await Promise.all(
     pupilMembers.map(async (member) => {

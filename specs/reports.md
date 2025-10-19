@@ -41,3 +41,5 @@ This page will list all pupils as rows, where the columns are the assessment sco
 
 The pupils names and scores rows and columns will be  fixed so that they can be easily scrolled.
 
+Pupils shoudl be sorted by last name.
+
