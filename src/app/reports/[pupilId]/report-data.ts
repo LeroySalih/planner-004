@@ -58,6 +58,13 @@ export type PreparedReportData = {
   subjectEntries: ReportSubjectEntry[]
 }
 
+export type PreparedUnitReport = {
+  profileName: string
+  formattedDate: string
+  subject: string
+  unit: ReportUnitSummary
+}
+
 export async function getPreparedReportData(pupilId: string, groupIdFilter?: string) {
   const reportResult = await readPupilReportAction(pupilId)
 
@@ -255,6 +262,27 @@ export async function getPreparedReportData(pupilId: string, groupIdFilter?: str
     feedbackByCriterion,
     subjectEntries,
   } satisfies PreparedReportData
+}
+
+export async function getPreparedUnitReport(pupilId: string, unitId: string): Promise<PreparedUnitReport | null> {
+  const prepared = await getPreparedReportData(pupilId)
+  if (!prepared) {
+    return null
+  }
+
+  for (const subjectEntry of prepared.subjectEntries) {
+    const match = subjectEntry.units.find((unit) => unit.unitId === unitId)
+    if (match) {
+      return {
+        profileName: prepared.profileName,
+        formattedDate: prepared.formattedDate,
+        subject: subjectEntry.subject,
+        unit: match,
+      }
+    }
+  }
+
+  return null
 }
 
 type LessonSuccessCriterionEntry = {

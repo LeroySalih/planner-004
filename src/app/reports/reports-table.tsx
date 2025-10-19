@@ -64,7 +64,21 @@ export function ReportsTable({ pupils }: { pupils: ReportsTablePupil[] }) {
                     </Link>
                   </td>
                   <td className="border border-border px-4 py-2 align-top text-muted-foreground">
-                    {pupil.groups.join(", ") || "—"}
+                    {pupil.groups.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {pupil.groups.map((groupId) => (
+                          <Link
+                            key={`${pupil.pupilId}-${groupId}`}
+                            href={`/reports/groups/${groupId}`}
+                            className="inline-flex items-center rounded-full border border-border px-2 py-1 text-xs text-foreground transition hover:bg-muted hover:text-foreground"
+                          >
+                            {groupId}
+                          </Link>
+                        ))}
+                      </div>
+                    ) : (
+                      "—"
+                    )}
                   </td>
                 </tr>
               ))
