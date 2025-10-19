@@ -1,5 +1,10 @@
 # Dino
 ## Releases 
+### Release 0.0.20
+- `/reports`: Landing view now links group chips directly to the new cohort matrix and trims pupil cards to subject/unit summaries with activities, assessment, and Level 4L-style labels.
+- `/reports/[pupilId]/units/[unitId]`: Added a dedicated unit report showing unit totals plus a detailed learning objective and success criteria table for the selected pupil.
+- `/reports/groups/[groupId]`: Introduced a sticky-header cohort matrix (pupils × units) displaying assessment percentages and derived levels; removed the legacy pupil-group print/export routes.
+
 ### Release 0.0.18
 - `/results/assignments/[assignmentId]`: Converted the header cards into collapsible detail panels, surfaced the overall average inline, and tightened missing-submission counts with email fallbacks when pupil names are absent.
 - Assignment results pipeline now enriches each pupil with Supabase Auth emails (using the service role key) and extends the shared Zod schema so UI can display them safely.
