@@ -7,6 +7,39 @@ type AuthenticatedProfile = {
   isTeacher: boolean
 }
 
+async function ensureProfileExists(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, userId: string) {
+  const { data: profileData, error: profileError } = await supabase
+    .from("profiles")
+    .select("user_id")
+    .eq("user_id", userId)
+    .maybeSingle()
+
+  if (profileError && profileError.code !== "PGRST116") {
+    console.error("Failed to verify profile existence", profileError)
+    return
+  }
+
+  if (profileData) {
+    return
+  }
+
+  const { error: upsertError } = await supabase
+    .from("profiles")
+    .upsert(
+      {
+        user_id: userId,
+        first_name: "",
+        last_name: "",
+        is_teacher: false,
+      },
+      { onConflict: "user_id" },
+    )
+
+  if (upsertError) {
+    console.error("Failed to auto-create profile", upsertError)
+  }
+}
+
 export async function getAuthenticatedProfile(): Promise<AuthenticatedProfile | null> {
   const supabase = await createSupabaseServerClient()
 
@@ -23,6 +56,8 @@ export async function getAuthenticatedProfile(): Promise<AuthenticatedProfile | 
   if (!user) {
     return null
   }
+
+  await ensureProfileExists(supabase, user.id)
 
   const { data, error: profileError } = await supabase
     .from("profiles")
