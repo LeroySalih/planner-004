@@ -1,5 +1,9 @@
 # Dino
 ## Releases 
+### Release 0.0.21
+- Auth flow now auto-creates a placeholder row in `profiles` the moment an authenticated session is detected, preventing new sign-ups from getting stuck without a profile record.
+- Allow Upload File activities to be marked as assessments by treating `"upload-file"` as a scorable activity type in `src/dino.config.ts`.
+
 ### Release 0.0.20
 - `/reports`: Landing view now links group chips directly to the new cohort matrix and trims pupil cards to subject/unit summaries with activities, assessment, and Level 4L-style labels.
 - `/reports/[pupilId]/units/[unitId]`: Added a dedicated unit report showing unit totals plus a detailed learning objective and success criteria table for the selected pupil.
