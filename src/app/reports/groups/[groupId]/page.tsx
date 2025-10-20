@@ -170,7 +170,12 @@ export default async function GroupReportPage({
                 pupilReports.map((report) => (
                   <tr key={report.userId}>
                     <td className="sticky left-0 z-10 border border-border bg-background px-4 py-2 font-medium text-foreground">
-                      {report.displayName}
+                      <Link
+                        href={`/reports/${report.userId}`}
+                        className="underline-offset-4 hover:underline"
+                      >
+                        {report.displayName}
+                      </Link>
                     </td>
                     {resolvedUnitColumns.map((unit) => {
                       const score = report.unitScores.get(unit.unitId)
