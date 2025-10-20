@@ -1,5 +1,7 @@
 # Reports – Specifications
 
+## Change List
+25-10-20 18:04 Changed /reports/groups/group_id to allow pupil name to link to /reports/pupil_id
 
 ## Description.
 
@@ -42,4 +44,6 @@ This page will list all pupils as rows, where the columns are the assessment sco
 The pupils names and scores rows and columns will be  fixed so that they can be easily scrolled.
 
 Pupils shoudl be sorted by last name.
+
+The pupil name in the grid should link to reports/pupil_id
 
