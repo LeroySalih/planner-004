@@ -1,5 +1,8 @@
 # Dino
 ## Releases 
+### Release 0.0.22
+- `/results/assignments/[assignmentId]`: Override panel now keeps the zero/partial/full shortcuts but adds a same-row percentage textbox so teachers can enter precise scores (0–100) that persist as 0–1 values, with empty entries defaulting to zero.
+
 ### Release 0.0.21
 - Auth flow now auto-creates a placeholder row in `profiles` the moment an authenticated session is detected, preventing new sign-ups from getting stuck without a profile record.
 - Allow Upload File activities to be marked as assessments by treating `"upload-file"` as a scorable activity type in `src/dino.config.ts`.

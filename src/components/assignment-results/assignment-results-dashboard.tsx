@@ -14,6 +14,7 @@ import {
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
@@ -47,6 +48,37 @@ function formatPercent(score: number | null): string {
     return "—"
   }
   return `${Math.round(score * 100)}%`
+}
+
+function formatPercentValue(percent: number): string {
+  if (Number.isNaN(percent)) {
+    return "0"
+  }
+  const clamped = Math.min(Math.max(percent, 0), 100)
+  const rounded = Math.round(clamped * 100) / 100
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toString()
+}
+
+function formatPercentInput(value: number | null | undefined): string {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return "0"
+  }
+  return formatPercentValue(value * 100)
+}
+
+function toPercentNumber(raw: string | undefined): number | null {
+  if (typeof raw !== "string") {
+    return 0
+  }
+  const trimmed = raw.trim()
+  if (trimmed.length === 0) {
+    return 0
+  }
+  const value = Number.parseFloat(trimmed)
+  if (Number.isNaN(value) || value < 0 || value > 100) {
+    return null
+  }
+  return value
 }
 
 function describeStatus(status: CellStatus) {
@@ -280,12 +312,11 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     if (criteria.length === 0) return null
     let total = 0
     for (const criterion of criteria) {
-      const raw = (criterionDrafts[criterion.successCriteriaId] ?? "").trim()
-      const value = Number.parseFloat(raw)
-      if (Number.isNaN(value) || value < 0 || value > 1) {
+      const percent = toPercentNumber(criterionDrafts[criterion.successCriteriaId])
+      if (percent === null) {
         return null
       }
-      total += value
+      total += percent / 100
     }
     return total / criteria.length
   }, [selection, criterionDrafts])
@@ -317,7 +348,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       for (const criterion of activity.successCriteria) {
         const value = cell.successCriteriaScores[criterion.successCriteriaId]
         const numeric = typeof value === "number" && Number.isFinite(value) ? value : 0
-        nextCriterionDrafts[criterion.successCriteriaId] = numeric.toFixed(2)
+        nextCriterionDrafts[criterion.successCriteriaId] = formatPercentInput(numeric)
       }
     }
     setCriterionDrafts(nextCriterionDrafts)
@@ -377,17 +408,15 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     const parsedCriterionScores: Record<string, number> = {}
 
     for (const criterion of criteria) {
-      const raw = (criterionDrafts[criterion.successCriteriaId] ?? "").trim()
-      if (!raw) {
-        toast.error("Enter a score between 0 and 1 for each success criterion.")
+      const percent = toPercentNumber(criterionDrafts[criterion.successCriteriaId])
+      if (percent === null) {
+        toast.error("Enter a percentage between 0 and 100 for each success criterion.")
         return
       }
-      const value = Number.parseFloat(raw)
-      if (Number.isNaN(value) || value < 0 || value > 1) {
-        toast.error("Scores must be between 0 and 1.")
-        return
-      }
-      parsedCriterionScores[criterion.successCriteriaId] = Number.parseFloat(value.toFixed(3))
+      const normalised = percent / 100
+      parsedCriterionScores[criterion.successCriteriaId] = Number.parseFloat(
+        Math.min(Math.max(normalised, 0), 1).toFixed(3),
+      )
     }
 
     const successCriteriaScores = normaliseSuccessCriteriaScores({
@@ -452,7 +481,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
         Object.fromEntries(
           Object.entries(successCriteriaScores).map(([id, value]) => [
             id,
-            typeof value === "number" && Number.isFinite(value) ? value.toFixed(2) : "0.00",
+            formatPercentInput(typeof value === "number" && Number.isFinite(value) ? value : 0),
           ]),
         ),
       )
@@ -543,7 +572,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
             const value = autoScoresForDrafts[criterion.successCriteriaId]
             return [
               criterion.successCriteriaId,
-              typeof value === "number" && Number.isFinite(value) ? value.toFixed(2) : "0.00",
+              formatPercentInput(typeof value === "number" && Number.isFinite(value) ? value : 0),
             ]
           }),
         ),
@@ -561,6 +590,45 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
   const goToLesson = () => {
     if (!matrixState.lesson?.lessonId) return
     router.push(`/lessons/${encodeURIComponent(matrixState.lesson.lessonId)}`)
+  }
+
+  const handleCriterionInputChange = (criterionId: string, value: string) => {
+    setCriterionDrafts((previous) => ({
+      ...previous,
+      [criterionId]: value,
+    }))
+  }
+
+  const handleCriterionInputBlur = (criterionId: string) => {
+    setCriterionDrafts((previous) => {
+      const raw = previous[criterionId]
+      const trimmed = typeof raw === "string" ? raw.trim() : ""
+      if (trimmed.length === 0) {
+        if (raw === "0") {
+          return previous
+        }
+        return {
+          ...previous,
+          [criterionId]: "0",
+        }
+      }
+      const parsed = Number.parseFloat(trimmed)
+      if (Number.isNaN(parsed)) {
+        return {
+          ...previous,
+          [criterionId]: "0",
+        }
+      }
+      const clamped = Math.min(Math.max(parsed, 0), 100)
+      const formatted = formatPercentValue(clamped)
+      if (formatted === raw) {
+        return previous
+      }
+      return {
+        ...previous,
+        [criterionId]: formatted,
+      }
+    })
   }
 
   return (
@@ -968,20 +1036,24 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                                   ? criterion.description.trim()
                                   : criterionId
                             const draftValueRaw = criterionDrafts[criterionId]
-                            const draftValue =
-                              typeof draftValueRaw === "string" && draftValueRaw.trim().length > 0
-                                ? Number.parseFloat(draftValueRaw)
-                                : null
+                            const percentDraft =
+                              typeof draftValueRaw === "string" ? draftValueRaw : "0"
+                            const trimmed = percentDraft.trim()
+                            const numericDraft =
+                              trimmed.length === 0 ? 0 : Number.parseFloat(trimmed)
+                            const isNumericDraftValid = !Number.isNaN(numericDraft)
                             return (
                               <div key={criterionId} className="space-y-2">
                                 <p className="text-xs font-semibold text-muted-foreground">{label}</p>
-                                <div className="grid grid-cols-3 gap-2">
+                                <div className="flex flex-wrap items-center gap-2">
                                   {[
-                                    { label: "0", value: 0 },
-                                    { label: "Partial", value: 0.5 },
-                                    { label: "Full", value: 1 },
+                                    { label: "0", percent: 0 },
+                                    { label: "Partial", percent: 50 },
+                                    { label: "Full", percent: 100 },
                                   ].map((option) => {
-                                    const isActive = draftValue === option.value
+                                    const isActive =
+                                      isNumericDraftValid &&
+                                      Math.abs(numericDraft - option.percent) < 0.0001
                                     return (
                                       <Button
                                         key={option.label}
@@ -989,10 +1061,11 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                                         size="sm"
                                         variant={isActive ? "default" : "outline"}
                                         aria-pressed={isActive}
+                                        className="h-8 px-2 text-xs"
                                         onClick={() => {
                                           setCriterionDrafts((previous) => ({
                                             ...previous,
-                                            [criterionId]: option.value.toFixed(2),
+                                            [criterionId]: formatPercentValue(option.percent),
                                           }))
                                         }}
                                       >
@@ -1000,6 +1073,21 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                                       </Button>
                                     )
                                   })}
+                                  <Input
+                                    type="number"
+                                    inputMode="decimal"
+                                    min="0"
+                                    max="100"
+                                    step="0.1"
+                                    value={percentDraft}
+                                    onChange={(event) =>
+                                      handleCriterionInputChange(criterionId, event.target.value)
+                                    }
+                                    onBlur={() => handleCriterionInputBlur(criterionId)}
+                                    placeholder="Exact percent (0-100)"
+                                    aria-label={`Exact percent for ${label}`}
+                                    className="h-8 w-24"
+                                  />
                                 </div>
                               </div>
                             )

@@ -2,6 +2,7 @@
 # Assignment Results Dashboard – Clarifications
 
 ## Change 
+25-10-21 17:04    Added Score Text box to Activity Scoring section
 25-10-18 18:48    Updated the activity scoring section to note a scorable activity list. 
 25-10-17 03:24    Added is_summative property to activity
 25-10-13 15:56    Added Activity Scoring Section
@@ -25,12 +26,17 @@ A teacher has the abiity to override the individual scores for each success crit
 
 Null or empty scores are counted as 0 for the purposed of average calculations.
 
+
 The configuration of activities indocates with types are scorable.  The remainder are non-scorable.
 
 Only Scorable activities may be marked as is_summative
 Only Scorable acitvities are counted when calculating the denomonator for total and summative scores.
 
 the config file is stored [here](/Users/leroysalih/nodejs/planner-005/src/dino.config.ts)
+
+
+- 25-10-21 There are currently three buttons to override the score, zero, partial and full, Add a textbox to allow teachers to enter an exact percent.  The teacher may enter a number between 0 and 100, this should be devided by 100, to range between 0 and 1 in the database.
+
 
 ### Data and Keys
 
