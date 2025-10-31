@@ -3,8 +3,16 @@
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
-import { GroupsSchema, GroupWithMembershipSchema, GroupMembershipsSchema, ProfilesSchema } from "@/types"
+import {
+  GroupsSchema,
+  GroupWithMembershipSchema,
+  GroupMembershipsSchema,
+  GroupMembershipsWithGroupSchema,
+  ProfileSchema,
+  ProfilesSchema,
+} from "@/types"
 
+import { getAuthenticatedProfile, requireAuthenticatedProfile } from "@/lib/auth"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 const GroupReturnValue = z.object({
@@ -27,7 +35,46 @@ const RemoveGroupMemberReturnSchema = z.object({
   error: z.string().nullable(),
 })
 
+const ProfileGroupsDataSchema = z.object({
+  profile: ProfileSchema,
+  memberships: GroupMembershipsWithGroupSchema,
+})
+
+const ProfileGroupsResultSchema = z.object({
+  data: ProfileGroupsDataSchema.nullable(),
+  error: z.string().nullable(),
+})
+
+const JoinGroupInputSchema = z.object({
+  joinCode: z
+    .string()
+    .trim()
+    .transform((value) => value.toUpperCase())
+    .refine((value) => value.length === 5, {
+      message: "Join codes must be 5 characters long.",
+    }),
+})
+
+const JoinGroupReturnSchema = z.object({
+  success: z.boolean(),
+  error: z.string().nullable(),
+  groupId: z.string().nullable(),
+  subject: z.string().nullable(),
+})
+
+const LeaveGroupInputSchema = z.object({
+  groupId: z.string().min(1),
+})
+
+const LeaveGroupReturnSchema = z.object({
+  success: z.boolean(),
+  error: z.string().nullable(),
+})
+
 export type GroupActionResult = z.infer<typeof GroupReturnValue>
+export type ProfileGroupsResult = z.infer<typeof ProfileGroupsResultSchema>
+export type JoinGroupResult = z.infer<typeof JoinGroupReturnSchema>
+export type LeaveGroupResult = z.infer<typeof LeaveGroupReturnSchema>
 
 function generateJoinCode(): string {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -229,6 +276,219 @@ export async function removeGroupMemberAction(input: { groupId: string; userId: 
   console.log("[v0] Server action completed for removing group member:", { groupId, userId })
 
   return RemoveGroupMemberReturnSchema.parse({
+    success: true,
+    error: null,
+  })
+}
+
+export async function readProfileGroupsForCurrentUserAction(): Promise<ProfileGroupsResult> {
+  let error: string | null = null
+  const authProfile = await requireAuthenticatedProfile()
+  const supabase = await createSupabaseServerClient()
+
+  const { data: profileRow, error: profileError } = await supabase
+    .from("profiles")
+    .select("user_id, first_name, last_name, is_teacher")
+    .eq("user_id", authProfile.userId)
+    .maybeSingle()
+
+  if (profileError && profileError.code !== "PGRST116") {
+    console.error("[profile-groups] Failed to load profile", profileError)
+  }
+
+  const resolvedProfile = ProfileSchema.parse({
+    user_id: profileRow?.user_id ?? authProfile.userId,
+    first_name: profileRow?.first_name ?? null,
+    last_name: profileRow?.last_name ?? null,
+    is_teacher: Boolean(profileRow?.is_teacher ?? authProfile.isTeacher),
+  })
+
+  const { data: membershipRows, error: membershipError } = await supabase
+    .from("group_membership")
+    .select("group_id, user_id, role, group:groups(group_id, subject, join_code, active)")
+    .eq("user_id", authProfile.userId)
+    .order("group_id", { ascending: true })
+
+  if (membershipError) {
+    console.error("[profile-groups] Failed to load memberships", membershipError)
+    error = "Unable to load your groups right now. Please try again shortly."
+  }
+
+  const memberships = GroupMembershipsWithGroupSchema.parse(
+    (membershipRows ?? [])
+      .map((membership) => {
+        const group = Array.isArray(membership.group) ? membership.group[0] : membership.group
+        if (group && group.active === false) {
+          return {
+            group_id: membership.group_id,
+            user_id: membership.user_id,
+            role: membership.role,
+          }
+        }
+
+        return {
+          group_id: membership.group_id,
+          user_id: membership.user_id,
+          role: membership.role,
+          group: group ?? undefined,
+        }
+      })
+      .filter((membership) => membership.group !== undefined),
+  )
+
+  return ProfileGroupsResultSchema.parse({
+    data: {
+      profile: resolvedProfile,
+      memberships,
+    },
+    error,
+  })
+}
+
+export async function joinGroupByCodeAction(input: { joinCode: string }): Promise<JoinGroupResult> {
+  const parsed = JoinGroupInputSchema.safeParse({ joinCode: input.joinCode })
+
+  if (!parsed.success) {
+    const [firstError] = parsed.error.errors
+    return JoinGroupReturnSchema.parse({
+      success: false,
+      error: firstError?.message ?? "Invalid join code.",
+      groupId: null,
+      subject: null,
+    })
+  }
+
+  const { joinCode } = parsed.data
+
+  const authProfile = await getAuthenticatedProfile()
+
+  if (!authProfile) {
+    return JoinGroupReturnSchema.parse({
+      success: false,
+      error: "You must be signed in to join a group.",
+      groupId: null,
+      subject: null,
+    })
+  }
+
+  const supabase = await createSupabaseServerClient()
+
+  const { data: group, error: groupError } = await supabase
+    .from("groups")
+    .select("group_id, subject, active")
+    .eq("join_code", joinCode)
+    .maybeSingle()
+
+  if (groupError) {
+    console.error("[profile-groups] Failed to find group by join code", joinCode, groupError)
+    return JoinGroupReturnSchema.parse({
+      success: false,
+      error: "We couldn't validate that join code. Please try again.",
+      groupId: null,
+      subject: null,
+    })
+  }
+
+  if (!group || group.active === false) {
+    return JoinGroupReturnSchema.parse({
+      success: false,
+      error: "No group found with that join code.",
+      groupId: null,
+      subject: null,
+    })
+  }
+
+  const { data: existingMembership } = await supabase
+    .from("group_membership")
+    .select("group_id")
+    .eq("group_id", group.group_id)
+    .eq("user_id", authProfile.userId)
+    .maybeSingle()
+
+  if (existingMembership) {
+    return JoinGroupReturnSchema.parse({
+      success: false,
+      error: "You are already a member of that group.",
+      groupId: null,
+      subject: null,
+    })
+  }
+
+  const role = authProfile.isTeacher ? "teacher" : "pupil"
+
+  const { error: insertError } = await supabase.from("group_membership").insert({
+    group_id: group.group_id,
+    user_id: authProfile.userId,
+    role,
+  })
+
+  if (insertError) {
+    console.error("[profile-groups] Failed to join group", { joinCode, userId: authProfile.userId }, insertError)
+    return JoinGroupReturnSchema.parse({
+      success: false,
+      error: "Unable to join that group right now.",
+      groupId: null,
+      subject: null,
+    })
+  }
+
+  revalidatePath("/profile/groups")
+
+  return JoinGroupReturnSchema.parse({
+    success: true,
+    error: null,
+    groupId: group.group_id,
+    subject: group.subject,
+  })
+}
+
+export async function leaveGroupAction(input: { groupId: string }): Promise<LeaveGroupResult> {
+  const parsed = LeaveGroupInputSchema.safeParse(input)
+
+  if (!parsed.success) {
+    const [firstError] = parsed.error.errors
+    return LeaveGroupReturnSchema.parse({
+      success: false,
+      error: firstError?.message ?? "Invalid leave group payload.",
+    })
+  }
+
+  const authProfile = await getAuthenticatedProfile()
+
+  if (!authProfile) {
+    return LeaveGroupReturnSchema.parse({
+      success: false,
+      error: "You must be signed in to leave a group.",
+    })
+  }
+
+  const supabase = await createSupabaseServerClient()
+
+  const { data: deletedRows, error: deleteError } = await supabase
+    .from("group_membership")
+    .delete()
+    .eq("group_id", parsed.data.groupId)
+    .eq("user_id", authProfile.userId)
+    .select("group_id")
+
+  if (deleteError) {
+    console.error("[profile-groups] Failed to leave group", { groupId: parsed.data.groupId, userId: authProfile.userId }, deleteError)
+    return LeaveGroupReturnSchema.parse({
+      success: false,
+      error: "Unable to leave that group right now.",
+    })
+  }
+
+  if (!deletedRows || deletedRows.length === 0) {
+    return LeaveGroupReturnSchema.parse({
+      success: false,
+      error: "You are not a member of that group.",
+    })
+  }
+
+  revalidatePath("/profile/groups")
+
+  return LeaveGroupReturnSchema.parse({
     success: true,
     error: null,
   })

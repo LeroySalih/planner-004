@@ -31,8 +31,11 @@ This guide captures the working knowledge future coding agents need to extend th
 - All server actions are exported through `src/lib/server-updates.ts:1`; add new domain actions there so pages/components can consume a single barrel.
 - Follow the defensive error handling shown in `src/lib/server-actions/feedback.ts:1`—parse input with Zod, wrap Supabase calls, and surface a safe error string.
 - Authorization helpers like `requireTeacherProfile()` live in `src/lib/auth.ts:1`; enforce these guards in route handlers before performing teacher-only operations (`src/app/assignments/page.tsx:1`).
+- Use pure server components where possible.
 
 ## Client/UI Conventions
+- All data fetching on the client must utilise a server action, and no supabase clients should be used on the client browser.  This is to ensure that no supabase variables do not leak.
+- Prefer server side renderign, with Suspense where possible, over client side fetching.
 - Compose UI with the Radix-backed primitives from `src/components/ui` (e.g. `button.tsx:1`, `form.tsx:1`, `dropdown-menu.tsx`). Wire class names through the `cn` helper (`src/lib/utils.ts:1`) to maintain Tailwind merge behaviour.
 - Long-form feature components (e.g. `src/components/assignment-manager/assignment-manager.tsx:1`) separate stateful logic and per-pane subcomponents. Mirror this pattern when introducing new management consoles.
 - Styling tokens and dark mode variants come from `src/app/globals.css:1`; keep new Tailwind classes aligned with the defined palette.

@@ -61,13 +61,23 @@ export async function readPupilReportAction(pupilId: string) {
 
   const groupIds = memberships.map((membership) => membership.group_id)
 
-  let assignmentsRows: Array<z.infer<typeof AssignmentWithUnitSchema>> = []
+  type RawAssignment = z.infer<typeof AssignmentWithUnitSchema>
+  let legacyAssignments: RawAssignment[] = []
+  let lessonAssignments: Array<{ group_id: string; lesson_id: string; start_date: string }> = []
+
   if (groupIds.length > 0) {
-    const { data: assignmentsData, error: assignmentsError } = await supabase
-      .from("assignments")
-      .select("group_id, unit_id, start_date, end_date, active")
-      .in("group_id", groupIds)
-      .eq("active", true)
+    const [{ data: assignmentsData, error: assignmentsError }, { data: lessonAssignmentsData, error: lessonAssignmentsError }] =
+      await Promise.all([
+        supabase
+          .from("assignments")
+          .select("group_id, unit_id, start_date, end_date, active")
+          .in("group_id", groupIds)
+          .eq("active", true),
+        supabase
+          .from("lesson_assignments")
+          .select("group_id, lesson_id, start_date")
+          .in("group_id", groupIds),
+      ])
 
     if (assignmentsError) {
       return {
@@ -76,32 +86,94 @@ export async function readPupilReportAction(pupilId: string) {
       }
     }
 
-    assignmentsRows = (assignmentsData ?? []) as Array<z.infer<typeof AssignmentWithUnitSchema>>
+    if (lessonAssignmentsError) {
+      return {
+        data: null as PupilReport | null,
+        error: lessonAssignmentsError.message,
+      }
+    }
+
+    legacyAssignments = (assignmentsData ?? []) as RawAssignment[]
+    lessonAssignments = (lessonAssignmentsData ?? []).map((row) => ({
+      group_id: row.group_id as string,
+      lesson_id: row.lesson_id as string,
+      start_date: row.start_date as string,
+    }))
   }
+
+  const lessonIds = Array.from(new Set(lessonAssignments.map((entry) => entry.lesson_id).filter(Boolean)))
+  type LessonWithUnit = {
+    lesson_id: string
+    unit_id: string
+    unit: z.infer<typeof UnitSchema> | null
+  }
+  let lessonsById = new Map<string, LessonWithUnit>()
+
+  if (lessonIds.length > 0) {
+    const { data: lessonsData, error: lessonsError } = await supabase
+      .from("lessons")
+      .select("lesson_id, unit_id, units:units(*)")
+      .in("lesson_id", lessonIds)
+
+    if (lessonsError) {
+      return {
+        data: null as PupilReport | null,
+        error: lessonsError.message,
+      }
+    }
+
+    lessonsById = new Map(
+      (lessonsData ?? []).map((row) => {
+        const unitRecord = row.units ? UnitSchema.parse(row.units) : null
+        return [
+          row.lesson_id as string,
+          {
+            lesson_id: row.lesson_id as string,
+            unit_id: row.unit_id as string,
+            unit: unitRecord,
+          },
+        ]
+      }),
+    )
+  }
+
+  const unitIds = new Set<string>()
+  legacyAssignments.forEach((row) => unitIds.add(row.unit_id))
+  lessonsById.forEach((lesson) => {
+    if (lesson.unit_id) {
+      unitIds.add(lesson.unit_id)
+    }
+  })
 
   let unitsById = new Map<string, z.infer<typeof UnitSchema>>()
-  if (assignmentsRows.length > 0) {
-    const unitIds = Array.from(new Set(assignmentsRows.map((row) => row.unit_id)))
-    if (unitIds.length > 0) {
-      const { data: unitsData, error: unitsError } = await supabase
-        .from("units")
-        .select("*")
-        .in("unit_id", unitIds)
+  if (unitIds.size > 0) {
+    const { data: unitsData, error: unitsError } = await supabase
+      .from("units")
+      .select("*")
+      .in("unit_id", Array.from(unitIds))
 
-      if (unitsError) {
-        return {
-          data: null as PupilReport | null,
-          error: unitsError.message,
-        }
+    if (unitsError) {
+      return {
+        data: null as PupilReport | null,
+        error: unitsError.message,
       }
-
-      const parsedUnits = (unitsData ?? []).map((unit) => UnitSchema.parse(unit))
-      unitsById = new Map(parsedUnits.map((unit) => [unit.unit_id, unit]))
     }
+
+    const parsedUnits = (unitsData ?? []).map((unit) => UnitSchema.parse(unit))
+    unitsById = new Map(parsedUnits.map((unit) => [unit.unit_id, unit]))
   }
 
-  const assignments = AssignmentsWithUnitSchema.parse(
-    assignmentsRows.map((row) => ({
+  type NormalizedAssignmentRow = {
+    group_id: string
+    unit_id: string
+    start_date: string
+    end_date: string
+    active: boolean
+    unit: z.infer<typeof UnitSchema> | null
+  }
+
+  const assembledAssignments: NormalizedAssignmentRow[] = [
+    ...legacyAssignments.map((row) => ({
       group_id: row.group_id,
       unit_id: row.unit_id,
       start_date: row.start_date,
@@ -109,7 +181,29 @@ export async function readPupilReportAction(pupilId: string) {
       active: row.active,
       unit: unitsById.get(row.unit_id) ?? null,
     })),
-  )
+    ...lessonAssignments
+      .map((entry): NormalizedAssignmentRow | null => {
+        const lesson = lessonsById.get(entry.lesson_id)
+        if (!lesson || !lesson.unit_id) {
+          return null
+        }
+
+        const unit = unitsById.get(lesson.unit_id) ?? lesson.unit ?? null
+        const startDate = entry.start_date ?? new Date().toISOString()
+
+        return {
+          group_id: entry.group_id,
+          unit_id: lesson.unit_id,
+          start_date: startDate,
+          end_date: startDate,
+          active: true,
+          unit,
+        }
+      })
+      .filter((value): value is NormalizedAssignmentRow => value !== null),
+  ]
+
+  const assignments = AssignmentsWithUnitSchema.parse(assembledAssignments)
 
   return {
     data: PupilReportSchema.parse({ profile, memberships, assignments, feedback }),

@@ -3,6 +3,8 @@ import { redirect } from "next/navigation"
 import { PupilReportView } from "./report-view"
 import { requireAuthenticatedProfile } from "@/lib/auth"
 
+export const revalidate = 0
+
 export default async function PupilReportPage({
   params,
 }: {
