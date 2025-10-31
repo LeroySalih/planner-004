@@ -51,8 +51,13 @@ export const ProfileSchema = z.object({
 
 export const ProfilesSchema = z.array(ProfileSchema);
 
+export const CurrentProfileSchema = ProfileSchema.extend({
+    email: z.string().email().nullable(),
+});
+
 export type Profile = z.infer<typeof ProfileSchema>;
 export type Profiles = z.infer<typeof ProfilesSchema>;
+export type CurrentProfile = z.infer<typeof CurrentProfileSchema>;
 
 export const FeedbackSchema = z.object({
     id: z.number().int(),

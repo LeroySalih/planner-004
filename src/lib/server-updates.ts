@@ -157,3 +157,16 @@ export {
 } from "./server-actions/feedback"
 
 export { readPupilReportAction } from "./server-actions/pupils"
+
+export {
+  readCurrentProfileAction,
+  updateCurrentProfileAction,
+  type ReadCurrentProfileResult,
+  type UpdateCurrentProfileInput,
+  type UpdateCurrentProfileResult,
+  readProfileDetailAction,
+  updateProfileDetailAction,
+  type ReadProfileDetailResult,
+  type UpdateProfileDetailInput,
+  type UpdateProfileDetailResult,
+} from "./server-actions/profile"
