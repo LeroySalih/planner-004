@@ -2022,3 +2022,379 @@
 [2m2025-10-31T15:40:56.262315Z[0m [32m INFO[0m tool gate released
 [2m2025-10-31T16:04:31.674587Z[0m [32m INFO[0m ERR: No such file or directory (os error 2)
 [2m2025-10-31T16:04:31.684055Z[0m [32m INFO[0m ERR: No such file or directory (os error 2)
+[2m2025-10-31T16:18:50.076122Z[0m [32m INFO[0m ToolCall: shell {"command":["bash","-lc","git diff -- specs/profiles/groups/spec.000.md"],"workdir":"/Users/leroysalih/nodejs/planner-005"}
+[2m2025-10-31T16:18:50.077058Z[0m [32m INFO[0m waiting for tool gate
+[2m2025-10-31T16:18:50.077071Z[0m [32m INFO[0m tool gate released
+[2m2025-10-31T16:19:39.802402Z[0m [32m INFO[0m ToolCall: shell {"command":["bash","-lc","git diff -- specs"],"workdir":"/Users/leroysalih/nodejs/planner-005"}
+[2m2025-10-31T16:19:39.802460Z[0m [32m INFO[0m waiting for tool gate
+[2m2025-10-31T16:19:39.802464Z[0m [32m INFO[0m tool gate released
+[2m2025-10-31T16:20:05.675430Z[0m [32m INFO[0m ERR: No such file or directory (os error 2)
+[2m2025-10-31T16:20:20.872158Z[0m [32m INFO[0m ToolCall: shell {"command":["bash","-lc","git diff -- agents.md"],"workdir":"/Users/leroysalih/nodejs/planner-005"}
+[2m2025-10-31T16:20:20.872242Z[0m [32m INFO[0m waiting for tool gate
+[2m2025-10-31T16:20:20.872249Z[0m [32m INFO[0m tool gate released
+[2m2025-10-31T16:21:04.537809Z[0m [32m INFO[0m ERR: The image format could not be determined
+[2m2025-10-31T16:21:51.635127Z[0m [32m INFO[0m ToolCall: shell {"command":["bash","-lc","ls plans/profiles/groups"],"workdir":"/Users/leroysalih/nodejs/planner-005"}
+[2m2025-10-31T16:21:51.635193Z[0m [32m INFO[0m waiting for tool gate
+[2m2025-10-31T16:21:51.635199Z[0m [32m INFO[0m tool gate released
+[2m2025-10-31T16:21:54.926649Z[0m [32m INFO[0m ToolCall: shell {"command":["bash","-lc","cat plans/profiles/groups/plan.000.md"],"workdir":"/Users/leroysalih/nodejs/planner-005"}
+[2m2025-10-31T16:21:54.926802Z[0m [32m INFO[0m waiting for tool gate
+[2m2025-10-31T16:21:54.926872Z[0m [32m INFO[0m tool gate released
+[2m2025-10-31T16:22:02.369076Z[0m [32m INFO[0m ToolCall: apply_patch *** Begin Patch
+*** Add File: plans/profiles/groups/plan.001.md
++# Plan: `/profiles/groups` async feedback affordances
++
++## Objectives
++- Surface in-progress feedback on both Join Group and Leave Group actions, per `specs/profiles/groups/spec.000.md`.
++- Keep the page a pure server component entrypoint while introducing the minimum client logic needed for spinners.
++
++## Implementation steps
++1. **Audit current flow** – confirm `ProfileGroupsManager` already consumes `joinGroupByCodeAction` and `leaveGroupAction`, and identify where form submissions can expose a pending state.
++2. **Introduce `useActionState` wrappers** – convert the join and leave forms to client components that wrap the existing server actions with `useActionState`, capturing `{ pending, message }` output to drive button UI.
++3. **Add loading indicators** – update the shared `Button` usage so that when `pending` is true we show the spinner (existing primitive or `Loader2` icon) and disable the buttons to prevent duplicate submissions.
++4. **Preserve redirects & feedback** – ensure success/error redirects continue to set `searchParams` so the server component displays the banner, and that action state resets on navigation.
++
++## Validation
++- Manual: trigger join and leave flows; while the server action is running, verify the buttons display the spinner/disabled state, then confirm success/error banners still appear after redirect.
+*** End Patch
+[2m2025-10-31T16:22:02.369175Z[0m [32m INFO[0m waiting for tool gate
+[2m2025-10-31T16:22:02.369181Z[0m [32m INFO[0m tool gate released
+[2m2025-10-31T16:23:02.350030Z[0m [32m INFO[0m ERR: No such file or directory (os error 2)
+[2m2025-10-31T16:23:30.654856Z[0m [32m INFO[0m ToolCall: shell {"command":["bash","-lc","rg \"useActionState\" -n"],"workdir":"/Users/leroysalih/nodejs/planner-005"}
+[2m2025-10-31T16:23:30.654935Z[0m [32m INFO[0m waiting for tool gate
+[2m2025-10-31T16:23:30.654942Z[0m [32m INFO[0m tool gate released
+[2m2025-10-31T16:23:33.803172Z[0m [32m INFO[0m ToolCall: shell {"command":["bash","-lc","rg \"Loader2\" src -n"],"workdir":"/Users/leroysalih/nodejs/planner-005"}
+[2m2025-10-31T16:23:33.803215Z[0m [32m INFO[0m waiting for tool gate
+[2m2025-10-31T16:23:33.803221Z[0m [32m INFO[0m tool gate released
+[2m2025-10-31T16:24:17.315877Z[0m [32m INFO[0m ToolCall: apply_patch *** Begin Patch
+*** Add File: src/components/profile/groups-client.tsx
++"use client"
++
++import { useActionState } from "react"
++import { Loader2 } from "lucide-react"
++
++import { Button } from "@/components/ui/button"
++
++type JoinGroupActionState = { status: "idle" }
++type LeaveGroupActionState = { status: "idle" }
++
++const INITIAL_STATE = { status: "idle" } as const
++
++type JoinGroupFormProps = {
++  action: (prevState: JoinGroupActionState, formData: FormData) => Promise<JoinGroupActionState>
++  roleLabel: string
++}
++
++export function JoinGroupForm({ action, roleLabel }: JoinGroupFormProps) {
++  const [, formAction, pending] = useActionState(action, INITIAL_STATE)
++
++  return (
++    <form action={formAction} className="space-y-4 rounded-lg border border-border bg-card p-6 shadow-sm">
++      <div className="space-y-2">
++        <label htmlFor="join-code" className="text-sm font-medium text-foreground">
++          Join a group
++        </label>
++        <input
++          id="join-code"
++          name="joinCode"
++          maxLength={5}
++          placeholder="Enter 5 character code"
++          required
++          disabled={pending}
++          className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
++        />
++        <p className="text-xs text-muted-foreground">
++          You are currently signed in as a {roleLabel}. Ask your teacher for the 5 character join code.
++        </p>
++      </div>
++
++      <Button type="submit" className="w-full" disabled={pending}>
++        {pending ? (
++          <>
++            <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
++            Joining…
++          </>
++        ) : (
++          "Join group"
++        )}
++      </Button>
++    </form>
++  )
++}
++
++type LeaveGroupFormProps = {
++  action: (prevState: LeaveGroupActionState, formData: FormData) => Promise<LeaveGroupActionState>
++  groupId: string
++}
++
++export function LeaveGroupForm({ action, groupId }: LeaveGroupFormProps) {
++  const [, formAction, pending] = useActionState(action, INITIAL_STATE)
++
++  return (
++    <form action={formAction}>
++      <input type="hidden" name="groupId" value={groupId} />
++      <Button type="submit" variant="outline" disabled={pending}>
++        {pending ? (
++          <>
++            <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
++            Leaving…
++          </>
++        ) : (
++          "Leave group"
++        )}
++      </Button>
++    </form>
++  )
++}
+*** End Patch
+[2m2025-10-31T16:24:17.316137Z[0m [32m INFO[0m waiting for tool gate
+[2m2025-10-31T16:24:17.316147Z[0m [32m INFO[0m tool gate released
+[2m2025-10-31T16:24:32.081014Z[0m [32m INFO[0m ToolCall: apply_patch *** Begin Patch
+*** Update File: src/components/profile/groups.tsx
+@@
+-import {
+-  joinGroupByCodeAction,
+-  leaveGroupAction as leaveGroupMembershipAction,
+-  readProfileGroupsForCurrentUserAction,
+-} from "@/lib/server-actions/groups"
+-import { Button } from "@/components/ui/button"
++import {
++  joinGroupByCodeAction,
++  leaveGroupAction as leaveGroupMembershipAction,
++  readProfileGroupsForCurrentUserAction,
++} from "@/lib/server-actions/groups"
++import { JoinGroupForm, LeaveGroupForm } from "@/components/profile/groups-client"
+ 
+ type FeedbackState =
+   | {
+       variant: "success" | "error"
+       message: string
+@@
+ type ProfileGroupsManagerProps = {
+   feedback: FeedbackState
+ }
+ 
++type GroupActionState = { status: "idle" }
++
+ export async function ProfileGroupsManager({ feedback }: ProfileGroupsManagerProps) {
+   const result = await readProfileGroupsForCurrentUserAction()
+ 
+   if (!result.data) {
+@@
+ 
+   const { profile, memberships } = result.data
+ 
+-  async function joinGroup(formData: FormData) {
++  async function joinGroup(_: GroupActionState, formData: FormData): Promise<GroupActionState> {
+     "use server"
+ 
+     const joinCode = (formData.get("joinCode") ?? "").toString()
+     const joinResult = await joinGroupByCodeAction({ joinCode })
+     const params = new URLSearchParams()
+@@
+ 
+     redirect(`/profile/groups?${params.toString()}`)
+   }
+ 
+-  async function leaveGroup(formData: FormData) {
++  async function leaveGroup(_: GroupActionState, formData: FormData): Promise<GroupActionState> {
+     "use server"
+ 
+     const groupId = (formData.get("groupId") ?? "").toString()
+     const leaveResult = groupId
+       ? await leaveGroupMembershipAction({ groupId })
+@@
+         >
+           {result.error}
+         </div>
+       ) : null}
+ 
+-      <form action={joinGroup} className="space-y-4 rounded-lg border border-border bg-card p-6 shadow-sm">
+-        <div className="space-y-2">
+-          <label htmlFor="join-code" className="text-sm font-medium text-foreground">
+-            Join a group
+-          </label>
+-          <input
+-            id="join-code"
+-            name="joinCode"
+-            maxLength={5}
+-            placeholder="Enter 5 character code"
+-            required
+-            className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+-          />
+-          <p className="text-xs text-muted-foreground">
+-            You are currently signed in as a {roleLabel}. Ask your teacher for the 5 character join code.
+-          </p>
+-        </div>
+-
+-        <Button type="submit" className="w-full">
+-          Join group
+-        </Button>
+-      </form>
++      <JoinGroupForm action={joinGroup} roleLabel={roleLabel} />
+ 
+       <section className="space-y-4">
+         <div className="flex items-center justify-between">
+           <h2 className="text-lg font-semibold text-foreground">Groups you belong to</h2>
+           <span className="text-xs uppercase tracking-wide text-muted-foreground">
+@@
+               return (
+                 <li key={membership.group_id} className="rounded-lg border border-border bg-card p-4 shadow-sm">
+                   <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                     <div className="flex flex-col gap-1">
+                       <span className="text-sm font-semibold text-foreground">
+                         {group?.subject ?? membership.group_id}
+                       </span>
+                       <span className="text-xs text-muted-foreground">{membership.group_id}</span>
+                       <span className="text-xs uppercase text-muted-foreground">Role: {membership.role}</span>
+                     </div>
+ 
+-                    <form action={leaveGroup}>
+-                      <input type="hidden" name="groupId" value={membership.group_id} />
+-                      <Button type="submit" variant="outline">
+-                        Leave group
+-                      </Button>
+-                    </form>
++                    <LeaveGroupForm action={leaveGroup} groupId={membership.group_id} />
+                   </div>
+                 </li>
+               )
+             })}
+           </ul>
+*** End Patch
+[2m2025-10-31T16:24:32.081390Z[0m [32m INFO[0m waiting for tool gate
+[2m2025-10-31T16:24:32.081398Z[0m [32m INFO[0m tool gate released
+[2m2025-10-31T16:24:35.577217Z[0m [32m INFO[0m ToolCall: shell {"command":["bash","-lc","sed -n '1,200p' src/components/profile/groups.tsx"],"workdir":"/Users/leroysalih/nodejs/planner-005"}
+[2m2025-10-31T16:24:35.577244Z[0m [32m INFO[0m waiting for tool gate
+[2m2025-10-31T16:24:35.577249Z[0m [32m INFO[0m tool gate released
+[2m2025-10-31T16:24:39.842518Z[0m [32m INFO[0m ToolCall: apply_patch *** Begin Patch
+*** Update File: src/components/profile/groups.tsx
+@@
+ import {
+   joinGroupByCodeAction,
+   leaveGroupAction as leaveGroupMembershipAction,
+   readProfileGroupsForCurrentUserAction,
+ } from "@/lib/server-actions/groups"
+-import { Button } from "@/components/ui/button"
++import { JoinGroupForm, LeaveGroupForm } from "@/components/profile/groups-client"
+@@
+ type ProfileGroupsManagerProps = {
+   feedback: FeedbackState
+ }
++
++type GroupActionState = { status: "idle" }
+*** End Patch
+[2m2025-10-31T16:24:39.842600Z[0m [32m INFO[0m waiting for tool gate
+[2m2025-10-31T16:24:39.842606Z[0m [32m INFO[0m tool gate released
+[2m2025-10-31T16:24:44.954147Z[0m [32m INFO[0m ToolCall: apply_patch *** Begin Patch
+*** Update File: src/components/profile/groups.tsx
+@@
+-  async function joinGroup(formData: FormData) {
++  async function joinGroup(_: GroupActionState, formData: FormData): Promise<GroupActionState> {
+     "use server"
+@@
+     redirect(`/profile/groups?${params.toString()}`)
+   }
+ 
+-  async function leaveGroup(formData: FormData) {
++  async function leaveGroup(_: GroupActionState, formData: FormData): Promise<GroupActionState> {
+     "use server"
+@@
+     redirect(`/profile/groups?${params.toString()}`)
+   }
+*** End Patch
+[2m2025-10-31T16:24:44.954225Z[0m [32m INFO[0m waiting for tool gate
+[2m2025-10-31T16:24:44.954233Z[0m [32m INFO[0m tool gate released
+[2m2025-10-31T16:24:51.523187Z[0m [32m INFO[0m ToolCall: apply_patch *** Begin Patch
+*** Update File: src/components/profile/groups.tsx
+@@
+-    redirect(`/profile/groups?${params.toString()}`)
++    redirect(`/profile/groups?${params.toString()}`)
++    return { status: "idle" }
+@@
+-    redirect(`/profile/groups?${params.toString()}`)
++    redirect(`/profile/groups?${params.toString()}`)
++    return { status: "idle" }
+*** End Patch
+[2m2025-10-31T16:24:51.523272Z[0m [32m INFO[0m waiting for tool gate
+[2m2025-10-31T16:24:51.523279Z[0m [32m INFO[0m tool gate released
+[2m2025-10-31T16:24:57.004870Z[0m [32m INFO[0m ToolCall: apply_patch *** Begin Patch
+*** Update File: src/components/profile/groups.tsx
+@@
+-      <form action={joinGroup} className="space-y-4 rounded-lg border border-border bg-card p-6 shadow-sm">
+-        <div className="space-y-2">
+-          <label htmlFor="join-code" className="text-sm font-medium text-foreground">
+-            Join a group
+-          </label>
+-          <input
+-            id="join-code"
+-            name="joinCode"
+-            maxLength={5}
+-            placeholder="Enter 5 character code"
+-            required
+-            className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+-          />
+-          <p className="text-xs text-muted-foreground">
+-            You are currently signed in as a {roleLabel}. Ask your teacher for the 5 character join code.
+-          </p>
+-        </div>
+-
+-        <Button type="submit" className="w-full">
+-          Join group
+-        </Button>
+-      </form>
++      <JoinGroupForm action={joinGroup} roleLabel={roleLabel} />
+@@
+-                    <form action={leaveGroup}>
+-                      <input type="hidden" name="groupId" value={membership.group_id} />
+-                      <Button type="submit" variant="outline">
+-                        Leave group
+-                      </Button>
+-                    </form>
++                    <LeaveGroupForm action={leaveGroup} groupId={membership.group_id} />
+*** End Patch
+[2m2025-10-31T16:24:57.004969Z[0m [32m INFO[0m waiting for tool gate
+[2m2025-10-31T16:24:57.004977Z[0m [32m INFO[0m tool gate released
+[2m2025-10-31T16:25:03.743237Z[0m [32m INFO[0m ToolCall: shell {"command":["bash","-lc","npm run build"],"workdir":"/Users/leroysalih/nodejs/planner-005","with_escalated_permissions":true,"justification":"Next.js build needs to start helper processes that bind to ports, which sandbox mode blocks."}
+[2m2025-10-31T16:25:03.743317Z[0m [32m INFO[0m waiting for tool gate
+[2m2025-10-31T16:25:03.743323Z[0m [32m INFO[0m tool gate released
+[2m2025-10-31T16:25:28.106370Z[0m [32m INFO[0m ToolCall: shell {"command":["bash","-lc","nl -ba src/components/profile/groups-client.tsx"],"workdir":"/Users/leroysalih/nodejs/planner-005"}
+[2m2025-10-31T16:25:28.106407Z[0m [32m INFO[0m waiting for tool gate
+[2m2025-10-31T16:25:28.106409Z[0m [32m INFO[0m tool gate released
+[2m2025-10-31T16:25:32.051169Z[0m [32m INFO[0m ToolCall: shell {"command":["bash","-lc","nl -ba src/components/profile/groups.tsx | sed -n '1,240p'"],"workdir":"/Users/leroysalih/nodejs/planner-005"}
+[2m2025-10-31T16:25:32.051200Z[0m [32m INFO[0m waiting for tool gate
+[2m2025-10-31T16:25:32.051204Z[0m [32m INFO[0m tool gate released
+[2m2025-10-31T16:29:04.600926Z[0m [32m INFO[0m ToolCall: shell {"command":["bash","-lc","cat src/releases.md"],"workdir":"/Users/leroysalih/nodejs/planner-005"}
+[2m2025-10-31T16:29:04.601297Z[0m [32m INFO[0m waiting for tool gate
+[2m2025-10-31T16:29:04.601308Z[0m [32m INFO[0m tool gate released
+[2m2025-10-31T16:29:08.240450Z[0m [32m INFO[0m ToolCall: shell {"command":["bash","-lc","git status -sb"],"workdir":"/Users/leroysalih/nodejs/planner-005"}
+[2m2025-10-31T16:29:08.240489Z[0m [32m INFO[0m waiting for tool gate
+[2m2025-10-31T16:29:08.240494Z[0m [32m INFO[0m tool gate released
+[2m2025-10-31T16:29:11.157188Z[0m [32m INFO[0m ToolCall: shell {"command":["bash","-lc","rg \"Release\" -n src/releases.md"],"workdir":"/Users/leroysalih/nodejs/planner-005"}
+[2m2025-10-31T16:29:11.157275Z[0m [32m INFO[0m waiting for tool gate
+[2m2025-10-31T16:29:11.157281Z[0m [32m INFO[0m tool gate released
+[2m2025-10-31T16:29:14.845156Z[0m [32m INFO[0m ToolCall: shell {"command":["bash","-lc","sed -n '1,60p' src/releases.md"],"workdir":"/Users/leroysalih/nodejs/planner-005"}
+[2m2025-10-31T16:29:14.845188Z[0m [32m INFO[0m waiting for tool gate
+[2m2025-10-31T16:29:14.845192Z[0m [32m INFO[0m tool gate released
+[2m2025-10-31T16:29:18.177983Z[0m [32m INFO[0m ToolCall: shell {"command":["bash","-lc","sed -n '60,120p' src/releases.md"],"workdir":"/Users/leroysalih/nodejs/planner-005"}
+[2m2025-10-31T16:29:18.178027Z[0m [32m INFO[0m waiting for tool gate
+[2m2025-10-31T16:29:18.178033Z[0m [32m INFO[0m tool gate released
+[2m2025-10-31T16:29:22.628510Z[0m [32m INFO[0m ToolCall: apply_patch *** Begin Patch
+*** Update File: src/releases.md
+@@
+-## Releases 
+-### Release 0.0.22
++## Releases 
++### Release 0.0.23
++- `/profiles/groups`: Join and leave flows now use `useActionState` to show spinner feedback while server actions run, keeping buttons disabled until completion and preserving redirect banners.
++- `/profiles/groups`: Server component wraps new client helpers so the page remains server-rendered while offering responsive loading indicators.
++- `/lib/server-actions/groups`: Zod error handling now reads from `.issues`, ensuring join/leave payload validation returns the first message safely.
++- `/lib/server-actions/pupils`: Legacy assignment rows normalise `active` flags to booleans, aligning with shared schema expectations.
++
++### Release 0.0.22
+ - `/results/assignments/[assignmentId]`: Override panel now keeps the zero/partial/full shortcuts but adds a same-row percentage textbox so teachers can enter precise scores (0–100) that persist as 0–1 values, with empty entries defaulting to zero.
+*** End Patch
+[2m2025-10-31T16:29:22.628558Z[0m [32m INFO[0m waiting for tool gate
+[2m2025-10-31T16:29:22.628562Z[0m [32m INFO[0m tool gate released
+[2m2025-10-31T16:29:28.667760Z[0m [32m INFO[0m ToolCall: shell {"command":["bash","-lc","sed -n '1,30p' src/releases.md"],"workdir":"/Users/leroysalih/nodejs/planner-005"}
+[2m2025-10-31T16:29:28.667875Z[0m [32m INFO[0m waiting for tool gate
+[2m2025-10-31T16:29:28.667882Z[0m [32m INFO[0m tool gate released

@@ -5,7 +5,7 @@ import {
   leaveGroupAction as leaveGroupMembershipAction,
   readProfileGroupsForCurrentUserAction,
 } from "@/lib/server-actions/groups"
-import { Button } from "@/components/ui/button"
+import { JoinGroupForm, LeaveGroupForm } from "@/components/profile/groups-client"
 
 type FeedbackState =
   | {
@@ -17,6 +17,8 @@ type FeedbackState =
 type ProfileGroupsManagerProps = {
   feedback: FeedbackState
 }
+
+type GroupActionState = { status: "idle" }
 
 export async function ProfileGroupsManager({ feedback }: ProfileGroupsManagerProps) {
   const result = await readProfileGroupsForCurrentUserAction()
@@ -39,7 +41,7 @@ export async function ProfileGroupsManager({ feedback }: ProfileGroupsManagerPro
 
   const { profile, memberships } = result.data
 
-  async function joinGroup(formData: FormData) {
+  async function joinGroup(_: GroupActionState, formData: FormData): Promise<GroupActionState> {
     "use server"
 
     const joinCode = (formData.get("joinCode") ?? "").toString()
@@ -60,9 +62,10 @@ export async function ProfileGroupsManager({ feedback }: ProfileGroupsManagerPro
     }
 
     redirect(`/profile/groups?${params.toString()}`)
+    return { status: "idle" }
   }
 
-  async function leaveGroup(formData: FormData) {
+  async function leaveGroup(_: GroupActionState, formData: FormData): Promise<GroupActionState> {
     "use server"
 
     const groupId = (formData.get("groupId") ?? "").toString()
@@ -81,6 +84,7 @@ export async function ProfileGroupsManager({ feedback }: ProfileGroupsManagerPro
     }
 
     redirect(`/profile/groups?${params.toString()}`)
+    return { status: "idle" }
   }
 
   const sortedMemberships = [...memberships].sort((a, b) => a.group_id.localeCompare(b.group_id))
@@ -106,28 +110,7 @@ export async function ProfileGroupsManager({ feedback }: ProfileGroupsManagerPro
         </div>
       ) : null}
 
-      <form action={joinGroup} className="space-y-4 rounded-lg border border-border bg-card p-6 shadow-sm">
-        <div className="space-y-2">
-          <label htmlFor="join-code" className="text-sm font-medium text-foreground">
-            Join a group
-          </label>
-          <input
-            id="join-code"
-            name="joinCode"
-            maxLength={5}
-            placeholder="Enter 5 character code"
-            required
-            className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-          />
-          <p className="text-xs text-muted-foreground">
-            You are currently signed in as a {roleLabel}. Ask your teacher for the 5 character join code.
-          </p>
-        </div>
-
-        <Button type="submit" className="w-full">
-          Join group
-        </Button>
-      </form>
+      <JoinGroupForm action={joinGroup} roleLabel={roleLabel} />
 
       <section className="space-y-4">
         <div className="flex items-center justify-between">
@@ -155,12 +138,7 @@ export async function ProfileGroupsManager({ feedback }: ProfileGroupsManagerPro
                       <span className="text-xs uppercase text-muted-foreground">Role: {membership.role}</span>
                     </div>
 
-                    <form action={leaveGroup}>
-                      <input type="hidden" name="groupId" value={membership.group_id} />
-                      <Button type="submit" variant="outline">
-                        Leave group
-                      </Button>
-                    </form>
+                    <LeaveGroupForm action={leaveGroup} groupId={membership.group_id} />
                   </div>
                 </li>
               )
