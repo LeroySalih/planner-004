@@ -213,10 +213,16 @@ export async function readLessonSubmissionSummariesAction(
               return null
             }
             const isCorrect = parsedSubmission.data.is_correct === true
+            const overrideScore =
+              typeof parsedSubmission.data.teacher_override_score === "number" &&
+              Number.isFinite(parsedSubmission.data.teacher_override_score)
+                ? parsedSubmission.data.teacher_override_score
+                : null
+            const effectiveScore = overrideScore ?? (isCorrect ? 1 : 0)
             const successCriteriaScores = normaliseSuccessCriteriaScores({
               successCriteriaIds,
               existingScores: parsedSubmission.data.success_criteria_scores,
-              fillValue: isCorrect ? 1 : 0,
+              fillValue: effectiveScore,
             })
             const score = computeAverageSuccessCriteriaScore(successCriteriaScores) ?? 0
             return {
@@ -367,29 +373,55 @@ export async function readLessonSubmissionSummariesAction(
         }
       } else {
         const generalScores = submissionList.map((submission) => {
-          let score: number | null = null
           const body = submission.body
+          let overrideScore: number | null = null
+          let baseScore: number | null = null
+          let successCriteriaScores: Record<string, number | null> | undefined
+
           if (body && typeof body === "object") {
-            const value = (body as Record<string, unknown>).score
-            if (typeof value === "number" && Number.isFinite(value)) {
-              score = value
-            } else if (typeof value === "string") {
-              const parsed = Number.parseFloat(value)
-              if (!Number.isNaN(parsed)) {
-                score = parsed
-              }
-            }
+            const record = body as Record<string, unknown>
+
             if (!summary.correctAnswer) {
-              const correctValue = (body as Record<string, unknown>).correctAnswer
+              const correctValue = record.correctAnswer
               if (typeof correctValue === "string" && correctValue.trim().length > 0) {
                 summary.correctAnswer = correctValue.trim()
               }
             }
+
+            const override = record.teacher_override_score
+            if (typeof override === "number" && Number.isFinite(override)) {
+              overrideScore = override
+            }
+
+            const rawSuccessCriteria = record.success_criteria_scores
+            if (rawSuccessCriteria && typeof rawSuccessCriteria === "object") {
+              successCriteriaScores = rawSuccessCriteria as Record<string, number | null>
+            }
+
+            const scoreValue = record.score
+            if (typeof scoreValue === "number" && Number.isFinite(scoreValue)) {
+              baseScore = scoreValue
+            } else if (typeof scoreValue === "string") {
+              const parsed = Number.parseFloat(scoreValue)
+              if (!Number.isNaN(parsed)) {
+                baseScore = parsed
+              }
+            }
           }
+
+          const normalisedScores = normaliseSuccessCriteriaScores({
+            successCriteriaIds,
+            existingScores: successCriteriaScores,
+            fillValue: overrideScore ?? baseScore ?? 0,
+          })
+
+          const averagedScore = computeAverageSuccessCriteriaScore(normalisedScores)
+          const finalScore = averagedScore ?? overrideScore ?? baseScore ?? null
+
           return {
             userId: submission.user_id,
-            score,
-            successCriteriaScores: {},
+            score: finalScore,
+            successCriteriaScores: normalisedScores,
           }
         })
 

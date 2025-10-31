@@ -12,7 +12,7 @@
     "db:pull": "bash ./bin/db_dump_schema.sh",
     "db:apply:local": "bash ./bin/db_apply_local.sh",
     "db:baseline": "bash -c 'mkdir -p supabase/migrations && touch supabase/migrations/00000000000000__baseline.sql && echo Baseline created'",
-    "db:diff": "bash -c 'npx supabase db diff --schema public -f $(date +%Y%m%d%H%M%S)_change.sql'",
+    "db:diff": "bash -c 'npx supabase db diff --schema public -f change.sql'",
     "db:push": "npx supabase db push --linked",
     "db:dump:data": "bash ./bin/db_dump_data.sh",
     "db:sync": "bash -c './bin/db_dump_schema.sh && ./bin/db_apply_local.sh && mkdir -p supabase/migrations && touch supabase/migrations/00000000000000__baseline.sql && echo Baseline created'",
