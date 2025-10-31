@@ -27,7 +27,6 @@ import {
   extractScoreFromSubmission,
   selectLatestSubmission,
   TEACHER_OVERRIDE_PLACEHOLDER,
-  type SubmissionExtraction,
 } from "@/lib/scoring/activity-scores"
 
 const ASSIGNMENT_ID_SEPARATOR = "__"

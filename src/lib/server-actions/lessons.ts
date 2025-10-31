@@ -55,9 +55,7 @@ export async function readLessonsByUnitAction(unitId: string) {
 
   const lessons = data ?? []
 
-  const { lessons: enrichedLessons, error: scError } = await enrichLessonsWithSuccessCriteria(lessons, {
-    unitId,
-  })
+  const { lessons: enrichedLessons, error: scError } = await enrichLessonsWithSuccessCriteria(lessons)
 
   if (scError) {
     console.error("[v0] Failed to read success criteria for lessons:", scError)
@@ -332,10 +330,9 @@ export async function reorderLessonsAction(
   return { success: true }
 }
 
-async function enrichLessonsWithSuccessCriteria<T extends { lesson_id?: string; lessons_learning_objective?: LessonLearningObjective[] }>(
-  lessons: T[],
-  options: { unitId?: string } = {},
-): Promise<{ lessons: T[]; error: string | null }> {
+async function enrichLessonsWithSuccessCriteria<
+  T extends { lesson_id?: string; lessons_learning_objective?: LessonLearningObjective[] },
+>(lessons: T[]): Promise<{ lessons: T[]; error: string | null }> {
   if (lessons.length === 0) {
     return { lessons: [], error: null }
   }
@@ -598,9 +595,7 @@ async function enrichLessonsWithSuccessCriteria<T extends { lesson_id?: string; 
     }
   }
 
-
   const enriched = lessons.map((lesson) => {
-    const linkedCriteria = lessonCriteriaMap.get(lesson.lesson_id ?? "") ?? []
     const updatedObjectives = (lesson.lessons_learning_objective ?? []).map((entry) => {
       const loId = entry.learning_objective_id ?? entry.learning_objective?.learning_objective_id ?? ""
       const successCriteria = loId ? loCriteriaMap.get(loId) ?? [] : []
@@ -798,9 +793,7 @@ async function readLessonWithObjectives(lessonId: string) {
     return LessonReturnValue.parse({ data: null, error: null })
   }
 
-  const { lessons: enrichedLessons, error: scError } = await enrichLessonsWithSuccessCriteria([data], {
-    unitId: data.unit_id,
-  })
+  const { lessons: enrichedLessons, error: scError } = await enrichLessonsWithSuccessCriteria([data])
 
   if (scError) {
     console.error("[v0] Failed to read success criteria for lesson:", scError)
