@@ -5,7 +5,13 @@ export {
   updateGroupAction,
   deleteGroupAction,
   removeGroupMemberAction,
+  readProfileGroupsForCurrentUserAction,
+  joinGroupByCodeAction,
+  leaveGroupAction,
   type GroupActionResult,
+  type ProfileGroupsResult,
+  type JoinGroupResult,
+  type LeaveGroupResult,
 } from "./server-actions/groups"
 
 export {
