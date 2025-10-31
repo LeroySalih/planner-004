@@ -349,7 +349,7 @@ export async function joinGroupByCodeAction(input: { joinCode: string }): Promis
   const parsed = JoinGroupInputSchema.safeParse({ joinCode: input.joinCode })
 
   if (!parsed.success) {
-    const [firstError] = parsed.error.errors
+    const [firstError] = parsed.error.issues
     return JoinGroupReturnSchema.parse({
       success: false,
       error: firstError?.message ?? "Invalid join code.",
@@ -446,7 +446,7 @@ export async function leaveGroupAction(input: { groupId: string }): Promise<Leav
   const parsed = LeaveGroupInputSchema.safeParse(input)
 
   if (!parsed.success) {
-    const [firstError] = parsed.error.errors
+    const [firstError] = parsed.error.issues
     return LeaveGroupReturnSchema.parse({
       success: false,
       error: firstError?.message ?? "Invalid leave group payload.",

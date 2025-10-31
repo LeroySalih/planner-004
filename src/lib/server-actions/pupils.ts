@@ -178,7 +178,7 @@ export async function readPupilReportAction(pupilId: string) {
       unit_id: row.unit_id,
       start_date: row.start_date,
       end_date: row.end_date,
-      active: row.active,
+      active: Boolean(row.active ?? true),
       unit: unitsById.get(row.unit_id) ?? null,
     })),
     ...lessonAssignments
