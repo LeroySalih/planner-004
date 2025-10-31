@@ -1,5 +1,11 @@
 # Dino
 ## Releases 
+### Release 0.0.23
+- `/profiles/groups`: Join and leave flows now use `useActionState` to show spinner feedback while server actions run, keeping buttons disabled until completion and preserving redirect banners.
+- `/profiles/groups`: Server component wraps new client helpers so the page remains server-rendered while offering responsive loading indicators.
+- `/lib/server-actions/groups`: Zod error handling now reads from `.issues`, ensuring join/leave payload validation returns the first message safely.
+- `/lib/server-actions/pupils`: Legacy assignment rows normalise `active` flags to booleans, aligning with shared schema expectations.
+
 ### Release 0.0.22
 - `/results/assignments/[assignmentId]`: Override panel now keeps the zero/partial/full shortcuts but adds a same-row percentage textbox so teachers can enter precise scores (0–100) that persist as 0–1 values, with empty entries defaulting to zero.
 

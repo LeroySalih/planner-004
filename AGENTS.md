@@ -41,6 +41,7 @@ This guide captures the working knowledge future coding agents need to extend th
 - Styling tokens and dark mode variants come from `src/app/globals.css:1`; keep new Tailwind classes aligned with the defined palette.
 - Prefer functional components and React hooks. When building forms, wrap them with the shared Form provider to integrate validation and accessible labelling (`src/components/ui/form.tsx:1`).
 - Toast notifications rely on `sonner`; reuse the existing pattern from Assignment Manager when showing optimistic updates.
+- Server functions need to use some form of loader animation in the button to let the user know that the action is in progress.  use the useActionState hook whenever the user presses a button that interacts with the server.
 
 ## Testing & Quality
 - There are no end to end tests.
