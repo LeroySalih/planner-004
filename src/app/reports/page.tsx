@@ -1,59 +1,29 @@
-import { readGroupsAction, readGroupAction } from "@/lib/server-updates"
+import { performance } from "node:perf_hooks"
+
+import { listPupilsWithGroupsAction } from "@/lib/server-updates"
 import { ReportsTable } from "./reports-table"
 import { requireTeacherProfile } from "@/lib/auth"
+import { withTelemetry } from "@/lib/telemetry"
 
 export default async function ReportsLandingPage() {
   await requireTeacherProfile()
-  const groupsResult = await readGroupsAction()
-  if (groupsResult.error) {
-    throw new Error(groupsResult.error)
-  }
+  const authEnd = performance.now()
 
-  const groups = groupsResult.data ?? []
-
-  const pupilMap = new Map<
-    string,
+  const pupilListings = await withTelemetry(
     {
-      name: string
-      groups: Set<string>
-    }
-  >()
-
-  await Promise.all(
-    groups.map(async (group) => {
-      const detailed = await readGroupAction(group.group_id)
-      if (detailed.error && !detailed.data) {
-        console.error("[reports] Failed to load group detail", group.group_id, detailed.error)
-        return
-      }
-      const memberships = detailed.data?.members ?? []
-
-      memberships
-        .filter((member) => member.role.toLowerCase() === "pupil")
-        .forEach((member) => {
-          const first = member.profile?.first_name?.trim() ?? ""
-          const last = member.profile?.last_name?.trim() ?? ""
-          const displayName = `${first} ${last}`.trim()
-          const existing = pupilMap.get(member.user_id)
-          if (existing) {
-            existing.groups.add(group.group_id)
-          } else {
-            pupilMap.set(member.user_id, {
-              name: displayName.length > 0 ? displayName : member.user_id,
-              groups: new Set([group.group_id]),
-            })
-          }
-        })
-    }),
+      routeTag: "reports",
+      functionName: "listPupilsWithGroupsAction",
+      params: null,
+      authEndTime: authEnd,
+    },
+    () => listPupilsWithGroupsAction(),
   )
 
-  const pupils = Array.from(pupilMap.entries())
-    .map(([pupilId, info]) => ({
-      pupilId,
-      name: info.name,
-      groups: Array.from(info.groups).sort((a, b) => a.localeCompare(b)),
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name))
+  const pupils = pupilListings.map((listing) => ({
+    pupilId: listing.pupilId,
+    name: listing.pupilName,
+    groups: listing.groups.map((group) => group.group_id).sort((a, b) => a.localeCompare(b)),
+  }))
 
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-6 py-10">

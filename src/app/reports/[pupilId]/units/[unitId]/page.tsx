@@ -1,3 +1,4 @@
+import { performance } from "node:perf_hooks"
 import Link from "next/link"
 import { notFound, redirect } from "next/navigation"
 
@@ -22,13 +23,14 @@ export default async function UnitReportPage({
   params: Promise<{ pupilId: string; unitId: string }>
 }) {
   const profile = await requireAuthenticatedProfile()
+  const authEnd = performance.now()
   const { pupilId, unitId } = await params
 
   if (!profile.isTeacher && profile.userId !== pupilId) {
     redirect(`/reports/${encodeURIComponent(profile.userId)}`)
   }
 
-  const unitReport = await getPreparedUnitReport(pupilId, unitId)
+  const unitReport = await getPreparedUnitReport(pupilId, unitId, { authEndTime: authEnd })
   if (!unitReport) {
     notFound()
   }

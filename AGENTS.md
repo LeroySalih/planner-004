@@ -48,6 +48,15 @@ This guide captures the working knowledge future coding agents need to extend th
 - There are no unit test utilities yet; if you introduce them, document their usage here and wire them into `npm run test`.
 - Do not run `npm run lint` (Next/ESLint) and `npm run test` (Playwright) before surfacing changes. For flaky UI steps, capture traces with `TRACE=1 npm run test`.
 
+## Telemetry data
+- All server side functions should include the ability to display telemtry performance data.  This data will include:
+    - function name, any params passes.
+    - function end - function start in millisecs.
+    - function end - authentication end in milliseconds.
+- telemtry data will by enabled by an environment variable TELEM_ENABLED=true.  A second variable, TELEM_PATH, will allow the developer to only generate telemetry data for a specifc path, e.g. TELEM_PATH=reports will only display data for the /reports path.
+-TELEM data is written to a log file, logs/telem_<TIMESTAMP>.log
+
+
 ## Tooling & Workflows
 - Scripts in `package.json` cover the usual dev, build, lint, and test tasks. Database helpers (`db:pull`, `db:push`, `db:diff`) assume Supabase CLI setup.
 - Sync Supabase schema for local development via `bin/dev_db_sync.sh`, which chains dump/apply scripts. Seed users live in `supabase/seed.sql` and `supabase/seed-users.mjs`.

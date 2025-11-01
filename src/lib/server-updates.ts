@@ -2,6 +2,7 @@ export {
   createGroupAction,
   readGroupAction,
   readGroupsAction,
+  listPupilsWithGroupsAction,
   updateGroupAction,
   deleteGroupAction,
   removeGroupMemberAction,
