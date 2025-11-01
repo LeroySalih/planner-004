@@ -5,6 +5,7 @@ import { NextResponse } from "next/server"
 
 import { verifyMcpAuthorization } from "@/lib/mcp/auth"
 import { withTelemetry } from "@/lib/telemetry"
+import { streamJsonResponse } from "@/lib/mcp/stream"
 
 const ROUTE_TAG = "/api/mcp"
 
@@ -41,7 +42,7 @@ async function handleRequest(request: NextRequest) {
     async () => ({ tools: TOOLS }),
   )
 
-  return NextResponse.json(payload, { status: 200 })
+  return streamJsonResponse(payload)
 }
 
 export async function GET(request: NextRequest) {

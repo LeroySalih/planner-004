@@ -6,6 +6,7 @@ import { NextResponse } from "next/server"
 import { verifyMcpAuthorization } from "@/lib/mcp/auth"
 import { listCurriculumSummaries } from "@/lib/mcp/curriculum"
 import { withTelemetry } from "@/lib/telemetry"
+import { streamJsonResponse } from "@/lib/mcp/stream"
 
 const ROUTE_TAG = "/api/mcp/curriculum"
 
@@ -27,7 +28,7 @@ async function handleRequest(request: NextRequest) {
       () => listCurriculumSummaries(),
     )
 
-    return NextResponse.json(payload, { status: 200 })
+    return streamJsonResponse(payload)
   } catch (error) {
     console.error("[mcp] Failed to list curriculum", error)
     return NextResponse.json({ error: "Failed to load curriculum" }, { status: 500 })

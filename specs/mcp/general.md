@@ -11,6 +11,7 @@
 
 ## Discovery
 - `GET /api/MCP` returns a JSON payload describing the available tools. `POST` is also accepted with an identical response body.  
+  Responses are streamed using the HTTP Streamable transport (chunked JSON) to support long running tool discovery.  
   ```
   {
       tools: [
@@ -18,3 +19,4 @@
       ]
   }
   ```
+- Discovery and curriculum endpoints must support HTTP Streamable transport. Clients should expect chunked JSON responses rather than a single payload.
