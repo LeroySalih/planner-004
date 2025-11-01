@@ -13,6 +13,7 @@
    - Map the boolean to `is_active` in list and single responses.
 3. **API Adjustments**
    - Update handler typings and payload structures to include `is_active`.
+   - Accept both `GET` and `POST` for discovery and curriculum endpoints with consistent responses.
    - Verify Supabase service-role usage remains intact through `SUPABASE_SERVICE_ROLE_KEY`.
 4. **Validation**
    - Exercise the endpoints (curl/Postman) to confirm the new paths and payload shape.

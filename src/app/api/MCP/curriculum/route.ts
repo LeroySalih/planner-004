@@ -9,7 +9,7 @@ import { withTelemetry } from "@/lib/telemetry"
 
 const ROUTE_TAG = "/api/mcp/curriculum"
 
-export async function GET(request: NextRequest) {
+async function handleRequest(request: NextRequest) {
   const authResult = verifyMcpAuthorization(request)
   const authEnd = performance.now()
 
@@ -32,4 +32,12 @@ export async function GET(request: NextRequest) {
     console.error("[mcp] Failed to list curriculum", error)
     return NextResponse.json({ error: "Failed to load curriculum" }, { status: 500 })
   }
+}
+
+export async function GET(request: NextRequest) {
+  return handleRequest(request)
+}
+
+export async function POST(request: NextRequest) {
+  return handleRequest(request)
 }
