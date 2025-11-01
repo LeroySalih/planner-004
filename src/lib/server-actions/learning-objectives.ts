@@ -66,6 +66,7 @@ export async function readLearningObjectivesByUnitAction(unitId: string) {
         title,
         order_index,
         active,
+        spec_ref,
         assessment_objective:assessment_objectives(
           assessment_objective_id,
           code,
@@ -95,6 +96,7 @@ export async function readLearningObjectivesByUnitAction(unitId: string) {
       return {
         learning_objective_id: learningObjectiveId,
         assessment_objective_id: meta?.assessment_objective_id ?? null,
+        spec_ref: meta?.spec_ref ?? null,
         assessment_objective_code: assessmentObjective?.code ?? null,
         assessment_objective_title: assessmentObjective?.title ?? null,
         assessment_objective_order_index: assessmentObjective?.order_index ?? null,
@@ -256,8 +258,13 @@ export async function createLearningObjectiveAction(
   unitId: string,
   title: string,
   successCriteria: SuccessCriteriaInput,
+  specRef?: string | null,
 ) {
-  console.log("[v0] Server action started for learning objective creation:", { unitId, title })
+  console.log("[v0] Server action started for learning objective creation:", {
+    unitId,
+    title,
+    hasSpecRef: Boolean(specRef?.trim()),
+  })
 
   const supabase = await createSupabaseServerClient()
 
@@ -289,9 +296,15 @@ export async function createLearningObjectiveAction(
     return LearningObjectiveReturnValue.parse({ data: null, error: "No assessment objective found for unit" })
   }
 
+  const normalizedSpecRef = specRef?.trim() ? specRef.trim() : null
+
   const { data: learningObjective, error } = await supabase
     .from("learning_objectives")
-    .insert({ assessment_objective_id: assessmentObjective.assessment_objective_id, title })
+    .insert({
+      assessment_objective_id: assessmentObjective.assessment_objective_id,
+      title,
+      spec_ref: normalizedSpecRef,
+    })
     .select("*")
     .single()
 
@@ -356,11 +369,13 @@ export async function updateLearningObjectiveAction(
   unitId: string,
   title: string,
   successCriteria: SuccessCriteriaInput,
+  specRef?: string | null,
 ) {
   console.log("[v0] Server action started for learning objective update:", {
     learningObjectiveId,
     unitId,
     title,
+    hasSpecRef: Boolean(specRef?.trim()),
   })
 
   const supabase = await createSupabaseServerClient()
@@ -378,9 +393,11 @@ export async function updateLearningObjectiveAction(
   })
   const filteredCriteria = sanitizedSuccessCriteria.filter((criterion) => criterion.description.length > 0)
 
+  const normalizedSpecRef = specRef?.trim() ? specRef.trim() : null
+
   const { error } = await supabase
     .from("learning_objectives")
-    .update({ title })
+    .update({ title, spec_ref: normalizedSpecRef })
     .eq("learning_objective_id", learningObjectiveId)
 
   if (error) {

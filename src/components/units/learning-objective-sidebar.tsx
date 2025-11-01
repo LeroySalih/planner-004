@@ -37,6 +37,7 @@ export function LearningObjectiveSidebar({
 }: LearningObjectiveSidebarProps) {
   const [isPending, startTransition] = useTransition()
   const [title, setTitle] = useState("")
+  const [specRef, setSpecRef] = useState("")
   const [successCriteria, setSuccessCriteria] = useState<Array<{ id?: string; description: string }>>(
     new Array(MAX_SUCCESS_CRITERIA).fill(null).map(() => ({ description: "" })),
   )
@@ -46,6 +47,7 @@ export function LearningObjectiveSidebar({
     if (!isOpen) return
 
     setTitle(learningObjective?.title ?? "")
+    setSpecRef(learningObjective?.spec_ref ?? "")
 
     const initialCriteria: Array<{ id?: string; description: string }> = new Array(MAX_SUCCESS_CRITERIA)
       .fill(null)
@@ -153,6 +155,7 @@ export function LearningObjectiveSidebar({
             unitId,
             title.trim(),
             payload,
+            specRef,
           )
 
           if (result.error || !result.data) {
@@ -162,7 +165,7 @@ export function LearningObjectiveSidebar({
           onCreateOrUpdate(result.data)
           toast.success("Learning objective updated")
         } else {
-          const result = await createLearningObjectiveAction(unitId, title.trim(), payload)
+          const result = await createLearningObjectiveAction(unitId, title.trim(), payload, specRef)
 
           if (result.error || !result.data) {
             throw new Error(result.error ?? "Unknown error")
@@ -228,6 +231,18 @@ export function LearningObjectiveSidebar({
                 value={title}
                 onChange={(event) => handleTitleInputChange(event.target.value)}
                 placeholder="Describe the learning objective"
+                disabled={isPending}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="learning-objective-spec-ref">
+                Spec Reference <span className="text-muted-foreground">(optional)</span>
+              </Label>
+              <Input
+                id="learning-objective-spec-ref"
+                value={specRef}
+                onChange={(event) => setSpecRef(event.target.value)}
+                placeholder="Link to specification item (e.g. AO1.2)"
                 disabled={isPending}
               />
             </div>

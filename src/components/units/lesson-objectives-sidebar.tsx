@@ -105,6 +105,7 @@ export function LessonObjectivesSidebar({
                   {availableObjectives.map((objective) => {
                     const isChecked = selectedObjectiveIds.includes(objective.learning_objective_id)
                     const label = objective.title
+                    const specRef = objective.spec_ref?.trim() ?? ""
                     return (
                       <li key={objective.learning_objective_id}>
                         <label className="flex items-start gap-3 text-sm">
@@ -113,7 +114,12 @@ export function LessonObjectivesSidebar({
                             onCheckedChange={(checked) => handleToggleObjective(objective.learning_objective_id, checked)}
                             disabled={isPending}
                           />
-                          <span className="leading-tight text-foreground">{label}</span>
+                          <span className="leading-tight text-foreground">
+                            {label}
+                            {specRef.length > 0 ? (
+                              <span className="block text-xs text-muted-foreground">Spec reference: {specRef}</span>
+                            ) : null}
+                          </span>
                         </label>
                       </li>
                     )

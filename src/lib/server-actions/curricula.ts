@@ -213,7 +213,8 @@ export async function readCurriculumDetailAction(curriculumId: string) {
             assessment_objective_id,
             title,
             order_index,
-            active
+            active,
+            spec_ref
           )
         )`
     )
@@ -259,6 +260,7 @@ export async function readCurriculumDetailAction(curriculumId: string) {
           ...lo,
           order_index: lo.order_index ?? index,
           active: lo.active ?? true,
+          spec_ref: lo.spec_ref ?? null,
           success_criteria: successCriteriaMap.get(lo.learning_objective_id ?? "") ?? [],
         }))
         .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0)),
@@ -492,7 +494,7 @@ export async function reorderCurriculumAssessmentObjectivesAction(
 
 export async function createCurriculumLearningObjectiveAction(
   assessmentObjectiveId: string,
-  payload: { title: string; order_index?: number },
+  payload: { title: string; order_index?: number; spec_ref?: string | null },
   curriculumId: string,
 ) {
   console.log("[curricula] createCurriculumLearningObjectiveAction:start", {
@@ -508,6 +510,7 @@ export async function createCurriculumLearningObjectiveAction(
     title: payload.title.trim(),
     order_index: payload.order_index ?? 0,
     active: true,
+    spec_ref: payload.spec_ref?.trim() ? payload.spec_ref.trim() : null,
   }
 
   if (sanitized.title.length === 0) {
@@ -517,7 +520,7 @@ export async function createCurriculumLearningObjectiveAction(
   const { data, error } = await supabase
     .from("learning_objectives")
     .insert(sanitized)
-    .select("learning_objective_id, assessment_objective_id, title, order_index, active")
+    .select("learning_objective_id, assessment_objective_id, title, order_index, active, spec_ref")
     .single()
 
   if (error) {
@@ -533,7 +536,7 @@ export async function createCurriculumLearningObjectiveAction(
 export async function updateCurriculumLearningObjectiveAction(
   learningObjectiveId: string,
   curriculumId: string,
-  updates: { title?: string; order_index?: number; active?: boolean },
+  updates: { title?: string; order_index?: number; active?: boolean; spec_ref?: string | null },
 ) {
   console.log("[curricula] updateCurriculumLearningObjectiveAction:start", {
     learningObjectiveId,
@@ -557,12 +560,18 @@ export async function updateCurriculumLearningObjectiveAction(
   if (typeof updates.active === "boolean") {
     payload.active = updates.active
   }
+  if (typeof updates.spec_ref === "string") {
+    const trimmed = updates.spec_ref.trim()
+    payload.spec_ref = trimmed.length === 0 ? null : trimmed
+  } else if (updates.spec_ref === null) {
+    payload.spec_ref = null
+  }
 
   const { data, error } = await supabase
     .from("learning_objectives")
     .update(payload)
     .eq("learning_objective_id", learningObjectiveId)
-    .select("learning_objective_id, assessment_objective_id, title, order_index, active")
+    .select("learning_objective_id, assessment_objective_id, title, order_index, active, spec_ref")
     .single()
 
   if (error) {
@@ -639,6 +648,7 @@ export async function reorderCurriculumLearningObjectivesAction(
         title,
         order_index,
         active,
+        spec_ref,
         success_criteria(
           success_criteria_id,
           learning_objective_id,

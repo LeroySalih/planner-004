@@ -45,6 +45,7 @@ type LessonObjective = {
   id: string
   title: string
   orderIndex: number
+  specRef: string | null
   successCriteria: SuccessCriterion[]
 }
 
@@ -103,6 +104,7 @@ function mapCurriculumToAssessmentObjectives(curriculum: CurriculumDetail): Asse
             id: lo.learning_objective_id,
             title: lo.title,
             orderIndex: lo.order_index ?? loIndex,
+            specRef: lo.spec_ref ?? null,
             successCriteria: (lo.success_criteria ?? [])
               .slice()
               .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0))
@@ -164,6 +166,7 @@ export default function CurriculumPrototypeClient({
     { aoIndex: number; loIndex: number } | null
   >(null)
   const [editingLessonObjectiveTitle, setEditingLessonObjectiveTitle] = useState("")
+  const [editingLessonObjectiveSpecRef, setEditingLessonObjectiveSpecRef] = useState("")
   const [unitPickerContext, setUnitPickerContext] = useState<
     | {
         aoIndex: number
@@ -516,6 +519,7 @@ export default function CurriculumPrototypeClient({
     setEditingAssessmentObjectiveTitle("")
     setEditingLessonObjective(null)
     setEditingLessonObjectiveTitle("")
+    setEditingLessonObjectiveSpecRef("")
     setUnitPickerContext(null)
     setSelectedCriteriaIds(new Set<string>())
   }
@@ -549,6 +553,7 @@ export default function CurriculumPrototypeClient({
       if (loIndex < 0) return
       setEditingLessonObjective({ aoIndex, loIndex })
       setEditingLessonObjectiveTitle(mapped[aoIndex].lessonObjectives[loIndex].title)
+      setEditingLessonObjectiveSpecRef(mapped[aoIndex].lessonObjectives[loIndex].specRef ?? "")
       return
     }
 
@@ -988,14 +993,21 @@ export default function CurriculumPrototypeClient({
     })
   }
 
-  const startLessonObjectiveEdit = (aoIndex: number, loIndex: number, currentTitle: string) => {
+  const startLessonObjectiveEdit = (
+    aoIndex: number,
+    loIndex: number,
+    currentTitle: string,
+    currentSpecRef: string | null,
+  ) => {
     setEditingLessonObjective({ aoIndex, loIndex })
     setEditingLessonObjectiveTitle(currentTitle)
+    setEditingLessonObjectiveSpecRef(currentSpecRef ?? "")
   }
 
   const cancelLessonObjectiveEdit = () => {
     setEditingLessonObjective(null)
     setEditingLessonObjectiveTitle("")
+    setEditingLessonObjectiveSpecRef("")
   }
 
   const saveLessonObjectiveEdit = () => {
@@ -1005,6 +1017,7 @@ export default function CurriculumPrototypeClient({
     const targetAo = assessmentObjectives[aoIndex]
     const targetLo = targetAo?.lessonObjectives[loIndex]
     const newTitle = editingLessonObjectiveTitle.trim()
+    const newSpecRef = editingLessonObjectiveSpecRef.trim()
 
     if (!targetAo || !targetLo) {
       showToast("error", "Unable to locate learning objective.")
@@ -1022,7 +1035,9 @@ export default function CurriculumPrototypeClient({
           ? {
               ...ao,
               lessonObjectives: ao.lessonObjectives.map((lo, loIdx) =>
-                loIdx === loIndex ? { ...lo, title: newTitle } : lo,
+                loIdx === loIndex
+                  ? { ...lo, title: newTitle, specRef: newSpecRef.length > 0 ? newSpecRef : null }
+                  : lo,
               ),
             }
           : ao,
@@ -1034,6 +1049,7 @@ export default function CurriculumPrototypeClient({
     startTransition(async () => {
       const result = await updateCurriculumLearningObjectiveAction(targetLo.id, curriculumId, {
         title: newTitle,
+        spec_ref: newSpecRef.length > 0 ? newSpecRef : null,
       })
 
       if (result.error) {
@@ -1229,43 +1245,59 @@ export default function CurriculumPrototypeClient({
                             {editingLessonObjective &&
                             editingLessonObjective.aoIndex === aoIndex &&
                             editingLessonObjective.loIndex === loIndex ? (
-                              <div className="flex items-center gap-2">
-                                <span className="inline-flex items-center rounded-full border border-primary/30 px-2 py-0.5 text-xs font-semibold text-primary">
+                              <div className="flex w-full items-start gap-2">
+                                <span className="mt-2 inline-flex items-center rounded-full border border-primary/30 px-2 py-0.5 text-xs font-semibold text-primary">
                                   {lessonCode}
                                 </span>
-                                <input
-                                  value={editingLessonObjectiveTitle}
-                                  onChange={(event) => setEditingLessonObjectiveTitle(event.target.value)}
-                                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-                                />
-                                <button
-                                  className="rounded border border-emerald-400 p-1 text-emerald-600 transition hover:bg-emerald-50"
-                                  onClick={saveLessonObjectiveEdit}
-                                  aria-label="Save learning objective"
-                                >
-                                  <Check className="h-4 w-4" />
-                                </button>
-                                <button
-                                  className="rounded border border-destructive/40 p-1 text-destructive transition hover:bg-destructive hover:text-destructive-foreground"
-                                  onClick={cancelLessonObjectiveEdit}
-                                  aria-label="Cancel learning objective edit"
-                                >
-                                  <X className="h-4 w-4" />
-                                </button>
+                                <div className="flex-1 space-y-2">
+                                  <input
+                                    value={editingLessonObjectiveTitle}
+                                    onChange={(event) => setEditingLessonObjectiveTitle(event.target.value)}
+                                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                                    placeholder="Learning objective title"
+                                  />
+                                  <input
+                                    value={editingLessonObjectiveSpecRef}
+                                    onChange={(event) => setEditingLessonObjectiveSpecRef(event.target.value)}
+                                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                                    placeholder="Spec reference (optional)"
+                                  />
+                                </div>
+                                <div className="flex items-start gap-1 pt-1">
+                                  <button
+                                    className="rounded border border-emerald-400 p-1 text-emerald-600 transition hover:bg-emerald-50"
+                                    onClick={saveLessonObjectiveEdit}
+                                    aria-label="Save learning objective"
+                                  >
+                                    <Check className="h-4 w-4" />
+                                  </button>
+                                  <button
+                                    className="rounded border border-destructive/40 p-1 text-destructive transition hover:bg-destructive hover:text-destructive-foreground"
+                                    onClick={cancelLessonObjectiveEdit}
+                                    aria-label="Cancel learning objective edit"
+                                  >
+                                    <X className="h-4 w-4" />
+                                  </button>
+                                </div>
                               </div>
                             ) : (
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-start gap-2">
                                 <span className="inline-flex items-center rounded-full border border-primary/30 px-2 py-0.5 text-xs font-semibold text-primary">
                                   {lessonCode}
                                 </span>
-                                <h4 className="text-sm font-medium">{lo.title}</h4>
+                                <div className="space-y-1">
+                                  <h4 className="text-sm font-medium">{lo.title}</h4>
+                                  {lo.specRef ? (
+                                    <p className="text-xs text-muted-foreground">Spec reference: {lo.specRef}</p>
+                                  ) : null}
+                                </div>
                               </div>
                             )}
                           </div>
                           <div className="flex items-center gap-1">
                             <button
                               className="rounded-full border border-border p-1 transition hover:bg-muted"
-                              onClick={() => startLessonObjectiveEdit(aoIndex, loIndex, lo.title)}
+                              onClick={() => startLessonObjectiveEdit(aoIndex, loIndex, lo.title, lo.specRef)}
                               aria-label="Edit learning objective"
                             >
                               <Pencil className="h-4 w-4" />

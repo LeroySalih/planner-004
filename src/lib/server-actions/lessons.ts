@@ -372,6 +372,7 @@ async function enrichLessonsWithSuccessCriteria<
       assessment_objective_order_index: number | null
       order_index: number | null
       active: boolean | null
+      spec_ref: string | null
     }
   >()
 
@@ -566,7 +567,7 @@ async function enrichLessonsWithSuccessCriteria<
     const { data: learningObjectiveRows, error: learningObjectiveError } = await supabase
       .from("learning_objectives")
       .select(
-        "learning_objective_id, title, assessment_objective_id, order_index, active, assessment_objective:assessment_objectives(code, title, order_index)"
+        "learning_objective_id, title, assessment_objective_id, order_index, active, spec_ref, assessment_objective:assessment_objectives(code, title, order_index)"
       )
       .in("learning_objective_id", metadataIdsToFetch)
 
@@ -591,6 +592,7 @@ async function enrichLessonsWithSuccessCriteria<
           typeof assessmentObjective?.order_index === "number" ? assessmentObjective.order_index : null,
         order_index: typeof row.order_index === "number" ? row.order_index : null,
         active: typeof row.active === "boolean" ? row.active : null,
+        spec_ref: typeof row.spec_ref === "string" ? row.spec_ref : null,
       })
     }
   }
@@ -613,6 +615,7 @@ async function enrichLessonsWithSuccessCriteria<
               metadata?.title ?? entry.learning_objective?.title ?? entry.title ?? "Learning objective",
             order_index: metadata?.order_index ?? entry.learning_objective?.order_index ?? entry.order_by ?? 0,
             active: metadata?.active ?? entry.learning_objective?.active ?? true,
+            spec_ref: metadata?.spec_ref ?? entry.learning_objective?.spec_ref ?? null,
             success_criteria: successCriteria,
             assessment_objective:
               metadata?.assessment_objective_id
@@ -708,6 +711,7 @@ async function enrichLessonsWithSuccessCriteria<
         assessment_objective_order_index: null,
         order_index: null,
         active: true,
+        spec_ref: null,
       }
 
       const orderIndex = typeof metadata.order_index === "number"
@@ -729,6 +733,7 @@ async function enrichLessonsWithSuccessCriteria<
           title: metadata.title ?? "Learning objective",
           order_index: orderIndex,
           active: metadata.active ?? true,
+          spec_ref: metadata.spec_ref ?? null,
           success_criteria: criteria.map((criterion, index) => ({
             success_criteria_id: criterion.success_criteria_id,
             learning_objective_id: loId,

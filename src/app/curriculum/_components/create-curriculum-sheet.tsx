@@ -229,7 +229,7 @@ export function CreateCurriculumSheet({ subjects, subjectsError, onCurriculumCre
 
             const loResult = await createCurriculumLearningObjectiveAction(
               parentAoId,
-              { title: lo.title, order_index: lo.order },
+              { title: lo.title, order_index: lo.order, spec_ref: lo.identifier },
               curriculumId,
             )
 
