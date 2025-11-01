@@ -20,3 +20,4 @@
   }
   ```
 - Discovery and curriculum endpoints must support HTTP Streamable transport. Clients should expect chunked JSON responses rather than a single payload.
+- MCP services should minimise database/network round trips when gathering data (prefer joined or batched queries).
