@@ -90,6 +90,7 @@ export function UnitDetailView({
         objectives: Array<{
           id: string
           title: string
+          specRef: string | null
           successCriteria: ObjectiveCriterion[]
         }>
       }
@@ -134,9 +135,12 @@ export function UnitDetailView({
           objectiveEntry = {
             id: learningObjectiveId,
             title: learningObjective?.title ?? objective.title ?? "Learning objective",
+            specRef: learningObjective?.spec_ref ?? null,
             successCriteria: [] as ObjectiveCriterion[],
           }
           group.objectives.push(objectiveEntry)
+        } else if (!objectiveEntry.specRef && learningObjective?.spec_ref) {
+          objectiveEntry.specRef = learningObjective.spec_ref
         }
 
         const existingIds = new Set(objectiveEntry.successCriteria.map((item) => item.success_criteria_id))
@@ -306,7 +310,14 @@ export function UnitDetailView({
                                 className="border-b border-border px-4 py-3 align-top text-sm font-medium"
                                 rowSpan={objectiveRowSpan}
                               >
-                                <span className="text-foreground">{objective.title}</span>
+                                <div className="space-y-1">
+                                  <span className="text-foreground">{objective.title}</span>
+                                  {objective.specRef ? (
+                                    <p className="text-xs text-muted-foreground">
+                                      Spec reference: {objective.specRef}
+                                    </p>
+                                  ) : null}
+                                </div>
                               </td>
                             ) : null}
                             <td className="border-b border-border px-4 py-3 align-top">

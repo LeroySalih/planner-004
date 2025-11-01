@@ -367,7 +367,14 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
                           <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
                             {lesson.lesson_objectives.map((objective) => (
                               <li key={objective.learning_objective_id}>
-                                {objective.learning_objective?.title ?? objective.title}
+                                <span className="text-foreground">
+                                  {objective.learning_objective?.title ?? objective.title}
+                                </span>
+                                {objective.learning_objective?.spec_ref ? (
+                                  <span className="ml-2 text-xs text-muted-foreground">
+                                    (Spec: {objective.learning_objective.spec_ref})
+                                  </span>
+                                ) : null}
                               </li>
                             ))}
                           </ul>

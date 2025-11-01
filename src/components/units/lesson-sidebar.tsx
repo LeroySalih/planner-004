@@ -1415,6 +1415,7 @@ export function LessonSidebar({
                     )}
                     {sortedObjectives.map((objective) => {
                       const isChecked = selectedObjectiveIds.includes(objective.learning_objective_id)
+                      const specRef = objective.spec_ref?.trim() ?? ""
                       return (
                         <label
                           key={objective.learning_objective_id}
@@ -1433,7 +1434,12 @@ export function LessonSidebar({
                             }}
                             disabled={isPending}
                           />
-                          <span>{objective.title}</span>
+                          <span className="leading-tight">
+                            {objective.title}
+                            {specRef.length > 0 ? (
+                              <span className="block text-xs text-muted-foreground">Spec reference: {specRef}</span>
+                            ) : null}
+                          </span>
                         </label>
                       )
                     })}
