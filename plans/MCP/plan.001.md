@@ -14,7 +14,8 @@
 3. **API Adjustments**
    - Update handler typings and payload structures to include `is_active`.
    - Accept both `GET` and `POST` for discovery and curriculum endpoints with consistent responses.
+   - Refactor handlers to emit HTTP Streamable (chunked JSON) responses for long-running operations.
    - Verify Supabase service-role usage remains intact through `SUPABASE_SERVICE_ROLE_KEY`.
 4. **Validation**
-   - Exercise the endpoints (curl/Postman) to confirm the new paths and payload shape.
-   - Add test coverage where practical to lock in the schema.
+   - Exercise the endpoints (curl/Postman) to confirm the new paths, payload shape, and streaming behaviour.
+   - Add test coverage where practical to lock in the schema and streaming transport.
