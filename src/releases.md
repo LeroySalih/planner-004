@@ -1,5 +1,10 @@
 # Dino
 ## Releases 
+### Release 0.0.24
+- `/profile` & `/profiles`: Routes now gate access with `requireAuthenticatedProfile()` and render a server-driven profile form that disables fields, shows a spinner, and fires toast feedback while saving.
+- `/profiles/[profileId]`: Teacher detail view reuses the same server actions to load and update profiles, dropping direct Supabase browser calls and keeping the UI consistent.
+- `/lib/server-actions/profile.ts`: Added read/update helpers plus a `CurrentProfile` schema to centralise profile data access for both pages.
+
 ### Release 0.0.23
 - `/profiles/groups`: Join and leave flows now use `useActionState` to show spinner feedback while server actions run, keeping buttons disabled until completion and preserving redirect banners.
 - `/profiles/groups`: Server component wraps new client helpers so the page remains server-rendered while offering responsive loading indicators.

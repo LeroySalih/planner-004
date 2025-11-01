@@ -2,12 +2,15 @@ import Link from "next/link"
 import type { Metadata } from "next"
 
 import { ProfileForm } from "@/components/profile"
+import { requireAuthenticatedProfile } from "@/lib/auth"
 
 export const metadata: Metadata = {
   title: "Complete your profile",
 }
 
-export default function ProfilePage() {
+export default async function ProfilePage() {
+  await requireAuthenticatedProfile()
+
   return (
     <main className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-8 px-6 py-12">
       <header className="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 px-8 py-6 text-white shadow-lg">

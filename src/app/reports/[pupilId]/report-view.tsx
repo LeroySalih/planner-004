@@ -15,8 +15,8 @@ function formatLevel(assessmentLevel: string | null, workingLevel: number | null
   return resolved ? `Level ${resolved}` : "—"
 }
 
-export async function PupilReportView({ pupilId }: { pupilId: string }) {
-  const prepared = await getPreparedReportData(pupilId)
+export async function PupilReportView({ pupilId, authEndTime }: { pupilId: string; authEndTime?: number }) {
+  const prepared = await getPreparedReportData(pupilId, undefined, { authEndTime })
 
   if (!prepared) {
     notFound()
@@ -97,4 +97,3 @@ export async function PupilReportView({ pupilId }: { pupilId: string }) {
     </main>
   )
 }
-

@@ -1,8 +1,10 @@
+import { performance } from "node:perf_hooks"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 
 import { readAssignmentsForGroupAction, readGroupAction, readUnitAction } from "@/lib/server-updates"
 import { requireTeacherProfile } from "@/lib/auth"
+import { withTelemetry } from "@/lib/telemetry"
 
 import { getPreparedReportData } from "../../[pupilId]/report-data"
 
@@ -24,10 +26,19 @@ export default async function GroupReportPage({
   params: Promise<{ groupId: string }>
 }) {
   await requireTeacherProfile()
+  const authEnd = performance.now()
 
   const { groupId } = await params
 
-  const groupResult = await readGroupAction(groupId)
+  const groupResult = await withTelemetry(
+    {
+      routeTag: "reports",
+      functionName: "readGroupAction",
+      params: { groupId },
+      authEndTime: authEnd,
+    },
+    () => readGroupAction(groupId),
+  )
   if (!groupResult.data) {
     notFound()
   }
@@ -35,13 +46,29 @@ export default async function GroupReportPage({
   const group = groupResult.data
   const groupSubject = group.subject ?? "Subject not set"
 
-  const assignmentsResult = await readAssignmentsForGroupAction(groupId)
+  const assignmentsResult = await withTelemetry(
+    {
+      routeTag: "reports",
+      functionName: "readAssignmentsForGroupAction",
+      params: { groupId },
+      authEndTime: authEnd,
+    },
+    () => readAssignmentsForGroupAction(groupId),
+  )
   const assignments = assignmentsResult.data ?? []
   const assignedUnitIds = Array.from(new Set(assignments.map((assignment) => assignment.unit_id)))
 
   const unitMetaEntries = await Promise.all(
     assignedUnitIds.map(async (unitId) => {
-      const { data } = await readUnitAction(unitId)
+      const { data } = await withTelemetry(
+        {
+          routeTag: "reports",
+          functionName: "readUnitAction",
+          params: { unitId },
+          authEndTime: authEnd,
+        },
+        () => readUnitAction(unitId),
+      )
       return {
         unitId,
         title: data?.title ?? unitId,
@@ -81,36 +108,45 @@ export default async function GroupReportPage({
       return a.firstName.localeCompare(b.firstName)
     })
 
-  const pupilReports = await Promise.all(
-    pupilMembers.map(async (member) => {
-      const prepared = await getPreparedReportData(member.userId, groupId)
+  const pupilReports = await withTelemetry(
+    {
+      routeTag: "reports",
+      functionName: "buildGroupPupilReports",
+      params: { groupId, pupilCount: pupilMembers.length },
+      authEndTime: authEnd,
+    },
+    async () =>
+      Promise.all(
+        pupilMembers.map(async (member) => {
+          const prepared = await getPreparedReportData(member.userId, groupId, { authEndTime: authEnd })
 
-      const unitScores = new Map<string, { assessmentAverage: number | null; levelLabel: string }>()
+          const unitScores = new Map<string, { assessmentAverage: number | null; levelLabel: string }>()
 
-      if (prepared) {
-        prepared.subjectEntries.forEach((entry) => {
-          entry.units.forEach((unit) => {
-            if (!unitMetaMap.has(unit.unitId)) {
-              unitMetaMap.set(unit.unitId, {
-                unitId: unit.unitId,
-                title: unit.unitTitle,
-                subject: entry.subject,
+          if (prepared) {
+            prepared.subjectEntries.forEach((entry) => {
+              entry.units.forEach((unit) => {
+                if (!unitMetaMap.has(unit.unitId)) {
+                  unitMetaMap.set(unit.unitId, {
+                    unitId: unit.unitId,
+                    title: unit.unitTitle,
+                    subject: entry.subject,
+                  })
+                }
+                unitScores.set(unit.unitId, {
+                  assessmentAverage: unit.assessmentAverage,
+                  levelLabel: formatLevel(unit.assessmentLevel, unit.workingLevel),
+                })
               })
-            }
-            unitScores.set(unit.unitId, {
-              assessmentAverage: unit.assessmentAverage,
-              levelLabel: formatLevel(unit.assessmentLevel, unit.workingLevel),
             })
-          })
-        })
-      }
+          }
 
-      return {
-        userId: member.userId,
-        displayName: member.displayName,
-        unitScores,
-      }
-    }),
+          return {
+            userId: member.userId,
+            displayName: member.displayName,
+            unitScores,
+          }
+        }),
+      ),
   )
 
   const resolvedUnitColumns = sortUnits(unitColumns.length > 0 ? unitColumns : Array.from(unitMetaMap.values()))
