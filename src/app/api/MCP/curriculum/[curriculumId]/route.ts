@@ -13,7 +13,7 @@ type RouteContext = {
   params: Promise<{ curriculumId: string }>
 }
 
-export async function GET(request: NextRequest, context: RouteContext) {
+async function handleRequest(request: NextRequest, context: RouteContext) {
   const authResult = verifyMcpAuthorization(request)
   const authEnd = performance.now()
 
@@ -48,4 +48,12 @@ export async function GET(request: NextRequest, context: RouteContext) {
     console.error("[mcp] Failed to fetch curriculum", error)
     return NextResponse.json({ error: "Failed to load curriculum" }, { status: 500 })
   }
+}
+
+export async function GET(request: NextRequest, context: RouteContext) {
+  return handleRequest(request, context)
+}
+
+export async function POST(request: NextRequest, context: RouteContext) {
+  return handleRequest(request, context)
 }

@@ -11,20 +11,20 @@ const ROUTE_TAG = "/api/mcp"
 const TOOLS = [
   {
     name: "get_all_curriculum",
-    method: "GET",
+    methods: ["GET", "POST"],
     path: "/api/MCP/curriculum",
     description: "Returns an array of curriculum summaries: { curriculum_id, title, is_active }.",
   },
   {
     name: "get_curriculum",
-    method: "GET",
+    methods: ["GET", "POST"],
     path: "/api/MCP/curriculum/{curriculumId}",
     description:
       "Returns a single curriculum summary for the provided curriculumId: { curriculum_id, title, is_active }.",
   },
 ]
 
-export async function GET(request: NextRequest) {
+async function handleRequest(request: NextRequest) {
   const authResult = verifyMcpAuthorization(request)
   const authEnd = performance.now()
 
@@ -42,4 +42,12 @@ export async function GET(request: NextRequest) {
   )
 
   return NextResponse.json(payload, { status: 200 })
+}
+
+export async function GET(request: NextRequest) {
+  return handleRequest(request)
+}
+
+export async function POST(request: NextRequest) {
+  return handleRequest(request)
 }
