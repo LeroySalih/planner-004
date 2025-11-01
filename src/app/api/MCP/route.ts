@@ -23,6 +23,13 @@ const TOOLS = [
     description:
       "Returns a single curriculum summary for the provided curriculumId: { curriculum_id, title, is_active }.",
   },
+  {
+    name: "get_all_los_and_scs",
+    methods: ["GET", "POST"],
+    path: "/api/MCP/losc",
+    description:
+      "Returns learning objectives and success criteria for a curriculum. Input includes curriculum_id.",
+  },
 ]
 
 async function handleRequest(request: NextRequest) {
