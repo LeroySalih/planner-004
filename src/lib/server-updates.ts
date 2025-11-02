@@ -25,6 +25,7 @@ export {
 
 export {
   readLearningObjectivesByUnitAction,
+  readAllLearningObjectivesAction,
   createLearningObjectiveAction,
   updateLearningObjectiveAction,
   deleteLearningObjectiveAction,
@@ -39,6 +40,7 @@ export {
   readLessonAction,
   createLessonAction,
   updateLessonAction,
+  setLessonSuccessCriteriaAction,
   deactivateLessonAction,
   reorderLessonsAction,
 } from "./server-actions/lessons"

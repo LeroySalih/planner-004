@@ -38,23 +38,29 @@ const SuccessCriteriaInputSchema = z.array(SuccessCriterionInputSchema)
 export type LearningObjectiveWithCriteria = z.infer<typeof LearningObjectiveWithCriteriaSchema>
 export type SuccessCriteriaInput = z.infer<typeof SuccessCriteriaInputSchema>
 
-export async function readLearningObjectivesByUnitAction(unitId: string) {
-  console.log("[v0] Server action started for learning objectives:", { unitId })
+async function readLearningObjectivesWithCriteria(options: {
+  learningObjectiveIds?: string[]
+  filterUnitId?: string
+}) {
+  const { learningObjectiveIds = [], filterUnitId } = options
 
   const supabase = await createSupabaseServerClient()
 
   const {
     map: successCriteriaMap,
-    learningObjectiveIds,
+    learningObjectiveIds: discoveredIds,
     error: successCriteriaError,
-  } = await fetchSuccessCriteriaForLearningObjectives([], unitId, supabase)
+  } = await fetchSuccessCriteriaForLearningObjectives(learningObjectiveIds, filterUnitId, supabase)
 
   if (successCriteriaError) {
-    console.error("[v0] Failed to read success criteria for unit:", successCriteriaError)
+    console.error("[v0] Failed to read success criteria:", successCriteriaError)
     return LearningObjectivesReturnValue.parse({ data: null, error: successCriteriaError })
   }
 
-  if (learningObjectiveIds.length === 0) {
+  const objectiveIdsToLoad =
+    learningObjectiveIds.length > 0 ? learningObjectiveIds : discoveredIds
+
+  if (objectiveIdsToLoad.length === 0) {
     return LearningObjectivesReturnValue.parse({ data: [], error: null })
   }
 
@@ -75,7 +81,7 @@ export async function readLearningObjectivesByUnitAction(unitId: string) {
         )
       `,
     )
-    .in("learning_objective_id", learningObjectiveIds)
+    .in("learning_objective_id", objectiveIdsToLoad)
     .order("order_index", { ascending: true })
 
   if (error) {
@@ -109,6 +115,16 @@ export async function readLearningObjectivesByUnitAction(unitId: string) {
     .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0))
 
   return LearningObjectivesReturnValue.parse({ data: normalized, error: null })
+}
+
+export async function readLearningObjectivesByUnitAction(unitId: string) {
+  console.log("[v0] Server action started for learning objectives:", { unitId })
+  return readLearningObjectivesWithCriteria({ filterUnitId: unitId })
+}
+
+export async function readAllLearningObjectivesAction() {
+  console.log("[v0] Server action started for curriculum learning objectives")
+  return readLearningObjectivesWithCriteria({})
 }
 
 export type NormalizedSuccessCriterion = {
@@ -160,8 +176,6 @@ export async function fetchSuccessCriteriaForLearningObjectives(
 
     criterionIdsToFetch = criterionIds
     criteriaQuery = criteriaQuery.in("success_criteria_id", criterionIds)
-  } else {
-    return { map: new Map(), learningObjectiveIds: [], error: null }
   }
 
   const { data: criteriaRows, error: criteriaError } = await criteriaQuery

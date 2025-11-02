@@ -6,7 +6,7 @@ import { LessonDetailClient } from "@/components/lessons/lesson-detail-client"
 import {
   listLessonActivitiesAction,
   listLessonFilesAction,
-  readLearningObjectivesByUnitAction,
+  readAllLearningObjectivesAction,
   readLessonAction,
   readLessonsByUnitAction,
   readUnitAction,
@@ -38,7 +38,7 @@ export default async function LessonDetailPage({
   const [unitResult, learningObjectivesResult, lessonFilesResult, lessonActivitiesResult, lessonsByUnitResult] =
     await Promise.all([
       readUnitAction(lesson.unit_id),
-      readLearningObjectivesByUnitAction(lesson.unit_id),
+      readAllLearningObjectivesAction(),
       listLessonFilesAction(lesson.lesson_id),
       listLessonActivitiesAction(lesson.lesson_id),
       readLessonsByUnitAction(lesson.unit_id),
@@ -88,9 +88,10 @@ export default async function LessonDetailPage({
       return a.title.localeCompare(b.title)
     })
 
-  const currentIndex = sortedLessons.findIndex((item) => item.lesson_id === lesson.lesson_id)
-  const previousLesson = currentIndex > 0 ? sortedLessons[currentIndex - 1] : null
-  const nextLesson = currentIndex >= 0 && currentIndex < sortedLessons.length - 1 ? sortedLessons[currentIndex + 1] : null
+  const lessonOptions = sortedLessons.map((item) => ({
+    lesson_id: item.lesson_id,
+    title: item.title,
+  }))
 
   return (
     <LessonDetailClient
@@ -99,8 +100,7 @@ export default async function LessonDetailPage({
       learningObjectives={learningObjectivesResult.data ?? []}
       lessonFiles={lessonFilesResult.data ?? []}
       lessonActivities={activities}
-      previousLesson={previousLesson ? { lesson_id: previousLesson.lesson_id, title: previousLesson.title } : null}
-      nextLesson={nextLesson ? { lesson_id: nextLesson.lesson_id, title: nextLesson.title } : null}
+      unitLessons={lessonOptions}
     />
   )
 }

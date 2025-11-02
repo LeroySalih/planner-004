@@ -12,6 +12,7 @@ import {
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import { type NormalizedSuccessCriterion } from "./learning-objectives"
 import { isScorableActivityType } from "@/dino.config"
+import { requireTeacherProfile } from "@/lib/auth"
 
 const LessonsReturnValue = z.object({
   data: LessonsWithObjectivesSchema.nullable(),
@@ -280,6 +281,183 @@ export async function updateLessonAction(
 
   revalidatePath(`/units/${unitId}`)
   return readLessonWithObjectives(data.lesson_id)
+}
+
+const LessonSuccessCriteriaUpdateSchema = z.object({
+  lessonId: z.string().min(1),
+  unitId: z.string().min(1),
+  successCriteriaIds: z.array(z.string().min(1)).default([]),
+})
+
+export async function setLessonSuccessCriteriaAction(
+  lessonId: string,
+  unitId: string,
+  successCriteriaIds: string[],
+) {
+  await requireTeacherProfile()
+
+  const payload = LessonSuccessCriteriaUpdateSchema.parse({
+    lessonId,
+    unitId,
+    successCriteriaIds,
+  })
+
+  const supabase = await createSupabaseServerClient()
+
+  const normalizedIds = Array.from(new Set(payload.successCriteriaIds))
+
+  const { data: existingCriteriaLinks, error: existingCriteriaError } = await supabase
+    .from("lesson_success_criteria")
+    .select("success_criteria_id")
+    .eq("lesson_id", payload.lessonId)
+
+  if (existingCriteriaError) {
+    console.error("[v0] Failed to read lesson success criteria links:", existingCriteriaError)
+    return LessonReturnValue.parse({ data: null, error: existingCriteriaError.message })
+  }
+
+  const existingCriteriaIds = new Set(
+    (existingCriteriaLinks ?? [])
+      .map((link) => link.success_criteria_id)
+      .filter((id): id is string => typeof id === "string" && id.length > 0),
+  )
+
+  const idsToInsert = normalizedIds.filter((id) => !existingCriteriaIds.has(id))
+  const idsToDelete = Array.from(existingCriteriaIds).filter((id) => !normalizedIds.includes(id))
+
+  if (idsToInsert.length > 0) {
+    const { error: insertCriteriaError } = await supabase.from("lesson_success_criteria").insert(
+      idsToInsert.map((successCriteriaId) => ({
+        lesson_id: payload.lessonId,
+        success_criteria_id: successCriteriaId,
+      })),
+    )
+
+    if (insertCriteriaError) {
+      console.error("[v0] Failed to insert lesson success criteria links:", insertCriteriaError)
+      return LessonReturnValue.parse({ data: null, error: insertCriteriaError.message })
+    }
+  }
+
+  if (idsToDelete.length > 0) {
+    const { error: deleteCriteriaError } = await supabase
+      .from("lesson_success_criteria")
+      .delete()
+      .eq("lesson_id", payload.lessonId)
+      .in("success_criteria_id", idsToDelete)
+
+    if (deleteCriteriaError) {
+      console.error("[v0] Failed to remove lesson success criteria links:", deleteCriteriaError)
+      return LessonReturnValue.parse({ data: null, error: deleteCriteriaError.message })
+    }
+  }
+
+  let learningObjectiveIdsFromSelection: string[] = []
+
+  if (normalizedIds.length > 0) {
+    const { data: criteriaMetadata, error: criteriaMetadataError } = await supabase
+      .from("success_criteria")
+      .select("success_criteria_id, learning_objective_id")
+      .in("success_criteria_id", normalizedIds)
+
+    if (criteriaMetadataError) {
+      console.error(
+        "[v0] Failed to read success criteria metadata:",
+        criteriaMetadataError,
+      )
+      return LessonReturnValue.parse({ data: null, error: criteriaMetadataError.message })
+    }
+
+    learningObjectiveIdsFromSelection = Array.from(
+      new Set(
+        (criteriaMetadata ?? [])
+          .map((row) => row.learning_objective_id)
+          .filter((id): id is string => typeof id === "string" && id.length > 0),
+      ),
+    )
+  }
+
+  const { data: existingObjectiveLinks, error: objectiveReadError } = await supabase
+    .from("lessons_learning_objective")
+    .select("learning_objective_id, order_by")
+    .eq("lesson_id", payload.lessonId)
+
+  if (objectiveReadError) {
+    console.error("[v0] Failed to read lesson learning objective links:", objectiveReadError)
+    return LessonReturnValue.parse({ data: null, error: objectiveReadError.message })
+  }
+
+  const existingObjectiveOrderMap = new Map<string, number>()
+  for (const row of existingObjectiveLinks ?? []) {
+    if (!row?.learning_objective_id) continue
+    existingObjectiveOrderMap.set(
+      row.learning_objective_id,
+      typeof row.order_by === "number" ? row.order_by : existingObjectiveOrderMap.size,
+    )
+  }
+
+  const existingObjectiveIds = new Set(existingObjectiveOrderMap.keys())
+  const objectiveIdsToRemove = Array.from(existingObjectiveIds).filter(
+    (id) => !learningObjectiveIdsFromSelection.includes(id),
+  )
+  const objectiveIdsToInsert = learningObjectiveIdsFromSelection.filter(
+    (id) => !existingObjectiveIds.has(id),
+  )
+
+  if (objectiveIdsToRemove.length > 0) {
+    const { error: objectiveDeleteError } = await supabase
+      .from("lessons_learning_objective")
+      .delete()
+      .eq("lesson_id", payload.lessonId)
+      .in("learning_objective_id", objectiveIdsToRemove)
+
+    if (objectiveDeleteError) {
+      console.error("[v0] Failed to remove lesson learning objective links:", objectiveDeleteError)
+      return LessonReturnValue.parse({ data: null, error: objectiveDeleteError.message })
+    }
+  }
+
+  if (objectiveIdsToInsert.length > 0) {
+    const { data: learningObjectiveMetadata, error: learningObjectiveError } = await supabase
+      .from("learning_objectives")
+      .select("learning_objective_id, title")
+      .in("learning_objective_id", objectiveIdsToInsert)
+
+    if (learningObjectiveError) {
+      console.error("[v0] Failed to read learning objective metadata:", learningObjectiveError)
+      return LessonReturnValue.parse({ data: null, error: learningObjectiveError.message })
+    }
+
+    const existingOrders = Array.from(existingObjectiveOrderMap.values())
+    const maxExistingOrder = existingOrders.length > 0 ? Math.max(...existingOrders) : -1
+
+    const insertRows = (learningObjectiveMetadata ?? []).map((meta, index) => ({
+      lesson_id: payload.lessonId,
+      learning_objective_id: meta.learning_objective_id,
+      order_by: maxExistingOrder + index + 1,
+      title: meta.title ?? "",
+      active: true,
+    }))
+
+    if (insertRows.length > 0) {
+      const { error: objectiveInsertError } = await supabase
+        .from("lessons_learning_objective")
+        .insert(insertRows)
+
+      if (objectiveInsertError) {
+        console.error(
+          "[v0] Failed to insert lesson learning objective links:",
+          objectiveInsertError,
+        )
+        return LessonReturnValue.parse({ data: null, error: objectiveInsertError.message })
+      }
+    }
+  }
+
+  revalidatePath(`/lessons/${payload.lessonId}`)
+  revalidatePath(`/units/${payload.unitId}`)
+
+  return readLessonWithObjectives(payload.lessonId)
 }
 
 export async function deactivateLessonAction(lessonId: string, unitId: string) {

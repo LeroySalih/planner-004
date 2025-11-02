@@ -3,13 +3,10 @@
 import { useMemo, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, ArrowRight, BookOpen, LinkIcon, List, Target, Upload } from "lucide-react"
+import { LinkIcon, List, Target, Upload } from "lucide-react"
 
-import type {
-  LearningObjectiveWithCriteria,
-  LessonWithObjectives,
-} from "@/lib/server-updates"
-import type { LessonActivity, Unit } from "@/types"
+import type { LearningObjectiveWithCriteria, LessonWithObjectives } from "@/lib/server-updates"
+import type { LessonActivity, LessonSuccessCriterion, Unit } from "@/types"
 import { LessonFilesManager } from "@/components/lessons/lesson-files-manager"
 import { LessonLinksManager } from "@/components/lessons/lesson-links-manager"
 import { LessonActivitiesManager } from "@/components/lessons/lesson-activities-manager"
@@ -17,8 +14,9 @@ import { LessonObjectivesSidebar } from "@/components/lessons/lesson-objectives-
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
-interface LessonNavLink {
+interface LessonPickerOption {
   lesson_id: string
   title: string
 }
@@ -29,8 +27,7 @@ interface LessonDetailClientProps {
   learningObjectives: LearningObjectiveWithCriteria[]
   lessonFiles: { name: string; path: string; created_at?: string; updated_at?: string; size?: number }[]
   lessonActivities: LessonActivity[]
-  previousLesson: LessonNavLink | null
-  nextLesson: LessonNavLink | null
+  unitLessons: LessonPickerOption[]
 }
 
 export function LessonDetailClient({
@@ -39,8 +36,7 @@ export function LessonDetailClient({
   learningObjectives,
   lessonFiles,
   lessonActivities,
-  previousLesson,
-  nextLesson,
+  unitLessons,
 }: LessonDetailClientProps) {
   const router = useRouter()
   const [currentLesson, setCurrentLesson] = useState<LessonWithObjectives>(lesson)
@@ -48,40 +44,159 @@ export function LessonDetailClient({
 
   const isActive = currentLesson.active !== false
 
+  const learningObjectivesById = useMemo(() => {
+    const map = new Map<string, LearningObjectiveWithCriteria>()
+    for (const objective of learningObjectives ?? []) {
+      if (objective?.learning_objective_id) {
+        map.set(objective.learning_objective_id, objective)
+      }
+    }
+    return map
+  }, [learningObjectives])
+
+  const successCriteriaMetadata = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        objective: LearningObjectiveWithCriteria | null
+        criterion: LearningObjectiveWithCriteria["success_criteria"][number]
+      }
+    >()
+
+    for (const objective of learningObjectives ?? []) {
+      for (const criterion of objective.success_criteria ?? []) {
+        map.set(criterion.success_criteria_id, {
+          objective,
+          criterion,
+        })
+      }
+    }
+
+    return map
+  }, [learningObjectives])
+
+  const groupedLearningObjectives = useMemo(() => {
+    const byObjective = new Map<string, LessonSuccessCriterion[]>()
+    const unassigned: LessonSuccessCriterion[] = []
+
+    for (const criterion of currentLesson.lesson_success_criteria ?? []) {
+      const metadata = successCriteriaMetadata.get(criterion.success_criteria_id)
+      const learningObjectiveId =
+        criterion.learning_objective_id ??
+        metadata?.criterion.learning_objective_id ??
+        null
+
+      if (learningObjectiveId) {
+        const list = byObjective.get(learningObjectiveId) ?? []
+        list.push(criterion)
+        byObjective.set(learningObjectiveId, list)
+      } else {
+        unassigned.push(criterion)
+      }
+    }
+
+    const displayGroups: Array<{
+      key: string
+      objective: LearningObjectiveWithCriteria | null
+      criteria: Array<{
+        id: string
+        label: string
+        level: number | null
+        active: boolean
+      }>
+    }> = []
+
+    for (const objective of learningObjectives ?? []) {
+      const criteria = byObjective.get(objective.learning_objective_id)
+      if (!criteria || criteria.length === 0) continue
+
+      displayGroups.push({
+        key: objective.learning_objective_id,
+        objective,
+        criteria: criteria.map((criterion) => {
+          const metadata = successCriteriaMetadata.get(criterion.success_criteria_id)
+          const description =
+            metadata?.criterion.description?.trim() ??
+            criterion.description?.trim() ??
+            criterion.title ??
+            "Success criterion"
+
+          return {
+            id: criterion.success_criteria_id,
+            label: description,
+            level: metadata?.criterion.level ?? criterion.level ?? null,
+            active: metadata?.criterion.active ?? true,
+          }
+        }),
+      })
+    }
+
+    if (unassigned.length > 0) {
+      displayGroups.push({
+        key: "unassigned",
+        objective: null,
+        criteria: unassigned.map((criterion) => {
+          const metadata = successCriteriaMetadata.get(criterion.success_criteria_id)
+          const description =
+            metadata?.criterion.description?.trim() ??
+            criterion.description?.trim() ??
+            criterion.title ??
+            "Success criterion"
+
+          return {
+            id: criterion.success_criteria_id,
+            label: description,
+            level: metadata?.criterion.level ?? criterion.level ?? null,
+            active: metadata?.criterion.active ?? true,
+          }
+        }),
+      })
+    }
+
+    return displayGroups
+  }, [currentLesson.lesson_success_criteria, learningObjectives, successCriteriaMetadata])
+
   const lessonSuccessCriteria = useMemo(() => {
     return (currentLesson.lesson_success_criteria ?? []).map((criterion) => {
-      const learningObjective = currentLesson.lesson_objectives.find(
-        (objective) => objective.learning_objective_id === (criterion.learning_objective_id ?? ""),
-      )
+      const metadata = successCriteriaMetadata.get(criterion.success_criteria_id)
+      const learningObjective =
+        metadata?.objective ??
+        (criterion.learning_objective_id
+          ? learningObjectivesById.get(criterion.learning_objective_id)
+          : null)
+
+      const description =
+        metadata?.criterion.description?.trim() ??
+        criterion.description?.trim() ??
+        criterion.title ??
+        "Success criterion"
 
       return {
         successCriteriaId: criterion.success_criteria_id,
-        title: criterion.title,
-        learningObjectiveId: criterion.learning_objective_id ?? null,
-        learningObjectiveTitle: learningObjective?.learning_objective?.title ?? learningObjective?.title ?? null,
+        title: description,
+        learningObjectiveId:
+          metadata?.criterion.learning_objective_id ?? criterion.learning_objective_id ?? null,
+        learningObjectiveTitle: learningObjective?.title ?? null,
       }
     })
-  }, [currentLesson.lesson_objectives, currentLesson.lesson_success_criteria])
+  }, [currentLesson.lesson_success_criteria, learningObjectivesById, successCriteriaMetadata])
 
   const handleLessonUpdated = (updated: LessonWithObjectives) => {
     setCurrentLesson(updated)
     router.refresh()
   }
 
+  const handleLessonSelect = (value: string) => {
+    if (value && value !== currentLesson.lesson_id) {
+      router.push(`/lessons/${value}`)
+    }
+  }
+
   return (
     <>
       <main className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-6 py-10">
-        <div>
-          <Button asChild variant="outline" size="sm" className="w-fit">
-            <Link href="/lessons">
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to Lessons
-            </Link>
-          </Button>
-        </div>
-
         <header className="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 px-8 py-6 text-white shadow-lg">
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="space-y-1">
                 <span className="text-xs uppercase tracking-wide text-slate-300">Unit</span>
@@ -92,57 +207,38 @@ export function LessonDetailClient({
                   {unit?.title ?? currentLesson.unit_id}
                 </Link>
               </div>
-              <div className="flex flex-wrap items-center gap-2 text-sm">
-                {previousLesson ? (
-                  <Link
-                    href={`/lessons/${previousLesson.lesson_id}`}
-                    className="inline-flex items-center gap-1 rounded-md border border-white/20 px-3 py-1 text-slate-100 transition hover:bg-white/10"
-                  >
-                    <ArrowLeft className="h-4 w-4" />
-                    <span className="font-medium">{previousLesson.title}</span>
-                  </Link>
-                ) : null}
-                {nextLesson ? (
-                  <Link
-                    href={`/lessons/${nextLesson.lesson_id}`}
-                    className="inline-flex items-center gap-1 rounded-md border border-white/20 px-3 py-1 text-slate-100 transition hover:bg-white/10"
-                  >
-                    <span className="font-medium">{nextLesson.title}</span>
-                    <ArrowRight className="h-4 w-4" />
-                  </Link>
+              <div className="flex flex-wrap items-center gap-3 text-sm">
+                <Badge
+                  variant="outline"
+                  className={
+                    isActive
+                      ? "bg-emerald-200/20 text-emerald-100"
+                      : "bg-rose-200/20 text-rose-100"
+                  }
+                >
+                  {isActive ? "Active" : "Inactive"}
+                </Badge>
+                {unitLessons.length > 0 ? (
+                  <Select value={currentLesson.lesson_id} onValueChange={handleLessonSelect}>
+                    <SelectTrigger className="w-60 border-white/30 bg-white/10 text-left text-sm text-white hover:bg-white/15 focus:ring-0 focus:ring-offset-0">
+                      <SelectValue placeholder="Select lesson" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {unitLessons.map((option) => (
+                        <SelectItem key={option.lesson_id} value={option.lesson_id}>
+                          {option.title}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 ) : null}
               </div>
             </div>
             <div className="space-y-1">
               <h1 className="text-3xl font-semibold text-white">{currentLesson.title}</h1>
-              <p className="text-sm text-slate-200">Lesson overview</p>
             </div>
           </div>
         </header>
-
-        <Card>
-          <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <CardTitle className="text-3xl font-bold">{currentLesson.title}</CardTitle>
-              <p className="text-sm text-muted-foreground">Lesson ID: {currentLesson.lesson_id}</p>
-            </div>
-            <Badge
-              variant="outline"
-              className={isActive ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}
-            >
-              {isActive ? "Active" : "Inactive"}
-            </Badge>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-              <div className="flex items-center gap-2">
-                <BookOpen className="h-4 w-4" />
-                <span>Unit: {unit?.title ?? currentLesson.unit_id}</span>
-              </div>
-              {unit?.subject && <Badge variant="secondary">{unit.subject}</Badge>}
-            </div>
-          </CardContent>
-        </Card>
 
         <Card>
           <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -155,34 +251,39 @@ export function LessonDetailClient({
             </Button>
           </CardHeader>
           <CardContent>
-            {currentLesson.lesson_objectives.length > 0 ? (
-              <ul className="space-y-3">
-                {currentLesson.lesson_objectives.map((objective) => (
-                  <li key={objective.learning_objective_id} className="space-y-2 rounded-md border border-border p-3">
+            {groupedLearningObjectives.length > 0 ? (
+              <ul className="space-y-4">
+                {groupedLearningObjectives.map((group) => (
+                  <li key={group.key} className="space-y-3 rounded-md border border-border p-4">
                     <div className="font-medium">
-                      {objective.learning_objective?.title ?? objective.title}
+                      {group.objective?.title ?? "Unassigned success criteria"}
                     </div>
-                    {objective.learning_objective?.success_criteria &&
-                      objective.learning_objective.success_criteria.length > 0 && (
-                        <ul className="space-y-2 list-disc pl-6 text-sm text-muted-foreground">
-                          {objective.learning_objective.success_criteria.map((criterion) => (
-                            <li key={criterion.success_criteria_id}>
-                              <span className="font-semibold text-primary">Level {criterion.level}:</span>{" "}
-                              <span className="text-foreground">{criterion.description}</span>
-                              {criterion.active === false ? (
-                                <Badge variant="destructive" className="ml-2 text-xs">
-                                  Inactive
-                                </Badge>
-                              ) : null}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
+                    <ul className="space-y-2 list-disc pl-6 text-sm text-muted-foreground">
+                      {group.criteria.map((criterion) => (
+                        <li key={criterion.id}>
+                          {criterion.level ? (
+                            <span className="font-semibold text-primary">
+                              Level {criterion.level}:
+                            </span>
+                          ) : (
+                            <span className="font-semibold text-primary">Success criterion:</span>
+                          )}{" "}
+                          <span className="text-foreground">{criterion.label}</span>
+                          {!criterion.active ? (
+                            <Badge variant="destructive" className="ml-2 text-xs">
+                              Inactive
+                            </Badge>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-muted-foreground">No learning objectives are linked to this lesson yet.</p>
+              <p className="text-sm text-muted-foreground">
+                No success criteria are linked to this lesson yet.
+              </p>
             )}
           </CardContent>
         </Card>
@@ -243,6 +344,7 @@ export function LessonDetailClient({
         unitId={unit?.unit_id ?? currentLesson.unit_id}
         lesson={currentLesson}
         learningObjectives={learningObjectives}
+        selectedSuccessCriteria={currentLesson.lesson_success_criteria ?? []}
         isOpen={isObjectivesSidebarOpen}
         onClose={() => setIsObjectivesSidebarOpen(false)}
         onUpdate={handleLessonUpdated}

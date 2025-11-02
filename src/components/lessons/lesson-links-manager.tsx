@@ -30,6 +30,8 @@ export function LessonLinksManager({ unitId, lessonId, initialLinks }: LessonLin
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editUrl, setEditUrl] = useState("")
   const [editDescription, setEditDescription] = useState("")
+  const [lastFetchedNewUrl, setLastFetchedNewUrl] = useState<string | null>(null)
+  const [lastFetchedEditUrl, setLastFetchedEditUrl] = useState<string | null>(null)
 
   const isBusy = isPending || isFetchingMetadata
 
@@ -40,13 +42,18 @@ export function LessonLinksManager({ unitId, lessonId, initialLinks }: LessonLin
   const resetNewForm = () => {
     setNewUrl("")
     setNewDescription("")
+    setLastFetchedNewUrl(null)
   }
 
   const fetchMetadata = (value: string, mode: "new" | "edit") => {
-    if (!value) return
+    const trimmed = value.trim()
+    if (!trimmed) {
+      return
+    }
+
     let parsedUrl: URL
     try {
-      parsedUrl = new URL(value)
+      parsedUrl = new URL(trimmed)
     } catch {
       return
     }
@@ -54,23 +61,28 @@ export function LessonLinksManager({ unitId, lessonId, initialLinks }: LessonLin
     startMetadataTransition(async () => {
       try {
         const result = await fetchLessonLinkMetadataAction(parsedUrl.toString())
-        if (!result.success || !result.title) {
-          return
-        }
-
-        if (mode === "new") {
-          setNewDescription((prev) => (prev.trim().length === 0 ? result.title : prev))
-        } else {
-          setEditDescription((prev) => (prev.trim().length === 0 ? result.title : prev))
+        if (result.success && result.title) {
+          if (mode === "new") {
+            setNewDescription((prev) => (prev.trim().length === 0 ? result.title : prev))
+          } else {
+            setEditDescription((prev) => (prev.trim().length === 0 ? result.title : prev))
+          }
         }
       } catch (error) {
         console.error("[v0] Failed to fetch link metadata:", error)
+      } finally {
+        if (mode === "new") {
+          setLastFetchedNewUrl(parsedUrl.toString())
+        } else {
+          setLastFetchedEditUrl(parsedUrl.toString())
+        }
       }
     })
   }
 
   const handleNewUrlChange = (value: string) => {
     setNewUrl(value)
+    setLastFetchedNewUrl(null)
   }
 
   const handleNewUrlPaste = (event: ClipboardEvent<HTMLInputElement>) => {
@@ -79,13 +91,35 @@ export function LessonLinksManager({ unitId, lessonId, initialLinks }: LessonLin
     event.preventDefault()
     event.currentTarget.value = text
     setNewUrl(text)
-    if (newDescription.trim().length === 0) {
-      fetchMetadata(text, "new")
+    setLastFetchedNewUrl(null)
+  }
+
+  const handleNewUrlBlur = () => {
+    const url = newUrl.trim()
+    if (url.length === 0) {
+      return
     }
+
+    try {
+      // eslint-disable-next-line no-new
+      new URL(url)
+    } catch {
+      setNewUrl("")
+      setLastFetchedNewUrl(null)
+      toast.error("Enter a valid URL")
+      return
+    }
+
+    if (lastFetchedNewUrl === url) {
+      return
+    }
+
+    fetchMetadata(url, "new")
   }
 
   const handleEditUrlChange = (value: string) => {
     setEditUrl(value)
+    setLastFetchedEditUrl(null)
   }
 
   const handleEditUrlPaste = (event: ClipboardEvent<HTMLInputElement>) => {
@@ -94,9 +128,30 @@ export function LessonLinksManager({ unitId, lessonId, initialLinks }: LessonLin
     event.preventDefault()
     event.currentTarget.value = text
     setEditUrl(text)
-    if (editDescription.trim().length === 0) {
-      fetchMetadata(text, "edit")
+    setLastFetchedEditUrl(null)
+  }
+
+  const handleEditUrlBlur = () => {
+    const url = editUrl.trim()
+    if (url.length === 0) {
+      return
     }
+
+    try {
+      // eslint-disable-next-line no-new
+      new URL(url)
+    } catch {
+      setEditUrl("")
+      setLastFetchedEditUrl(null)
+      toast.error("Enter a valid URL")
+      return
+    }
+
+    if (lastFetchedEditUrl === url) {
+      return
+    }
+
+    fetchMetadata(url, "edit")
   }
 
   const handleAddLink = () => {
@@ -140,12 +195,14 @@ export function LessonLinksManager({ unitId, lessonId, initialLinks }: LessonLin
     setEditingId(link.lesson_link_id)
     setEditUrl(link.url)
     setEditDescription(link.description ?? "")
+    setLastFetchedEditUrl(link.url?.trim() ?? null)
   }
 
   const cancelEditing = () => {
     setEditingId(null)
     setEditUrl("")
     setEditDescription("")
+    setLastFetchedEditUrl(null)
   }
 
   const handleUpdateLink = () => {
@@ -185,6 +242,7 @@ export function LessonLinksManager({ unitId, lessonId, initialLinks }: LessonLin
                 value={newUrl}
                 onChange={(event) => handleNewUrlChange(event.target.value)}
                 onPaste={handleNewUrlPaste}
+                onBlur={handleNewUrlBlur}
                 placeholder="https://example.com"
                 disabled={isBusy}
               />
@@ -231,6 +289,7 @@ export function LessonLinksManager({ unitId, lessonId, initialLinks }: LessonLin
                             value={editUrl}
                             onChange={(event) => handleEditUrlChange(event.target.value)}
                             onPaste={handleEditUrlPaste}
+                            onBlur={handleEditUrlBlur}
                             disabled={isBusy}
                           />
                         </div>
