@@ -6,7 +6,9 @@ import { LessonDetailClient } from "@/components/lessons/lesson-detail-client"
 import {
   listLessonActivitiesAction,
   listLessonFilesAction,
-  readLearningObjectivesByUnitAction,
+  readAllLearningObjectivesAction,
+  readAssessmentObjectivesAction,
+  readCurriculaAction,
   readLessonAction,
   readLessonsByUnitAction,
   readUnitAction,
@@ -35,16 +37,31 @@ export default async function LessonDetailPage({
     notFound()
   }
 
-  const [unitResult, learningObjectivesResult, lessonFilesResult, lessonActivitiesResult, lessonsByUnitResult] =
+  const [
+    unitResult,
+    learningObjectivesResult,
+    curriculaResult,
+    assessmentObjectivesResult,
+    lessonFilesResult,
+    lessonActivitiesResult,
+    lessonsByUnitResult,
+  ] =
     await Promise.all([
       readUnitAction(lesson.unit_id),
-      readLearningObjectivesByUnitAction(lesson.unit_id),
+      readAllLearningObjectivesAction(),
+      readCurriculaAction(),
+      readAssessmentObjectivesAction(),
       listLessonFilesAction(lesson.lesson_id),
       listLessonActivitiesAction(lesson.lesson_id),
       readLessonsByUnitAction(lesson.unit_id),
     ])
 
-  if (unitResult.error || learningObjectivesResult.error) {
+  if (
+    unitResult.error ||
+    learningObjectivesResult.error ||
+    curriculaResult.error ||
+    assessmentObjectivesResult.error
+  ) {
     return (
       <div className="container mx-auto space-y-4 p-6">
         {unitResult.error && (
@@ -57,6 +74,18 @@ export default async function LessonDetailPage({
           <div>
             <h2 className="text-xl font-semibold">Error Loading Learning Objectives</h2>
             <p className="text-red-600">{learningObjectivesResult.error}</p>
+          </div>
+        )}
+        {curriculaResult.error && (
+          <div>
+            <h2 className="text-xl font-semibold">Error Loading Curricula</h2>
+            <p className="text-red-600">{curriculaResult.error}</p>
+          </div>
+        )}
+        {assessmentObjectivesResult.error && (
+          <div>
+            <h2 className="text-xl font-semibold">Error Loading Assessment Objectives</h2>
+            <p className="text-red-600">{assessmentObjectivesResult.error}</p>
           </div>
         )}
       </div>
@@ -88,19 +117,21 @@ export default async function LessonDetailPage({
       return a.title.localeCompare(b.title)
     })
 
-  const currentIndex = sortedLessons.findIndex((item) => item.lesson_id === lesson.lesson_id)
-  const previousLesson = currentIndex > 0 ? sortedLessons[currentIndex - 1] : null
-  const nextLesson = currentIndex >= 0 && currentIndex < sortedLessons.length - 1 ? sortedLessons[currentIndex + 1] : null
+  const lessonOptions = sortedLessons.map((item) => ({
+    lesson_id: item.lesson_id,
+    title: item.title,
+  }))
 
   return (
     <LessonDetailClient
       lesson={lesson}
       unit={unitResult.data ?? null}
       learningObjectives={learningObjectivesResult.data ?? []}
+      curricula={curriculaResult.data ?? []}
+      assessmentObjectives={assessmentObjectivesResult.data ?? []}
       lessonFiles={lessonFilesResult.data ?? []}
       lessonActivities={activities}
-      previousLesson={previousLesson ? { lesson_id: previousLesson.lesson_id, title: previousLesson.title } : null}
-      nextLesson={nextLesson ? { lesson_id: nextLesson.lesson_id, title: nextLesson.title } : null}
+      unitLessons={lessonOptions}
     />
   )
 }

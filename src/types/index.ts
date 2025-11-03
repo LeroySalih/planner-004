@@ -139,7 +139,7 @@ export type AssessmentObjectives = z.infer<typeof AssessmentObjectivesSchema>;
 export const SuccessCriterionSchema = z.object({
     success_criteria_id: z.string(),
     learning_objective_id: z.string(),
-    level: z.number().min(1).max(7).default(1),
+    level: z.number().min(1).max(9).default(1),
     description: z.string().min(1),
     order_index: z
         .union([z.number(), z.null(), z.undefined()])
@@ -203,12 +203,16 @@ export const LearningObjectiveSchema = z.object({
     assessment_objective_code: z.string().nullable().optional(),
     assessment_objective_title: z.string().nullable().optional(),
     assessment_objective_order_index: z.number().nullable().optional(),
+    assessment_objective_curriculum_id: z.string().nullable().optional(),
+    assessment_objective_unit_id: z.string().nullable().optional(),
     assessment_objective: z
         .object({
             assessment_objective_id: z.string().optional(),
             code: z.string().nullable().optional(),
             title: z.string().nullable().optional(),
             order_index: z.number().nullable().optional(),
+            curriculum_id: z.string().nullable().optional(),
+            unit_id: z.string().nullable().optional(),
         })
         .nullable()
         .optional(),

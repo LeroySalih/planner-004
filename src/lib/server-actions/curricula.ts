@@ -7,6 +7,7 @@ import {
   CurriculumDetailSchema,
   CurriculaSchema,
   AssessmentObjectiveSchema,
+  AssessmentObjectivesSchema,
   AssessmentObjectiveDetailSchema,
   LearningObjectiveSchema,
   LearningObjectiveWithCriteriaSchema,
@@ -62,6 +63,11 @@ const SuccessCriterionReturnValue = z.object({
 
 const SuccessCriteriaListReturnValue = z.object({
   data: SuccessCriteriaSchema.nullable(),
+  error: z.string().nullable(),
+})
+
+const AssessmentObjectiveSummaryListReturnValue = z.object({
+  data: AssessmentObjectivesSchema.nullable(),
   error: z.string().nullable(),
 })
 
@@ -279,6 +285,31 @@ export async function readCurriculumDetailAction(curriculumId: string) {
   })
 
   return parsed
+}
+
+export async function readAssessmentObjectivesAction() {
+  console.log("[curricula] readAssessmentObjectivesAction:start")
+
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error } = await supabase
+    .from("assessment_objectives")
+    .select("assessment_objective_id, curriculum_id, unit_id, code, title, order_index")
+    .order("curriculum_id", { ascending: true, nullsFirst: true })
+    .order("order_index", { ascending: true, nullsFirst: true })
+    .order("title", { ascending: true })
+
+  if (error) {
+    console.error("[curricula] readAssessmentObjectivesAction:error", error)
+    return AssessmentObjectiveSummaryListReturnValue.parse({ data: null, error: error.message })
+  }
+
+  const normalized = (data ?? []).map((entry) => ({
+    ...entry,
+    order_index: entry.order_index ?? 0,
+  }))
+
+  return AssessmentObjectiveSummaryListReturnValue.parse({ data: normalized, error: null })
 }
 
 export async function createCurriculumAssessmentObjectiveAction(

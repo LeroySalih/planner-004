@@ -25,6 +25,7 @@ export {
 
 export {
   readLearningObjectivesByUnitAction,
+  readAllLearningObjectivesAction,
   createLearningObjectiveAction,
   updateLearningObjectiveAction,
   deleteLearningObjectiveAction,
@@ -39,11 +40,20 @@ export {
   readLessonAction,
   createLessonAction,
   updateLessonAction,
+  setLessonSuccessCriteriaAction,
+  createLessonLearningObjectiveAction,
+  createLessonLearningObjectiveFormAction,
+  createLessonSuccessCriterionAction,
+  createLessonSuccessCriterionFormAction,
   deactivateLessonAction,
   reorderLessonsAction,
 } from "./server-actions/lessons"
 
-export type { LessonWithObjectives } from "@/types"
+export type {
+  LessonWithObjectives,
+  LessonSuccessCriterion,
+  SuccessCriterion,
+} from "@/types"
 
 export {
   createAssignmentAction,
@@ -135,6 +145,7 @@ export { fetchLessonLinkMetadataAction } from "./server-actions/link-metadata"
 
 export {
   readCurriculaAction,
+  readAssessmentObjectivesAction,
   createCurriculumAction,
   updateCurriculumAction,
   readCurriculumDetailAction,

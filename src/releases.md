@@ -1,5 +1,11 @@
 # Dino
 ## Releases 
+### Release 0.0.25
+- `/lessons/[lessonId]`: Edit Lesson Objectives sidebar now separates the filter from the curriculum selector/Add LO button for better layout and defaults the view to the relevant curriculum when new objectives are added.
+- Add Learning Objective dialog captures the first success criterion (description + level); created objectives and their default SC are immediately linked to the current lesson and preselected in the sidebar.
+- `src/lib/server-actions/lessons.ts`: Lesson LO creation pipeline now inserts the default success criterion, associates both LO and SC with the lesson, and normalises assessment-objective metadata to avoid `never` typings during revalidation.
+- Sidebar filtering keeps all SC visible when an LO matches the filter, while showing only matching SC when the objective itself does not match, aligning behaviour with the updated spec.
+
 ### Release 0.0.24
 - `/profile` & `/profiles`: Routes now gate access with `requireAuthenticatedProfile()` and render a server-driven profile form that disables fields, shows a spinner, and fires toast feedback while saving.
 - `/profiles/[profileId]`: Teacher detail view reuses the same server actions to load and update profiles, dropping direct Supabase browser calls and keeping the UI consistent.

@@ -2,16 +2,25 @@
 
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
+import { performance } from "node:perf_hooks"
 
 import {
+  LearningObjectiveWithCriteriaSchema,
   LessonLearningObjective,
   LessonLink,
   LessonWithObjectivesSchema,
   LessonsWithObjectivesSchema,
+  SuccessCriterionSchema,
 } from "@/types"
+import {
+  type LessonObjectiveFormState,
+  type LessonSuccessCriterionFormState,
+} from "@/lib/lesson-form-state"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import { type NormalizedSuccessCriterion } from "./learning-objectives"
 import { isScorableActivityType } from "@/dino.config"
+import { requireTeacherProfile } from "@/lib/auth"
+import { withTelemetry } from "@/lib/telemetry"
 
 const LessonsReturnValue = z.object({
   data: LessonsWithObjectivesSchema.nullable(),
@@ -24,6 +33,16 @@ const LessonReturnValue = z.object({
 })
 
 const ObjectiveIdsSchema = z.array(z.string()).max(50)
+
+const LessonObjectiveMutationResultSchema = z.object({
+  data: LearningObjectiveWithCriteriaSchema.nullable(),
+  error: z.string().nullable(),
+})
+
+const LessonSuccessCriterionMutationResultSchema = z.object({
+  data: SuccessCriterionSchema.nullable(),
+  error: z.string().nullable(),
+})
 
 export async function readLessonsByUnitAction(unitId: string) {
   console.log("[v0] Server action started for lessons:", { unitId })
@@ -280,6 +299,701 @@ export async function updateLessonAction(
 
   revalidatePath(`/units/${unitId}`)
   return readLessonWithObjectives(data.lesson_id)
+}
+
+const LessonSuccessCriteriaUpdateSchema = z.object({
+  lessonId: z.string().min(1),
+  unitId: z.string().min(1),
+  successCriteriaIds: z.array(z.string().min(1)).default([]),
+})
+
+export async function setLessonSuccessCriteriaAction(
+  lessonId: string,
+  unitId: string,
+  successCriteriaIds: string[],
+) {
+  await requireTeacherProfile()
+
+  const payload = LessonSuccessCriteriaUpdateSchema.parse({
+    lessonId,
+    unitId,
+    successCriteriaIds,
+  })
+
+  const supabase = await createSupabaseServerClient()
+
+  const normalizedIds = Array.from(new Set(payload.successCriteriaIds))
+
+  const { data: existingCriteriaLinks, error: existingCriteriaError } = await supabase
+    .from("lesson_success_criteria")
+    .select("success_criteria_id")
+    .eq("lesson_id", payload.lessonId)
+
+  if (existingCriteriaError) {
+    console.error("[v0] Failed to read lesson success criteria links:", existingCriteriaError)
+    return LessonReturnValue.parse({ data: null, error: existingCriteriaError.message })
+  }
+
+  const existingCriteriaIds = new Set(
+    (existingCriteriaLinks ?? [])
+      .map((link) => link.success_criteria_id)
+      .filter((id): id is string => typeof id === "string" && id.length > 0),
+  )
+
+  const idsToInsert = normalizedIds.filter((id) => !existingCriteriaIds.has(id))
+  const idsToDelete = Array.from(existingCriteriaIds).filter((id) => !normalizedIds.includes(id))
+
+  if (idsToInsert.length > 0) {
+    const { error: insertCriteriaError } = await supabase.from("lesson_success_criteria").insert(
+      idsToInsert.map((successCriteriaId) => ({
+        lesson_id: payload.lessonId,
+        success_criteria_id: successCriteriaId,
+      })),
+    )
+
+    if (insertCriteriaError) {
+      console.error("[v0] Failed to insert lesson success criteria links:", insertCriteriaError)
+      return LessonReturnValue.parse({ data: null, error: insertCriteriaError.message })
+    }
+  }
+
+  if (idsToDelete.length > 0) {
+    const { error: deleteCriteriaError } = await supabase
+      .from("lesson_success_criteria")
+      .delete()
+      .eq("lesson_id", payload.lessonId)
+      .in("success_criteria_id", idsToDelete)
+
+    if (deleteCriteriaError) {
+      console.error("[v0] Failed to remove lesson success criteria links:", deleteCriteriaError)
+      return LessonReturnValue.parse({ data: null, error: deleteCriteriaError.message })
+    }
+  }
+
+  let learningObjectiveIdsFromSelection: string[] = []
+
+  if (normalizedIds.length > 0) {
+    const { data: criteriaMetadata, error: criteriaMetadataError } = await supabase
+      .from("success_criteria")
+      .select("success_criteria_id, learning_objective_id")
+      .in("success_criteria_id", normalizedIds)
+
+    if (criteriaMetadataError) {
+      console.error(
+        "[v0] Failed to read success criteria metadata:",
+        criteriaMetadataError,
+      )
+      return LessonReturnValue.parse({ data: null, error: criteriaMetadataError.message })
+    }
+
+    learningObjectiveIdsFromSelection = Array.from(
+      new Set(
+        (criteriaMetadata ?? [])
+          .map((row) => row.learning_objective_id)
+          .filter((id): id is string => typeof id === "string" && id.length > 0),
+      ),
+    )
+  }
+
+  const { data: existingObjectiveLinks, error: objectiveReadError } = await supabase
+    .from("lessons_learning_objective")
+    .select("learning_objective_id, order_by")
+    .eq("lesson_id", payload.lessonId)
+
+  if (objectiveReadError) {
+    console.error("[v0] Failed to read lesson learning objective links:", objectiveReadError)
+    return LessonReturnValue.parse({ data: null, error: objectiveReadError.message })
+  }
+
+  const existingObjectiveOrderMap = new Map<string, number>()
+  for (const row of existingObjectiveLinks ?? []) {
+    if (!row?.learning_objective_id) continue
+    existingObjectiveOrderMap.set(
+      row.learning_objective_id,
+      typeof row.order_by === "number" ? row.order_by : existingObjectiveOrderMap.size,
+    )
+  }
+
+  const existingObjectiveIds = new Set(existingObjectiveOrderMap.keys())
+  const objectiveIdsToRemove = Array.from(existingObjectiveIds).filter(
+    (id) => !learningObjectiveIdsFromSelection.includes(id),
+  )
+  const objectiveIdsToInsert = learningObjectiveIdsFromSelection.filter(
+    (id) => !existingObjectiveIds.has(id),
+  )
+
+  if (objectiveIdsToRemove.length > 0) {
+    const { error: objectiveDeleteError } = await supabase
+      .from("lessons_learning_objective")
+      .delete()
+      .eq("lesson_id", payload.lessonId)
+      .in("learning_objective_id", objectiveIdsToRemove)
+
+    if (objectiveDeleteError) {
+      console.error("[v0] Failed to remove lesson learning objective links:", objectiveDeleteError)
+      return LessonReturnValue.parse({ data: null, error: objectiveDeleteError.message })
+    }
+  }
+
+  if (objectiveIdsToInsert.length > 0) {
+    const { data: learningObjectiveMetadata, error: learningObjectiveError } = await supabase
+      .from("learning_objectives")
+      .select("learning_objective_id, title")
+      .in("learning_objective_id", objectiveIdsToInsert)
+
+    if (learningObjectiveError) {
+      console.error("[v0] Failed to read learning objective metadata:", learningObjectiveError)
+      return LessonReturnValue.parse({ data: null, error: learningObjectiveError.message })
+    }
+
+    const existingOrders = Array.from(existingObjectiveOrderMap.values())
+    const maxExistingOrder = existingOrders.length > 0 ? Math.max(...existingOrders) : -1
+
+    const insertRows = (learningObjectiveMetadata ?? []).map((meta, index) => ({
+      lesson_id: payload.lessonId,
+      learning_objective_id: meta.learning_objective_id,
+      order_by: maxExistingOrder + index + 1,
+      title: meta.title ?? "",
+      active: true,
+    }))
+
+    if (insertRows.length > 0) {
+      const { error: objectiveInsertError } = await supabase
+        .from("lessons_learning_objective")
+        .insert(insertRows)
+
+      if (objectiveInsertError) {
+        console.error(
+          "[v0] Failed to insert lesson learning objective links:",
+          objectiveInsertError,
+        )
+        return LessonReturnValue.parse({ data: null, error: objectiveInsertError.message })
+      }
+    }
+  }
+
+  revalidatePath(`/lessons/${payload.lessonId}`)
+  revalidatePath(`/units/${payload.unitId}`)
+
+  return readLessonWithObjectives(payload.lessonId)
+}
+
+const LessonObjectiveCreateInputSchema = z.object({
+  lessonId: z.string().min(1),
+  assessmentObjectiveId: z.string().min(1),
+  title: z.string().trim().min(1).max(255),
+  specRef: z.string().trim().max(255).optional(),
+  successCriterionDescription: z.string().trim().min(1).max(500),
+  successCriterionLevel: z.number().int().min(1).max(9),
+})
+
+const LessonSuccessCriterionCreateInputSchema = z.object({
+  lessonId: z.string().min(1),
+  learningObjectiveId: z.string().min(1),
+  description: z.string().trim().min(1).max(500),
+  level: z.number().int().min(1).max(9),
+})
+
+export async function createLessonLearningObjectiveAction(input: {
+  lessonId: string
+  assessmentObjectiveId: string
+  title: string
+  specRef?: string | null
+  successCriterionDescription: string
+  successCriterionLevel: number
+}) {
+  await requireTeacherProfile()
+  const authEndTime = performance.now()
+
+  const payload = LessonObjectiveCreateInputSchema.parse({
+    ...input,
+    specRef: input.specRef ?? undefined,
+  })
+
+  return withTelemetry(
+    {
+      routeTag: `/lessons/${payload.lessonId}`,
+      functionName: "createLessonLearningObjectiveAction",
+      params: {
+        lessonId: payload.lessonId,
+        assessmentObjectiveId: payload.assessmentObjectiveId,
+      },
+      authEndTime,
+    },
+    async () => {
+      const supabase = await createSupabaseServerClient()
+
+      const { data: assessmentObjective, error: assessmentObjectiveError } = await supabase
+        .from("assessment_objectives")
+        .select("assessment_objective_id, curriculum_id, unit_id, code, title, order_index")
+        .eq("assessment_objective_id", payload.assessmentObjectiveId)
+        .maybeSingle()
+
+      if (assessmentObjectiveError) {
+        console.error(
+          "[lessons] Failed to read assessment objective for lesson learning objective creation:",
+          assessmentObjectiveError,
+        )
+        return LessonObjectiveMutationResultSchema.parse({
+          data: null,
+          error: assessmentObjectiveError.message,
+        })
+      }
+
+      if (!assessmentObjective) {
+        return LessonObjectiveMutationResultSchema.parse({
+          data: null,
+          error: "Assessment objective not found",
+        })
+      }
+
+      const { data: maxOrderRow, error: maxOrderError } = await supabase
+        .from("learning_objectives")
+        .select("order_index")
+        .eq("assessment_objective_id", payload.assessmentObjectiveId)
+        .order("order_index", { ascending: false, nullsFirst: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (maxOrderError) {
+        console.error("[lessons] Failed to read learning objective ordering:", maxOrderError)
+        return LessonObjectiveMutationResultSchema.parse({
+          data: null,
+          error: maxOrderError.message,
+        })
+      }
+
+      const nextOrder =
+        typeof maxOrderRow?.order_index === "number" && Number.isFinite(maxOrderRow.order_index)
+          ? maxOrderRow.order_index + 1
+          : 0
+
+      const specRef = payload.specRef?.trim()
+      const normalizedSpecRef = specRef && specRef.length > 0 ? specRef : null
+
+      const { data: insertedObjective, error: insertError } = await supabase
+        .from("learning_objectives")
+        .insert({
+          assessment_objective_id: payload.assessmentObjectiveId,
+          title: payload.title,
+          order_index: nextOrder,
+          active: true,
+          spec_ref: normalizedSpecRef,
+        })
+        .select(
+          "learning_objective_id, assessment_objective_id, title, order_index, active, spec_ref",
+        )
+        .single()
+
+      if (insertError) {
+        console.error("[lessons] Failed to create learning objective:", insertError)
+        return LessonObjectiveMutationResultSchema.parse({
+          data: null,
+          error: insertError.message,
+        })
+      }
+
+      let createdCriterion: {
+        success_criteria_id: string
+        learning_objective_id: string
+        level: number
+        description: string
+        order_index: number | null
+        active: boolean
+        units: string[]
+      } | null = null
+
+      const { successCriterionDescription, successCriterionLevel } = payload
+
+      const { data: insertedCriterion, error: insertCriterionError } = await supabase
+        .from("success_criteria")
+        .insert({
+          learning_objective_id: insertedObjective.learning_objective_id,
+          description: successCriterionDescription,
+          level: successCriterionLevel,
+          order_index: 0,
+          active: true,
+        })
+        .select(
+          "success_criteria_id, learning_objective_id, level, description, order_index, active",
+        )
+        .single()
+
+      if (insertCriterionError) {
+        console.error("[lessons] Failed to create default success criterion:", insertCriterionError)
+        return LessonObjectiveMutationResultSchema.parse({
+          data: null,
+          error: insertCriterionError.message,
+        })
+      }
+
+      createdCriterion = {
+        success_criteria_id: insertedCriterion.success_criteria_id,
+        learning_objective_id: insertedCriterion.learning_objective_id,
+        level: insertedCriterion.level ?? successCriterionLevel,
+        description: insertedCriterion.description ?? successCriterionDescription,
+        order_index: insertedCriterion.order_index ?? 0,
+        active: insertedCriterion.active ?? true,
+        units: [],
+      }
+
+      const { error: lessonCriterionLinkError } = await supabase
+        .from("lesson_success_criteria")
+        .insert({
+          lesson_id: payload.lessonId,
+          success_criteria_id: createdCriterion.success_criteria_id,
+        })
+
+      if (lessonCriterionLinkError) {
+        console.error(
+          "[lessons] Failed to link success criterion to lesson:",
+          lessonCriterionLinkError,
+        )
+        return LessonObjectiveMutationResultSchema.parse({
+          data: null,
+          error: lessonCriterionLinkError.message,
+        })
+      }
+
+      const { data: lessonObjectiveOrders, error: lessonObjectiveOrdersError } = await supabase
+        .from("lessons_learning_objective")
+        .select("order_by")
+        .eq("lesson_id", payload.lessonId)
+
+      if (lessonObjectiveOrdersError) {
+        console.error(
+          "[lessons] Failed to read lesson learning objective ordering:",
+          lessonObjectiveOrdersError,
+        )
+        return LessonObjectiveMutationResultSchema.parse({
+          data: null,
+          error: lessonObjectiveOrdersError.message,
+        })
+      }
+
+      const nextLessonObjectiveOrder =
+        (lessonObjectiveOrders ?? []).reduce<number>((max, row) => {
+          const value = typeof row?.order_by === "number" ? row.order_by : -1
+          return value > max ? value : max
+        }, -1) + 1
+
+      const { error: lessonObjectiveInsertError } = await supabase
+        .from("lessons_learning_objective")
+        .insert({
+          lesson_id: payload.lessonId,
+          learning_objective_id: insertedObjective.learning_objective_id,
+          order_by: nextLessonObjectiveOrder,
+          title: insertedObjective.title ?? payload.title,
+          active: true,
+        })
+
+      if (lessonObjectiveInsertError) {
+        console.error(
+          "[lessons] Failed to link learning objective to lesson:",
+          lessonObjectiveInsertError,
+        )
+        return LessonObjectiveMutationResultSchema.parse({
+          data: null,
+          error: lessonObjectiveInsertError.message,
+        })
+      }
+
+      const normalizedObjective = {
+        learning_objective_id: insertedObjective.learning_objective_id,
+        assessment_objective_id: insertedObjective.assessment_objective_id,
+        title: insertedObjective.title ?? payload.title,
+        order_index: insertedObjective.order_index ?? nextOrder,
+        active: insertedObjective.active ?? true,
+        spec_ref: insertedObjective.spec_ref ?? normalizedSpecRef,
+        assessment_objective_code: assessmentObjective.code ?? null,
+        assessment_objective_title: assessmentObjective.title ?? null,
+        assessment_objective_order_index: assessmentObjective.order_index ?? null,
+        assessment_objective_curriculum_id: assessmentObjective.curriculum_id ?? null,
+        assessment_objective_unit_id: assessmentObjective.unit_id ?? null,
+        assessment_objective: {
+          assessment_objective_id: assessmentObjective.assessment_objective_id,
+          code: assessmentObjective.code ?? null,
+          title: assessmentObjective.title ?? null,
+          order_index: assessmentObjective.order_index ?? null,
+          curriculum_id: assessmentObjective.curriculum_id ?? null,
+          unit_id: assessmentObjective.unit_id ?? null,
+        },
+        success_criteria: createdCriterion ? [createdCriterion] : [],
+      }
+
+      revalidatePath(`/lessons/${payload.lessonId}`)
+      if (assessmentObjective.curriculum_id) {
+        revalidatePath(`/curriculum/${assessmentObjective.curriculum_id}`)
+      }
+
+      return LessonObjectiveMutationResultSchema.parse({
+        data: normalizedObjective,
+        error: null,
+      })
+    },
+  )
+}
+
+export async function createLessonLearningObjectiveFormAction(
+  _prevState: LessonObjectiveFormState,
+  formData: FormData,
+): Promise<LessonObjectiveFormState> {
+  try {
+    const lessonId = String(formData.get("lessonId") ?? "").trim()
+    const assessmentObjectiveId = String(formData.get("assessmentObjectiveId") ?? "").trim()
+    const title = String(formData.get("title") ?? "").trim()
+    const specRefEntry = formData.get("specRef")
+    const specRef =
+      typeof specRefEntry === "string" && specRefEntry.trim().length > 0
+        ? specRefEntry
+        : null
+    const successCriterionDescription = String(formData.get("successCriterionDescription") ?? "").trim()
+    const successCriterionLevelValue = formData.get("successCriterionLevel")
+    const successCriterionLevel =
+      typeof successCriterionLevelValue === "string"
+        ? Number.parseInt(successCriterionLevelValue, 10)
+        : Number.NaN
+
+    if (!lessonId || !assessmentObjectiveId || !title || successCriterionDescription.length === 0) {
+      return {
+        status: "error",
+        message: "Lesson, assessment objective, title, and success criterion are required.",
+        learningObjective: null,
+      }
+    }
+
+    if (!Number.isInteger(successCriterionLevel) || successCriterionLevel < 1 || successCriterionLevel > 9) {
+      return {
+        status: "error",
+        message: "Success criterion level must be between 1 and 9.",
+        learningObjective: null,
+      }
+    }
+
+    const result = await createLessonLearningObjectiveAction({
+      lessonId,
+      assessmentObjectiveId,
+      title,
+      specRef,
+      successCriterionDescription,
+      successCriterionLevel,
+    })
+
+    if (result.error || !result.data) {
+      return {
+        status: "error",
+        message: result.error ?? "Unable to create learning objective.",
+        learningObjective: null,
+      }
+    }
+
+    return {
+      status: "success",
+      message: "Learning objective created.",
+      learningObjective: result.data,
+    }
+  } catch (error) {
+    console.error("[lessons] Failed to create learning objective via form:", error)
+    return {
+      status: "error",
+      message: error instanceof Error ? error.message : "Unable to create learning objective.",
+      learningObjective: null,
+    }
+  }
+}
+
+export async function createLessonSuccessCriterionAction(input: {
+  lessonId: string
+  learningObjectiveId: string
+  description: string
+  level: number
+}) {
+  await requireTeacherProfile()
+  const authEndTime = performance.now()
+
+  const payload = LessonSuccessCriterionCreateInputSchema.parse(input)
+
+  return withTelemetry(
+    {
+      routeTag: `/lessons/${payload.lessonId}`,
+      functionName: "createLessonSuccessCriterionAction",
+      params: {
+        lessonId: payload.lessonId,
+        learningObjectiveId: payload.learningObjectiveId,
+        level: payload.level,
+      },
+      authEndTime,
+    },
+    async () => {
+      const supabase = await createSupabaseServerClient()
+
+      const { data: learningObjective, error: learningObjectiveError } = await supabase
+        .from("learning_objectives")
+        .select(
+          `learning_objective_id,
+            assessment_objective_id,
+            assessment_objective:assessment_objectives(
+              curriculum_id,
+              code,
+              title,
+              order_index
+            )`,
+        )
+        .eq("learning_objective_id", payload.learningObjectiveId)
+        .maybeSingle()
+
+      if (learningObjectiveError) {
+        console.error(
+          "[lessons] Failed to read learning objective for success criterion creation:",
+          learningObjectiveError,
+        )
+        return LessonSuccessCriterionMutationResultSchema.parse({
+          data: null,
+          error: learningObjectiveError.message,
+        })
+      }
+
+      if (!learningObjective) {
+        return LessonSuccessCriterionMutationResultSchema.parse({
+          data: null,
+          error: "Learning objective not found",
+        })
+      }
+
+      const { data: maxOrderRow, error: maxOrderError } = await supabase
+        .from("success_criteria")
+        .select("order_index")
+        .eq("learning_objective_id", payload.learningObjectiveId)
+        .order("order_index", { ascending: false, nullsFirst: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (maxOrderError) {
+        console.error("[lessons] Failed to read success criterion ordering:", maxOrderError)
+        return LessonSuccessCriterionMutationResultSchema.parse({
+          data: null,
+          error: maxOrderError.message,
+        })
+      }
+
+      const nextOrder =
+        typeof maxOrderRow?.order_index === "number" && Number.isFinite(maxOrderRow.order_index)
+          ? maxOrderRow.order_index + 1
+          : 0
+
+      const { data: insertedCriterion, error: insertError } = await supabase
+        .from("success_criteria")
+        .insert({
+          learning_objective_id: payload.learningObjectiveId,
+          description: payload.description,
+          level: payload.level,
+          order_index: nextOrder,
+          active: true,
+        })
+        .select(
+          "success_criteria_id, learning_objective_id, level, description, order_index, active",
+        )
+        .single()
+
+      if (insertError) {
+        console.error("[lessons] Failed to create success criterion:", insertError)
+        return LessonSuccessCriterionMutationResultSchema.parse({
+          data: null,
+          error: insertError.message,
+        })
+      }
+
+      const normalizedCriterion = {
+        success_criteria_id: insertedCriterion.success_criteria_id,
+        learning_objective_id: insertedCriterion.learning_objective_id,
+        level: insertedCriterion.level ?? payload.level,
+        description: insertedCriterion.description ?? payload.description,
+        order_index: insertedCriterion.order_index ?? nextOrder,
+        active: insertedCriterion.active ?? true,
+        units: [],
+      }
+
+      revalidatePath(`/lessons/${payload.lessonId}`)
+
+      const rawAssessmentObjective = learningObjective
+        .assessment_objective as
+        | { curriculum_id?: string | null }
+        | Array<{ curriculum_id?: string | null }>
+        | null
+        | undefined
+      const normalizedAssessmentObjective = Array.isArray(rawAssessmentObjective)
+        ? rawAssessmentObjective[0] ?? null
+        : rawAssessmentObjective ?? null
+      const curriculumId = normalizedAssessmentObjective?.curriculum_id ?? null
+
+      if (curriculumId) {
+        revalidatePath(`/curriculum/${curriculumId}`)
+      }
+
+      return LessonSuccessCriterionMutationResultSchema.parse({
+        data: normalizedCriterion,
+        error: null,
+      })
+    },
+  )
+}
+
+export async function createLessonSuccessCriterionFormAction(
+  _prevState: LessonSuccessCriterionFormState,
+  formData: FormData,
+): Promise<LessonSuccessCriterionFormState> {
+  try {
+    const lessonId = String(formData.get("lessonId") ?? "").trim()
+    const learningObjectiveId = String(formData.get("learningObjectiveId") ?? "").trim()
+    const description = String(formData.get("description") ?? "").trim()
+    const levelValue = formData.get("level")
+
+    const level = typeof levelValue === "string" ? Number.parseInt(levelValue, 10) : NaN
+
+    if (!lessonId || !learningObjectiveId || !description) {
+      return {
+        status: "error",
+        message: "Lesson, learning objective, and description are required.",
+        successCriterion: null,
+      }
+    }
+
+    if (!Number.isInteger(level) || level < 1 || level > 9) {
+      return {
+        status: "error",
+        message: "Level must be a number between 1 and 9.",
+        successCriterion: null,
+      }
+    }
+
+    const result = await createLessonSuccessCriterionAction({
+      lessonId,
+      learningObjectiveId,
+      description,
+      level,
+    })
+
+    if (result.error || !result.data) {
+      return {
+        status: "error",
+        message: result.error ?? "Unable to create success criterion.",
+        successCriterion: null,
+      }
+    }
+
+    return {
+      status: "success",
+      message: "Success criterion created.",
+      successCriterion: result.data,
+    }
+  } catch (error) {
+    console.error("[lessons] Failed to create success criterion via form:", error)
+    return {
+      status: "error",
+      message: error instanceof Error ? error.message : "Unable to create success criterion.",
+      successCriterion: null,
+    }
+  }
 }
 
 export async function deactivateLessonAction(lessonId: string, unitId: string) {

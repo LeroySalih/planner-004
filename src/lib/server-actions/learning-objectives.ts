@@ -27,7 +27,7 @@ const SuccessCriterionInputSchema = z.object({
   success_criteria_id: z.string().optional(),
   description: z.string().trim().optional(),
   title: z.string().trim().optional(),
-  level: z.number().min(1).max(7).optional(),
+  level: z.number().min(1).max(9).optional(),
   order_index: z.number().optional(),
   active: z.boolean().optional(),
   unit_ids: z.array(z.string()).optional(),
@@ -38,23 +38,29 @@ const SuccessCriteriaInputSchema = z.array(SuccessCriterionInputSchema)
 export type LearningObjectiveWithCriteria = z.infer<typeof LearningObjectiveWithCriteriaSchema>
 export type SuccessCriteriaInput = z.infer<typeof SuccessCriteriaInputSchema>
 
-export async function readLearningObjectivesByUnitAction(unitId: string) {
-  console.log("[v0] Server action started for learning objectives:", { unitId })
+async function readLearningObjectivesWithCriteria(options: {
+  learningObjectiveIds?: string[]
+  filterUnitId?: string
+}) {
+  const { learningObjectiveIds = [], filterUnitId } = options
 
   const supabase = await createSupabaseServerClient()
 
   const {
     map: successCriteriaMap,
-    learningObjectiveIds,
+    learningObjectiveIds: discoveredIds,
     error: successCriteriaError,
-  } = await fetchSuccessCriteriaForLearningObjectives([], unitId, supabase)
+  } = await fetchSuccessCriteriaForLearningObjectives(learningObjectiveIds, filterUnitId, supabase)
 
   if (successCriteriaError) {
-    console.error("[v0] Failed to read success criteria for unit:", successCriteriaError)
+    console.error("[v0] Failed to read success criteria:", successCriteriaError)
     return LearningObjectivesReturnValue.parse({ data: null, error: successCriteriaError })
   }
 
-  if (learningObjectiveIds.length === 0) {
+  const objectiveIdsToLoad =
+    learningObjectiveIds.length > 0 ? learningObjectiveIds : discoveredIds
+
+  if (objectiveIdsToLoad.length === 0) {
     return LearningObjectivesReturnValue.parse({ data: [], error: null })
   }
 
@@ -69,13 +75,15 @@ export async function readLearningObjectivesByUnitAction(unitId: string) {
         spec_ref,
         assessment_objective:assessment_objectives(
           assessment_objective_id,
+          curriculum_id,
+          unit_id,
           code,
           title,
           order_index
         )
       `,
     )
-    .in("learning_objective_id", learningObjectiveIds)
+    .in("learning_objective_id", objectiveIdsToLoad)
     .order("order_index", { ascending: true })
 
   if (error) {
@@ -100,6 +108,8 @@ export async function readLearningObjectivesByUnitAction(unitId: string) {
         assessment_objective_code: assessmentObjective?.code ?? null,
         assessment_objective_title: assessmentObjective?.title ?? null,
         assessment_objective_order_index: assessmentObjective?.order_index ?? null,
+        assessment_objective_curriculum_id: assessmentObjective?.curriculum_id ?? null,
+        assessment_objective_unit_id: assessmentObjective?.unit_id ?? null,
         title: meta?.title ?? "",
         order_index: meta?.order_index ?? index,
         active: meta?.active ?? true,
@@ -109,6 +119,16 @@ export async function readLearningObjectivesByUnitAction(unitId: string) {
     .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0))
 
   return LearningObjectivesReturnValue.parse({ data: normalized, error: null })
+}
+
+export async function readLearningObjectivesByUnitAction(unitId: string) {
+  console.log("[v0] Server action started for learning objectives:", { unitId })
+  return readLearningObjectivesWithCriteria({ filterUnitId: unitId })
+}
+
+export async function readAllLearningObjectivesAction() {
+  console.log("[v0] Server action started for curriculum learning objectives")
+  return readLearningObjectivesWithCriteria({})
 }
 
 export type NormalizedSuccessCriterion = {
@@ -160,8 +180,6 @@ export async function fetchSuccessCriteriaForLearningObjectives(
 
     criterionIdsToFetch = criterionIds
     criteriaQuery = criteriaQuery.in("success_criteria_id", criterionIds)
-  } else {
-    return { map: new Map(), learningObjectiveIds: [], error: null }
   }
 
   const { data: criteriaRows, error: criteriaError } = await criteriaQuery
@@ -596,7 +614,24 @@ async function readSingleLearningObjective(learningObjectiveId: string) {
 
   const { data, error } = await supabase
     .from("learning_objectives")
-    .select("*, success_criteria(*)")
+    .select(
+      `learning_objective_id,
+        assessment_objective_id,
+        title,
+        order_index,
+        active,
+        spec_ref,
+        assessment_objective:assessment_objectives(
+          assessment_objective_id,
+          curriculum_id,
+          unit_id,
+          code,
+          title,
+          order_index
+        ),
+        success_criteria(*)
+      `,
+    )
     .eq("learning_objective_id", learningObjectiveId)
     .maybeSingle()
 
@@ -605,5 +640,30 @@ async function readSingleLearningObjective(learningObjectiveId: string) {
     return LearningObjectiveReturnValue.parse({ data: null, error: error.message })
   }
 
-  return LearningObjectiveReturnValue.parse({ data, error: null })
+  if (!data) {
+    return LearningObjectiveReturnValue.parse({ data: null, error: null })
+  }
+
+  const assessmentObjective = Array.isArray(data.assessment_objective)
+    ? data.assessment_objective[0] ?? null
+    : data.assessment_objective ?? null
+
+  const base = data as Record<string, any>
+
+  const normalized: Record<string, any> = {
+    ...base,
+    assessment_objective: assessmentObjective,
+    assessment_objective_code:
+      base.assessment_objective_code ?? assessmentObjective?.code ?? null,
+    assessment_objective_title:
+      base.assessment_objective_title ?? assessmentObjective?.title ?? null,
+    assessment_objective_order_index:
+      base.assessment_objective_order_index ?? assessmentObjective?.order_index ?? null,
+    assessment_objective_curriculum_id:
+      base.assessment_objective_curriculum_id ?? assessmentObjective?.curriculum_id ?? null,
+    assessment_objective_unit_id:
+      base.assessment_objective_unit_id ?? assessmentObjective?.unit_id ?? null,
+  }
+
+  return LearningObjectiveReturnValue.parse({ data: normalized, error: null })
 }
