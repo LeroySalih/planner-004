@@ -7,3 +7,7 @@ experimental_use_rmcp_client = true
 url = "http://localhost:54321/mcp?read_only=true"
 startup_timeout_sec = 10
 tool_timeout_sec = 120
+
+[mcpServers.chrome-devtools]
+command = "npx"
+args = ["chrome-devtools-mcp@latest"]

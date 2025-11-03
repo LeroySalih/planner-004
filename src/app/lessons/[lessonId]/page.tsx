@@ -7,6 +7,8 @@ import {
   listLessonActivitiesAction,
   listLessonFilesAction,
   readAllLearningObjectivesAction,
+  readAssessmentObjectivesAction,
+  readCurriculaAction,
   readLessonAction,
   readLessonsByUnitAction,
   readUnitAction,
@@ -35,16 +37,31 @@ export default async function LessonDetailPage({
     notFound()
   }
 
-  const [unitResult, learningObjectivesResult, lessonFilesResult, lessonActivitiesResult, lessonsByUnitResult] =
+  const [
+    unitResult,
+    learningObjectivesResult,
+    curriculaResult,
+    assessmentObjectivesResult,
+    lessonFilesResult,
+    lessonActivitiesResult,
+    lessonsByUnitResult,
+  ] =
     await Promise.all([
       readUnitAction(lesson.unit_id),
       readAllLearningObjectivesAction(),
+      readCurriculaAction(),
+      readAssessmentObjectivesAction(),
       listLessonFilesAction(lesson.lesson_id),
       listLessonActivitiesAction(lesson.lesson_id),
       readLessonsByUnitAction(lesson.unit_id),
     ])
 
-  if (unitResult.error || learningObjectivesResult.error) {
+  if (
+    unitResult.error ||
+    learningObjectivesResult.error ||
+    curriculaResult.error ||
+    assessmentObjectivesResult.error
+  ) {
     return (
       <div className="container mx-auto space-y-4 p-6">
         {unitResult.error && (
@@ -57,6 +74,18 @@ export default async function LessonDetailPage({
           <div>
             <h2 className="text-xl font-semibold">Error Loading Learning Objectives</h2>
             <p className="text-red-600">{learningObjectivesResult.error}</p>
+          </div>
+        )}
+        {curriculaResult.error && (
+          <div>
+            <h2 className="text-xl font-semibold">Error Loading Curricula</h2>
+            <p className="text-red-600">{curriculaResult.error}</p>
+          </div>
+        )}
+        {assessmentObjectivesResult.error && (
+          <div>
+            <h2 className="text-xl font-semibold">Error Loading Assessment Objectives</h2>
+            <p className="text-red-600">{assessmentObjectivesResult.error}</p>
           </div>
         )}
       </div>
@@ -98,6 +127,8 @@ export default async function LessonDetailPage({
       lesson={lesson}
       unit={unitResult.data ?? null}
       learningObjectives={learningObjectivesResult.data ?? []}
+      curricula={curriculaResult.data ?? []}
+      assessmentObjectives={assessmentObjectivesResult.data ?? []}
       lessonFiles={lessonFilesResult.data ?? []}
       lessonActivities={activities}
       unitLessons={lessonOptions}

@@ -5,8 +5,15 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { LinkIcon, List, Target, Upload } from "lucide-react"
 
-import type { LearningObjectiveWithCriteria, LessonWithObjectives } from "@/lib/server-updates"
-import type { LessonActivity, LessonSuccessCriterion, Unit } from "@/types"
+import type {
+  AssessmentObjective,
+  Curriculum,
+  LearningObjectiveWithCriteria,
+  LessonActivity,
+  LessonSuccessCriterion,
+  LessonWithObjectives,
+  Unit,
+} from "@/types"
 import { LessonFilesManager } from "@/components/lessons/lesson-files-manager"
 import { LessonLinksManager } from "@/components/lessons/lesson-links-manager"
 import { LessonActivitiesManager } from "@/components/lessons/lesson-activities-manager"
@@ -25,6 +32,8 @@ interface LessonDetailClientProps {
   lesson: LessonWithObjectives
   unit: Unit | null
   learningObjectives: LearningObjectiveWithCriteria[]
+  curricula: Curriculum[]
+  assessmentObjectives: AssessmentObjective[]
   lessonFiles: { name: string; path: string; created_at?: string; updated_at?: string; size?: number }[]
   lessonActivities: LessonActivity[]
   unitLessons: LessonPickerOption[]
@@ -34,6 +43,8 @@ export function LessonDetailClient({
   lesson,
   unit,
   learningObjectives,
+  curricula,
+  assessmentObjectives,
   lessonFiles,
   lessonActivities,
   unitLessons,
@@ -344,6 +355,8 @@ export function LessonDetailClient({
         unitId={unit?.unit_id ?? currentLesson.unit_id}
         lesson={currentLesson}
         learningObjectives={learningObjectives}
+        curricula={curricula}
+        assessmentObjectives={assessmentObjectives}
         selectedSuccessCriteria={currentLesson.lesson_success_criteria ?? []}
         isOpen={isObjectivesSidebarOpen}
         onClose={() => setIsObjectivesSidebarOpen(false)}

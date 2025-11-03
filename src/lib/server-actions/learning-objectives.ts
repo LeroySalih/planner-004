@@ -27,7 +27,7 @@ const SuccessCriterionInputSchema = z.object({
   success_criteria_id: z.string().optional(),
   description: z.string().trim().optional(),
   title: z.string().trim().optional(),
-  level: z.number().min(1).max(7).optional(),
+  level: z.number().min(1).max(9).optional(),
   order_index: z.number().optional(),
   active: z.boolean().optional(),
   unit_ids: z.array(z.string()).optional(),
@@ -75,6 +75,8 @@ async function readLearningObjectivesWithCriteria(options: {
         spec_ref,
         assessment_objective:assessment_objectives(
           assessment_objective_id,
+          curriculum_id,
+          unit_id,
           code,
           title,
           order_index
@@ -106,6 +108,8 @@ async function readLearningObjectivesWithCriteria(options: {
         assessment_objective_code: assessmentObjective?.code ?? null,
         assessment_objective_title: assessmentObjective?.title ?? null,
         assessment_objective_order_index: assessmentObjective?.order_index ?? null,
+        assessment_objective_curriculum_id: assessmentObjective?.curriculum_id ?? null,
+        assessment_objective_unit_id: assessmentObjective?.unit_id ?? null,
         title: meta?.title ?? "",
         order_index: meta?.order_index ?? index,
         active: meta?.active ?? true,
@@ -610,7 +614,24 @@ async function readSingleLearningObjective(learningObjectiveId: string) {
 
   const { data, error } = await supabase
     .from("learning_objectives")
-    .select("*, success_criteria(*)")
+    .select(
+      `learning_objective_id,
+        assessment_objective_id,
+        title,
+        order_index,
+        active,
+        spec_ref,
+        assessment_objective:assessment_objectives(
+          assessment_objective_id,
+          curriculum_id,
+          unit_id,
+          code,
+          title,
+          order_index
+        ),
+        success_criteria(*)
+      `,
+    )
     .eq("learning_objective_id", learningObjectiveId)
     .maybeSingle()
 
@@ -619,5 +640,30 @@ async function readSingleLearningObjective(learningObjectiveId: string) {
     return LearningObjectiveReturnValue.parse({ data: null, error: error.message })
   }
 
-  return LearningObjectiveReturnValue.parse({ data, error: null })
+  if (!data) {
+    return LearningObjectiveReturnValue.parse({ data: null, error: null })
+  }
+
+  const assessmentObjective = Array.isArray(data.assessment_objective)
+    ? data.assessment_objective[0] ?? null
+    : data.assessment_objective ?? null
+
+  const base = data as Record<string, any>
+
+  const normalized: Record<string, any> = {
+    ...base,
+    assessment_objective: assessmentObjective,
+    assessment_objective_code:
+      base.assessment_objective_code ?? assessmentObjective?.code ?? null,
+    assessment_objective_title:
+      base.assessment_objective_title ?? assessmentObjective?.title ?? null,
+    assessment_objective_order_index:
+      base.assessment_objective_order_index ?? assessmentObjective?.order_index ?? null,
+    assessment_objective_curriculum_id:
+      base.assessment_objective_curriculum_id ?? assessmentObjective?.curriculum_id ?? null,
+    assessment_objective_unit_id:
+      base.assessment_objective_unit_id ?? assessmentObjective?.unit_id ?? null,
+  }
+
+  return LearningObjectiveReturnValue.parse({ data: normalized, error: null })
 }

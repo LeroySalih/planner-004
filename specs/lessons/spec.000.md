@@ -22,11 +22,17 @@ The purpose of this page is to allow teachers to create and design lessons that 
 - There is an edit button, to allow teachers to edit the LO and Success criteria that are associated with this lesson. 
 
 ### Edit Lesson Objectives Side Bar
-- The side bar will display all LO and SC for this curriculum (not just those tied to the lesson’s unit).
+- The side bar will display all LO and SC for a selected curriculum (not just those tied to the lesson’s unit).
+- A curriculum selector sits above the filter box. It defaults to the lesson’s owning curriculum but can be changed to any curriculum the teacher can access. Changing the selection refreshes the LO/SC list so only objectives from that curriculum are shown.
 - Users can check the boxes at SC level to associate an individual SC with a lesson.
 - users can click the LO to associate all SC with a lesson.
 - remember that lessons are not directly associated with a LO, links are formed through SCs.
 - When the side bar opens, any success criteria already linked to the lesson are preselected. Success criteria may be linked to multiple lessons.
+- This side bar will inlcude a filter text box. Text that is entered will filter learning objective labels first; when an LO matches, all of its success criteria remain visible, otherwise only the matching success criteria are shown beneath that LO.
+- The side bar will include a Add LO button.  This will open a new dialog that asks the user to pick a curriculum, then an assessment objective within that curriculum, before entering the LO title, spec ref, and the first success criterion (description and level).  The new LO is linked to the chosen curriculum (not scoped to the unit until success criteria are assigned).
+- The side bar will include a Add LO button.  This will open a new dialog that asks the user to pick a curriculum, then an assessment objective within that curriculum, before entering the LO title, spec ref, and the first success criterion (description and level).  The new LO is linked to the chosen curriculum (not scoped to the unit until success criteria are assigned).
+- When a new LO is created through this dialog, the LO and its default success criterion are automatically linked to the current lesson and preselected so they appear immediately in the sidebar.
+- Each LO will have a new SC button, that will open a second side bar to allow the user to add a new SC to the LO.  This side bar will allow the user to enter the title and level for a SC, enforcing the numeric level range of 1–9.
 
 ### Lesson Activities Side Bar
 - This panel shows 2 buttons, Show Activities, and Add Activity, presented in the main content column above the activities list.
