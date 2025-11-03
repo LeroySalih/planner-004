@@ -915,9 +915,16 @@ export async function createLessonSuccessCriterionAction(input: {
 
       revalidatePath(`/lessons/${payload.lessonId}`)
 
-      const curriculumId = Array.isArray(learningObjective.assessment_objective)
-        ? learningObjective.assessment_objective[0]?.curriculum_id
-        : learningObjective.assessment_objective?.curriculum_id
+      const rawAssessmentObjective = learningObjective
+        .assessment_objective as
+        | { curriculum_id?: string | null }
+        | Array<{ curriculum_id?: string | null }>
+        | null
+        | undefined
+      const normalizedAssessmentObjective = Array.isArray(rawAssessmentObjective)
+        ? rawAssessmentObjective[0] ?? null
+        : rawAssessmentObjective ?? null
+      const curriculumId = normalizedAssessmentObjective?.curriculum_id ?? null
 
       if (curriculumId) {
         revalidatePath(`/curriculum/${curriculumId}`)
