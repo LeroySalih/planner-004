@@ -1,9 +1,11 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Calendar, Edit2, Target, Users } from "lucide-react"
+import { toast } from "sonner"
 
-import type { Assignment, Group, Groups, Subjects, Unit } from "@/types"
+import type { Assignment, Group, Groups, Subjects, Unit, UnitJobPayload } from "@/types"
+import { UnitJobPayloadSchema } from "@/types"
 import type {
   LearningObjectiveWithCriteria,
   LessonWithObjectives,
@@ -14,6 +16,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { LessonsPanel } from "@/components/units/lessons-panel"
 import { UnitEditSidebar } from "@/components/units/unit-edit-sidebar"
 import { UnitFilesPanel } from "@/components/units/unit-files-panel"
+import { supabaseBrowserClient } from "@/lib/supabase-browser"
+
+const UNIT_CHANNEL_NAME = "unit_updates"
+const UNIT_UPDATE_EVENT = "unit:update"
+const UNIT_DEACTIVATE_EVENT = "unit:deactivate"
 
 const levelStyleMap: Record<number, string> = {
   1: "bg-emerald-100 text-emerald-900",
@@ -46,10 +53,78 @@ export function UnitDetailView({
 }: UnitDetailViewProps) {
   const [isUnitSidebarOpen, setIsUnitSidebarOpen] = useState(false)
   const [currentUnit, setCurrentUnit] = useState<Unit>(unit)
+  const optimisticSnapshotRef = useRef<Unit | null>(null)
+  const pendingJobsRef = useRef(new Map<string, Unit>())
 
   useEffect(() => {
     setCurrentUnit(unit)
+    optimisticSnapshotRef.current = null
+    pendingJobsRef.current.clear()
   }, [unit])
+
+  useEffect(() => {
+    const channel = supabaseBrowserClient.channel(UNIT_CHANNEL_NAME)
+
+    const handleEvent = (event: { payload: unknown }) => {
+      const parsed = UnitJobPayloadSchema.safeParse(event.payload)
+      if (!parsed.success) {
+        console.warn("[units] received invalid unit job payload", parsed.error)
+        return
+      }
+
+      const payload: UnitJobPayload = parsed.data
+      if (payload.unit_id !== unit.unit_id) {
+        return
+      }
+
+      console.info("[units] realtime payload", payload)
+
+      const snapshot = pendingJobsRef.current.get(payload.job_id)
+      const clearSnapshot = () => {
+        pendingJobsRef.current.delete(payload.job_id)
+      }
+
+      if (payload.status === "completed") {
+        if (payload.operation === "update") {
+          if (payload.unit) {
+            setCurrentUnit(payload.unit)
+          } else if (snapshot) {
+            setCurrentUnit(snapshot)
+          }
+          toast.success(payload.message ?? "Unit updated successfully.")
+        } else if (payload.operation === "deactivate") {
+          setCurrentUnit((prev) => ({ ...prev, active: false }))
+          toast.success(payload.message ?? "Unit deactivated successfully.")
+        }
+        clearSnapshot()
+        return
+      }
+
+      if (payload.status === "error") {
+        if (snapshot) {
+          setCurrentUnit(snapshot)
+        }
+        toast.error(payload.message ?? "Unit update failed.")
+        clearSnapshot()
+      }
+    }
+
+    channel.on("broadcast", { event: UNIT_UPDATE_EVENT }, handleEvent)
+    channel.on("broadcast", { event: UNIT_DEACTIVATE_EVENT }, handleEvent)
+
+    const subscribeResult = channel.subscribe()
+    if (subscribeResult instanceof Promise) {
+      subscribeResult.catch((error) => {
+        console.error("[units] realtime subscription error", error)
+        toast.error("Live unit updates are unavailable right now.")
+      })
+    }
+
+    return () => {
+      pendingJobsRef.current.clear()
+      void supabaseBrowserClient.removeChannel(channel)
+    }
+  }, [unit.unit_id])
 
   const groupsById = useMemo(() => {
     const map = new Map<string, Group>()
@@ -63,6 +138,18 @@ export function UnitDetailView({
   const statusClassName = isActive
     ? "bg-emerald-100 text-emerald-700 border-emerald-200"
     : "bg-rose-100 text-rose-700 border-rose-200"
+
+  const handleOptimisticUpdate = (nextUnit: Unit) => {
+    optimisticSnapshotRef.current = { ...currentUnit }
+    setCurrentUnit(nextUnit)
+  }
+
+  const handleJobQueued = (jobId: string) => {
+    if (!jobId) return
+    const snapshot = optimisticSnapshotRef.current ?? currentUnit
+    pendingJobsRef.current.set(jobId, { ...snapshot })
+    optimisticSnapshotRef.current = null
+  }
 
   const orderedObjectives = useMemo(
     () => sortObjectives(learningObjectives),
@@ -419,7 +506,8 @@ export function UnitDetailView({
         subjects={subjects}
         isOpen={isUnitSidebarOpen}
         onClose={() => setIsUnitSidebarOpen(false)}
-        onOptimisticUpdate={setCurrentUnit}
+        onOptimisticUpdate={handleOptimisticUpdate}
+        onJobQueued={handleJobQueued}
       />
     </>
   )

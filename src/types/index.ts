@@ -14,6 +14,26 @@ export type Group = z.infer<typeof GroupSchema>;
 export type Groups = z.infer<typeof GroupsSchema>;
 export type AssignmentChangeEvent = "create" | "edit" | "delete" | "unit-title-click"
 
+export const FastUiJobStatusSchema = z.enum(["queued", "completed", "error"]);
+
+export const FastUiRealtimePayloadSchema = z.object({
+    job_id: z.string(),
+    status: FastUiJobStatusSchema,
+    counter_value: z.number().int(),
+    message: z.string().nullable().default(null),
+});
+
+export type FastUiJobStatus = z.infer<typeof FastUiJobStatusSchema>;
+export type FastUiRealtimePayload = z.infer<typeof FastUiRealtimePayloadSchema>;
+
+export const FastUiActionStateSchema = z.object({
+    status: z.enum(["idle", "queued", "error"]),
+    jobId: z.string().nullable(),
+    message: z.string().nullable(),
+});
+
+export type FastUiActionState = z.infer<typeof FastUiActionStateSchema>;
+
 export const GroupMembershipSchema = z.object({
     group_id: z.string(),
     user_id: z.string(),
@@ -152,6 +172,31 @@ export const SuccessCriteriaSchema = z.array(SuccessCriterionSchema);
 
 export type SuccessCriterion = z.infer<typeof SuccessCriterionSchema>;
 export type SuccessCriteria = z.infer<typeof SuccessCriteriaSchema>;
+
+export const UnitJobOperationSchema = z.enum(["update", "deactivate"]);
+
+export const UnitJobStatusSchema = z.enum(["queued", "completed", "error"]);
+
+export const UnitJobPayloadSchema = z.object({
+    job_id: z.string(),
+    unit_id: z.string(),
+    status: UnitJobStatusSchema,
+    operation: UnitJobOperationSchema,
+    message: z.string().nullable().default(null),
+    unit: UnitSchema.nullable().optional(),
+});
+
+export type UnitJobOperation = z.infer<typeof UnitJobOperationSchema>;
+export type UnitJobStatus = z.infer<typeof UnitJobStatusSchema>;
+export type UnitJobPayload = z.infer<typeof UnitJobPayloadSchema>;
+
+export const UnitMutationStateSchema = z.object({
+    status: z.enum(["idle", "queued", "error"]),
+    jobId: z.string().nullable(),
+    message: z.string().nullable(),
+});
+
+export type UnitMutationState = z.infer<typeof UnitMutationStateSchema>;
 
 export const SuccessCriterionUnitSchema = z.object({
     success_criteria_id: z.string(),
