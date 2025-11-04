@@ -188,6 +188,7 @@ export function LessonResourcesSidebar({
   onResourcesChange,
   onLessonUpdated,
   onDeactivate,
+  onLessonJobQueued,
 }: LessonResourcesSidebarProps) {
   if (!lesson) {
     return null

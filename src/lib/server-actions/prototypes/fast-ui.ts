@@ -46,36 +46,45 @@ async function publishRealtimeEvent(
   await new Promise<void>((resolve, reject) => {
     let settled = false
 
-    channel
-      .subscribe((status) => {
-        if (settled) {
-          return
-        }
+    const subscribeResult = channel.subscribe((status) => {
+      if (settled) {
+        return
+      }
 
-        if (status === "SUBSCRIBED") {
-          settled = true
-          resolve()
-        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-          settled = true
-          reject(new Error(`Realtime channel subscription failed with status: ${status}`))
-        }
-      })
-      .catch((error) => {
+      if (status === "SUBSCRIBED") {
+        settled = true
+        resolve()
+      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        settled = true
+        reject(new Error(`Realtime channel subscription failed with status: ${status}`))
+      }
+    })
+
+    if (subscribeResult instanceof Promise) {
+      subscribeResult.catch((error) => {
         if (!settled) {
           settled = true
           reject(error)
         }
       })
+    }
   })
 
-  const { error } = await channel.send({
+  const sendResult = await channel.send({
     type: "broadcast",
     event,
     payload,
   })
 
-  if (error) {
-    throw new Error(error.message)
+  if (sendResult !== "ok") {
+    const status =
+      typeof sendResult === "string"
+        ? sendResult
+        : (sendResult as { status?: string })?.status ?? "ok"
+
+    if (status !== "ok") {
+      throw new Error(`Realtime channel send failed with status: ${status}`)
+    }
   }
 
   await supabase.removeChannel(channel)

@@ -82,14 +82,21 @@ async function publishUnitJobEvent(
       }
     })
 
-    const { error } = await channel.send({
+    const sendResult = await channel.send({
       type: "broadcast",
       event,
       payload,
     })
 
-    if (error) {
-      throw new Error(error.message)
+    if (sendResult !== "ok") {
+      const status =
+        typeof sendResult === "string"
+          ? sendResult
+          : (sendResult as { status?: string })?.status ?? "ok"
+
+      if (status !== "ok") {
+        throw new Error(`Realtime channel send failed with status: ${status}`)
+      }
     }
 
     console.info("[units] published unit job event", { event, jobId: payload.job_id, unitId: payload.unit_id })
@@ -427,9 +434,9 @@ export async function triggerUnitUpdateJobAction(
       const trimmedUnitId = parsedForm.data.unitId.trim()
       const trimmedTitle = parsedForm.data.title.trim()
       const trimmedSubject = parsedForm.data.subject.trim()
-      const descriptionValue = parsedForm.data.description.trim()
+      const descriptionValue = (parsedForm.data.description ?? "").trim()
       const sanitizedDescription = descriptionValue.length > 0 ? descriptionValue : null
-      const trimmedYear = parsedForm.data.year.trim()
+      const trimmedYear = (parsedForm.data.year ?? "").trim()
 
       if (!trimmedUnitId || !trimmedTitle || !trimmedSubject) {
         return UnitMutationStateSchema.parse({

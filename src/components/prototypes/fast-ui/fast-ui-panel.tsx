@@ -177,17 +177,18 @@ export function FastUiPanel({ action, initialState = FAST_UI_INITIAL_STATE }: Fa
       }
     })
 
-    const subscribe = async () => {
-      const status = await channel.subscribe()
+    const subscription = channel.subscribe((status) => {
       if (status === "SUBSCRIBED") {
         setStatusMessage("Connected to realtime channel. Trigger an update to begin.")
       }
-    }
-
-    subscribe().catch((error) => {
-      console.error("[fast-ui] failed to subscribe to realtime channel", error)
-      setStatusMessage("Failed to connect to realtime updates.")
     })
+
+    if (subscription instanceof Promise) {
+      subscription.catch((error) => {
+        console.error("[fast-ui] failed to subscribe to realtime channel", error)
+        setStatusMessage("Failed to connect to realtime updates.")
+      })
+    }
 
     return () => {
       jobTimeoutsRef.current.forEach((timeoutId) => {

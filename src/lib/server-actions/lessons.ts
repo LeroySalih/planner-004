@@ -86,14 +86,21 @@ async function publishLessonJobEvent(
       }
     })
 
-    const { error } = await channel.send({
+    const sendResult = await channel.send({
       type: "broadcast",
       event: LESSON_CREATED_EVENT,
       payload,
     })
 
-    if (error) {
-      throw new Error(error.message)
+    if (sendResult !== "ok") {
+      const status =
+        typeof sendResult === "string"
+          ? sendResult
+          : (sendResult as { status?: string })?.status ?? "ok"
+
+      if (status !== "ok") {
+        throw new Error(`Realtime channel send failed with status: ${status}`)
+      }
     }
 
     console.info("[lessons] published lesson job event", {
