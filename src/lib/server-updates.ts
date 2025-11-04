@@ -21,6 +21,8 @@ export {
   readUnitsAction,
   updateUnitAction,
   deleteUnitAction,
+  triggerUnitUpdateJobAction,
+  triggerUnitDeactivateJobAction,
 } from "./server-actions/units"
 
 export {
@@ -40,6 +42,7 @@ export {
   readLessonAction,
   createLessonAction,
   updateLessonAction,
+  triggerLessonCreateJobAction,
   setLessonSuccessCriteriaAction,
   createLessonLearningObjectiveAction,
   createLessonLearningObjectiveFormAction,
@@ -182,3 +185,9 @@ export {
   type UpdateProfileDetailInput,
   type UpdateProfileDetailResult,
 } from "./server-actions/profile"
+
+export { triggerFastUiUpdateAction } from "./server-actions/prototypes/fast-ui"
+
+export { FAST_UI_INITIAL_STATE, FAST_UI_MAX_COUNTER, type FastUiActionState } from "./prototypes/fast-ui"
+export { UNIT_MUTATION_INITIAL_STATE, type UnitMutationState } from "./prototypes/unit-mutations"
+export { LESSON_MUTATION_INITIAL_STATE, type LessonMutationState } from "./prototypes/lesson-mutations"

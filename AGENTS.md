@@ -32,6 +32,7 @@ This guide captures the working knowledge future coding agents need to extend th
 - Follow the defensive error handling shown in `src/lib/server-actions/feedback.ts:1`—parse input with Zod, wrap Supabase calls, and surface a safe error string.
 - Authorization helpers like `requireTeacherProfile()` live in `src/lib/auth.ts:1`; enforce these guards in route handlers before performing teacher-only operations (`src/app/assignments/page.tsx:1`).
 - Use pure server components where possible.
+- Standardise write flows on the async pattern prototyped in `/prototypes/fast-ui`: server actions validate and respond immediately, queue the heavy work (e.g. long-running Supabase mutation or background enrichment), then broadcast completion via Supabase Realtime. Always wrap the action with `withTelemetry` for timing data, log queue events, and ensure the client subscribes through the shared browser client so optimistic UI stays in sync. Client components should use `useActionState` for loaders, update local state optimistically, and surface both success and failure via `sonner` toasts while keeping buttons interactive for follow-up attempts.
 
 ## Client/UI Conventions
 - All data fetching on the client must utilise a server action, and no supabase clients should be used on the client browser.  This is to ensure that no supabase variables do not leak.

@@ -1,10 +1,11 @@
 "use client"
 
 import Link from "next/link"
-import { useCallback, useState, useTransition } from "react"
+import { useCallback, useEffect, useRef, useState, useTransition } from "react"
 import { BookOpen, GripVertical, Plus, ChevronRight } from "lucide-react"
 
 import type { LessonWithObjectives, LearningObjectiveWithCriteria } from "@/lib/server-updates"
+import { LessonJobPayloadSchema } from "@/types"
 import {
   getActivityFileDownloadUrlAction,
   getLessonFileDownloadUrlAction,
@@ -13,6 +14,7 @@ import {
 import type { LessonActivity } from "@/types"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   LessonSidebar,
@@ -23,6 +25,7 @@ import {
   type LessonLinkInfo,
 } from "@/components/units/lesson-sidebar"
 import { LessonObjectivesSidebar } from "@/components/units/lesson-objectives-sidebar"
+import { supabaseBrowserClient } from "@/lib/supabase-browser"
 import { toast } from "sonner"
 
 interface LessonsPanelProps {
@@ -41,10 +44,15 @@ interface PresentationState {
   loading: boolean
 }
 
+const LESSON_CHANNEL_NAME = "lesson_updates"
+const LESSON_CREATED_EVENT = "lesson:created"
+
 export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObjectives }: LessonsPanelProps) {
   const [lessons, setLessons] = useState(() =>
     [...initialLessons].sort((a, b) => (a.order_by ?? 0) - (b.order_by ?? 0)),
   )
+  const pendingLessonJobsRef = useRef(new Map<string, { title: string }>())
+  const [pendingLessonIds, setPendingLessonIds] = useState<Record<string, boolean>>({})
   const [selectedLesson, setSelectedLesson] = useState<LessonWithObjectives | null>(null)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [objectivesLesson, setObjectivesLesson] = useState<LessonWithObjectives | null>(null)
@@ -174,7 +182,7 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
     }))
   }, [])
 
-  const upsertLesson = (lesson: LessonWithObjectives) => {
+  const upsertLesson = useCallback((lesson: LessonWithObjectives) => {
     setLessons((prev) => {
       const existingIndex = prev.findIndex((item) => item.lesson_id === lesson.lesson_id)
       if (existingIndex !== -1) {
@@ -192,7 +200,7 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
     setObjectivesLesson((prev) => (prev && prev.lesson_id === lesson.lesson_id ? lesson : prev))
     setActivitiesLesson((prev) => (prev && prev.lesson_id === lesson.lesson_id ? lesson : prev))
     setResourcesLesson((prev) => (prev && prev.lesson_id === lesson.lesson_id ? lesson : prev))
-  }
+  }, [])
 
   const deactivateLesson = (lessonId: string) => {
     setLessons((prev) =>
@@ -207,6 +215,40 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
       setPresentationIndex(-1)
     }
   }
+
+  const handleLessonJobQueued = useCallback(
+    (jobId: string, title: string) => {
+      if (pendingLessonJobsRef.current.has(jobId)) {
+        return
+      }
+
+      const normalizedTitle = title.trim().length > 0 ? title.trim() : "New lesson"
+      pendingLessonJobsRef.current.set(jobId, { title: normalizedTitle })
+
+      setLessons((prev) => {
+        const maxOrder = prev.reduce((max, lesson) => {
+          const value = lesson.order_by ?? 0
+          return value > max ? value : max
+        }, 0)
+
+        const placeholder: LessonWithObjectives = {
+          lesson_id: jobId,
+          unit_id: unitId,
+          title: normalizedTitle,
+          order_by: maxOrder + 0.5,
+          active: true,
+          lesson_objectives: [],
+          lesson_links: [],
+          lesson_success_criteria: [],
+        }
+
+        return [...prev, placeholder].sort((a, b) => (a.order_by ?? 0) - (b.order_by ?? 0))
+      })
+
+      setPendingLessonIds((prev) => ({ ...prev, [jobId]: true }))
+    },
+    [unitId],
+  )
 
   const activeLessons = lessons.filter((lesson) => lesson.active !== false)
 
@@ -253,6 +295,64 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
     })
   }
 
+  useEffect(() => {
+    const channel = supabaseBrowserClient.channel(LESSON_CHANNEL_NAME)
+
+    const handleEvent = (event: { payload: unknown }) => {
+      const parsed = LessonJobPayloadSchema.safeParse(event.payload)
+      if (!parsed.success) {
+        console.warn("[lessons] received invalid lesson job payload", parsed.error)
+        return
+      }
+
+      const payload = parsed.data
+      if (payload.unit_id !== unitId) {
+        return
+      }
+
+      const { job_id: jobId } = payload
+
+      if (payload.status === "completed") {
+        setLessons((prev) => prev.filter((lesson) => lesson.lesson_id !== jobId))
+        setPendingLessonIds((prev) => {
+          const { [jobId]: _omit, ...rest } = prev
+          return rest
+        })
+        pendingLessonJobsRef.current.delete(jobId)
+
+        if (payload.lesson) {
+          upsertLesson(payload.lesson)
+        }
+
+        toast.success(payload.message ?? "Lesson created successfully.")
+      } else if (payload.status === "error") {
+        setLessons((prev) => prev.filter((lesson) => lesson.lesson_id !== jobId))
+        setPendingLessonIds((prev) => {
+          const { [jobId]: _omit, ...rest } = prev
+          return rest
+        })
+        pendingLessonJobsRef.current.delete(jobId)
+
+        toast.error(payload.message ?? "Failed to create lesson.")
+      }
+    }
+
+    channel.on("broadcast", { event: LESSON_CREATED_EVENT }, handleEvent)
+
+    const subscribeResult = channel.subscribe()
+    if (subscribeResult instanceof Promise) {
+      subscribeResult.catch((error) => {
+        console.error("[lessons] realtime subscription error", error)
+        toast.error("Live lesson updates are unavailable right now.")
+      })
+    }
+
+    return () => {
+      pendingLessonJobsRef.current.clear()
+      void supabaseBrowserClient.removeChannel(channel)
+    }
+  }, [unitId, upsertLesson])
+
   return (
     <Card>
       <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -274,11 +374,12 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
             {activeLessons.map((lesson) => {
               const isExpanded = expandedLessons[lesson.lesson_id] ?? false
               const detailsSectionId = `lesson-details-${lesson.lesson_id}`
+              const isPendingLesson = pendingLessonIds[lesson.lesson_id] === true
 
               return (
                 <div
                   key={lesson.lesson_id}
-                  draggable
+                  draggable={!isPendingLesson}
                   onDragStart={(event) => handleDragStart(lesson.lesson_id, event)}
                   onDragOver={(event) => event.preventDefault()}
                   onDrop={handleDrop(lesson.lesson_id)}
@@ -292,7 +393,10 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex min-w-0 flex-1 items-center gap-2">
                       <GripVertical
-                        className="h-4 w-4 cursor-grab text-muted-foreground active:cursor-grabbing"
+                        className={cn(
+                          "h-4 w-4 text-muted-foreground",
+                          isPendingLesson ? "cursor-not-allowed opacity-60" : "cursor-grab active:cursor-grabbing",
+                        )}
                         aria-hidden="true"
                       />
                       <button
@@ -315,34 +419,45 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
                         <span className="truncate">
                           {lesson.title?.trim().length ? lesson.title : "Untitled lesson"}
                         </span>
+                        {pendingLessonIds[lesson.lesson_id] ? (
+                          <Badge variant="secondary" className="shrink-0 text-xs">
+                            Pending
+                          </Badge>
+                        ) : null}
                       </button>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Button asChild size="sm" variant="secondary" className="whitespace-nowrap">
-                        <Link
-                          href={`/lessons/${encodeURIComponent(lesson.lesson_id)}/activities`}
-                          onClick={(event) => {
-                            event.stopPropagation()
-                          }}
-                        >
-                          Show activities
-                        </Link>
-                      </Button>
-                      <Button asChild variant="ghost" size="sm">
-                        <Link href={`/lessons/${lesson.lesson_id}`}>Details</Link>
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={(event) => {
-                          event.preventDefault()
-                          event.stopPropagation()
-                          handleLessonClick(lesson)
-                        }}
-                      >
-                        Edit
-                      </Button>
+                      {isPendingLesson ? (
+                        <span className="text-sm text-muted-foreground">Waiting for creation…</span>
+                      ) : (
+                        <>
+                          <Button asChild size="sm" variant="secondary" className="whitespace-nowrap">
+                            <Link
+                              href={`/lessons/${encodeURIComponent(lesson.lesson_id)}/activities`}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                              }}
+                            >
+                              Show activities
+                            </Link>
+                          </Button>
+                          <Button asChild variant="ghost" size="sm">
+                            <Link href={`/lessons/${lesson.lesson_id}`}>Details</Link>
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={(event) => {
+                              event.preventDefault()
+                              event.stopPropagation()
+                              handleLessonClick(lesson)
+                            }}
+                          >
+                            Edit
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </div>
 
@@ -452,6 +567,7 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
         onCreateOrUpdate={upsertLesson}
         onDeactivate={deactivateLesson}
         learningObjectives={learningObjectives}
+        onLessonJobQueued={handleLessonJobQueued}
       />
       <LessonActivitiesSidebar
         unitId={unitId}
@@ -463,6 +579,7 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
         onActivitiesChange={handleActivitiesChange}
         onLessonUpdated={upsertLesson}
         onDeactivate={deactivateLesson}
+        onLessonJobQueued={handleLessonJobQueued}
       />
       <LessonResourcesSidebar
         unitId={unitId}
@@ -474,6 +591,7 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
         onResourcesChange={handleResourcesChange}
         onLessonUpdated={upsertLesson}
         onDeactivate={deactivateLesson}
+        onLessonJobQueued={handleLessonJobQueued}
       />
       <LessonObjectivesSidebar
         unitId={unitId}

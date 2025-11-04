@@ -1,13 +1,17 @@
 "use server"
 
+import { randomUUID } from "node:crypto"
+import { performance } from "node:perf_hooks"
+
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
-import { performance } from "node:perf_hooks"
 
 import {
   LearningObjectiveWithCriteriaSchema,
+  LessonJobPayloadSchema,
   LessonLearningObjective,
   LessonLink,
+  LessonMutationStateSchema,
   LessonWithObjectivesSchema,
   LessonsWithObjectivesSchema,
   SuccessCriterionSchema,
@@ -16,7 +20,7 @@ import {
   type LessonObjectiveFormState,
   type LessonSuccessCriterionFormState,
 } from "@/lib/lesson-form-state"
-import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { createSupabaseServerClient, createSupabaseServiceClient } from "@/lib/supabase/server"
 import { type NormalizedSuccessCriterion } from "./learning-objectives"
 import { isScorableActivityType } from "@/dino.config"
 import { requireTeacherProfile } from "@/lib/auth"
@@ -43,6 +47,147 @@ const LessonSuccessCriterionMutationResultSchema = z.object({
   data: SuccessCriterionSchema.nullable(),
   error: z.string().nullable(),
 })
+
+const LESSON_ROUTE_TAG = "/units/[unitId]"
+const LESSON_CHANNEL_NAME = "lesson_updates"
+const LESSON_CREATED_EVENT = "lesson:created"
+const LESSON_CHANNEL_CONFIG = { config: { broadcast: { ack: true } } }
+
+type LessonSupabaseClient = Awaited<ReturnType<typeof createSupabaseServiceClient>>
+
+async function publishLessonJobEvent(
+  supabase: LessonSupabaseClient,
+  payloadInput: z.input<typeof LessonJobPayloadSchema>,
+) {
+  const payload = LessonJobPayloadSchema.parse(payloadInput)
+  const channel = supabase.channel(LESSON_CHANNEL_NAME, LESSON_CHANNEL_CONFIG)
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      let settled = false
+      const subscribeResult = channel.subscribe((status) => {
+        if (settled) return
+        if (status === "SUBSCRIBED") {
+          settled = true
+          resolve()
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          settled = true
+          reject(new Error(`Realtime channel subscription failed with status: ${status}`))
+        }
+      })
+
+      if (subscribeResult instanceof Promise) {
+        subscribeResult.catch((error) => {
+          if (!settled) {
+            settled = true
+            reject(error)
+          }
+        })
+      }
+    })
+
+    const sendResult = await channel.send({
+      type: "broadcast",
+      event: LESSON_CREATED_EVENT,
+      payload,
+    })
+
+    if (sendResult !== "ok") {
+      const status =
+        typeof sendResult === "string"
+          ? sendResult
+          : (sendResult as { status?: string })?.status ?? "ok"
+
+      if (status !== "ok") {
+        throw new Error(`Realtime channel send failed with status: ${status}`)
+      }
+    }
+
+    console.info("[lessons] published lesson job event", {
+      event: LESSON_CREATED_EVENT,
+      jobId: payload.job_id,
+      unitId: payload.unit_id,
+      lessonId: payload.lesson_id,
+    })
+  } finally {
+    await supabase.removeChannel(channel)
+  }
+}
+
+type LessonCreateJobArgs = {
+  supabase: LessonSupabaseClient
+  jobId: string
+  unitId: string
+  title: string
+}
+
+async function runLessonCreateJob({ supabase, jobId, unitId, title }: LessonCreateJobArgs) {
+  try {
+    const { data: maxOrderLesson, error: orderError } = await supabase
+      .from("lessons")
+      .select("order_by")
+      .eq("unit_id", unitId)
+      .order("order_by", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (orderError) {
+      throw orderError
+    }
+
+    const nextOrder = (maxOrderLesson?.order_by ?? -1) + 1
+
+    const { data, error } = await supabase
+      .from("lessons")
+      .insert({ unit_id: unitId, title, active: true, order_by: nextOrder })
+      .select("*")
+      .single()
+
+    if (error) {
+      throw error
+    }
+
+    const lessonId = data.lesson_id
+
+    await publishLessonJobEvent(supabase, {
+      job_id: jobId,
+      unit_id: unitId,
+      lesson_id: lessonId,
+      status: "completed",
+      message: "Lesson created successfully.",
+      lesson: {
+        lesson_id: lessonId,
+        unit_id: unitId,
+        title,
+        order_by: data.order_by ?? nextOrder,
+        active: true,
+        lesson_objectives: [],
+        lesson_links: [],
+        lesson_success_criteria: [],
+      },
+    })
+  } catch (error) {
+    const message =
+      error && typeof error === "object" && "message" in error
+        ? String((error as { message?: string }).message ?? "Failed to create lesson")
+        : "Failed to create lesson"
+
+    console.error("[lessons] async create lesson job failed", { unitId, jobId, error })
+
+    try {
+      await publishLessonJobEvent(supabase, {
+        job_id: jobId,
+        unit_id: unitId,
+        lesson_id: null,
+        status: "error",
+        message,
+        lesson: null,
+      })
+    } catch (notifyError) {
+      console.error("[lessons] failed to publish lesson job error", { jobId, notifyError })
+    }
+  }
+}
 
 export async function readLessonsByUnitAction(unitId: string) {
   console.log("[v0] Server action started for lessons:", { unitId })
@@ -207,6 +352,70 @@ export async function createLessonAction(unitId: string, title: string, objectiv
 
   revalidatePath(`/units/${unitId}`)
   return readLessonWithObjectives(data.lesson_id)
+}
+
+export async function triggerLessonCreateJobAction(
+  _prevState: z.infer<typeof LessonMutationStateSchema>,
+  formData: FormData,
+) {
+  const profile = await requireTeacherProfile()
+  const authEnd = performance.now()
+
+  const rawUnitId = formData.get("unitId")
+  const rawTitle = formData.get("title")
+  const unitId = typeof rawUnitId === "string" ? rawUnitId.trim() : ""
+  const title = typeof rawTitle === "string" ? rawTitle.trim() : ""
+
+  return withTelemetry(
+    {
+      routeTag: LESSON_ROUTE_TAG,
+      functionName: "triggerLessonCreateJobAction",
+      params: { unitId: unitId || null },
+      authEndTime: authEnd,
+    },
+    async () => {
+      if (!unitId) {
+        return LessonMutationStateSchema.parse({
+          status: "error",
+          jobId: null,
+          message: "Unit id is required.",
+        })
+      }
+
+      if (title.length === 0) {
+        return LessonMutationStateSchema.parse({
+          status: "error",
+          jobId: null,
+          message: "Lesson title is required.",
+        })
+      }
+
+      const supabase = await createSupabaseServiceClient()
+      const jobId = randomUUID()
+
+      queueMicrotask(() => {
+        void runLessonCreateJob({
+          supabase,
+          jobId,
+          unitId,
+          title,
+        })
+      })
+
+      console.info("[lessons] queued lesson create job", {
+        jobId,
+        unitId,
+        title,
+        userId: profile.userId,
+      })
+
+      return LessonMutationStateSchema.parse({
+        status: "queued",
+        jobId,
+        message: "Lesson creation queued.",
+      })
+    },
+  )
 }
 
 export async function updateLessonAction(

@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useState, useTransition } from "react"
-import { useRouter } from "next/navigation"
+import { useActionState, useEffect, useRef, useState, useTransition } from "react"
 import { toast } from "sonner"
+import { X } from "lucide-react"
 
 import type { Subjects, Unit } from "@/types"
 import { Button } from "@/components/ui/button"
@@ -11,8 +11,11 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { X } from "lucide-react"
-import { deleteUnitAction, updateUnitAction } from "@/lib/server-updates"
+import {
+  UNIT_MUTATION_INITIAL_STATE,
+  triggerUnitDeactivateJobAction,
+  triggerUnitUpdateJobAction,
+} from "@/lib/server-updates"
 
 interface UnitEditSidebarProps {
   unit: Unit
@@ -20,17 +23,53 @@ interface UnitEditSidebarProps {
   isOpen: boolean
   onClose: () => void
   onOptimisticUpdate?: (unit: Unit) => void
+  onJobQueued?: (jobId: string) => void
 }
 
-export function UnitEditSidebar({ unit, subjects, isOpen, onClose, onOptimisticUpdate }: UnitEditSidebarProps) {
-  const router = useRouter()
-  const [isPending, startTransition] = useTransition()
+export function UnitEditSidebar({
+  unit,
+  subjects,
+  isOpen,
+  onClose,
+  onOptimisticUpdate,
+  onJobQueued,
+}: UnitEditSidebarProps) {
   const [formState, setFormState] = useState({
     title: unit.title ?? "",
     subject: unit.subject,
     description: unit.description ?? "",
     year: unit.year?.toString() ?? "",
   })
+  const previousUnitRef = useRef<Unit | null>(null)
+  const lastUpdateJobIdRef = useRef<string | null>(null)
+  const lastDeactivateJobIdRef = useRef<string | null>(null)
+  const expectUpdateResponseRef = useRef(false)
+  const expectDeactivateResponseRef = useRef(false)
+  const onCloseRef = useRef(onClose)
+  const onOptimisticUpdateRef = useRef(onOptimisticUpdate)
+  const onJobQueuedRef = useRef(onJobQueued)
+
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
+
+  useEffect(() => {
+    onOptimisticUpdateRef.current = onOptimisticUpdate
+  }, [onOptimisticUpdate])
+
+  useEffect(() => {
+    onJobQueuedRef.current = onJobQueued
+  }, [onJobQueued])
+
+  const [updateState, triggerUpdateUnit, updatePending] = useActionState(
+    triggerUnitUpdateJobAction,
+    UNIT_MUTATION_INITIAL_STATE,
+  )
+  const [deactivateState, triggerDeactivateUnit, deactivatePending] = useActionState(
+    triggerUnitDeactivateJobAction,
+    UNIT_MUTATION_INITIAL_STATE,
+  )
+  const [pendingTransition, startTransition] = useTransition()
 
   useEffect(() => {
     if (!isOpen) return
@@ -42,10 +81,71 @@ export function UnitEditSidebar({ unit, subjects, isOpen, onClose, onOptimisticU
     })
   }, [isOpen, unit])
 
+  useEffect(() => {
+    if (updateState.status === "queued" && updateState.jobId) {
+      if (!expectUpdateResponseRef.current || lastUpdateJobIdRef.current === updateState.jobId) {
+        return
+      }
+
+      expectUpdateResponseRef.current = false
+      lastUpdateJobIdRef.current = updateState.jobId
+     toast.info("Unit update queued", {
+        description: "We will let you know once the changes are applied.",
+      })
+      onJobQueuedRef.current?.(updateState.jobId)
+      previousUnitRef.current = null
+      onCloseRef.current()
+    } else if (updateState.status === "error" && updateState.message) {
+      if (!expectUpdateResponseRef.current) {
+        return
+      }
+
+      expectUpdateResponseRef.current = false
+      toast.error(updateState.message)
+      if (previousUnitRef.current) {
+        onOptimisticUpdateRef.current?.(previousUnitRef.current)
+        previousUnitRef.current = null
+      }
+      lastUpdateJobIdRef.current = null
+    }
+  }, [updateState])
+
+  useEffect(() => {
+    if (deactivateState.status === "queued" && deactivateState.jobId) {
+      if (!expectDeactivateResponseRef.current || lastDeactivateJobIdRef.current === deactivateState.jobId) {
+        return
+      }
+
+      expectDeactivateResponseRef.current = false
+      lastDeactivateJobIdRef.current = deactivateState.jobId
+      toast.info("Unit deactivation queued", {
+        description: "The unit will be marked inactive shortly.",
+      })
+      onJobQueuedRef.current?.(deactivateState.jobId)
+      previousUnitRef.current = null
+      onCloseRef.current()
+    } else if (deactivateState.status === "error" && deactivateState.message) {
+      if (!expectDeactivateResponseRef.current) {
+        return
+      }
+
+      expectDeactivateResponseRef.current = false
+      toast.error(deactivateState.message)
+      if (previousUnitRef.current) {
+        onOptimisticUpdateRef.current?.(previousUnitRef.current)
+        previousUnitRef.current = null
+      }
+      lastDeactivateJobIdRef.current = null
+    }
+  }, [deactivateState])
+
+  const isPending = updatePending || deactivatePending || pendingTransition
   const isSaveDisabled =
     isPending || formState.title.trim().length === 0 || formState.subject.trim().length === 0
 
   const handleSave = () => {
+    if (updatePending) return
+
     const trimmedYear = formState.year.trim()
     const parsedYear = trimmedYear.length === 0 ? null : Number.parseInt(trimmedYear, 10)
     if (parsedYear !== null && (!Number.isFinite(parsedYear) || parsedYear < 1 || parsedYear > 13)) {
@@ -53,72 +153,42 @@ export function UnitEditSidebar({ unit, subjects, isOpen, onClose, onOptimisticU
       return
     }
 
-    startTransition(async () => {
-      const previousUnit = unit
-      const optimisticUnit: Unit = {
-        ...unit,
-        title: formState.title.trim(),
-        subject: formState.subject,
-        description: formState.description.trim() || null,
-        year: parsedYear,
-      }
+    const optimisticUnit: Unit = {
+      ...unit,
+      title: formState.title.trim(),
+      subject: formState.subject,
+      description: formState.description.trim() || null,
+      year: parsedYear,
+    }
 
-      onOptimisticUpdate?.(optimisticUnit)
+    previousUnitRef.current = unit
+    onOptimisticUpdate?.(optimisticUnit)
 
-      try {
-        const result = await updateUnitAction(unit.unit_id, {
-          title: formState.title.trim(),
-          subject: formState.subject,
-          description: formState.description.trim() || null,
-          year: parsedYear,
-        })
+    const formData = new FormData()
+    formData.set("unitId", unit.unit_id)
+    formData.set("title", formState.title)
+    formData.set("subject", formState.subject)
+    formData.set("description", formState.description)
+    formData.set("year", formState.year)
 
-        if (result.error || !result.data) {
-          throw new Error(result.error ?? "Unknown error")
-        }
-
-        if (result.data) {
-          onOptimisticUpdate?.(result.data)
-        }
-
-        toast.success("Unit updated successfully.")
-        router.refresh()
-        onClose()
-      } catch (error) {
-        console.error("[v0] Failed to update unit:", error)
-        onOptimisticUpdate?.(previousUnit)
-        toast.error("Failed to update unit", {
-          description: error instanceof Error ? error.message : "Please try again later.",
-        })
-      }
+    expectUpdateResponseRef.current = true
+    startTransition(() => {
+      triggerUpdateUnit(formData)
     })
   }
 
   const handleDeactivate = () => {
-    startTransition(async () => {
-      const previousUnit = unit
-      const optimisticUnit: Unit = { ...unit, active: false }
-      onOptimisticUpdate?.(optimisticUnit)
+    if (deactivatePending) return
 
-      try {
-        const result = await deleteUnitAction(unit.unit_id)
+    const optimisticUnit: Unit = { ...unit, active: false }
+    previousUnitRef.current = unit
+    onOptimisticUpdate?.(optimisticUnit)
 
-        if (!result.success) {
-          throw new Error(result.error ?? "Unknown error")
-        }
-
-        onOptimisticUpdate?.(optimisticUnit)
-
-        toast.success("Unit marked as inactive.")
-        router.refresh()
-        onClose()
-      } catch (error) {
-        console.error("[v0] Failed to deactivate unit:", error)
-        onOptimisticUpdate?.(previousUnit)
-        toast.error("Failed to deactivate unit", {
-          description: error instanceof Error ? error.message : "Please try again later.",
-        })
-      }
+    const formData = new FormData()
+    formData.set("unitId", unit.unit_id)
+    expectDeactivateResponseRef.current = true
+    startTransition(() => {
+      triggerDeactivateUnit(formData)
     })
   }
 

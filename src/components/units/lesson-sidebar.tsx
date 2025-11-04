@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
+import { useActionState, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import type { ChangeEvent, DragEvent, KeyboardEvent, MouseEvent } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
@@ -34,7 +34,6 @@ import {
 } from "@/components/lessons/activity-view/utils"
 import { PupilUploadActivity } from "@/components/pupil/pupil-upload-activity"
 import {
-  createLessonAction,
   deactivateLessonAction,
   updateLessonAction,
   listLessonFilesAction,
@@ -53,6 +52,8 @@ import {
   updateLessonActivityAction,
   reorderLessonActivitiesAction,
   deleteLessonActivityAction,
+  triggerLessonCreateJobAction,
+  LESSON_MUTATION_INITIAL_STATE,
 } from "@/lib/server-updates"
 import { supabaseBrowserClient } from "@/lib/supabase-browser"
 
@@ -83,6 +84,7 @@ interface LessonSidebarProps {
   onActivitiesChange?: (activities: LessonActivity[]) => void
   onLessonLinksChange?: (links: LessonLinkInfo[]) => void
   onLessonFilesChange?: (files: LessonFileInfo[]) => void
+  onLessonJobQueued?: (jobId: string, title: string) => void
 }
 
 export interface LessonFileInfo {
@@ -118,6 +120,7 @@ interface LessonActivitiesSidebarProps {
   onActivitiesChange?: (lessonId: string, activities: LessonActivity[]) => void
   onLessonUpdated?: (lesson: LessonWithObjectives) => void
   onDeactivate?: (lessonId: string) => void
+  onLessonJobQueued?: (jobId: string, title: string) => void
 }
 
 export function LessonActivitiesSidebar({
@@ -130,6 +133,7 @@ export function LessonActivitiesSidebar({
   onActivitiesChange,
   onLessonUpdated,
   onDeactivate,
+  onLessonJobQueued,
 }: LessonActivitiesSidebarProps) {
   if (!lesson) {
     return null
@@ -143,17 +147,18 @@ export function LessonActivitiesSidebar({
       isOpen={isOpen}
       onClose={onClose}
       onCreateOrUpdate={(updatedLesson) => {
-        onLessonUpdated?.(updatedLesson)
-      }}
-      onDeactivate={(lessonId) => {
-        onDeactivate?.(lessonId)
-      }}
-      learningObjectives={learningObjectives}
-      viewMode="activities-only"
-      onActivitiesChange={(activities) => {
-        onActivitiesChange?.(lesson.lesson_id, activities)
-      }}
-    />
+      onLessonUpdated?.(updatedLesson)
+    }}
+    onDeactivate={(lessonId) => {
+      onDeactivate?.(lessonId)
+    }}
+    learningObjectives={learningObjectives}
+    viewMode="activities-only"
+    onActivitiesChange={(activities) => {
+      onActivitiesChange?.(lesson.lesson_id, activities)
+    }}
+    onLessonJobQueued={onLessonJobQueued}
+  />
   )
 }
 
@@ -170,6 +175,7 @@ interface LessonResourcesSidebarProps {
   ) => void
   onLessonUpdated?: (lesson: LessonWithObjectives) => void
   onDeactivate?: (lessonId: string) => void
+  onLessonJobQueued?: (jobId: string, title: string) => void
 }
 
 export function LessonResourcesSidebar({
@@ -182,6 +188,7 @@ export function LessonResourcesSidebar({
   onResourcesChange,
   onLessonUpdated,
   onDeactivate,
+  onLessonJobQueued,
 }: LessonResourcesSidebarProps) {
   if (!lesson) {
     return null
@@ -210,6 +217,7 @@ export function LessonResourcesSidebar({
       onLessonFilesChange={(files) => {
         onResourcesChange?.(lessonId, { files })
       }}
+      onLessonJobQueued={onLessonJobQueued}
     />
   )
 }
@@ -227,12 +235,18 @@ export function LessonSidebar({
   onActivitiesChange,
   onLessonLinksChange,
   onLessonFilesChange,
+  onLessonJobQueued,
 }: LessonSidebarProps) {
   const isActivitiesOnly = viewMode === "activities-only"
   const isResourcesOnly = viewMode === "resources-only"
-  const [isPending, startTransition] = useTransition()
+  const [isSaving, startTransition] = useTransition()
+  const [createState, triggerCreateLesson, createPending] = useActionState(
+    triggerLessonCreateJobAction,
+    LESSON_MUTATION_INITIAL_STATE,
+  )
+  const isPending = isSaving || createPending
   const router = useRouter()
-  const [title, setTitle] = useState("")
+  const [title, setTitle] = useState(lesson?.title ?? "")
   const [isConfirmingDeactivate, setIsConfirmingDeactivate] = useState(false)
   const [selectedObjectiveIds, setSelectedObjectiveIds] = useState<string[]>([])
   const [activities, setActivities] = useState<LessonActivity[]>([])
@@ -256,6 +270,9 @@ export function LessonSidebar({
   const lessonFileDragCounterRef = useRef(0)
   const activityFileInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const previousLessonIdRef = useRef<string | null>(null)
+  const expectCreateResponseRef = useRef(false)
+  const lastCreateJobIdRef = useRef<string | null>(null)
+  const pendingCreateTitleRef = useRef<string>("")
   const [links, setLinks] = useState<LessonLinkInfo[]>([])
   const [isLinksLoading, setIsLinksLoading] = useState(false)
   const [linkUrl, setLinkUrl] = useState("")
@@ -271,8 +288,15 @@ export function LessonSidebar({
   })
 
   useEffect(() => {
-    if (!isOpen) return
+    if (!isOpen) {
+      expectCreateResponseRef.current = false
+      pendingCreateTitleRef.current = ""
+      return
+    }
 
+    expectCreateResponseRef.current = false
+    lastCreateJobIdRef.current = null
+    pendingCreateTitleRef.current = ""
     setTitle(lesson?.title ?? "")
     setIsConfirmingDeactivate(false)
     const availableIds = new Set(
@@ -355,6 +379,39 @@ export function LessonSidebar({
       previousLessonIdRef.current = null
     }
   }, [isOpen, lesson, learningObjectives, onLessonFilesChange, onLessonLinksChange])
+
+  useEffect(() => {
+    if (lesson) {
+      return
+    }
+
+    if (createState.status === "queued" && createState.jobId) {
+      if (!expectCreateResponseRef.current || lastCreateJobIdRef.current === createState.jobId) {
+        return
+      }
+
+      expectCreateResponseRef.current = false
+      lastCreateJobIdRef.current = createState.jobId
+      const queuedTitle = pendingCreateTitleRef.current || (title.trim().length > 0 ? title.trim() : "New lesson")
+      pendingCreateTitleRef.current = ""
+
+      toast.info("Lesson creation queued", {
+        description: "We will let you know once the lesson is created.",
+      })
+
+      onLessonJobQueued?.(createState.jobId, queuedTitle)
+      setTitle("")
+      onClose()
+    } else if (createState.status === "error" && createState.message) {
+      if (!expectCreateResponseRef.current) {
+        return
+      }
+
+      expectCreateResponseRef.current = false
+      pendingCreateTitleRef.current = ""
+      toast.error(createState.message)
+    }
+  }, [createState, lesson, onClose, onLessonJobQueued, title])
 
   const refreshActivities = useCallback(async () => {
     if (!lesson) return
@@ -1279,38 +1336,43 @@ export function LessonSidebar({
   }
 
   const handleSave = () => {
-    if (title.trim().length === 0) {
+    const trimmedTitle = title.trim()
+
+    if (trimmedTitle.length === 0) {
       toast.error("Lesson title is required")
+      return
+    }
+
+    if (!lesson) {
+      const formData = new FormData()
+      formData.set("unitId", unitId)
+      formData.set("title", trimmedTitle)
+
+      pendingCreateTitleRef.current = trimmedTitle
+      expectCreateResponseRef.current = true
+
+      startTransition(() => {
+        triggerCreateLesson(formData)
+      })
+
       return
     }
 
     startTransition(async () => {
       try {
-        if (lesson) {
-          const result = await updateLessonAction(
-            lesson.lesson_id,
-            unitId,
-            title.trim(),
-            selectedObjectiveIds,
-          )
+        const result = await updateLessonAction(
+          lesson.lesson_id,
+          unitId,
+          trimmedTitle,
+          selectedObjectiveIds,
+        )
 
-          if (result.error || !result.data) {
-            throw new Error(result.error ?? "Unknown error")
-          }
-
-          onCreateOrUpdate(result.data)
-          toast.success("Lesson updated")
-        } else {
-          const result = await createLessonAction(unitId, title.trim(), selectedObjectiveIds)
-
-          if (result.error || !result.data) {
-            throw new Error(result.error ?? "Unknown error")
-          }
-
-          onCreateOrUpdate(result.data)
-          toast.success("Lesson created")
+        if (result.error || !result.data) {
+          throw new Error(result.error ?? "Unknown error")
         }
 
+        onCreateOrUpdate(result.data)
+        toast.success("Lesson updated")
         onClose()
       } catch (error) {
         console.error("[v0] Failed to save lesson:", error)
@@ -1405,46 +1467,48 @@ export function LessonSidebar({
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Label>Learning Objectives</Label>
+                {lesson ? (
                   <div className="space-y-2">
-                    {sortedObjectives.length === 0 && (
-                      <p className="text-sm text-muted-foreground">
-                        No learning objectives available for this unit yet.
-                      </p>
-                    )}
-                    {sortedObjectives.map((objective) => {
-                      const isChecked = selectedObjectiveIds.includes(objective.learning_objective_id)
-                      const specRef = objective.spec_ref?.trim() ?? ""
-                      return (
-                        <label
-                          key={objective.learning_objective_id}
-                          className="flex items-start gap-2 text-sm"
-                        >
-                          <Checkbox
-                            checked={isChecked}
-                            onCheckedChange={(checked) => {
-                              setSelectedObjectiveIds((prev) => {
-                                if (checked === true) {
-                                  if (prev.includes(objective.learning_objective_id)) return prev
-                                  return [...prev, objective.learning_objective_id]
-                                }
-                                return prev.filter((id) => id !== objective.learning_objective_id)
-                              })
-                            }}
-                            disabled={isPending}
-                          />
-                          <span className="leading-tight">
-                            {objective.title}
-                            {specRef.length > 0 ? (
-                              <span className="block text-xs text-muted-foreground">Spec reference: {specRef}</span>
-                            ) : null}
-                          </span>
-                        </label>
-                      )
-                    })}
+                    <Label>Learning Objectives</Label>
+                    <div className="space-y-2">
+                      {sortedObjectives.length === 0 && (
+                        <p className="text-sm text-muted-foreground">
+                          No learning objectives available for this unit yet.
+                        </p>
+                      )}
+                      {sortedObjectives.map((objective) => {
+                        const isChecked = selectedObjectiveIds.includes(objective.learning_objective_id)
+                        const specRef = objective.spec_ref?.trim() ?? ""
+                        return (
+                          <label
+                            key={objective.learning_objective_id}
+                            className="flex items-start gap-2 text-sm"
+                          >
+                            <Checkbox
+                              checked={isChecked}
+                              onCheckedChange={(checked) => {
+                                setSelectedObjectiveIds((prev) => {
+                                  if (checked === true) {
+                                    if (prev.includes(objective.learning_objective_id)) return prev
+                                    return [...prev, objective.learning_objective_id]
+                                  }
+                                  return prev.filter((id) => id !== objective.learning_objective_id)
+                                })
+                              }}
+                              disabled={isPending}
+                            />
+                            <span className="leading-tight">
+                              {objective.title}
+                              {specRef.length > 0 ? (
+                                <span className="block text-xs text-muted-foreground">Spec reference: {specRef}</span>
+                              ) : null}
+                            </span>
+                          </label>
+                        )
+                      })}
+                    </div>
                   </div>
-                </div>
+                ) : null}
               </div>
             )}
 
