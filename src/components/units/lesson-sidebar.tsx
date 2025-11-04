@@ -1405,46 +1405,48 @@ export function LessonSidebar({
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Label>Learning Objectives</Label>
+                {lesson ? (
                   <div className="space-y-2">
-                    {sortedObjectives.length === 0 && (
-                      <p className="text-sm text-muted-foreground">
-                        No learning objectives available for this unit yet.
-                      </p>
-                    )}
-                    {sortedObjectives.map((objective) => {
-                      const isChecked = selectedObjectiveIds.includes(objective.learning_objective_id)
-                      const specRef = objective.spec_ref?.trim() ?? ""
-                      return (
-                        <label
-                          key={objective.learning_objective_id}
-                          className="flex items-start gap-2 text-sm"
-                        >
-                          <Checkbox
-                            checked={isChecked}
-                            onCheckedChange={(checked) => {
-                              setSelectedObjectiveIds((prev) => {
-                                if (checked === true) {
-                                  if (prev.includes(objective.learning_objective_id)) return prev
-                                  return [...prev, objective.learning_objective_id]
-                                }
-                                return prev.filter((id) => id !== objective.learning_objective_id)
-                              })
-                            }}
-                            disabled={isPending}
-                          />
-                          <span className="leading-tight">
-                            {objective.title}
-                            {specRef.length > 0 ? (
-                              <span className="block text-xs text-muted-foreground">Spec reference: {specRef}</span>
-                            ) : null}
-                          </span>
-                        </label>
-                      )
-                    })}
+                    <Label>Learning Objectives</Label>
+                    <div className="space-y-2">
+                      {sortedObjectives.length === 0 && (
+                        <p className="text-sm text-muted-foreground">
+                          No learning objectives available for this unit yet.
+                        </p>
+                      )}
+                      {sortedObjectives.map((objective) => {
+                        const isChecked = selectedObjectiveIds.includes(objective.learning_objective_id)
+                        const specRef = objective.spec_ref?.trim() ?? ""
+                        return (
+                          <label
+                            key={objective.learning_objective_id}
+                            className="flex items-start gap-2 text-sm"
+                          >
+                            <Checkbox
+                              checked={isChecked}
+                              onCheckedChange={(checked) => {
+                                setSelectedObjectiveIds((prev) => {
+                                  if (checked === true) {
+                                    if (prev.includes(objective.learning_objective_id)) return prev
+                                    return [...prev, objective.learning_objective_id]
+                                  }
+                                  return prev.filter((id) => id !== objective.learning_objective_id)
+                                })
+                              }}
+                              disabled={isPending}
+                            />
+                            <span className="leading-tight">
+                              {objective.title}
+                              {specRef.length > 0 ? (
+                                <span className="block text-xs text-muted-foreground">Spec reference: {specRef}</span>
+                              ) : null}
+                            </span>
+                          </label>
+                        )
+                      })}
+                    </div>
                   </div>
-                </div>
+                ) : null}
               </div>
             )}
 
