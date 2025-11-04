@@ -34,6 +34,14 @@ export const FastUiActionStateSchema = z.object({
 
 export type FastUiActionState = z.infer<typeof FastUiActionStateSchema>;
 
+
+export const UnitJobOperationSchema = z.enum(["update", "deactivate"]);
+
+export const UnitJobStatusSchema = z.enum(["queued", "completed", "error"]);
+
+export type UnitJobOperation = z.infer<typeof UnitJobOperationSchema>;
+export type UnitJobStatus = z.infer<typeof UnitJobStatusSchema>;
+
 export const GroupMembershipSchema = z.object({
     group_id: z.string(),
     user_id: z.string(),
@@ -127,6 +135,25 @@ export const UnitsSchema = z.array(UnitSchema);
 export type Unit = z.infer<typeof UnitSchema>;
 export type Units = z.infer<typeof UnitsSchema>;
 
+export const UnitJobPayloadSchema = z.object({
+    job_id: z.string(),
+    unit_id: z.string(),
+    status: UnitJobStatusSchema,
+    operation: UnitJobOperationSchema,
+    message: z.string().nullable().default(null),
+    unit: UnitSchema.nullable().optional(),
+});
+
+export type UnitJobPayload = z.infer<typeof UnitJobPayloadSchema>;
+
+export const UnitMutationStateSchema = z.object({
+    status: z.enum(["idle", "queued", "error"]),
+    jobId: z.string().nullable(),
+    message: z.string().nullable(),
+});
+
+export type UnitMutationState = z.infer<typeof UnitMutationStateSchema>;
+
 export const CurriculumSchema = z.object({
     curriculum_id: z.string(),
     subject: z.string().nullable(),
@@ -172,31 +199,6 @@ export const SuccessCriteriaSchema = z.array(SuccessCriterionSchema);
 
 export type SuccessCriterion = z.infer<typeof SuccessCriterionSchema>;
 export type SuccessCriteria = z.infer<typeof SuccessCriteriaSchema>;
-
-export const UnitJobOperationSchema = z.enum(["update", "deactivate"]);
-
-export const UnitJobStatusSchema = z.enum(["queued", "completed", "error"]);
-
-export const UnitJobPayloadSchema = z.object({
-    job_id: z.string(),
-    unit_id: z.string(),
-    status: UnitJobStatusSchema,
-    operation: UnitJobOperationSchema,
-    message: z.string().nullable().default(null),
-    unit: UnitSchema.nullable().optional(),
-});
-
-export type UnitJobOperation = z.infer<typeof UnitJobOperationSchema>;
-export type UnitJobStatus = z.infer<typeof UnitJobStatusSchema>;
-export type UnitJobPayload = z.infer<typeof UnitJobPayloadSchema>;
-
-export const UnitMutationStateSchema = z.object({
-    status: z.enum(["idle", "queued", "error"]),
-    jobId: z.string().nullable(),
-    message: z.string().nullable(),
-});
-
-export type UnitMutationState = z.infer<typeof UnitMutationStateSchema>;
 
 export const SuccessCriterionUnitSchema = z.object({
     success_criteria_id: z.string(),
@@ -483,6 +485,28 @@ export const LessonWithObjectivesSchema = LessonSchema.extend({
 export const LessonsWithObjectivesSchema = z.array(LessonWithObjectivesSchema);
 
 export type LessonWithObjectives = z.infer<typeof LessonWithObjectivesSchema>;
+
+export const LessonJobStatusSchema = z.enum(["queued", "completed", "error"]);
+
+export const LessonJobPayloadSchema = z.object({
+    job_id: z.string(),
+    unit_id: z.string(),
+    lesson_id: z.string().nullable(),
+    status: LessonJobStatusSchema,
+    message: z.string().nullable().default(null),
+    lesson: LessonWithObjectivesSchema.nullable().optional(),
+});
+
+export type LessonJobStatus = z.infer<typeof LessonJobStatusSchema>;
+export type LessonJobPayload = z.infer<typeof LessonJobPayloadSchema>;
+
+export const LessonMutationStateSchema = z.object({
+    status: z.enum(["idle", "queued", "error"]),
+    jobId: z.string().nullable(),
+    message: z.string().nullable(),
+});
+
+export type LessonMutationState = z.infer<typeof LessonMutationStateSchema>;
 
 export const LessonActivitySchema = z.object({
     activity_id: z.string(),

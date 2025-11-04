@@ -47,7 +47,7 @@ const UnitDeactivateFormSchema = z.object({
 type SupabaseClient = Awaited<ReturnType<typeof createSupabaseServiceClient>>
 
 async function revalidateUnitPaths(unitId: string) {
-  console.warn("[units] revalidatePath should run from caller, skipping (was)", unitId)
+  void unitId
 }
 
 async function publishUnitJobEvent(
