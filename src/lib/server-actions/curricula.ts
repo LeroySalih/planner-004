@@ -20,6 +20,7 @@ import {
   fetchSuccessCriteriaForLearningObjectives,
   type NormalizedSuccessCriterion,
 } from "./learning-objectives"
+import { withTelemetry } from "@/lib/telemetry"
 
 const CurriculaReturnValue = z.object({
   data: CurriculaSchema.nullable(),
@@ -71,22 +72,34 @@ const AssessmentObjectiveSummaryListReturnValue = z.object({
   error: z.string().nullable(),
 })
 
-export async function readCurriculaAction() {
-  console.log("[curricula] readCurriculaAction:start")
+export async function readCurriculaAction(options?: { authEndTime?: number | null; routeTag?: string }) {
+  const routeTag = options?.routeTag ?? "/curricula:readCurricula"
 
-  const supabase = await createSupabaseServerClient()
+  return withTelemetry(
+    {
+      routeTag,
+      functionName: "readCurriculaAction",
+      params: null,
+      authEndTime: options?.authEndTime ?? null,
+    },
+    async () => {
+      console.log("[curricula] readCurriculaAction:start")
 
-  const { data, error } = await supabase
-    .from("curricula")
-    .select("*")
-    .order("title", { ascending: true })
+      const supabase = await createSupabaseServerClient()
 
-  if (error) {
-    console.error("[curricula] readCurriculaAction:error", error)
-    return CurriculaReturnValue.parse({ data: null, error: error.message })
-  }
+      const { data, error } = await supabase
+        .from("curricula")
+        .select("*")
+        .order("title", { ascending: true })
 
-  return CurriculaReturnValue.parse({ data, error: null })
+      if (error) {
+        console.error("[curricula] readCurriculaAction:error", error)
+        return CurriculaReturnValue.parse({ data: null, error: error.message })
+      }
+
+      return CurriculaReturnValue.parse({ data, error: null })
+    },
+  )
 }
 
 export async function createCurriculumAction(payload: {
@@ -287,29 +300,43 @@ export async function readCurriculumDetailAction(curriculumId: string) {
   return parsed
 }
 
-export async function readAssessmentObjectivesAction() {
-  console.log("[curricula] readAssessmentObjectivesAction:start")
+export async function readAssessmentObjectivesAction(
+  options?: { authEndTime?: number | null; routeTag?: string },
+) {
+  const routeTag = options?.routeTag ?? "/curricula:assessmentObjectives"
 
-  const supabase = await createSupabaseServerClient()
+  return withTelemetry(
+    {
+      routeTag,
+      functionName: "readAssessmentObjectivesAction",
+      params: null,
+      authEndTime: options?.authEndTime ?? null,
+    },
+    async () => {
+      console.log("[curricula] readAssessmentObjectivesAction:start")
 
-  const { data, error } = await supabase
-    .from("assessment_objectives")
-    .select("assessment_objective_id, curriculum_id, unit_id, code, title, order_index")
-    .order("curriculum_id", { ascending: true, nullsFirst: true })
-    .order("order_index", { ascending: true, nullsFirst: true })
-    .order("title", { ascending: true })
+      const supabase = await createSupabaseServerClient()
 
-  if (error) {
-    console.error("[curricula] readAssessmentObjectivesAction:error", error)
-    return AssessmentObjectiveSummaryListReturnValue.parse({ data: null, error: error.message })
-  }
+      const { data, error } = await supabase
+        .from("assessment_objectives")
+        .select("assessment_objective_id, curriculum_id, unit_id, code, title, order_index")
+        .order("curriculum_id", { ascending: true, nullsFirst: true })
+        .order("order_index", { ascending: true, nullsFirst: true })
+        .order("title", { ascending: true })
 
-  const normalized = (data ?? []).map((entry) => ({
-    ...entry,
-    order_index: entry.order_index ?? 0,
-  }))
+      if (error) {
+        console.error("[curricula] readAssessmentObjectivesAction:error", error)
+        return AssessmentObjectiveSummaryListReturnValue.parse({ data: null, error: error.message })
+      }
 
-  return AssessmentObjectiveSummaryListReturnValue.parse({ data: normalized, error: null })
+      const normalized = (data ?? []).map((entry) => ({
+        ...entry,
+        order_index: entry.order_index ?? 0,
+      }))
+
+      return AssessmentObjectiveSummaryListReturnValue.parse({ data: normalized, error: null })
+    },
+  )
 }
 
 export async function createCurriculumAssessmentObjectiveAction(

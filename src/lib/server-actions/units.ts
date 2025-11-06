@@ -284,46 +284,73 @@ export async function createUnitAction(
   return UnitReturnValue.parse({ data: null, error: lastError?.message ?? "Unable to create unit" })
 }
 
-export async function readUnitAction(unitId: string) {
-  console.log("[v0] Server action started for reading unit:", { unitId })
+export async function readUnitAction(
+  unitId: string,
+  options?: { authEndTime?: number | null; routeTag?: string },
+) {
+  const routeTag = options?.routeTag ?? "/units:readUnit"
 
-  const supabase = await createSupabaseServerClient()
+  return withTelemetry(
+    {
+      routeTag,
+      functionName: "readUnitAction",
+      params: { unitId },
+      authEndTime: options?.authEndTime ?? null,
+    },
+    async () => {
+      console.log("[v0] Server action started for reading unit:", { unitId })
 
-  const { data, error } = await supabase
-    .from("units")
-    .select("*")
-    .eq("unit_id", unitId)
-    .maybeSingle()
+      const supabase = await createSupabaseServerClient()
 
-  if (error) {
-    console.error("[v0] Server action failed for reading unit:", error)
-    return UnitReturnValue.parse({ data: null, error: error.message })
-  }
+      const { data, error } = await supabase
+        .from("units")
+        .select("*")
+        .eq("unit_id", unitId)
+        .maybeSingle()
 
-  console.log("[v0] Server action completed for reading unit:", { unitId })
+      if (error) {
+        console.error("[v0] Server action failed for reading unit:", error)
+        return UnitReturnValue.parse({ data: null, error: error.message })
+      }
 
-  return UnitReturnValue.parse({ data, error: null })
+      console.log("[v0] Server action completed for reading unit:", { unitId })
+
+      return UnitReturnValue.parse({ data, error: null })
+    },
+  )
 }
 
-export async function readUnitsAction() {
-  console.log("[v0] Server action started for reading units:")
+export async function readUnitsAction(options?: { authEndTime?: number | null; routeTag?: string }) {
+  const routeTag = options?.routeTag ?? "/units:readUnits"
 
-  let error: string | null = null
+  return withTelemetry(
+    {
+      routeTag,
+      functionName: "readUnitsAction",
+      params: null,
+      authEndTime: options?.authEndTime ?? null,
+    },
+    async () => {
+      console.log("[v0] Server action started for reading units:")
 
-  const supabase = await createSupabaseServerClient()
+      let error: string | null = null
 
-  const { data, error: readError } = await supabase
-    .from("units")
-    .select("*")
+      const supabase = await createSupabaseServerClient()
 
-  if (readError) {
-    error = readError.message
-    console.error(error)
-  }
+      const { data, error: readError } = await supabase
+        .from("units")
+        .select("*")
 
-  console.log("[v0] Server action completed for reading units:", error)
+      if (readError) {
+        error = readError.message
+        console.error(error)
+      }
 
-  return UnitsReturnValue.parse({ data, error })
+      console.log("[v0] Server action completed for reading units:", error)
+
+      return UnitsReturnValue.parse({ data, error })
+    },
+  )
 }
 
 export async function updateUnitAction(

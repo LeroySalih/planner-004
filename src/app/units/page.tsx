@@ -1,15 +1,32 @@
 export const dynamic = "force-dynamic"
 
+import { performance } from "node:perf_hooks"
+
 import { UnitsPageClient } from "@/components/units/units-page-client"
 import { readSubjectsAction, readUnitsAction } from "@/lib/server-updates"
 import { requireTeacherProfile } from "@/lib/auth"
+import { withTelemetry } from "@/lib/telemetry"
 
 export default async function UnitsPage() {
   await requireTeacherProfile()
-  const [{ data: units, error: unitsError }, { data: subjects, error: subjectsError }] = await Promise.all([
-    readUnitsAction(),
-    readSubjectsAction(),
-  ])
+  const authEnd = performance.now()
+
+  const [unitsResult, subjectsResult] = await withTelemetry(
+    {
+      routeTag: "/units",
+      functionName: "UnitsPage.loadData",
+      params: null,
+      authEndTime: authEnd,
+    },
+    () =>
+      Promise.all([
+        readUnitsAction({ routeTag: "/units", authEndTime: authEnd }),
+        readSubjectsAction({ routeTag: "/units", authEndTime: authEnd }),
+      ]),
+  )
+
+  const { data: units, error: unitsError } = unitsResult
+  const { data: subjects, error: subjectsError } = subjectsResult
 
   if (unitsError) {
     return (

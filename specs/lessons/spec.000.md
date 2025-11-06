@@ -2,6 +2,8 @@
 
 ## ChangeLog
 
+2025-10-20 - Document `useActionState` + telemetry-backed flows for creating learning objectives and success criteria.
+
 ## Purpose
 The purpose of this page is to allow teachers to create and design lessons that contribute to units.
 
@@ -29,10 +31,11 @@ The purpose of this page is to allow teachers to create and design lessons that 
 - remember that lessons are not directly associated with a LO, links are formed through SCs.
 - When the side bar opens, any success criteria already linked to the lesson are preselected. Success criteria may be linked to multiple lessons.
 - This side bar will inlcude a filter text box. Text that is entered will filter learning objective labels first; when an LO matches, all of its success criteria remain visible, otherwise only the matching success criteria are shown beneath that LO.
-- The side bar will include a Add LO button.  This will open a new dialog that asks the user to pick a curriculum, then an assessment objective within that curriculum, before entering the LO title, spec ref, and the first success criterion (description and level).  The new LO is linked to the chosen curriculum (not scoped to the unit until success criteria are assigned).
-- The side bar will include a Add LO button.  This will open a new dialog that asks the user to pick a curriculum, then an assessment objective within that curriculum, before entering the LO title, spec ref, and the first success criterion (description and level).  The new LO is linked to the chosen curriculum (not scoped to the unit until success criteria are assigned).
+- The side bar will include an Add LO button. This opens a dialog that asks the user to pick a curriculum, then an assessment objective within that curriculum, before entering the LO title, spec ref, and the first success criterion (description and level). The new LO is linked to the chosen curriculum (not scoped to the unit until success criteria are assigned).
+- Add LO uses `useActionState` with `createLessonLearningObjectiveFormAction`. Submissions immediately reflect “queued” state in the UI, show a loader in the primary button, and surface success/failure through `sonner` toasts. The server action wraps work in `withTelemetry`, validating input with the shared Zod schema, writing timing data to `logs/telem_*.log` when telemetry is enabled, and returning the newly created LO plus its default SC so the sidebar can optimistically select them.
 - When a new LO is created through this dialog, the LO and its default success criterion are automatically linked to the current lesson and preselected so they appear immediately in the sidebar.
-- Each LO will have a new SC button, that will open a second side bar to allow the user to add a new SC to the LO.  This side bar will allow the user to enter the title and level for a SC, enforcing the numeric level range of 1–9.
+- Each LO will have a New SC button that opens a second sidebar to allow the user to add a new SC to the LO. This sidebar enforces the numeric level range of 1–9.
+- Add SC uses `useActionState` with `createLessonSuccessCriterionFormAction`, mirroring the Add LO behaviour (pending button state, toast feedback, telemetry instrumentation via `withTelemetry`). The action returns the created success criterion so the lesson sidebar can include it without a full refetch.
 
 ### Lesson Activities Side Bar
 - This panel shows 2 buttons, Show Activities, and Add Activity, presented in the main content column above the activities list.

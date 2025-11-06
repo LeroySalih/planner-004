@@ -4,30 +4,43 @@ import { z } from "zod"
 
 import { SubjectsSchema } from "@/types"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { withTelemetry } from "@/lib/telemetry"
 
 const SubjectsReturnValue = z.object({
   data: SubjectsSchema.nullable(),
   error: z.string().nullable(),
 })
 
-export async function readSubjectsAction() {
-  console.log("[v0] Server action started for reading subjects:")
+export async function readSubjectsAction(options?: { authEndTime?: number | null; routeTag?: string }) {
+  const routeTag = options?.routeTag ?? "/subjects:readSubjects"
 
-  let error: string | null = null
+  return withTelemetry(
+    {
+      routeTag,
+      functionName: "readSubjectsAction",
+      params: null,
+      authEndTime: options?.authEndTime ?? null,
+    },
+    async () => {
+      console.log("[v0] Server action started for reading subjects:")
 
-  const supabase = await createSupabaseServerClient()
+      let error: string | null = null
 
-  const { data, error: readError } = await supabase
-    .from("subjects")
-    .select("*")
-    .eq("active", true)
+      const supabase = await createSupabaseServerClient()
 
-  if (readError) {
-    error = readError.message
-    console.error(error)
-  }
+      const { data, error: readError } = await supabase
+        .from("subjects")
+        .select("*")
+        .eq("active", true)
 
-  console.log("[v0] Server action completed for reading subjects:", error)
+      if (readError) {
+        error = readError.message
+        console.error(error)
+      }
 
-  return SubjectsReturnValue.parse({ data, error })
+      console.log("[v0] Server action completed for reading subjects:", error)
+
+      return SubjectsReturnValue.parse({ data, error })
+    },
+  )
 }

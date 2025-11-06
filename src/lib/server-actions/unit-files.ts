@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { withTelemetry } from "@/lib/telemetry"
 
 const UNIT_FILES_BUCKET = "units"
 
@@ -41,38 +42,53 @@ function buildVersionedName(name: string) {
   return `${base}_${timestamp}${extension}`
 }
 
-export async function listUnitFilesAction(unitId: string) {
-  console.log("[v0] Server action started for listing unit files:", { unitId })
+export async function listUnitFilesAction(
+  unitId: string,
+  options?: { authEndTime?: number | null; routeTag?: string },
+) {
+  const routeTag = options?.routeTag ?? "/units:files"
 
-  const supabase = await createSupabaseServerClient()
+  return withTelemetry(
+    {
+      routeTag,
+      functionName: "listUnitFilesAction",
+      params: { unitId },
+      authEndTime: options?.authEndTime ?? null,
+    },
+    async () => {
+      console.log("[v0] Server action started for listing unit files:", { unitId })
 
-  const { data, error } = await supabase.storage
-    .from(UNIT_FILES_BUCKET)
-    .list(unitId, { limit: 100 })
+      const supabase = await createSupabaseServerClient()
 
-  if (error) {
-    console.error("[v0] Failed to list unit files:", error)
-    return UnitFilesReturnValue.parse({ data: null, error: error.message })
-  }
+      const { data, error } = await supabase.storage
+        .from(UNIT_FILES_BUCKET)
+        .list(unitId, { limit: 100 })
 
-  const normalized = (data ?? [])
-    .map((file) =>
-      UnitFileSchema.parse({
-        name: file.name,
-        path: buildFilePath(unitId, file.name),
-        created_at: file.created_at ?? undefined,
-        updated_at: file.updated_at ?? undefined,
-        last_accessed_at: file.last_accessed_at ?? undefined,
-        size: file.metadata?.size ?? undefined,
-      }),
-    )
-    .sort((a, b) => {
-      const aTime = Date.parse(a.updated_at ?? a.created_at ?? "0")
-      const bTime = Date.parse(b.updated_at ?? b.created_at ?? "0")
-      return bTime - aTime
-    })
+      if (error) {
+        console.error("[v0] Failed to list unit files:", error)
+        return UnitFilesReturnValue.parse({ data: null, error: error.message })
+      }
 
-  return UnitFilesReturnValue.parse({ data: normalized, error: null })
+      const normalized = (data ?? [])
+        .map((file) =>
+          UnitFileSchema.parse({
+            name: file.name,
+            path: buildFilePath(unitId, file.name),
+            created_at: file.created_at ?? undefined,
+            updated_at: file.updated_at ?? undefined,
+            last_accessed_at: file.last_accessed_at ?? undefined,
+            size: file.metadata?.size ?? undefined,
+          }),
+        )
+        .sort((a, b) => {
+          const aTime = Date.parse(a.updated_at ?? a.created_at ?? "0")
+          const bTime = Date.parse(b.updated_at ?? b.created_at ?? "0")
+          return bTime - aTime
+        })
+
+      return UnitFilesReturnValue.parse({ data: normalized, error: null })
+    },
+  )
 }
 
 export async function uploadUnitFileAction(formData: FormData) {

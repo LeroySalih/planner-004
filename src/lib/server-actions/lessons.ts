@@ -189,15 +189,28 @@ async function runLessonCreateJob({ supabase, jobId, unitId, title }: LessonCrea
   }
 }
 
-export async function readLessonsByUnitAction(unitId: string) {
-  console.log("[v0] Server action started for lessons:", { unitId })
+export async function readLessonsByUnitAction(
+  unitId: string,
+  options?: { authEndTime?: number | null; routeTag?: string },
+) {
+  const routeTag = options?.routeTag ?? "/lessons:byUnit"
 
-  const supabase = await createSupabaseServerClient()
+  return withTelemetry(
+    {
+      routeTag,
+      functionName: "readLessonsByUnitAction",
+      params: { unitId },
+      authEndTime: options?.authEndTime ?? null,
+    },
+    async () => {
+      console.log("[v0] Server action started for lessons:", { unitId })
 
-  const { data, error } = await supabase
-    .from("lessons")
-    .select(
-      `*,
+      const supabase = await createSupabaseServerClient()
+
+      const { data, error } = await supabase
+        .from("lessons")
+        .select(
+          `*,
         lessons_learning_objective(
           *,
           learning_objective:learning_objectives(
@@ -207,54 +220,66 @@ export async function readLessonsByUnitAction(unitId: string) {
         ),
         lesson_links(*)
       `,
-    )
-    .eq("unit_id", unitId)
-    .order("order_by", { ascending: true })
-    .order("title", { ascending: true })
+        )
+        .eq("unit_id", unitId)
+        .order("order_by", { ascending: true })
+        .order("title", { ascending: true })
 
-  if (error) {
-    console.error("[v0] Failed to read lessons:", error)
-    return LessonsReturnValue.parse({ data: null, error: error.message })
-  }
+      if (error) {
+        console.error("[v0] Failed to read lessons:", error)
+        return LessonsReturnValue.parse({ data: null, error: error.message })
+      }
 
-  const lessons = data ?? []
+      const lessons = data ?? []
 
-  const { lessons: enrichedLessons, error: scError } = await enrichLessonsWithSuccessCriteria(lessons)
+      const { lessons: enrichedLessons, error: scError } = await enrichLessonsWithSuccessCriteria(lessons)
 
-  if (scError) {
-    console.error("[v0] Failed to read success criteria for lessons:", scError)
-    return LessonsReturnValue.parse({ data: null, error: scError })
-  }
+      if (scError) {
+        console.error("[v0] Failed to read success criteria for lessons:", scError)
+        return LessonsReturnValue.parse({ data: null, error: scError })
+      }
 
-  const normalized = enrichedLessons.map((lesson) => {
-    const { lessons_learning_objective, lesson_links, ...rest } = lesson
-    const filtered = ((lessons_learning_objective ?? []) as LessonLearningObjective[])
-      .filter((entry) => entry.active !== false)
-      .sort((a, b) => (a.order_by ?? 0) - (b.order_by ?? 0))
-    return {
-      ...rest,
-      lesson_objectives: filtered,
-      lesson_links: ((lesson_links ?? []) as LessonLink[]).map((link) => ({
-        lesson_link_id: link.lesson_link_id,
-        lesson_id: link.lesson_id,
-        url: link.url,
-        description: link.description,
-      })),
-    }
-  })
+      const normalized = enrichedLessons.map((lesson) => {
+        const { lessons_learning_objective, lesson_links, ...rest } = lesson
+        const filtered = ((lessons_learning_objective ?? []) as LessonLearningObjective[])
+          .filter((entry) => entry.active !== false)
+          .sort((a, b) => (a.order_by ?? 0) - (b.order_by ?? 0))
+        return {
+          ...rest,
+          lesson_objectives: filtered,
+          lesson_links: ((lesson_links ?? []) as LessonLink[]).map((link) => ({
+            lesson_link_id: link.lesson_link_id,
+            lesson_id: link.lesson_id,
+            url: link.url,
+            description: link.description,
+          })),
+        }
+      })
 
-  return LessonsReturnValue.parse({ data: normalized, error: null })
+      return LessonsReturnValue.parse({ data: normalized, error: null })
+    },
+  )
 }
 
-export async function readLessonsAction() {
-  console.log("[v0] Server action started for all lessons")
+export async function readLessonsAction(options?: { authEndTime?: number | null; routeTag?: string }) {
+  const routeTag = options?.routeTag ?? "/lessons:readLessons"
 
-  const supabase = await createSupabaseServerClient()
+  return withTelemetry(
+    {
+      routeTag,
+      functionName: "readLessonsAction",
+      params: null,
+      authEndTime: options?.authEndTime ?? null,
+    },
+    async () => {
+      console.log("[v0] Server action started for all lessons")
 
-  const { data, error } = await supabase
-    .from("lessons")
-    .select(
-      `*,
+      const supabase = await createSupabaseServerClient()
+
+      const { data, error } = await supabase
+        .from("lessons")
+        .select(
+          `*,
         lessons_learning_objective(
           *,
           learning_objective:learning_objectives(
@@ -264,43 +289,45 @@ export async function readLessonsAction() {
         ),
         lesson_links(*)
       `,
-    )
-    .order("unit_id", { ascending: true })
-    .order("order_by", { ascending: true, nullsFirst: true })
-    .order("title", { ascending: true })
+        )
+        .order("unit_id", { ascending: true })
+        .order("order_by", { ascending: true, nullsFirst: true })
+        .order("title", { ascending: true })
 
-  if (error) {
-    console.error("[v0] Failed to read all lessons:", error)
-    return LessonsReturnValue.parse({ data: null, error: error.message })
-  }
+      if (error) {
+        console.error("[v0] Failed to read all lessons:", error)
+        return LessonsReturnValue.parse({ data: null, error: error.message })
+      }
 
-  const lessons = data ?? []
+      const lessons = data ?? []
 
-  const { lessons: enrichedLessons, error: scError } = await enrichLessonsWithSuccessCriteria(lessons)
+      const { lessons: enrichedLessons, error: scError } = await enrichLessonsWithSuccessCriteria(lessons)
 
-  if (scError) {
-    console.error("[v0] Failed to read success criteria for all lessons:", scError)
-    return LessonsReturnValue.parse({ data: null, error: scError })
-  }
+      if (scError) {
+        console.error("[v0] Failed to read success criteria for all lessons:", scError)
+        return LessonsReturnValue.parse({ data: null, error: scError })
+      }
 
-  const normalized = enrichedLessons.map((lesson) => {
-    const { lessons_learning_objective, lesson_links, ...rest } = lesson
-    const filtered = ((lessons_learning_objective ?? []) as LessonLearningObjective[])
-      .filter((entry) => entry.active !== false)
-      .sort((a, b) => (a.order_by ?? 0) - (b.order_by ?? 0))
-    return {
-      ...rest,
-      lesson_objectives: filtered,
-      lesson_links: ((lesson_links ?? []) as LessonLink[]).map((link) => ({
-        lesson_link_id: link.lesson_link_id,
-        lesson_id: link.lesson_id,
-        url: link.url,
-        description: link.description,
-      })),
-    }
-  })
+      const normalized = enrichedLessons.map((lesson) => {
+        const { lessons_learning_objective, lesson_links, ...rest } = lesson
+        const filtered = ((lessons_learning_objective ?? []) as LessonLearningObjective[])
+          .filter((entry) => entry.active !== false)
+          .sort((a, b) => (a.order_by ?? 0) - (b.order_by ?? 0))
+        return {
+          ...rest,
+          lesson_objectives: filtered,
+          lesson_links: ((lesson_links ?? []) as LessonLink[]).map((link) => ({
+            lesson_link_id: link.lesson_link_id,
+            lesson_id: link.lesson_id,
+            url: link.url,
+            description: link.description,
+          })),
+        }
+      })
 
-  return LessonsReturnValue.parse({ data: normalized, error: null })
+      return LessonsReturnValue.parse({ data: normalized, error: null })
+    },
+  )
 }
 
 export async function createLessonAction(unitId: string, title: string, objectiveIds: string[] = []) {
@@ -1747,7 +1774,22 @@ async function readLessonWithObjectives(lessonId: string) {
   return LessonReturnValue.parse({ data: normalized, error: null })
 }
 
-export async function readLessonAction(lessonId: string) {
-  console.log("[v0] Server action started for lesson read:", { lessonId })
-  return readLessonWithObjectives(lessonId)
+export async function readLessonAction(
+  lessonId: string,
+  options?: { authEndTime?: number | null; routeTag?: string },
+) {
+  const routeTag = options?.routeTag ?? "/lessons:readLesson"
+
+  return withTelemetry(
+    {
+      routeTag,
+      functionName: "readLessonAction",
+      params: { lessonId },
+      authEndTime: options?.authEndTime ?? null,
+    },
+    async () => {
+      console.log("[v0] Server action started for lesson read:", { lessonId })
+      return readLessonWithObjectives(lessonId)
+    },
+  )
 }
