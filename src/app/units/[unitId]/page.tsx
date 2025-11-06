@@ -1,5 +1,7 @@
 export const dynamic = "force-dynamic"
 
+import { performance } from "node:perf_hooks"
+
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { ArrowLeft } from "lucide-react"
@@ -16,6 +18,7 @@ import {
   listUnitFilesAction,
 } from "@/lib/server-updates"
 import { requireTeacherProfile } from "@/lib/auth"
+import { withTelemetry } from "@/lib/telemetry"
 
 export default async function UnitDetailPage({
   params,
@@ -23,6 +26,7 @@ export default async function UnitDetailPage({
   params: Promise<{ unitId: string }>
 }) {
   await requireTeacherProfile()
+  const authEnd = performance.now()
   const { unitId } = await params
 
   const [
@@ -33,15 +37,27 @@ export default async function UnitDetailPage({
     learningObjectivesResult,
     lessonsResult,
     unitFilesResult,
-  ] = await Promise.all([
-    readUnitAction(unitId),
-    readAssignmentsAction(),
-    readGroupsAction(),
-    readSubjectsAction(),
-    readLearningObjectivesByUnitAction(unitId),
-    readLessonsByUnitAction(unitId),
-    listUnitFilesAction(unitId),
-  ])
+  ] = await withTelemetry(
+    {
+      routeTag: "/units/[unitId]",
+      functionName: "UnitDetailPage.loadData",
+      params: { unitId },
+      authEndTime: authEnd,
+    },
+    () =>
+      Promise.all([
+        readUnitAction(unitId, { routeTag: "/units/[unitId]", authEndTime: authEnd }),
+        readAssignmentsAction({ routeTag: "/units/[unitId]", authEndTime: authEnd }),
+        readGroupsAction({ routeTag: "/units/[unitId]", authEndTime: authEnd }),
+        readSubjectsAction({ routeTag: "/units/[unitId]", authEndTime: authEnd }),
+        readLearningObjectivesByUnitAction(unitId, {
+          routeTag: "/units/[unitId]",
+          authEndTime: authEnd,
+        }),
+        readLessonsByUnitAction(unitId, { routeTag: "/units/[unitId]", authEndTime: authEnd }),
+        listUnitFilesAction(unitId, { routeTag: "/units/[unitId]", authEndTime: authEnd }),
+      ]),
+  )
 
   if (unitResult.error) {
     throw new Error(unitResult.error)

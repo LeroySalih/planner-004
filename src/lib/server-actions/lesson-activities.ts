@@ -12,6 +12,7 @@ import {
   type FeedbackActivityGroupSettings,
 } from "@/types"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { withTelemetry } from "@/lib/telemetry"
 import { isScorableActivityType } from "@/dino.config"
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createSupabaseServerClient>>
@@ -48,44 +49,59 @@ const ReorderActivityInputSchema = z
   )
   .max(200)
 
-export async function listLessonActivitiesAction(lessonId: string) {
-  const supabase = await createSupabaseServerClient()
+export async function listLessonActivitiesAction(
+  lessonId: string,
+  options?: { authEndTime?: number | null; routeTag?: string },
+) {
+  const routeTag = options?.routeTag ?? "/lessons:activities"
 
-  const { data, error } = await supabase
-    .from("activities")
-    .select("*")
-    .eq("lesson_id", lessonId)
-    .eq("active", true)
-    .order("order_by", { ascending: true, nullsFirst: true })
-    .order("title", { ascending: true })
+  return withTelemetry(
+    {
+      routeTag,
+      functionName: "listLessonActivitiesAction",
+      params: { lessonId },
+      authEndTime: options?.authEndTime ?? null,
+    },
+    async () => {
+      const supabase = await createSupabaseServerClient()
 
-  if (error) {
-    console.error("[v0] Failed to list lesson activities:", error)
-    return LessonActivitiesReturnValue.parse({ data: null, error: error.message })
-  }
+      const { data, error } = await supabase
+        .from("activities")
+        .select("*")
+        .eq("lesson_id", lessonId)
+        .eq("active", true)
+        .order("order_by", { ascending: true, nullsFirst: true })
+        .order("title", { ascending: true })
 
-  const sorted = (data ?? []).sort((a, b) => {
-    const aOrder = typeof a.order_by === "number" ? a.order_by : Number.MAX_SAFE_INTEGER
-    const bOrder = typeof b.order_by === "number" ? b.order_by : Number.MAX_SAFE_INTEGER
-    if (aOrder !== bOrder) {
-      return aOrder - bOrder
-    }
-    return (a.title ?? "").localeCompare(b.title ?? "")
-  })
+      if (error) {
+        console.error("[v0] Failed to list lesson activities:", error)
+        return LessonActivitiesReturnValue.parse({ data: null, error: error.message })
+      }
 
-  const { data: enriched, error: scError } = await enrichActivitiesWithSuccessCriteria(supabase, sorted)
+      const sorted = (data ?? []).sort((a, b) => {
+        const aOrder = typeof a.order_by === "number" ? a.order_by : Number.MAX_SAFE_INTEGER
+        const bOrder = typeof b.order_by === "number" ? b.order_by : Number.MAX_SAFE_INTEGER
+        if (aOrder !== bOrder) {
+          return aOrder - bOrder
+        }
+        return (a.title ?? "").localeCompare(b.title ?? "")
+      })
 
-  if (scError) {
-    console.error("[v0] Failed to read activity success criteria:", scError)
-    return LessonActivitiesReturnValue.parse({ data: null, error: scError })
-  }
+      const { data: enriched, error: scError } = await enrichActivitiesWithSuccessCriteria(supabase, sorted)
 
-  const sanitizedActivities = (enriched ?? []).map((activity) => {
-    const activityType = typeof activity.type === "string" ? activity.type : null
-    return isScorableActivityType(activityType) ? activity : { ...activity, is_summative: false }
-  })
+      if (scError) {
+        console.error("[v0] Failed to read activity success criteria:", scError)
+        return LessonActivitiesReturnValue.parse({ data: null, error: scError })
+      }
 
-  return LessonActivitiesReturnValue.parse({ data: sanitizedActivities, error: null })
+      const sanitizedActivities = (enriched ?? []).map((activity) => {
+        const activityType = typeof activity.type === "string" ? activity.type : null
+        return isScorableActivityType(activityType) ? activity : { ...activity, is_summative: false }
+      })
+
+      return LessonActivitiesReturnValue.parse({ data: sanitizedActivities, error: null })
+    },
+  )
 }
 
 export async function createLessonActivityAction(

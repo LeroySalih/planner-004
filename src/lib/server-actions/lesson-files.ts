@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { withTelemetry } from "@/lib/telemetry"
 
 const LESSON_FILES_BUCKET = "lessons"
 
@@ -41,36 +42,51 @@ function buildVersionedName(name: string) {
   return `${base}_${timestamp}${extension}`
 }
 
-export async function listLessonFilesAction(lessonId: string) {
-  const supabase = await createSupabaseServerClient()
+export async function listLessonFilesAction(
+  lessonId: string,
+  options?: { authEndTime?: number | null; routeTag?: string },
+) {
+  const routeTag = options?.routeTag ?? "/lessons:files"
 
-  const { data, error } = await supabase.storage
-    .from(LESSON_FILES_BUCKET)
-    .list(lessonId, { limit: 100 })
+  return withTelemetry(
+    {
+      routeTag,
+      functionName: "listLessonFilesAction",
+      params: { lessonId },
+      authEndTime: options?.authEndTime ?? null,
+    },
+    async () => {
+      const supabase = await createSupabaseServerClient()
 
-  if (error) {
-    console.error("[v0] Failed to list lesson files:", error)
-    return LessonFilesReturnValue.parse({ data: null, error: error.message })
-  }
+      const { data, error } = await supabase.storage
+        .from(LESSON_FILES_BUCKET)
+        .list(lessonId, { limit: 100 })
 
-  const normalized = (data ?? [])
-    .map((file) =>
-      LessonFileSchema.parse({
-        name: file.name,
-        path: buildFilePath(lessonId, file.name),
-        created_at: file.created_at ?? undefined,
-        updated_at: file.updated_at ?? undefined,
-        last_accessed_at: file.last_accessed_at ?? undefined,
-        size: file.metadata?.size ?? undefined,
-      }),
-    )
-    .sort((a, b) => {
-      const aTime = Date.parse(a.updated_at ?? a.created_at ?? "0")
-      const bTime = Date.parse(b.updated_at ?? b.created_at ?? "0")
-      return bTime - aTime
-    })
+      if (error) {
+        console.error("[v0] Failed to list lesson files:", error)
+        return LessonFilesReturnValue.parse({ data: null, error: error.message })
+      }
 
-  return LessonFilesReturnValue.parse({ data: normalized, error: null })
+      const normalized = (data ?? [])
+        .map((file) =>
+          LessonFileSchema.parse({
+            name: file.name,
+            path: buildFilePath(lessonId, file.name),
+            created_at: file.created_at ?? undefined,
+            updated_at: file.updated_at ?? undefined,
+            last_accessed_at: file.last_accessed_at ?? undefined,
+            size: file.metadata?.size ?? undefined,
+          }),
+        )
+        .sort((a, b) => {
+          const aTime = Date.parse(a.updated_at ?? a.created_at ?? "0")
+          const bTime = Date.parse(b.updated_at ?? b.created_at ?? "0")
+          return bTime - aTime
+        })
+
+      return LessonFilesReturnValue.parse({ data: normalized, error: null })
+    },
+  )
 }
 
 export async function uploadLessonFileAction(formData: FormData) {

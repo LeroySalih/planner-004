@@ -14,6 +14,7 @@ import {
 
 import { getAuthenticatedProfile, requireAuthenticatedProfile } from "@/lib/auth"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { withTelemetry } from "@/lib/telemetry"
 
 const GroupReturnValue = z.object({
   data: GroupWithMembershipSchema.nullable(),
@@ -181,27 +182,38 @@ export async function readGroupAction(groupId: string) {
   })
 }
 
-export async function readGroupsAction() {
+export async function readGroupsAction(options?: { authEndTime?: number | null; routeTag?: string }) {
+  const routeTag = options?.routeTag ?? "/groups:readGroups"
 
-  console.log("[v0] Server action started for reading groups:")
-  
-  let error: string | null = null;
+  return withTelemetry(
+    {
+      routeTag,
+      functionName: "readGroupsAction",
+      params: null,
+      authEndTime: options?.authEndTime ?? null,
+    },
+    async () => {
+      console.log("[v0] Server action started for reading groups:")
 
-  const supabase = await createSupabaseServerClient()
+      let error: string | null = null
 
-  const { data, error: readError } = await supabase
-    .from("groups")
-    .select("*")
-    .eq("active", true);
+      const supabase = await createSupabaseServerClient()
 
-  if (readError) {
-    error = readError.message;
-    console.error(error);
-  }
+      const { data, error: readError } = await supabase
+        .from("groups")
+        .select("*")
+        .eq("active", true)
 
-  console.log("[v0] Server action completed for reading groups:", error)
+      if (readError) {
+        error = readError.message
+        console.error(error)
+      }
 
-  return GroupsReturnValue.parse({ data, error })
+      console.log("[v0] Server action completed for reading groups:", error)
+
+      return GroupsReturnValue.parse({ data, error })
+    },
+  )
 }
 
 export async function listPupilsWithGroupsAction(): Promise<PupilListing[]> {

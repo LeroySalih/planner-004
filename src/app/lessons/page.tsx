@@ -2,13 +2,25 @@ export const dynamic = "force-dynamic"
 
 import { LessonsPageClient } from "@/components/lessons/lessons-page-client"
 import { readLessonsAction, readSubjectsAction, readUnitsAction } from "@/lib/server-updates"
+import { withTelemetry } from "@/lib/telemetry"
 
 export default async function LessonsPage() {
-  const [lessonsResult, unitsResult, subjectsResult] = await Promise.all([
-    readLessonsAction(),
-    readUnitsAction(),
-    readSubjectsAction(),
-  ])
+  const authEnd: number | null = null
+
+  const [lessonsResult, unitsResult, subjectsResult] = await withTelemetry(
+    {
+      routeTag: "/lessons",
+      functionName: "LessonsPage.loadData",
+      params: null,
+      authEndTime: authEnd,
+    },
+    () =>
+      Promise.all([
+        readLessonsAction({ routeTag: "/lessons", authEndTime: authEnd }),
+        readUnitsAction({ routeTag: "/lessons", authEndTime: authEnd }),
+        readSubjectsAction({ routeTag: "/lessons", authEndTime: authEnd }),
+      ]),
+  )
 
   if (lessonsResult.error) {
     return (

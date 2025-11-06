@@ -6,6 +6,7 @@ import { z } from "zod"
 import type { Assignment } from "@/types"
 import { AssignmentSchema, AssignmentsSchema } from "@/types"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { withTelemetry } from "@/lib/telemetry"
 
 const AssignmentReturnValue = z.object({
   data: AssignmentSchema.nullable(),
@@ -113,26 +114,38 @@ export async function readAssignmentAction(groupId: string, unitId: string, star
   return AssignmentReturnValue.parse({ data, error: null })
 }
 
-export async function readAssignmentsAction() {
-  console.log("[v0] Server action started for reading assignments:")
+export async function readAssignmentsAction(options?: { authEndTime?: number | null; routeTag?: string }) {
+  const routeTag = options?.routeTag ?? "/assignments:readAssignments"
 
-  let error: string | null = null
+  return withTelemetry(
+    {
+      routeTag,
+      functionName: "readAssignmentsAction",
+      params: null,
+      authEndTime: options?.authEndTime ?? null,
+    },
+    async () => {
+      console.log("[v0] Server action started for reading assignments:")
 
-  const supabase = await createSupabaseServerClient()
+      let error: string | null = null
 
-  const { data, error: readError } = await supabase
-    .from("assignments")
-    .select("*")
-    .eq("active", true)
+      const supabase = await createSupabaseServerClient()
 
-  if (readError) {
-    error = readError.message
-    console.error(error)
-  }
+      const { data, error: readError } = await supabase
+        .from("assignments")
+        .select("*")
+        .eq("active", true)
 
-  console.log("[v0] Server action completed for reading assignments:", error)
+      if (readError) {
+        error = readError.message
+        console.error(error)
+      }
 
-  return AssignmentsReturnValue.parse({ data, error })
+      console.log("[v0] Server action completed for reading assignments:", error)
+
+      return AssignmentsReturnValue.parse({ data, error })
+    },
+  )
 }
 
 export async function readAssignmentsForGroupAction(groupId: string) {

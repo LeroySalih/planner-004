@@ -5,6 +5,7 @@ import { z } from "zod"
 
 import { LearningObjectiveSchema, SuccessCriteriaSchema } from "@/types"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { withTelemetry } from "@/lib/telemetry"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
 const LearningObjectiveWithCriteriaSchema = LearningObjectiveSchema.extend({
@@ -121,14 +122,43 @@ async function readLearningObjectivesWithCriteria(options: {
   return LearningObjectivesReturnValue.parse({ data: normalized, error: null })
 }
 
-export async function readLearningObjectivesByUnitAction(unitId: string) {
-  console.log("[v0] Server action started for learning objectives:", { unitId })
-  return readLearningObjectivesWithCriteria({ filterUnitId: unitId })
+export async function readLearningObjectivesByUnitAction(
+  unitId: string,
+  options?: { authEndTime?: number | null; routeTag?: string },
+) {
+  const routeTag = options?.routeTag ?? "/learning-objectives:byUnit"
+
+  return withTelemetry(
+    {
+      routeTag,
+      functionName: "readLearningObjectivesByUnitAction",
+      params: { unitId },
+      authEndTime: options?.authEndTime ?? null,
+    },
+    async () => {
+      console.log("[v0] Server action started for learning objectives:", { unitId })
+      return readLearningObjectivesWithCriteria({ filterUnitId: unitId })
+    },
+  )
 }
 
-export async function readAllLearningObjectivesAction() {
-  console.log("[v0] Server action started for curriculum learning objectives")
-  return readLearningObjectivesWithCriteria({})
+export async function readAllLearningObjectivesAction(
+  options?: { authEndTime?: number | null; routeTag?: string },
+) {
+  const routeTag = options?.routeTag ?? "/learning-objectives:all"
+
+  return withTelemetry(
+    {
+      routeTag,
+      functionName: "readAllLearningObjectivesAction",
+      params: null,
+      authEndTime: options?.authEndTime ?? null,
+    },
+    async () => {
+      console.log("[v0] Server action started for curriculum learning objectives")
+      return readLearningObjectivesWithCriteria({})
+    },
+  )
 }
 
 export type NormalizedSuccessCriterion = {

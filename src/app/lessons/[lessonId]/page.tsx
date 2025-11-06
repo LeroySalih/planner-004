@@ -13,6 +13,7 @@ import {
   readLessonsByUnitAction,
   readUnitAction,
 } from "@/lib/server-updates"
+import { withTelemetry } from "@/lib/telemetry"
 
 export default async function LessonDetailPage({
   params,
@@ -20,8 +21,17 @@ export default async function LessonDetailPage({
   params: Promise<{ lessonId: string }>
 }) {
   const { lessonId } = await params
+  const authEnd: number | null = null
 
-  const lessonResult = await readLessonAction(lessonId)
+  const lessonResult = await withTelemetry(
+    {
+      routeTag: "/lessons/[lessonId]",
+      functionName: "LessonDetailPage.readLesson",
+      params: { lessonId },
+      authEndTime: authEnd,
+    },
+    () => readLessonAction(lessonId, { routeTag: "/lessons/[lessonId]", authEndTime: authEnd }),
+  )
 
   if (lessonResult.error) {
     return (
@@ -45,16 +55,33 @@ export default async function LessonDetailPage({
     lessonFilesResult,
     lessonActivitiesResult,
     lessonsByUnitResult,
-  ] =
-    await Promise.all([
-      readUnitAction(lesson.unit_id),
-      readAllLearningObjectivesAction(),
-      readCurriculaAction(),
-      readAssessmentObjectivesAction(),
-      listLessonFilesAction(lesson.lesson_id),
-      listLessonActivitiesAction(lesson.lesson_id),
-      readLessonsByUnitAction(lesson.unit_id),
-    ])
+  ] = await withTelemetry(
+    {
+      routeTag: "/lessons/[lessonId]",
+      functionName: "LessonDetailPage.loadAncillaryData",
+      params: { lessonId, unitId: lesson.unit_id },
+      authEndTime: authEnd,
+    },
+    () =>
+      Promise.all([
+        readUnitAction(lesson.unit_id, { routeTag: "/lessons/[lessonId]", authEndTime: authEnd }),
+        readAllLearningObjectivesAction({ routeTag: "/lessons/[lessonId]", authEndTime: authEnd }),
+        readCurriculaAction({ routeTag: "/lessons/[lessonId]", authEndTime: authEnd }),
+        readAssessmentObjectivesAction({ routeTag: "/lessons/[lessonId]", authEndTime: authEnd }),
+        listLessonFilesAction(lesson.lesson_id, {
+          routeTag: "/lessons/[lessonId]",
+          authEndTime: authEnd,
+        }),
+        listLessonActivitiesAction(lesson.lesson_id, {
+          routeTag: "/lessons/[lessonId]",
+          authEndTime: authEnd,
+        }),
+        readLessonsByUnitAction(lesson.unit_id, {
+          routeTag: "/lessons/[lessonId]",
+          authEndTime: authEnd,
+        }),
+      ]),
+  )
 
   if (
     unitResult.error ||
