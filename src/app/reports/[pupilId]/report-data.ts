@@ -1,17 +1,68 @@
+import { z } from "zod"
+
 import {
-  readLearningObjectivesByUnitAction,
-  readLessonsByUnitAction,
-  readLessonSubmissionSummariesAction,
-  readPupilReportAction,
-} from "@/lib/server-updates"
-import type { LessonSubmissionSummary, LessonWithObjectives } from "@/types"
+  AssignmentsWithUnitSchema,
+  FeedbacksSchema,
+  GroupMembershipsWithGroupSchema,
+  LearningObjectiveWithCriteriaSchema,
+  LessonActivitiesSchema,
+  LessonSuccessCriteriaSchema,
+  LessonWithObjectivesSchema,
+  McqActivityBodySchema,
+  McqSubmissionBodySchema,
+  ProfileSchema,
+  ShortTextActivityBodySchema,
+  ShortTextSubmissionBodySchema,
+  SubmissionsSchema,
+  type LearningObjectiveWithCriteria,
+  type LessonActivity,
+  type LessonSubmissionSummary,
+  type LessonWithObjectives,
+  type Submission,
+} from "@/types"
 import { getLevelForYearScore } from "@/lib/levels"
 import { withTelemetry } from "@/lib/telemetry"
+import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { computeAverageSuccessCriteriaScore, normaliseSuccessCriteriaScores } from "@/lib/scoring/success-criteria"
+import { isScorableActivityType } from "@/dino.config"
 
-export type ReportDataResult = Awaited<ReturnType<typeof readPupilReportAction>>
-export type LoadedReport = NonNullable<ReportDataResult["data"]>
-export type ReportMembership = LoadedReport["memberships"][number]
-export type ReportAssignment = LoadedReport["assignments"][number]
+const ReportDatasetLessonSchema = LessonWithObjectivesSchema.extend({
+  activities: LessonActivitiesSchema.default([]),
+  submissions: SubmissionsSchema.default([]),
+  lesson_success_criteria: LessonSuccessCriteriaSchema.default([]),
+})
+
+const ReportDatasetUnitSchema = z.object({
+  unit_id: z.string(),
+  learning_objectives: z.array(LearningObjectiveWithCriteriaSchema).default([]),
+  lessons: z.array(ReportDatasetLessonSchema).default([]),
+})
+
+const ReportDatasetSchema = z.object({
+  profile: ProfileSchema.nullable().optional().default(null),
+  memberships: GroupMembershipsWithGroupSchema.default([]),
+  assignments: AssignmentsWithUnitSchema.default([]),
+  feedback: FeedbacksSchema.default([]),
+  units: z.array(ReportDatasetUnitSchema).default([]),
+})
+
+type ReportDataset = z.infer<typeof ReportDatasetSchema>
+type ReportMembership = z.infer<typeof GroupMembershipsWithGroupSchema>[number]
+type ReportAssignment = z.infer<typeof AssignmentsWithUnitSchema>[number]
+
+async function fetchReportDataset(pupilId: string, groupIdFilter?: string | null): Promise<ReportDataset> {
+  const supabase = await createSupabaseServerClient()
+  const { data, error } = await supabase.rpc("reports_get_prepared_report_dataset", {
+    p_pupil_id: pupilId,
+    p_group_id: groupIdFilter ?? null,
+  })
+
+  if (error) {
+    throw new Error(error.message ?? "Failed to load report dataset.")
+  }
+
+  return ReportDatasetSchema.parse(data ?? {})
+}
 
 export type ReportCriterionRow = {
   level: number
@@ -79,28 +130,18 @@ export async function getPreparedReportData(
       authEndTime: options?.authEndTime ?? null,
     },
     async () => {
-      const reportResult = await readPupilReportAction(pupilId)
-
-      if (reportResult.error && !reportResult.data) {
-        throw new Error(reportResult.error)
-      }
-
-      const report = reportResult.data
-
-      if (!report) {
-        return null
-      }
+      const dataset = await fetchReportDataset(pupilId, groupIdFilter)
 
       const assignments = groupIdFilter
-        ? report.assignments.filter((assignment) => assignment.group_id === groupIdFilter)
-        : report.assignments
+        ? dataset.assignments.filter((assignment) => assignment.group_id === groupIdFilter)
+        : dataset.assignments
 
-      const membershipByGroupId = new Map(report.memberships.map((membership) => [membership.group_id, membership]))
+      const membershipByGroupId = new Map(dataset.memberships.map((membership) => [membership.group_id, membership]))
       const primaryMembership = groupIdFilter ? membershipByGroupId.get(groupIdFilter) ?? null : null
 
       const profileName = (() => {
-        const first = report.profile?.first_name?.trim() ?? ""
-        const last = report.profile?.last_name?.trim() ?? ""
+        const first = dataset.profile?.first_name?.trim() ?? ""
+        const last = dataset.profile?.last_name?.trim() ?? ""
         const combined = `${first} ${last}`.trim()
         return combined.length > 0 ? combined : pupilId
       })()
@@ -146,16 +187,10 @@ export async function getPreparedReportData(
         }
       }
 
-      const objectivesByUnit = new Map<string, Awaited<ReturnType<typeof readLearningObjectivesByUnitAction>>>()
-      await Promise.all(
-        Array.from(assignmentsByUnit.keys()).map(async (unitId) => {
-          const result = await readLearningObjectivesByUnitAction(unitId)
-          objectivesByUnit.set(unitId, result)
-        }),
-      )
+      const unitDatasetMap = new Map(dataset.units.map((unit) => [unit.unit_id, unit]))
 
       const latestFeedbackByCriterion = new Map<string, { rating: number; id: number }>()
-      for (const entry of report.feedback) {
+      for (const entry of dataset.feedback) {
         const existing = latestFeedbackByCriterion.get(entry.success_criteria_id)
         if (!existing || entry.id > existing.id) {
           latestFeedbackByCriterion.set(entry.success_criteria_id, {
@@ -174,10 +209,15 @@ export async function getPreparedReportData(
 
       for (const [unitId, unitAssignments] of assignmentsByUnit.entries()) {
         const meta = unitMeta.get(unitId)
-        const objectivesResult = objectivesByUnit.get(unitId)
-        const objectives = objectivesResult?.data ?? []
-        const objectiveError = objectivesResult?.error
-        const lessonContext = await loadUnitLessonContext(unitId, pupilId, options?.authEndTime)
+        const unitDataset = unitDatasetMap.get(unitId)
+        const objectives = unitDataset?.learning_objectives ?? []
+        const objectiveError: string | null = null
+        const lessonContext = await loadUnitLessonContextFromDataset(
+          unitId,
+          pupilId,
+          unitDataset,
+          options?.authEndTime,
+        )
         const lessons = lessonContext.lessons
         const scoreSummary = lessonContext.scoreSummary
 
@@ -316,6 +356,250 @@ export async function getPreparedUnitReport(
   )
 }
 
+function buildLessonSubmissionSummaries(
+  activities: LessonActivity[],
+  submissions: Submission[],
+): LessonSubmissionSummary[] {
+  const scorableActivities = activities.filter((activity) => isScorableActivityType(activity.type))
+
+  const submissionsByActivity = new Map<string, Submission[]>()
+  for (const submission of submissions) {
+    const list = submissionsByActivity.get(submission.activity_id) ?? []
+    list.push(submission)
+    submissionsByActivity.set(submission.activity_id, list)
+  }
+
+  const summaries: LessonSubmissionSummary[] = []
+
+  for (const activity of scorableActivities) {
+    const activityType = (activity.type ?? "").trim()
+    const activityTitle = (activity.title ?? "Untitled activity").trim() || "Untitled activity"
+    const submissionList = submissionsByActivity.get(activity.activity_id) ?? []
+    const successCriteriaIds = (activity.success_criteria_ids ?? []).filter((id): id is string =>
+      typeof id === "string" && id.trim().length > 0,
+    )
+    const isSummative = (activity.is_summative ?? false) && isScorableActivityType(activity.type)
+
+    const summary: LessonSubmissionSummary = {
+      activityId: activity.activity_id,
+      activityTitle,
+      activityType,
+      successCriteriaIds: successCriteriaIds.slice(),
+      totalSubmissions: submissionList.length,
+      averageScore: null,
+      correctCount: null,
+      scores: [],
+      correctAnswer: null,
+      isSummative,
+    }
+
+    if (submissionList.length === 0) {
+      summaries.push(summary)
+      continue
+    }
+
+    if (activityType === "multiple-choice-question") {
+      const parsedActivity = McqActivityBodySchema.safeParse(activity.body_data)
+      const mcqOptions = parsedActivity.success ? parsedActivity.data.options : []
+      const correctOptionId = parsedActivity.success ? parsedActivity.data.correctOptionId : null
+      const correctOption = correctOptionId ? mcqOptions.find((option) => option.id === correctOptionId) : undefined
+
+      if (correctOption) {
+        summary.correctAnswer = correctOption.text?.trim() || correctOptionId
+      } else if (correctOptionId) {
+        summary.correctAnswer = correctOptionId
+      }
+
+      const scoreEntries = submissionList
+        .map((submission) => {
+          const parsedSubmission = McqSubmissionBodySchema.safeParse(submission.body)
+          if (!parsedSubmission.success) {
+            return null
+          }
+          const isCorrect = parsedSubmission.data.is_correct === true
+          const overrideScore =
+            typeof parsedSubmission.data.teacher_override_score === "number" &&
+            Number.isFinite(parsedSubmission.data.teacher_override_score)
+              ? parsedSubmission.data.teacher_override_score
+              : null
+          const effectiveScore = overrideScore ?? (isCorrect ? 1 : 0)
+          const successCriteriaScores = normaliseSuccessCriteriaScores({
+            successCriteriaIds,
+            existingScores: parsedSubmission.data.success_criteria_scores,
+            fillValue: effectiveScore,
+          })
+          const score = computeAverageSuccessCriteriaScore(successCriteriaScores) ?? 0
+          return {
+            userId: submission.user_id,
+            score,
+            isCorrect,
+            successCriteriaScores,
+          }
+        })
+        .filter(
+          (
+            entry,
+          ): entry is {
+            userId: string
+            score: number
+            isCorrect: boolean
+            successCriteriaScores: Record<string, number | null>
+          } => entry !== null,
+        )
+
+      summary.scores = scoreEntries.map((entry) => ({
+        userId: entry.userId,
+        score: entry.score,
+        isCorrect: entry.isCorrect,
+        successCriteriaScores: entry.successCriteriaScores,
+      }))
+      summary.correctCount = scoreEntries.filter((entry) => entry.isCorrect).length
+
+      if (scoreEntries.length > 0) {
+        const activitiesScore = scoreEntries.reduce((acc, entry) => acc + entry.score, 0)
+        summary.averageScore = activitiesScore / scoreEntries.length
+      }
+    } else if (activityType === "short-text-question") {
+      const parsedActivity = ShortTextActivityBodySchema.safeParse(activity.body_data)
+      if (parsedActivity.success) {
+        const modelAnswer = parsedActivity.data.modelAnswer?.trim()
+        if (modelAnswer) {
+          summary.correctAnswer = modelAnswer
+        }
+      }
+
+      const scoreEntries = submissionList
+        .map((submission) => {
+          const parsedSubmission = ShortTextSubmissionBodySchema.safeParse(submission.body)
+          if (!parsedSubmission.success) {
+            return null
+          }
+
+          const aiScore =
+            typeof parsedSubmission.data.ai_model_score === "number" && Number.isFinite(parsedSubmission.data.ai_model_score)
+              ? parsedSubmission.data.ai_model_score
+              : null
+          const overrideScore =
+            typeof parsedSubmission.data.teacher_override_score === "number" &&
+            Number.isFinite(parsedSubmission.data.teacher_override_score)
+              ? parsedSubmission.data.teacher_override_score
+              : null
+          const effectiveScore = overrideScore ?? aiScore
+          const successCriteriaScores = normaliseSuccessCriteriaScores({
+            successCriteriaIds,
+            existingScores: parsedSubmission.data.success_criteria_scores,
+            fillValue: effectiveScore ?? 0,
+          })
+          const averagedScore = computeAverageSuccessCriteriaScore(successCriteriaScores) ?? 0
+
+          return {
+            userId: submission.user_id,
+            score: averagedScore,
+            isCorrect: parsedSubmission.data.is_correct === true,
+            successCriteriaScores,
+          }
+        })
+        .filter(
+          (
+            entry,
+          ): entry is {
+            userId: string
+            score: number
+            isCorrect: boolean
+            successCriteriaScores: Record<string, number | null>
+          } => entry !== null,
+        )
+
+      summary.scores = scoreEntries.map((entry) => ({
+        userId: entry.userId,
+        score: entry.score,
+        isCorrect: entry.isCorrect,
+        successCriteriaScores: entry.successCriteriaScores,
+      }))
+
+      summary.correctCount = scoreEntries.filter((entry) => entry.isCorrect).length
+
+      const numericScores = scoreEntries
+        .filter((entry) => typeof entry.score === "number" && Number.isFinite(entry.score))
+        .map((entry) => entry.score as number)
+
+      if (numericScores.length > 0) {
+        const activitiesScore = numericScores.reduce((acc, value) => acc + value, 0)
+        summary.averageScore = activitiesScore / numericScores.length
+      }
+    } else {
+      const generalScores = submissionList.map((submission) => {
+        const body = submission.body
+        let overrideScore: number | null = null
+        let baseScore: number | null = null
+        let successCriteriaScores: Record<string, number | null> | undefined
+
+        if (body && typeof body === "object") {
+          const record = body as Record<string, unknown>
+
+          if (!summary.correctAnswer) {
+            const correctValue = record.correctAnswer
+            if (typeof correctValue === "string" && correctValue.trim().length > 0) {
+              summary.correctAnswer = correctValue.trim()
+            }
+          }
+
+          const override = record.teacher_override_score
+          if (typeof override === "number" && Number.isFinite(override)) {
+            overrideScore = override
+          }
+
+          const rawSuccessCriteria = record.success_criteria_scores
+          if (rawSuccessCriteria && typeof rawSuccessCriteria === "object") {
+            successCriteriaScores = rawSuccessCriteria as Record<string, number | null>
+          }
+
+          const scoreValue = record.score
+          if (typeof scoreValue === "number" && Number.isFinite(scoreValue)) {
+            baseScore = scoreValue
+          } else if (typeof scoreValue === "string") {
+            const parsed = Number.parseFloat(scoreValue)
+            if (!Number.isNaN(parsed)) {
+              baseScore = parsed
+            }
+          }
+        }
+
+        const normalisedScores = normaliseSuccessCriteriaScores({
+          successCriteriaIds,
+          existingScores: successCriteriaScores,
+          fillValue: overrideScore ?? baseScore ?? 0,
+        })
+
+        const averagedScore = computeAverageSuccessCriteriaScore(normalisedScores)
+        const finalScore = averagedScore ?? overrideScore ?? baseScore ?? null
+
+        return {
+          userId: submission.user_id,
+          score: finalScore,
+          successCriteriaScores: normalisedScores,
+        }
+      })
+
+      summary.scores = generalScores
+
+      const numericScores = generalScores.filter((entry) => typeof entry.score === "number") as Array<{
+        userId: string
+        score: number
+      }>
+
+      if (numericScores.length > 0) {
+        const activitiesScore = numericScores.reduce((acc, entry) => acc + entry.score, 0)
+        summary.averageScore = activitiesScore / numericScores.length
+      }
+    }
+
+    summaries.push(summary)
+  }
+
+  return summaries
+}
+
 type LessonSuccessCriterionEntry = {
   lesson_id: string
   success_criteria_id: string
@@ -343,33 +627,29 @@ type UnitLessonContext = {
   scoreSummary: { activitiesAverage: number | null; assessmentAverage: number | null; error: string | null }
 }
 
-async function loadUnitLessonContext(
+async function loadUnitLessonContextFromDataset(
   unitId: string,
   pupilId: string,
+  unitDataset: ReportDataset["units"][number] | undefined,
   authEndTime?: number,
 ): Promise<UnitLessonContext> {
   return withTelemetry(
     {
       routeTag: "reports",
-      functionName: "loadUnitLessonContext",
+      functionName: "loadUnitLessonContextFromDataset",
       params: { unitId, pupilId },
       authEndTime: authEndTime ?? null,
     },
     async () => {
-      const lessonsResult = await readLessonsByUnitAction(unitId)
-
-      if (lessonsResult.error) {
+      if (!unitDataset) {
         return {
           lessons: [],
-          scoreSummary: { activitiesAverage: null, assessmentAverage: null, error: lessonsResult.error },
+          scoreSummary: { activitiesAverage: null, assessmentAverage: null, error: null },
         }
       }
 
-      const lessons = (lessonsResult.data ?? []) as Array<
-        LessonWithObjectives & { lesson_success_criteria?: LessonSuccessCriterionEntry[] }
-      >
+      const lessons = unitDataset.lessons ?? []
       if (lessons.length === 0) {
-        console.log("[reports] No lessons returned for unit", { unitId })
         return {
           lessons: [],
           scoreSummary: { activitiesAverage: null, assessmentAverage: null, error: null },
@@ -380,42 +660,53 @@ async function loadUnitLessonContext(
       let totalActivityCount = 0
       let summativeScoreSum = 0
       let summativeActivityCount = 0
-      let firstError: string | null = null
-      const lessonAverageMap = new Map<string, LessonScoreAverages>()
-      const lessonSummariesMap = new Map<string, LessonSubmissionSummary[]>()
+      const enrichedLessons: UnitLessonContext["lessons"] = []
 
       for (const lesson of lessons) {
         const lessonId = lesson.lesson_id
         if (!lessonId) continue
 
-        const objectiveTitles = lesson.lesson_objectives?.map((entry) => ({
-          lessonObjectiveId: entry.learning_objective_id ?? entry.learning_objective?.learning_objective_id ?? null,
-          title: entry.title,
-          linkedTitle: entry.learning_objective?.title ?? null,
-        }))
-        console.log("[reports] Lesson objectives hydrated", {
-          unitId,
-          lessonId,
-          objectiveCount: objectiveTitles?.length ?? 0,
-          objectives: objectiveTitles,
-        })
+        const activitySummativeFlags = new Map<string, boolean>()
+        for (const activity of lesson.activities ?? []) {
+          if (!activity?.activity_id) continue
+          const isSummative = (activity.is_summative ?? false) && isScorableActivityType(activity.type)
+          activitySummativeFlags.set(activity.activity_id, isSummative)
+        }
+
+        const enrichedCriteria: LessonSuccessCriterionEntry[] = (lesson.lesson_success_criteria ?? []).map(
+          (criterion) => {
+            const title =
+              typeof criterion.title === "string" && criterion.title.trim().length > 0
+                ? criterion.title.trim()
+                : "Success criterion"
+            const activityId = criterion.activity_id ?? null
+            return {
+              lesson_id: lessonId,
+              success_criteria_id: criterion.success_criteria_id,
+              title,
+              description: criterion.description ?? null,
+              level: typeof criterion.level === "number" ? criterion.level : null,
+              learning_objective_id: criterion.learning_objective_id ?? null,
+              activity_id: activityId,
+              is_summative: activityId ? activitySummativeFlags.get(activityId) ?? false : false,
+            }
+          },
+        )
+        enrichedCriteria.sort((a, b) => a.title.localeCompare(b.title))
+
+        const submissionSummaries = buildLessonSubmissionSummaries(lesson.activities ?? [], lesson.submissions ?? [])
 
         let lessonTotalSum = 0
         let lessonActivityCount = 0
         let lessonAssessmentSum = 0
         let lessonAssessmentCount = 0
 
-        const { data: summaries, error } = await readLessonSubmissionSummariesAction(lessonId, {
-          userId: pupilId,
-        })
-
-        if (error && !firstError) {
-          firstError = error
-        }
-
-        for (const summary of summaries) {
+        for (const summary of submissionSummaries) {
           const pupilScores = summary.scores.filter(
-            (entry) => entry.userId === pupilId && typeof entry.score === "number" && Number.isFinite(entry.score),
+            (entry) =>
+              entry.userId === pupilId &&
+              typeof entry.score === "number" &&
+              Number.isFinite(entry.score),
           )
           if (pupilScores.length === 0) {
             continue
@@ -443,33 +734,29 @@ async function loadUnitLessonContext(
         const lessonAssessmentAverage =
           lessonAssessmentCount > 0 ? lessonAssessmentSum / lessonAssessmentCount : null
 
-        lessonAverageMap.set(lessonId, {
-          activitiesAverage: lessonTotalAverage,
-          assessmentAverage: lessonAssessmentAverage,
-        })
+        const { activities, submissions, ...lessonBase } = lesson
+        const normalizedLesson = lessonBase as LessonWithObjectives
 
-        lessonSummariesMap.set(lessonId, summaries)
+        enrichedLessons.push({
+          ...normalizedLesson,
+          lesson_success_criteria: enrichedCriteria,
+          scoreAverages: {
+            activitiesAverage: lessonTotalAverage,
+            assessmentAverage: lessonAssessmentAverage,
+          },
+          submissionSummaries,
+        })
       }
 
       const activitiesAverage = totalActivityCount > 0 ? activitiesScoreSum / totalActivityCount : null
       const assessmentAverage = summativeActivityCount > 0 ? summativeScoreSum / summativeActivityCount : null
-
-      const enrichedLessons = lessons.map((lesson) => ({
-        ...lesson,
-        scoreAverages:
-          lessonAverageMap.get(lesson.lesson_id ?? "") ?? {
-            activitiesAverage: null,
-            assessmentAverage: null,
-          },
-        submissionSummaries: lessonSummariesMap.get(lesson.lesson_id ?? "") ?? [],
-      }))
 
       return {
         lessons: enrichedLessons,
         scoreSummary: {
           activitiesAverage,
           assessmentAverage,
-          error: firstError,
+          error: null,
         },
       }
     },
@@ -482,7 +769,7 @@ function buildUnitRows({
   feedbackByCriterion,
   pupilId,
 }: {
-  objectives: Awaited<ReturnType<typeof readLearningObjectivesByUnitAction>>["data"] extends infer T ? (T extends Array<infer U> ? U[] : []) : []
+  objectives: LearningObjectiveWithCriteria[]
   lessons: UnitLessonContext["lessons"]
   feedbackByCriterion: Record<string, number>
   pupilId: string

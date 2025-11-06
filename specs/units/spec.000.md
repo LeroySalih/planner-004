@@ -18,3 +18,5 @@ The lessons panel will list the lessons associated with the  unit in the correct
 
 Each lesson row now renders a slim layout: drag handle, lesson title (clickable for editing), a pending badge when an async create job is in flight, plus the “Show activities” and “Details” buttons. The expandable detail section and inline “Edit” button have been removed.
 
+
+
