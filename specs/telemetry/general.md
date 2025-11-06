@@ -1,5 +1,9 @@
 ## Telemetry Coverage
 
+### Configuration
+- `TELEM_ENABLED=true` toggles logging globally.  
+- `TELEM_PATH` accepts a comma-separated list of route tags (e.g. `units,lessons`) to limit instrumentation to matching prefixes. Leave unset to record all spans.
+
 ### Routes
 - `/reports` (`src/app/reports/page.tsx`) – wraps `listPupilsWithGroupsAction` to trace the landing page load.
 - `/reports/groups/[groupId]` (`src/app/reports/groups/[groupId]/page.tsx`) – instruments group, assignment, unit metadata, and pupil report hydration calls.
@@ -34,3 +38,4 @@
 
 ## Change Log
 - 2025-11-06 – Documented planned telemetry coverage for `/units` and `/lessons` routes, including supporting data loaders.
+- 2025-11-06 – Updated `TELEM_PATH` description to support comma-separated route filters.

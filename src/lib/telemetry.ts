@@ -25,17 +25,20 @@ async function ensureLogDirectory() {
 
 function resolveTelemetryConfig() {
   const enabled = String(process.env.TELEM_ENABLED ?? "").toLowerCase() === "true"
-  const filter = String(process.env.TELEM_PATH ?? "").trim().toLowerCase()
-  return { enabled, filter }
+  const rawFilter = String(process.env.TELEM_PATH ?? "")
+  const filters = rawFilter
+    .split(",")
+    .map((segment) => segment.trim().toLowerCase().replace(/^\/+|\/+$/g, ""))
+    .filter((segment) => segment.length > 0)
+  return { enabled, filters }
 }
 
 function shouldRecordTelemetry(routeTag: string) {
-  const { enabled, filter } = resolveTelemetryConfig()
+  const { enabled, filters } = resolveTelemetryConfig()
   if (!enabled) return false
-  if (!filter) return true
+  if (filters.length === 0) return true
   const normalizedTag = routeTag.toLowerCase().replace(/^\/+|\/+$/g, "")
-  const normalizedFilter = filter.replace(/^\/+|\/+$/g, "")
-  return normalizedTag.includes(normalizedFilter)
+  return filters.some((filter) => normalizedTag.startsWith(filter) || normalizedTag.includes(filter))
 }
 
 function buildTelemetryEntry(
