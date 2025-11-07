@@ -14,6 +14,16 @@ export type Group = z.infer<typeof GroupSchema>;
 export type Groups = z.infer<typeof GroupsSchema>;
 export type AssignmentChangeEvent = "create" | "edit" | "delete" | "unit-title-click"
 
+export const SubjectSchema = z.object({
+    subject: z.string().min(1).max(255),
+    active: z.boolean().default(true),
+});
+
+export const SubjectsSchema = z.array(SubjectSchema);
+
+export type Subject = z.infer<typeof SubjectSchema>;
+export type Subjects = z.infer<typeof SubjectsSchema>;
+
 export const FastUiJobStatusSchema = z.enum(["queued", "completed", "error"]);
 
 export const FastUiRealtimePayloadSchema = z.object({
@@ -545,16 +555,6 @@ export const LessonActivitiesSchema = z.array(LessonActivitySchema);
 export type LessonActivity = z.infer<typeof LessonActivitySchema>;
 export type LessonActivities = z.infer<typeof LessonActivitiesSchema>;
 
-export const SubjectSchema = z.object({
-    subject: z.string().min(1).max(255),
-    active: z.boolean().default(true),
-});
-
-export const SubjectsSchema = z.array(SubjectSchema);
-
-export type Subject = z.infer<typeof SubjectSchema>;
-export type Subjects = z.infer<typeof SubjectsSchema>;
-
 export const AssignmentSchema = z.object({
     group_id: z.string(),
     unit_id: z.string(),
@@ -571,6 +571,17 @@ export const AssignmentsSchema = z.array(AssignmentSchema);
 
 export type Assignment = z.infer<typeof AssignmentSchema>;
 export type Assignments = z.infer<typeof AssignmentsSchema>;
+
+export const AssignmentsBootstrapPayloadSchema = z.object({
+    groups: GroupsSchema.default([]),
+    subjects: SubjectsSchema.default([]),
+    assignments: AssignmentsSchema.default([]),
+    units: UnitsSchema.default([]),
+    lessons: LessonsSchema.default([]),
+    lessonAssignments: LessonAssignmentsSchema.default([]),
+});
+
+export type AssignmentsBootstrapPayload = z.infer<typeof AssignmentsBootstrapPayloadSchema>;
 
 export const AssignmentWithUnitSchema = AssignmentSchema.extend({
     unit: UnitSchema.optional().nullable(),

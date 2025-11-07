@@ -68,6 +68,7 @@ export {
   batchCreateAssignmentsAction,
   batchDeleteAssignmentsAction,
 } from "./server-actions/assignments"
+export { readAssignmentsBootstrapAction } from "./server-actions/assignments-bootstrap"
 
 export {
   readAssignmentResultsAction,
