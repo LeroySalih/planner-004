@@ -17,6 +17,11 @@ Each group id links to reports/groups/group_id
 
 There is a filter to allow the teacher to find either all pupils in a group, or a specific pupil by name.
 
+#### Data loading contract
+- /reports must hydrate its table with a single round-trip to Supabase.
+- The server action should call one Postgres function that assembles all pupil + group relationships and returns them as a single JSON payload.
+- All aggregation, deduplication, and sorting happens inside that Postgres function; the Next.js layer simply consumes the JSON and renders it server-side.
+
 ### /reports/pupil_id
 
 This page is an online report card for the specific pupil.  The page is a list of subjects for the pupil, within which is a list of units.
@@ -46,4 +51,3 @@ The pupils names and scores rows and columns will be  fixed so that they can be 
 Pupils shoudl be sorted by last name.
 
 The pupil name in the grid should link to reports/pupil_id
-
