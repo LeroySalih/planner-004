@@ -248,7 +248,20 @@ export async function readAssignmentResultsAction(assignmentId: string) {
           .in("id", pupilIds)
 
         if (authError) {
-          console.error("[assignment-results] Failed to load pupil emails from auth.users:", authError)
+          const normalizedMessage =
+            authError && typeof authError === "object" && "message" in authError
+              ? ((authError as { message?: string }).message ?? null)
+              : null
+
+          console.warn(
+            "[assignment-results] Skipping pupil email enrichment from auth.users.",
+            normalizedMessage
+              ? { message: normalizedMessage }
+              : {
+                  message:
+                    "Supabase service role credentials may be missing or lack access to the auth schema. This is optional and only affects email display.",
+                },
+          )
         } else {
           for (const user of authUsers ?? []) {
             const email = typeof user?.email === "string" ? user.email.trim() : ""
