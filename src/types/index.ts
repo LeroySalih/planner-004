@@ -70,6 +70,23 @@ export const GroupMembershipsWithGroupSchema = z.array(GroupMembershipWithGroupS
 export type GroupMembershipWithGroup = z.infer<typeof GroupMembershipWithGroupSchema>;
 export type GroupMembershipsWithGroup = z.infer<typeof GroupMembershipsWithGroupSchema>;
 
+export const ReportsPupilGroupSchema = z.object({
+    group_id: z.string(),
+    group_name: z.string().nullable(),
+});
+
+export const ReportsPupilListingSchema = z.object({
+    pupilId: z.string(),
+    pupilName: z.string(),
+    groups: z.array(ReportsPupilGroupSchema),
+});
+
+export const ReportsPupilListingsSchema = z.array(ReportsPupilListingSchema);
+
+export type ReportsPupilGroup = z.infer<typeof ReportsPupilGroupSchema>;
+export type ReportsPupilListing = z.infer<typeof ReportsPupilListingSchema>;
+export type ReportsPupilListings = z.infer<typeof ReportsPupilListingsSchema>;
+
 export const ProfileSchema = z.object({
     user_id: z.string(),
     first_name: z.string().nullable(),

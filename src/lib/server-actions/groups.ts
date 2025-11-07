@@ -10,6 +10,8 @@ import {
   GroupMembershipsWithGroupSchema,
   ProfileSchema,
   ProfilesSchema,
+  ReportsPupilListingSchema,
+  ReportsPupilListingsSchema,
 } from "@/types"
 
 import { getAuthenticatedProfile, requireAuthenticatedProfile } from "@/lib/auth"
@@ -76,11 +78,7 @@ export type GroupActionResult = z.infer<typeof GroupReturnValue>
 export type ProfileGroupsResult = z.infer<typeof ProfileGroupsResultSchema>
 export type JoinGroupResult = z.infer<typeof JoinGroupReturnSchema>
 export type LeaveGroupResult = z.infer<typeof LeaveGroupReturnSchema>
-export type PupilListing = {
-  pupilId: string
-  pupilName: string
-  groups: Array<{ group_id: string; group_name: string | null }>
-}
+export type PupilListing = z.infer<typeof ReportsPupilListingSchema>
 
 function generateJoinCode(): string {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -219,101 +217,21 @@ export async function readGroupsAction(options?: { authEndTime?: number | null; 
 export async function listPupilsWithGroupsAction(): Promise<PupilListing[]> {
   const supabase = await createSupabaseServerClient()
 
-  const { data: profileRows, error: profilesError } = await supabase
-    .from("profiles")
-    .select(
-      `
-        user_id,
-        first_name,
-        last_name,
-        is_teacher
-      `,
-    )
-    .or("is_teacher.eq.false,is_teacher.is.null")
+  const { data, error } = await supabase.rpc("reports_list_pupils_with_groups")
 
-  if (profilesError) {
-    console.error("[reports] Failed to read pupil profiles", profilesError)
+  if (error) {
+    console.error("[reports] Failed to load pupil report listings", error)
     return []
   }
 
-  const profiles = (profileRows ?? []).map((row: any) => ({
-    userId: row.user_id,
-    firstName: typeof row.first_name === "string" ? row.first_name.trim() : "",
-    lastName: typeof row.last_name === "string" ? row.last_name.trim() : "",
-  }))
+  const parsed = ReportsPupilListingsSchema.safeParse(data ?? [])
 
-  const userIds = profiles.map((profile) => profile.userId).filter((id): id is string => typeof id === "string" && id.length > 0)
-
-  let membershipRows: Array<{ user_id: string; group_id: string; group: { subject: string | null } | null; role: string }> = []
-
-  if (userIds.length > 0) {
-    const { data: membershipData, error: membershipError } = await supabase
-      .from("group_membership")
-      .select(
-        `
-          user_id,
-          role,
-          group_id,
-          group:groups(
-            subject
-          )
-        `,
-      )
-      .in("user_id", userIds)
-
-    if (membershipError) {
-      console.error("[reports] Failed to read group memberships for pupils", membershipError)
-    } else {
-      membershipRows =
-        (membershipData ?? []).map((row: any) => ({
-          user_id: row.user_id,
-          role: row.role,
-          group_id: row.group_id,
-          group: Array.isArray(row.group) ? row.group[0] ?? null : row.group ?? null,
-        })) ?? []
-    }
+  if (!parsed.success) {
+    console.error("[reports] Invalid payload from reports_list_pupils_with_groups", parsed.error)
+    return []
   }
 
-  const membershipsByUser = new Map<string, Array<{ group_id: string; group_name: string | null }>>()
-
-  membershipRows.forEach((membership) => {
-    if (typeof membership.role !== "string" || membership.role.toLowerCase() !== "pupil") {
-      return
-    }
-    if (typeof membership.user_id !== "string" || membership.user_id.length === 0) {
-      return
-    }
-    if (typeof membership.group_id !== "string" || membership.group_id.length === 0) {
-      return
-    }
-
-    const current = membershipsByUser.get(membership.user_id) ?? []
-    if (current.some((entry) => entry.group_id === membership.group_id)) {
-      return
-    }
-    current.push({
-      group_id: membership.group_id,
-      group_name: membership.group?.subject ?? null,
-    })
-    membershipsByUser.set(membership.user_id, current)
-  })
-
-  return profiles
-    .map(({ userId, firstName, lastName }) => {
-      const pupilName = `${firstName} ${lastName}`.trim() || userId
-      const groups = (membershipsByUser.get(userId) ?? []).sort((a, b) => {
-        const nameA = (a.group_name ?? a.group_id ?? "").toString()
-        const nameB = (b.group_name ?? b.group_id ?? "").toString()
-        return nameA.localeCompare(nameB)
-      })
-
-      return {
-        pupilId: userId,
-        pupilName,
-        groups,
-      }
-    })
-    .sort((a, b) => a.pupilName.localeCompare(b.pupilName))
+  return parsed.data
 }
 
 
