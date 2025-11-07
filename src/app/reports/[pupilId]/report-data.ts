@@ -26,19 +26,19 @@ import { createSupabaseServerClient } from "@/lib/supabase/server"
 import { computeAverageSuccessCriteriaScore, normaliseSuccessCriteriaScores } from "@/lib/scoring/success-criteria"
 import { isScorableActivityType } from "@/dino.config"
 
-const ReportDatasetLessonSchema = LessonWithObjectivesSchema.extend({
+export const ReportDatasetLessonSchema = LessonWithObjectivesSchema.extend({
   activities: LessonActivitiesSchema.default([]),
   submissions: SubmissionsSchema.default([]),
   lesson_success_criteria: LessonSuccessCriteriaSchema.default([]),
 })
 
-const ReportDatasetUnitSchema = z.object({
+export const ReportDatasetUnitSchema = z.object({
   unit_id: z.string(),
   learning_objectives: z.array(LearningObjectiveWithCriteriaSchema).default([]),
   lessons: z.array(ReportDatasetLessonSchema).default([]),
 })
 
-const ReportDatasetSchema = z.object({
+export const ReportDatasetSchema = z.object({
   profile: ProfileSchema.nullable().optional().default(null),
   memberships: GroupMembershipsWithGroupSchema.default([]),
   assignments: AssignmentsWithUnitSchema.default([]),
@@ -46,9 +46,9 @@ const ReportDatasetSchema = z.object({
   units: z.array(ReportDatasetUnitSchema).default([]),
 })
 
-type ReportDataset = z.infer<typeof ReportDatasetSchema>
-type ReportMembership = z.infer<typeof GroupMembershipsWithGroupSchema>[number]
-type ReportAssignment = z.infer<typeof AssignmentsWithUnitSchema>[number]
+export type ReportDataset = z.infer<typeof ReportDatasetSchema>
+export type ReportMembership = z.infer<typeof GroupMembershipsWithGroupSchema>[number]
+export type ReportAssignment = z.infer<typeof AssignmentsWithUnitSchema>[number]
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createSupabaseServerClient>>
 
@@ -113,7 +113,69 @@ async function fetchLatestFeedbackSnapshot(
   return snapshot
 }
 
-function buildFeedbackMapFromDataset(entries: ReportDataset["feedback"]) {
+async function readCachedUnitSummaries(
+  pupilId: string,
+  options?: { supabase?: SupabaseServerClient; groupIdFilter?: string },
+): Promise<ReportUnitSummary[]> {
+  const supabase = options?.supabase ?? (await createSupabaseServerClient())
+  const { data, error } = await supabase
+    .from("report_pupil_unit_summaries")
+    .select(
+      "unit_id, unit_title, unit_subject, unit_description, unit_year, related_group_ids, grouped_levels, working_level, activities_average, assessment_average, assessment_level, score_error, objective_error",
+    )
+    .eq("pupil_id", pupilId)
+
+  if (error) {
+    console.error("[reports] Failed to read unit summaries cache", { pupilId, error })
+    return []
+  }
+
+  const parsed = ReportUnitSummaryRowSchema.array().safeParse(data ?? [])
+  if (!parsed.success) {
+    console.warn("[reports] Invalid unit summary cache rows", {
+      pupilId,
+      issues: parsed.error.issues,
+    })
+    return []
+  }
+
+  return parsed.data
+    .filter((row) => {
+      if (!options?.groupIdFilter) return true
+      const groupIds = row.related_group_ids ?? []
+      return groupIds.includes(options.groupIdFilter)
+    })
+    .map<ReportUnitSummary>((row) => ({
+      unitId: row.unit_id,
+      unitTitle: row.unit_title ?? row.unit_id,
+      unitSubject: row.unit_subject ?? "Subject not set",
+      unitDescription: row.unit_description ?? null,
+      unitYear: row.unit_year ?? null,
+      relatedGroups: Array.from(new Set(row.related_group_ids ?? [])),
+      objectiveError: row.objective_error,
+      groupedLevels: row.grouped_levels.map((group) => ({
+        level: group.level,
+        rows: group.rows.map((entry) => ({
+          level: entry.level,
+          assessmentObjectiveCode: entry.assessmentObjectiveCode,
+          assessmentObjectiveTitle: entry.assessmentObjectiveTitle,
+          objectiveTitle: entry.objectiveTitle,
+          learningObjectiveId: entry.learningObjectiveId,
+          criterionId: entry.criterionId,
+          criterionDescription: entry.criterionDescription,
+          activitiesScore: entry.activitiesScore,
+          assessmentScore: entry.assessmentScore,
+        })),
+      })),
+      workingLevel: row.working_level ?? null,
+      activitiesAverage: row.activities_average ?? null,
+      assessmentAverage: row.assessment_average ?? null,
+      assessmentLevel: row.assessment_level ?? null,
+      scoreError: row.score_error ?? null,
+    }))
+}
+
+export function buildFeedbackMapFromDataset(entries: ReportDataset["feedback"]) {
   const latestFeedbackByCriterion = new Map<string, { rating: number; id: number }>()
   for (const entry of entries) {
     const existing = latestFeedbackByCriterion.get(entry.success_criteria_id)
@@ -133,7 +195,7 @@ function buildFeedbackMapFromDataset(entries: ReportDataset["feedback"]) {
 }
 
 export type ReportCriterionRow = {
-  level: number
+  level: number | null
   assessmentObjectiveCode: string | null
   assessmentObjectiveTitle: string | null
   objectiveTitle: string
@@ -169,6 +231,39 @@ export type ReportSubjectEntry = {
   units: ReportUnitSummary[]
 }
 
+const ReportCriterionRowSchema = z.object({
+  level: z.number().nullable(),
+  assessmentObjectiveCode: z.string().nullable(),
+  assessmentObjectiveTitle: z.string().nullable(),
+  objectiveTitle: z.string(),
+  learningObjectiveId: z.string().nullable(),
+  criterionId: z.string(),
+  criterionDescription: z.string().nullable(),
+  activitiesScore: z.number().nullable(),
+  assessmentScore: z.number().nullable(),
+})
+
+const ReportGroupedLevelSchema = z.object({
+  level: z.number(),
+  rows: z.array(ReportCriterionRowSchema),
+})
+
+const ReportUnitSummaryRowSchema = z.object({
+  unit_id: z.string(),
+  unit_title: z.string().nullable(),
+  unit_subject: z.string().nullable(),
+  unit_description: z.string().nullable(),
+  unit_year: z.number().nullable(),
+  related_group_ids: z.array(z.string()).nullable().default([]),
+  grouped_levels: z.array(ReportGroupedLevelSchema).default([]),
+  working_level: z.number().nullable(),
+  activities_average: z.number().nullable(),
+  assessment_average: z.number().nullable(),
+  assessment_level: z.string().nullable(),
+  score_error: z.string().nullable(),
+  objective_error: z.string().nullable(),
+})
+
 export type PreparedReportData = {
   profileName: string
   formattedDate: string
@@ -199,21 +294,30 @@ export async function getPreparedReportData(
     },
     async () => {
       const supabase = await createSupabaseServerClient()
-      const dataset = await fetchReportDataset(pupilId, groupIdFilter, { supabase })
-      const cachedFeedbackSnapshot = await fetchLatestFeedbackSnapshot(pupilId, { supabase })
-      const fallbackFeedbackMap = buildFeedbackMapFromDataset(dataset.feedback)
-      const feedbackByCriterion = { ...fallbackFeedbackMap, ...cachedFeedbackSnapshot }
 
-      const assignments = groupIdFilter
-        ? dataset.assignments.filter((assignment) => assignment.group_id === groupIdFilter)
-        : dataset.assignments
+      const [profileResult, membershipResult] = await Promise.all([
+        supabase.from("profiles").select("*").eq("user_id", pupilId).maybeSingle(),
+        supabase
+          .from("group_membership")
+          .select("group_id, user_id, role, group:groups(*)")
+          .eq("user_id", pupilId),
+      ])
 
-      const membershipByGroupId = new Map(dataset.memberships.map((membership) => [membership.group_id, membership]))
+      if (profileResult.error) {
+        console.error("[reports] Failed to load pupil profile", { pupilId, error: profileResult.error })
+      }
+      if (membershipResult.error) {
+        console.error("[reports] Failed to load memberships", { pupilId, error: membershipResult.error })
+      }
+
+      const profile = profileResult.data ? ProfileSchema.nullable().parse(profileResult.data) : null
+      const memberships = GroupMembershipsWithGroupSchema.parse(membershipResult.data ?? [])
+      const membershipByGroupId = new Map(memberships.map((membership) => [membership.group_id, membership]))
       const primaryMembership = groupIdFilter ? membershipByGroupId.get(groupIdFilter) ?? null : null
 
       const profileName = (() => {
-        const first = dataset.profile?.first_name?.trim() ?? ""
-        const last = dataset.profile?.last_name?.trim() ?? ""
+        const first = profile?.first_name?.trim() ?? ""
+        const last = profile?.last_name?.trim() ?? ""
         const combined = `${first} ${last}`.trim()
         return combined.length > 0 ? combined : pupilId
       })()
@@ -232,136 +336,23 @@ export async function getPreparedReportData(
         .replace(/^-+|-+$/g, "")
       const exportFileName = `pupil-report-${exportSlug || pupilId}-${exportDate}.pdf`
 
-      const assignmentsByUnit = new Map<string, ReportAssignment[]>()
-      const unitMeta = new Map<
-        string,
-        {
-          title: string
-          subject: string | null
-          description: string | null
-          year: number | null
-        }
-      >()
+      let unitSummaries = await readCachedUnitSummaries(pupilId, { supabase, groupIdFilter })
+      let feedbackByCriterion = await fetchLatestFeedbackSnapshot(pupilId, { supabase })
 
-      for (const assignment of assignments) {
-        const unitAssignments = assignmentsByUnit.get(assignment.unit_id) ?? []
-        unitAssignments.push(assignment)
-        assignmentsByUnit.set(assignment.unit_id, unitAssignments)
-
-        if (!unitMeta.has(assignment.unit_id)) {
-          const meta = assignment.unit
-          unitMeta.set(assignment.unit_id, {
-            title: meta?.title ?? assignment.unit_id,
-            subject: meta?.subject ?? null,
-            description: meta?.description ?? null,
-            year: meta?.year ?? null,
-          })
-        }
-      }
-
-      const unitDatasetMap = new Map(dataset.units.map((unit) => [unit.unit_id, unit]))
-
-      const unitsBySubject = new Map<string, ReportUnitSummary[]>()
-
-      for (const [unitId, unitAssignments] of assignmentsByUnit.entries()) {
-        const meta = unitMeta.get(unitId)
-        const unitDataset = unitDatasetMap.get(unitId)
-        const objectives = unitDataset?.learning_objectives ?? []
-        const objectiveError: string | null = null
-        const lessonContext = await loadUnitLessonContextFromDataset(
-          unitId,
+      if (unitSummaries.length === 0) {
+        const dataset = await fetchReportDataset(pupilId, groupIdFilter, { supabase })
+        const fallbackFeedbackMap = buildFeedbackMapFromDataset(dataset.feedback)
+        feedbackByCriterion = { ...fallbackFeedbackMap, ...feedbackByCriterion }
+        unitSummaries = await buildDatasetUnitSummaries({
+          dataset,
           pupilId,
-          unitDataset,
-          options?.authEndTime,
-        )
-        const lessons = lessonContext.lessons
-        const scoreSummary = lessonContext.scoreSummary
-
-        const relatedGroups = unitAssignments.map(
-          (assignment) => membershipByGroupId.get(assignment.group_id)?.group_id ?? assignment.group_id,
-        )
-
-        const { rows, unitAverages } = buildUnitRows({
-          objectives,
-          lessons,
           feedbackByCriterion,
-          pupilId,
+          groupIdFilter,
+          authEndTime: options?.authEndTime,
         })
-
-        const groupedByLevelMap = new Map<number, typeof rows>()
-        rows.forEach((row) => {
-          const levelRows = groupedByLevelMap.get(row.level) ?? ([] as typeof rows)
-          levelRows.push(row)
-          groupedByLevelMap.set(row.level, levelRows)
-        })
-
-        const groupedLevels = Array.from(groupedByLevelMap.entries())
-          .sort((a, b) => a[0] - b[0])
-          .map(([level, levelRows]) => ({ level, rows: levelRows }))
-
-        const workingLevel = (() => {
-          let candidate: number | null = null
-          groupedLevels.forEach(({ level, rows: levelRows }) => {
-            const total = levelRows.length
-            const positive = levelRows.filter((row) => (feedbackByCriterion[row.criterionId] ?? 0) > 0).length
-            if (total > 0 && positive / total > 0.5) {
-              candidate = level
-            }
-          })
-          return candidate
-        })()
-
-        const activitiesAverage = unitAverages.activitiesAverage ?? scoreSummary.activitiesAverage
-        const assessmentAverage = unitAverages.assessmentAverage ?? scoreSummary.assessmentAverage
-        const unitYear = meta?.year ?? null
-        const assessmentLevel =
-          typeof unitYear === "number" && assessmentAverage !== null
-            ? getLevelForYearScore(unitYear, assessmentAverage)
-            : null
-
-        const subjectKey = meta?.subject ?? "Subject not set"
-        const existingUnits = unitsBySubject.get(subjectKey) ?? []
-        existingUnits.push({
-          unitId,
-          unitTitle: meta?.title ?? unitId,
-          unitSubject: meta?.subject ?? null,
-          unitDescription: meta?.description ?? null,
-          unitYear,
-          relatedGroups: Array.from(new Set(relatedGroups)),
-          objectiveError,
-          groupedLevels,
-          workingLevel,
-          activitiesAverage,
-          assessmentAverage,
-          assessmentLevel,
-          scoreError: scoreSummary.error,
-        })
-        unitsBySubject.set(subjectKey, existingUnits)
       }
 
-      const subjectEntries: ReportSubjectEntry[] = Array.from(unitsBySubject.entries()).map(([subject, units]) => {
-        const frequency = new Map<number, number>()
-        units.forEach((unit) => {
-          if (unit.workingLevel != null) {
-            frequency.set(unit.workingLevel, (frequency.get(unit.workingLevel) ?? 0) + 1)
-          }
-        })
-
-        let workingLevel: number | null = null
-        let highestCount = 0
-        for (const [level, count] of frequency.entries()) {
-          if (count > highestCount || (count === highestCount && level > (workingLevel ?? -Infinity))) {
-            workingLevel = level
-            highestCount = count
-          }
-        }
-
-        return {
-          subject,
-          workingLevel,
-          units,
-        }
-      })
+      const subjectEntries = buildSubjectEntries(unitSummaries)
 
       return {
         profileName,
@@ -410,6 +401,157 @@ export async function getPreparedUnitReport(
       return null
     },
   )
+}
+
+function buildSubjectEntries(unitSummaries: ReportUnitSummary[]): ReportSubjectEntry[] {
+  const unitsBySubject = new Map<string, ReportUnitSummary[]>()
+  unitSummaries.forEach((unit) => {
+    const subjectKey = unit.unitSubject ?? "Subject not set"
+    const existing = unitsBySubject.get(subjectKey) ?? []
+    existing.push(unit)
+    unitsBySubject.set(subjectKey, existing)
+  })
+
+  return Array.from(unitsBySubject.entries()).map(([subject, units]) => {
+    const frequency = new Map<number, number>()
+    units.forEach((unit) => {
+      if (unit.workingLevel != null) {
+        frequency.set(unit.workingLevel, (frequency.get(unit.workingLevel) ?? 0) + 1)
+      }
+    })
+
+    let workingLevel: number | null = null
+    let highestCount = 0
+    for (const [level, count] of frequency.entries()) {
+      if (count > highestCount || (count === highestCount && level > (workingLevel ?? -Infinity))) {
+        workingLevel = level
+        highestCount = count
+      }
+    }
+
+    return {
+      subject,
+      workingLevel,
+      units,
+    }
+  })
+}
+
+export async function buildDatasetUnitSummaries({
+  dataset,
+  pupilId,
+  feedbackByCriterion,
+  groupIdFilter,
+  authEndTime,
+}: {
+  dataset: ReportDataset
+  pupilId: string
+  feedbackByCriterion: Record<string, number>
+  groupIdFilter?: string
+  authEndTime?: number
+}): Promise<ReportUnitSummary[]> {
+  const assignments = groupIdFilter
+    ? dataset.assignments.filter((assignment) => assignment.group_id === groupIdFilter)
+    : dataset.assignments
+
+  const membershipByGroupId = new Map(dataset.memberships.map((membership) => [membership.group_id, membership]))
+
+  const assignmentsByUnit = new Map<string, ReportAssignment[]>()
+  const unitMeta = new Map<
+    string,
+    {
+      title: string
+      subject: string | null
+      description: string | null
+      year: number | null
+    }
+  >()
+
+  for (const assignment of assignments) {
+    const unitAssignments = assignmentsByUnit.get(assignment.unit_id) ?? []
+    unitAssignments.push(assignment)
+    assignmentsByUnit.set(assignment.unit_id, unitAssignments)
+
+    if (!unitMeta.has(assignment.unit_id)) {
+      const meta = assignment.unit
+      unitMeta.set(assignment.unit_id, {
+        title: meta?.title ?? assignment.unit_id,
+        subject: meta?.subject ?? null,
+        description: meta?.description ?? null,
+        year: meta?.year ?? null,
+      })
+    }
+  }
+
+  const unitDatasetMap = new Map(dataset.units.map((unit) => [unit.unit_id, unit]))
+  const summaries: ReportUnitSummary[] = []
+
+  for (const [unitId, unitAssignments] of assignmentsByUnit.entries()) {
+    const meta = unitMeta.get(unitId)
+    const unitDataset = unitDatasetMap.get(unitId)
+    const lessonContext = await loadUnitLessonContextFromDataset(unitId, pupilId, unitDataset, authEndTime)
+    const { rows, unitAverages } = buildUnitRows({
+      objectives: unitDataset?.learning_objectives ?? [],
+      lessons: lessonContext.lessons,
+      feedbackByCriterion,
+      pupilId,
+    })
+
+    const groupedByLevelMap = new Map<number, ReportCriterionRow[]>()
+    rows.forEach((row) => {
+      const levelKey = row.level ?? 0
+      const existing = groupedByLevelMap.get(levelKey) ?? []
+      existing.push(row)
+      groupedByLevelMap.set(levelKey, existing)
+    })
+
+    const groupedLevels = Array.from(groupedByLevelMap.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([level, levelRows]) => ({ level, rows: levelRows }))
+
+    const workingLevel = (() => {
+      let candidate: number | null = null
+      groupedLevels.forEach(({ level, rows: levelRows }) => {
+        const total = levelRows.length
+        if (total === 0) return
+        const positive = levelRows.filter((row) => (feedbackByCriterion[row.criterionId] ?? 0) > 0).length
+        if (positive / total > 0.5) {
+          candidate = level
+        }
+      })
+      return candidate
+    })()
+
+    const activitiesAverage = unitAverages.activitiesAverage ?? lessonContext.scoreSummary.activitiesAverage
+    const assessmentAverage = unitAverages.assessmentAverage ?? lessonContext.scoreSummary.assessmentAverage
+    const unitYear = meta?.year ?? null
+    const assessmentLevel =
+      typeof unitYear === "number" && assessmentAverage !== null
+        ? getLevelForYearScore(unitYear, assessmentAverage)
+        : null
+
+    const relatedGroups = unitAssignments.map(
+      (assignment) => membershipByGroupId.get(assignment.group_id)?.group_id ?? assignment.group_id,
+    )
+
+    summaries.push({
+      unitId,
+      unitTitle: meta?.title ?? unitId,
+      unitSubject: meta?.subject ?? "Subject not set",
+      unitDescription: meta?.description ?? null,
+      unitYear,
+      relatedGroups: Array.from(new Set(relatedGroups)),
+      objectiveError: null,
+      groupedLevels,
+      workingLevel,
+      activitiesAverage,
+      assessmentAverage,
+      assessmentLevel,
+      scoreError: lessonContext.scoreSummary.error,
+    })
+  }
+
+  return summaries
 }
 
 function buildLessonSubmissionSummaries(
@@ -683,7 +825,7 @@ type UnitLessonContext = {
   scoreSummary: { activitiesAverage: number | null; assessmentAverage: number | null; error: string | null }
 }
 
-async function loadUnitLessonContextFromDataset(
+export async function loadUnitLessonContextFromDataset(
   unitId: string,
   pupilId: string,
   unitDataset: ReportDataset["units"][number] | undefined,
@@ -819,7 +961,7 @@ async function loadUnitLessonContextFromDataset(
   )
 }
 
-function buildUnitRows({
+export function buildUnitRows({
   objectives,
   lessons,
   feedbackByCriterion,
