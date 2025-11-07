@@ -28,6 +28,7 @@ import {
   selectLatestSubmission,
   TEACHER_OVERRIDE_PLACEHOLDER,
 } from "@/lib/scoring/activity-scores"
+import { schedulePupilReportRecalc } from "@/lib/report-cache-jobs"
 
 const ASSIGNMENT_ID_SEPARATOR = "__"
 const AssignmentIdentifierSchema = z.object({
@@ -983,6 +984,10 @@ export async function overrideAssignmentScoreAction(input: z.infer<typeof Assign
     }
 
     revalidatePath(`/results/assignments/${parsed.data.assignmentId}`)
+    schedulePupilReportRecalc({
+      pupilId: parsed.data.pupilId,
+      reason: "assignment-override",
+    })
 
     return MutateAssignmentScoreReturnSchema.parse({
       success: true,
@@ -1136,6 +1141,10 @@ export async function resetAssignmentScoreAction(input: z.infer<typeof Assignmen
     }
 
     revalidatePath(`/results/assignments/${parsed.data.assignmentId}`)
+    schedulePupilReportRecalc({
+      pupilId: parsed.data.pupilId,
+      reason: "assignment-reset",
+    })
 
     return MutateAssignmentScoreReturnSchema.parse({ success: true, error: null })
   } catch (error) {

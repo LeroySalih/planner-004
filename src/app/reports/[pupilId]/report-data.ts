@@ -50,18 +50,86 @@ type ReportDataset = z.infer<typeof ReportDatasetSchema>
 type ReportMembership = z.infer<typeof GroupMembershipsWithGroupSchema>[number]
 type ReportAssignment = z.infer<typeof AssignmentsWithUnitSchema>[number]
 
-async function fetchReportDataset(pupilId: string, groupIdFilter?: string | null): Promise<ReportDataset> {
-  const supabase = await createSupabaseServerClient()
-  const { data, error } = await supabase.rpc("reports_get_prepared_report_dataset", {
-    p_pupil_id: pupilId,
-    p_group_id: groupIdFilter ?? null,
-  })
+type SupabaseServerClient = Awaited<ReturnType<typeof createSupabaseServerClient>>
 
-  if (error) {
-    throw new Error(error.message ?? "Failed to load report dataset.")
+async function fetchReportDataset(
+  pupilId: string,
+  _groupIdFilter?: string | null,
+  options?: { supabase?: SupabaseServerClient },
+): Promise<ReportDataset> {
+  const supabase = options?.supabase ?? (await createSupabaseServerClient())
+  const { data: cachedRow, error: cacheError } = await supabase
+    .from("report_pupil_cache")
+    .select("dataset")
+    .eq("pupil_id", pupilId)
+    .maybeSingle()
+
+  if (cacheError) {
+    console.error("[reports] Failed to load cached dataset", { pupilId, error: cacheError })
+    throw new Error(cacheError.message ?? "Failed to load cached report dataset.")
   }
 
-  return ReportDatasetSchema.parse(data ?? {})
+  let datasetPayload = cachedRow?.dataset
+
+  if (!datasetPayload) {
+    const { data: recalculated, error: recalcError } = await supabase.rpc("reports_recalculate_pupil_cache", {
+      p_pupil_id: pupilId,
+    })
+
+    if (recalcError) {
+      console.error("[reports] Failed to recalculate dataset on demand", { pupilId, error: recalcError })
+      throw new Error(recalcError.message ?? "Failed to recalculate report dataset.")
+    }
+
+    datasetPayload = recalculated ?? {}
+  }
+
+  return ReportDatasetSchema.parse(datasetPayload ?? {})
+}
+
+async function fetchLatestFeedbackSnapshot(
+  pupilId: string,
+  options?: { supabase?: SupabaseServerClient },
+): Promise<Record<string, number>> {
+  const supabase = options?.supabase ?? (await createSupabaseServerClient())
+  const { data, error } = await supabase
+    .from("report_pupil_feedback_cache")
+    .select("success_criteria_id, latest_rating")
+    .eq("pupil_id", pupilId)
+
+  if (error) {
+    console.error("[reports] Failed to read feedback cache", { pupilId, error })
+    return {}
+  }
+
+  const snapshot: Record<string, number> = {}
+  for (const entry of data ?? []) {
+    const criterionId = (entry.success_criteria_id ?? "").trim()
+    if (!criterionId) continue
+    if (typeof entry.latest_rating === "number") {
+      snapshot[criterionId] = entry.latest_rating
+    }
+  }
+  return snapshot
+}
+
+function buildFeedbackMapFromDataset(entries: ReportDataset["feedback"]) {
+  const latestFeedbackByCriterion = new Map<string, { rating: number; id: number }>()
+  for (const entry of entries) {
+    const existing = latestFeedbackByCriterion.get(entry.success_criteria_id)
+    if (!existing || entry.id > existing.id) {
+      latestFeedbackByCriterion.set(entry.success_criteria_id, {
+        rating: entry.rating,
+        id: entry.id,
+      })
+    }
+  }
+
+  const feedbackByCriterion: Record<string, number> = {}
+  latestFeedbackByCriterion.forEach((value, key) => {
+    feedbackByCriterion[key] = value.rating
+  })
+  return feedbackByCriterion
 }
 
 export type ReportCriterionRow = {
@@ -130,7 +198,11 @@ export async function getPreparedReportData(
       authEndTime: options?.authEndTime ?? null,
     },
     async () => {
-      const dataset = await fetchReportDataset(pupilId, groupIdFilter)
+      const supabase = await createSupabaseServerClient()
+      const dataset = await fetchReportDataset(pupilId, groupIdFilter, { supabase })
+      const cachedFeedbackSnapshot = await fetchLatestFeedbackSnapshot(pupilId, { supabase })
+      const fallbackFeedbackMap = buildFeedbackMapFromDataset(dataset.feedback)
+      const feedbackByCriterion = { ...fallbackFeedbackMap, ...cachedFeedbackSnapshot }
 
       const assignments = groupIdFilter
         ? dataset.assignments.filter((assignment) => assignment.group_id === groupIdFilter)
@@ -188,22 +260,6 @@ export async function getPreparedReportData(
       }
 
       const unitDatasetMap = new Map(dataset.units.map((unit) => [unit.unit_id, unit]))
-
-      const latestFeedbackByCriterion = new Map<string, { rating: number; id: number }>()
-      for (const entry of dataset.feedback) {
-        const existing = latestFeedbackByCriterion.get(entry.success_criteria_id)
-        if (!existing || entry.id > existing.id) {
-          latestFeedbackByCriterion.set(entry.success_criteria_id, {
-            rating: entry.rating,
-            id: entry.id,
-          })
-        }
-      }
-
-      const feedbackByCriterion: Record<string, number> = {}
-      latestFeedbackByCriterion.forEach((value, key) => {
-        feedbackByCriterion[key] = value.rating
-      })
 
       const unitsBySubject = new Map<string, ReportUnitSummary[]>()
 
