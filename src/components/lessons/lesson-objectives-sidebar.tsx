@@ -1206,7 +1206,7 @@ function SuccessCriterionCreateSidebar({
   }
 
   return (
-    <div className="absolute inset-y-0 right-0 z-50 flex h-full w-full max-w-md border-l bg-background shadow-2xl md:left-full md:right-auto">
+    <div className="absolute inset-y-0 right-0 z-50 flex h-full w-full max-w-md border-l bg-background shadow-2xl">
       <Card className="flex h-full flex-col rounded-none border-0">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
           <CardTitle className="text-lg font-semibold">Add Success Criterion</CardTitle>
