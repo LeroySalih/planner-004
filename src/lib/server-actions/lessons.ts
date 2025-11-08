@@ -7,14 +7,19 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
 import {
+  AssessmentObjectivesSchema,
+  CurriculaSchema,
   LearningObjectiveWithCriteriaSchema,
+  LessonActivitiesSchema,
   LessonJobPayloadSchema,
   LessonLearningObjective,
   LessonLink,
   LessonMutationStateSchema,
   LessonWithObjectivesSchema,
+  LessonsSchema,
   LessonsWithObjectivesSchema,
   SuccessCriterionSchema,
+  UnitSchema,
 } from "@/types"
 import {
   type LessonObjectiveFormState,
@@ -33,6 +38,38 @@ const LessonsReturnValue = z.object({
 
 const LessonReturnValue = z.object({
   data: LessonWithObjectivesSchema.nullable(),
+  error: z.string().nullable(),
+})
+
+const LessonFileMetadataSchema = z.object({
+  name: z.string(),
+  path: z.string(),
+  created_at: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+  last_accessed_at: z.string().nullable().optional(),
+  size: z.number().nullable().optional(),
+})
+
+const LessonDetailPayloadSchema = z.object({
+  lesson: LessonWithObjectivesSchema.nullable(),
+  unit: UnitSchema.nullable().optional(),
+  unitLessons: LessonsSchema.default([]),
+  lessonActivities: LessonActivitiesSchema.default([]),
+  lessonFiles: z.array(LessonFileMetadataSchema).default([]),
+})
+
+const LessonDetailReturnValue = z.object({
+  data: LessonDetailPayloadSchema.nullable(),
+  error: z.string().nullable(),
+})
+
+const LessonReferencePayloadSchema = z.object({
+  curricula: CurriculaSchema.default([]),
+  assessmentObjectives: AssessmentObjectivesSchema.default([]),
+})
+
+const LessonReferenceReturnValue = z.object({
+  data: LessonReferencePayloadSchema.nullable(),
   error: z.string().nullable(),
 })
 
@@ -1719,6 +1756,50 @@ async function enrichLessonsWithSuccessCriteria<
   return { lessons: enriched, error: null }
 }
 
+async function loadLessonDetailBootstrapPayload(
+  lessonId: string,
+): Promise<z.infer<typeof LessonDetailReturnValue>> {
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error } = await supabase.rpc("lesson_detail_bootstrap", { p_lesson_id: lessonId })
+
+  if (error) {
+    console.error("[lessons] Failed to load lesson detail bootstrap RPC:", error)
+    return LessonDetailReturnValue.parse({ data: null, error: error.message })
+  }
+
+  const parsed = LessonDetailPayloadSchema.safeParse(data)
+
+  if (!parsed.success) {
+    console.error("[lessons] Invalid lesson detail payload:", parsed.error)
+    return LessonDetailReturnValue.parse({ data: null, error: "Unable to parse lesson detail payload" })
+  }
+
+  return LessonDetailReturnValue.parse({ data: parsed.data, error: null })
+}
+
+async function loadLessonReferencePayload(
+  lessonId: string,
+): Promise<z.infer<typeof LessonReferenceReturnValue>> {
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error } = await supabase.rpc("lesson_reference_bootstrap", { p_lesson_id: lessonId })
+
+  if (error) {
+    console.error("[lessons] Failed to load lesson reference payload:", error)
+    return LessonReferenceReturnValue.parse({ data: null, error: error.message })
+  }
+
+  const parsed = LessonReferencePayloadSchema.safeParse(data)
+
+  if (!parsed.success) {
+    console.error("[lessons] Invalid lesson reference payload:", parsed.error)
+    return LessonReferenceReturnValue.parse({ data: null, error: "Unable to parse lesson reference payload" })
+  }
+
+  return LessonReferenceReturnValue.parse({ data: parsed.data, error: null })
+}
+
 async function readLessonWithObjectives(lessonId: string) {
   const supabase = await createSupabaseServerClient()
 
@@ -1789,7 +1870,53 @@ export async function readLessonAction(
     },
     async () => {
       console.log("[v0] Server action started for lesson read:", { lessonId })
-      return readLessonWithObjectives(lessonId)
+      const payload = await loadLessonDetailBootstrapPayload(lessonId)
+
+      if (payload.error) {
+        return LessonReturnValue.parse({ data: null, error: payload.error })
+      }
+
+      return LessonReturnValue.parse({ data: payload.data?.lesson ?? null, error: null })
+    },
+  )
+}
+
+export async function readLessonDetailBootstrapAction(
+  lessonId: string,
+  options?: { authEndTime?: number | null; routeTag?: string },
+) {
+  const routeTag = options?.routeTag ?? "/lessons:detailBootstrap"
+
+  return withTelemetry(
+    {
+      routeTag,
+      functionName: "readLessonDetailBootstrapAction",
+      params: { lessonId },
+      authEndTime: options?.authEndTime ?? null,
+    },
+    async () => {
+      console.log("[lessons] Server action started for lesson detail bootstrap:", { lessonId })
+      return loadLessonDetailBootstrapPayload(lessonId)
+    },
+  )
+}
+
+export async function readLessonReferenceDataAction(
+  lessonId: string,
+  options?: { authEndTime?: number | null; routeTag?: string },
+) {
+  const routeTag = options?.routeTag ?? "/lessons:referenceData"
+
+  return withTelemetry(
+    {
+      routeTag,
+      functionName: "readLessonReferenceDataAction",
+      params: { lessonId },
+      authEndTime: options?.authEndTime ?? null,
+    },
+    async () => {
+      console.log("[lessons] Server action started for lesson reference payload:", { lessonId })
+      return loadLessonReferencePayload(lessonId)
     },
   )
 }

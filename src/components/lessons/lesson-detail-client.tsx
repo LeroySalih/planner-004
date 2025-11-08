@@ -34,7 +34,14 @@ interface LessonDetailClientProps {
   learningObjectives: LearningObjectiveWithCriteria[]
   curricula: Curriculum[]
   assessmentObjectives: AssessmentObjective[]
-  lessonFiles: { name: string; path: string; created_at?: string; updated_at?: string; size?: number }[]
+  lessonFiles: {
+    name: string
+    path: string
+    created_at?: string | null
+    updated_at?: string | null
+    last_accessed_at?: string | null
+    size?: number | null
+  }[]
   lessonActivities: LessonActivity[]
   unitLessons: LessonPickerOption[]
 }

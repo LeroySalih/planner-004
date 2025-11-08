@@ -16,9 +16,10 @@ import { Progress } from "@/components/ui/progress"
 interface LessonFileInfo {
   name: string
   path: string
-  created_at?: string
-  updated_at?: string
-  size?: number
+  created_at?: string | null
+  updated_at?: string | null
+  last_accessed_at?: string | null
+  size?: number | null
 }
 
 interface LessonFilesManagerProps {
@@ -37,7 +38,7 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: "UTC",
 })
 
-const formatTimestamp = (value?: string) => {
+const formatTimestamp = (value?: string | null) => {
   if (!value) return null
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null

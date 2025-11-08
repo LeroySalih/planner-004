@@ -4,14 +4,9 @@ import { notFound } from "next/navigation"
 
 import { LessonDetailClient } from "@/components/lessons/lesson-detail-client"
 import {
-  listLessonActivitiesAction,
-  listLessonFilesAction,
   readAllLearningObjectivesAction,
-  readAssessmentObjectivesAction,
-  readCurriculaAction,
-  readLessonAction,
-  readLessonsByUnitAction,
-  readUnitAction,
+  readLessonDetailBootstrapAction,
+  readLessonReferenceDataAction,
 } from "@/lib/server-updates"
 import { withTelemetry } from "@/lib/telemetry"
 
@@ -23,78 +18,59 @@ export default async function LessonDetailPage({
   const { lessonId } = await params
   const authEnd: number | null = null
 
-  const lessonResult = await withTelemetry(
+  const lessonDetailResult = await withTelemetry(
     {
       routeTag: "/lessons/[lessonId]",
-      functionName: "LessonDetailPage.readLesson",
+      functionName: "LessonDetailPage.lessonBootstrap",
       params: { lessonId },
       authEndTime: authEnd,
     },
-    () => readLessonAction(lessonId, { routeTag: "/lessons/[lessonId]", authEndTime: authEnd }),
+    () =>
+      readLessonDetailBootstrapAction(lessonId, {
+        routeTag: "/lessons/[lessonId]",
+        authEndTime: authEnd,
+      }),
   )
 
-  if (lessonResult.error) {
+  if (lessonDetailResult.error) {
     return (
       <div className="container mx-auto p-6">
         <h1 className="mb-4 text-2xl font-bold">Error Loading Lesson</h1>
-        <p className="text-red-600">{lessonResult.error}</p>
+        <p className="text-red-600">{lessonDetailResult.error}</p>
       </div>
     )
   }
 
-  const lesson = lessonResult.data
+  const lessonPayload = lessonDetailResult.data
+  const lesson = lessonPayload?.lesson
   if (!lesson) {
     notFound()
   }
 
-  const [
-    unitResult,
-    learningObjectivesResult,
-    curriculaResult,
-    assessmentObjectivesResult,
-    lessonFilesResult,
-    lessonActivitiesResult,
-    lessonsByUnitResult,
-  ] = await withTelemetry(
+  const [referenceResult, learningObjectivesResult] = await withTelemetry(
     {
       routeTag: "/lessons/[lessonId]",
-      functionName: "LessonDetailPage.loadAncillaryData",
+      functionName: "LessonDetailPage.loadReferenceData",
       params: { lessonId, unitId: lesson.unit_id },
       authEndTime: authEnd,
     },
     () =>
       Promise.all([
-        readUnitAction(lesson.unit_id, { routeTag: "/lessons/[lessonId]", authEndTime: authEnd }),
+        readLessonReferenceDataAction(lesson.lesson_id, {
+          routeTag: "/lessons/[lessonId]",
+          authEndTime: authEnd,
+        }),
         readAllLearningObjectivesAction({ routeTag: "/lessons/[lessonId]", authEndTime: authEnd }),
-        readCurriculaAction({ routeTag: "/lessons/[lessonId]", authEndTime: authEnd }),
-        readAssessmentObjectivesAction({ routeTag: "/lessons/[lessonId]", authEndTime: authEnd }),
-        listLessonFilesAction(lesson.lesson_id, {
-          routeTag: "/lessons/[lessonId]",
-          authEndTime: authEnd,
-        }),
-        listLessonActivitiesAction(lesson.lesson_id, {
-          routeTag: "/lessons/[lessonId]",
-          authEndTime: authEnd,
-        }),
-        readLessonsByUnitAction(lesson.unit_id, {
-          routeTag: "/lessons/[lessonId]",
-          authEndTime: authEnd,
-        }),
       ]),
   )
 
-  if (
-    unitResult.error ||
-    learningObjectivesResult.error ||
-    curriculaResult.error ||
-    assessmentObjectivesResult.error
-  ) {
+  if (referenceResult.error || learningObjectivesResult.error) {
     return (
       <div className="container mx-auto space-y-4 p-6">
-        {unitResult.error && (
+        {referenceResult.error && (
           <div>
-            <h1 className="mb-2 text-2xl font-bold">Error Loading Unit</h1>
-            <p className="text-red-600">{unitResult.error}</p>
+            <h2 className="text-xl font-semibold">Error Loading Curricula or Assessment Objectives</h2>
+            <p className="text-red-600">{referenceResult.error}</p>
           </div>
         )}
         {learningObjectivesResult.error && (
@@ -103,48 +79,19 @@ export default async function LessonDetailPage({
             <p className="text-red-600">{learningObjectivesResult.error}</p>
           </div>
         )}
-        {curriculaResult.error && (
-          <div>
-            <h2 className="text-xl font-semibold">Error Loading Curricula</h2>
-            <p className="text-red-600">{curriculaResult.error}</p>
-          </div>
-        )}
-        {assessmentObjectivesResult.error && (
-          <div>
-            <h2 className="text-xl font-semibold">Error Loading Assessment Objectives</h2>
-            <p className="text-red-600">{assessmentObjectivesResult.error}</p>
-          </div>
-        )}
       </div>
     )
   }
 
-  if (lessonFilesResult.error) {
-    console.error("[v0] Failed to load lesson files:", lessonFilesResult.error)
-  }
+  const unitLessons = (lessonPayload?.unitLessons ?? []).slice().sort((a, b) => {
+    const orderCompare = (a.order_by ?? 0) - (b.order_by ?? 0)
+    if (orderCompare !== 0) {
+      return orderCompare
+    }
+    return a.title.localeCompare(b.title)
+  })
 
-  if (lessonActivitiesResult.error) {
-    console.error("[v0] Failed to load lesson activities:", lessonActivitiesResult.error)
-  }
-
-  if (lessonsByUnitResult.error) {
-    console.error("[v0] Failed to load unit lessons for navigation:", lessonsByUnitResult.error)
-  }
-
-  const activities = lessonActivitiesResult.data ?? []
-
-  const unitLessons = lessonsByUnitResult.data ?? []
-  const sortedLessons = unitLessons
-    .slice()
-    .sort((a, b) => {
-      const orderCompare = (a.order_by ?? 0) - (b.order_by ?? 0)
-      if (orderCompare !== 0) {
-        return orderCompare
-      }
-      return a.title.localeCompare(b.title)
-    })
-
-  const lessonOptions = sortedLessons.map((item) => ({
+  const lessonOptions = unitLessons.map((item) => ({
     lesson_id: item.lesson_id,
     title: item.title,
   }))
@@ -152,12 +99,12 @@ export default async function LessonDetailPage({
   return (
     <LessonDetailClient
       lesson={lesson}
-      unit={unitResult.data ?? null}
+      unit={lessonPayload?.unit ?? null}
       learningObjectives={learningObjectivesResult.data ?? []}
-      curricula={curriculaResult.data ?? []}
-      assessmentObjectives={assessmentObjectivesResult.data ?? []}
-      lessonFiles={lessonFilesResult.data ?? []}
-      lessonActivities={activities}
+      curricula={referenceResult.data?.curricula ?? []}
+      assessmentObjectives={referenceResult.data?.assessmentObjectives ?? []}
+      lessonFiles={lessonPayload?.lessonFiles ?? []}
+      lessonActivities={lessonPayload?.lessonActivities ?? []}
       unitLessons={lessonOptions}
     />
   )
