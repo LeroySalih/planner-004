@@ -701,16 +701,16 @@ export function LessonActivitiesManager({
         }))
 
         const result = await reorderLessonActivitiesAction(unitId, lessonId, payload)
-        if (!result.success) {
+        if (result.status === "error") {
           if (previousActivities) {
             setActivities(previousActivities)
           }
           toast.error("Unable to reorder activities", {
-            description: result.error ?? "Please try again later.",
+            description: result.message ?? "Please try again later.",
           })
           return
         }
-        router.refresh()
+        toast.success("Activity order update queued")
       })
     },
     [lessonId, router, startTransition, unitId],

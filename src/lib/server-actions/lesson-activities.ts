@@ -3,9 +3,12 @@
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
+import type { SupabaseClient } from "@supabase/supabase-js"
+
 import {
   LessonActivitySchema,
   LessonActivitiesSchema,
+  LessonJobResponseSchema,
   McqActivityBodySchema,
   ShortTextActivityBodySchema,
   FeedbackActivityBodySchema,
@@ -14,6 +17,7 @@ import {
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import { withTelemetry } from "@/lib/telemetry"
 import { isScorableActivityType } from "@/dino.config"
+import { enqueueLessonMutationJob } from "@/lib/lesson-job-runner"
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createSupabaseServerClient>>
 
@@ -386,11 +390,14 @@ export async function reorderLessonActivitiesAction(
   const payload = ReorderActivityInputSchema.parse(input)
 
   if (payload.length === 0) {
-    return { success: true }
+    return LessonJobResponseSchema.parse({
+      status: "queued",
+      jobId: null,
+      message: "No activity changes detected.",
+    })
   }
 
   const activityIds = payload.map((entry) => entry.activityId)
-
   const supabase = await createSupabaseServerClient()
 
   const { data: existing, error: existingError } = await supabase
@@ -401,32 +408,32 @@ export async function reorderLessonActivitiesAction(
 
   if (existingError) {
     console.error("[v0] Failed to verify lesson activities for reorder:", existingError)
-    return { success: false, error: existingError.message }
+    return LessonJobResponseSchema.parse({
+      status: "error",
+      jobId: null,
+      message: existingError.message,
+    })
   }
 
   if ((existing ?? []).length !== activityIds.length) {
-    return { success: false, error: "Some activities were not found for this lesson." }
+    return LessonJobResponseSchema.parse({
+      status: "error",
+      jobId: null,
+      message: "Some activities were not found for this lesson.",
+    })
   }
 
-  const { error } = await supabase
-    .from("activities")
-    .upsert(
-      payload.map((entry) => ({
-        activity_id: entry.activityId,
-        order_by: entry.orderBy,
-      })),
-      { onConflict: "activity_id" },
-    )
-
-  if (error) {
-    console.error("[v0] Failed to reorder lesson activities:", error)
-    return { success: false, error: error.message }
-  }
-
-  revalidatePath(`/units/${unitId}`)
-  revalidatePath(`/lessons/${lessonId}`)
-
-  return { success: true }
+  return enqueueLessonMutationJob({
+    lessonId,
+    unitId,
+    type: "lesson.activities.reorder",
+    message: "Activity reorder queued.",
+    executor: async ({ supabase }) => {
+      await applyLessonActivitiesReorder(supabase, lessonId, payload)
+      revalidatePath(`/units/${unitId}`)
+      revalidatePath(`/lessons/${lessonId}`)
+    },
+  })
 }
 
 export async function deleteLessonActivityAction(unitId: string, lessonId: string, activityId: string) {
@@ -658,6 +665,27 @@ async function enrichActivitiesWithSuccessCriteria(
   })
 
   return { data: enriched, error: null }
+}
+
+async function applyLessonActivitiesReorder(
+  supabase: SupabaseClient,
+  lessonId: string,
+  payload: z.infer<typeof ReorderActivityInputSchema>,
+) {
+  const { error } = await supabase
+    .from("activities")
+    .upsert(
+      payload.map((entry) => ({
+        activity_id: entry.activityId,
+        order_by: entry.orderBy,
+      })),
+      { onConflict: "activity_id" },
+    )
+
+  if (error) {
+    console.error("[v0] Failed to reorder lesson activities:", error)
+    throw error
+  }
 }
 
 const TextActivityBodySchema = z.object({ text: z.string() }).passthrough()

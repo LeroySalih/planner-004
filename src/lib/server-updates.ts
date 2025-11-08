@@ -40,6 +40,8 @@ export {
   readLessonsByUnitAction,
   readLessonsAction,
   readLessonAction,
+  readLessonDetailBootstrapAction,
+  readLessonReferenceDataAction,
   createLessonAction,
   updateLessonAction,
   triggerLessonCreateJobAction,

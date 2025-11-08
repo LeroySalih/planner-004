@@ -1054,12 +1054,14 @@ export function LessonSidebar({
 
     startTransition(async () => {
       const response = await reorderLessonActivitiesAction(unitId, lesson.lesson_id, payload)
-      if (!response.success) {
+      if (response.status === "error") {
         toast.error("Failed to update activity order", {
-          description: response.error ?? "Please try again shortly.",
+          description: response.message ?? "Please try again shortly.",
         })
         setActivities(previousActivities)
         await refreshActivities()
+      } else {
+        toast.success("Activity order update queued")
       }
     })
   }

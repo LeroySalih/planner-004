@@ -5,8 +5,11 @@ import { performance } from "node:perf_hooks"
 
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
+import type { SupabaseClient } from "@supabase/supabase-js"
 
 import {
+  AssessmentObjectivesSchema,
+  CurriculaSchema,
   LearningObjectiveWithCriteriaSchema,
   LessonJobPayloadSchema,
   LessonLearningObjective,
@@ -25,6 +28,9 @@ import { type NormalizedSuccessCriterion } from "./learning-objectives"
 import { isScorableActivityType } from "@/dino.config"
 import { requireTeacherProfile } from "@/lib/auth"
 import { withTelemetry } from "@/lib/telemetry"
+import { LESSON_CHANNEL_NAME, LESSON_CREATED_EVENT } from "@/lib/lesson-channel"
+import { enqueueLessonMutationJob } from "@/lib/lesson-job-runner"
+import { LessonDetailPayloadSchema } from "@/lib/lesson-snapshot-schema"
 
 const LessonsReturnValue = z.object({
   data: LessonsWithObjectivesSchema.nullable(),
@@ -33,6 +39,21 @@ const LessonsReturnValue = z.object({
 
 const LessonReturnValue = z.object({
   data: LessonWithObjectivesSchema.nullable(),
+  error: z.string().nullable(),
+})
+
+const LessonDetailReturnValue = z.object({
+  data: LessonDetailPayloadSchema.nullable(),
+  error: z.string().nullable(),
+})
+
+const LessonReferencePayloadSchema = z.object({
+  curricula: CurriculaSchema.default([]),
+  assessmentObjectives: AssessmentObjectivesSchema.default([]),
+})
+
+const LessonReferenceReturnValue = z.object({
+  data: LessonReferencePayloadSchema.nullable(),
   error: z.string().nullable(),
 })
 
@@ -49,8 +70,6 @@ const LessonSuccessCriterionMutationResultSchema = z.object({
 })
 
 const LESSON_ROUTE_TAG = "/units/[unitId]"
-const LESSON_CHANNEL_NAME = "lesson_updates"
-const LESSON_CREATED_EVENT = "lesson:created"
 const LESSON_CHANNEL_CONFIG = { config: { broadcast: { ack: true } } }
 
 type LessonSupabaseClient = Awaited<ReturnType<typeof createSupabaseServiceClient>>
@@ -556,8 +575,21 @@ export async function setLessonSuccessCriteriaAction(
     successCriteriaIds,
   })
 
-  const supabase = await createSupabaseServerClient()
+  return enqueueLessonMutationJob({
+    lessonId: payload.lessonId,
+    unitId: payload.unitId,
+    type: "lesson.successCriteria",
+    message: "Lesson success criteria update queued.",
+    executor: async ({ supabase }) => {
+      await applyLessonSuccessCriteriaUpdate(supabase, payload)
+    },
+  })
+}
 
+async function applyLessonSuccessCriteriaUpdate(
+  supabase: SupabaseClient,
+  payload: z.infer<typeof LessonSuccessCriteriaUpdateSchema>,
+) {
   const normalizedIds = Array.from(new Set(payload.successCriteriaIds))
 
   const { data: existingCriteriaLinks, error: existingCriteriaError } = await supabase
@@ -566,8 +598,7 @@ export async function setLessonSuccessCriteriaAction(
     .eq("lesson_id", payload.lessonId)
 
   if (existingCriteriaError) {
-    console.error("[v0] Failed to read lesson success criteria links:", existingCriteriaError)
-    return LessonReturnValue.parse({ data: null, error: existingCriteriaError.message })
+    throw existingCriteriaError
   }
 
   const existingCriteriaIds = new Set(
@@ -588,8 +619,7 @@ export async function setLessonSuccessCriteriaAction(
     )
 
     if (insertCriteriaError) {
-      console.error("[v0] Failed to insert lesson success criteria links:", insertCriteriaError)
-      return LessonReturnValue.parse({ data: null, error: insertCriteriaError.message })
+      throw insertCriteriaError
     }
   }
 
@@ -601,8 +631,7 @@ export async function setLessonSuccessCriteriaAction(
       .in("success_criteria_id", idsToDelete)
 
     if (deleteCriteriaError) {
-      console.error("[v0] Failed to remove lesson success criteria links:", deleteCriteriaError)
-      return LessonReturnValue.parse({ data: null, error: deleteCriteriaError.message })
+      throw deleteCriteriaError
     }
   }
 
@@ -615,11 +644,7 @@ export async function setLessonSuccessCriteriaAction(
       .in("success_criteria_id", normalizedIds)
 
     if (criteriaMetadataError) {
-      console.error(
-        "[v0] Failed to read success criteria metadata:",
-        criteriaMetadataError,
-      )
-      return LessonReturnValue.parse({ data: null, error: criteriaMetadataError.message })
+      throw criteriaMetadataError
     }
 
     learningObjectiveIdsFromSelection = Array.from(
@@ -637,8 +662,7 @@ export async function setLessonSuccessCriteriaAction(
     .eq("lesson_id", payload.lessonId)
 
   if (objectiveReadError) {
-    console.error("[v0] Failed to read lesson learning objective links:", objectiveReadError)
-    return LessonReturnValue.parse({ data: null, error: objectiveReadError.message })
+    throw objectiveReadError
   }
 
   const existingObjectiveOrderMap = new Map<string, number>()
@@ -666,8 +690,7 @@ export async function setLessonSuccessCriteriaAction(
       .in("learning_objective_id", objectiveIdsToRemove)
 
     if (objectiveDeleteError) {
-      console.error("[v0] Failed to remove lesson learning objective links:", objectiveDeleteError)
-      return LessonReturnValue.parse({ data: null, error: objectiveDeleteError.message })
+      throw objectiveDeleteError
     }
   }
 
@@ -678,8 +701,7 @@ export async function setLessonSuccessCriteriaAction(
       .in("learning_objective_id", objectiveIdsToInsert)
 
     if (learningObjectiveError) {
-      console.error("[v0] Failed to read learning objective metadata:", learningObjectiveError)
-      return LessonReturnValue.parse({ data: null, error: learningObjectiveError.message })
+      throw learningObjectiveError
     }
 
     const existingOrders = Array.from(existingObjectiveOrderMap.values())
@@ -699,19 +721,13 @@ export async function setLessonSuccessCriteriaAction(
         .insert(insertRows)
 
       if (objectiveInsertError) {
-        console.error(
-          "[v0] Failed to insert lesson learning objective links:",
-          objectiveInsertError,
-        )
-        return LessonReturnValue.parse({ data: null, error: objectiveInsertError.message })
+        throw objectiveInsertError
       }
     }
   }
 
   revalidatePath(`/lessons/${payload.lessonId}`)
   revalidatePath(`/units/${payload.unitId}`)
-
-  return readLessonWithObjectives(payload.lessonId)
 }
 
 const LessonObjectiveCreateInputSchema = z.object({
@@ -1719,6 +1735,50 @@ async function enrichLessonsWithSuccessCriteria<
   return { lessons: enriched, error: null }
 }
 
+async function loadLessonDetailBootstrapPayload(
+  lessonId: string,
+): Promise<z.infer<typeof LessonDetailReturnValue>> {
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error } = await supabase.rpc("lesson_detail_bootstrap", { p_lesson_id: lessonId })
+
+  if (error) {
+    console.error("[lessons] Failed to load lesson detail bootstrap RPC:", error)
+    return LessonDetailReturnValue.parse({ data: null, error: error.message })
+  }
+
+  const parsed = LessonDetailPayloadSchema.safeParse(data)
+
+  if (!parsed.success) {
+    console.error("[lessons] Invalid lesson detail payload:", parsed.error)
+    return LessonDetailReturnValue.parse({ data: null, error: "Unable to parse lesson detail payload" })
+  }
+
+  return LessonDetailReturnValue.parse({ data: parsed.data, error: null })
+}
+
+async function loadLessonReferencePayload(
+  lessonId: string,
+): Promise<z.infer<typeof LessonReferenceReturnValue>> {
+  const supabase = await createSupabaseServerClient()
+
+  const { data, error } = await supabase.rpc("lesson_reference_bootstrap", { p_lesson_id: lessonId })
+
+  if (error) {
+    console.error("[lessons] Failed to load lesson reference payload:", error)
+    return LessonReferenceReturnValue.parse({ data: null, error: error.message })
+  }
+
+  const parsed = LessonReferencePayloadSchema.safeParse(data)
+
+  if (!parsed.success) {
+    console.error("[lessons] Invalid lesson reference payload:", parsed.error)
+    return LessonReferenceReturnValue.parse({ data: null, error: "Unable to parse lesson reference payload" })
+  }
+
+  return LessonReferenceReturnValue.parse({ data: parsed.data, error: null })
+}
+
 async function readLessonWithObjectives(lessonId: string) {
   const supabase = await createSupabaseServerClient()
 
@@ -1789,7 +1849,53 @@ export async function readLessonAction(
     },
     async () => {
       console.log("[v0] Server action started for lesson read:", { lessonId })
-      return readLessonWithObjectives(lessonId)
+      const payload = await loadLessonDetailBootstrapPayload(lessonId)
+
+      if (payload.error) {
+        return LessonReturnValue.parse({ data: null, error: payload.error })
+      }
+
+      return LessonReturnValue.parse({ data: payload.data?.lesson ?? null, error: null })
+    },
+  )
+}
+
+export async function readLessonDetailBootstrapAction(
+  lessonId: string,
+  options?: { authEndTime?: number | null; routeTag?: string },
+) {
+  const routeTag = options?.routeTag ?? "/lessons:detailBootstrap"
+
+  return withTelemetry(
+    {
+      routeTag,
+      functionName: "readLessonDetailBootstrapAction",
+      params: { lessonId },
+      authEndTime: options?.authEndTime ?? null,
+    },
+    async () => {
+      console.log("[lessons] Server action started for lesson detail bootstrap:", { lessonId })
+      return loadLessonDetailBootstrapPayload(lessonId)
+    },
+  )
+}
+
+export async function readLessonReferenceDataAction(
+  lessonId: string,
+  options?: { authEndTime?: number | null; routeTag?: string },
+) {
+  const routeTag = options?.routeTag ?? "/lessons:referenceData"
+
+  return withTelemetry(
+    {
+      routeTag,
+      functionName: "readLessonReferenceDataAction",
+      params: { lessonId },
+      authEndTime: options?.authEndTime ?? null,
+    },
+    async () => {
+      console.log("[lessons] Server action started for lesson reference payload:", { lessonId })
+      return loadLessonReferencePayload(lessonId)
     },
   )
 }

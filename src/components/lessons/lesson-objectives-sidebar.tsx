@@ -397,12 +397,11 @@ export function LessonObjectivesSidebar({
           selectedCriteriaIds,
         )
 
-        if (result.error || !result.data) {
-          throw new Error(result.error ?? "Unknown error")
+        if (result.status === "error") {
+          throw new Error(result.message ?? "Unable to queue lesson update")
         }
 
-        onUpdate(result.data)
-        toast.success("Lesson success criteria updated")
+        toast.success("Lesson success criteria update queued")
         setIsCreateObjectiveOpen(false)
         setIsCreateCriterionOpen(false)
         setObjectiveForNewCriterion(null)
@@ -414,7 +413,7 @@ export function LessonObjectivesSidebar({
         })
       }
     })
-  }, [isBusy, lesson.lesson_id, onClose, onUpdate, selectedCriteriaIds, unitId])
+  }, [isBusy, lesson.lesson_id, onClose, selectedCriteriaIds, unitId])
 
   const handleOpenCreateObjective = () => {
     setIsCreateCriterionOpen(false)
