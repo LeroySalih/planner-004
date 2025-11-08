@@ -535,6 +535,14 @@ export const LessonMutationStateSchema = z.object({
 
 export type LessonMutationState = z.infer<typeof LessonMutationStateSchema>;
 
+export const LessonJobResponseSchema = z.object({
+    status: z.enum(["queued", "error"]),
+    jobId: z.string().nullable(),
+    message: z.string().nullable(),
+});
+
+export type LessonJobResponse = z.infer<typeof LessonJobResponseSchema>;
+
 export const LessonActivitySchema = z.object({
     activity_id: z.string(),
     lesson_id: z.string().nullish().transform((value) => value ?? ""),

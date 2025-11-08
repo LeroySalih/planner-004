@@ -1,9 +1,10 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { LinkIcon, List, Target, Upload } from "lucide-react"
+import { toast } from "sonner"
 
 import type {
   AssessmentObjective,
@@ -14,6 +15,13 @@ import type {
   LessonWithObjectives,
   Unit,
 } from "@/types"
+import { supabaseBrowserClient } from "@/lib/supabase-browser"
+import {
+  LESSON_CHANNEL_NAME,
+  LESSON_MUTATION_EVENT,
+  LessonMutationEventSchema,
+} from "@/lib/lesson-channel"
+import { LessonDetailPayloadSchema } from "@/lib/lesson-snapshot-schema"
 import { LessonFilesManager } from "@/components/lessons/lesson-files-manager"
 import { LessonLinksManager } from "@/components/lessons/lesson-links-manager"
 import { LessonActivitiesManager } from "@/components/lessons/lesson-activities-manager"
@@ -59,8 +67,93 @@ export function LessonDetailClient({
   const router = useRouter()
   const [currentLesson, setCurrentLesson] = useState<LessonWithObjectives>(lesson)
   const [isObjectivesSidebarOpen, setIsObjectivesSidebarOpen] = useState(false)
+  const [lessonFilesState, setLessonFilesState] = useState(lessonFiles)
+  const [lessonActivitiesState, setLessonActivitiesState] = useState(lessonActivities)
+  const [unitLessonsState, setUnitLessonsState] = useState(unitLessons)
+  const [currentUnit, setCurrentUnit] = useState<Unit | null>(unit)
+
+  useEffect(() => {
+    setLessonFilesState(lessonFiles)
+  }, [lessonFiles])
+
+  useEffect(() => {
+    setLessonActivitiesState(lessonActivities)
+  }, [lessonActivities])
+
+  useEffect(() => {
+    setUnitLessonsState(unitLessons)
+  }, [unitLessons])
+
+  useEffect(() => {
+    setCurrentLesson(lesson)
+  }, [lesson])
+
+  useEffect(() => {
+    setCurrentUnit(unit)
+  }, [unit])
 
   const isActive = currentLesson.active !== false
+
+  useEffect(() => {
+    const channel = supabaseBrowserClient.channel(LESSON_CHANNEL_NAME)
+
+    channel.on("broadcast", { event: LESSON_MUTATION_EVENT }, (event) => {
+      const parsed = LessonMutationEventSchema.safeParse(event.payload)
+      if (!parsed.success) {
+        return
+      }
+      const payload = parsed.data
+      if (payload.lesson_id !== lesson.lesson_id) {
+        return
+      }
+
+      if (payload.status === "error") {
+        toast.error(payload.message ?? "Lesson update failed")
+        return
+      }
+
+      if (payload.status !== "completed") {
+        return
+      }
+
+      const detail = LessonDetailPayloadSchema.safeParse(payload.data)
+      if (!detail.success) {
+        return
+      }
+
+      const snapshot = detail.data
+      if (snapshot.lesson) {
+        setCurrentLesson(snapshot.lesson)
+      }
+      if (snapshot.unit) {
+        setCurrentUnit(snapshot.unit)
+      }
+      setLessonActivitiesState(snapshot.lessonActivities ?? [])
+      setLessonFilesState(snapshot.lessonFiles ?? [])
+      setUnitLessonsState(snapshot.unitLessons ?? [])
+
+      if (payload.message) {
+        toast.success(payload.message)
+      }
+    })
+
+    const subscribeResult = channel.subscribe((status) => {
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        toast.error("Real-time lesson updates are unavailable right now.")
+      }
+    })
+
+    if (subscribeResult instanceof Promise) {
+      subscribeResult.catch((error) => {
+        console.error("[lessons] realtime subscription error", error)
+        toast.error("Real-time lesson updates failed to subscribe.")
+      })
+    }
+
+    return () => {
+      void supabaseBrowserClient.removeChannel(channel)
+    }
+  }, [lesson.lesson_id])
 
   const learningObjectivesById = useMemo(() => {
     const map = new Map<string, LearningObjectiveWithCriteria>()
@@ -219,10 +312,12 @@ export function LessonDetailClient({
               <div className="space-y-1">
                 <span className="text-xs uppercase tracking-wide text-slate-300">Unit</span>
                 <Link
-                  href={unit ? `/units/${unit.unit_id}` : `/units/${currentLesson.unit_id}`}
+                  href={
+                    currentUnit ? `/units/${currentUnit.unit_id}` : `/units/${currentLesson.unit_id}`
+                  }
                   className="text-xl font-semibold text-white underline-offset-4 transition hover:text-slate-200 hover:underline"
                 >
-                  {unit?.title ?? currentLesson.unit_id}
+                  {currentUnit?.title ?? currentLesson.unit_id}
                 </Link>
               </div>
               <div className="flex flex-wrap items-center gap-3 text-sm">
@@ -236,13 +331,13 @@ export function LessonDetailClient({
                 >
                   {isActive ? "Active" : "Inactive"}
                 </Badge>
-                {unitLessons.length > 0 ? (
+                {unitLessonsState.length > 0 ? (
                   <Select value={currentLesson.lesson_id} onValueChange={handleLessonSelect}>
                     <SelectTrigger className="w-60 border-white/30 bg-white/10 text-left text-sm text-white hover:bg-white/15 focus:ring-0 focus:ring-offset-0">
                       <SelectValue placeholder="Select lesson" />
                     </SelectTrigger>
                     <SelectContent>
-                      {unitLessons.map((option) => (
+                      {unitLessonsState.map((option) => (
                         <SelectItem key={option.lesson_id} value={option.lesson_id}>
                           {option.title}
                         </SelectItem>
@@ -315,9 +410,9 @@ export function LessonDetailClient({
           </CardHeader>
           <CardContent>
             <LessonActivitiesManager
-              unitId={unit?.unit_id ?? currentLesson.unit_id}
+              unitId={currentUnit?.unit_id ?? currentLesson.unit_id}
               lessonId={currentLesson.lesson_id}
-              initialActivities={lessonActivities}
+              initialActivities={lessonActivitiesState}
               availableSuccessCriteria={lessonSuccessCriteria}
             />
           </CardContent>
@@ -333,7 +428,7 @@ export function LessonDetailClient({
             </CardHeader>
             <CardContent>
               <LessonLinksManager
-                unitId={unit?.unit_id ?? currentLesson.unit_id}
+                unitId={currentUnit?.unit_id ?? currentLesson.unit_id}
                 lessonId={currentLesson.lesson_id}
                 initialLinks={currentLesson.lesson_links ?? []}
               />
@@ -349,9 +444,9 @@ export function LessonDetailClient({
             </CardHeader>
             <CardContent>
               <LessonFilesManager
-                unitId={unit?.unit_id ?? currentLesson.unit_id}
+                unitId={currentUnit?.unit_id ?? currentLesson.unit_id}
                 lessonId={currentLesson.lesson_id}
-                initialFiles={lessonFiles}
+                initialFiles={lessonFilesState}
               />
             </CardContent>
           </Card>
@@ -359,7 +454,7 @@ export function LessonDetailClient({
       </main>
 
       <LessonObjectivesSidebar
-        unitId={unit?.unit_id ?? currentLesson.unit_id}
+        unitId={currentUnit?.unit_id ?? currentLesson.unit_id}
         lesson={currentLesson}
         learningObjectives={learningObjectives}
         curricula={curricula}

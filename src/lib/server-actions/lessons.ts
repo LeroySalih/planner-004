@@ -5,21 +5,19 @@ import { performance } from "node:perf_hooks"
 
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
+import type { SupabaseClient } from "@supabase/supabase-js"
 
 import {
   AssessmentObjectivesSchema,
   CurriculaSchema,
   LearningObjectiveWithCriteriaSchema,
-  LessonActivitiesSchema,
   LessonJobPayloadSchema,
   LessonLearningObjective,
   LessonLink,
   LessonMutationStateSchema,
   LessonWithObjectivesSchema,
-  LessonsSchema,
   LessonsWithObjectivesSchema,
   SuccessCriterionSchema,
-  UnitSchema,
 } from "@/types"
 import {
   type LessonObjectiveFormState,
@@ -30,6 +28,9 @@ import { type NormalizedSuccessCriterion } from "./learning-objectives"
 import { isScorableActivityType } from "@/dino.config"
 import { requireTeacherProfile } from "@/lib/auth"
 import { withTelemetry } from "@/lib/telemetry"
+import { LESSON_CHANNEL_NAME, LESSON_CREATED_EVENT } from "@/lib/lesson-channel"
+import { enqueueLessonMutationJob } from "@/lib/lesson-job-runner"
+import { LessonDetailPayloadSchema } from "@/lib/lesson-snapshot-schema"
 
 const LessonsReturnValue = z.object({
   data: LessonsWithObjectivesSchema.nullable(),
@@ -39,23 +40,6 @@ const LessonsReturnValue = z.object({
 const LessonReturnValue = z.object({
   data: LessonWithObjectivesSchema.nullable(),
   error: z.string().nullable(),
-})
-
-const LessonFileMetadataSchema = z.object({
-  name: z.string(),
-  path: z.string(),
-  created_at: z.string().nullable().optional(),
-  updated_at: z.string().nullable().optional(),
-  last_accessed_at: z.string().nullable().optional(),
-  size: z.number().nullable().optional(),
-})
-
-const LessonDetailPayloadSchema = z.object({
-  lesson: LessonWithObjectivesSchema.nullable(),
-  unit: UnitSchema.nullable().optional(),
-  unitLessons: LessonsSchema.default([]),
-  lessonActivities: LessonActivitiesSchema.default([]),
-  lessonFiles: z.array(LessonFileMetadataSchema).default([]),
 })
 
 const LessonDetailReturnValue = z.object({
@@ -86,8 +70,6 @@ const LessonSuccessCriterionMutationResultSchema = z.object({
 })
 
 const LESSON_ROUTE_TAG = "/units/[unitId]"
-const LESSON_CHANNEL_NAME = "lesson_updates"
-const LESSON_CREATED_EVENT = "lesson:created"
 const LESSON_CHANNEL_CONFIG = { config: { broadcast: { ack: true } } }
 
 type LessonSupabaseClient = Awaited<ReturnType<typeof createSupabaseServiceClient>>
@@ -593,8 +575,21 @@ export async function setLessonSuccessCriteriaAction(
     successCriteriaIds,
   })
 
-  const supabase = await createSupabaseServerClient()
+  return enqueueLessonMutationJob({
+    lessonId: payload.lessonId,
+    unitId: payload.unitId,
+    type: "lesson.successCriteria",
+    message: "Lesson success criteria update queued.",
+    executor: async ({ supabase }) => {
+      await applyLessonSuccessCriteriaUpdate(supabase, payload)
+    },
+  })
+}
 
+async function applyLessonSuccessCriteriaUpdate(
+  supabase: SupabaseClient,
+  payload: z.infer<typeof LessonSuccessCriteriaUpdateSchema>,
+) {
   const normalizedIds = Array.from(new Set(payload.successCriteriaIds))
 
   const { data: existingCriteriaLinks, error: existingCriteriaError } = await supabase
@@ -603,8 +598,7 @@ export async function setLessonSuccessCriteriaAction(
     .eq("lesson_id", payload.lessonId)
 
   if (existingCriteriaError) {
-    console.error("[v0] Failed to read lesson success criteria links:", existingCriteriaError)
-    return LessonReturnValue.parse({ data: null, error: existingCriteriaError.message })
+    throw existingCriteriaError
   }
 
   const existingCriteriaIds = new Set(
@@ -625,8 +619,7 @@ export async function setLessonSuccessCriteriaAction(
     )
 
     if (insertCriteriaError) {
-      console.error("[v0] Failed to insert lesson success criteria links:", insertCriteriaError)
-      return LessonReturnValue.parse({ data: null, error: insertCriteriaError.message })
+      throw insertCriteriaError
     }
   }
 
@@ -638,8 +631,7 @@ export async function setLessonSuccessCriteriaAction(
       .in("success_criteria_id", idsToDelete)
 
     if (deleteCriteriaError) {
-      console.error("[v0] Failed to remove lesson success criteria links:", deleteCriteriaError)
-      return LessonReturnValue.parse({ data: null, error: deleteCriteriaError.message })
+      throw deleteCriteriaError
     }
   }
 
@@ -652,11 +644,7 @@ export async function setLessonSuccessCriteriaAction(
       .in("success_criteria_id", normalizedIds)
 
     if (criteriaMetadataError) {
-      console.error(
-        "[v0] Failed to read success criteria metadata:",
-        criteriaMetadataError,
-      )
-      return LessonReturnValue.parse({ data: null, error: criteriaMetadataError.message })
+      throw criteriaMetadataError
     }
 
     learningObjectiveIdsFromSelection = Array.from(
@@ -674,8 +662,7 @@ export async function setLessonSuccessCriteriaAction(
     .eq("lesson_id", payload.lessonId)
 
   if (objectiveReadError) {
-    console.error("[v0] Failed to read lesson learning objective links:", objectiveReadError)
-    return LessonReturnValue.parse({ data: null, error: objectiveReadError.message })
+    throw objectiveReadError
   }
 
   const existingObjectiveOrderMap = new Map<string, number>()
@@ -703,8 +690,7 @@ export async function setLessonSuccessCriteriaAction(
       .in("learning_objective_id", objectiveIdsToRemove)
 
     if (objectiveDeleteError) {
-      console.error("[v0] Failed to remove lesson learning objective links:", objectiveDeleteError)
-      return LessonReturnValue.parse({ data: null, error: objectiveDeleteError.message })
+      throw objectiveDeleteError
     }
   }
 
@@ -715,8 +701,7 @@ export async function setLessonSuccessCriteriaAction(
       .in("learning_objective_id", objectiveIdsToInsert)
 
     if (learningObjectiveError) {
-      console.error("[v0] Failed to read learning objective metadata:", learningObjectiveError)
-      return LessonReturnValue.parse({ data: null, error: learningObjectiveError.message })
+      throw learningObjectiveError
     }
 
     const existingOrders = Array.from(existingObjectiveOrderMap.values())
@@ -736,19 +721,13 @@ export async function setLessonSuccessCriteriaAction(
         .insert(insertRows)
 
       if (objectiveInsertError) {
-        console.error(
-          "[v0] Failed to insert lesson learning objective links:",
-          objectiveInsertError,
-        )
-        return LessonReturnValue.parse({ data: null, error: objectiveInsertError.message })
+        throw objectiveInsertError
       }
     }
   }
 
   revalidatePath(`/lessons/${payload.lessonId}`)
   revalidatePath(`/units/${payload.unitId}`)
-
-  return readLessonWithObjectives(payload.lessonId)
 }
 
 const LessonObjectiveCreateInputSchema = z.object({
