@@ -75,3 +75,4 @@ This guide captures the working knowledge future coding agents need to extend th
 7. Document any new workflows or scripts by appending to this playbook so the next agent inherits the context.
 
 Stay vigilant for unexpected file changes. If Supabase tables or shared types evolve, ripple the updates through server actions, client components, and tests in one pass to avoid drift.
+.
