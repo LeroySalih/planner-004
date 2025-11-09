@@ -2,12 +2,13 @@ import {
   readGroupsAction,
   readGroupAction,
   readLessonAssignmentsAction,
-  readLessonDetailBootstrapAction,
+  readLessonAction,
   readUnitsAction,
   readLearningObjectivesByUnitAction,
+  listLessonActivitiesAction,
 } from "@/lib/server-updates"
 import { compareDesc, format, parseISO, startOfWeek } from "date-fns"
-import type { LessonActivity, LessonWithObjectives } from "@/types"
+import type { LessonActivity } from "@/types"
 
 export type PupilLessonLesson = {
   lessonId: string
@@ -37,9 +38,6 @@ export type PupilLessonsSummary = {
 export type PupilHomeworkItem = {
   activityId: string
   activityTitle: string
-  activityType: string
-  isHomework: boolean
-  activityOrder: number
   lessonId: string
   lessonTitle: string
   unitId: string
@@ -243,27 +241,8 @@ export async function loadPupilLessonsSummaries(targetPupilId?: string): Promise
   const lessonEntries = await Promise.all(
     Array.from(lessonIds).map(async (lessonId) => {
       try {
-        const result = await readLessonDetailBootstrapAction(lessonId)
-
-        if (result.error) {
-          console.error("[pupil-lessons] Failed to load lesson detail", lessonId, result.error)
-          return [lessonId, null] as const
-        }
-
-        const payload = result.data
-        if (!payload?.lesson) {
-          return [lessonId, null] as const
-        }
-
-        const activities = (payload.lessonActivities ?? []).filter((activity) => activity.active !== false)
-
-        return [
-          lessonId,
-          {
-            lesson: payload.lesson,
-            activities,
-          },
-        ] as const
+        const result = await readLessonAction(lessonId)
+        return [lessonId, result.data ?? null] as const
       } catch (error) {
         console.error("[pupil-lessons] Failed to load lesson detail", lessonId, error)
         return [lessonId, null] as const
@@ -271,27 +250,18 @@ export async function loadPupilLessonsSummaries(targetPupilId?: string): Promise
     }),
   )
 
-  const lessonMap = new Map<
-    string,
-    {
-      lesson: LessonWithObjectives
-      activities: LessonActivity[]
-    }
-  >(
-    lessonEntries.filter(
-      (entry): entry is [string, { lesson: LessonWithObjectives; activities: LessonActivity[] }] => entry[1] !== null,
-    ),
+  const lessonMap = new Map(
+    lessonEntries.filter((entry): entry is [string, NonNullable<typeof lessonEntries[number]>[1]] => entry[1] !== null),
   )
 
   const pupilLessonStructure = new Map<string, DateMap>()
 
   filteredAssignments.forEach(({ groupId, lessonId, startDate, pupilIds }) => {
-    const lessonEntry = lessonMap.get(lessonId)
-    if (!lessonEntry) {
+    const lesson = lessonMap.get(lessonId)
+    if (!lesson) {
       return
     }
 
-    const lesson = lessonEntry.lesson
     const groupInfo = groupInfoMap.get(groupId)
     const subject = groupInfo?.subject ?? null
     const dateKey = startDate ?? ""
@@ -402,6 +372,7 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
       )
     : []
 
+  const uniqueLessonIds = Array.from(new Set(lessonAssignments.map((entry) => entry.lessonId)))
   const uniqueUnitIds = Array.from(new Set(lessonAssignments.map((entry) => entry.unitId)))
 
   const unitTitleMap = new Map<string, string>()
@@ -442,16 +413,15 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
     }),
   )
 
-  const lessonActivityEntries = await Promise.all(
-    Array.from(new Set(lessonAssignments.map((entry) => entry.lessonId))).map(async (lessonId) => {
+  const activityResults = await Promise.all(
+    uniqueLessonIds.map(async (lessonId) => {
       try {
-        const result = await readLessonDetailBootstrapAction(lessonId)
+        const result = await listLessonActivitiesAction(lessonId)
         if (result.error) {
           console.error("[pupil-lessons] Failed to read lesson activities", lessonId, result.error)
           return [lessonId, []] as const
         }
-
-        const activities = (result.data?.lessonActivities ?? []).filter((activity) => activity.active !== false)
+        const activities = result.data?.filter((activity) => activity.is_homework) ?? []
         return [lessonId, activities] as const
       } catch (error) {
         console.error("[pupil-lessons] Unexpected error reading lesson activities", lessonId, error)
@@ -461,8 +431,8 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
   )
 
   const homeworkActivitiesMap = new Map<string, LessonActivity[]>()
-  lessonActivityEntries.forEach(([lessonId, activities]) => {
-    homeworkActivitiesMap.set(lessonId, activities)
+  activityResults.forEach(([lessonId, activities]) => {
+    homeworkActivitiesMap.set(lessonId, Array.from(activities))
   })
 
   const homeworkEntries = lessonAssignments.flatMap((assignment) => {
@@ -471,12 +441,9 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
       return []
     }
 
-    return activities.map((activity, index) => ({
+    return activities.map((activity) => ({
       activityId: activity.activity_id,
       activityTitle: activity.title ?? "Untitled activity",
-      activityType: activity.type ?? "",
-      isHomework: activity.is_homework ?? false,
-      activityOrder: typeof activity.order_by === "number" ? activity.order_by : index,
       lessonId: assignment.lessonId,
       lessonTitle: assignment.lessonTitle,
       unitId: assignment.unitId,
@@ -496,13 +463,7 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
   const homeworkSections: PupilHomeworkSection[] = Array.from(homeworkByDate.entries())
     .map(([date, items]) => ({
       date,
-      items: items.sort((a, b) => {
-        if (a.lessonId === b.lessonId) {
-          return a.activityOrder - b.activityOrder
-        }
-
-        return a.lessonTitle.localeCompare(b.lessonTitle)
-      }),
+      items: items.sort((a, b) => a.lessonTitle.localeCompare(b.lessonTitle)),
     }))
     .sort((a, b) => {
       const dateA = parseDate(a.date)

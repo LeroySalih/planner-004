@@ -5,7 +5,6 @@ import Link from "next/link"
 import { addWeeks, format, parseISO } from "date-fns"
 
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { PupilLessonsDetail } from "@/lib/pupil-lessons-data"
 
@@ -60,25 +59,13 @@ function getWeekLabels(value: string | null) {
   }
 }
 
-function formatActivityTypeLabel(type: string) {
-  if (!type) {
-    return "Lesson activity"
-  }
-
-  return type
-    .split(/[-_]/)
-    .filter(Boolean)
-    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
-    .join(" ")
-}
-
 type PupilLessonsDetailClientProps = {
   detail: PupilLessonsDetail
   pupilId: string
 }
 
 export function PupilLessonsDetailClient({ detail, pupilId }: PupilLessonsDetailClientProps) {
-  const { homework: activitySections, weeks, units } = detail
+  const { homework, weeks, units } = detail
   const [lessonFilter, setLessonFilter] = useState("")
 
   const filteredWeeks = useMemo(() => {
@@ -126,18 +113,18 @@ export function PupilLessonsDetailClient({ detail, pupilId }: PupilLessonsDetail
   }, [lessonFilter, weeks])
 
   return (
-    <Tabs defaultValue="activities" className="space-y-6">
+    <Tabs defaultValue="homework" className="space-y-6">
       <TabsList className="grid w-full gap-2 sm:grid-cols-3">
-        <TabsTrigger value="activities">Activities</TabsTrigger>
+        <TabsTrigger value="homework">Homework</TabsTrigger>
         <TabsTrigger value="lessons">Lessons</TabsTrigger>
         <TabsTrigger value="units">Units</TabsTrigger>
       </TabsList>
 
-      <TabsContent value="activities" className="space-y-6">
-        {activitySections.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No lesson activities have been scheduled yet.</p>
+      <TabsContent value="homework" className="space-y-6">
+        {homework.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No homework has been set for this pupil yet.</p>
         ) : (
-          activitySections.map((section) => {
+          homework.map((section) => {
             const { weekDue, weekIssued } = getWeekLabels(section.date)
 
             return (
@@ -145,40 +132,28 @@ export function PupilLessonsDetailClient({ detail, pupilId }: PupilLessonsDetail
                 <div className="space-y-1">
                   <h2 className="text-base font-semibold text-foreground">Week due: {weekDue}</h2>
                   <p className="text-xs text-muted-foreground">Week issued: {weekIssued}</p>
-                  <p className="text-xs text-muted-foreground">Lesson activities planned for this lesson date.</p>
+                  <p className="text-xs text-muted-foreground">Homework activities planned for this lesson date.</p>
                 </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {section.items.map((item) => (
-                    <Card key={item.activityId} className="border-border/80">
-                      <CardHeader className="space-y-3">
-                        <div className="flex flex-col gap-2">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <CardTitle className="text-base font-semibold text-foreground">
-                                {item.activityTitle}
-                              </CardTitle>
-                              {item.isHomework ? (
-                                <Badge variant="destructive" className="uppercase tracking-wide">
-                                  Homework
-                                </Badge>
-                              ) : null}
-                            </div>
-                            <Link
-                              href={`/pupil-lessons/${encodeURIComponent(pupilId)}/lessons/${encodeURIComponent(item.lessonId)}`}
-                              className="text-sm font-medium text-primary underline-offset-4 hover:underline"
-                            >
-                              {item.lessonTitle}
-                            </Link>
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            {formatActivityTypeLabel(item.activityType)}
-                            {item.subject ? ` • ${item.subject}` : ""}
-                          </p>
-                        </div>
-                      </CardHeader>
-                    </Card>
-                  ))}
-                </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                {section.items.map((item) => (
+                  <Card key={item.activityId} className="border-border/80">
+                    <CardHeader className="space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <CardTitle className="text-base font-semibold text-foreground">{item.activityTitle}</CardTitle>
+                        <Link
+                          href={`/pupil-lessons/${encodeURIComponent(pupilId)}/lessons/${encodeURIComponent(item.lessonId)}`}
+                          className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+                        >
+                          {item.lessonTitle}
+                        </Link>
+                      </div>
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                        {item.subject ?? "Subject not set"}
+                      </p>
+                    </CardHeader>
+                  </Card>
+                ))}
+              </div>
               </section>
             )
           })
