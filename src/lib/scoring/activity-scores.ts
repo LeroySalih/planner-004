@@ -15,6 +15,7 @@ export type SubmissionExtraction = {
   overrideSuccessCriteriaScores: Record<string, number | null> | null
   successCriteriaScores: Record<string, number | null>
   feedback: string | null
+  autoFeedback: string | null
   question: string | null
   correctAnswer: string | null
   pupilAnswer: string | null
@@ -52,6 +53,10 @@ export function extractScoreFromSubmission(
         typeof parsed.data.teacher_feedback === "string" && parsed.data.teacher_feedback.trim().length > 0
           ? parsed.data.teacher_feedback.trim()
           : null
+      const autoFeedback =
+        typeof parsed.data.ai_model_feedback === "string" && parsed.data.ai_model_feedback.trim().length > 0
+          ? parsed.data.ai_model_feedback.trim()
+          : null
       const questionText = metadata.question
       const correctAnswerText = metadata.correctAnswer
       const pupilAnswerId = parsed.data.answer_chosen
@@ -67,6 +72,7 @@ export function extractScoreFromSubmission(
         overrideSuccessCriteriaScores: overrideScores,
         successCriteriaScores,
         feedback,
+        autoFeedback: null,
         question: questionText,
         correctAnswer: correctAnswerText,
         pupilAnswer: pupilAnswerText,
@@ -92,6 +98,7 @@ export function extractScoreFromSubmission(
         correctAnswer: metadata.correctAnswer,
         pupilAnswer: null,
         feedback: null,
+        autoFeedback: null,
       }
     }
 
@@ -111,6 +118,7 @@ export function extractScoreFromSubmission(
       correctAnswer: metadata.correctAnswer,
       pupilAnswer: null,
       feedback: null,
+      autoFeedback: null,
     }
   }
 
@@ -128,6 +136,10 @@ export function extractScoreFromSubmission(
       const feedback =
         typeof parsed.data.teacher_feedback === "string" && parsed.data.teacher_feedback.trim().length > 0
           ? parsed.data.teacher_feedback.trim()
+          : null
+      const autoFeedback =
+        typeof parsed.data.ai_model_feedback === "string" && parsed.data.ai_model_feedback.trim().length > 0
+          ? parsed.data.ai_model_feedback.trim()
           : null
       const successCriteriaScores = normaliseSuccessCriteriaScores({
         successCriteriaIds,
@@ -153,6 +165,7 @@ export function extractScoreFromSubmission(
         overrideSuccessCriteriaScores: overrideScores,
         successCriteriaScores,
         feedback,
+        autoFeedback,
         question: metadata.question,
         correctAnswer: metadata.correctAnswer,
         pupilAnswer: parsed.data.answer?.trim() ?? null,
@@ -172,6 +185,7 @@ export function extractScoreFromSubmission(
       overrideSuccessCriteriaScores: null,
       successCriteriaScores: fallbackScores,
       feedback: null,
+      autoFeedback: null,
       question: metadata.question,
       correctAnswer: metadata.correctAnswer,
       pupilAnswer: null,
@@ -233,6 +247,7 @@ export function extractScoreFromSubmission(
       overrideSuccessCriteriaScores: overrideScores,
       successCriteriaScores,
       feedback,
+      autoFeedback: null,
       question: metadata.question,
       correctAnswer: metadata.correctAnswer,
       pupilAnswer,
@@ -252,6 +267,7 @@ export function extractScoreFromSubmission(
     overrideSuccessCriteriaScores: null,
     successCriteriaScores: fallbackScores,
     feedback: null,
+    autoFeedback: null,
     question: metadata.question,
     correctAnswer: metadata.correctAnswer,
     pupilAnswer: null,

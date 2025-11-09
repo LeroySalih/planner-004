@@ -1,5 +1,6 @@
 "use server"
 
+import { performance } from "node:perf_hooks"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { createClient } from "@supabase/supabase-js"
@@ -29,6 +30,7 @@ import {
   TEACHER_OVERRIDE_PLACEHOLDER,
 } from "@/lib/scoring/activity-scores"
 import { schedulePupilReportRecalc } from "@/lib/report-cache-jobs"
+import { withTelemetry } from "@/lib/telemetry"
 
 const ASSIGNMENT_ID_SEPARATOR = "__"
 const AssignmentIdentifierSchema = z.object({
@@ -122,101 +124,132 @@ function normaliseDate(value: unknown): string | null {
   return null
 }
 
+function normaliseRichText(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null
+  }
+  const withoutEntities = value.replace(/&nbsp;/gi, " ")
+  const withoutTags = withoutEntities.replace(/<[^>]*>/g, " ")
+  const normalised = withoutTags.replace(/\s+/g, " ").trim()
+  return normalised.length > 0 ? normalised : null
+}
 
-export async function readAssignmentResultsAction(assignmentId: string) {
+function extractUploadInstructions(body: unknown): string | null {
+  if (!body || typeof body !== "object") {
+    return null
+  }
+  const record = body as Record<string, unknown>
+  return normaliseRichText(record.instructions)
+}
+
+
+export async function readAssignmentResultsAction(
+  assignmentId: string,
+  options?: { authEndTime?: number | null; routeTag?: string },
+) {
   await requireTeacherProfile()
+  const authEndTime = options?.authEndTime ?? performance.now()
+  const routeTag = options?.routeTag ?? "/results/assignments"
 
-  const parsedInput = AssignmentIdentifierSchema.safeParse({ assignmentId })
-  if (!parsedInput.success) {
-    return AssignmentResultsReturnSchema.parse({
-      data: null,
-      error: "Invalid assignment identifier.",
-    })
-  }
+  return withTelemetry(
+    {
+      routeTag,
+      functionName: "readAssignmentResultsAction",
+      params: { assignmentId },
+      authEndTime,
+    },
+    async () => {
+      const parsedInput = AssignmentIdentifierSchema.safeParse({ assignmentId })
+      if (!parsedInput.success) {
+        return AssignmentResultsReturnSchema.parse({
+          data: null,
+          error: "Invalid assignment identifier.",
+        })
+      }
 
-  const identifiers = decodeAssignmentId(parsedInput.data.assignmentId)
-  if (!identifiers) {
-    return AssignmentResultsReturnSchema.parse({
-      data: null,
-      error: "Assignment not found.",
-    })
-  }
+      const identifiers = decodeAssignmentId(parsedInput.data.assignmentId)
+      if (!identifiers) {
+        return AssignmentResultsReturnSchema.parse({
+          data: null,
+          error: "Assignment not found.",
+        })
+      }
 
-  const { groupId, lessonId } = identifiers
+      const { groupId, lessonId } = identifiers
 
-  try {
-    const supabase = await createSupabaseServerClient()
+      try {
+        const supabase = await createSupabaseServerClient()
 
-    const [groupResult, lessonResult, assignmentResult] = await Promise.all([
-      supabase
-        .from("groups")
-        .select("group_id, subject")
-        .eq("group_id", groupId)
-        .maybeSingle(),
-      supabase
-        .from("lessons")
-        .select("lesson_id, unit_id, title")
-        .eq("lesson_id", lessonId)
-        .maybeSingle(),
-      supabase
-        .from("lesson_assignments")
-        .select("group_id, lesson_id, start_date")
-        .eq("group_id", groupId)
-        .eq("lesson_id", lessonId)
-        .maybeSingle(),
-    ])
+        const [groupResult, lessonResult, assignmentResult] = await Promise.all([
+          supabase
+            .from("groups")
+            .select("group_id, subject")
+            .eq("group_id", groupId)
+            .maybeSingle(),
+          supabase
+            .from("lessons")
+            .select("lesson_id, unit_id, title")
+            .eq("lesson_id", lessonId)
+            .maybeSingle(),
+          supabase
+            .from("lesson_assignments")
+            .select("group_id, lesson_id, start_date")
+            .eq("group_id", groupId)
+            .eq("lesson_id", lessonId)
+            .maybeSingle(),
+        ])
 
-    if (groupResult.error) {
-      console.error("[assignment-results] Failed to load group:", groupResult.error)
-      return AssignmentResultsReturnSchema.parse({ data: null, error: "Unable to load group information." })
-    }
+        if (groupResult.error) {
+          console.error("[assignment-results] Failed to load group:", groupResult.error)
+          return AssignmentResultsReturnSchema.parse({ data: null, error: "Unable to load group information." })
+        }
 
-    if (lessonResult.error) {
-      console.error("[assignment-results] Failed to load lesson:", lessonResult.error)
-      return AssignmentResultsReturnSchema.parse({ data: null, error: "Unable to load lesson information." })
-    }
+        if (lessonResult.error) {
+          console.error("[assignment-results] Failed to load lesson:", lessonResult.error)
+          return AssignmentResultsReturnSchema.parse({ data: null, error: "Unable to load lesson information." })
+        }
 
-    if (!groupResult.data || !lessonResult.data) {
-      return AssignmentResultsReturnSchema.parse({ data: null, error: "Assignment context not found." })
-    }
+        if (!groupResult.data || !lessonResult.data) {
+          return AssignmentResultsReturnSchema.parse({ data: null, error: "Assignment context not found." })
+        }
 
-    const { data: membershipRows, error: membershipError } = await supabase
-      .from("group_membership")
-      .select("user_id, role")
-      .eq("group_id", groupId)
+        const { data: membershipRows, error: membershipError } = await supabase
+          .from("group_membership")
+          .select("user_id, role")
+          .eq("group_id", groupId)
 
-    if (membershipError) {
-      console.error("[assignment-results] Failed to load group membership:", membershipError)
-      return AssignmentResultsReturnSchema.parse({
-        data: null,
-        error: "Unable to load group membership.",
-      })
-    }
-
-    const pupilMemberships = (membershipRows ?? []).filter((entry) => entry.role?.toLowerCase() === "pupil")
-    const pupilIds = pupilMemberships.map((entry) => entry.user_id).filter((id): id is string => Boolean(id))
-
-    const profilesByUserId = new Map<string, { firstName: string | null; lastName: string | null }>()
-    const emailByUserId = new Map<string, string>()
-
-    if (pupilIds.length > 0) {
-      const { data: profileRows, error: profileError } = await supabase
-        .from("profiles")
-        .select("user_id, first_name, last_name")
-        .in("user_id", pupilIds)
-
-      if (profileError) {
-        console.error("[assignment-results] Failed to load pupil profiles:", profileError)
-      } else {
-        for (const profile of profileRows ?? []) {
-          if (!profile?.user_id) continue
-          profilesByUserId.set(profile.user_id, {
-            firstName: typeof profile.first_name === "string" ? profile.first_name : null,
-            lastName: typeof profile.last_name === "string" ? profile.last_name : null,
+        if (membershipError) {
+          console.error("[assignment-results] Failed to load group membership:", membershipError)
+          return AssignmentResultsReturnSchema.parse({
+            data: null,
+            error: "Unable to load group membership.",
           })
         }
-      }
-    }
+
+        const pupilMemberships = (membershipRows ?? []).filter((entry) => entry.role?.toLowerCase() === "pupil")
+        const pupilIds = pupilMemberships.map((entry) => entry.user_id).filter((id): id is string => Boolean(id))
+
+        const profilesByUserId = new Map<string, { firstName: string | null; lastName: string | null }>()
+        const emailByUserId = new Map<string, string>()
+
+        if (pupilIds.length > 0) {
+          const { data: profileRows, error: profileError } = await supabase
+            .from("profiles")
+            .select("user_id, first_name, last_name")
+            .in("user_id", pupilIds)
+
+          if (profileError) {
+            console.error("[assignment-results] Failed to load pupil profiles:", profileError)
+          } else {
+            for (const profile of profileRows ?? []) {
+              if (!profile?.user_id) continue
+              profilesByUserId.set(profile.user_id, {
+                firstName: typeof profile.first_name === "string" ? profile.first_name : null,
+                lastName: typeof profile.last_name === "string" ? profile.last_name : null,
+              })
+            }
+          }
+        }
 
     const supabaseUrl =
       process.env.NEXT_PUBLIC_SUPABASE_URL ??
@@ -278,13 +311,14 @@ export async function readAssignmentResultsAction(assignmentId: string) {
     const pupils = pupilIds
       .map((userId) => {
         const profile = profilesByUserId.get(userId) ?? null
-        const displayName = buildDisplayName(profile?.firstName ?? null, profile?.lastName ?? null, userId)
+        const email = emailByUserId.get(userId) ?? null
+        const displayName = buildDisplayName(profile?.firstName ?? null, profile?.lastName ?? null, email ?? userId)
         return {
           userId,
           displayName,
           firstName: profile?.firstName ?? null,
           lastName: profile?.lastName ?? null,
-          email: emailByUserId.get(userId) ?? null,
+          email,
         }
       })
       .sort((a, b) => a.displayName.localeCompare(b.displayName, undefined, { sensitivity: "base" }))
@@ -409,7 +443,7 @@ export async function readAssignmentResultsAction(assignmentId: string) {
       if (type === "multiple-choice-question") {
         const parsedBody = McqActivityBodySchema.safeParse(activity.body_data)
         if (parsedBody.success) {
-          question = parsedBody.data.question?.trim() ?? null
+          question = normaliseRichText(parsedBody.data.question)
           optionTextMap = Object.fromEntries(
             parsedBody.data.options.map((option) => [option.id, option.text?.trim() ?? option.id]),
           )
@@ -419,9 +453,11 @@ export async function readAssignmentResultsAction(assignmentId: string) {
       } else if (type === "short-text-question") {
         const parsedBody = ShortTextActivityBodySchema.safeParse(activity.body_data)
         if (parsedBody.success) {
-          question = parsedBody.data.question?.trim() ?? null
-          correctAnswer = parsedBody.data.modelAnswer?.trim() ?? null
+          question = normaliseRichText(parsedBody.data.question)
+          correctAnswer = normaliseRichText(parsedBody.data.modelAnswer) ?? parsedBody.data.modelAnswer?.trim() ?? null
         }
+      } else if (type === "upload-file") {
+        question = extractUploadInstructions(activity.body_data)
       }
 
       activityQuestionMetadata.set(activity.activity_id, {
@@ -498,6 +534,7 @@ export async function readAssignmentResultsAction(assignmentId: string) {
           status: "missing",
           submittedAt: null,
           feedback: null,
+          autoFeedback: null,
           successCriteriaScores: zeroScores,
           autoSuccessCriteriaScores: zeroScores,
           question: metadata.question,
@@ -526,19 +563,19 @@ export async function readAssignmentResultsAction(assignmentId: string) {
         continue
       }
 
-    const activity = activityMap.get(activityId)
-    if (!activity) {
-      continue
-    }
+      const activity = activityMap.get(activityId)
+      if (!activity) {
+        continue
+      }
 
-    const activityType = activityTypeMap.get(activityId) ?? ""
-    const successCriteriaIds = activity.successCriteria.map((criterion) => criterion.successCriteriaId)
-    const metadata = activityQuestionMetadata.get(activityId) ?? {
-      question: null,
-      correctAnswer: null,
-      optionTextMap: undefined,
-    }
-    const extracted = extractScoreFromSubmission(activityType, submission.body, successCriteriaIds, metadata)
+      const activityType = activityTypeMap.get(activityId) ?? ""
+      const successCriteriaIds = activity.successCriteria.map((criterion) => criterion.successCriteriaId)
+      const metadata = activityQuestionMetadata.get(activityId) ?? {
+        question: null,
+        correctAnswer: null,
+        optionTextMap: undefined,
+      }
+      const extracted = extractScoreFromSubmission(activityType, submission.body, successCriteriaIds, metadata)
       const status =
         typeof extracted.overrideScore === "number"
           ? "override"
@@ -561,9 +598,13 @@ export async function readAssignmentResultsAction(assignmentId: string) {
           status,
           submittedAt,
           feedback: extracted.feedback,
+          autoFeedback: extracted.autoFeedback ?? null,
           successCriteriaScores: extracted.successCriteriaScores,
           autoSuccessCriteriaScores: extracted.autoSuccessCriteriaScores,
           overrideSuccessCriteriaScores: extracted.overrideSuccessCriteriaScores ?? undefined,
+          question: extracted.question ?? metadata.question,
+          correctAnswer: extracted.correctAnswer ?? metadata.correctAnswer,
+          pupilAnswer: extracted.pupilAnswer ?? null,
         }),
       )
     }
@@ -602,6 +643,7 @@ export async function readAssignmentResultsAction(assignmentId: string) {
             status: "missing",
             submittedAt: null,
             feedback: null,
+            autoFeedback: null,
             successCriteriaScores: zeroScores,
             autoSuccessCriteriaScores: zeroScores,
             question: metadata.question,
@@ -769,14 +811,16 @@ export async function readAssignmentResultsAction(assignmentId: string) {
       },
     })
 
-    return AssignmentResultsReturnSchema.parse({ data: result, error: null })
-  } catch (error) {
-    console.error("[assignment-results] Unexpected error building results matrix:", error)
-    return AssignmentResultsReturnSchema.parse({
-      data: null,
-      error: "Unable to load assignment results.",
-    })
-  }
+        return AssignmentResultsReturnSchema.parse({ data: result, error: null })
+      } catch (error) {
+        console.error("[assignment-results] Unexpected error building results matrix:", error)
+        return AssignmentResultsReturnSchema.parse({
+          data: null,
+          error: "Unable to load assignment results.",
+        })
+      }
+    },
+  )
 }
 
 async function getSubmissionRow(
@@ -817,354 +861,392 @@ async function getSubmissionRow(
   return { data, error: null }
 }
 
-export async function overrideAssignmentScoreAction(input: z.infer<typeof AssignmentOverrideInputSchema>) {
+export async function overrideAssignmentScoreAction(
+  input: z.infer<typeof AssignmentOverrideInputSchema>,
+  options?: { authEndTime?: number | null; routeTag?: string },
+) {
   await requireTeacherProfile()
+  const authEndTime = options?.authEndTime ?? performance.now()
+  const routeTag = options?.routeTag ?? "/results/assignments:override"
 
-  const parsed = AssignmentOverrideInputSchema.safeParse(input)
-  if (!parsed.success) {
-    return MutateAssignmentScoreReturnSchema.parse({
-      success: false,
-      error: "Invalid override payload.",
-    })
-  }
-
-  const identifiers = decodeAssignmentId(parsed.data.assignmentId)
-  if (!identifiers) {
-    return MutateAssignmentScoreReturnSchema.parse({
-      success: false,
-      error: "Assignment not found.",
-    })
-  }
-
-  try {
-    const supabase = await createSupabaseServerClient()
-
-    const { data: activityRow, error: activityError } = await supabase
-      .from("activities")
-      .select("activity_id, type")
-      .eq("activity_id", parsed.data.activityId)
-      .maybeSingle()
-
-    if (activityError) {
-      console.error("[assignment-results] Failed to load activity for override:", activityError)
-      return MutateAssignmentScoreReturnSchema.parse({
-        success: false,
-        error: "Unable to load activity.",
-      })
-    }
-
-    if (!activityRow) {
-      return MutateAssignmentScoreReturnSchema.parse({
-        success: false,
-        error: "Activity not found.",
-      })
-    }
-
-    const type = (activityRow.type ?? "").trim()
-
-    const successCriteriaIds = await fetchActivitySuccessCriteriaIds(supabase, parsed.data.activityId)
-
-    const buildOverrideScores = (existing?: Record<string, number | null>) =>
-      parsed.data.criterionScores
-        ? normaliseSuccessCriteriaScores({
-            successCriteriaIds,
-            existingScores: parsed.data.criterionScores,
-            fillValue: parsed.data.score,
-          })
-        : normaliseSuccessCriteriaScores({
-            successCriteriaIds,
-            existingScores: existing,
-            fillValue: parsed.data.score,
-          })
-
-    const submissionLookup = await getSubmissionRow(
-      supabase,
-      parsed.data.activityId,
-      parsed.data.pupilId,
-      parsed.data.submissionId,
-    )
-
-    if (submissionLookup.error) {
-      console.error("[assignment-results] Failed to load submission for override:", submissionLookup.error)
-      return MutateAssignmentScoreReturnSchema.parse({
-        success: false,
-        error: "Unable to load submission.",
-      })
-    }
-
-    let submissionId = submissionLookup.data?.submission_id ?? null
-    let submittedAt = normaliseTimestamp(submissionLookup.data?.submitted_at) ?? new Date().toISOString()
-    const currentBody = submissionLookup.data?.body
-
-    const resolveOverrideBody = (): Record<string, unknown> => {
-      if (type === "short-text-question") {
-        const snapshot = ShortTextSubmissionBodySchema.safeParse(currentBody ?? {})
-        const base = snapshot.success ? snapshot.data : ShortTextSubmissionBodySchema.parse({})
-        return {
-          ...base,
-          teacher_override_score: parsed.data.score,
-          teacher_feedback: parsed.data.feedback ?? null,
-          success_criteria_scores: buildOverrideScores(base.success_criteria_scores),
-        }
+  return withTelemetry(
+    {
+      routeTag,
+      functionName: "overrideAssignmentScoreAction",
+      params: {
+        assignmentId: input.assignmentId,
+        activityId: input.activityId,
+        pupilId: input.pupilId,
+      },
+      authEndTime,
+    },
+    async () => {
+      const parsed = AssignmentOverrideInputSchema.safeParse(input)
+      if (!parsed.success) {
+        return MutateAssignmentScoreReturnSchema.parse({
+          success: false,
+          error: "Invalid override payload.",
+        })
       }
 
-      if (type === "multiple-choice-question") {
-        const snapshot = McqSubmissionBodySchema.safeParse(currentBody ?? {})
-        const base = snapshot.success
-          ? snapshot.data
-          : McqSubmissionBodySchema.parse({
-              answer_chosen: TEACHER_OVERRIDE_PLACEHOLDER,
-              is_correct: false,
-              success_criteria_scores: {},
+      const identifiers = decodeAssignmentId(parsed.data.assignmentId)
+      if (!identifiers) {
+        return MutateAssignmentScoreReturnSchema.parse({
+          success: false,
+          error: "Assignment not found.",
+        })
+      }
+
+      try {
+        const supabase = await createSupabaseServerClient()
+
+        const { data: activityRow, error: activityError } = await supabase
+          .from("activities")
+          .select("activity_id, type")
+          .eq("activity_id", parsed.data.activityId)
+          .maybeSingle()
+
+        if (activityError) {
+          console.error("[assignment-results] Failed to load activity for override:", activityError)
+          return MutateAssignmentScoreReturnSchema.parse({
+            success: false,
+            error: "Unable to load activity.",
+          })
+        }
+
+        if (!activityRow) {
+          return MutateAssignmentScoreReturnSchema.parse({
+            success: false,
+            error: "Activity not found.",
+          })
+        }
+
+        const type = (activityRow.type ?? "").trim()
+
+        const successCriteriaIds = await fetchActivitySuccessCriteriaIds(supabase, parsed.data.activityId)
+
+        const buildOverrideScores = (existing?: Record<string, number | null>) =>
+          parsed.data.criterionScores
+            ? normaliseSuccessCriteriaScores({
+                successCriteriaIds,
+                existingScores: parsed.data.criterionScores,
+                fillValue: parsed.data.score,
+              })
+            : normaliseSuccessCriteriaScores({
+                successCriteriaIds,
+                existingScores: existing,
+                fillValue: parsed.data.score,
+              })
+
+        const submissionLookup = await getSubmissionRow(
+          supabase,
+          parsed.data.activityId,
+          parsed.data.pupilId,
+          parsed.data.submissionId,
+        )
+
+        if (submissionLookup.error) {
+          console.error("[assignment-results] Failed to load submission for override:", submissionLookup.error)
+          return MutateAssignmentScoreReturnSchema.parse({
+            success: false,
+            error: "Unable to load submission.",
+          })
+        }
+
+        let submissionId = submissionLookup.data?.submission_id ?? null
+        let submittedAt = normaliseTimestamp(submissionLookup.data?.submitted_at) ?? new Date().toISOString()
+        const currentBody = submissionLookup.data?.body
+
+        const resolveOverrideBody = (): Record<string, unknown> => {
+          if (type === "short-text-question") {
+            const snapshot = ShortTextSubmissionBodySchema.safeParse(currentBody ?? {})
+            const base = snapshot.success ? snapshot.data : ShortTextSubmissionBodySchema.parse({})
+            return {
+              ...base,
+              teacher_override_score: parsed.data.score,
+              teacher_feedback: parsed.data.feedback ?? null,
+              success_criteria_scores: buildOverrideScores(base.success_criteria_scores),
+            }
+          }
+
+          if (type === "multiple-choice-question") {
+            const snapshot = McqSubmissionBodySchema.safeParse(currentBody ?? {})
+            const base = snapshot.success
+              ? snapshot.data
+              : McqSubmissionBodySchema.parse({
+                  answer_chosen: TEACHER_OVERRIDE_PLACEHOLDER,
+                  is_correct: false,
+                  success_criteria_scores: {},
+                })
+            return {
+              ...base,
+              teacher_override_score: parsed.data.score,
+              teacher_feedback: parsed.data.feedback ?? null,
+              success_criteria_scores: buildOverrideScores(base.success_criteria_scores),
+            }
+          }
+
+          if (currentBody && typeof currentBody === "object") {
+            const record = currentBody as Record<string, unknown>
+            const existingScores =
+              typeof record.success_criteria_scores === "object"
+                ? (record.success_criteria_scores as Record<string, number | null>)
+                : undefined
+            return {
+              ...record,
+              teacher_override_score: parsed.data.score,
+              teacher_feedback: parsed.data.feedback ?? null,
+              success_criteria_scores: buildOverrideScores(existingScores),
+            }
+          }
+
+          return {
+            teacher_override_score: parsed.data.score,
+            teacher_feedback: parsed.data.feedback ?? null,
+            success_criteria_scores: buildOverrideScores(),
+          }
+        }
+
+        let nextBody = resolveOverrideBody()
+        const isNewSubmission = !submissionLookup.data
+
+        if (isNewSubmission) {
+          nextBody = {
+            ...nextBody,
+            teacher_created_submission: true,
+          }
+        }
+
+        if (submissionId) {
+          const { error: updateError } = await supabase
+            .from("submissions")
+            .update({
+              body: nextBody,
+              submitted_at: submittedAt,
             })
-        return {
-          ...base,
-          teacher_override_score: parsed.data.score,
-          teacher_feedback: parsed.data.feedback ?? null,
-          success_criteria_scores: buildOverrideScores(base.success_criteria_scores),
+            .eq("submission_id", submissionId)
+
+          if (updateError) {
+            console.error("[assignment-results] Failed to apply score override:", updateError)
+            return MutateAssignmentScoreReturnSchema.parse({
+              success: false,
+              error: "Unable to save override.",
+            })
+          }
+        } else {
+          const { data: insertedSubmission, error: insertError } = await supabase
+            .from("submissions")
+            .insert({
+              activity_id: parsed.data.activityId,
+              user_id: parsed.data.pupilId,
+              submitted_at: submittedAt,
+              body: nextBody,
+            })
+            .select("submission_id, submitted_at")
+            .single()
+
+          if (insertError) {
+            console.error("[assignment-results] Failed to create submission for override:", insertError)
+            return MutateAssignmentScoreReturnSchema.parse({
+              success: false,
+              error: "Unable to save override.",
+            })
+          }
+
+          submissionId = insertedSubmission?.submission_id ?? null
+          submittedAt = normaliseTimestamp(insertedSubmission?.submitted_at) ?? submittedAt
         }
-      }
 
-      if (currentBody && typeof currentBody === "object") {
-        const record = currentBody as Record<string, unknown>
-        const existingScores =
-          typeof record.success_criteria_scores === "object"
-            ? (record.success_criteria_scores as Record<string, number | null>)
-            : undefined
-        return {
-          ...record,
-          teacher_override_score: parsed.data.score,
-          teacher_feedback: parsed.data.feedback ?? null,
-          success_criteria_scores: buildOverrideScores(existingScores),
-        }
-      }
-
-      return {
-        teacher_override_score: parsed.data.score,
-        teacher_feedback: parsed.data.feedback ?? null,
-        success_criteria_scores: buildOverrideScores(),
-      }
-    }
-
-    let nextBody = resolveOverrideBody()
-    const isNewSubmission = !submissionLookup.data
-
-    if (isNewSubmission) {
-      nextBody = {
-        ...nextBody,
-        teacher_created_submission: true,
-      }
-    }
-
-    if (submissionId) {
-      const { error: updateError } = await supabase
-        .from("submissions")
-        .update({
-          body: nextBody,
-          submitted_at: submittedAt,
+        revalidatePath(`/results/assignments/${parsed.data.assignmentId}`)
+        schedulePupilReportRecalc({
+          pupilId: parsed.data.pupilId,
+          reason: "assignment-override",
         })
-        .eq("submission_id", submissionId)
 
-      if (updateError) {
-        console.error("[assignment-results] Failed to apply score override:", updateError)
+        return MutateAssignmentScoreReturnSchema.parse({
+          success: true,
+          error: null,
+          submissionId,
+        })
+      } catch (error) {
+        console.error("[assignment-results] Unexpected error overriding score:", error)
         return MutateAssignmentScoreReturnSchema.parse({
           success: false,
           error: "Unable to save override.",
         })
       }
-    } else {
-      const { data: insertedSubmission, error: insertError } = await supabase
-        .from("submissions")
-        .insert({
-          activity_id: parsed.data.activityId,
-          user_id: parsed.data.pupilId,
-          submitted_at: submittedAt,
-          body: nextBody,
-        })
-        .select("submission_id, submitted_at")
-        .single()
-
-      if (insertError) {
-        console.error("[assignment-results] Failed to create submission for override:", insertError)
-        return MutateAssignmentScoreReturnSchema.parse({
-          success: false,
-          error: "Unable to save override.",
-        })
-      }
-
-      submissionId = insertedSubmission?.submission_id ?? null
-      submittedAt = normaliseTimestamp(insertedSubmission?.submitted_at) ?? submittedAt
-    }
-
-    revalidatePath(`/results/assignments/${parsed.data.assignmentId}`)
-    schedulePupilReportRecalc({
-      pupilId: parsed.data.pupilId,
-      reason: "assignment-override",
-    })
-
-    return MutateAssignmentScoreReturnSchema.parse({
-      success: true,
-      error: null,
-      submissionId,
-    })
-  } catch (error) {
-    console.error("[assignment-results] Unexpected error overriding score:", error)
-    return MutateAssignmentScoreReturnSchema.parse({
-      success: false,
-      error: "Unable to save override.",
-    })
-  }
+    },
+  )
 }
 
-export async function resetAssignmentScoreAction(input: z.infer<typeof AssignmentResetInputSchema>) {
+export async function resetAssignmentScoreAction(
+  input: z.infer<typeof AssignmentResetInputSchema>,
+  options?: { authEndTime?: number | null; routeTag?: string },
+) {
   await requireTeacherProfile()
+  const authEndTime = options?.authEndTime ?? performance.now()
+  const routeTag = options?.routeTag ?? "/results/assignments:reset"
 
-  const parsed = AssignmentResetInputSchema.safeParse(input)
-  if (!parsed.success) {
-    return MutateAssignmentScoreReturnSchema.parse({
-      success: false,
-      error: "Invalid reset payload.",
-    })
-  }
-
-  const identifiers = decodeAssignmentId(parsed.data.assignmentId)
-  if (!identifiers) {
-    return MutateAssignmentScoreReturnSchema.parse({
-      success: false,
-      error: "Assignment not found.",
-    })
-  }
-
-  try {
-    const supabase = await createSupabaseServerClient()
-
-    const { data: activityRow, error: activityError } = await supabase
-      .from("activities")
-      .select("activity_id, type")
-      .eq("activity_id", parsed.data.activityId)
-      .maybeSingle()
-
-    if (activityError) {
-      console.error("[assignment-results] Failed to load activity for reset:", activityError)
-      return MutateAssignmentScoreReturnSchema.parse({
-        success: false,
-        error: "Unable to load activity.",
-      })
-    }
-
-    if (!activityRow) {
-      return MutateAssignmentScoreReturnSchema.parse({
-        success: false,
-        error: "Activity not found.",
-      })
-    }
-
-    const submissionLookup = await getSubmissionRow(
-      supabase,
-      parsed.data.activityId,
-      parsed.data.pupilId,
-      parsed.data.submissionId,
-    )
-
-    if (submissionLookup.error) {
-      console.error("[assignment-results] Failed to load submission for reset:", submissionLookup.error)
-      return MutateAssignmentScoreReturnSchema.parse({
-        success: false,
-        error: "Unable to load submission.",
-      })
-    }
-
-    if (!submissionLookup.data) {
-      return MutateAssignmentScoreReturnSchema.parse({
-        success: false,
-        error: "Submission not found for this pupil.",
-      })
-    }
-
-    const submissionId = submissionLookup.data.submission_id
-    const body = submissionLookup.data.body ?? {}
-
-    let nextBody: Record<string, unknown> = {}
-    const successCriteriaIds = await fetchActivitySuccessCriteriaIds(supabase, parsed.data.activityId)
-    const type = (activityRow.type ?? "").trim()
-
-    if (body && typeof body === "object") {
-      const record = body as Record<string, unknown>
-
-      let baseScore = 0
-      let existingScores: Record<string, number | null> | undefined
-      if (type === "multiple-choice-question") {
-        const parsedBody = McqSubmissionBodySchema.safeParse(body)
-        if (parsedBody.success) {
-          baseScore = parsedBody.data.is_correct ? 1 : 0
-          existingScores = parsedBody.data.success_criteria_scores
-        }
-      } else if (type === "short-text-question") {
-        const parsedBody = ShortTextSubmissionBodySchema.safeParse(body)
-        if (parsedBody.success && typeof parsedBody.data.ai_model_score === "number") {
-          baseScore = parsedBody.data.ai_model_score
-          existingScores = parsedBody.data.success_criteria_scores
-        }
-      } else if (typeof record.teacher_override_score === "number") {
-        baseScore = record.teacher_override_score as number
-        const rawScores = record.success_criteria_scores
-        if (rawScores && typeof rawScores === "object") {
-          existingScores = rawScores as Record<string, number | null>
-        }
+  return withTelemetry(
+    {
+      routeTag,
+      functionName: "resetAssignmentScoreAction",
+      params: {
+        assignmentId: input.assignmentId,
+        activityId: input.activityId,
+        pupilId: input.pupilId,
+      },
+      authEndTime,
+    },
+    async () => {
+      const parsed = AssignmentResetInputSchema.safeParse(input)
+      if (!parsed.success) {
+        return MutateAssignmentScoreReturnSchema.parse({
+          success: false,
+          error: "Invalid reset payload.",
+        })
       }
 
-      const successCriteriaScores = normaliseSuccessCriteriaScores({
-        successCriteriaIds,
-        existingScores,
-        fillValue: baseScore,
-      })
-
-      nextBody = {
-        ...record,
-        teacher_override_score: null,
-        teacher_feedback: null,
-        success_criteria_scores: successCriteriaScores,
+      const identifiers = decodeAssignmentId(parsed.data.assignmentId)
+      if (!identifiers) {
+        return MutateAssignmentScoreReturnSchema.parse({
+          success: false,
+          error: "Assignment not found.",
+        })
       }
-    } else {
-      const successCriteriaScores = normaliseSuccessCriteriaScores({
-        successCriteriaIds,
-        fillValue: 0,
-      })
 
-      nextBody = {
-        teacher_override_score: null,
-        teacher_feedback: null,
-        success_criteria_scores: successCriteriaScores,
+      try {
+        const supabase = await createSupabaseServerClient()
+
+        const { data: activityRow, error: activityError } = await supabase
+          .from("activities")
+          .select("activity_id, type")
+          .eq("activity_id", parsed.data.activityId)
+          .maybeSingle()
+
+        if (activityError) {
+          console.error("[assignment-results] Failed to load activity for reset:", activityError)
+          return MutateAssignmentScoreReturnSchema.parse({
+            success: false,
+            error: "Unable to load activity.",
+          })
+        }
+
+        if (!activityRow) {
+          return MutateAssignmentScoreReturnSchema.parse({
+            success: false,
+            error: "Activity not found.",
+          })
+        }
+
+        const submissionLookup = await getSubmissionRow(
+          supabase,
+          parsed.data.activityId,
+          parsed.data.pupilId,
+          parsed.data.submissionId,
+        )
+
+        if (submissionLookup.error) {
+          console.error("[assignment-results] Failed to load submission for reset:", submissionLookup.error)
+          return MutateAssignmentScoreReturnSchema.parse({
+            success: false,
+            error: "Unable to load submission.",
+          })
+        }
+
+        if (!submissionLookup.data) {
+          return MutateAssignmentScoreReturnSchema.parse({
+            success: false,
+            error: "Submission not found for this pupil.",
+          })
+        }
+
+        const submissionId = submissionLookup.data.submission_id
+        const body = submissionLookup.data.body ?? {}
+
+        let nextBody: Record<string, unknown> = {}
+        const successCriteriaIds = await fetchActivitySuccessCriteriaIds(supabase, parsed.data.activityId)
+        const type = (activityRow.type ?? "").trim()
+
+        if (body && typeof body === "object") {
+          const record = body as Record<string, unknown>
+
+          let baseScore = 0
+          let existingScores: Record<string, number | null> | undefined
+          if (type === "multiple-choice-question") {
+            const parsedBody = McqSubmissionBodySchema.safeParse(body)
+            if (parsedBody.success) {
+              baseScore = parsedBody.data.is_correct ? 1 : 0
+              existingScores = parsedBody.data.success_criteria_scores
+            }
+          } else if (type === "short-text-question") {
+            const parsedBody = ShortTextSubmissionBodySchema.safeParse(body)
+            if (parsedBody.success && typeof parsedBody.data.ai_model_score === "number") {
+              baseScore = parsedBody.data.ai_model_score
+              existingScores = parsedBody.data.success_criteria_scores
+            }
+          } else if (typeof record.teacher_override_score === "number") {
+            baseScore = record.teacher_override_score as number
+            const rawScores = record.success_criteria_scores
+            if (rawScores && typeof rawScores === "object") {
+              existingScores = rawScores as Record<string, number | null>
+            }
+          }
+
+          const successCriteriaScores = normaliseSuccessCriteriaScores({
+            successCriteriaIds,
+            existingScores,
+            fillValue: baseScore,
+          })
+
+          nextBody = {
+            ...record,
+            teacher_override_score: null,
+            teacher_feedback: null,
+            success_criteria_scores: successCriteriaScores,
+          }
+        } else {
+          const successCriteriaScores = normaliseSuccessCriteriaScores({
+            successCriteriaIds,
+            fillValue: 0,
+          })
+
+          nextBody = {
+            teacher_override_score: null,
+            teacher_feedback: null,
+            success_criteria_scores: successCriteriaScores,
+          }
+        }
+
+        const { error: updateError } = await supabase
+          .from("submissions")
+          .update({
+            body: nextBody,
+          })
+          .eq("submission_id", submissionId)
+
+        if (updateError) {
+          console.error("[assignment-results] Failed to reset score override:", updateError)
+          return MutateAssignmentScoreReturnSchema.parse({
+            success: false,
+            error: "Unable to reset override.",
+          })
+        }
+
+        revalidatePath(`/results/assignments/${parsed.data.assignmentId}`)
+        schedulePupilReportRecalc({
+          pupilId: parsed.data.pupilId,
+          reason: "assignment-reset",
+        })
+
+        return MutateAssignmentScoreReturnSchema.parse({ success: true, error: null })
+      } catch (error) {
+        console.error("[assignment-results] Unexpected error resetting score:", error)
+        return MutateAssignmentScoreReturnSchema.parse({
+          success: false,
+          error: "Unable to reset override.",
+        })
       }
-    }
-
-    const { error: updateError } = await supabase
-      .from("submissions")
-      .update({
-        body: nextBody,
-      })
-      .eq("submission_id", submissionId)
-
-    if (updateError) {
-      console.error("[assignment-results] Failed to reset score override:", updateError)
-      return MutateAssignmentScoreReturnSchema.parse({
-        success: false,
-        error: "Unable to reset override.",
-      })
-    }
-
-    revalidatePath(`/results/assignments/${parsed.data.assignmentId}`)
-    schedulePupilReportRecalc({
-      pupilId: parsed.data.pupilId,
-      reason: "assignment-reset",
-    })
-
-    return MutateAssignmentScoreReturnSchema.parse({ success: true, error: null })
-  } catch (error) {
-    console.error("[assignment-results] Unexpected error resetting score:", error)
-    return MutateAssignmentScoreReturnSchema.parse({
-      success: false,
-      error: "Unable to reset override.",
-    })
-  }
+    },
+  )
 }

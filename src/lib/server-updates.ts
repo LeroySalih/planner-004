@@ -77,6 +77,7 @@ export {
   overrideAssignmentScoreAction,
   resetAssignmentScoreAction,
 } from "./server-actions/assignment-results"
+export { requestAiMarkAction } from "./server-actions/ai-mark"
 
 export {
   readLessonAssignmentsAction,
