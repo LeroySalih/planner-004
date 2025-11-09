@@ -6,9 +6,7 @@ import { Download, Music2, PlaySquare, TestTube, ArrowLeft } from "lucide-react"
 import { requireAuthenticatedProfile } from "@/lib/auth"
 import { loadPupilLessonsSummaries } from "@/lib/pupil-lessons-data"
 import {
-  readLessonAction,
-  listLessonActivitiesAction,
-  listLessonFilesAction,
+  readLessonDetailBootstrapAction,
   listActivityFilesAction,
   listPupilActivitySubmissionsAction,
   getLatestSubmissionForActivityAction,
@@ -152,21 +150,20 @@ export default async function PupilLessonFriendlyPage({
     redirect(`/pupil-lessons/${encodeURIComponent(profile.userId)}`)
   }
 
-  const [summaries, lessonResult, activitiesResult, filesResult] = await Promise.all([
+  const [summaries, lessonDetailResult] = await Promise.all([
     loadPupilLessonsSummaries(pupilId),
-    readLessonAction(lessonId),
-    listLessonActivitiesAction(lessonId),
-    listLessonFilesAction(lessonId),
+    readLessonDetailBootstrapAction(lessonId),
   ])
 
   const summary = summaries[0]
-  const lesson = lessonResult.data
+  const lessonPayload = lessonDetailResult.data
+  const lesson = lessonPayload?.lesson ?? null
   if (!lesson) {
     notFound()
   }
 
-  const activities = activitiesResult.data ?? []
-  const lessonFiles = filesResult.data ?? []
+  const activities = (lessonPayload?.lessonActivities ?? []).filter((activity) => activity.active !== false)
+  const lessonFiles = lessonPayload?.lessonFiles ?? []
 
   const uploadActivities = activities.filter((activity) => activity.type === "upload-file")
 
