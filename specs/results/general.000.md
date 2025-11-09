@@ -21,7 +21,16 @@ The results/assignments page allows the teacher to view and override the feedbac
 
 - Override: This will display all ofthe Success Criteria that are associated with the acitvity, and allow the teacher to enter 0, Partial (50%) or Full via button, or a specific value by text box.  The teacher can also add text feedback.
    - Override reasons remain free-form text; no structured status field is required beyond the override marker.
- 
+
+
+- Automatic Score tab now also renders any AI-generated feedback (distinct from the teacher override text) so staff can compare machine commentary with their own notes.
+
+- Each column header sidebar exposes two CTA buttons (both wrapped in `useTransition`):
+  1. `AI Mark` – triggers `requestAiMarkAction`, posting `{ requestid, question_text, model_answer, provided_answers, group_assignment_id, activity_id }` to `AI_MARK_URL` with headers `mark-service-key` and `mark-webhook-url`.
+  2. `Clear AI Marks` – calls `clearActivityAiMarksAction`, which sets `ai_model_score`/`ai_model_feedback` to null for that activity, recomputes success-criteria averages, revalidates `/results/assignments/[group__lesson]`, and refreshes the client grid.
+  - Buttons show “Sending…” / “Clearing…” states, remain retryable, and toast success/failure via `sonner`.
+
+- Clearing AI marks immediately resets the affected column’s auto scores/feedback locally while a router refresh keeps Supabase data in sync.
 
 
 ## Data Flows

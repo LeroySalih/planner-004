@@ -23,11 +23,18 @@ const PupilAnswerSchema = z
     path: ["pupilid"],
   })
 
-const ResultEntrySchema = z.object({
-  pupilid: z.string().uuid(),
-  score: z.number().min(0).max(1),
-  feedback: z.string().optional().nullable(),
-})
+const ResultEntrySchema = z
+  .object({
+    pupilid: z.string().uuid().optional(),
+    pupilId: z.string().uuid().optional(),
+    pupil_id: z.string().uuid().optional(),
+    score: z.number().min(0).max(1),
+    feedback: z.string().optional().nullable(),
+  })
+  .refine((value) => value.pupilid || value.pupilId || value.pupil_id, {
+    message: "pupil identifier is required",
+    path: ["pupilid"],
+  })
 
 const PayloadSchema = z.object({
   group_assignment_id: z.string().min(3),
@@ -47,6 +54,7 @@ const PayloadSchema = z.object({
 
 type WebhookPayload = z.infer<typeof PayloadSchema>
 type ResultEntry = z.infer<typeof ResultEntrySchema>
+type ResultPupil = string
 
 export async function POST(request: Request) {
   const expectedKey = process.env.AI_MARK_SERVICE_KEY
@@ -143,7 +151,12 @@ export async function POST(request: Request) {
   }
 
   for (const result of parsed.data.results) {
-    const existingSubmission = submissionsByPupil.get(result.pupilid) ?? null
+    const resultPupilId = resolveResultPupilId(result)
+    if (!resultPupilId) {
+      summary.skipped += 1
+      continue
+    }
+    const existingSubmission = submissionsByPupil.get(resultPupilId) ?? null
     try {
       if (existingSubmission) {
         const updated = await applyAiMarkToSubmission({
@@ -151,7 +164,7 @@ export async function POST(request: Request) {
           submission: existingSubmission,
           result,
           successCriteriaIds,
-          answerFallback: answersByPupil.get(result.pupilid) ?? null,
+          answerFallback: answersByPupil.get(resultPupilId) ?? null,
         })
         if (updated) {
           summary.updated += 1
@@ -162,10 +175,10 @@ export async function POST(request: Request) {
         const created = await createAiMarkedSubmission({
           supabase,
           activityId: parsed.data.activity_id,
-          pupilId: result.pupilid,
+          pupilId: resultPupilId,
           result,
           successCriteriaIds,
-          answer: answersByPupil.get(result.pupilid) ?? null,
+          answer: answersByPupil.get(resultPupilId) ?? null,
         })
         if (created) {
           summary.created += 1
@@ -176,7 +189,7 @@ export async function POST(request: Request) {
     } catch (error) {
       summary.errors += 1
       console.error("[ai-mark-webhook] Failed to apply AI mark for pupil", {
-        pupilId: result.pupilid,
+        pupilId: resultPupilId ?? "(unknown)",
         error,
       })
     }
@@ -212,6 +225,10 @@ function buildAnswersMap(payload: WebhookPayload): Map<string, string> {
     }
   }
   return map
+}
+
+function resolveResultPupilId(entry: ResultEntry): ResultPupil | null {
+  return entry.pupilid ?? entry.pupilId ?? entry.pupil_id ?? null
 }
 
 function computeIsCorrect(score: number | null): boolean {

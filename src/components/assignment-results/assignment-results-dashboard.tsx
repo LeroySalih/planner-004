@@ -23,6 +23,7 @@ import {
   getPupilActivitySubmissionUrlAction,
   listPupilActivitySubmissionsAction,
   overrideAssignmentScoreAction,
+  clearActivityAiMarksAction,
   requestAiMarkAction,
   resetAssignmentScoreAction,
 } from "@/lib/server-updates"
@@ -405,6 +406,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
   const [overrideUITransitionPending, startOverrideUITransition] = useTransition()
   const [resetUITransitionPending, startResetUITransition] = useTransition()
   const [aiMarkPending, startAiMarkTransition] = useTransition()
+  const [clearAiPending, startClearAiTransition] = useTransition()
   const router = useRouter()
 
   const activities = matrixState.activities
@@ -534,6 +536,96 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       }
     })
   }, [selectedActivity, activities, groupedRows])
+
+  const handleClearAiMarks = useCallback(() => {
+    if (!selectedActivity) {
+      toast.error("No activity is selected.")
+      return
+    }
+    startClearAiTransition(async () => {
+      const result = await clearActivityAiMarksAction({
+        assignmentId: matrixState.assignmentId,
+        activityId: selectedActivity.activityId,
+      })
+      if (!result.success) {
+        toast.error(result.error ?? "Unable to clear AI marks.")
+        return
+      }
+      const clearedMessage =
+        result.cleared > 0
+          ? `Cleared AI marks for ${result.cleared} submission${result.cleared === 1 ? "" : "s"}.`
+          : "No AI marks were present to clear."
+      toast.success(clearedMessage)
+      setMatrixState((previous) => {
+        const activityIndex = previous.activities.findIndex(
+          (activity) => activity.activityId === selectedActivity.activityId,
+        )
+        if (activityIndex === -1) {
+          return previous
+        }
+        const successCriteriaIds = previous.activities[activityIndex].successCriteria.map(
+          (criterion) => criterion.successCriteriaId,
+        )
+        const nextRows = previous.rows.map((row) => {
+          const targetCell = row.cells[activityIndex]
+          if (!targetCell) {
+            return row
+          }
+          const hasOverride =
+            typeof targetCell.overrideScore === "number" && Number.isFinite(targetCell.overrideScore)
+          const fillValue = hasOverride && typeof targetCell.overrideScore === "number" ? targetCell.overrideScore : 0
+          const resetScores = normaliseSuccessCriteriaScores({
+            successCriteriaIds,
+            fillValue,
+          })
+          const updatedCell: AssignmentResultCell = {
+            ...targetCell,
+            autoScore: null,
+            autoFeedback: null,
+            autoSuccessCriteriaScores: resetScores,
+            successCriteriaScores: hasOverride ? targetCell.successCriteriaScores : resetScores,
+            status: hasOverride ? "override" : "missing",
+            score: hasOverride ? targetCell.overrideScore : fillValue,
+          }
+          const nextCells = row.cells.map((cell, index) => (index === activityIndex ? updatedCell : cell))
+          return { ...row, cells: nextCells }
+        })
+        const recalculated = recalculateMatrix(previous.activities, nextRows)
+        return {
+          ...previous,
+          rows: recalculated.rows,
+          activitySummaries: recalculated.activitySummaries,
+          successCriteriaSummaries: recalculated.successCriteriaSummaries,
+          overallAverages: recalculated.overallAverages,
+        }
+      })
+      setSelection((current) => {
+        if (!current || current.activity.activityId !== selectedActivity.activityId) {
+          return current
+        }
+        const hasOverride =
+          typeof current.cell.overrideScore === "number" && Number.isFinite(current.cell.overrideScore)
+        const fillValue = hasOverride && typeof current.cell.overrideScore === "number" ? current.cell.overrideScore : 0
+        const resetScores = normaliseSuccessCriteriaScores({
+          successCriteriaIds: current.activity.successCriteria.map((criterion) => criterion.successCriteriaId),
+          fillValue,
+        })
+        return {
+          ...current,
+          cell: {
+            ...current.cell,
+            autoScore: null,
+            autoFeedback: null,
+            autoSuccessCriteriaScores: resetScores,
+            successCriteriaScores: hasOverride ? current.cell.successCriteriaScores : resetScores,
+            status: hasOverride ? "override" : "missing",
+            score: hasOverride ? current.cell.overrideScore : fillValue,
+          },
+        }
+      })
+      router.refresh()
+    })
+  }, [selectedActivity, matrixState.assignmentId, router, startClearAiTransition])
 
   const draftAverage = useMemo(() => {
     if (!selection) return null
@@ -1331,9 +1423,19 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
         <SheetContent side="right" className="h-full w-full p-6 sm:max-w-md">
           {selectedActivity ? (
             <div className="flex h-full flex-col gap-4 overflow-y-auto">
-              <Button type="button" className="self-end" onClick={handleAiMark} disabled={aiMarkPending}>
-                AI Mark
-              </Button>
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <Button type="button" onClick={handleAiMark} disabled={aiMarkPending}>
+                  {aiMarkPending ? "Sending…" : "AI Mark"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleClearAiMarks}
+                  disabled={clearAiPending}
+                >
+                  {clearAiPending ? "Clearing…" : "Clear AI Marks"}
+                </Button>
+              </div>
               <SheetHeader className="p-0">
                 <SheetTitle>{selectedActivity.title}</SheetTitle>
                 <SheetDescription>

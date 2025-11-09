@@ -40,6 +40,23 @@ export async function requestAiMarkAction(
     }
   }
 
+  const webhookUrl = process.env.AI_MARK_WEBHOOK_URL ?? process.env.NEXT_PUBLIC_AI_MARK_WEBHOOK_URL
+  if (!webhookUrl) {
+    return {
+      success: false,
+      error: "AI_MARK_WEBHOOK_URL is not configured.",
+    }
+  }
+
+  const serviceKey = process.env.AI_MARK_SERVICE_KEY
+  if (!serviceKey) {
+    return {
+      success: false,
+      error: "AI_MARK_SERVICE_KEY is not configured.",
+    }
+  }
+
+
   const authEndTime = options?.authEndTime ?? Date.now()
   const routeTag = options?.routeTag ?? "/results/assignments"
 
@@ -55,8 +72,13 @@ export async function requestAiMarkAction(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "mark-service-key": serviceKey,
+          "mark-webhook-url": webhookUrl,
         },
-        body: JSON.stringify(parsed.data),
+        body: JSON.stringify({
+          ...parsed.data,
+          webhook_url: webhookUrl,
+        }),
       })
 
       if (!response.ok) {

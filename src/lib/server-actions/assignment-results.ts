@@ -33,6 +33,8 @@ import { schedulePupilReportRecalc } from "@/lib/report-cache-jobs"
 import { withTelemetry } from "@/lib/telemetry"
 
 const ASSIGNMENT_ID_SEPARATOR = "__"
+const SHORT_TEXT_ACTIVITY_TYPE = "short-text-question"
+const SHORT_TEXT_CORRECTNESS_THRESHOLD = 0.8
 const AssignmentIdentifierSchema = z.object({
   assignmentId: z.string().min(3),
 })
@@ -57,6 +59,17 @@ const AssignmentResetInputSchema = z.object({
 const AssignmentResultsReturnSchema = z.object({
   data: AssignmentResultMatrixSchema.nullable(),
   error: z.string().nullable(),
+})
+
+const ClearAiMarksInputSchema = z.object({
+  assignmentId: z.string().min(3),
+  activityId: z.string().min(1),
+})
+
+const ClearAiMarksResultSchema = z.object({
+  success: z.boolean(),
+  error: z.string().nullable(),
+  cleared: z.number().int().min(0),
 })
 
 const MutateAssignmentScoreReturnSchema = z.object({
@@ -140,6 +153,13 @@ function extractUploadInstructions(body: unknown): string | null {
   }
   const record = body as Record<string, unknown>
   return normaliseRichText(record.instructions)
+}
+
+function computeShortTextCorrectness(score: number | null): boolean {
+  if (typeof score !== "number" || Number.isNaN(score)) {
+    return false
+  }
+  return score >= SHORT_TEXT_CORRECTNESS_THRESHOLD
 }
 
 
@@ -1247,6 +1267,143 @@ export async function resetAssignmentScoreAction(
           error: "Unable to reset override.",
         })
       }
+    },
+  )
+}
+
+export async function clearActivityAiMarksAction(
+  input: z.infer<typeof ClearAiMarksInputSchema>,
+  options?: { authEndTime?: number | null; routeTag?: string },
+) {
+  await requireTeacherProfile()
+  const parsedInput = ClearAiMarksInputSchema.safeParse(input)
+  if (!parsedInput.success) {
+    return ClearAiMarksResultSchema.parse({
+      success: false,
+      error: "Invalid request.",
+      cleared: 0,
+    })
+  }
+
+  const authEndTime = options?.authEndTime ?? performance.now()
+  const routeTag = options?.routeTag ?? "/results/assignments"
+
+  return withTelemetry(
+    {
+      routeTag,
+      functionName: "clearActivityAiMarksAction",
+      params: { assignmentId: parsedInput.data.assignmentId, activityId: parsedInput.data.activityId },
+      authEndTime,
+    },
+    async () => {
+      const supabase = await createSupabaseServerClient()
+
+      const { data: activityRow, error: activityError } = await supabase
+        .from("activities")
+        .select("activity_id, type")
+        .eq("activity_id", parsedInput.data.activityId)
+        .maybeSingle()
+
+      if (activityError) {
+        console.error("[assignment-results] Failed to load activity for AI clear:", activityError)
+        return ClearAiMarksResultSchema.parse({
+          success: false,
+          error: "Unable to load activity.",
+          cleared: 0,
+        })
+      }
+
+      if (!activityRow) {
+        return ClearAiMarksResultSchema.parse({
+          success: false,
+          error: "Activity not found.",
+          cleared: 0,
+        })
+      }
+
+      if ((activityRow.type ?? "").trim() !== SHORT_TEXT_ACTIVITY_TYPE) {
+        return ClearAiMarksResultSchema.parse({
+          success: false,
+          error: "Only short-text activities support AI marks.",
+          cleared: 0,
+        })
+      }
+
+      const { data: submissions, error: submissionsError } = await supabase
+        .from("submissions")
+        .select("submission_id, body")
+        .eq("activity_id", parsedInput.data.activityId)
+
+      if (submissionsError) {
+        console.error("[assignment-results] Failed to read submissions for AI clear:", submissionsError)
+        return ClearAiMarksResultSchema.parse({
+          success: false,
+          error: "Unable to load submissions.",
+          cleared: 0,
+        })
+      }
+
+      const successCriteriaIds = await fetchActivitySuccessCriteriaIds(supabase, parsedInput.data.activityId)
+      let clearedCount = 0
+
+      for (const submission of submissions ?? []) {
+        const parsedBody = ShortTextSubmissionBodySchema.safeParse(submission.body ?? {})
+        if (!parsedBody.success) {
+          continue
+        }
+
+        const baseBody = parsedBody.data
+        const hasAiMark =
+          typeof baseBody.ai_model_score === "number" ||
+          (typeof baseBody.ai_model_feedback === "string" && baseBody.ai_model_feedback.trim().length > 0)
+
+        if (!hasAiMark) {
+          continue
+        }
+
+        const overrideScore =
+          typeof baseBody.teacher_override_score === "number" && Number.isFinite(baseBody.teacher_override_score)
+            ? baseBody.teacher_override_score
+            : null
+
+        const fillValue = overrideScore ?? 0
+
+        const nextBody = ShortTextSubmissionBodySchema.parse({
+          ...baseBody,
+          ai_model_score: null,
+          ai_model_feedback: null,
+          is_correct: computeShortTextCorrectness(overrideScore),
+          success_criteria_scores: normaliseSuccessCriteriaScores({
+            successCriteriaIds,
+            existingScores: baseBody.success_criteria_scores,
+            fillValue,
+          }),
+        })
+
+        const { error: updateError } = await supabase
+          .from("submissions")
+          .update({ body: nextBody })
+          .eq("submission_id", submission.submission_id)
+
+        if (updateError) {
+          console.error("[assignment-results] Failed to clear AI mark for submission:", {
+            submissionId: submission.submission_id,
+            error: updateError,
+          })
+          continue
+        }
+
+        clearedCount += 1
+      }
+
+      const assignmentPath = `/results/assignments/${encodeURIComponent(parsedInput.data.assignmentId)}`
+      revalidatePath(assignmentPath)
+
+      return ClearAiMarksResultSchema.parse({
+        success: true,
+        error: null,
+        cleared: clearedCount,
+      })
     },
   )
 }
