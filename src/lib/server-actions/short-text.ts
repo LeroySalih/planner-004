@@ -91,6 +91,7 @@ export async function saveShortTextAnswerAction(input: z.infer<typeof ShortTextA
   const submissionBody = ShortTextSubmissionBodySchema.parse({
     answer: (payload.answer ?? "").trim(),
     ai_model_score: null,
+    ai_model_feedback: null,
     teacher_override_score: null,
     is_correct: false,
     success_criteria_scores: initialScores,
@@ -342,6 +343,7 @@ export async function markShortTextActivityAction(input: z.infer<typeof MarkShor
     const currentBody = entry.existing ?? {
       answer: entry.answer,
       ai_model_score: null,
+      ai_model_feedback: null,
       teacher_override_score: null,
       is_correct: false,
     }
@@ -361,6 +363,7 @@ export async function markShortTextActivityAction(input: z.infer<typeof MarkShor
     const submissionBody = ShortTextSubmissionBodySchema.parse({
       answer: currentBody.answer ?? entry.answer,
       ai_model_score: aiScore,
+      ai_model_feedback: currentBody.ai_model_feedback ?? null,
       teacher_override_score: teacherOverride,
       is_correct: isCorrect,
       success_criteria_scores: successCriteriaScores,
@@ -443,6 +446,7 @@ export async function overrideShortTextSubmissionScoreAction(
   const submissionBody = ShortTextSubmissionBodySchema.parse({
     answer: currentBody.data.answer ?? "",
     ai_model_score: aiScore,
+    ai_model_feedback: currentBody.data.ai_model_feedback ?? null,
     teacher_override_score: overrideScore,
     is_correct: isCorrect,
     success_criteria_scores: successCriteriaScores,

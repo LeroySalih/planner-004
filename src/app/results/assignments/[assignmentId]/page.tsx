@@ -3,7 +3,6 @@ export const dynamic = "force-dynamic"
 import { notFound } from "next/navigation"
 
 import { AssignmentResultsDashboard } from "@/components/assignment-results"
-import { requireTeacherProfile } from "@/lib/auth"
 import { readAssignmentResultsAction } from "@/lib/server-updates"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
@@ -12,8 +11,6 @@ interface AssignmentResultsPageProps {
 }
 
 export default async function AssignmentResultsPage({ params }: AssignmentResultsPageProps) {
-  await requireTeacherProfile()
-
   const awaitedParams = await params
   const assignmentId = decodeURIComponent(awaitedParams?.assignmentId ?? "")
   const { data, error } = await readAssignmentResultsAction(assignmentId)

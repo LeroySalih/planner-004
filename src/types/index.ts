@@ -452,6 +452,7 @@ export const ShortTextSubmissionBodySchema = z
     .object({
         answer: z.string().default(""),
         ai_model_score: z.number().min(0).max(1).nullable().optional(),
+        ai_model_feedback: z.string().nullable().optional(),
         teacher_override_score: z.number().min(0).max(1).nullable().optional(),
         is_correct: z.boolean().default(false),
         teacher_feedback: z.string().nullable().optional(),
@@ -639,6 +640,7 @@ export const AssignmentResultCellSchema = z.object({
     status: z.enum(["missing", "auto", "override"]).default("missing"),
     submittedAt: z.string().nullable(),
     feedback: z.string().nullable(),
+    autoFeedback: z.string().nullable().optional(),
     successCriteriaScores: AssignmentResultCriterionScoresSchema,
     autoSuccessCriteriaScores: AssignmentResultCriterionScoresSchema.optional(),
     overrideSuccessCriteriaScores: AssignmentResultCriterionScoresSchema.optional(),

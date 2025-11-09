@@ -1,8 +1,8 @@
 "use client"
 
-import { useMemo, useState, useTransition } from "react"
+import { useActionState, useCallback, useEffect, useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
-import { ChevronDown } from "lucide-react"
+import { ChevronDown, Download, RefreshCw } from "lucide-react"
 import {
   AssignmentResultActivity,
   AssignmentResultActivitySummary,
@@ -20,7 +20,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "sonner"
 import {
+  getPupilActivitySubmissionUrlAction,
+  listPupilActivitySubmissionsAction,
   overrideAssignmentScoreAction,
+  clearActivityAiMarksAction,
+  requestAiMarkAction,
   resetAssignmentScoreAction,
 } from "@/lib/server-updates"
 import { resolveScoreTone } from "@/lib/results/colors"
@@ -42,6 +46,70 @@ type CellSelection = {
 type MatrixWithState = AssignmentResultMatrix & {
   rows: AssignmentResultRow[]
 }
+
+type OverrideDerivedState = {
+  rowIndex: number
+  activityIndex: number
+  successCriteriaScores: Record<string, number | null>
+  parsedAverage: number
+  feedback: string | null
+  submittedAt: string
+  order: string[]
+}
+
+type OverrideActionState =
+  | { status: "idle" }
+  | { status: "error"; error: string }
+  | { status: "success"; submissionId: string | null; derived: OverrideDerivedState }
+
+type OverrideActionDispatch =
+  | { type: "reset" }
+  | {
+      type: "submit"
+      request: Parameters<typeof overrideAssignmentScoreAction>[0]
+      derived: OverrideDerivedState
+    }
+
+type ResetDerivedState = {
+  rowIndex: number
+  activityIndex: number
+  successCriteriaScores: Record<string, number | null>
+  autoScore: number
+  submittedAt: string
+  status: CellStatus
+  order: string[]
+}
+
+type ResetActionState =
+  | { status: "idle" }
+  | { status: "error"; error: string }
+  | { status: "success"; derived: ResetDerivedState }
+
+type ResetActionDispatch =
+  | { type: "reset" }
+  | {
+      type: "submit"
+      request: Parameters<typeof resetAssignmentScoreAction>[0]
+      derived: ResetDerivedState
+    }
+
+type UploadFileEntry = {
+  name: string
+  size: number | null
+  url: string | null
+  updatedAt: string | null
+  error?: string | null
+}
+
+type UploadFileState = {
+  status: "idle" | "loading" | "loaded" | "error"
+  files: UploadFileEntry[]
+  error?: string | null
+  fetchedAt?: string | null
+}
+
+const OVERRIDE_ACTION_INITIAL_STATE: OverrideActionState = { status: "idle" }
+const RESET_ACTION_INITIAL_STATE: ResetActionState = { status: "idle" }
 
 function formatPercent(score: number | null): string {
   if (typeof score !== "number" || Number.isNaN(score)) {
@@ -79,6 +147,19 @@ function toPercentNumber(raw: string | undefined): number | null {
     return null
   }
   return value
+}
+
+function formatFileSize(size?: number | null): string {
+  if (typeof size !== "number" || Number.isNaN(size) || size <= 0) {
+    return "—"
+  }
+  if (size < 1024) {
+    return `${size} B`
+  }
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)} KB`
+  }
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function describeStatus(status: CellStatus) {
@@ -282,10 +363,50 @@ function resolvePupilLabels(pupil: AssignmentResultRow["pupil"]) {
 export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResultMatrix }) {
   const [matrixState, setMatrixState] = useState<MatrixWithState>({ ...matrix, rows: matrix.rows })
   const [selection, setSelection] = useState<CellSelection | null>(null)
-  const [isOverridePending, startOverride] = useTransition()
-  const [isResetPending, startReset] = useTransition()
+  const [activitySummarySelection, setActivitySummarySelection] = useState<string | null>(null)
   const [criterionDrafts, setCriterionDrafts] = useState<Record<string, string>>({})
   const [feedbackDraft, setFeedbackDraft] = useState<string>("")
+  const [uploadFiles, setUploadFiles] = useState<Record<string, UploadFileState>>({})
+  const [overrideActionState, triggerOverrideAction, overridePending] = useActionState<
+    OverrideActionState,
+    OverrideActionDispatch
+  >(
+    async (_state: OverrideActionState, payload: OverrideActionDispatch) => {
+      if (!payload || payload.type === "reset") {
+        return OVERRIDE_ACTION_INITIAL_STATE
+      }
+      const result = await overrideAssignmentScoreAction(payload.request)
+      if (!result.success) {
+        return { status: "error", error: result.error ?? "Unable to save override." }
+      }
+      return {
+        status: "success",
+        submissionId: result.submissionId ?? payload.request.submissionId ?? null,
+        derived: payload.derived,
+      }
+    },
+    OVERRIDE_ACTION_INITIAL_STATE,
+  )
+  const [resetActionState, triggerResetAction, resetPending] = useActionState<ResetActionState, ResetActionDispatch>(
+    async (_state: ResetActionState, payload: ResetActionDispatch) => {
+      if (!payload || payload.type === "reset") {
+        return RESET_ACTION_INITIAL_STATE
+      }
+      const result = await resetAssignmentScoreAction(payload.request)
+      if (!result.success) {
+        return { status: "error", error: result.error ?? "Unable to reset override." }
+      }
+      return {
+        status: "success",
+        derived: payload.derived,
+      }
+    },
+    RESET_ACTION_INITIAL_STATE,
+  )
+  const [overrideUITransitionPending, startOverrideUITransition] = useTransition()
+  const [resetUITransitionPending, startResetUITransition] = useTransition()
+  const [aiMarkPending, startAiMarkTransition] = useTransition()
+  const [clearAiPending, startClearAiTransition] = useTransition()
   const router = useRouter()
 
   const activities = matrixState.activities
@@ -305,6 +426,206 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
         .map((row) => row.pupil),
     [groupedRows],
   )
+  const selectedUploadKey = selection ? `${selection.row.pupil.userId}::${selection.activity.activityId}` : null
+  const selectedUploadState = selectedUploadKey ? uploadFiles[selectedUploadKey] : undefined
+  const selectedActivity = useMemo(() => {
+    if (!activitySummarySelection) {
+      return null
+    }
+    return activities.find((activity) => activity.activityId === activitySummarySelection) ?? null
+  }, [activitySummarySelection, activities])
+  const selectedActivitySummary = selectedActivity
+    ? activitySummariesById[selectedActivity.activityId] ?? null
+    : null
+  const selectedActivityStats = useMemo(() => {
+    if (!selectedActivity) {
+      return null
+    }
+    const activityIndex = activities.findIndex(
+      (activity) => activity.activityId === selectedActivity.activityId,
+    )
+    if (activityIndex === -1) {
+      return null
+    }
+    let overrideCount = 0
+    let autoCount = 0
+    let missingCount = 0
+    let submittedCount = 0
+    let highestScore: number | null = null
+    let lowestScore: number | null = null
+    for (const row of groupedRows) {
+      const cell = row.cells[activityIndex]
+      if (!cell) {
+        continue
+      }
+      if (cell.status === "override") {
+        overrideCount += 1
+      } else if (cell.status === "auto") {
+        autoCount += 1
+      } else {
+        missingCount += 1
+      }
+      if (typeof cell.score === "number" && Number.isFinite(cell.score)) {
+        submittedCount += 1
+        highestScore = highestScore === null ? cell.score : Math.max(highestScore, cell.score)
+        lowestScore = lowestScore === null ? cell.score : Math.min(lowestScore, cell.score)
+      }
+    }
+    return {
+      overrideCount,
+      autoCount,
+      missingCount,
+      submittedCount,
+      highestScore,
+      lowestScore,
+      totalPupils: groupedRows.length,
+    }
+  }, [selectedActivity, activities, groupedRows])
+  const handleAiMark = useCallback(() => {
+    if (!selectedActivity) {
+      toast.error("No activity is selected.")
+      return
+    }
+    const activityIndex = activities.findIndex(
+      (activity) => activity.activityId === selectedActivity.activityId,
+    )
+    if (activityIndex === -1) {
+      toast.error("Unable to find activity details.")
+      return
+    }
+    const questionText =
+      groupedRows
+        .map((row) => row.cells[activityIndex]?.question)
+        .find((question) => typeof question === "string" && question.trim().length > 0) ??
+      selectedActivity.title
+    const modelAnswer =
+      groupedRows
+        .map((row) => row.cells[activityIndex]?.correctAnswer)
+        .find((answer) => typeof answer === "string" && answer.trim().length > 0) ?? ""
+    const providedAnswers = groupedRows
+      .map((row) => {
+        const cell = row.cells[activityIndex]
+        if (!cell) {
+          return null
+        }
+        return {
+          pupilId: row.pupil.userId,
+          provided_answer: cell.pupilAnswer ?? "",
+        }
+      })
+      .filter((entry): entry is { pupilId: string; provided_answer: string } => Boolean(entry))
+    const payload = {
+      requestid: crypto.randomUUID(),
+      question_text: questionText ?? "",
+      model_answer: modelAnswer ?? "",
+      provided_answers: providedAnswers,
+      group_assignment_id: matrixState.assignmentId,
+      activity_id: selectedActivity.activityId,
+    }
+    startAiMarkTransition(async () => {
+      try {
+        const result = await requestAiMarkAction(payload)
+        if (!result.success) {
+          toast.error(result.error ?? "Unable to send AI mark request.")
+          return
+        }
+        toast.success("AI mark request sent.")
+      } catch (error) {
+        console.error("[assignment-results] AI Mark request failed", error)
+        toast.error("Unable to send AI mark request.")
+      }
+    })
+  }, [selectedActivity, activities, groupedRows])
+
+  const handleClearAiMarks = useCallback(() => {
+    if (!selectedActivity) {
+      toast.error("No activity is selected.")
+      return
+    }
+    startClearAiTransition(async () => {
+      const result = await clearActivityAiMarksAction({
+        assignmentId: matrixState.assignmentId,
+        activityId: selectedActivity.activityId,
+      })
+      if (!result.success) {
+        toast.error(result.error ?? "Unable to clear AI marks.")
+        return
+      }
+      const clearedMessage =
+        result.cleared > 0
+          ? `Cleared AI marks for ${result.cleared} submission${result.cleared === 1 ? "" : "s"}.`
+          : "No AI marks were present to clear."
+      toast.success(clearedMessage)
+      setMatrixState((previous) => {
+        const activityIndex = previous.activities.findIndex(
+          (activity) => activity.activityId === selectedActivity.activityId,
+        )
+        if (activityIndex === -1) {
+          return previous
+        }
+        const successCriteriaIds = previous.activities[activityIndex].successCriteria.map(
+          (criterion) => criterion.successCriteriaId,
+        )
+        const nextRows = previous.rows.map((row) => {
+          const targetCell = row.cells[activityIndex]
+          if (!targetCell) {
+            return row
+          }
+          const hasOverride =
+            typeof targetCell.overrideScore === "number" && Number.isFinite(targetCell.overrideScore)
+          const fillValue = hasOverride && typeof targetCell.overrideScore === "number" ? targetCell.overrideScore : 0
+          const resetScores = normaliseSuccessCriteriaScores({
+            successCriteriaIds,
+            fillValue,
+          })
+          const updatedCell: AssignmentResultCell = {
+            ...targetCell,
+            autoScore: null,
+            autoFeedback: null,
+            autoSuccessCriteriaScores: resetScores,
+            successCriteriaScores: hasOverride ? targetCell.successCriteriaScores : resetScores,
+            status: hasOverride ? "override" : "missing",
+            score: hasOverride ? targetCell.overrideScore : fillValue,
+          }
+          const nextCells = row.cells.map((cell, index) => (index === activityIndex ? updatedCell : cell))
+          return { ...row, cells: nextCells }
+        })
+        const recalculated = recalculateMatrix(previous.activities, nextRows)
+        return {
+          ...previous,
+          rows: recalculated.rows,
+          activitySummaries: recalculated.activitySummaries,
+          successCriteriaSummaries: recalculated.successCriteriaSummaries,
+          overallAverages: recalculated.overallAverages,
+        }
+      })
+      setSelection((current) => {
+        if (!current || current.activity.activityId !== selectedActivity.activityId) {
+          return current
+        }
+        const hasOverride =
+          typeof current.cell.overrideScore === "number" && Number.isFinite(current.cell.overrideScore)
+        const fillValue = hasOverride && typeof current.cell.overrideScore === "number" ? current.cell.overrideScore : 0
+        const resetScores = normaliseSuccessCriteriaScores({
+          successCriteriaIds: current.activity.successCriteria.map((criterion) => criterion.successCriteriaId),
+          fillValue,
+        })
+        return {
+          ...current,
+          cell: {
+            ...current.cell,
+            autoScore: null,
+            autoFeedback: null,
+            autoSuccessCriteriaScores: resetScores,
+            successCriteriaScores: hasOverride ? current.cell.successCriteriaScores : resetScores,
+            status: hasOverride ? "override" : "missing",
+            score: hasOverride ? current.cell.overrideScore : fillValue,
+          },
+        }
+      })
+      router.refresh()
+    })
+  }, [selectedActivity, matrixState.assignmentId, router, startClearAiTransition])
 
   const draftAverage = useMemo(() => {
     if (!selection) return null
@@ -329,12 +650,148 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     () => formatPercent(matrixState.overallAverages?.assessmentAverage ?? null),
     [matrixState.overallAverages?.assessmentAverage],
   )
+  const loadUploadFiles = useCallback(
+    async (
+      context: { lessonId: string; activityId: string; pupilId: string; cacheKey: string },
+      options?: { signal?: { aborted: boolean }; force?: boolean },
+    ) => {
+      setUploadFiles((previous) => {
+        const current = previous[context.cacheKey]
+        if (!options?.force && current?.status === "loading") {
+          return previous
+        }
+        return {
+          ...previous,
+          [context.cacheKey]: { status: "loading", files: [], error: null },
+        }
+      })
+      try {
+        const listResult = await listPupilActivitySubmissionsAction(
+          context.lessonId,
+          context.activityId,
+          context.pupilId,
+        )
+        if (options?.signal?.aborted) {
+          return
+        }
+        if (listResult.error) {
+          setUploadFiles((previous) => ({
+            ...previous,
+            [context.cacheKey]: {
+              status: "error",
+              files: [],
+              error: listResult.error ?? "Unable to load uploads.",
+            },
+          }))
+          return
+        }
+        const files = listResult.data ?? []
+        const resolved = await Promise.all(
+          files.map(async (file) => {
+            const urlResult = await getPupilActivitySubmissionUrlAction(
+              context.lessonId,
+              context.activityId,
+              context.pupilId,
+              file.name,
+            )
+            return {
+              name: file.name,
+              size: typeof file.size === "number" ? file.size : null,
+              url: urlResult.success ? urlResult.url ?? null : null,
+              error: urlResult.success ? null : urlResult.error ?? "Unable to create download link.",
+              updatedAt: file.updated_at ?? file.created_at ?? null,
+            }
+          }),
+        )
+        if (options?.signal?.aborted) {
+          return
+        }
+        setUploadFiles((previous) => ({
+          ...previous,
+          [context.cacheKey]: {
+            status: "loaded",
+            files: resolved,
+            error: null,
+            fetchedAt: new Date().toISOString(),
+          },
+        }))
+      } catch (error) {
+        console.error("[assignment-results] Unexpected error loading uploads:", error)
+        if (options?.signal?.aborted) {
+          return
+        }
+        setUploadFiles((previous) => ({
+          ...previous,
+          [context.cacheKey]: {
+            status: "error",
+            files: [],
+            error: "Unable to load uploads.",
+          },
+        }))
+      }
+    },
+    [],
+  )
+
+  useEffect(() => {
+    if (!selection || selection.activity.type !== "upload-file" || !selectedUploadKey) {
+      return
+    }
+    const lessonId = matrixState.lesson?.lessonId
+    if (!lessonId) {
+      return
+    }
+    if (selectedUploadState && selectedUploadState.status !== "idle") {
+      return
+    }
+    const controller = { aborted: false }
+    void loadUploadFiles(
+      {
+        lessonId,
+        activityId: selection.activity.activityId,
+        pupilId: selection.row.pupil.userId,
+        cacheKey: selectedUploadKey,
+      },
+      { signal: controller },
+    )
+    return () => {
+      controller.aborted = true
+    }
+  }, [
+    selection,
+    matrixState.lesson?.lessonId,
+    selectedUploadKey,
+    selectedUploadState?.status,
+    loadUploadFiles,
+  ])
+
+  const handleUploadRefresh = useCallback(() => {
+    if (!selection || selection.activity.type !== "upload-file") {
+      return
+    }
+    const lessonId = matrixState.lesson?.lessonId
+    if (!lessonId) {
+      toast.error("Lesson context is unavailable.")
+      return
+    }
+    const cacheKey = `${selection.row.pupil.userId}::${selection.activity.activityId}`
+    void loadUploadFiles(
+      {
+        lessonId,
+        activityId: selection.activity.activityId,
+        pupilId: selection.row.pupil.userId,
+        cacheKey,
+      },
+      { force: true },
+    )
+  }, [selection, matrixState.lesson?.lessonId, loadUploadFiles])
 
   const handleCellSelect = (rowIndex: number, activityIndex: number) => {
     const row = groupedRows[rowIndex]
     const activity = activities[activityIndex]
     const cell = row.cells[activityIndex]
 
+    setActivitySummarySelection(null)
     setSelection({
       rowIndex,
       activityIndex,
@@ -361,17 +818,36 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     setFeedbackDraft("")
   }
 
-  const applyCellUpdate = (updater: (cell: AssignmentResultCell) => AssignmentResultCell | null) => {
-    if (!selection) return
+  const handleActivitySummaryOpen = (activityId: string) => {
+    closeSheet()
+    setActivitySummarySelection(activityId)
+  }
+
+  const handleActivitySummaryClose = () => {
+    setActivitySummarySelection(null)
+  }
+
+  const applyCellUpdate = (
+    updater: (cell: AssignmentResultCell) => AssignmentResultCell | null,
+    target?: { rowIndex: number; activityIndex: number },
+  ) => {
+    const targetRowIndex = target?.rowIndex ?? selection?.rowIndex
+    const targetActivityIndex = target?.activityIndex ?? selection?.activityIndex
+    if (
+      typeof targetRowIndex !== "number"
+      || typeof targetActivityIndex !== "number"
+    ) {
+      return
+    }
 
     setMatrixState((previous) => {
       const nextRows = previous.rows.map((row, rowIndex) => {
-        if (rowIndex !== selection.rowIndex) {
+        if (rowIndex !== targetRowIndex) {
           return row
         }
 
         const nextCells = row.cells.map((cell, cellIndex) => {
-          if (cellIndex !== selection.activityIndex) {
+          if (cellIndex !== targetActivityIndex) {
             return cell
           }
           const updated = updater(cell)
@@ -427,66 +903,30 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
 
     const parsedAverage = computeAverageSuccessCriteriaScore(successCriteriaScores) ?? 0
     const feedback = feedbackDraft.trim()
+    const submittedAt = new Date().toISOString()
 
-    startOverride(async () => {
-      const result = await overrideAssignmentScoreAction({
-        assignmentId: matrixState.assignmentId,
-        activityId: selection.activity.activityId,
-        pupilId: selection.row.pupil.userId,
-        submissionId: selection.cell.submissionId,
-        score: parsedAverage,
-        feedback: feedback.length > 0 ? feedback : null,
-        criterionScores: successCriteriaScores,
+    startOverrideUITransition(() => {
+      triggerOverrideAction({
+        type: "submit",
+        request: {
+          assignmentId: matrixState.assignmentId,
+          activityId: selection.activity.activityId,
+          pupilId: selection.row.pupil.userId,
+          submissionId: selection.cell.submissionId,
+          score: parsedAverage,
+          feedback: feedback.length > 0 ? feedback : null,
+          criterionScores: successCriteriaScores,
+        },
+        derived: {
+          rowIndex: selection.rowIndex,
+          activityIndex: selection.activityIndex,
+          successCriteriaScores,
+          parsedAverage,
+          feedback: feedback.length > 0 ? feedback : null,
+          submittedAt,
+          order: selection.activity.successCriteria.map((criterion) => criterion.successCriteriaId),
+        },
       })
-
-      if (!result.success) {
-        toast.error(result.error ?? "Unable to save override.")
-        return
-      }
-
-      const submittedAt = new Date().toISOString()
-      const newSubmissionId = result.submissionId ?? selection.cell.submissionId ?? null
-
-      applyCellUpdate((cell) => ({
-        ...cell,
-        submissionId: newSubmissionId,
-        score: parsedAverage,
-        overrideScore: parsedAverage,
-        status: "override",
-        feedback: feedback.length > 0 ? feedback : null,
-        successCriteriaScores,
-        overrideSuccessCriteriaScores: successCriteriaScores,
-        submittedAt,
-      }))
-
-      setSelection((current) => {
-        if (!current) return current
-        return {
-          ...current,
-          cell: {
-            ...current.cell,
-            submissionId: newSubmissionId,
-            score: parsedAverage,
-            overrideScore: parsedAverage,
-            status: "override",
-            feedback: feedback.length > 0 ? feedback : null,
-            successCriteriaScores,
-            overrideSuccessCriteriaScores: successCriteriaScores,
-            submittedAt,
-          },
-        }
-      })
-
-      setCriterionDrafts(
-        Object.fromEntries(
-          Object.entries(successCriteriaScores).map(([id, value]) => [
-            id,
-            formatPercentInput(typeof value === "number" && Number.isFinite(value) ? value : 0),
-          ]),
-        ),
-      )
-
-      toast.success("Override saved.")
     })
   }
 
@@ -499,89 +939,160 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       return
     }
 
-    startReset(async () => {
-      const result = await resetAssignmentScoreAction({
-        assignmentId: matrixState.assignmentId,
-        activityId: selection.activity.activityId,
-        pupilId: selection.row.pupil.userId,
-        submissionId: selection.cell.submissionId,
+    const successCriteriaIds = selection.activity.successCriteria.map((criterion) => criterion.successCriteriaId)
+    const autoScore = typeof selection.cell.autoScore === "number" ? selection.cell.autoScore : 0
+    const autoScores =
+      selection.cell.autoSuccessCriteriaScores ??
+      normaliseSuccessCriteriaScores({
+        successCriteriaIds,
+        fillValue: autoScore,
       })
+    const submittedAt = new Date().toISOString()
 
-      if (!result.success) {
-        toast.error(result.error ?? "Unable to reset override.")
-        return
-      }
-
-      const submittedAt = new Date().toISOString()
-
-      applyCellUpdate((cell) => {
-        const successCriteriaIds = selection.activity.successCriteria.map((criterion) => criterion.successCriteriaId)
-        const autoScore = typeof cell.autoScore === "number" ? cell.autoScore : 0
-        const autoScores = cell.autoSuccessCriteriaScores ?? normaliseSuccessCriteriaScores({
-          successCriteriaIds,
-          fillValue: autoScore,
-        })
-        return {
-          ...cell,
-          score: autoScore,
-          overrideScore: null,
-          status: typeof cell.autoScore === "number" ? "auto" : "missing",
-          feedback: null,
+    startResetUITransition(() => {
+      triggerResetAction({
+        type: "submit",
+        request: {
+          assignmentId: matrixState.assignmentId,
+          activityId: selection.activity.activityId,
+          pupilId: selection.row.pupil.userId,
+          submissionId: selection.cell.submissionId,
+        },
+        derived: {
+          rowIndex: selection.rowIndex,
+          activityIndex: selection.activityIndex,
           successCriteriaScores: autoScores,
-          autoSuccessCriteriaScores: autoScores,
-          overrideSuccessCriteriaScores: undefined,
+          autoScore,
           submittedAt,
-        }
+          status: typeof selection.cell.autoScore === "number" ? "auto" : "missing",
+          order: successCriteriaIds,
+        },
       })
+    })
+  }
 
+  useEffect(() => {
+    if (overrideActionState.status === "idle") {
+      return
+    }
+    if (overrideActionState.status === "error") {
+      toast.error(overrideActionState.error ?? "Unable to save override.")
+      triggerOverrideAction({ type: "reset" })
+      return
+    }
+    if (overrideActionState.status === "success") {
+      const { derived, submissionId } = overrideActionState
+      applyCellUpdate(
+        (cell) => ({
+          ...cell,
+          submissionId,
+          score: derived.parsedAverage,
+          overrideScore: derived.parsedAverage,
+          status: "override",
+          feedback: derived.feedback,
+          successCriteriaScores: derived.successCriteriaScores,
+          overrideSuccessCriteriaScores: derived.successCriteriaScores,
+          submittedAt: derived.submittedAt,
+        }),
+        { rowIndex: derived.rowIndex, activityIndex: derived.activityIndex },
+      )
       setSelection((current) => {
-        if (!current) return current
-        const successCriteriaIds = current.activity.successCriteria.map((criterion) => criterion.successCriteriaId)
-        const autoScore = typeof current.cell.autoScore === "number" ? current.cell.autoScore : 0
-        const autoScores = current.cell.autoSuccessCriteriaScores ?? normaliseSuccessCriteriaScores({
-          successCriteriaIds,
-          fillValue: autoScore,
-        })
+        if (!current || current.rowIndex !== derived.rowIndex || current.activityIndex !== derived.activityIndex) {
+          return current
+        }
         return {
           ...current,
           cell: {
             ...current.cell,
-            score: autoScore,
-            overrideScore: null,
-            status: typeof current.cell.autoScore === "number" ? "auto" : "missing",
-            feedback: null,
-            successCriteriaScores: autoScores,
-            autoSuccessCriteriaScores: autoScores,
-            overrideSuccessCriteriaScores: undefined,
-            submittedAt,
+            submissionId,
+            score: derived.parsedAverage,
+            overrideScore: derived.parsedAverage,
+            status: "override",
+            feedback: derived.feedback,
+            successCriteriaScores: derived.successCriteriaScores,
+            overrideSuccessCriteriaScores: derived.successCriteriaScores,
+            submittedAt: derived.submittedAt,
           },
         }
       })
-
-      const resetSuccessCriteriaIds = selection.activity.successCriteria.map((criterion) => criterion.successCriteriaId)
-      const autoScoresForDrafts =
-        selection.cell.autoSuccessCriteriaScores ??
-        normaliseSuccessCriteriaScores({
-          successCriteriaIds: resetSuccessCriteriaIds,
-          fillValue: selection.cell.autoScore ?? 0,
-        })
-
       setCriterionDrafts(
         Object.fromEntries(
-          selection.activity.successCriteria.map((criterion) => {
-            const value = autoScoresForDrafts[criterion.successCriteriaId]
+          derived.order.map((criterionId) => {
+            const value = derived.successCriteriaScores[criterionId]
             return [
-              criterion.successCriteriaId,
+              criterionId,
+              formatPercentInput(typeof value === "number" && Number.isFinite(value) ? value : 0),
+            ]
+          }),
+        ),
+      )
+      setFeedbackDraft(derived.feedback ?? "")
+      toast.success("Override saved.")
+      triggerOverrideAction({ type: "reset" })
+    }
+  }, [overrideActionState, applyCellUpdate, triggerOverrideAction])
+
+  useEffect(() => {
+    if (resetActionState.status === "idle") {
+      return
+    }
+    if (resetActionState.status === "error") {
+      toast.error(resetActionState.error ?? "Unable to reset override.")
+      triggerResetAction({ type: "reset" })
+      return
+    }
+    if (resetActionState.status === "success") {
+      const { derived } = resetActionState
+      applyCellUpdate(
+        (cell) => ({
+          ...cell,
+          score: derived.autoScore,
+          overrideScore: null,
+          status: derived.status,
+          feedback: null,
+          successCriteriaScores: derived.successCriteriaScores,
+          autoSuccessCriteriaScores: derived.successCriteriaScores,
+          overrideSuccessCriteriaScores: undefined,
+          submittedAt: derived.submittedAt,
+        }),
+        { rowIndex: derived.rowIndex, activityIndex: derived.activityIndex },
+      )
+      setSelection((current) => {
+        if (!current || current.rowIndex !== derived.rowIndex || current.activityIndex !== derived.activityIndex) {
+          return current
+        }
+        return {
+          ...current,
+          cell: {
+            ...current.cell,
+            score: derived.autoScore,
+            autoScore: derived.autoScore,
+            overrideScore: null,
+            status: derived.status,
+            feedback: null,
+            successCriteriaScores: derived.successCriteriaScores,
+            autoSuccessCriteriaScores: derived.successCriteriaScores,
+            overrideSuccessCriteriaScores: undefined,
+            submittedAt: derived.submittedAt,
+          },
+        }
+      })
+      setCriterionDrafts(
+        Object.fromEntries(
+          derived.order.map((criterionId) => {
+            const value = derived.successCriteriaScores[criterionId]
+            return [
+              criterionId,
               formatPercentInput(typeof value === "number" && Number.isFinite(value) ? value : 0),
             ]
           }),
         ),
       )
       setFeedbackDraft("")
-
       toast.success("Override cleared.")
-    })
-  }
+      triggerResetAction({ type: "reset" })
+    }
+  }, [resetActionState, applyCellUpdate, triggerResetAction])
 
   const goToAssignments = () => {
     router.push("/assignments")
@@ -801,7 +1312,12 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                       scope="col"
                       className="sticky top-0 z-20 min-w-40 bg-card px-3 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground shadow-sm"
                     >
-                      <div className="flex flex-col gap-2 text-left">
+                      <button
+                        type="button"
+                        onClick={() => handleActivitySummaryOpen(activity.activityId)}
+                        className="group flex w-full flex-col gap-2 rounded-md border border-transparent px-2 py-1 text-left text-muted-foreground transition hover:border-border hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        aria-label={`View ${activity.title} statistics`}
+                      >
                         <div>
                           <span className="block truncate text-sm font-semibold text-foreground">{activity.title}</span>
                           <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">
@@ -820,7 +1336,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                               return (
                                 <span
                                   key={criterion.successCriteriaId}
-                                  className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+                                  className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground transition group-hover:bg-muted/80"
                                 >
                                   {label}
                                 </span>
@@ -840,7 +1356,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                               : "Not marked as assessment"}
                           </span>
                         </div>
-                      </div>
+                      </button>
                     </th>
                   ))}
                 </tr>
@@ -903,6 +1419,132 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
           </div>
         </div>
       </div>
+      <Sheet open={Boolean(selectedActivity)} onOpenChange={(open) => !open && handleActivitySummaryClose()}>
+        <SheetContent side="right" className="h-full w-full p-6 sm:max-w-md">
+          {selectedActivity ? (
+            <div className="flex h-full flex-col gap-4 overflow-y-auto">
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <Button type="button" onClick={handleAiMark} disabled={aiMarkPending}>
+                  {aiMarkPending ? "Sending…" : "AI Mark"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleClearAiMarks}
+                  disabled={clearAiPending}
+                >
+                  {clearAiPending ? "Clearing…" : "Clear AI Marks"}
+                </Button>
+              </div>
+              <SheetHeader className="p-0">
+                <SheetTitle>{selectedActivity.title}</SheetTitle>
+                <SheetDescription>
+                  Activity insights across {selectedActivityStats?.totalPupils ?? groupedRows.length} pupils.
+                </SheetDescription>
+              </SheetHeader>
+
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="secondary" className="uppercase tracking-wide">
+                  {selectedActivity.type.replace(/-/g, " ")}
+                </Badge>
+                <Badge variant={selectedActivity.isSummative ? "default" : "outline"}>
+                  {selectedActivity.isSummative ? "Counts toward assessment" : "Formative only"}
+                </Badge>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-md border border-border/60 bg-muted/40 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Activities average
+                  </p>
+                  <p className="text-lg font-semibold text-foreground">
+                    {formatPercent(selectedActivitySummary?.activitiesAverage ?? null)}
+                  </p>
+                </div>
+                <div className="rounded-md border border-border/60 bg-muted/40 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Assessment average
+                  </p>
+                  <p className="text-lg font-semibold text-foreground">
+                    {selectedActivity.isSummative
+                      ? formatPercent(selectedActivitySummary?.assessmentAverage ?? null)
+                      : "N/A"}
+                  </p>
+                </div>
+                <div className="rounded-md border border-border/60 bg-muted/40 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Submissions</p>
+                  <p className="text-lg font-semibold text-foreground">
+                    {selectedActivityStats
+                      ? `${selectedActivityStats.submittedCount} / ${selectedActivityStats.totalPupils}`
+                      : "—"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Pupils submitted</p>
+                </div>
+                <div className="rounded-md border border-border/60 bg-muted/40 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Awaiting</p>
+                  <p className="text-lg font-semibold text-foreground">
+                    {selectedActivityStats ? selectedActivityStats.missingCount : "—"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Yet to be marked</p>
+                </div>
+                <div className="rounded-md border border-border/60 bg-muted/40 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Overrides</p>
+                  <p className="text-lg font-semibold text-foreground">
+                    {selectedActivityStats ? selectedActivityStats.overrideCount : "—"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Manual scores applied</p>
+                </div>
+                <div className="rounded-md border border-border/60 bg-muted/40 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Auto scores</p>
+                  <p className="text-lg font-semibold text-foreground">
+                    {selectedActivityStats ? selectedActivityStats.autoCount : "—"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Generated automatically</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-primary">Highest score</p>
+                  <p className="text-lg font-semibold text-foreground">
+                    {formatPercent(selectedActivityStats?.highestScore ?? null)}
+                  </p>
+                </div>
+                <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-primary">Lowest score</p>
+                  <p className="text-lg font-semibold text-foreground">
+                    {formatPercent(selectedActivityStats?.lowestScore ?? null)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-md border border-border/60 bg-muted/40 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Linked success criteria
+                </p>
+                {selectedActivity.successCriteria.length > 0 ? (
+                  <ul className="mt-2 space-y-2 text-sm">
+                    {selectedActivity.successCriteria.map((criterion) => (
+                      <li key={criterion.successCriteriaId} className="rounded-md border border-border/60 px-3 py-2">
+                        <p className="font-medium text-foreground">
+                          {criterion.title?.trim() && criterion.title.trim().length > 0
+                            ? criterion.title.trim()
+                            : criterion.successCriteriaId}
+                        </p>
+                        {criterion.description ? (
+                          <p className="text-xs text-muted-foreground">{criterion.description}</p>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-2 text-sm text-muted-foreground">No success criteria linked to this activity.</p>
+                )}
+              </div>
+            </div>
+          ) : null}
+        </SheetContent>
+      </Sheet>
       <Sheet open={selection !== null} onOpenChange={(open) => !open && closeSheet()}>
         <SheetContent side="right" className="h-full w-full sm:max-w-md p-6">
           {selection ? (
@@ -937,14 +1579,22 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
 
                 <TabsContent value="details" className="flex-1 overflow-hidden">
                   <div className="flex h-full flex-col gap-3 overflow-y-auto pr-1">
-                    {selection.cell.question ? (
-                      <div className="rounded-md border border-border/60 bg-muted/40 p-3">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Question
-                        </p>
-                        <p className="text-sm text-foreground">{selection.cell.question}</p>
-                      </div>
-                    ) : null}
+                    <div className="rounded-md border border-border/60 bg-muted/40 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Question</p>
+                      <p className="text-sm text-foreground">
+                        {selection.cell.question ?? "No question text available."}
+                      </p>
+                    </div>
+                    <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-primary">Pupil response</p>
+                      <p className="text-sm text-foreground">
+                        {selection.activity.type === "upload-file"
+                          ? selectedUploadState?.files.length
+                            ? "Learner submitted file uploads listed below."
+                            : "No upload has been submitted yet."
+                          : selection.cell.pupilAnswer ?? "No response has been recorded yet."}
+                      </p>
+                    </div>
                     {selection.cell.correctAnswer ? (
                       <div className="rounded-md border border-emerald-300/70 bg-emerald-100/40 p-3">
                         <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
@@ -953,16 +1603,77 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                         <p className="text-sm text-emerald-900">{selection.cell.correctAnswer}</p>
                       </div>
                     ) : null}
-                    {selection.cell.pupilAnswer ? (
-                      <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-primary">
-                          Pupil answer
-                        </p>
-                        <p className="text-sm text-primary-foreground/90">{selection.cell.pupilAnswer}</p>
+                    {selection.activity.type === "upload-file" ? (
+                      <div className="rounded-md border border-border/60 bg-muted/40 p-3">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            Uploaded files
+                          </p>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7"
+                            onClick={handleUploadRefresh}
+                            disabled={!matrixState.lesson?.lessonId || selectedUploadState?.status === "loading"}
+                            aria-label="Refresh uploads"
+                          >
+                            <RefreshCw
+                              className={cn(
+                                "h-3.5 w-3.5",
+                                selectedUploadState?.status === "loading" ? "animate-spin" : "",
+                              )}
+                            />
+                          </Button>
+                        </div>
+                        {selectedUploadState?.status === "loading" ? (
+                          <p className="text-xs text-muted-foreground">Loading uploads…</p>
+                        ) : selectedUploadState?.status === "error" ? (
+                          <p className="text-xs text-destructive">
+                            {selectedUploadState.error ?? "Unable to load uploads."}
+                          </p>
+                        ) : selectedUploadState?.files.length ? (
+                          <ul className="space-y-2">
+                            {selectedUploadState.files.map((file) => (
+                              <li
+                                key={file.name}
+                                className="rounded-md border border-border/70 bg-background p-2 text-sm"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex flex-col">
+                                    <span className="font-medium text-foreground">{file.name}</span>
+                                    {file.updatedAt ? (
+                                      <span className="text-[11px] text-muted-foreground">
+                                        Updated {new Date(file.updatedAt).toLocaleString()}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  {file.size ? (
+                                    <span className="text-xs text-muted-foreground">{formatFileSize(file.size)}</span>
+                                  ) : null}
+                                </div>
+                                {file.url ? (
+                                  <a
+                                    href={file.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                                  >
+                                    <Download className="h-3 w-3" />
+                                    Download
+                                  </a>
+                                ) : (
+                                  <span className="mt-1 text-xs text-muted-foreground">
+                                    {file.error ?? "Download link unavailable."}
+                                  </span>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">No uploads yet.</p>
+                        )}
                       </div>
-                    ) : null}
-                    {!selection.cell.question && !selection.cell.correctAnswer && !selection.cell.pupilAnswer ? (
-                      <p className="text-xs text-muted-foreground">No question or answer information is available.</p>
                     ) : null}
                   </div>
                 </TabsContent>
@@ -975,9 +1686,11 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                       </p>
                       <div className="mt-1 flex items-baseline justify-between">
                         <span className="text-lg font-semibold text-foreground">
-                          {formatPercent(selection.cell.score ?? null)}
+                          {formatPercent(selection.cell.autoScore ?? selection.cell.score ?? null)}
                         </span>
-                        <span className="text-xs text-muted-foreground">{describeStatus(selection.cell.status)}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {selection.cell.status === "override" ? "Override applied" : "Auto"}
+                        </span>
                       </div>
                       <p className="mt-2 text-xs text-muted-foreground">
                         {selection.cell.status === "override"
@@ -994,7 +1707,9 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                               : criterion.description?.trim() && criterion.description.trim().length > 0
                                 ? criterion.description.trim()
                                 : criterion.successCriteriaId
-                          const value = selection.cell.successCriteriaScores[criterion.successCriteriaId]
+                          const autoValues =
+                            selection.cell.autoSuccessCriteriaScores ?? selection.cell.successCriteriaScores
+                          const value = autoValues[criterion.successCriteriaId]
                           return (
                             <div
                               key={criterion.successCriteriaId}
@@ -1013,6 +1728,16 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                         No success criteria linked to this activity.
                       </p>
                     )}
+                    <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                        Automatic feedback
+                      </p>
+                      <p className="text-sm text-foreground">
+                        {selection.cell.autoFeedback?.trim()
+                          ? selection.cell.autoFeedback
+                          : "No automatic feedback available."}
+                      </p>
+                    </div>
                   </div>
                 </TabsContent>
 
@@ -1124,19 +1849,24 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                       <Button
                         onClick={handleOverrideSubmit}
                         disabled={
-                          isOverridePending
+                          overridePending
+                          || overrideUITransitionPending
                           || draftAverage === null
                           || selection.activity.successCriteria.length === 0
                         }
                       >
-                        {isOverridePending ? "Saving…" : "Save override"}
+                        {overridePending || overrideUITransitionPending ? "Saving…" : "Save override"}
                       </Button>
                       <Button
                         variant="outline"
                         onClick={handleReset}
-                        disabled={isResetPending || !selection.cell.submissionId}
+                        disabled={
+                          resetPending
+                          || resetUITransitionPending
+                          || !selection.cell.submissionId
+                        }
                       >
-                        {isResetPending ? "Resetting…" : "Reset to auto score"}
+                        {resetPending || resetUITransitionPending ? "Resetting…" : "Reset to auto score"}
                       </Button>
                     </div>
                   </div>
