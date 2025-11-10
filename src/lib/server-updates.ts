@@ -132,9 +132,12 @@ export {
 
 export {
   listLessonSuccessCriteriaAction,
+  listLessonsSuccessCriteriaAction,
   linkLessonSuccessCriterionAction,
   unlinkLessonSuccessCriterionAction,
 } from "./server-actions/lesson-success-criteria"
+
+export { listLessonsLearningObjectivesAction } from "./server-actions/lesson-learning-objectives"
 
 export {
   getLatestSubmissionForActivityAction,

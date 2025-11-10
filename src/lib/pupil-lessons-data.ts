@@ -1,10 +1,14 @@
+import { compareDesc, format, parseISO, startOfWeek } from "date-fns"
+
 import {
   readPupilLessonsSummaryBootstrapAction,
   readPupilLessonsDetailBootstrapAction,
+  listLessonsLearningObjectivesAction,
+  listLessonsSuccessCriteriaAction,
   type PupilLessonsSummaryBootstrap,
   type PupilLessonsDetailBootstrap,
 } from "@/lib/server-updates"
-import { compareDesc, format, parseISO, startOfWeek } from "date-fns"
+import type { LessonSuccessCriterion } from "@/types"
 
 export type PupilLessonLesson = {
   lessonId: string
@@ -47,6 +51,20 @@ export type PupilHomeworkSection = {
   items: PupilHomeworkItem[]
 }
 
+export type PupilLessonSuccessCriterion = {
+  id: string
+  description: string
+  level: number | null
+}
+
+export type PupilLessonObjective = {
+  id: string
+  title: string
+  assessmentObjectiveCode: string | null
+  successCriteria: PupilLessonSuccessCriterion[]
+  isUnlinked?: boolean
+}
+
 export type PupilLessonWeekSubject = {
   subject: string | null
   lessons: Array<{
@@ -56,6 +74,8 @@ export type PupilLessonWeekSubject = {
     unitTitle: string
     date: string
     groupId: string
+    hasHomework: boolean
+    objectives: PupilLessonObjective[]
   }>
 }
 
@@ -321,6 +341,127 @@ function createWeekLabel(date: Date) {
   }
 }
 
+const UNLINKED_OBJECTIVE_ID = "__unlinked__"
+const UNLINKED_OBJECTIVE_TITLE = "Additional success criteria"
+
+type LessonObjectiveLinkEntry = {
+  learningObjectiveId: string
+  orderIndex: number | null
+}
+
+type LearningObjectiveMeta = {
+  id: string
+  title: string
+  assessmentObjectiveCode: string | null
+}
+
+function normalizeObjectiveTitle(title: string | null | undefined) {
+  if (!title) {
+    return "Learning objective"
+  }
+
+  const trimmed = title.trim()
+  return trimmed.length > 0 ? trimmed : "Learning objective"
+}
+
+function normalizeCriterionDescription(title: string, description: string | null | undefined) {
+  if (typeof description === "string" && description.trim().length > 0) {
+    return description.trim()
+  }
+  return title
+}
+
+function buildLessonObjectivesForLesson({
+  lessonId,
+  links,
+  successCriteria,
+  learningObjectiveMeta,
+}: {
+  lessonId: string
+  links: LessonObjectiveLinkEntry[]
+  successCriteria: LessonSuccessCriterion[]
+  learningObjectiveMeta: Map<string, LearningObjectiveMeta>
+}): PupilLessonObjective[] {
+  const orderMap = new Map<string, number>()
+  links.forEach((link) => {
+    const orderValue =
+      typeof link.orderIndex === "number" && Number.isFinite(link.orderIndex)
+        ? link.orderIndex
+        : Number.MAX_SAFE_INTEGER
+    orderMap.set(link.learningObjectiveId, orderValue)
+  })
+
+  const successCriteriaByObjective = new Map<string | null, LessonSuccessCriterion[]>()
+  successCriteria.forEach((criterion) => {
+    const objectiveId = criterion.learning_objective_id ?? null
+    const list = successCriteriaByObjective.get(objectiveId) ?? []
+    list.push(criterion)
+    successCriteriaByObjective.set(objectiveId, list)
+  })
+
+  successCriteriaByObjective.forEach((list) =>
+    list.sort((a, b) => {
+      const levelA = typeof a.level === "number" ? a.level : Number.POSITIVE_INFINITY
+      const levelB = typeof b.level === "number" ? b.level : Number.POSITIVE_INFINITY
+      if (levelA !== levelB) {
+        return levelA - levelB
+      }
+      return normalizeCriterionDescription(a.title, a.description).localeCompare(
+        normalizeCriterionDescription(b.title, b.description),
+      )
+    }),
+  )
+
+  const hasUnlinkedCriteria = successCriteriaByObjective.has(null)
+  const objectiveIds = new Set<string>()
+
+  links.forEach((link) => objectiveIds.add(link.learningObjectiveId))
+  successCriteria.forEach((criterion) => {
+    if (criterion.learning_objective_id) {
+      objectiveIds.add(criterion.learning_objective_id)
+    } else if (hasUnlinkedCriteria) {
+      objectiveIds.add(UNLINKED_OBJECTIVE_ID)
+    }
+  })
+
+  const entries: Array<{ orderValue: number; objective: PupilLessonObjective }> = []
+
+  objectiveIds.forEach((objectiveId) => {
+    const isUnlinked = objectiveId === UNLINKED_OBJECTIVE_ID
+    const meta = isUnlinked ? null : learningObjectiveMeta.get(objectiveId)
+    const criteriaKey = isUnlinked ? null : objectiveId
+    const criteria = (successCriteriaByObjective.get(criteriaKey) ?? []).map((criterion) => ({
+      id: criterion.success_criteria_id,
+      description: normalizeCriterionDescription(criterion.title, criterion.description),
+      level: typeof criterion.level === "number" ? criterion.level : null,
+    }))
+
+    const orderValue = isUnlinked
+      ? Number.MAX_SAFE_INTEGER
+      : orderMap.get(objectiveId) ?? Number.MAX_SAFE_INTEGER
+
+    entries.push({
+      orderValue,
+      objective: {
+        id: meta?.id ?? (isUnlinked ? `${lessonId}-unlinked` : objectiveId),
+        title: meta ? normalizeObjectiveTitle(meta.title) : isUnlinked ? UNLINKED_OBJECTIVE_TITLE : "Learning objective",
+        assessmentObjectiveCode: meta?.assessmentObjectiveCode ?? null,
+        successCriteria: criteria,
+        isUnlinked: isUnlinked || undefined,
+      },
+    })
+  })
+
+  return entries
+    .sort((a, b) => {
+      if (a.orderValue !== b.orderValue) {
+        return a.orderValue - b.orderValue
+      }
+      return a.objective.title.localeCompare(b.objective.title)
+    })
+    .map((entry) => entry.objective)
+}
+
 export async function loadPupilLessonsSummaries(targetPupilId?: string): Promise<PupilLessonsSummary[]> {
   const result = await readPupilLessonsSummaryBootstrapAction(targetPupilId)
 
@@ -373,7 +514,7 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
     unitSubjectMap.set(unit.unit_id, unit.subject ?? null)
   })
 
-  const homeworkActivitiesMap = new Map<
+  const lessonHomeworkActivitiesMap = new Map<
     string,
     PupilLessonsDetailBootstrap["homeworkActivities"][number][]
   >()
@@ -381,16 +522,16 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
     if (!activity.lesson_id) {
       return
     }
-    const list = homeworkActivitiesMap.get(activity.lesson_id) ?? []
+    const list = lessonHomeworkActivitiesMap.get(activity.lesson_id) ?? []
     list.push(activity)
-    homeworkActivitiesMap.set(activity.lesson_id, list)
+    lessonHomeworkActivitiesMap.set(activity.lesson_id, list)
   })
 
   const homeworkEntries: PupilHomeworkItem[] = assignments.flatMap((assignment) => {
     if (!assignment.lessonId) {
       return []
     }
-    const activities = homeworkActivitiesMap.get(assignment.lessonId) ?? []
+    const activities = lessonHomeworkActivitiesMap.get(assignment.lessonId) ?? []
     if (activities.length === 0) {
       return []
     }
@@ -465,8 +606,15 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
   }
 
   const unitObjectivesMap = new Map<string, ObjectiveEntry[]>()
+  const learningObjectiveMeta = new Map<string, LearningObjectiveMeta>()
 
   detailData.learningObjectives.forEach((objective) => {
+    learningObjectiveMeta.set(objective.learning_objective_id, {
+      id: objective.learning_objective_id,
+      title: objective.title,
+      assessmentObjectiveCode: objective.assessment_objective_code ?? null,
+    })
+
     const unitId = objective.assessment_objective_unit_id
     if (!unitId || !unitIdsInAssignments.has(unitId)) {
       return
@@ -492,6 +640,53 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
       successCriteria: criteria,
     })
     unitObjectivesMap.set(unitId, list)
+  })
+
+  const lessonIds = Array.from(
+    new Set(assignments.map((assignment) => assignment.lessonId).filter((id): id is string => Boolean(id))),
+  )
+
+  let lessonSuccessCriteriaResult: Awaited<ReturnType<typeof listLessonsSuccessCriteriaAction>>
+  let lessonObjectiveLinksResult: Awaited<ReturnType<typeof listLessonsLearningObjectivesAction>>
+
+  if (lessonIds.length === 0) {
+    lessonSuccessCriteriaResult = { data: [], error: null }
+    lessonObjectiveLinksResult = { data: [], error: null }
+  } else {
+    ;[lessonSuccessCriteriaResult, lessonObjectiveLinksResult] = await Promise.all([
+      listLessonsSuccessCriteriaAction(lessonIds),
+      listLessonsLearningObjectivesAction(lessonIds),
+    ])
+  }
+
+  if (lessonSuccessCriteriaResult.error) {
+    throw new Error(lessonSuccessCriteriaResult.error)
+  }
+  if (lessonObjectiveLinksResult.error) {
+    throw new Error(lessonObjectiveLinksResult.error)
+  }
+
+  const lessonSuccessCriteriaMap = new Map<string, LessonSuccessCriterion[]>()
+  lessonSuccessCriteriaResult.data.forEach((entry) => {
+    if (!entry.lesson_id) {
+      return
+    }
+    const list = lessonSuccessCriteriaMap.get(entry.lesson_id) ?? []
+    list.push(entry)
+    lessonSuccessCriteriaMap.set(entry.lesson_id, list)
+  })
+
+  const lessonObjectiveLinksMap = new Map<string, LessonObjectiveLinkEntry[]>()
+  lessonObjectiveLinksResult.data.forEach((entry) => {
+    if (!entry.lessonId || !entry.learningObjectiveId) {
+      return
+    }
+    const list = lessonObjectiveLinksMap.get(entry.lessonId) ?? []
+    list.push({
+      learningObjectiveId: entry.learningObjectiveId,
+      orderIndex: entry.orderIndex ?? null,
+    })
+    lessonObjectiveLinksMap.set(entry.lessonId, list)
   })
 
   const now = new Date()
@@ -534,6 +729,13 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
 
     if (assignment.lessonId && assignment.date) {
       const lessonDate = parseDate(assignment.date)
+      const homeworkActivities = lessonHomeworkActivitiesMap.get(assignment.lessonId) ?? []
+      const lessonObjectives = buildLessonObjectivesForLesson({
+        lessonId: assignment.lessonId,
+        links: lessonObjectiveLinksMap.get(assignment.lessonId) ?? [],
+        successCriteria: lessonSuccessCriteriaMap.get(assignment.lessonId) ?? [],
+        learningObjectiveMeta,
+      })
       subjectEntry.lessons.push({
         lessonId: assignment.lessonId,
         lessonTitle: assignment.lessonTitle,
@@ -541,6 +743,8 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
         unitTitle: unitTitleMap.get(assignment.unitId) ?? assignment.unitId,
         date: lessonDate ? lessonDate.toISOString() : assignment.date,
         groupId: assignment.groupId,
+        hasHomework: homeworkActivities.length > 0,
+        objectives: lessonObjectives,
       })
     }
 

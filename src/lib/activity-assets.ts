@@ -67,6 +67,9 @@ export async function resolveActivityImageUrl(
   try {
     const result = await getActivityFileDownloadUrlAction(lessonId, activity.activity_id, candidateFileName)
     if (!result.success || !result.url) {
+      if (result.error === "NOT_FOUND") {
+        return null
+      }
       console.error("[activities] Failed to create signed image URL", result.error)
       return null
     }
