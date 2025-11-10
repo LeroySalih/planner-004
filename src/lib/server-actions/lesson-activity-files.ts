@@ -148,8 +148,13 @@ export async function getActivityFileDownloadUrlAction(
   )
 
   if (error) {
+    const message = error.message ?? ""
+    const normalized = message.toLowerCase()
+    if (normalized.includes("not found") || normalized.includes("object not found")) {
+      return { success: false, error: "NOT_FOUND" }
+    }
     console.error("[v0] Failed to create signed URL for activity file:", error)
-    return { success: false, error: error.message }
+    return { success: false, error: message }
   }
 
   return { success: true, url: data?.signedUrl ?? null }

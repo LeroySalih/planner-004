@@ -26,16 +26,12 @@ export default async function PupilLessonsDetailPage({
         <div className="flex flex-col gap-2">
           <h1 className="text-3xl font-semibold text-white">Pupil Lessons</h1>
           <p className="text-sm text-slate-100">
-            Review homework and previous lessons for {summary ? summary.name : "this pupil"}.
+            Every lesson issued to {summary ? summary.name : "this pupil"} grouped by week, subject, and learning goals.
           </p>
         </div>
       </header>
 
-      {summary || detail.homework.length > 0 || detail.weeks.length > 0 ? (
-        <PupilLessonsDetailClient detail={detail} pupilId={pupilId} />
-      ) : (
-        <p className="text-sm text-muted-foreground">We couldn&apos;t find any lessons for this pupil yet.</p>
-      )}
+      <PupilLessonsDetailClient detail={detail} pupilId={pupilId} />
     </main>
   )
 }

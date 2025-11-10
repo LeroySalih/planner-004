@@ -1,11 +1,13 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useState } from "react"
 import Link from "next/link"
 import { addWeeks, format, parseISO } from "date-fns"
+import { ChevronDown } from "lucide-react"
 
-import { Card, CardHeader, CardTitle } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Badge } from "@/components/ui/badge"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { cn } from "@/lib/utils"
 import type { PupilLessonsDetail } from "@/lib/pupil-lessons-data"
 
 function formatLessonDate(value: string): string {
@@ -49,8 +51,8 @@ function formatDisplayDate(date: Date | null) {
   }
 }
 
-function getWeekLabels(value: string | null) {
-  const issuedDate = parseDateValue(value)
+function getWeekWindow(weekStart: string) {
+  const issuedDate = parseDateValue(weekStart)
   const dueDate = issuedDate ? addWeeks(issuedDate, 1) : null
 
   return {
@@ -65,222 +67,137 @@ type PupilLessonsDetailClientProps = {
 }
 
 export function PupilLessonsDetailClient({ detail, pupilId }: PupilLessonsDetailClientProps) {
-  const { homework, weeks, units } = detail
-  const [lessonFilter, setLessonFilter] = useState("")
+  const { weeks } = detail
+  const [collapsedLessons, setCollapsedLessons] = useState<Record<string, boolean>>({})
 
-  const filteredWeeks = useMemo(() => {
-    const query = lessonFilter.trim().toLowerCase()
-    if (!query) {
-      return weeks
-    }
+  if (weeks.length === 0) {
+    return <p className="text-sm text-muted-foreground">No lessons recorded yet.</p>
+  }
 
-    return weeks
-      .map((week) => {
-        const weekMatch = week.label.toLowerCase().includes(query)
-
-        const filteredSubjects = week.subjects
-          .map((subject) => {
-            const subjectLabel = subject.subject ?? "Subject not set"
-            const subjectMatch = subjectLabel.toLowerCase().includes(query)
-
-            const lessons = subject.lessons.filter((lesson) => {
-              const formattedDate = formatLessonDate(lesson.date).toLowerCase()
-              const isoDate = (() => {
-                try {
-                  return parseISO(lesson.date).toISOString().slice(0, 10)
-                } catch {
-                  return ""
-                }
-              })()
-
-              return (
-                subjectMatch ||
-                weekMatch ||
-                lesson.lessonTitle.toLowerCase().includes(query) ||
-                (lesson.unitTitle ?? "").toLowerCase().includes(query) ||
-                formattedDate.includes(query) ||
-                isoDate.includes(query)
-              )
-            })
-
-            return lessons.length > 0 ? { ...subject, lessons } : null
-          })
-          .filter((subject): subject is NonNullable<typeof subject> => Boolean(subject))
-
-        return filteredSubjects.length > 0 ? { ...week, subjects: filteredSubjects } : null
-      })
-      .filter((week): week is NonNullable<typeof week> => Boolean(week))
-  }, [lessonFilter, weeks])
+  const toggleLesson = (lessonId: string) => {
+    setCollapsedLessons((previous) => ({
+      ...previous,
+      [lessonId]: !previous[lessonId],
+    }))
+  }
 
   return (
-    <Tabs defaultValue="homework" className="space-y-6">
-      <TabsList className="grid w-full gap-2 sm:grid-cols-3">
-        <TabsTrigger value="homework">Homework</TabsTrigger>
-        <TabsTrigger value="lessons">Lessons</TabsTrigger>
-        <TabsTrigger value="units">Units</TabsTrigger>
-      </TabsList>
+    <div className="space-y-10">
+      {weeks.map((week) => {
+        const { weekIssued, weekDue } = getWeekWindow(week.weekStart)
 
-      <TabsContent value="homework" className="space-y-6">
-        {homework.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No homework has been set for this pupil yet.</p>
-        ) : (
-          homework.map((section) => {
-            const { weekDue, weekIssued } = getWeekLabels(section.date)
-
-            return (
-              <section key={section.date ?? "no-date"} className="space-y-4">
-                <div className="space-y-1">
-                  <h2 className="text-base font-semibold text-foreground">Week due: {weekDue}</h2>
-                  <p className="text-xs text-muted-foreground">Week issued: {weekIssued}</p>
-                  <p className="text-xs text-muted-foreground">Homework activities planned for this lesson date.</p>
-                </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                {section.items.map((item) => (
-                  <Card key={item.activityId} className="border-border/80">
-                    <CardHeader className="space-y-2">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <CardTitle className="text-base font-semibold text-foreground">{item.activityTitle}</CardTitle>
-                        <Link
-                          href={`/pupil-lessons/${encodeURIComponent(pupilId)}/lessons/${encodeURIComponent(item.lessonId)}`}
-                          className="text-sm font-medium text-primary underline-offset-4 hover:underline"
-                        >
-                          {item.lessonTitle}
-                        </Link>
-                      </div>
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                        {item.subject ?? "Subject not set"}
-                      </p>
-                    </CardHeader>
-                  </Card>
-                ))}
-              </div>
-              </section>
-            )
-          })
-        )}
-      </TabsContent>
-
-      <TabsContent value="lessons" className="space-y-6">
-        {weeks.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No previous lessons recorded yet.</p>
-        ) : (
-          <>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground" htmlFor="lessons-filter">
-                Filter by subject, date, lesson, or unit
-              </label>
-              <input
-                id="lessons-filter"
-                value={lessonFilter}
-                onChange={(event) => setLessonFilter(event.target.value)}
-                placeholder="Start typing to filter lessons"
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-              />
+        return (
+          <section key={week.weekStart} className="space-y-6">
+            <div className="space-y-1">
+              <h2 className="text-xl font-semibold text-foreground">{week.label}</h2>
+              <p className="text-xs text-muted-foreground">
+                Week issued: {weekIssued}
+                {weekDue ? ` · Week due: ${weekDue}` : null}
+              </p>
             </div>
 
-            {filteredWeeks.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No lessons match this filter.</p>
-            ) : (
-              filteredWeeks.map((week) => (
-                <section key={week.weekStart} className="space-y-4">
-                  <div>
-                    <h2 className="text-base font-semibold text-foreground">{week.label}</h2>
-                    <p className="text-xs text-muted-foreground">Lessons completed in this week.</p>
-                  </div>
+            <div className="space-y-6">
+              {week.subjects.map((subject, index) => (
+                <div key={`${subject.subject ?? "subject"}-${index}`} className="space-y-4">
+                  <h3 className="text-base font-semibold text-foreground">{subject.subject ?? "Subject not set"}</h3>
 
-                  <div className="space-y-5">
-                    {week.subjects.map((subject, index) => (
-                      <div key={`${subject.subject ?? "subject"}-${index}`} className="space-y-3">
-                    <h3 className="text-sm font-semibold text-foreground">
-                      {subject.subject ?? "Subject not set"}
-                    </h3>
-                    <ul className="space-y-3">
-                      {subject.lessons.map((lesson) => (
-                        <li key={lesson.lessonId} className="rounded-lg border border-border/70 p-4">
-                          <div className="flex flex-col gap-1">
-                            <Link
-                              href={`/pupil-lessons/${encodeURIComponent(pupilId)}/lessons/${encodeURIComponent(lesson.lessonId)}`}
-                              className="text-sm font-medium text-primary underline-offset-4 hover:underline"
-                            >
-                              {lesson.lessonTitle}
-                            </Link>
-                            <div className="text-xs text-muted-foreground">
-                              {formatLessonDate(lesson.date)} • Class {lesson.groupId} • Unit {lesson.unitTitle}
-                            </div>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-              </div>
-            </section>
-              ))
-            )}
-          </>
-        )}
-      </TabsContent>
+                  <div className="space-y-4">
+                    {subject.lessons.map((lesson) => {
+                      const isLessonCollapsed = collapsedLessons[lesson.lessonId] ?? false
 
-      <TabsContent value="units" className="space-y-6">
-        {units.length === 0 ? (
-          <p className="text-sm text-muted-foreground">We couldn&apos;t find any units for this pupil yet.</p>
-        ) : (
-          units.map((subjectEntry) => (
-            <section key={subjectEntry.subject} className="space-y-4">
-              <div>
-                <h2 className="text-base font-semibold text-foreground">{subjectEntry.subject}</h2>
-                <p className="text-xs text-muted-foreground">Units and learning objectives linked to this subject.</p>
-              </div>
-
-              <div className="space-y-4">
-                {subjectEntry.units.map((unit) => (
-                  <div key={unit.unitId} className="space-y-3 rounded-lg border border-border/70 bg-muted/30 p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <h3 className="text-sm font-semibold text-foreground">{unit.unitTitle}</h3>
-                      <span className="text-xs text-muted-foreground">Unit ID: {unit.unitId}</span>
-                    </div>
-
-                    {unit.learningObjectives.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">No learning objectives recorded yet.</p>
-                    ) : (
-                      <ul className="space-y-3 text-sm">
-                        {unit.learningObjectives.map((objective) => (
-                          <li key={objective.id} className="space-y-2 rounded-md border border-border/50 bg-background p-3">
-                            <div className="space-y-1">
-                              <p className="text-sm font-medium text-foreground">{objective.title}</p>
-                              {objective.assessmentObjectiveCode ? (
-                                <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                                  AO {objective.assessmentObjectiveCode}
-                                </p>
-                              ) : null}
-                            </div>
-
-                            {objective.successCriteria.length > 0 ? (
+                      return (
+                        <Card key={lesson.lessonId} className="border-border/70 shadow-sm">
+                          <CardHeader className="space-y-1">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                               <div className="space-y-1">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                                  Success criteria
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleLesson(lesson.lessonId)}
+                                    className="rounded-full border border-border/60 p-1 text-muted-foreground hover:text-foreground"
+                                    aria-expanded={!isLessonCollapsed}
+                                    aria-label={isLessonCollapsed ? "Expand lesson" : "Collapse lesson"}
+                                  >
+                                    <ChevronDown
+                                      className={cn(
+                                        "h-4 w-4 transition-transform",
+                                        isLessonCollapsed ? "-rotate-90" : "rotate-0",
+                                      )}
+                                    />
+                                  </button>
+                                  <CardTitle className="text-lg font-semibold text-foreground">
+                                    <Link
+                                      href={`/pupil-lessons/${encodeURIComponent(pupilId)}/lessons/${encodeURIComponent(lesson.lessonId)}`}
+                                      className="text-foreground underline-offset-4 hover:text-primary hover:underline"
+                                    >
+                                      {lesson.lessonTitle}
+                                    </Link>
+                                  </CardTitle>
+                                  {lesson.hasHomework ? (
+                                    <Badge
+                                      variant="secondary"
+                                      className="bg-red-100 text-red-700 dark:bg-red-500/10 dark:text-red-300"
+                                    >
+                                      Homework set
+                                    </Badge>
+                                  ) : null}
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                  {formatLessonDate(lesson.date)} • Class {lesson.groupId} • Unit {lesson.unitTitle}
                                 </p>
-                                <ul className="list-disc space-y-1 pl-4 text-xs text-muted-foreground">
-                                  {objective.successCriteria.map((criterion) => (
-                                    <li key={criterion.id}>
-                                      {criterion.description}
-                                      {criterion.level ? ` (Level ${criterion.level})` : null}
-                                    </li>
-                                  ))}
-                                </ul>
                               </div>
-                            ) : null}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
+                            </div>
+                          </CardHeader>
+                          {isLessonCollapsed ? null : (
+                            <CardContent className="space-y-3">
+                              {lesson.objectives.length === 0 ? (
+                                <p className="text-sm text-muted-foreground">
+                                  No learning objectives linked to this lesson yet.
+                                </p>
+                              ) : (
+                                lesson.objectives.map((objective) => (
+                                  <div
+                                    key={objective.id}
+                                    className="space-y-2 rounded-md border border-border/50 bg-muted/30 p-3"
+                                  >
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <p className="text-sm font-medium text-foreground">{objective.title}</p>
+                                      {objective.assessmentObjectiveCode ? (
+                                        <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                                          AO {objective.assessmentObjectiveCode}
+                                        </span>
+                                      ) : null}
+                                    </div>
+
+                                    {objective.successCriteria.length === 0 ? (
+                                      <p className="text-xs text-muted-foreground">
+                                        No success criteria linked to this objective.
+                                      </p>
+                                    ) : (
+                                      <ul className="list-disc space-y-1 pl-4 text-xs text-muted-foreground">
+                                        {objective.successCriteria.map((criterion) => (
+                                          <li key={criterion.id}>
+                                            {criterion.description}
+                                            {typeof criterion.level === "number" ? ` • Level ${criterion.level}` : null}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    )}
+                                  </div>
+                                ))
+                              )}
+                            </CardContent>
+                          )}
+                        </Card>
+                      )
+                    })}
                   </div>
-                ))}
-              </div>
-            </section>
-          ))
-        )}
-      </TabsContent>
-    </Tabs>
+                </div>
+              ))}
+            </div>
+          </section>
+        )
+      })}
+    </div>
   )
 }
