@@ -46,7 +46,7 @@ function extractImageDescriptor(activity: LessonActivity): { url: string | null;
   return { url, fileName }
 }
 
-async function resolveActivityImageUrl(
+export async function resolveActivityImageUrl(
   lessonId: string,
   activity: LessonActivity,
 ): Promise<string | null> {
