@@ -1,14 +1,10 @@
 import {
-  readGroupsAction,
-  readGroupAction,
-  readLessonAssignmentsAction,
-  readLessonAction,
-  readUnitsAction,
-  readLearningObjectivesByUnitAction,
-  listLessonActivitiesAction,
+  readPupilLessonsSummaryBootstrapAction,
+  readPupilLessonsDetailBootstrapAction,
+  type PupilLessonsSummaryBootstrap,
+  type PupilLessonsDetailBootstrap,
 } from "@/lib/server-updates"
 import { compareDesc, format, parseISO, startOfWeek } from "date-fns"
-import type { LessonActivity } from "@/types"
 
 export type PupilLessonLesson = {
   lessonId: string
@@ -94,107 +90,128 @@ export type PupilLessonsDetail = {
   units: PupilSubjectUnitsEntry[]
 }
 
-export async function loadPupilLessonsSummaries(targetPupilId?: string): Promise<PupilLessonsSummary[]> {
-  type GroupEntry = {
-    groupId: string
-    subject: string | null
-    lessons: PupilLessonLesson[]
+type SummaryBootstrapPayload = PupilLessonsSummaryBootstrap
+
+type SummaryBootstrapPupil = SummaryBootstrapPayload["pupils"][number]
+type SummaryBootstrapMembership = SummaryBootstrapPayload["memberships"][number]
+type SummaryBootstrapAssignment = SummaryBootstrapPayload["lessonAssignments"][number]
+
+type GroupEntry = {
+  subject: string | null
+  pupils: Set<string>
+}
+
+type PupilInfoEntry = {
+  name: string
+  groups: Set<string>
+}
+
+type LessonGroupEntry = {
+  groupId: string
+  subject: string | null
+  lessons: PupilLessonLesson[]
+}
+
+type DateMap = Map<string, Map<string, LessonGroupEntry>>
+
+const EMPTY_SUMMARY_PAYLOAD: SummaryBootstrapPayload = {
+  pupils: [],
+  memberships: [],
+  lessonAssignments: [],
+}
+
+function createDisplayName(first: string | null | undefined, last: string | null | undefined, fallback: string) {
+  const trimmedFirst = first?.trim() ?? ""
+  const trimmedLast = last?.trim() ?? ""
+  const merged = `${trimmedFirst} ${trimmedLast}`.trim()
+  return merged.length > 0 ? merged : fallback
+}
+
+function normalizeSummaryDatasetFromDetail(detail: PupilLessonsDetailBootstrap | null): SummaryBootstrapPayload {
+  if (!detail) {
+    return EMPTY_SUMMARY_PAYLOAD
   }
 
-  type DateMap = Map<string, Map<string, GroupEntry>>
+  const pupils: SummaryBootstrapPupil[] = detail.pupilProfile
+    ? [
+        {
+          user_id: detail.pupilProfile.user_id,
+          display_name: createDisplayName(
+            detail.pupilProfile.first_name,
+            detail.pupilProfile.last_name,
+            detail.pupilProfile.user_id,
+          ),
+          first_name: detail.pupilProfile.first_name ?? null,
+          last_name: detail.pupilProfile.last_name ?? null,
+        },
+      ]
+    : []
 
-  const [groupsResult, lessonAssignmentsResult] = await Promise.all([
-    readGroupsAction(),
-    readLessonAssignmentsAction(),
-  ])
+  const lessonAssignments: SummaryBootstrapAssignment[] = (detail.lessonAssignments ?? []).map((assignment) => ({
+    group_id: assignment.group_id,
+    lesson_id: assignment.lesson_id,
+    start_date: assignment.start_date ?? null,
+    lesson_title: assignment.lesson_title ?? null,
+    unit_id: assignment.unit_id ?? null,
+    subject: assignment.subject ?? null,
+  }))
 
-  if (groupsResult.error) {
-    throw new Error(groupsResult.error)
+  return {
+    pupils,
+    memberships: detail.memberships ?? [],
+    lessonAssignments,
   }
+}
 
-  if (lessonAssignmentsResult.error) {
-    throw new Error(lessonAssignmentsResult.error)
-  }
+function buildSummariesFromBootstrap(payload: SummaryBootstrapPayload, targetPupilId?: string) {
+  const groupInfoMap = new Map<string, GroupEntry>()
+  const pupilInfoMap = new Map<string, PupilInfoEntry>()
 
-  const groups = groupsResult.data ?? []
-  const lessonAssignments = (lessonAssignmentsResult.data ?? []).filter(
-    (assignment) => Boolean(assignment.group_id) && Boolean(assignment.lesson_id),
-  )
+  payload.pupils.forEach((pupil) => {
+    const name = pupil.display_name?.trim().length
+      ? pupil.display_name.trim()
+      : createDisplayName(pupil.first_name, pupil.last_name, pupil.user_id)
+    pupilInfoMap.set(pupil.user_id, {
+      name,
+      groups: new Set<string>(),
+    })
+  })
 
-  const groupInfoMap = new Map<
-    string,
-    {
-      subject: string | null
-      pupils: Set<string>
+  payload.memberships.forEach((membership) => {
+    if (!membership.user_id || !membership.group_id) {
+      return
     }
-  >()
-  const pupilInfoMap = new Map<
-    string,
-    {
-      name: string
-      groups: Set<string>
+
+    const info = pupilInfoMap.get(membership.user_id) ?? {
+      name: createDisplayName(null, null, membership.user_id),
+      groups: new Set<string>(),
     }
-  >()
+    info.groups.add(membership.group_id)
+    pupilInfoMap.set(membership.user_id, info)
 
-  await Promise.all(
-    groups.map(async (group) => {
-      try {
-        const detail = await readGroupAction(group.group_id)
-        if (!detail.data) {
-          return
-        }
-
-        const subject = detail.data.subject ?? group.subject ?? null
-        const members = detail.data.members ?? []
-
-        const pupilIds = new Set<string>()
-
-        members
-          .filter((member) => member.role.toLowerCase() === "pupil")
-          .forEach((member) => {
-            const first = member.profile?.first_name?.trim() ?? ""
-            const last = member.profile?.last_name?.trim() ?? ""
-            const display = `${first} ${last}`.trim() || member.user_id
-
-            pupilIds.add(member.user_id)
-
-            const existing = pupilInfoMap.get(member.user_id)
-            if (existing) {
-              existing.groups.add(group.group_id)
-            } else {
-              pupilInfoMap.set(member.user_id, {
-                name: display,
-                groups: new Set([group.group_id]),
-              })
-            }
-          })
-
-        groupInfoMap.set(group.group_id, {
-          subject,
-          pupils: pupilIds,
-        })
-      } catch (error) {
-        console.error("[pupil-lessons] Failed to load group detail", group.group_id, error)
-      }
-    }),
-  )
+    const groupEntry = groupInfoMap.get(membership.group_id) ?? {
+      subject: membership.subject ?? null,
+      pupils: new Set<string>(),
+    }
+    if (!groupEntry.subject) {
+      groupEntry.subject = membership.subject ?? null
+    }
+    groupEntry.pupils.add(membership.user_id)
+    groupInfoMap.set(membership.group_id, groupEntry)
+  })
 
   if (targetPupilId && !pupilInfoMap.has(targetPupilId)) {
     return []
   }
 
-  const filteredAssignments: Array<{
-    groupId: string
-    lessonId: string
-    startDate: string | null
-    pupilIds: string[]
-  }> = []
+  const lessonStructure = new Map<string, DateMap>()
 
-  const lessonIds = new Set<string>()
-
-  lessonAssignments.forEach((assignment) => {
-    const groupId = assignment.group_id ?? ""
-    const lessonId = assignment.lesson_id ?? ""
+  payload.lessonAssignments.forEach((assignment) => {
+    const groupId = assignment.group_id
+    const lessonId = assignment.lesson_id
+    if (!groupId || !lessonId) {
+      return
+    }
 
     const groupInfo = groupInfoMap.get(groupId)
     if (!groupInfo) {
@@ -211,88 +228,39 @@ export async function loadPupilLessonsSummaries(targetPupilId?: string): Promise
       return
     }
 
-    lessonIds.add(lessonId)
-    filteredAssignments.push({
-      groupId,
-      lessonId,
-      startDate: assignment.start_date ?? null,
-      pupilIds: candidatePupilIds,
-    })
-  })
+    const dateKey = assignment.start_date ?? ""
+    const subject = assignment.subject ?? groupInfo.subject ?? null
+    const lessonTitle = assignment.lesson_title?.trim() || "Untitled lesson"
+    const unitId = assignment.unit_id ?? "unknown"
 
-  if (filteredAssignments.length === 0) {
-    const baseList = targetPupilId
-      ? [targetPupilId]
-      : Array.from(pupilInfoMap.keys())
-    return baseList
-      .filter((pupilId) => pupilInfoMap.has(pupilId))
-      .map((pupilId) => {
-        const info = pupilInfoMap.get(pupilId)!
-        return {
-          pupilId,
-          name: info.name,
-          groups: Array.from(info.groups).sort((a, b) => a.localeCompare(b)),
-          sections: [],
-        }
-      })
-      .sort((a, b) => a.name.localeCompare(b.name))
-  }
-
-  const lessonEntries = await Promise.all(
-    Array.from(lessonIds).map(async (lessonId) => {
-      try {
-        const result = await readLessonAction(lessonId)
-        return [lessonId, result.data ?? null] as const
-      } catch (error) {
-        console.error("[pupil-lessons] Failed to load lesson detail", lessonId, error)
-        return [lessonId, null] as const
-      }
-    }),
-  )
-
-  const lessonMap = new Map(
-    lessonEntries.filter((entry): entry is [string, NonNullable<typeof lessonEntries[number]>[1]] => entry[1] !== null),
-  )
-
-  const pupilLessonStructure = new Map<string, DateMap>()
-
-  filteredAssignments.forEach(({ groupId, lessonId, startDate, pupilIds }) => {
-    const lesson = lessonMap.get(lessonId)
-    if (!lesson) {
-      return
-    }
-
-    const groupInfo = groupInfoMap.get(groupId)
-    const subject = groupInfo?.subject ?? null
-    const dateKey = startDate ?? ""
-
-    pupilIds.forEach((pupilId) => {
-      const dateMap: DateMap = pupilLessonStructure.get(pupilId) ?? new Map<string, Map<string, GroupEntry>>()
-      const groupsMap: Map<string, GroupEntry> = dateMap.get(dateKey) ?? new Map<string, GroupEntry>()
-      const groupEntry: GroupEntry = groupsMap.get(groupId) ?? {
+    candidatePupilIds.forEach((pupilId) => {
+      const dateMap: DateMap = lessonStructure.get(pupilId) ?? new Map<string, Map<string, LessonGroupEntry>>()
+      const groupsMap = dateMap.get(dateKey) ?? new Map<string, LessonGroupEntry>()
+      const groupEntry = groupsMap.get(groupId) ?? {
         groupId,
         subject,
         lessons: [],
       }
 
+      if (!groupEntry.subject) {
+        groupEntry.subject = subject
+      }
+
       groupEntry.lessons.push({
         lessonId,
-        title: lesson.title,
-        unitId: lesson.unit_id,
-        startDate,
+        title: lessonTitle,
+        unitId,
+        startDate: assignment.start_date ?? null,
       })
 
       groupsMap.set(groupId, groupEntry)
       dateMap.set(dateKey, groupsMap)
-      pupilLessonStructure.set(pupilId, dateMap)
+      lessonStructure.set(pupilId, dateMap)
     })
   })
 
-  const result: PupilLessonsSummary[] = []
-
-  const basePupilIds = targetPupilId
-    ? [targetPupilId]
-    : Array.from(pupilInfoMap.keys())
+  const basePupilIds = targetPupilId ? [targetPupilId] : Array.from(pupilInfoMap.keys())
+  const results: PupilLessonsSummary[] = []
 
   basePupilIds.forEach((pupilId) => {
     const info = pupilInfoMap.get(pupilId)
@@ -300,7 +268,7 @@ export async function loadPupilLessonsSummaries(targetPupilId?: string): Promise
       return
     }
 
-      const dateMap: DateMap = pupilLessonStructure.get(pupilId) ?? new Map<string, Map<string, GroupEntry>>()
+    const dateMap: DateMap = lessonStructure.get(pupilId) ?? new Map<string, Map<string, LessonGroupEntry>>()
 
     const sections: PupilLessonSection[] = Array.from(dateMap.entries())
       .map(([date, groupsMap]) => ({
@@ -319,7 +287,7 @@ export async function loadPupilLessonsSummaries(targetPupilId?: string): Promise
         return dateA - dateB
       })
 
-    result.push({
+    results.push({
       pupilId,
       name: info.name,
       groups: Array.from(info.groups).sort((a, b) => a.localeCompare(b)),
@@ -327,7 +295,7 @@ export async function loadPupilLessonsSummaries(targetPupilId?: string): Promise
     })
   })
 
-  return result.sort((a, b) => a.name.localeCompare(b.name))
+  return results.sort((a, b) => a.name.localeCompare(b.name))
 }
 
 function parseDate(value: string | null | undefined): Date | null {
@@ -353,89 +321,75 @@ function createWeekLabel(date: Date) {
   }
 }
 
+export async function loadPupilLessonsSummaries(targetPupilId?: string): Promise<PupilLessonsSummary[]> {
+  const result = await readPupilLessonsSummaryBootstrapAction(targetPupilId)
+
+  if (result.error) {
+    throw new Error(result.error)
+  }
+
+  const payload = result.data ?? EMPTY_SUMMARY_PAYLOAD
+  return buildSummariesFromBootstrap(payload, targetPupilId)
+}
+
 export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLessonsDetail> {
-  const summaries = await loadPupilLessonsSummaries(pupilId)
-  const summary = summaries[0] ?? null
+  const detailResult = await readPupilLessonsDetailBootstrapAction(pupilId)
 
-  const lessonAssignments = summary
-    ? summary.sections.flatMap((section) =>
-        section.groups.flatMap((group) =>
-          group.lessons.map((lesson) => ({
-            lessonId: lesson.lessonId,
-            lessonTitle: lesson.title,
-            unitId: lesson.unitId,
-            date: section.date ?? lesson.startDate ?? null,
-            groupId: group.groupId,
-            subject: group.subject,
-          })),
-        ),
-      )
-    : []
+  if (detailResult.error) {
+    throw new Error(detailResult.error)
+  }
 
-  const uniqueLessonIds = Array.from(new Set(lessonAssignments.map((entry) => entry.lessonId)))
-  const uniqueUnitIds = Array.from(new Set(lessonAssignments.map((entry) => entry.unitId)))
+  const detailData: PupilLessonsDetailBootstrap =
+    detailResult.data ?? {
+      pupilProfile: null,
+      memberships: [],
+      lessonAssignments: [],
+      units: [],
+      learningObjectives: [],
+      successCriteria: [],
+      successCriteriaUnits: [],
+      homeworkActivities: [],
+    }
+
+  const summaryDataset = normalizeSummaryDatasetFromDetail(detailData)
+  const summary = buildSummariesFromBootstrap(summaryDataset, pupilId)[0] ?? null
+
+  const assignments = detailData.lessonAssignments
+    .filter((assignment) => assignment.lesson_id && assignment.group_id)
+    .map((assignment) => ({
+      lessonId: assignment.lesson_id,
+      lessonTitle: assignment.lesson_title?.trim() || "Untitled lesson",
+      unitId: assignment.unit_id ?? "",
+      subject: assignment.subject ?? null,
+      groupId: assignment.group_id,
+      date: assignment.start_date ?? null,
+    }))
 
   const unitTitleMap = new Map<string, string>()
   const unitSubjectMap = new Map<string, string | null>()
 
-  if (uniqueUnitIds.length > 0) {
-    try {
-      const unitsResult = await readUnitsAction()
-      if (unitsResult.error) {
-        console.error("[pupil-lessons] Failed to load units", unitsResult.error)
-      }
-
-      unitsResult.data
-        ?.filter((unit) => uniqueUnitIds.includes(unit.unit_id))
-        .forEach((unit) => {
-          unitTitleMap.set(unit.unit_id, unit.title ?? unit.unit_id)
-          unitSubjectMap.set(unit.unit_id, unit.subject ?? null)
-        })
-    } catch (error) {
-      console.error("[pupil-lessons] Unexpected error loading units", error)
-    }
-  }
-
-  const unitObjectivesMap = new Map<string, Awaited<ReturnType<typeof readLearningObjectivesByUnitAction>>["data"]>()
-
-  await Promise.all(
-    uniqueUnitIds.map(async (unitId) => {
-      try {
-        const result = await readLearningObjectivesByUnitAction(unitId)
-        if (result.error) {
-          console.error("[pupil-lessons] Failed to load learning objectives", unitId, result.error)
-          return
-        }
-        unitObjectivesMap.set(unitId, result.data ?? [])
-      } catch (error) {
-        console.error("[pupil-lessons] Unexpected error loading learning objectives", unitId, error)
-      }
-    }),
-  )
-
-  const activityResults = await Promise.all(
-    uniqueLessonIds.map(async (lessonId) => {
-      try {
-        const result = await listLessonActivitiesAction(lessonId)
-        if (result.error) {
-          console.error("[pupil-lessons] Failed to read lesson activities", lessonId, result.error)
-          return [lessonId, []] as const
-        }
-        const activities = result.data?.filter((activity) => activity.is_homework) ?? []
-        return [lessonId, activities] as const
-      } catch (error) {
-        console.error("[pupil-lessons] Unexpected error reading lesson activities", lessonId, error)
-        return [lessonId, []] as const
-      }
-    }),
-  )
-
-  const homeworkActivitiesMap = new Map<string, LessonActivity[]>()
-  activityResults.forEach(([lessonId, activities]) => {
-    homeworkActivitiesMap.set(lessonId, Array.from(activities))
+  detailData.units.forEach((unit) => {
+    unitTitleMap.set(unit.unit_id, unit.title?.trim() || unit.unit_id)
+    unitSubjectMap.set(unit.unit_id, unit.subject ?? null)
   })
 
-  const homeworkEntries = lessonAssignments.flatMap((assignment) => {
+  const homeworkActivitiesMap = new Map<
+    string,
+    PupilLessonsDetailBootstrap["homeworkActivities"][number][]
+  >()
+  detailData.homeworkActivities.forEach((activity) => {
+    if (!activity.lesson_id) {
+      return
+    }
+    const list = homeworkActivitiesMap.get(activity.lesson_id) ?? []
+    list.push(activity)
+    homeworkActivitiesMap.set(activity.lesson_id, list)
+  })
+
+  const homeworkEntries: PupilHomeworkItem[] = assignments.flatMap((assignment) => {
+    if (!assignment.lessonId) {
+      return []
+    }
     const activities = homeworkActivitiesMap.get(assignment.lessonId) ?? []
     if (activities.length === 0) {
       return []
@@ -443,11 +397,11 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
 
     return activities.map((activity) => ({
       activityId: activity.activity_id,
-      activityTitle: activity.title ?? "Untitled activity",
+      activityTitle: activity.title?.trim() || "Untitled activity",
       lessonId: assignment.lessonId,
       lessonTitle: assignment.lessonTitle,
       unitId: assignment.unitId,
-      subject: assignment.subject ?? null,
+      subject: assignment.subject,
       groupId: assignment.groupId,
       date: assignment.date,
     }))
@@ -480,6 +434,66 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
       return 0
     })
 
+  const successCriteriaByObjective = new Map<
+    string,
+    PupilLessonsDetailBootstrap["successCriteria"][number][]
+  >()
+  detailData.successCriteria.forEach((criterion) => {
+    const existing = successCriteriaByObjective.get(criterion.learning_objective_id) ?? []
+    existing.push(criterion)
+    successCriteriaByObjective.set(criterion.learning_objective_id, existing)
+  })
+
+  const successCriteriaUnitsMap = new Map<string, Set<string>>()
+  detailData.successCriteriaUnits.forEach((entry) => {
+    const list = successCriteriaUnitsMap.get(entry.success_criteria_id) ?? new Set<string>()
+    list.add(entry.unit_id)
+    successCriteriaUnitsMap.set(entry.success_criteria_id, list)
+  })
+
+  const unitIdsInAssignments = new Set(assignments.map((assignment) => assignment.unitId).filter((unitId) => unitId))
+
+  type ObjectiveEntry = {
+    id: string
+    title: string
+    assessmentObjectiveCode: string | null
+    successCriteria: Array<{
+      id: string
+      description: string
+      level: number | null
+    }>
+  }
+
+  const unitObjectivesMap = new Map<string, ObjectiveEntry[]>()
+
+  detailData.learningObjectives.forEach((objective) => {
+    const unitId = objective.assessment_objective_unit_id
+    if (!unitId || !unitIdsInAssignments.has(unitId)) {
+      return
+    }
+
+    const criteria = (successCriteriaByObjective.get(objective.learning_objective_id) ?? [])
+      .filter((criterion) => {
+        const allowedUnits = successCriteriaUnitsMap.get(criterion.success_criteria_id)
+        return !allowedUnits || allowedUnits.size === 0 || allowedUnits.has(unitId)
+      })
+      .map((criterion, index) => ({
+        id: criterion.success_criteria_id ?? `${objective.learning_objective_id}-${index}`,
+        description: criterion.description ?? "No success criterion description provided.",
+        level: criterion.level ?? null,
+      }))
+      .sort((a, b) => a.description.localeCompare(b.description))
+
+    const list = unitObjectivesMap.get(unitId) ?? []
+    list.push({
+      id: objective.learning_objective_id,
+      title: objective.title,
+      assessmentObjectiveCode: objective.assessment_objective_code ?? null,
+      successCriteria: criteria,
+    })
+    unitObjectivesMap.set(unitId, list)
+  })
+
   const now = new Date()
   const currentWeekStart = startOfWeek(now, { weekStartsOn: 1 })
 
@@ -494,47 +508,50 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
 
   const subjectUnitsMap = new Map<string, Set<string>>()
 
-  lessonAssignments.forEach((assignment) => {
+  assignments.forEach((assignment) => {
     const dateValue = parseDate(assignment.date)
     if (!dateValue) {
       return
     }
 
-    if (!dateValue || dateValue >= currentWeekStart) {
+    const weekStartDate = startOfWeek(dateValue, { weekStartsOn: 1 })
+    if (weekStartDate > currentWeekStart) {
       return
     }
 
-    const weekStartDate = startOfWeek(dateValue, { weekStartsOn: 1 })
     const weekKey = weekStartDate.toISOString()
-
     const existingWeek = weeksMap.get(weekKey) ?? {
       weekStart: weekStartDate.toISOString(),
       label: createWeekLabel(weekStartDate),
       subjects: new Map<string, PupilLessonWeekSubject>(),
     }
 
-    const subjectKey = assignment.subject ?? "Subject not set"
+    const subjectKey = assignment.subject ?? unitSubjectMap.get(assignment.unitId) ?? "Subject not set"
     const subjectEntry = existingWeek.subjects.get(subjectKey) ?? {
-      subject: assignment.subject ?? null,
+      subject: assignment.subject ?? unitSubjectMap.get(assignment.unitId) ?? null,
       lessons: [] as PupilLessonWeekSubject["lessons"],
     }
 
-    subjectEntry.lessons.push({
-      lessonId: assignment.lessonId,
-      lessonTitle: assignment.lessonTitle,
-      unitId: assignment.unitId,
-      unitTitle: unitTitleMap.get(assignment.unitId) ?? assignment.unitId,
-      date: dateValue.toISOString(),
-      groupId: assignment.groupId,
-    })
+    if (assignment.lessonId && assignment.date) {
+      const lessonDate = parseDate(assignment.date)
+      subjectEntry.lessons.push({
+        lessonId: assignment.lessonId,
+        lessonTitle: assignment.lessonTitle,
+        unitId: assignment.unitId,
+        unitTitle: unitTitleMap.get(assignment.unitId) ?? assignment.unitId,
+        date: lessonDate ? lessonDate.toISOString() : assignment.date,
+        groupId: assignment.groupId,
+      })
+    }
 
     existingWeek.subjects.set(subjectKey, subjectEntry)
     weeksMap.set(weekKey, existingWeek)
 
-    const subjectName = assignment.subject ?? unitSubjectMap.get(assignment.unitId) ?? "Subject not set"
-    const unitSet = subjectUnitsMap.get(subjectName) ?? new Set<string>()
-    unitSet.add(assignment.unitId)
-    subjectUnitsMap.set(subjectName, unitSet)
+    if (assignment.unitId) {
+      const unitSet = subjectUnitsMap.get(subjectKey) ?? new Set<string>()
+      unitSet.add(assignment.unitId)
+      subjectUnitsMap.set(subjectKey, unitSet)
+    }
   })
 
   const weeks: PupilLessonWeek[] = Array.from(weeksMap.values())
@@ -557,19 +574,15 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
     .map(([subject, unitSet]) => {
       const unitsList = Array.from(unitSet)
         .map((unitId) => {
-          const objectives = unitObjectivesMap.get(unitId) ?? []
+          const objectives = (unitObjectivesMap.get(unitId) ?? []).sort((a, b) => a.title.localeCompare(b.title))
           return {
             unitId,
             unitTitle: unitTitleMap.get(unitId) ?? unitId,
-            learningObjectives: (objectives ?? []).map((objective, objectiveIndex) => ({
-              id: objective.learning_objective_id ?? `${unitId}-objective-${objectiveIndex}`,
-              title: objective.title ?? "Untitled objective",
-              assessmentObjectiveCode: objective.assessment_objective_code ?? null,
-              successCriteria: (objective.success_criteria ?? []).map((criterion, criterionIndex) => ({
-                id: criterion.success_criteria_id ?? `${unitId}-${objectiveIndex}-criterion-${criterionIndex}`,
-                description: criterion.description ?? "No success criterion description provided.",
-                level: criterion.level ?? null,
-              })),
+            learningObjectives: objectives.map((objective) => ({
+              id: objective.id,
+              title: objective.title,
+              assessmentObjectiveCode: objective.assessmentObjectiveCode,
+              successCriteria: objective.successCriteria,
             })),
           }
         })
