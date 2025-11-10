@@ -177,6 +177,12 @@ export {
 } from "./server-actions/feedback"
 
 export { readPupilReportAction } from "./server-actions/pupils"
+export {
+  readPupilLessonsSummaryBootstrapAction,
+  readPupilLessonsDetailBootstrapAction,
+  type PupilLessonsSummaryBootstrap,
+  type PupilLessonsDetailBootstrap,
+} from "./server-actions/pupil-lessons"
 
 export {
   readCurrentProfileAction,
