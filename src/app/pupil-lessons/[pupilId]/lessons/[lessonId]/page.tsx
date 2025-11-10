@@ -4,6 +4,7 @@ import { format } from "date-fns"
 import { Download, Music2, PlaySquare, TestTube, ArrowLeft } from "lucide-react"
 
 import { requireAuthenticatedProfile } from "@/lib/auth"
+import { resolveActivityImageUrl } from "@/lib/activity-assets"
 import { loadPupilLessonsSummaries } from "@/lib/pupil-lessons-data"
 import {
   readLessonAction,
@@ -75,6 +76,13 @@ function isYouTubeUrl(url: string) {
   }
 }
 
+function looksLikeImageUrl(url: string | null | undefined) {
+  if (!url) return false
+  const [base] = url.split("?")
+  if (!base) return false
+  return /\.(png|jpe?g|gif|webp|svg|bmp|heic|heif)$/i.test(base)
+}
+
 function extractActivityLink(activity: { body_data: unknown; title: string }) {
   const bodyData = activity.body_data
   if (typeof bodyData !== "object" || bodyData === null) {
@@ -102,14 +110,19 @@ function extractActivityLink(activity: { body_data: unknown; title: string }) {
   return null
 }
 
-function extractAudioUrl(activity: { body_data: unknown }) {
+function extractAudioUrl(activity: { body_data: unknown; type?: string | null }) {
+  const normalizedType = typeof activity.type === "string" ? activity.type.toLowerCase() : ""
+  if (normalizedType === "display-image") {
+    return null
+  }
+
   const bodyData = activity.body_data
   if (typeof bodyData !== "object" || bodyData === null) {
     return null
   }
 
   const record = bodyData as Record<string, unknown>
-  const candidateKeys = ["audioFile", "audioUrl", "voice", "fileUrl"]
+  const candidateKeys = ["audioFile", "audioUrl"]
 
   for (const key of candidateKeys) {
     const value = record[key]
@@ -118,9 +131,14 @@ function extractAudioUrl(activity: { body_data: unknown }) {
     }
   }
 
-  const nestedVoice = record.voice
-  if (typeof nestedVoice === "object" && nestedVoice !== null) {
-    const nestedUrl = (nestedVoice as Record<string, unknown>).audioFile ?? (nestedVoice as Record<string, unknown>).url
+  const voiceField = record.voice
+  if (typeof voiceField === "string" && voiceField.trim().length > 0) {
+    return voiceField.trim()
+  }
+
+  if (typeof voiceField === "object" && voiceField !== null) {
+    const nestedRecord = voiceField as Record<string, unknown>
+    const nestedUrl = nestedRecord.audioFile ?? nestedRecord.url
     if (typeof nestedUrl === "string" && nestedUrl.trim().length > 0) {
       return nestedUrl.trim()
     }
@@ -167,6 +185,16 @@ export default async function PupilLessonFriendlyPage({
 
   const activities = activitiesResult.data ?? []
   const lessonFiles = filesResult.data ?? []
+
+  const displayImageUrlEntries = await Promise.all(
+    activities
+      .filter((activity) => activity.type === "display-image")
+      .map(async (activity) => {
+        const url = await resolveActivityImageUrl(lesson.lesson_id, activity)
+        return [activity.activity_id, url ?? null] as const
+      }),
+  )
+  const displayImageUrlMap = new Map(displayImageUrlEntries)
 
   const uploadActivities = activities.filter((activity) => activity.type === "upload-file")
 
@@ -329,7 +357,12 @@ export default async function PupilLessonFriendlyPage({
               {activities.map((activity, index) => {
                 const linkUrl = extractActivityLink(activity)
                 const audioUrl = extractAudioUrl(activity)
-                const icon = selectActivityIcon(activity.type, Boolean(audioUrl), linkUrl)
+                const isDisplayImage = activity.type === "display-image"
+                const resolvedImageUrl = isDisplayImage
+                  ? displayImageUrlMap.get(activity.activity_id) ?? (looksLikeImageUrl(linkUrl) ? linkUrl : null)
+                  : null
+                const titleLink = !isDisplayImage || !resolvedImageUrl ? linkUrl : null
+                const icon = selectActivityIcon(activity.type, Boolean(audioUrl), titleLink)
 
                 return (
                   <li
@@ -377,9 +410,9 @@ export default async function PupilLessonFriendlyPage({
                           <div className="flex flex-col gap-1">
                             <div className="flex flex-wrap items-center gap-2">
                               {icon}
-                              {linkUrl ? (
+                              {titleLink ? (
                                 <Link
-                                  href={linkUrl}
+                                  href={titleLink}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="font-medium text-primary underline-offset-4 hover:underline"
@@ -396,11 +429,41 @@ export default async function PupilLessonFriendlyPage({
                               ) : null}
                             </div>
                             <span className="text-xs text-muted-foreground">{formatActivityType(activity.type)}</span>
-                            {linkUrl ? <span className="break-all text-xs text-muted-foreground">{linkUrl}</span> : null}
+                            {titleLink ? (
+                              <span className="break-all text-xs text-muted-foreground">{titleLink}</span>
+                            ) : null}
                           </div>
                         </div>
 
-                        {audioUrl && activity.type !== "show-video" ? (
+                        {isDisplayImage ? (
+                          resolvedImageUrl ? (
+                            <figure className="mt-3 space-y-2">
+                              <div className="overflow-hidden rounded-lg border border-border bg-background">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={resolvedImageUrl}
+                                  alt={activity.title || "Lesson activity image"}
+                                  className="max-h-[420px] w-full object-contain"
+                                  loading="lazy"
+                                />
+                              </div>
+                              <div className="flex justify-end">
+                                <Link
+                                  href={resolvedImageUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs font-medium text-primary underline-offset-4 hover:underline"
+                                >
+                                  Open full image
+                                </Link>
+                              </div>
+                            </figure>
+                          ) : (
+                            <p className="mt-3 text-xs text-muted-foreground">
+                              This image isn&apos;t available yet. Please let your teacher know.
+                            </p>
+                          )
+                        ) : audioUrl && activity.type !== "show-video" ? (
                           <audio className="mt-3 w-full" controls preload="none" src={audioUrl}>
                             Your browser does not support the audio element.
                           </audio>
