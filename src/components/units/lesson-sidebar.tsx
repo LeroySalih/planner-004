@@ -32,7 +32,6 @@ import {
   type McqBody,
   getVoiceBody,
 } from "@/components/lessons/activity-view/utils"
-import { PupilUploadActivity } from "@/components/pupil/pupil-upload-activity"
 import {
   deactivateLessonAction,
   updateLessonAction,
@@ -55,7 +54,6 @@ import {
   triggerLessonCreateJobAction,
   LESSON_MUTATION_INITIAL_STATE,
 } from "@/lib/server-updates"
-import { supabaseBrowserClient } from "@/lib/supabase-browser"
 
 const ACTIVITY_TYPES = [
   { value: "text", label: "Text" },
@@ -2316,32 +2314,6 @@ export function LessonPresentation({
   const [voicePlayback, setVoicePlayback] = useState<{ url: string | null; loading: boolean }>(
     { url: null, loading: false },
   )
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
-  const [isUserLoaded, setIsUserLoaded] = useState(false)
-
-  useEffect(() => {
-    let cancelled = false
-
-    supabaseBrowserClient.auth
-      .getUser()
-      .then(({ data }) => {
-        if (!cancelled) {
-          setCurrentUserId(data.user?.id ?? null)
-          setIsUserLoaded(true)
-        }
-      })
-      .catch((error) => {
-        console.error("[lesson-presentation] Failed to fetch current user", error)
-        if (!cancelled) {
-          setCurrentUserId(null)
-          setIsUserLoaded(true)
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -2515,36 +2487,16 @@ export function LessonPresentation({
                 <h3 className="text-3xl font-bold leading-tight">{activity.title}</h3>
               </div>
               <div className="min-h-[320px] rounded-xl border bg-card p-6 shadow-sm">
-                {activity.type === "upload-file" ? (
-                  isUserLoaded ? (
-                    <PupilUploadActivity
-                      key={`${activity.activity_id}-${currentUserId ?? "guest"}`}
-                      lessonId={lessonId}
-                      activity={activity}
-                      pupilId={currentUserId ?? ""}
-                      instructions={getActivityTextValue(activity)}
-                      resourceFiles={activityFiles}
-                      initialSubmissions={[]}
-                      canUpload={Boolean(currentUserId)}
-                      stepNumber={currentIndex + 1}
-                    />
-                  ) : (
-                    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                      Loading upload tools…
-                    </div>
-                  )
-                ) : (
-                  <LessonActivityView
-                    mode="present"
-                    activity={activity}
-                    lessonId={lessonId}
-                    files={activityFiles}
-                    onDownloadFile={(fileName) => onDownloadActivityFile(activity.activity_id, fileName)}
-                    voicePlayback={{ url: voicePlayback.url, isLoading: voicePlayback.loading }}
-                    fetchActivityFileUrl={fetchActivityFileUrl}
-                    viewerCanReveal
-                  />
-                )}
+                <LessonActivityView
+                  mode="present"
+                  activity={activity}
+                  lessonId={lessonId}
+                  files={activityFiles}
+                  onDownloadFile={(fileName) => onDownloadActivityFile(activity.activity_id, fileName)}
+                  voicePlayback={{ url: voicePlayback.url, isLoading: voicePlayback.loading }}
+                  fetchActivityFileUrl={fetchActivityFileUrl}
+                  viewerCanReveal
+                />
               </div>
             </div>
           ) : (

@@ -253,29 +253,43 @@ export function LessonObjectivesSidebar({
     unitAssessmentObjectives,
   ])
 
+  const activeCurriculumIds = useMemo(() => {
+    return new Set(curricula.map((curriculum) => curriculum.curriculum_id))
+  }, [curricula])
+
   const defaultCurriculumId = useMemo(() => {
+    const pickFirstActive = () => curricula[0]?.curriculum_id ?? null
+    const normalizeCandidate = (candidate: string | null | undefined) => {
+      if (!candidate) return null
+      return activeCurriculumIds.has(candidate) ? candidate : null
+    }
+
     if (defaultAssessmentObjectiveId) {
       const ao = assessmentObjectivesById.get(defaultAssessmentObjectiveId)
       if (ao?.curriculum_id) {
-        return ao.curriculum_id
+        const fromAo = normalizeCandidate(ao.curriculum_id)
+        if (fromAo) return fromAo
       }
     }
 
     if (unitAssessmentObjectives.length > 0) {
-      return unitAssessmentObjectives[0].curriculum_id ?? null
+      const fromUnit = normalizeCandidate(unitAssessmentObjectives[0].curriculum_id ?? null)
+      if (fromUnit) return fromUnit
     }
 
     const firstWithCurriculum = assessmentObjectives.find((ao) => ao.curriculum_id)
     if (firstWithCurriculum?.curriculum_id) {
-      return firstWithCurriculum.curriculum_id
+      const fromFirst = normalizeCandidate(firstWithCurriculum.curriculum_id)
+      if (fromFirst) return fromFirst
     }
 
-    return curricula[0]?.curriculum_id ?? null
+    return pickFirstActive()
   }, [
     assessmentObjectives,
     assessmentObjectivesById,
     curricula,
     defaultAssessmentObjectiveId,
+    activeCurriculumIds,
     unitAssessmentObjectives,
   ])
 
@@ -297,6 +311,7 @@ export function LessonObjectivesSidebar({
 
     for (const objective of assessmentObjectives) {
       if (!objective.curriculum_id) continue
+      if (!activeCurriculumIds.has(objective.curriculum_id)) continue
       if (map.has(objective.curriculum_id)) {
         continue
       }
@@ -309,11 +324,12 @@ export function LessonObjectivesSidebar({
         assessmentObjectivesById.get(objective.assessment_objective_id ?? "")?.curriculum_id ??
         null
       if (!curriculumId) continue
+      if (!activeCurriculumIds.has(curriculumId)) continue
       if (map.has(curriculumId)) continue
       ensureOption(curriculumId, `Curriculum ${curriculumId}`, true)
     }
 
-    if (defaultCurriculumId && !map.has(defaultCurriculumId)) {
+    if (defaultCurriculumId && activeCurriculumIds.has(defaultCurriculumId) && !map.has(defaultCurriculumId)) {
       ensureOption(defaultCurriculumId, `Curriculum ${defaultCurriculumId}`, true)
     }
 
@@ -323,6 +339,7 @@ export function LessonObjectivesSidebar({
     assessmentObjectivesById,
     curricula,
     defaultCurriculumId,
+    activeCurriculumIds,
     objectives,
   ])
 
