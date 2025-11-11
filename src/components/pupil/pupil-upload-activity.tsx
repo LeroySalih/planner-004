@@ -1,12 +1,11 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type ChangeEvent } from "react"
+import { useCallback, useEffect, useRef, useState, useTransition, type ChangeEvent } from "react"
 import { toast } from "sonner"
 import { Download, Loader2, Trash2, Upload } from "lucide-react"
 
 import type { LessonActivity } from "@/types"
 import {
-  getActivityFileDownloadUrlAction,
   listPupilActivitySubmissionsAction,
   uploadPupilActivitySubmissionAction,
   deletePupilActivitySubmissionAction,
@@ -26,7 +25,6 @@ interface PupilUploadActivityProps {
   activity: LessonActivity
   pupilId: string
   instructions: string
-  resourceFiles: ActivityFileInfo[]
   initialSubmissions: ActivityFileInfo[]
   canUpload: boolean
   stepNumber: number
@@ -38,7 +36,6 @@ export function PupilUploadActivity({
   activity,
   pupilId,
   instructions,
-  resourceFiles,
   initialSubmissions,
   canUpload,
   stepNumber,
@@ -50,7 +47,6 @@ export function PupilUploadActivity({
   const [isDragActive, setIsDragActive] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
-  const hasResources = resourceFiles.length > 0
   const hasInstructions = instructions.trim().length > 0
 
   const uploadDisabled = !canUpload || isPending
@@ -156,22 +152,6 @@ export function PupilUploadActivity({
     [beginUpload],
   )
 
-  const handleDownloadResource = useCallback(
-    async (fileName: string) => {
-      startTransition(async () => {
-        const result = await getActivityFileDownloadUrlAction(lessonId, activity.activity_id, fileName)
-        if (!result.success || !result.url) {
-          toast.error("Unable to download file", {
-            description: result.error ?? "Please try again later.",
-          })
-          return
-        }
-        window.open(result.url, "_blank")
-      })
-    },
-    [activity.activity_id, lessonId],
-  )
-
   const handleDownloadSubmission = useCallback(
     async (fileName: string) => {
       startTransition(async () => {
@@ -214,8 +194,6 @@ export function PupilUploadActivity({
     },
     [activity.activity_id, lessonId, pupilId, refreshSubmissions],
   )
-
-  const resourceList = useMemo(() => resourceFiles, [resourceFiles])
 
   const handleDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
     if (!canUpload || uploadDisabled) return
@@ -262,30 +240,6 @@ export function PupilUploadActivity({
 
       {hasInstructions ? (
         <p className="whitespace-pre-wrap text-sm text-muted-foreground">{instructions}</p>
-      ) : null}
-
-      {hasResources ? (
-        <div className="space-y-2">
-          <p className="text-sm font-medium text-foreground">Download these resources</p>
-          <ul className="space-y-2 text-sm">
-            {resourceList.map((file) => (
-              <li key={file.path} className="flex items-center justify-between rounded-md border border-border/60 px-3 py-2">
-                <span className="truncate pr-4" title={file.name}>
-                  {file.name}
-                </span>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => handleDownloadResource(file.name)}
-                  disabled={isPending}
-                >
-                  <Download className="mr-2 h-4 w-4" /> Download
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </div>
       ) : null}
 
       {canUpload ? (

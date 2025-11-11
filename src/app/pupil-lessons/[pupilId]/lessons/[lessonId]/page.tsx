@@ -10,7 +10,6 @@ import {
   readLessonAction,
   listLessonActivitiesAction,
   listLessonFilesAction,
-  listActivityFilesAction,
   listPupilActivitySubmissionsAction,
   getLatestSubmissionForActivityAction,
 } from "@/lib/server-updates"
@@ -200,20 +199,19 @@ export default async function PupilLessonFriendlyPage({
 
   const uploadActivityData = await Promise.all(
     uploadActivities.map(async (activity) => {
-      const [resourcesResult, submissionsResult] = await Promise.all([
-        listActivityFilesAction(lesson.lesson_id, activity.activity_id),
-        listPupilActivitySubmissionsAction(lesson.lesson_id, activity.activity_id, pupilId),
-      ])
+      const submissionsResult = await listPupilActivitySubmissionsAction(
+        lesson.lesson_id,
+        activity.activity_id,
+        pupilId,
+      )
 
       return {
         activityId: activity.activity_id,
-        resources: resourcesResult.error ? [] : resourcesResult.data ?? [],
         submissions: submissionsResult.error ? [] : submissionsResult.data ?? [],
       }
     }),
   )
 
-  const resourceMap = new Map(uploadActivityData.map((item) => [item.activityId, item.resources]))
   const submissionMap = new Map(uploadActivityData.map((item) => [item.activityId, item.submissions]))
 
   const mcqActivities = activities.filter((activity) => activity.type === "multiple-choice-question")
@@ -375,7 +373,6 @@ export default async function PupilLessonFriendlyPage({
                         activity={activity}
                         pupilId={pupilId}
                         instructions={extractUploadInstructions(activity)}
-                        resourceFiles={resourceMap.get(activity.activity_id) ?? []}
                         initialSubmissions={submissionMap.get(activity.activity_id) ?? []}
                         canUpload={canUpload}
                         stepNumber={index + 1}
