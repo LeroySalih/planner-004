@@ -1,0 +1,153 @@
+{
+  "name": "Short Text Answer Evaluator",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "answer-eval",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -656,
+        -128
+      ],
+      "id": "845844a5-24d3-4f86-bfa6-69da2a4cc765",
+      "name": "Webhook",
+      "webhookId": "b5a76c10-14b7-4773-8c6b-6e4badc7cb4b",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "uhVjaI3Cwz1aWkAY",
+          "name": "Header Auth account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-5-nano",
+          "mode": "list",
+          "cachedResultName": "GPT-5-NANO"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Here is a group_assignment_id: {{ $json.body.group_assignment_id }}.  Here is an acitvity_id {{$json.body.activity_id}}. Here is a question: \" {{ $json.body.question_text }}\".  Here is a model answer \"{{ $json.body.model_answer }}\".  Here are a set of pupilid's and their provided answers.  \"{{ JSON.stringify($json.body.provided_answers) }}\".\n\n\nEvaluate how correct each  provided answer is.  Give a score between 0 - totally inccorrect, to 1 totally correct.\n\nIgnore case, but consider spelling as patially correct.\n\nreturn your result as JSON in the following format {dataSent:{}, group_assignment_id: {string},  activity_id: string, results: [\n{pupilid: string, score: number, feedback: string}\n]\n\ndataSent is the data that has been posted to you so that we can debug if necessary."
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        -320,
+        -128
+      ],
+      "id": "d8a0ad9d-424c-4277-9c19-c839abdbea49",
+      "name": "Message a model",
+      "credentials": {
+        "openAiApi": {
+          "id": "VUmnqaRHTTRjaOto",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Webhook').item.json.headers['mark-webhook-url'] }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.message.content }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -16,
+        -128
+      ],
+      "id": "9d568ef2-090c-479d-9e24-e047dda53d63",
+      "name": "HTTP Request",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "TDSGjMuHT1XSysqt",
+          "name": "Bearer Auth account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        -496,
+        -128
+      ],
+      "id": "43e17dc7-73b8-439e-927c-b8e15a8bdbe5",
+      "name": "Respond to Webhook"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        []
+      ]
+    },
+    "Respond to Webhook": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "c8154ba8-3b13-4057-a9d2-96d301605420",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "e3c97e2c7b8cc34159c54187749d0a94cd77f509c9eaba6132426500891dedd1"
+  },
+  "id": "WgKb7rao4nQHDVDH",
+  "tags": []
+}
