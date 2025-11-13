@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { z } from 'zod';
 import packageJson from '../package.json' with { type: 'json' };
-import { listCurriculumSummaries } from './services/curriculum.js';
+import { findCurriculumIdsByTitle, listCurriculumSummaries } from './services/curriculum.js';
 import { verifySupabaseConnection } from './supabase.js';
 const moduleDir = fileURLToPath(new URL('.', import.meta.url));
 const mcpRoot = path.resolve(moduleDir, '..');
@@ -245,6 +245,36 @@ function registerResources() {
     });
 }
 function registerTools() {
+    server.registerTool('get_curriculum_id_from_title', {
+        title: 'Find curriculum IDs by title',
+        description: 'Search curricula by title using wildcards (*, ?) or JavaScript-style /regex/ patterns.',
+        inputSchema: {
+            curriculum_title: z
+                .string()
+                .min(1)
+                .describe('Title pattern, e.g. "Math*" or "/Math.+/" (case-insensitive).')
+        },
+        outputSchema: {
+            matches: z.array(z.object({
+                curriculum_id: z.string(),
+                curriculum_title: z.string()
+            }))
+        }
+    }, async ({ curriculum_title }) => {
+        const matches = await findCurriculumIdsByTitle(curriculum_title);
+        const structuredContent = { matches };
+        return {
+            content: [
+                {
+                    type: 'text',
+                    text: matches.length > 0
+                        ? matches.map(match => `${match.curriculum_id} • ${match.curriculum_title}`).join('\n')
+                        : 'No curricula matched the provided title.'
+                }
+            ],
+            structuredContent
+        };
+    });
     server.registerTool('get_all_curriculum', {
         title: 'List curricula',
         description: 'Return all curriculum summaries (id, title, active).',
