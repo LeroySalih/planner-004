@@ -296,6 +296,14 @@ export async function uploadPupilActivitySubmissionAction(formData: FormData) {
     return { success: false, error: submissionResult.error ?? "Unable to record submission." }
   }
 
+  console.log("[realtime-debug] Upload submission stored", {
+    activityId,
+    pupilId,
+    lessonId,
+    fileName,
+    submittedAt,
+  })
+
   revalidatePath(`/pupil-lessons/${encodeURIComponent(pupilId)}/lessons/${encodeURIComponent(lessonId)}`)
   return { success: true }
 }

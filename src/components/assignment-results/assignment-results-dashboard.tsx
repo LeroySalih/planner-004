@@ -1,8 +1,9 @@
 "use client"
 
-import { useActionState, useCallback, useEffect, useMemo, useState, useTransition } from "react"
+import { useActionState, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { ChevronDown, Download, RefreshCw } from "lucide-react"
+import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js"
 import {
   AssignmentResultActivity,
   AssignmentResultActivitySummary,
@@ -32,6 +33,8 @@ import {
   computeAverageSuccessCriteriaScore,
   normaliseSuccessCriteriaScores,
 } from "@/lib/scoring/success-criteria"
+import { extractScoreFromSubmission, selectLatestSubmission } from "@/lib/scoring/activity-scores"
+import { supabaseBrowserClient } from "@/lib/supabase-browser"
 
 type CellStatus = AssignmentResultCell["status"]
 
@@ -108,8 +111,18 @@ type UploadFileState = {
   fetchedAt?: string | null
 }
 
+type SubmissionRow = {
+  submission_id: string | null
+  activity_id: string | null
+  user_id: string | null
+  submitted_at: string | null
+  body: unknown
+}
+
 const OVERRIDE_ACTION_INITIAL_STATE: OverrideActionState = { status: "idle" }
 const RESET_ACTION_INITIAL_STATE: ResetActionState = { status: "idle" }
+const RESULTS_REALTIME_ENABLED =
+  (process.env.NEXT_PUBLIC_RESULTS_REALTIME_ENABLED ?? "true").toLowerCase() === "true"
 
 function formatPercent(score: number | null): string {
   if (typeof score !== "number" || Number.isNaN(score)) {
@@ -377,6 +390,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
   const [criterionDrafts, setCriterionDrafts] = useState<Record<string, string>>({})
   const [feedbackDraft, setFeedbackDraft] = useState<string>("")
   const [uploadFiles, setUploadFiles] = useState<Record<string, UploadFileState>>({})
+  const [realtimeDebug, setRealtimeDebug] = useState<string[]>([])
   const [overrideActionState, triggerOverrideAction, overridePending] = useActionState<
     OverrideActionState,
     OverrideActionDispatch
@@ -418,8 +432,26 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
   const [aiMarkPending, startAiMarkTransition] = useTransition()
   const [clearAiPending, startClearAiTransition] = useTransition()
   const router = useRouter()
+  const matrixStateRef = useRef(matrixState)
 
   const activities = matrixState.activities
+  const sanitizedAssignmentChannel = useMemo(() => {
+    const fallback = (matrix.assignmentId ?? "").replace(/[^a-zA-Z0-9_-]/g, "_")
+    return fallback.length > 0 ? `assignment-results-${fallback}` : "assignment-results"
+  }, [matrix.assignmentId])
+  const realtimeFilter = useMemo(() => {
+    if (!RESULTS_REALTIME_ENABLED || activities.length === 0) {
+      return null
+    }
+    const quotedIds = activities
+      .map((activity) => activity.activityId)
+      .filter((id) => typeof id === "string" && id.length > 0)
+      .map((id) => `"${id}"`)
+    if (quotedIds.length === 0) {
+      return null
+    }
+    return `activity_id=in.(${quotedIds.join(",")})`
+  }, [activities])
   const groupedRows = matrixState.rows
   const activitySummariesById = useMemo(() => {
     const map: Record<string, AssignmentResultActivitySummary> = {}
@@ -491,6 +523,10 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       totalPupils: groupedRows.length,
     }
   }, [selectedActivity, activities, groupedRows])
+
+  useEffect(() => {
+    matrixStateRef.current = matrixState
+  }, [matrixState])
   const handleAiMark = useCallback(() => {
     if (!selectedActivity) {
       toast.error("No activity is selected.")
@@ -882,6 +918,218 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     })
   }
 
+  const normalizeRow = (row: unknown): SubmissionRow | null => {
+    if (!row || typeof row !== "object") {
+      return null
+    }
+    const base = row as Record<string, unknown>
+    const recordLike =
+      (typeof base.record === "object" && base.record) ||
+      (typeof base.new === "object" && base.new) ||
+      (typeof base.payload === "object" && base.payload) ||
+      null
+    if (recordLike) {
+      return recordLike as SubmissionRow
+    }
+    return base as SubmissionRow
+  }
+
+  const handleRealtimeSubmission = useCallback(
+    (payload: RealtimePostgresChangesPayload<SubmissionRow>) => {
+      const normalizedNew = normalizeRow(payload.new)
+      const normalizedOld = normalizeRow(payload.old)
+      const eventActivityId = normalizedNew?.activity_id ?? normalizedOld?.activity_id ?? null
+      const eventPupilId = normalizedNew?.user_id ?? normalizedOld?.user_id ?? null
+      console.info("[assignment-results] Realtime payload received", {
+        eventType: payload.eventType,
+        activityId: eventActivityId,
+        pupilId: eventPupilId,
+        raw: payload,
+      })
+      if (!eventActivityId || !eventPupilId) {
+        console.warn("[assignment-results] Unable to resolve real-time identifiers", {
+          payloadKeys: {
+            new: payload.new ? Object.getOwnPropertyNames(payload.new) : [],
+            old: payload.old ? Object.getOwnPropertyNames(payload.old) : [],
+          },
+          payload,
+        })
+      }
+      setRealtimeDebug((previous) => {
+        const entry = `${new Date().toLocaleTimeString()} • ${payload.eventType} activity=${
+          payload.new?.activity_id ?? payload.old?.activity_id ?? "unknown"
+        } pupil=${payload.new?.user_id ?? payload.old?.user_id ?? "unknown"} submission=${
+          payload.new?.submission_id ?? payload.old?.submission_id ?? "—"
+        }`
+        return [entry, ...previous].slice(0, 5)
+      })
+      const record = payload.eventType === "DELETE" ? payload.old : payload.new
+      if (!record) {
+        return
+      }
+      const activityId = record.activity_id ?? ""
+      const pupilId = record.user_id ?? ""
+      if (!activityId || !pupilId) {
+        return
+      }
+      const currentMatrix = matrixStateRef.current
+      const activityIndex = currentMatrix.activities.findIndex((activity) => activity.activityId === activityId)
+      if (activityIndex === -1) {
+        return
+      }
+      const rowIndex = currentMatrix.rows.findIndex((row) => row.pupil.userId === pupilId)
+      if (rowIndex === -1) {
+        return
+      }
+      const successCriteriaIds = currentMatrix.activities[activityIndex].successCriteria.map(
+        (criterion) => criterion.successCriteriaId,
+      )
+      const submittedAt = record.submitted_at ? new Date(record.submitted_at).toISOString() : null
+
+      if (payload.eventType === "DELETE") {
+        const zeroScores = normaliseSuccessCriteriaScores({
+          successCriteriaIds,
+          fillValue: 0,
+        })
+        let clearedCell: AssignmentResultCell | null = null
+        applyCellUpdate(
+          (cell) => {
+            clearedCell = {
+              ...cell,
+              submissionId: null,
+              score: 0,
+              autoScore: 0,
+              overrideScore: null,
+              status: "missing",
+              submittedAt: null,
+              feedback: null,
+              autoFeedback: null,
+              successCriteriaScores: zeroScores,
+              autoSuccessCriteriaScores: zeroScores,
+              overrideSuccessCriteriaScores: undefined,
+              needsMarking: false,
+            }
+            return clearedCell
+          },
+          { rowIndex, activityIndex },
+        )
+        if (clearedCell) {
+          setSelection((current) => {
+            if (!current || current.rowIndex !== rowIndex || current.activityIndex !== activityIndex) {
+              return current
+            }
+            return {
+              ...current,
+              cell: clearedCell!,
+            }
+          })
+        }
+        return
+      }
+
+      let updatedCell: AssignmentResultCell | null = null
+      applyCellUpdate(
+        (cell) => {
+          if (!selectLatestSubmission(cell, submittedAt)) {
+            return cell
+          }
+          const metadata = {
+            question: cell.question ?? null,
+            correctAnswer: cell.correctAnswer ?? null,
+            optionTextMap: undefined,
+          }
+          const activityType = currentMatrix.activities[activityIndex].type
+          const extracted = extractScoreFromSubmission(activityType, record.body, successCriteriaIds, metadata)
+          const finalScore =
+            computeAverageSuccessCriteriaScore(extracted.successCriteriaScores) ?? extracted.effectiveScore ?? 0
+          const status =
+            typeof extracted.overrideScore === "number"
+              ? "override"
+              : typeof extracted.effectiveScore === "number"
+                ? "auto"
+                : "missing"
+          updatedCell = {
+            ...cell,
+            submissionId: record.submission_id ?? cell.submissionId,
+            score: finalScore,
+            autoScore: extracted.autoScore ?? finalScore,
+            overrideScore: extracted.overrideScore,
+            status,
+            submittedAt,
+            feedback: extracted.feedback,
+            autoFeedback: extracted.autoFeedback ?? null,
+            successCriteriaScores: extracted.successCriteriaScores,
+            autoSuccessCriteriaScores: extracted.autoSuccessCriteriaScores,
+            overrideSuccessCriteriaScores: extracted.overrideSuccessCriteriaScores ?? undefined,
+            pupilAnswer: extracted.pupilAnswer ?? cell.pupilAnswer,
+            needsMarking: status === "missing" ? Boolean(record.submission_id) : false,
+          }
+          return updatedCell
+        },
+        { rowIndex, activityIndex },
+      )
+      if (updatedCell) {
+        setSelection((current) => {
+          if (!current || current.rowIndex !== rowIndex || current.activityIndex !== activityIndex) {
+            return current
+          }
+          return {
+            ...current,
+            cell: updatedCell!,
+          }
+        })
+      }
+    },
+    [applyCellUpdate],
+  )
+
+  const channelRef = useRef<ReturnType<typeof supabaseBrowserClient.channel> | null>(null)
+
+  useEffect(() => {
+    if (!RESULTS_REALTIME_ENABLED || !realtimeFilter) {
+      return
+    }
+    const channelName = sanitizedAssignmentChannel
+    if (channelRef.current) {
+      const existingFilter = channelRef.current?.bindings?.find(
+        (binding) => binding.type === "postgres_changes",
+      ) as { filter?: string } | undefined
+      if (existingFilter?.filter === realtimeFilter) {
+        return
+      }
+      supabaseBrowserClient.removeChannel(channelRef.current)
+      channelRef.current = null
+    }
+    console.info("[assignment-results] Subscribing to realtime channel", {
+      channelName,
+      filter: realtimeFilter,
+    })
+    const channel = supabaseBrowserClient.channel(channelName).on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "submissions", filter: realtimeFilter },
+      handleRealtimeSubmission,
+    )
+    channel.subscribe((status) => {
+      if (status === "CHANNEL_ERROR") {
+        console.error("[assignment-results] Realtime channel error", channelName)
+        supabaseBrowserClient.removeChannel(channel)
+        if (channelRef.current === channel) {
+          channelRef.current = null
+        }
+      }
+      if (status === "TIMED_OUT") {
+        console.warn("[assignment-results] Realtime channel timed out", channelName)
+      }
+    })
+    channelRef.current = channel
+    return () => {
+      if (channelRef.current === channel) {
+        supabaseBrowserClient.removeChannel(channel)
+        channelRef.current = null
+      }
+    }
+  }, [handleRealtimeSubmission, realtimeFilter, sanitizedAssignmentChannel])
+
   const handleOverrideSubmit = () => {
     if (!selection) return
 
@@ -1177,6 +1425,17 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
             ) : null}
           </div>
         </div>
+
+        {realtimeDebug.length > 0 ? (
+          <div className="rounded-md border border-dashed border-primary/40 bg-primary/5 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-primary">Realtime debug feed</p>
+            <ul className="mt-2 space-y-1 text-xs font-mono text-primary/80">
+              {realtimeDebug.map((entry) => (
+                <li key={entry}>{entry}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
 
         <div className="grid gap-3 md:grid-cols-3">
           <details className="group rounded-lg border border-border bg-card text-sm">

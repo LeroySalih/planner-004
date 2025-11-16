@@ -307,39 +307,31 @@ export async function readAssignmentResultsAction(
             persistSession: false,
             autoRefreshToken: false,
           },
-          db: {
-            schema: "auth",
-          },
         })
 
-        const { data: authUsers, error: authError } = await supabaseAdmin
-          .from("users")
-          .select("id, email")
-          .in("id", pupilIds)
-
-        if (authError) {
-          const normalizedMessage =
-            authError && typeof authError === "object" && "message" in authError
-              ? ((authError as { message?: string }).message ?? null)
-              : null
-
-          console.warn(
-            "[assignment-results] Skipping pupil email enrichment from auth.users.",
-            normalizedMessage
-              ? { message: normalizedMessage }
-              : {
-                  message:
-                    "Supabase service role credentials may be missing or lack access to the auth schema. This is optional and only affects email display.",
-                },
-          )
-        } else {
-          for (const user of authUsers ?? []) {
-            const email = typeof user?.email === "string" ? user.email.trim() : ""
-            if (email.length > 0 && typeof user?.id === "string") {
-              emailByUserId.set(user.id, email)
+        await Promise.all(
+          pupilIds.map(async (userId) => {
+            try {
+              const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId)
+              if (error) {
+                throw error
+              }
+              const email = data?.user?.email?.trim()
+              if (email) {
+                emailByUserId.set(userId, email)
+              }
+            } catch (error) {
+              const message =
+                error && typeof error === "object" && "message" in error
+                  ? (error as { message?: string }).message
+                  : "Unknown admin API error"
+              console.warn("[assignment-results] Unable to fetch pupil email via admin API.", {
+                userId,
+                message,
+              })
             }
-          }
-        }
+          }),
+        )
       } catch (error) {
         console.error("[assignment-results] Unexpected error loading pupil emails:", error)
       }
