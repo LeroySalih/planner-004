@@ -957,9 +957,9 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       }
       setRealtimeDebug((previous) => {
         const entry = `${new Date().toLocaleTimeString()} • ${payload.eventType} activity=${
-          payload.new?.activity_id ?? payload.old?.activity_id ?? "unknown"
-        } pupil=${payload.new?.user_id ?? payload.old?.user_id ?? "unknown"} submission=${
-          payload.new?.submission_id ?? payload.old?.submission_id ?? "—"
+          normalizedNew?.activity_id ?? normalizedOld?.activity_id ?? "unknown"
+        } pupil=${normalizedNew?.user_id ?? normalizedOld?.user_id ?? "unknown"} submission=${
+          normalizedNew?.submission_id ?? normalizedOld?.submission_id ?? "—"
         }`
         return [entry, ...previous].slice(0, 5)
       })
@@ -1091,9 +1091,12 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     }
     const channelName = sanitizedAssignmentChannel
     if (channelRef.current) {
-      const existingFilter = channelRef.current?.bindings?.find(
-        (binding) => binding.type === "postgres_changes",
-      ) as { filter?: string } | undefined
+      const bindingContainer = channelRef.current as unknown as {
+        bindings?: Array<{ type?: string; filter?: string }>
+      }
+      const existingFilter = bindingContainer?.bindings?.find(
+        (binding) => binding?.type === "postgres_changes",
+      )
       if (existingFilter?.filter === realtimeFilter) {
         return
       }
