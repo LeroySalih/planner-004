@@ -7,15 +7,17 @@ project_id = "planner-005"
 [api]
 enabled = true
 # Port to use for the API URL.
-port = 54321
+#port = 54321
+# Bind address for the API server so tools outside the dev container can connect (needed for MCP access).
+#address = "0.0.0.0"
 # Schemas to expose in your API. Tables, views and stored procedures in this schema will get API
 # endpoints. `public` and `graphql_public` schemas are included by default.
-schemas = ["public", "graphql_public"]
+#schemas = ["public", "graphql_public"]
 # Extra schemas to add to the search_path of every request.
-extra_search_path = ["public", "extensions"]
+#extra_search_path = ["public", "extensions"]
 # The maximum number of rows returns from a view, table, or stored procedure. Limits payload size
 # for accidental or malicious requests.
-max_rows = 1000
+# max_rows = 1000
 
 [api.tls]
 # Enable HTTPS endpoints locally using a self-signed certificate.

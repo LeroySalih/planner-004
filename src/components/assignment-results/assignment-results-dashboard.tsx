@@ -1,8 +1,9 @@
 "use client"
 
-import { useActionState, useCallback, useEffect, useMemo, useState, useTransition } from "react"
+import { useActionState, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { ChevronDown, Download, RefreshCw } from "lucide-react"
+import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js"
 import {
   AssignmentResultActivity,
   AssignmentResultActivitySummary,
@@ -32,6 +33,8 @@ import {
   computeAverageSuccessCriteriaScore,
   normaliseSuccessCriteriaScores,
 } from "@/lib/scoring/success-criteria"
+import { extractScoreFromSubmission, selectLatestSubmission } from "@/lib/scoring/activity-scores"
+import { supabaseBrowserClient } from "@/lib/supabase-browser"
 
 type CellStatus = AssignmentResultCell["status"]
 
@@ -108,8 +111,18 @@ type UploadFileState = {
   fetchedAt?: string | null
 }
 
+type SubmissionRow = {
+  submission_id: string | null
+  activity_id: string | null
+  user_id: string | null
+  submitted_at: string | null
+  body: unknown
+}
+
 const OVERRIDE_ACTION_INITIAL_STATE: OverrideActionState = { status: "idle" }
 const RESET_ACTION_INITIAL_STATE: ResetActionState = { status: "idle" }
+const RESULTS_REALTIME_ENABLED =
+  (process.env.NEXT_PUBLIC_RESULTS_REALTIME_ENABLED ?? "true").toLowerCase() === "true"
 
 function formatPercent(score: number | null): string {
   if (typeof score !== "number" || Number.isNaN(score)) {
@@ -171,6 +184,16 @@ function describeStatus(status: CellStatus) {
     default:
       return "Not marked"
   }
+}
+
+function resolveCellBackgroundTone(cell: AssignmentResultCell) {
+  if (cell.status === "missing") {
+    if (cell.needsMarking) {
+      return "bg-muted text-foreground border border-border"
+    }
+    return "bg-background text-muted-foreground border border-dashed border-border"
+  }
+  return resolveScoreTone(cell.score, cell.status)
 }
 
 function recalculateMatrix(
@@ -367,6 +390,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
   const [criterionDrafts, setCriterionDrafts] = useState<Record<string, string>>({})
   const [feedbackDraft, setFeedbackDraft] = useState<string>("")
   const [uploadFiles, setUploadFiles] = useState<Record<string, UploadFileState>>({})
+  const [realtimeDebug, setRealtimeDebug] = useState<string[]>([])
   const [overrideActionState, triggerOverrideAction, overridePending] = useActionState<
     OverrideActionState,
     OverrideActionDispatch
@@ -408,8 +432,26 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
   const [aiMarkPending, startAiMarkTransition] = useTransition()
   const [clearAiPending, startClearAiTransition] = useTransition()
   const router = useRouter()
+  const matrixStateRef = useRef(matrixState)
 
   const activities = matrixState.activities
+  const sanitizedAssignmentChannel = useMemo(() => {
+    const fallback = (matrix.assignmentId ?? "").replace(/[^a-zA-Z0-9_-]/g, "_")
+    return fallback.length > 0 ? `assignment-results-${fallback}` : "assignment-results"
+  }, [matrix.assignmentId])
+  const realtimeFilter = useMemo(() => {
+    if (!RESULTS_REALTIME_ENABLED || activities.length === 0) {
+      return null
+    }
+    const quotedIds = activities
+      .map((activity) => activity.activityId)
+      .filter((id) => typeof id === "string" && id.length > 0)
+      .map((id) => `"${id}"`)
+    if (quotedIds.length === 0) {
+      return null
+    }
+    return `activity_id=in.(${quotedIds.join(",")})`
+  }, [activities])
   const groupedRows = matrixState.rows
   const activitySummariesById = useMemo(() => {
     const map: Record<string, AssignmentResultActivitySummary> = {}
@@ -481,6 +523,10 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       totalPupils: groupedRows.length,
     }
   }, [selectedActivity, activities, groupedRows])
+
+  useEffect(() => {
+    matrixStateRef.current = matrixState
+  }, [matrixState])
   const handleAiMark = useCallback(() => {
     if (!selectedActivity) {
       toast.error("No activity is selected.")
@@ -586,6 +632,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
             successCriteriaScores: hasOverride ? targetCell.successCriteriaScores : resetScores,
             status: hasOverride ? "override" : "missing",
             score: hasOverride ? targetCell.overrideScore : fillValue,
+            needsMarking: hasOverride ? false : Boolean(targetCell.submissionId),
           }
           const nextCells = row.cells.map((cell, index) => (index === activityIndex ? updatedCell : cell))
           return { ...row, cells: nextCells }
@@ -620,6 +667,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
             successCriteriaScores: hasOverride ? current.cell.successCriteriaScores : resetScores,
             status: hasOverride ? "override" : "missing",
             score: hasOverride ? current.cell.overrideScore : fillValue,
+            needsMarking: hasOverride ? false : Boolean(current.cell.submissionId),
           },
         }
       })
@@ -653,7 +701,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
   const loadUploadFiles = useCallback(
     async (
       context: { lessonId: string; activityId: string; pupilId: string; cacheKey: string },
-      options?: { signal?: { aborted: boolean }; force?: boolean },
+      options?: { force?: boolean },
     ) => {
       setUploadFiles((previous) => {
         const current = previous[context.cacheKey]
@@ -662,7 +710,12 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
         }
         return {
           ...previous,
-          [context.cacheKey]: { status: "loading", files: [], error: null },
+          [context.cacheKey]: {
+            status: "loading",
+            files: current?.files ?? [],
+            error: null,
+            fetchedAt: current?.fetchedAt ?? null,
+          },
         }
       })
       try {
@@ -671,9 +724,6 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
           context.activityId,
           context.pupilId,
         )
-        if (options?.signal?.aborted) {
-          return
-        }
         if (listResult.error) {
           setUploadFiles((previous) => ({
             ...previous,
@@ -703,9 +753,6 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
             }
           }),
         )
-        if (options?.signal?.aborted) {
-          return
-        }
         setUploadFiles((previous) => ({
           ...previous,
           [context.cacheKey]: {
@@ -717,9 +764,6 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
         }))
       } catch (error) {
         console.error("[assignment-results] Unexpected error loading uploads:", error)
-        if (options?.signal?.aborted) {
-          return
-        }
         setUploadFiles((previous) => ({
           ...previous,
           [context.cacheKey]: {
@@ -744,26 +788,13 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     if (selectedUploadState && selectedUploadState.status !== "idle") {
       return
     }
-    const controller = { aborted: false }
-    void loadUploadFiles(
-      {
-        lessonId,
-        activityId: selection.activity.activityId,
-        pupilId: selection.row.pupil.userId,
-        cacheKey: selectedUploadKey,
-      },
-      { signal: controller },
-    )
-    return () => {
-      controller.aborted = true
-    }
-  }, [
-    selection,
-    matrixState.lesson?.lessonId,
-    selectedUploadKey,
-    selectedUploadState?.status,
-    loadUploadFiles,
-  ])
+    void loadUploadFiles({
+      lessonId,
+      activityId: selection.activity.activityId,
+      pupilId: selection.row.pupil.userId,
+      cacheKey: selectedUploadKey,
+    })
+  }, [selection, matrixState.lesson?.lessonId, selectedUploadKey, selectedUploadState?.status, loadUploadFiles])
 
   const handleUploadRefresh = useCallback(() => {
     if (!selection || selection.activity.type !== "upload-file") {
@@ -790,6 +821,21 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     const row = groupedRows[rowIndex]
     const activity = activities[activityIndex]
     const cell = row.cells[activityIndex]
+    const cacheKey = `${row.pupil.userId}::${activity.activityId}`
+
+    setUploadFiles((previous) => {
+      const current = previous[cacheKey]
+      if (!current || current.status === "idle") {
+        return previous
+      }
+      return {
+        ...previous,
+        [cacheKey]: {
+          ...current,
+          status: "idle",
+        },
+      }
+    })
 
     setActivitySummarySelection(null)
     setSelection({
@@ -871,6 +917,218 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       }
     })
   }
+
+  const normalizeRow = (row: unknown): SubmissionRow | null => {
+    if (!row || typeof row !== "object") {
+      return null
+    }
+    const base = row as Record<string, unknown>
+    const recordLike =
+      (typeof base.record === "object" && base.record) ||
+      (typeof base.new === "object" && base.new) ||
+      (typeof base.payload === "object" && base.payload) ||
+      null
+    if (recordLike) {
+      return recordLike as SubmissionRow
+    }
+    return base as SubmissionRow
+  }
+
+  const handleRealtimeSubmission = useCallback(
+    (payload: RealtimePostgresChangesPayload<SubmissionRow>) => {
+      const normalizedNew = normalizeRow(payload.new)
+      const normalizedOld = normalizeRow(payload.old)
+      const eventActivityId = normalizedNew?.activity_id ?? normalizedOld?.activity_id ?? null
+      const eventPupilId = normalizedNew?.user_id ?? normalizedOld?.user_id ?? null
+      console.info("[assignment-results] Realtime payload received", {
+        eventType: payload.eventType,
+        activityId: eventActivityId,
+        pupilId: eventPupilId,
+        raw: payload,
+      })
+      if (!eventActivityId || !eventPupilId) {
+        console.warn("[assignment-results] Unable to resolve real-time identifiers", {
+          payloadKeys: {
+            new: payload.new ? Object.getOwnPropertyNames(payload.new) : [],
+            old: payload.old ? Object.getOwnPropertyNames(payload.old) : [],
+          },
+          payload,
+        })
+      }
+      setRealtimeDebug((previous) => {
+        const entry = `${new Date().toLocaleTimeString()} • ${payload.eventType} activity=${
+          payload.new?.activity_id ?? payload.old?.activity_id ?? "unknown"
+        } pupil=${payload.new?.user_id ?? payload.old?.user_id ?? "unknown"} submission=${
+          payload.new?.submission_id ?? payload.old?.submission_id ?? "—"
+        }`
+        return [entry, ...previous].slice(0, 5)
+      })
+      const record = payload.eventType === "DELETE" ? payload.old : payload.new
+      if (!record) {
+        return
+      }
+      const activityId = record.activity_id ?? ""
+      const pupilId = record.user_id ?? ""
+      if (!activityId || !pupilId) {
+        return
+      }
+      const currentMatrix = matrixStateRef.current
+      const activityIndex = currentMatrix.activities.findIndex((activity) => activity.activityId === activityId)
+      if (activityIndex === -1) {
+        return
+      }
+      const rowIndex = currentMatrix.rows.findIndex((row) => row.pupil.userId === pupilId)
+      if (rowIndex === -1) {
+        return
+      }
+      const successCriteriaIds = currentMatrix.activities[activityIndex].successCriteria.map(
+        (criterion) => criterion.successCriteriaId,
+      )
+      const submittedAt = record.submitted_at ? new Date(record.submitted_at).toISOString() : null
+
+      if (payload.eventType === "DELETE") {
+        const zeroScores = normaliseSuccessCriteriaScores({
+          successCriteriaIds,
+          fillValue: 0,
+        })
+        let clearedCell: AssignmentResultCell | null = null
+        applyCellUpdate(
+          (cell) => {
+            clearedCell = {
+              ...cell,
+              submissionId: null,
+              score: 0,
+              autoScore: 0,
+              overrideScore: null,
+              status: "missing",
+              submittedAt: null,
+              feedback: null,
+              autoFeedback: null,
+              successCriteriaScores: zeroScores,
+              autoSuccessCriteriaScores: zeroScores,
+              overrideSuccessCriteriaScores: undefined,
+              needsMarking: false,
+            }
+            return clearedCell
+          },
+          { rowIndex, activityIndex },
+        )
+        if (clearedCell) {
+          setSelection((current) => {
+            if (!current || current.rowIndex !== rowIndex || current.activityIndex !== activityIndex) {
+              return current
+            }
+            return {
+              ...current,
+              cell: clearedCell!,
+            }
+          })
+        }
+        return
+      }
+
+      let updatedCell: AssignmentResultCell | null = null
+      applyCellUpdate(
+        (cell) => {
+          if (!selectLatestSubmission(cell, submittedAt)) {
+            return cell
+          }
+          const metadata = {
+            question: cell.question ?? null,
+            correctAnswer: cell.correctAnswer ?? null,
+            optionTextMap: undefined,
+          }
+          const activityType = currentMatrix.activities[activityIndex].type
+          const extracted = extractScoreFromSubmission(activityType, record.body, successCriteriaIds, metadata)
+          const finalScore =
+            computeAverageSuccessCriteriaScore(extracted.successCriteriaScores) ?? extracted.effectiveScore ?? 0
+          const status =
+            typeof extracted.overrideScore === "number"
+              ? "override"
+              : typeof extracted.effectiveScore === "number"
+                ? "auto"
+                : "missing"
+          updatedCell = {
+            ...cell,
+            submissionId: record.submission_id ?? cell.submissionId,
+            score: finalScore,
+            autoScore: extracted.autoScore ?? finalScore,
+            overrideScore: extracted.overrideScore,
+            status,
+            submittedAt,
+            feedback: extracted.feedback,
+            autoFeedback: extracted.autoFeedback ?? null,
+            successCriteriaScores: extracted.successCriteriaScores,
+            autoSuccessCriteriaScores: extracted.autoSuccessCriteriaScores,
+            overrideSuccessCriteriaScores: extracted.overrideSuccessCriteriaScores ?? undefined,
+            pupilAnswer: extracted.pupilAnswer ?? cell.pupilAnswer,
+            needsMarking: status === "missing" ? Boolean(record.submission_id) : false,
+          }
+          return updatedCell
+        },
+        { rowIndex, activityIndex },
+      )
+      if (updatedCell) {
+        setSelection((current) => {
+          if (!current || current.rowIndex !== rowIndex || current.activityIndex !== activityIndex) {
+            return current
+          }
+          return {
+            ...current,
+            cell: updatedCell!,
+          }
+        })
+      }
+    },
+    [applyCellUpdate],
+  )
+
+  const channelRef = useRef<ReturnType<typeof supabaseBrowserClient.channel> | null>(null)
+
+  useEffect(() => {
+    if (!RESULTS_REALTIME_ENABLED || !realtimeFilter) {
+      return
+    }
+    const channelName = sanitizedAssignmentChannel
+    if (channelRef.current) {
+      const existingFilter = channelRef.current?.bindings?.find(
+        (binding) => binding.type === "postgres_changes",
+      ) as { filter?: string } | undefined
+      if (existingFilter?.filter === realtimeFilter) {
+        return
+      }
+      supabaseBrowserClient.removeChannel(channelRef.current)
+      channelRef.current = null
+    }
+    console.info("[assignment-results] Subscribing to realtime channel", {
+      channelName,
+      filter: realtimeFilter,
+    })
+    const channel = supabaseBrowserClient.channel(channelName).on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "submissions", filter: realtimeFilter },
+      handleRealtimeSubmission,
+    )
+    channel.subscribe((status) => {
+      if (status === "CHANNEL_ERROR") {
+        console.error("[assignment-results] Realtime channel error", channelName)
+        supabaseBrowserClient.removeChannel(channel)
+        if (channelRef.current === channel) {
+          channelRef.current = null
+        }
+      }
+      if (status === "TIMED_OUT") {
+        console.warn("[assignment-results] Realtime channel timed out", channelName)
+      }
+    })
+    channelRef.current = channel
+    return () => {
+      if (channelRef.current === channel) {
+        supabaseBrowserClient.removeChannel(channel)
+        channelRef.current = null
+      }
+    }
+  }, [handleRealtimeSubmission, realtimeFilter, sanitizedAssignmentChannel])
 
   const handleOverrideSubmit = () => {
     if (!selection) return
@@ -993,6 +1251,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
           successCriteriaScores: derived.successCriteriaScores,
           overrideSuccessCriteriaScores: derived.successCriteriaScores,
           submittedAt: derived.submittedAt,
+          needsMarking: false,
         }),
         { rowIndex: derived.rowIndex, activityIndex: derived.activityIndex },
       )
@@ -1012,6 +1271,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
             successCriteriaScores: derived.successCriteriaScores,
             overrideSuccessCriteriaScores: derived.successCriteriaScores,
             submittedAt: derived.submittedAt,
+            needsMarking: false,
           },
         }
       })
@@ -1054,6 +1314,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
           autoSuccessCriteriaScores: derived.successCriteriaScores,
           overrideSuccessCriteriaScores: undefined,
           submittedAt: derived.submittedAt,
+          needsMarking: derived.status === "missing" && Boolean(cell.submissionId),
         }),
         { rowIndex: derived.rowIndex, activityIndex: derived.activityIndex },
       )
@@ -1074,6 +1335,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
             autoSuccessCriteriaScores: derived.successCriteriaScores,
             overrideSuccessCriteriaScores: undefined,
             submittedAt: derived.submittedAt,
+            needsMarking: derived.status === "missing" && Boolean(current.cell.submissionId),
           },
         }
       })
@@ -1163,6 +1425,17 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
             ) : null}
           </div>
         </div>
+
+        {realtimeDebug.length > 0 ? (
+          <div className="rounded-md border border-dashed border-primary/40 bg-primary/5 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-primary">Realtime debug feed</p>
+            <ul className="mt-2 space-y-1 text-xs font-mono text-primary/80">
+              {realtimeDebug.map((entry) => (
+                <li key={entry}>{entry}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
 
         <div className="grid gap-3 md:grid-cols-3">
           <details className="group rounded-lg border border-border bg-card text-sm">
@@ -1394,13 +1667,13 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                           {formatPercent(row.averageScore ?? null)}
                         </td>
                         {row.cells.map((cell, activityIndex) => {
-                          const tone = resolveScoreTone(cell.score, cell.status)
+                          const tone = resolveCellBackgroundTone(cell)
                           return (
                             <td key={cell.activityId} className="px-2 py-2 text-center">
                               <button
                                 type="button"
                                 className={cn(
-                                  "flex h-10 w-full items-center justify-center rounded-md text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                                  "flex h-10 w-full items-center justify-center rounded-md border border-transparent text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                                   tone,
                                 )}
                                 onClick={() => handleCellSelect(rowIndex, activityIndex)}

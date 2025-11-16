@@ -18,6 +18,7 @@ This guide captures the working knowledge future coding agents need to extend th
 - `supabase` – SQL migrations, schema snapshots, and seed tooling; drive all schema changes through here.
 - `tests` – Playwright specs plus `.env.test` fixture configuration.
 - `bin` – Shell scripts for Supabase sync and environment loading (e.g. `bin/dev_db_sync.sh`).
+- `MCP` – Standalone Model Context Protocol server that exposes curated planner resources/tools to coding agents (`npm run dev` to watch).
 
 ## Core Domain & Data Contracts
 - Treat Zod schemas in `src/types/index.ts` as the source of truth for planner entities (groups, units, lessons, assignments, feedback). Extend or reuse these instead of recreating ad-hoc shapes.
@@ -65,6 +66,7 @@ This guide captures the working knowledge future coding agents need to extend th
 - Scripts in `package.json` cover the usual dev, build, lint, and test tasks. Database helpers (`db:pull`, `db:push`, `db:diff`) assume Supabase CLI setup.
 - Sync Supabase schema for local development via `bin/dev_db_sync.sh`, which chains dump/apply scripts. Seed users live in `supabase/seed.sql` and `supabase/seed-users.mjs`.
 - Use `npm run db:diff "migration-name"` to scaffold migrations, commit them under `supabase/migrations`, and refresh generated types if table shapes change.
+- The MCP server under `/MCP` is its own Node workspace (`npm install` already committed). Use `npm run dev` for hot reload via `tsx watch`, or `npm start` for a single run; the HTTP endpoint defaults to `http://127.0.0.1:4545/mcp`. Exposed resources include `planner://playbook`, `planner://todos`, and `planner://file/{path}` (pinned paths from `MCP_PINNED_FILES`). Tools currently shipped: `read_workspace_file` (returns snippets with byte limits) and `search_todos` (finds lines in `todos.md`). Environment knobs: `MCP_PORT`, `MCP_HOST`, `MCP_ROUTE`, `MCP_PINNED_FILES` (comma list), `MCP_ALLOWED_HOSTS`, `MCP_ALLOWED_ORIGINS`, `MCP_ENABLE_DNS_REBINDING_PROTECTION`, and `MCP_FILE_BYTE_LIMIT`.
 
 ## Implementation Checklist
 1. Confirm the relevant Zod schema exists or add one in `src/types/index.ts` before touching UI or Supabase logic.

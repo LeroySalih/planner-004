@@ -30,6 +30,13 @@ const TOOLS = [
     description:
       "Returns learning objectives and success criteria for a curriculum. Input includes curriculum_id.",
   },
+  {
+    name: "feedback_short_text",
+    methods: ["POST"],
+    path: "/api/MCP/feedback/short-text",
+    description:
+      "Scores a short-text submission and returns AI feedback; auto-populates missing question/answers when possible.",
+  },
 ]
 
 async function handleRequest(request: NextRequest) {

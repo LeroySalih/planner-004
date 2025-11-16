@@ -3,11 +3,16 @@
 # Change Log
 2025-11-09 17:25 Updated the Editing section with changes to the side bar.
 2025-11-12 09:10 Added the AI Marking section describing automated scoring UX, data flows, and telemetry expectations.
+2025-11-13 14:20 Clarified cell background states (white vs. gray vs. RAG) for the assignment results grid.
+2025-11-13 16:45 Added realtime update requirements for pupil submissions and AI webhook feedback.
+2025-11-13 17:45 Documented Supabase Realtime prerequisites (submissions PK + replica identity) for assignment updates.
 
 # Description
 The results/assignments page allows the teacher to view and override the feedback for a pupil on the acitvities of a lesson.
 
 ## Editing
+
+- Activity cells surface state through their background color: untouched activities render with a white background, submissions awaiting marking (value entered or file uploaded) switch to gray, and once a teacher override or automatic score is accepted they resume the standard red/amber/green palette. Any new pupil submission after marking flips the background to gray again so teachers can spot items that need review.
 
 - To view or overide a score, the teacher will click on a cell, which will open the feedback side bar.
 
@@ -18,6 +23,7 @@ The results/assignments page allows the teacher to view and override the feedbac
    - Question: this will display the question and pupil answers.  If the activity is an upload file, their will be a cached download link (signed URL) that can be reused until the file changes, plus a refresh button so teachers can request a new signed URL when needed.
 
    - Automatic Score:  This will display the automatic score assigned to the question, even when an override is active, so teachers can compare the stored automatic values.
+     - Automatic feedback mirrors the same red/amber/green styling palette used for override feedback so teachers can compare machine vs. human scoring at a glance.
 
 - Override: This will display all ofthe Success Criteria that are associated with the acitvity, and allow the teacher to enter 0, Partial (50%) or Full via button, or a specific value by text box.  The teacher can also add text feedback.
    - Override reasons remain free-form text; no structured status field is required beyond the override marker.
@@ -45,6 +51,13 @@ The results/assignments page allows the teacher to view and override the feedbac
 6. Document the workflow inside this specs file and cross-reference in future planner updates.
 7. `readAssignmentResultsAction` is the canonical source for sidebar data; it now sanitizes question text, captures upload instructions, records auto vs. override metadata, and wraps its Supabase calls with `withTelemetry` so `/results/assignments` logging stays consistent.
 
+## Realtime Updates
+- `/results/assignments/[group__lesson]` subscribes to Supabase Realtime channels scoped to the active assignment so cells update as soon as pupils submit text answers or upload files from the pupil lesson page. Event payloads should at minimum include `{ submissionId, pupilId, activityId, status, submittedAt }` so the grid can patch the affected cell without a full revalidation.
+- AI feedback arriving via `/api/mcp` webhook callbacks must dispatch events on the same channel immediately after Supabase persists new auto scores/feedback. Automatic Score panes re-render in place while the rest of the matrix stays interactive.
+- Realtime handlers remain idempotent—if the payload is incomplete, trigger a targeted `readAssignmentResultsAction` fetch for that row/activity while keeping the optimistic state visible.
+- Gate the subscription behind a feature flag so environments without Supabase Realtime fall back to manual refresh without error spam.
+- Infra prerequisite: the `public.submissions` table must expose a primary key (`replication_pk` UUID identity) and `REPLICA IDENTITY FULL` so Supabase Realtime emits full row payloads. Migrations `2025120115000000_submissions_replica_identity.sql` and `2025120115000001_submissions_primary_key.sql` enforce this locally; remote environments must apply equivalent DDL before enabling the channel.
+
 ## AI Marking
 - **Purpose**: Allow teachers to invoke AI-assisted scoring for selected activities/pupils so baseline marks are generated quickly before human overrides.
 - **Entry points**:
@@ -62,7 +75,7 @@ The results/assignments page allows the teacher to view and override the feedbac
   2. Action validates input with Zod, enforces `requireTeacherProfile()`, and wraps work with `withTelemetry({ routeTag: "/results/assignments:ai" })`.
   3. Server writes a job row (e.g., `assignment_ai_jobs`) and enqueues work to Supabase functions or an Edge Function that calls the AI provider.
   4. AI worker reads submissions (or raw answers), calls the provider, normalises scores per success-criterion, and writes back to `submissions` using the same schemas (`ShortTextSubmissionBodySchema`, etc.).
-  5. On completion, worker emits Supabase Realtime events so the Assignment Results dashboard can reconcile without a full refresh and then triggers the existing report-cache recalculation queue once per pupil.
+ 5. On completion, worker emits Supabase Realtime events on the assignment channel so the Assignment Results dashboard can reconcile without a full refresh (and `/reports` mirrors, if open) and then triggers the existing report-cache recalculation queue once per pupil.
 - **Guardrails & observability**:
   - Telemetry: Log function name, params (minus PII), total duration, AI call duration, and queue latency when `TELEM_ENABLED=true`. Respect `TELEM_PATH` by tagging events with `/results`.
   - Authorization: Ensure only teachers with access to the assignment can queue AI; reuse `requireTeacherProfile()` plus a future `requireGroupMembershipForTeacher()` helper.

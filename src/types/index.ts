@@ -465,6 +465,55 @@ export const ShortTextSubmissionBodySchema = z
 export type ShortTextActivityBody = z.infer<typeof ShortTextActivityBodySchema>;
 export type ShortTextSubmissionBody = z.infer<typeof ShortTextSubmissionBodySchema>;
 
+export const ShortTextFeedbackRequestSchema = z
+    .object({
+        assignment_id: z.string().min(1),
+        lesson_id: z.string().optional().nullable(),
+        activity_id: z.string().min(1),
+        submission_id: z.string().optional().nullable(),
+        pupil_id: z.string().min(1),
+        activity_question: z.string().optional().nullable(),
+        activity_model_answer: z.string().optional().nullable(),
+        pupil_answer: z.string().optional().nullable(),
+        request_context: z.unknown().optional().nullable(),
+    })
+    .passthrough();
+
+export const ShortTextFeedbackEventSchema = z
+    .object({
+        feedback_event_id: z.string(),
+        assignment_id: z.string().nullable().optional(),
+        lesson_id: z.string().nullable().optional(),
+        activity_id: z.string(),
+        submission_id: z.string().nullable().optional(),
+        pupil_id: z.string(),
+        activity_question: z.string().nullable().optional(),
+        activity_model_answer: z.string().nullable().optional(),
+        pupil_answer: z.string().nullable().optional(),
+        ai_score: z.number().nullable().optional(),
+        ai_feedback: z.string().nullable().optional(),
+        request_context: z.unknown().optional().nullable(),
+        created_at: z.string(),
+        updated_at: z.string(),
+    })
+    .passthrough();
+
+export const ShortTextFeedbackResultSchema = z.object({
+    assignment_id: z.string(),
+    pupil_id: z.string(),
+    activity_id: z.string(),
+    activity_question: z.string(),
+    activity_model_answer: z.string(),
+    pupil_answer: z.string(),
+    score: z.number().min(0).max(1).nullable(),
+    feedback: z.string(),
+    populated_from_submission: z.boolean(),
+});
+
+export type ShortTextFeedbackRequest = z.infer<typeof ShortTextFeedbackRequestSchema>;
+export type ShortTextFeedbackEvent = z.infer<typeof ShortTextFeedbackEventSchema>;
+export type ShortTextFeedbackResult = z.infer<typeof ShortTextFeedbackResultSchema>;
+
 export interface LessonSubmissionScore {
     userId: string;
     score: number | null;
@@ -647,6 +696,7 @@ export const AssignmentResultCellSchema = z.object({
     question: z.string().nullable().optional(),
     correctAnswer: z.string().nullable().optional(),
     pupilAnswer: z.string().nullable().optional(),
+    needsMarking: z.boolean().default(false),
 });
 
 export const AssignmentResultRowSchema = z.object({

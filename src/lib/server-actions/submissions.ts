@@ -575,6 +575,13 @@ export async function upsertMcqSubmissionAction(input: z.infer<typeof McqSubmiss
       return { success: false, error: "Invalid submission data.", data: null as Submission | null }
     }
 
+    console.log("[realtime-debug] MCQ submission stored", {
+      type: "update",
+      activityId: payload.activityId,
+      pupilId: payload.userId,
+      submissionId: parsed.data.submission_id,
+    })
+
     return { success: true, error: null, data: parsed.data }
   }
 
@@ -598,6 +605,13 @@ export async function upsertMcqSubmissionAction(input: z.infer<typeof McqSubmiss
     console.error("[submissions] Failed to parse inserted submission:", parsed.error)
     return { success: false, error: "Invalid submission data.", data: null as Submission | null }
   }
+
+  console.log("[realtime-debug] MCQ submission stored", {
+    type: "insert",
+    activityId: payload.activityId,
+    pupilId: payload.userId,
+    submissionId: parsed.data.submission_id,
+  })
 
   return { success: true, error: null, data: parsed.data }
 }

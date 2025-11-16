@@ -35,6 +35,7 @@ import { withTelemetry } from "@/lib/telemetry"
 const ASSIGNMENT_ID_SEPARATOR = "__"
 const SHORT_TEXT_ACTIVITY_TYPE = "short-text-question"
 const SHORT_TEXT_CORRECTNESS_THRESHOLD = 0.8
+const LESSON_FILES_BUCKET = "lessons"
 const AssignmentIdentifierSchema = z.object({
   assignmentId: z.string().min(3),
 })
@@ -160,6 +161,22 @@ function computeShortTextCorrectness(score: number | null): boolean {
     return false
   }
   return score >= SHORT_TEXT_CORRECTNESS_THRESHOLD
+}
+
+function buildSubmissionDirectoryPath(lessonId: string, activityId: string, pupilId: string) {
+  return `lessons/${lessonId}/activities/${activityId}/${pupilId}`
+}
+
+function buildLegacySubmissionDirectoryPath(lessonId: string, activityId: string, pupilId: string) {
+  return `${lessonId}/activities/${activityId}/${pupilId}`
+}
+
+function isStorageNotFoundError(error: { message?: string } | null) {
+  if (!error?.message) {
+    return false
+  }
+  const normalized = error.message.toLowerCase()
+  return normalized.includes("not found") || normalized.includes("object not found")
 }
 
 
@@ -290,39 +307,31 @@ export async function readAssignmentResultsAction(
             persistSession: false,
             autoRefreshToken: false,
           },
-          db: {
-            schema: "auth",
-          },
         })
 
-        const { data: authUsers, error: authError } = await supabaseAdmin
-          .from("users")
-          .select("id, email")
-          .in("id", pupilIds)
-
-        if (authError) {
-          const normalizedMessage =
-            authError && typeof authError === "object" && "message" in authError
-              ? ((authError as { message?: string }).message ?? null)
-              : null
-
-          console.warn(
-            "[assignment-results] Skipping pupil email enrichment from auth.users.",
-            normalizedMessage
-              ? { message: normalizedMessage }
-              : {
-                  message:
-                    "Supabase service role credentials may be missing or lack access to the auth schema. This is optional and only affects email display.",
-                },
-          )
-        } else {
-          for (const user of authUsers ?? []) {
-            const email = typeof user?.email === "string" ? user.email.trim() : ""
-            if (email.length > 0 && typeof user?.id === "string") {
-              emailByUserId.set(user.id, email)
+        await Promise.all(
+          pupilIds.map(async (userId) => {
+            try {
+              const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId)
+              if (error) {
+                throw error
+              }
+              const email = data?.user?.email?.trim()
+              if (email) {
+                emailByUserId.set(userId, email)
+              }
+            } catch (error) {
+              const message =
+                error && typeof error === "object" && "message" in error
+                  ? (error as { message?: string }).message
+                  : "Unknown admin API error"
+              console.warn("[assignment-results] Unable to fetch pupil email via admin API.", {
+                userId,
+                message,
+              })
             }
-          }
-        }
+          }),
+        )
       } catch (error) {
         console.error("[assignment-results] Unexpected error loading pupil emails:", error)
       }
@@ -560,6 +569,7 @@ export async function readAssignmentResultsAction(
           question: metadata.question,
           correctAnswer: metadata.correctAnswer,
           pupilAnswer: null,
+          needsMarking: false,
         })
         baseCellMap.set(`${pupil.userId}::${activity.activityId}`, baseCell)
       }
@@ -625,8 +635,52 @@ export async function readAssignmentResultsAction(
           question: extracted.question ?? metadata.question,
           correctAnswer: extracted.correctAnswer ?? metadata.correctAnswer,
           pupilAnswer: extracted.pupilAnswer ?? null,
+          needsMarking: Boolean(submission.submission_id) && status === "missing",
         }),
       )
+    }
+
+    const resolvedLessonId = lessonResult.data?.lesson_id ?? null
+    if (resolvedLessonId) {
+      const uploadPresenceChecks: Array<{ key: string; activityId: string; pupilId: string }> = []
+      for (const pupil of pupils) {
+        for (const activity of activities) {
+          if (activity.type !== "upload-file") {
+            continue
+          }
+          const key = `${pupil.userId}::${activity.activityId}`
+          const cell = baseCellMap.get(key)
+          if (!cell || cell.submissionId) {
+            continue
+          }
+          uploadPresenceChecks.push({
+            key,
+            activityId: activity.activityId,
+            pupilId: pupil.userId,
+          })
+        }
+      }
+
+      if (uploadPresenceChecks.length > 0) {
+        const pendingUploads = await detectPendingUploadSubmissions(supabase, resolvedLessonId, uploadPresenceChecks)
+        for (const [cellKey, entry] of pendingUploads.entries()) {
+          if (!entry?.hasUploads) {
+            continue
+          }
+          const target = baseCellMap.get(cellKey)
+          if (!target) {
+            continue
+          }
+          baseCellMap.set(
+            cellKey,
+            AssignmentResultCellSchema.parse({
+              ...target,
+              submittedAt: target.submittedAt ?? entry.submittedAt,
+              needsMarking: true,
+            }),
+          )
+        }
+      }
     }
 
     const activityTotals = new Map<
@@ -669,6 +723,7 @@ export async function readAssignmentResultsAction(
             question: metadata.question,
             correctAnswer: metadata.correctAnswer,
             pupilAnswer: null,
+            needsMarking: false,
           })
         }
         const entry = activityTotals.get(activity.activityId) ?? {
@@ -841,6 +896,62 @@ export async function readAssignmentResultsAction(
       }
     },
   )
+}
+
+type UploadPresenceCheck = {
+  key: string
+  activityId: string
+  pupilId: string
+}
+
+type UploadPresenceEntry = {
+  hasUploads: boolean
+  submittedAt: string | null
+}
+
+async function detectPendingUploadSubmissions(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  lessonId: string,
+  checks: UploadPresenceCheck[],
+) {
+  const results = new Map<string, UploadPresenceEntry>()
+  if (checks.length === 0) {
+    return results
+  }
+
+  const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
+  for (const check of checks) {
+    let hasUploads = false
+    let submittedAt: string | null = null
+    const directories = [
+      buildSubmissionDirectoryPath(lessonId, check.activityId, check.pupilId),
+      buildLegacySubmissionDirectoryPath(lessonId, check.activityId, check.pupilId),
+    ]
+
+    for (const directory of directories) {
+      const { data, error } = await bucket.list(directory, { limit: 1 })
+      if (error) {
+        if (isStorageNotFoundError(error)) {
+          continue
+        }
+        console.error("[assignment-results] Failed to inspect pupil upload submissions:", error, {
+          directory,
+        })
+        break
+      }
+      if (Array.isArray(data) && data.length > 0) {
+        hasUploads = true
+        const file = data[0]
+        const timestamp = file.updated_at ?? file.created_at ?? null
+        submittedAt = timestamp ? new Date(timestamp).toISOString() : null
+        break
+      }
+    }
+
+    results.set(check.key, { hasUploads, submittedAt })
+  }
+
+  return results
 }
 
 async function getSubmissionRow(
