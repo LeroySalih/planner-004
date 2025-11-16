@@ -696,6 +696,7 @@ export const AssignmentResultCellSchema = z.object({
     question: z.string().nullable().optional(),
     correctAnswer: z.string().nullable().optional(),
     pupilAnswer: z.string().nullable().optional(),
+    needsMarking: z.boolean().default(false),
 });
 
 export const AssignmentResultRowSchema = z.object({

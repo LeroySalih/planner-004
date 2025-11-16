@@ -3,11 +3,14 @@
 # Change Log
 2025-11-09 17:25 Updated the Editing section with changes to the side bar.
 2025-11-12 09:10 Added the AI Marking section describing automated scoring UX, data flows, and telemetry expectations.
+2025-11-13 14:20 Clarified cell background states (white vs. gray vs. RAG) for the assignment results grid.
 
 # Description
 The results/assignments page allows the teacher to view and override the feedback for a pupil on the acitvities of a lesson.
 
 ## Editing
+
+- Activity cells surface state through their background color: untouched activities render with a white background, submissions awaiting marking (value entered or file uploaded) switch to gray, and once a teacher override or automatic score is accepted they resume the standard red/amber/green palette. Any new pupil submission after marking flips the background to gray again so teachers can spot items that need review.
 
 - To view or overide a score, the teacher will click on a cell, which will open the feedback side bar.
 
@@ -18,6 +21,7 @@ The results/assignments page allows the teacher to view and override the feedbac
    - Question: this will display the question and pupil answers.  If the activity is an upload file, their will be a cached download link (signed URL) that can be reused until the file changes, plus a refresh button so teachers can request a new signed URL when needed.
 
    - Automatic Score:  This will display the automatic score assigned to the question, even when an override is active, so teachers can compare the stored automatic values.
+     - Automatic feedback mirrors the same red/amber/green styling palette used for override feedback so teachers can compare machine vs. human scoring at a glance.
 
 - Override: This will display all ofthe Success Criteria that are associated with the acitvity, and allow the teacher to enter 0, Partial (50%) or Full via button, or a specific value by text box.  The teacher can also add text feedback.
    - Override reasons remain free-form text; no structured status field is required beyond the override marker.

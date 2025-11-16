@@ -173,6 +173,16 @@ function describeStatus(status: CellStatus) {
   }
 }
 
+function resolveCellBackgroundTone(cell: AssignmentResultCell) {
+  if (cell.status === "missing") {
+    if (cell.needsMarking) {
+      return "bg-muted text-foreground border border-border"
+    }
+    return "bg-background text-muted-foreground border border-dashed border-border"
+  }
+  return resolveScoreTone(cell.score, cell.status)
+}
+
 function recalculateMatrix(
   activities: AssignmentResultActivity[],
   rows: AssignmentResultRow[],
@@ -586,6 +596,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
             successCriteriaScores: hasOverride ? targetCell.successCriteriaScores : resetScores,
             status: hasOverride ? "override" : "missing",
             score: hasOverride ? targetCell.overrideScore : fillValue,
+            needsMarking: hasOverride ? false : Boolean(targetCell.submissionId),
           }
           const nextCells = row.cells.map((cell, index) => (index === activityIndex ? updatedCell : cell))
           return { ...row, cells: nextCells }
@@ -620,6 +631,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
             successCriteriaScores: hasOverride ? current.cell.successCriteriaScores : resetScores,
             status: hasOverride ? "override" : "missing",
             score: hasOverride ? current.cell.overrideScore : fillValue,
+            needsMarking: hasOverride ? false : Boolean(current.cell.submissionId),
           },
         }
       })
@@ -991,6 +1003,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
           successCriteriaScores: derived.successCriteriaScores,
           overrideSuccessCriteriaScores: derived.successCriteriaScores,
           submittedAt: derived.submittedAt,
+          needsMarking: false,
         }),
         { rowIndex: derived.rowIndex, activityIndex: derived.activityIndex },
       )
@@ -1010,6 +1023,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
             successCriteriaScores: derived.successCriteriaScores,
             overrideSuccessCriteriaScores: derived.successCriteriaScores,
             submittedAt: derived.submittedAt,
+            needsMarking: false,
           },
         }
       })
@@ -1052,6 +1066,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
           autoSuccessCriteriaScores: derived.successCriteriaScores,
           overrideSuccessCriteriaScores: undefined,
           submittedAt: derived.submittedAt,
+          needsMarking: derived.status === "missing" && Boolean(cell.submissionId),
         }),
         { rowIndex: derived.rowIndex, activityIndex: derived.activityIndex },
       )
@@ -1072,6 +1087,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
             autoSuccessCriteriaScores: derived.successCriteriaScores,
             overrideSuccessCriteriaScores: undefined,
             submittedAt: derived.submittedAt,
+            needsMarking: derived.status === "missing" && Boolean(current.cell.submissionId),
           },
         }
       })
@@ -1392,13 +1408,13 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                           {formatPercent(row.averageScore ?? null)}
                         </td>
                         {row.cells.map((cell, activityIndex) => {
-                          const tone = resolveScoreTone(cell.score, cell.status)
+                          const tone = resolveCellBackgroundTone(cell)
                           return (
                             <td key={cell.activityId} className="px-2 py-2 text-center">
                               <button
                                 type="button"
                                 className={cn(
-                                  "flex h-10 w-full items-center justify-center rounded-md text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                                  "flex h-10 w-full items-center justify-center rounded-md border border-transparent text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                                   tone,
                                 )}
                                 onClick={() => handleCellSelect(rowIndex, activityIndex)}

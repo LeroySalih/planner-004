@@ -282,6 +282,20 @@ export async function uploadPupilActivitySubmissionAction(formData: FormData) {
     return { success: false, error: uploadError.message }
   }
 
+  const submittedAt = new Date().toISOString()
+  const submissionResult = await upsertUploadSubmissionRecord({
+    supabase,
+    activityId,
+    pupilId,
+    fileName,
+    submittedAt,
+  })
+
+  if (!submissionResult.success) {
+    await bucket.remove([path])
+    return { success: false, error: submissionResult.error ?? "Unable to record submission." }
+  }
+
   revalidatePath(`/pupil-lessons/${encodeURIComponent(pupilId)}/lessons/${encodeURIComponent(lessonId)}`)
   return { success: true }
 }
@@ -322,6 +336,11 @@ export async function deletePupilActivitySubmissionAction(
     return { success: false, error: lastError.message }
   }
 
+  const cleanupResult = await cleanupUploadSubmissionRecord({ supabase, activityId, pupilId })
+  if (!cleanupResult.success) {
+    return { success: false, error: cleanupResult.error ?? "Unable to update submission." }
+  }
+
   revalidatePath(`/pupil-lessons/${encodeURIComponent(pupilId)}/lessons/${encodeURIComponent(lessonId)}`)
   return { success: true }
 }
@@ -357,4 +376,138 @@ export async function getPupilActivitySubmissionUrlAction(
   }
 
   return { success: false, error: lastError?.message ?? "NOT_FOUND" }
+}
+
+type UploadSubmissionSyncParams = {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
+  activityId: string
+  pupilId: string
+  fileName: string
+  submittedAt: string
+}
+
+async function upsertUploadSubmissionRecord({
+  supabase,
+  activityId,
+  pupilId,
+  fileName,
+  submittedAt,
+}: UploadSubmissionSyncParams) {
+  const payload = {
+    submission_type: "upload-file",
+    upload_submission: true,
+    upload_file_name: fileName,
+    upload_updated_at: submittedAt,
+    success_criteria_scores: {},
+  }
+
+  const { data: existing, error: fetchError } = await supabase
+    .from("submissions")
+    .select("submission_id")
+    .eq("activity_id", activityId)
+    .eq("user_id", pupilId)
+    .order("submitted_at", { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (fetchError) {
+    console.error("[v0] Failed to load existing upload submission:", fetchError)
+    return { success: false, error: "Unable to record submission." }
+  }
+
+  if (existing?.submission_id) {
+    const { error: updateError } = await supabase
+      .from("submissions")
+      .update({ body: payload, submitted_at: submittedAt })
+      .eq("submission_id", existing.submission_id)
+
+    if (updateError) {
+      console.error("[v0] Failed to update upload submission record:", updateError)
+      return { success: false, error: "Unable to record submission." }
+    }
+    return { success: true }
+  }
+
+  const { error: insertError } = await supabase
+    .from("submissions")
+    .insert({
+      activity_id: activityId,
+      user_id: pupilId,
+      body: payload,
+      submitted_at: submittedAt,
+    })
+
+  if (insertError) {
+    console.error("[v0] Failed to create upload submission record:", insertError)
+    return { success: false, error: "Unable to record submission." }
+  }
+
+  return { success: true }
+}
+
+type UploadSubmissionCleanupParams = {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
+  activityId: string
+  pupilId: string
+}
+
+async function cleanupUploadSubmissionRecord({
+  supabase,
+  activityId,
+  pupilId,
+}: UploadSubmissionCleanupParams) {
+  const { data, error } = await supabase
+    .from("submissions")
+    .select("submission_id, body")
+    .eq("activity_id", activityId)
+    .eq("user_id", pupilId)
+    .order("submitted_at", { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    console.error("[v0] Failed to load upload submission for cleanup:", error)
+    return { success: false, error: "Unable to update submission." }
+  }
+
+  if (!data) {
+    return { success: true }
+  }
+
+  const record =
+    data.body && typeof data.body === "object" ? { ...(data.body as Record<string, unknown>) } : {}
+  const hasOverride =
+    typeof record.teacher_override_score === "number" && Number.isFinite(record.teacher_override_score)
+
+  if (hasOverride) {
+    const { error: updateError } = await supabase
+      .from("submissions")
+      .update({
+        body: {
+          ...record,
+          upload_submission: false,
+          upload_file_name: null,
+          upload_updated_at: null,
+        },
+      })
+      .eq("submission_id", data.submission_id)
+
+    if (updateError) {
+      console.error("[v0] Failed to retain override submission during cleanup:", updateError)
+      return { success: false, error: "Unable to update submission." }
+    }
+    return { success: true }
+  }
+
+  const { error: deleteError } = await supabase
+    .from("submissions")
+    .delete()
+    .eq("submission_id", data.submission_id)
+
+  if (deleteError) {
+    console.error("[v0] Failed to delete upload submission record:", deleteError)
+    return { success: false, error: "Unable to update submission." }
+  }
+
+  return { success: true }
 }
