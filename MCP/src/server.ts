@@ -8,7 +8,10 @@ import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { z } from 'zod';
 import packageJson from '../package.json' with { type: 'json' };
-import { findCurriculumIdsByTitle, listCurriculumSummaries } from './services/curriculum.js';
+import { findCurriculumIdsByTitle, getCurriculumSummary, listCurriculumSummaries } from './services/curriculum.js';
+import { fetchCurriculumLosc } from './services/losc.js';
+import { listLessonsForUnit } from './services/lessons.js';
+import { findUnitsByTitle, listUnits } from './services/units.js';
 import { verifySupabaseConnection } from './supabase.js';
 //Hello
 type ReadWorkspaceFileOptions = {
@@ -50,6 +53,36 @@ const configuredDefaultByteLimit = clampByteLimit(
   parseInteger(process.env.MCP_FILE_BYTE_LIMIT, DEFAULT_FILE_BYTE_LIMIT)
 );
 const RESOURCE_BYTE_LIMIT = Math.min(24_576, configuredDefaultByteLimit);
+
+const successCriterionSchema = z.object({
+  success_criteria_id: z.string(),
+  title: z.string(),
+  active: z.boolean(),
+  order_index: z.number()
+});
+
+const learningObjectiveSchema = z.object({
+  learning_objective_id: z.string(),
+  title: z.string(),
+  active: z.boolean(),
+  spec_ref: z.string().nullable(),
+  order_index: z.number(),
+  scs: z.array(successCriterionSchema)
+});
+
+const unitSchema = z.object({
+  unit_id: z.string(),
+  title: z.string(),
+  is_active: z.boolean()
+});
+
+const lessonSchema = z.object({
+  lesson_id: z.string(),
+  unit_id: z.string(),
+  title: z.string(),
+  is_active: z.boolean(),
+  order_index: z.number()
+});
 
 const DEFAULT_PINNED_FILES = [
   'AGENTS.md',
@@ -228,83 +261,51 @@ process.on('SIGTERM', () => {
 });
 
 function registerResources() {
-  server.registerResource(
-    'planner-playbook',
-    'planner://playbook',
-    {
-      title: 'Planner Agents Playbook',
-      description: 'Canonical implementation guide from AGENTS.md.',
-      mimeType: 'text/markdown'
-    },
-    async uri => {
-      const file = await readWorkspaceFile('AGENTS.md', { byteLimit: RESOURCE_BYTE_LIMIT });
-      return makeReadResourceResult(uri.href, file.content, 'text/markdown', file.truncated);
-    }
-  );
-
-  server.registerResource(
-    'planner-todos',
-    'planner://todos',
-    {
-      title: 'Planner TODOs',
-      description: 'Project TODO list from todos.md.',
-      mimeType: 'text/markdown'
-    },
-    async uri => {
-      const file = await readWorkspaceFile('todos.md', { byteLimit: RESOURCE_BYTE_LIMIT });
-      return makeReadResourceResult(uri.href, file.content, 'text/markdown', file.truncated);
-    }
-  );
-
-  const workspaceFileTemplate = new ResourceTemplate('planner://file/{+path}', {
-    list: async () => ({
-      resources: pinnedFiles.map(relativePath => {
-        const normalized = toPosixPath(relativePath);
-        return {
-          uri: `planner://file/${normalized}`,
-          name: normalized,
-          title: normalized,
-          description: `Pinned workspace file at ${normalized}`,
-          mimeType: getMimeType(relativePath)
-        };
-      })
-    }),
-    complete: {
-      path: async value => {
-        if (!value) {
-          return pinnedFiles.map(toPosixPath);
-        }
-        const normalizedSearch = value.toLowerCase();
-        return pinnedFiles
-          .map(toPosixPath)
-          .filter(entry => entry.toLowerCase().includes(normalizedSearch));
-      }
-    }
-  });
-
-  server.registerResource(
-    'workspace-file',
-    workspaceFileTemplate,
-    {
-      title: 'Workspace file reader',
-      description: 'Read curated repo files via planner://file/{path}',
-      mimeType: 'text/plain'
-    },
-    async (uri, variables) => {
-      const resourcePathValue = Array.isArray(variables.path)
-        ? variables.path[0]
-        : variables.path;
-      const resourcePath = resourcePathValue?.trim();
-      if (!resourcePath) {
-        throw new Error('Missing path variable for workspace resource request.');
-      }
-      const file = await readWorkspaceFile(resourcePath, { byteLimit: RESOURCE_BYTE_LIMIT });
-      return makeReadResourceResult(uri.href, file.content, getMimeType(resourcePath), file.truncated);
-    }
-  );
+  // No static resources at this time.
 }
 
 function registerTools() {
+  server.registerTool(
+    'get_curriculum',
+    {
+      title: 'Get curriculum summary',
+      description: 'Return { curriculum_id, title, is_active } for a specific curriculum.',
+      inputSchema: {
+        curriculum_id: z.string().min(1).describe('Curriculum identifier.')
+      },
+      outputSchema: {
+        curriculum: z
+          .object({
+            curriculum_id: z.string(),
+            title: z.string(),
+            is_active: z.boolean()
+          })
+          .nullable()
+      }
+    },
+    async ({ curriculum_id }) => {
+      const curriculum = await getCurriculumSummary(curriculum_id);
+      if (!curriculum) {
+        const message = `Curriculum ${curriculum_id} was not found.`;
+        return {
+          content: [{ type: 'text', text: message }],
+          structuredContent: { curriculum: null },
+          isError: true
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `${curriculum.curriculum_id} • ${curriculum.title} (active=${curriculum.is_active})`
+          }
+        ],
+        structuredContent: { curriculum }
+      };
+    }
+  );
+
   server.registerTool(
     'get_curriculum_id_from_title',
     {
@@ -329,6 +330,13 @@ function registerTools() {
     async ({ curriculum_title }) => {
       const matches = await findCurriculumIdsByTitle(curriculum_title);
       const structuredContent = { matches };
+      console.log(
+        `[MCP] get_curriculum_id_from_title(${curriculum_title}) response: ${JSON.stringify(
+          structuredContent,
+          null,
+          2
+        )}`
+      );
       return {
         content: [
           {
@@ -340,6 +348,46 @@ function registerTools() {
           }
         ],
         structuredContent
+      };
+    }
+  );
+
+  server.registerTool(
+    'get_all_los_and_scs_for_curriculum',
+    {
+      title: 'Learning objectives + success criteria',
+      description: 'Return the LO/SC tree for a curriculum as defined in specs/mcp/general.md.',
+      inputSchema: {
+        curriculum_id: z
+          .string()
+          .min(1)
+          .describe('ID of the curriculum to inspect.')
+      },
+      outputSchema: {
+        learning_objectives: z.array(learningObjectiveSchema)
+      }
+    },
+    async ({ curriculum_id }) => {
+      const curriculum = await fetchCurriculumLosc(curriculum_id);
+      if (!curriculum) {
+        const message = `No curriculum found for id ${curriculum_id}.`;
+        return {
+          content: [{ type: 'text', text: message }],
+          structuredContent: { learning_objectives: [] },
+          isError: true
+        };
+      }
+
+      const summary = `Curriculum ${curriculum.title} (${curriculum.curriculum_id}) • ${curriculum.learning_objectives.length} learning objectives.`;
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `${summary}\n${JSON.stringify(curriculum, null, 2)}`
+          }
+        ],
+        structuredContent: { learning_objectives: curriculum.learning_objectives }
       };
     }
   );
@@ -366,7 +414,10 @@ function registerTools() {
         content: [
           {
             type: 'text',
-            text: JSON.stringify(curricula, null, 2)
+            text:
+              curricula.length > 0
+                ? curricula.map(entry => `${entry.curriculum_id} • ${entry.title}`).join('\n')
+                : 'No curricula available.'
           }
         ],
         structuredContent
@@ -375,54 +426,25 @@ function registerTools() {
   );
 
   server.registerTool(
-    'read_workspace_file',
+    'get_all_units',
     {
-      title: 'Read workspace file',
-      description:
-        'Read a UTF-8 file relative to the repo root. Intended for smaller files and code snippets.',
-      inputSchema: {
-        relativePath: z
-          .string()
-          .min(1)
-          .describe('Path relative to the repo root, e.g. src/app/page.tsx'),
-        byteLimit: z
-          .number()
-          .int()
-          .min(512)
-          .max(MAX_FILE_BYTE_LIMIT)
-          .describe(
-            `Optional byte ceiling for the response (defaults to ${DEFAULT_FILE_BYTE_LIMIT} bytes).`
-          )
-          .optional()
-      },
+      title: 'List units',
+      description: 'Return all unit summaries (id, title, active).',
       outputSchema: {
-        relativePath: z.string(),
-        absolutePath: z.string(),
-        bytesRead: z.number().int(),
-        totalBytes: z.number().int(),
-        truncated: z.boolean(),
-        content: z.string()
+        units: z.array(unitSchema)
       }
     },
-    async ({ relativePath, byteLimit }) => {
-      const file = await readWorkspaceFile(relativePath, {
-        byteLimit: Math.min(MAX_FILE_BYTE_LIMIT, byteLimit ?? configuredDefaultByteLimit)
-      });
-
-      const structuredContent = {
-        relativePath: toPosixPath(file.relativePath),
-        absolutePath: file.absolutePath,
-        bytesRead: file.bytesRead,
-        totalBytes: file.totalBytes,
-        truncated: file.truncated,
-        content: file.content
-      };
-
+    async () => {
+      const units = await listUnits();
+      const structuredContent = { units };
       return {
         content: [
           {
             type: 'text',
-            text: formatFileSnippet(structuredContent)
+            text:
+              units.length > 0
+                ? units.map(entry => `${entry.unit_id} • ${entry.title}`).join('\n')
+                : 'No units available.'
           }
         ],
         structuredContent
@@ -431,74 +453,68 @@ function registerTools() {
   );
 
   server.registerTool(
-    'search_todos',
+    'get_unit_by_title',
     {
-      title: 'Search todos.md',
-      description: 'Return lines from todos.md that match a case-insensitive query.',
+      title: 'Find units by title',
+      description: 'Search units by title using wildcards (*, ?) or /regex/ patterns.',
       inputSchema: {
-        query: z
+        unit_title: z
           .string()
-          .min(2)
-          .describe('Case-insensitive substring to look for.'),
-        includeCompleted: z
-          .boolean()
-          .default(false)
-          .describe('Include lines that start with [x] (completed items).')
-          .optional(),
-        limit: z
-          .number()
-          .int()
           .min(1)
-          .max(50)
-          .default(10)
-          .describe('Maximum number of matches to return.')
-          .optional()
+          .describe('Title pattern, e.g. "Design*" or "/Design.+/" (case-insensitive).')
       },
       outputSchema: {
-        query: z.string(),
         matches: z.array(
           z.object({
-            line: z.number().int(),
-            text: z.string()
+            unit_id: z.string(),
+            unit_title: z.string()
           })
         )
       }
     },
-    async ({ query, includeCompleted = false, limit = 10 }) => {
-      const file = await readWorkspaceFile('todos.md', { byteLimit: 64_000 });
-      const lines = file.content.split(/\r?\n/);
-      const normalizedQuery = query.toLowerCase();
-      const matches = [];
-
-      for (let index = 0; index < lines.length; index += 1) {
-        const text = lines[index];
-        const trimmed = text.trim();
-        if (!includeCompleted && trimmed.startsWith('[x]')) {
-          continue;
-        }
-        if (text.toLowerCase().includes(normalizedQuery)) {
-          matches.push({ line: index + 1, text });
-        }
-        if (matches.length >= limit) {
-          break;
-        }
-      }
-
-      const structuredContent = {
-        query,
-        matches
-      };
-
+    async ({ unit_title }) => {
+      const matches = await findUnitsByTitle(unit_title);
+      const structuredContent = { matches };
       return {
         content: [
           {
             type: 'text',
             text:
               matches.length > 0
-                ? `Found ${matches.length} match(es) in todos.md:\n${matches
-                    .map(match => `L${match.line}: ${match.text}`)
-                    .join('\n')}`
-                : `No matches for "${query}" in todos.md.`
+                ? matches.map(match => `${match.unit_id} • ${match.unit_title}`).join('\n')
+                : 'No units matched the provided title.'
+          }
+        ],
+        structuredContent
+      };
+    }
+  );
+
+  server.registerTool(
+    'get_lessons_for_unit',
+    {
+      title: 'List lessons for a unit',
+      description: 'Return the lessons associated with a given unit.',
+      inputSchema: {
+        unit_id: z.string().min(1).describe('Unit identifier.')
+      },
+      outputSchema: {
+        lessons: z.array(lessonSchema)
+      }
+    },
+    async ({ unit_id }) => {
+      const lessons = await listLessonsForUnit(unit_id);
+      const structuredContent = { lessons };
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              lessons.length > 0
+                ? lessons
+                    .map(entry => `${entry.lesson_id} • ${entry.title} (order=${entry.order_index})`)
+                    .join('\n')
+                : `No lessons found for unit ${unit_id}.`
           }
         ],
         structuredContent

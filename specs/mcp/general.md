@@ -70,9 +70,31 @@ The Learning Objective and Success Criteria MCP server allows LLMs to interact w
 The return format is:
 ```
 [
-    {curriculum_id: string, title: string, is_active: boolean, learning_objectives: [ 
+     
         {learning_objective_id: string, title: string, acitve: boolean, spec_ref: string, scs: [{success_criteria_id; string, title: string, active: string}]}
-        ]}
+        ]
+```
+
+
+## Tools for Units & Lessons
+
+- get_all_units.  This endpoint accepts `POST` and returns a streamed JSON response listing all units.  The return format is:
+```
+[
+    {unit_id: string, title: string, is_active: boolean}
 ]
 ```
 
+- get_unit_by_title.  This endpoint accepts `POST`, receives `{ unit_title: string }`, and uses wildcard and `/regex/` matching to return all matching units.  The return format is:
+```
+[
+    {unit_id: string, unit_title: string}
+]
+```
+
+- get_lessons_for_unit.  This endpoint accepts `POST`, receives `{ unit_id: string }`, and returns all lessons for that unit—including their order.  The return format is:
+```
+[
+    {lesson_id: string, unit_id: string, title: string, is_active: boolean, order_index: number}
+]
+```

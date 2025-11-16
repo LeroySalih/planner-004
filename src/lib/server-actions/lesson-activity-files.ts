@@ -25,6 +25,10 @@ function buildDirectory(lessonId: string, activityId: string) {
   return `lessons/${lessonId}/activities/${activityId}`
 }
 
+function buildLegacyDirectory(lessonId: string, activityId: string) {
+  return `${lessonId}/activities/${activityId}`
+}
+
 function buildFilePath(lessonId: string, activityId: string, fileName: string) {
   return `${buildDirectory(lessonId, activityId)}/${fileName}`
 }
@@ -33,8 +37,24 @@ function buildSubmissionDirectory(lessonId: string, activityId: string, pupilId:
   return `${buildDirectory(lessonId, activityId)}/${pupilId}`
 }
 
+function buildLegacySubmissionDirectory(lessonId: string, activityId: string, pupilId: string) {
+  return `${buildLegacyDirectory(lessonId, activityId)}/${pupilId}`
+}
+
 function buildSubmissionPath(lessonId: string, activityId: string, pupilId: string, fileName: string) {
   return `${buildSubmissionDirectory(lessonId, activityId, pupilId)}/${fileName}`
+}
+
+function buildLegacySubmissionPath(lessonId: string, activityId: string, pupilId: string, fileName: string) {
+  return `${buildLegacySubmissionDirectory(lessonId, activityId, pupilId)}/${fileName}`
+}
+
+function isStorageNotFoundError(error: { message?: string } | null): boolean {
+  if (!error?.message) {
+    return false
+  }
+  const normalized = error.message.toLowerCase()
+  return normalized.includes("not found") || normalized.includes("object not found")
 }
 
 export async function listActivityFilesAction(lessonId: string, activityId: string) {
@@ -165,38 +185,62 @@ export async function listPupilActivitySubmissionsAction(
   activityId: string,
   pupilId: string,
 ) {
-  const directory = buildSubmissionDirectory(lessonId, activityId, pupilId)
   const supabase = await createSupabaseServerClient()
   const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
 
-  const { data, error } = await bucket.list(directory, { limit: 100 })
+  const directories = [
+    buildSubmissionDirectory(lessonId, activityId, pupilId),
+    buildLegacySubmissionDirectory(lessonId, activityId, pupilId),
+  ].filter((value, index, array) => array.indexOf(value) === index)
 
-  if (error) {
-    if (error.message?.toLowerCase().includes("not found")) {
-      return ActivityFilesReturnValue.parse({ data: [], error: null })
+  try {
+    const seen = new Set<string>()
+    const collected: Array<z.infer<typeof ActivityFileSchema>> = []
+
+    for (const directory of directories) {
+      const { data, error } = await bucket.list(directory, { limit: 100 })
+
+      if (error) {
+        if (isStorageNotFoundError(error)) {
+          continue
+        }
+        console.error("[v0] Failed to list pupil submissions:", error)
+        return ActivityFilesReturnValue.parse({ data: null, error: error.message })
+      }
+
+      for (const file of data ?? []) {
+        const fullPath = `${directory}/${file.name}`
+        if (seen.has(fullPath)) {
+          continue
+        }
+        seen.add(fullPath)
+        collected.push(
+          ActivityFileSchema.parse({
+            name: file.name,
+            path: fullPath,
+            created_at: file.created_at ?? undefined,
+            updated_at: file.updated_at ?? undefined,
+            last_accessed_at: file.last_accessed_at ?? undefined,
+            size: file.metadata?.size ?? undefined,
+          }),
+        )
+      }
     }
-    console.error("[v0] Failed to list pupil submissions:", error)
-    return ActivityFilesReturnValue.parse({ data: null, error: error.message })
-  }
 
-  const normalized = (data ?? [])
-    .map((file) =>
-      ActivityFileSchema.parse({
-        name: file.name,
-        path: buildSubmissionPath(lessonId, activityId, pupilId, file.name),
-        created_at: file.created_at ?? undefined,
-        updated_at: file.updated_at ?? undefined,
-        last_accessed_at: file.last_accessed_at ?? undefined,
-        size: file.metadata?.size ?? undefined,
-      }),
-    )
-    .sort((a, b) => {
+    const normalized = collected.sort((a, b) => {
       const aTime = Date.parse(a.updated_at ?? a.created_at ?? "0")
       const bTime = Date.parse(b.updated_at ?? b.created_at ?? "0")
       return bTime - aTime
     })
 
-  return ActivityFilesReturnValue.parse({ data: normalized, error: null })
+    return ActivityFilesReturnValue.parse({ data: normalized, error: null })
+  } catch (error) {
+    console.error("[v0] Unexpected error listing pupil submissions:", error)
+    return ActivityFilesReturnValue.parse({
+      data: null,
+      error: "Unable to load pupil submissions.",
+    })
+  }
 }
 
 export async function uploadPupilActivitySubmissionAction(formData: FormData) {
@@ -250,13 +294,32 @@ export async function deletePupilActivitySubmissionAction(
 ) {
   const supabase = await createSupabaseServerClient()
   const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
-  const { error } = await bucket.remove([
+  const paths = [
     buildSubmissionPath(lessonId, activityId, pupilId, fileName),
-  ])
+    buildLegacySubmissionPath(lessonId, activityId, pupilId, fileName),
+  ].filter((value, index, array) => array.indexOf(value) === index)
 
-  if (error) {
-    console.error("[v0] Failed to delete pupil submission:", error)
-    return { success: false, error: error.message }
+  let deleted = false
+  let lastError: { message?: string } | null = null
+
+  for (const path of paths) {
+    const { error } = await bucket.remove([path])
+    if (!error) {
+      deleted = true
+      continue
+    }
+
+    if (isStorageNotFoundError(error)) {
+      continue
+    }
+
+    lastError = error
+    console.error("[v0] Failed to delete pupil submission:", error, { path })
+    break
+  }
+
+  if (!deleted && lastError) {
+    return { success: false, error: lastError.message }
   }
 
   revalidatePath(`/pupil-lessons/${encodeURIComponent(pupilId)}/lessons/${encodeURIComponent(lessonId)}`)
@@ -271,15 +334,27 @@ export async function getPupilActivitySubmissionUrlAction(
 ) {
   const supabase = await createSupabaseServerClient()
   const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
-  const { data, error } = await bucket.createSignedUrl(
+  const paths = [
     buildSubmissionPath(lessonId, activityId, pupilId, fileName),
-    60 * 10,
-  )
+    buildLegacySubmissionPath(lessonId, activityId, pupilId, fileName),
+  ].filter((value, index, array) => array.indexOf(value) === index)
 
-  if (error) {
-    console.error("[v0] Failed to create signed URL for pupil submission:", error)
+  let lastError: { message?: string } | null = null
+
+  for (const path of paths) {
+    const { data, error } = await bucket.createSignedUrl(path, 60 * 10)
+    if (!error) {
+      return { success: true, url: data?.signedUrl ?? null }
+    }
+
+    if (isStorageNotFoundError(error)) {
+      lastError = error
+      continue
+    }
+
+    console.error("[v0] Failed to create signed URL for pupil submission:", error, { path })
     return { success: false, error: error.message }
   }
 
-  return { success: true, url: data?.signedUrl ?? null }
+  return { success: false, error: lastError?.message ?? "NOT_FOUND" }
 }

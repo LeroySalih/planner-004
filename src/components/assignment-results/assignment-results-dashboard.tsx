@@ -653,7 +653,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
   const loadUploadFiles = useCallback(
     async (
       context: { lessonId: string; activityId: string; pupilId: string; cacheKey: string },
-      options?: { signal?: { aborted: boolean }; force?: boolean },
+      options?: { force?: boolean },
     ) => {
       setUploadFiles((previous) => {
         const current = previous[context.cacheKey]
@@ -662,7 +662,12 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
         }
         return {
           ...previous,
-          [context.cacheKey]: { status: "loading", files: [], error: null },
+          [context.cacheKey]: {
+            status: "loading",
+            files: current?.files ?? [],
+            error: null,
+            fetchedAt: current?.fetchedAt ?? null,
+          },
         }
       })
       try {
@@ -671,9 +676,6 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
           context.activityId,
           context.pupilId,
         )
-        if (options?.signal?.aborted) {
-          return
-        }
         if (listResult.error) {
           setUploadFiles((previous) => ({
             ...previous,
@@ -703,9 +705,6 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
             }
           }),
         )
-        if (options?.signal?.aborted) {
-          return
-        }
         setUploadFiles((previous) => ({
           ...previous,
           [context.cacheKey]: {
@@ -717,9 +716,6 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
         }))
       } catch (error) {
         console.error("[assignment-results] Unexpected error loading uploads:", error)
-        if (options?.signal?.aborted) {
-          return
-        }
         setUploadFiles((previous) => ({
           ...previous,
           [context.cacheKey]: {
@@ -744,26 +740,13 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     if (selectedUploadState && selectedUploadState.status !== "idle") {
       return
     }
-    const controller = { aborted: false }
-    void loadUploadFiles(
-      {
-        lessonId,
-        activityId: selection.activity.activityId,
-        pupilId: selection.row.pupil.userId,
-        cacheKey: selectedUploadKey,
-      },
-      { signal: controller },
-    )
-    return () => {
-      controller.aborted = true
-    }
-  }, [
-    selection,
-    matrixState.lesson?.lessonId,
-    selectedUploadKey,
-    selectedUploadState?.status,
-    loadUploadFiles,
-  ])
+    void loadUploadFiles({
+      lessonId,
+      activityId: selection.activity.activityId,
+      pupilId: selection.row.pupil.userId,
+      cacheKey: selectedUploadKey,
+    })
+  }, [selection, matrixState.lesson?.lessonId, selectedUploadKey, selectedUploadState?.status, loadUploadFiles])
 
   const handleUploadRefresh = useCallback(() => {
     if (!selection || selection.activity.type !== "upload-file") {
@@ -790,6 +773,21 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     const row = groupedRows[rowIndex]
     const activity = activities[activityIndex]
     const cell = row.cells[activityIndex]
+    const cacheKey = `${row.pupil.userId}::${activity.activityId}`
+
+    setUploadFiles((previous) => {
+      const current = previous[cacheKey]
+      if (!current || current.status === "idle") {
+        return previous
+      }
+      return {
+        ...previous,
+        [cacheKey]: {
+          ...current,
+          status: "idle",
+        },
+      }
+    })
 
     setActivitySummarySelection(null)
     setSelection({
