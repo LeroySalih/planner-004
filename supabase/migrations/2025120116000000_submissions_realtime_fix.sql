@@ -11,4 +11,12 @@ alter table public.submissions
 alter table public.submissions replica identity full;
 
 -- Make sure submissions is published to Supabase Realtime
-alter publication supabase_realtime add table public.submissions;
+do $$
+begin
+  begin
+    alter publication supabase_realtime add table public.submissions;
+  exception
+    when duplicate_table then
+      null; -- already added, skip
+  end;
+end $$;
