@@ -5,8 +5,8 @@
 **Purpose:** Receives AI-evaluated short-text marks and feedback for a specific assignment activity, authenticates via bearer token, and updates submissions accordingly.
 
 ### Authentication
-- Requests must include `Authorization: Bearer <AI_MARK_SERVICE_KEY>`.
-- The server rejects missing/invalid tokens with HTTP 401.
+- Requests must include `mark-service-key: <MARK_SERVICE_KEY>`.
+- The server rejects missing/invalid keys with HTTP 401.
 
 ### Payload
 ```json
@@ -44,7 +44,7 @@
    - Load or create submissions via Supabase service client.
    - Preserve teacher overrides (scores/feedback) and only update AI fields (`ai_model_score`, `ai_model_feedback`, derived success-criteria scores).
    - Recalculate `is_correct` at the short-text threshold.
-4. Track summary counts (`updated`, `created`, `skipped`, `errors`) and revalidate `/results/assignments/[group__lesson]` when no errors occur.
+4. Track summary counts (`updated`, `created`, `skipped`, `errors`), emit a Supabase Realtime notification on the assignment channel (`results:assignments:{group__lesson}`) with `{ submissionId, pupilId, activityId, aiScore, aiFeedback, successCriteriaScores }` where `successCriteriaScores` repeats the same `aiScore` across all criteria, and revalidate the page when no errors occur.
 5. Respond with JSON `{ success, updated, created, skipped, errors }`.
 
 ### Error Handling

@@ -5,6 +5,10 @@ import { z } from "zod"
 import { ShortTextSubmissionBodySchema } from "@/types"
 import { createSupabaseServiceClient } from "@/lib/supabase/server"
 import { clampScore, fetchActivitySuccessCriteriaIds, normaliseSuccessCriteriaScores } from "@/lib/scoring/success-criteria"
+import {
+  type AssignmentResultsRealtimePayload,
+  publishAssignmentResultsEventsWithClient,
+} from "@/lib/results-realtime-server"
 
 export const dynamic = "force-dynamic"
 
@@ -57,17 +61,38 @@ type ResultEntry = z.infer<typeof ResultEntrySchema>
 type ResultPupil = string
 
 export async function POST(request: Request) {
-  const expectedKey = process.env.AI_MARK_SERVICE_KEY
-  if (!expectedKey || expectedKey.trim().length === 0) {
-    console.error("[ai-mark-webhook] AI_MARK_SERVICE_KEY is not configured")
-    return NextResponse.json({ success: false, error: "AI mark webhook is not configured." }, { status: 500 })
+  const expectedServiceKey = process.env.MARK_SERVICE_KEY ?? process.env.AI_MARK_SERVICE_KEY
+  if (!expectedServiceKey || expectedServiceKey.trim().length === 0) {
+    console.error("[ai-mark-webhook] MARK_SERVICE_KEY is not configured")
+    return NextResponse.json(
+      {
+        success: false,
+        error: "AI mark webhook is not configured.",
+        details: { missingEnv: "MARK_SERVICE_KEY" },
+      },
+      { status: 500 },
+    )
   }
 
-  const authHeader = request.headers.get("authorization") ?? ""
-  const token = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length).trim() : null
-  if (!token || token !== expectedKey) {
-    console.warn("[ai-mark-webhook] Unauthorized webhook attempt.")
-    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+  const inboundServiceKey = request.headers.get("mark-service-key") ?? request.headers.get("Mark-Service-Key")
+  if (!inboundServiceKey || inboundServiceKey.trim() !== expectedServiceKey.trim()) {
+    console.warn("[ai-mark-webhook] Unauthorized webhook attempt: missing or mismatched mark-service-key header.", {
+      inboundServiceKey,
+      expectedServiceKey,
+    })
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Unauthorized",
+        details: {
+          header: "mark-service-key",
+          received: inboundServiceKey ?? null,
+          expected: expectedServiceKey,
+          message: !inboundServiceKey ? "Header missing" : "Header present but does not match MARK_SERVICE_KEY.",
+        },
+      },
+      { status: 401 },
+    )
   }
 
   let json: unknown
@@ -150,6 +175,8 @@ export async function POST(request: Request) {
     errors: 0,
   }
 
+  const realtimeEvents: AssignmentResultsRealtimePayload[] = []
+
   for (const result of parsed.data.results) {
     const resultPupilId = resolveResultPupilId(result)
     if (!resultPupilId) {
@@ -163,11 +190,15 @@ export async function POST(request: Request) {
           supabase,
           submission: existingSubmission,
           result,
+          activityId: parsed.data.activity_id,
           successCriteriaIds,
           answerFallback: answersByPupil.get(resultPupilId) ?? null,
         })
-        if (updated) {
+        if (updated?.updated) {
           summary.updated += 1
+          if (updated.payload) {
+            realtimeEvents.push(updated.payload)
+          }
         } else {
           summary.skipped += 1
         }
@@ -180,8 +211,11 @@ export async function POST(request: Request) {
           successCriteriaIds,
           answer: answersByPupil.get(resultPupilId) ?? null,
         })
-        if (created) {
+        if (created?.created) {
           summary.created += 1
+          if (created.payload) {
+            realtimeEvents.push(created.payload)
+          }
         } else {
           summary.skipped += 1
         }
@@ -198,6 +232,18 @@ export async function POST(request: Request) {
   if (summary.errors === 0) {
     const assignmentPath = `/results/assignments/${encodeURIComponent(parsed.data.group_assignment_id)}`
     revalidatePath(assignmentPath)
+  }
+
+  if (realtimeEvents.length > 0) {
+    try {
+      await publishAssignmentResultsEventsWithClient(
+        supabase,
+        parsed.data.group_assignment_id,
+        dedupeRealtimeEvents(realtimeEvents),
+      )
+    } catch (error) {
+      console.error("[ai-mark-webhook] Failed to publish realtime events", error)
+    }
   }
 
   return NextResponse.json({ success: summary.errors === 0, ...summary })
@@ -242,15 +288,17 @@ async function applyAiMarkToSubmission({
   supabase,
   submission,
   result,
+  activityId,
   successCriteriaIds,
   answerFallback,
 }: {
   supabase: ReturnType<typeof createSupabaseServiceClient>
-  submission: { submission_id: string; body: unknown; submitted_at?: string | null }
+  submission: { submission_id: string; user_id?: string | null; body: unknown; submitted_at?: string | null }
   result: ResultEntry
+  activityId: string
   successCriteriaIds: string[]
   answerFallback: string | null
-}) {
+}): Promise<{ updated: boolean; payload: AssignmentResultsRealtimePayload | null }> {
   const parsedBody = ShortTextSubmissionBodySchema.safeParse(submission.body ?? {})
   const baseBody = parsedBody.success ? parsedBody.data : ShortTextSubmissionBodySchema.parse({})
 
@@ -289,7 +337,17 @@ async function applyAiMarkToSubmission({
     throw error
   }
 
-  return true
+  return {
+    updated: true,
+    payload: buildRealtimePayload({
+      submissionId: submission.submission_id,
+      pupilId: (submission.user_id as string) ?? null,
+      activityId,
+      aiScore,
+      aiFeedback: nextAiFeedback,
+      successCriteriaScores: nextBody.success_criteria_scores ?? {},
+    }),
+  }
 }
 
 async function createAiMarkedSubmission({
@@ -306,7 +364,7 @@ async function createAiMarkedSubmission({
   result: ResultEntry
   successCriteriaIds: string[]
   answer: string | null
-}) {
+}): Promise<{ created: boolean; payload: AssignmentResultsRealtimePayload | null }> {
   const score = clampScore(result.score)
   const successCriteriaScores = normaliseSuccessCriteriaScores({
     successCriteriaIds,
@@ -323,16 +381,73 @@ async function createAiMarkedSubmission({
     success_criteria_scores: successCriteriaScores,
   })
 
-  const { error } = await supabase.from("submissions").insert({
-    activity_id: activityId,
-    user_id: pupilId,
-    submitted_at: new Date().toISOString(),
-    body: submissionBody,
-  })
+  const { data: insertedRow, error } = await supabase
+    .from("submissions")
+    .insert({
+      activity_id: activityId,
+      user_id: pupilId,
+      submitted_at: new Date().toISOString(),
+      body: submissionBody,
+    })
+    .select("submission_id")
+    .single()
 
   if (error) {
     throw error
   }
 
-  return true
+  return {
+    created: true,
+    payload: buildRealtimePayload({
+      submissionId: insertedRow?.submission_id ?? null,
+      pupilId,
+      activityId,
+      aiScore: score,
+      aiFeedback: submissionBody.ai_model_feedback ?? null,
+      successCriteriaScores: successCriteriaScores ?? {},
+    }),
+  }
+}
+
+function buildRealtimePayload(input: {
+  submissionId?: string | null
+  pupilId?: string | null
+  activityId?: string | null
+  aiScore?: number | null
+  aiFeedback?: string | null
+  successCriteriaScores?: Record<string, number | null> | null
+}): AssignmentResultsRealtimePayload | null {
+  if (!input.activityId || !input.pupilId) {
+    return null
+  }
+  return {
+    submissionId: input.submissionId ?? null,
+    pupilId: input.pupilId,
+    activityId: input.activityId,
+    aiScore: typeof input.aiScore === "number" ? clampScore(input.aiScore) : null,
+    aiFeedback: input.aiFeedback ?? null,
+    successCriteriaScores: Object.entries(input.successCriteriaScores ?? {}).reduce<Record<string, number>>(
+      (acc, [key, value]) => {
+        if (typeof value === "number" && Number.isFinite(value)) {
+          acc[key] = clampScore(value)
+        }
+        return acc
+      },
+      {},
+    ),
+  }
+}
+
+function dedupeRealtimeEvents(events: AssignmentResultsRealtimePayload[]): AssignmentResultsRealtimePayload[] {
+  const seen = new Set<string>()
+  const result: AssignmentResultsRealtimePayload[] = []
+  for (const event of events) {
+    const key = `${event.activityId ?? ""}::${event.pupilId ?? ""}`
+    if (seen.has(key)) {
+      continue
+    }
+    seen.add(key)
+    result.push(event)
+  }
+  return result
 }

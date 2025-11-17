@@ -33,6 +33,7 @@ import {
   computeAverageSuccessCriteriaScore,
   normaliseSuccessCriteriaScores,
 } from "@/lib/scoring/success-criteria"
+import { ASSIGNMENT_RESULTS_UPDATE_EVENT, buildAssignmentResultsChannelName } from "@/lib/results-channel"
 import { extractScoreFromSubmission, selectLatestSubmission } from "@/lib/scoring/activity-scores"
 import { supabaseBrowserClient } from "@/lib/supabase-browser"
 
@@ -117,6 +118,15 @@ type SubmissionRow = {
   user_id: string | null
   submitted_at: string | null
   body: unknown
+}
+
+type AssignmentResultsRealtimePayload = {
+  submissionId: string | null
+  pupilId: string
+  activityId: string
+  aiScore: number | null
+  aiFeedback: string | null
+  successCriteriaScores: Record<string, number>
 }
 
 const OVERRIDE_ACTION_INITIAL_STATE: OverrideActionState = { status: "idle" }
@@ -435,10 +445,10 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
   const matrixStateRef = useRef(matrixState)
 
   const activities = matrixState.activities
-  const sanitizedAssignmentChannel = useMemo(() => {
-    const fallback = (matrix.assignmentId ?? "").replace(/[^a-zA-Z0-9_-]/g, "_")
-    return fallback.length > 0 ? `assignment-results-${fallback}` : "assignment-results"
-  }, [matrix.assignmentId])
+  const assignmentChannelName = useMemo(
+    () => buildAssignmentResultsChannelName(matrix.assignmentId),
+    [matrix.assignmentId],
+  )
   const realtimeFilter = useMemo(() => {
     if (!RESULTS_REALTIME_ENABLED || activities.length === 0) {
       return null
@@ -1083,13 +1093,72 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     [applyCellUpdate],
   )
 
+  const handleRealtimeBroadcast = useCallback(
+    (payload: { payload?: AssignmentResultsRealtimePayload } | AssignmentResultsRealtimePayload) => {
+      const maybePayload = "payload" in payload ? payload.payload : payload
+      if (
+        !maybePayload
+        || typeof (maybePayload as Partial<AssignmentResultsRealtimePayload>).activityId !== "string"
+        || typeof (maybePayload as Partial<AssignmentResultsRealtimePayload>).pupilId !== "string"
+      ) {
+        return
+      }
+      const rawPayload = maybePayload as AssignmentResultsRealtimePayload
+
+      const currentMatrix = matrixStateRef.current
+      const activityIndex = currentMatrix.activities.findIndex(
+        (activity) => activity.activityId === rawPayload.activityId,
+      )
+      const rowIndex = currentMatrix.rows.findIndex((row) => row.pupil.userId === rawPayload.pupilId)
+      if (activityIndex === -1 || rowIndex === -1) {
+        return
+      }
+
+      const successCriteriaIds = currentMatrix.activities[activityIndex].successCriteria.map(
+        (criterion) => criterion.successCriteriaId,
+      )
+      const fallbackScore =
+        typeof rawPayload.aiScore === "number" && Number.isFinite(rawPayload.aiScore) ? rawPayload.aiScore : 0
+      const normalisedScores = normaliseSuccessCriteriaScores({
+        successCriteriaIds,
+        existingScores: rawPayload.successCriteriaScores,
+        fillValue: fallbackScore,
+      })
+
+      applyCellUpdate(
+        (cell) => {
+          const hasOverride =
+            typeof cell.overrideScore === "number" && Number.isFinite(cell.overrideScore)
+          const nextAutoScore =
+            typeof rawPayload.aiScore === "number" && Number.isFinite(rawPayload.aiScore)
+              ? rawPayload.aiScore
+              : null
+          const nextSuccessCriteriaScores = hasOverride ? cell.successCriteriaScores : normalisedScores
+          return {
+            ...cell,
+            submissionId: rawPayload.submissionId ?? cell.submissionId,
+            autoScore: nextAutoScore,
+            autoFeedback: rawPayload.aiFeedback ?? null,
+            autoSuccessCriteriaScores: normalisedScores,
+            successCriteriaScores: nextSuccessCriteriaScores,
+            score: hasOverride ? cell.overrideScore ?? nextAutoScore ?? fallbackScore : nextAutoScore ?? fallbackScore,
+            status: hasOverride ? cell.status : nextAutoScore === null ? "missing" : "auto",
+            needsMarking: false,
+          }
+        },
+        { rowIndex, activityIndex },
+      )
+    },
+    [applyCellUpdate],
+  )
+
   const channelRef = useRef<ReturnType<typeof supabaseBrowserClient.channel> | null>(null)
 
   useEffect(() => {
     if (!RESULTS_REALTIME_ENABLED || !realtimeFilter) {
       return
     }
-    const channelName = sanitizedAssignmentChannel
+    const channelName = assignmentChannelName
     if (channelRef.current) {
       const bindingContainer = channelRef.current as unknown as {
         bindings?: Array<{ type?: string; filter?: string }>
@@ -1107,11 +1176,19 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       channelName,
       filter: realtimeFilter,
     })
-    const channel = supabaseBrowserClient.channel(channelName).on(
+    const channel = supabaseBrowserClient.channel(channelName, { config: { broadcast: { ack: true } } })
+    channel.on(
       "postgres_changes",
       { event: "*", schema: "public", table: "submissions", filter: realtimeFilter },
       handleRealtimeSubmission,
     )
+    ;(channel as unknown as {
+      on: (
+        event: "broadcast",
+        filter: { event: string },
+        cb: (payload: { payload?: AssignmentResultsRealtimePayload } | AssignmentResultsRealtimePayload) => void,
+      ) => void
+    }).on("broadcast", { event: ASSIGNMENT_RESULTS_UPDATE_EVENT }, handleRealtimeBroadcast)
     channel.subscribe((status) => {
       if (status === "CHANNEL_ERROR") {
         console.error("[assignment-results] Realtime channel error", channelName)
@@ -1131,7 +1208,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
         channelRef.current = null
       }
     }
-  }, [handleRealtimeSubmission, realtimeFilter, sanitizedAssignmentChannel])
+  }, [handleRealtimeSubmission, handleRealtimeBroadcast, realtimeFilter, assignmentChannelName])
 
   const handleOverrideSubmit = () => {
     if (!selection) return
