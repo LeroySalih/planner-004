@@ -57,17 +57,38 @@ type ResultEntry = z.infer<typeof ResultEntrySchema>
 type ResultPupil = string
 
 export async function POST(request: Request) {
-  const expectedKey = process.env.AI_MARK_SERVICE_KEY
-  if (!expectedKey || expectedKey.trim().length === 0) {
-    console.error("[ai-mark-webhook] AI_MARK_SERVICE_KEY is not configured")
-    return NextResponse.json({ success: false, error: "AI mark webhook is not configured." }, { status: 500 })
+  const expectedServiceKey = process.env.MARK_SERVICE_KEY ?? process.env.AI_MARK_SERVICE_KEY
+  if (!expectedServiceKey || expectedServiceKey.trim().length === 0) {
+    console.error("[ai-mark-webhook] MARK_SERVICE_KEY is not configured")
+    return NextResponse.json(
+      {
+        success: false,
+        error: "AI mark webhook is not configured.",
+        details: { missingEnv: "MARK_SERVICE_KEY" },
+      },
+      { status: 500 },
+    )
   }
 
-  const authHeader = request.headers.get("authorization") ?? ""
-  const token = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length).trim() : null
-  if (!token || token !== expectedKey) {
-    console.warn("[ai-mark-webhook] Unauthorized webhook attempt.")
-    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+  const inboundServiceKey = request.headers.get("mark-service-key") ?? request.headers.get("Mark-Service-Key")
+  if (!inboundServiceKey || inboundServiceKey.trim() !== expectedServiceKey.trim()) {
+    console.warn("[ai-mark-webhook] Unauthorized webhook attempt: missing or mismatched mark-service-key header.", {
+      inboundServiceKey,
+      expectedServiceKey,
+    })
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Unauthorized",
+        details: {
+          header: "mark-service-key",
+          received: inboundServiceKey ?? null,
+          expected: expectedServiceKey,
+          message: !inboundServiceKey ? "Header missing" : "Header present but does not match MARK_SERVICE_KEY.",
+        },
+      },
+      { status: 401 },
+    )
   }
 
   let json: unknown

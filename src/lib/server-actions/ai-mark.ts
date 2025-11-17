@@ -56,7 +56,6 @@ export async function requestAiMarkAction(
     }
   }
 
-
   const authEndTime = options?.authEndTime ?? Date.now()
   const routeTag = options?.routeTag ?? "/results/assignments"
 
@@ -72,7 +71,7 @@ export async function requestAiMarkAction(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "mark-service-key": serviceKey,
+          "mark-service-Key": serviceKey,
           "mark-webhook-url": webhookUrl,
         },
         body: JSON.stringify({
