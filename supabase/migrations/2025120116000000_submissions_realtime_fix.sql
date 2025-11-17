@@ -13,10 +13,13 @@ alter table public.submissions replica identity full;
 -- Make sure submissions is published to Supabase Realtime
 do $$
 begin
-  begin
+  if not exists (
+    select 1
+    from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'submissions'
+  ) then
     alter publication supabase_realtime add table public.submissions;
-  exception
-    when duplicate_table then
-      null; -- already added, skip
-  end;
+  end if;
 end $$;
