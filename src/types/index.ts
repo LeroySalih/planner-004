@@ -747,6 +747,7 @@ export const AssignmentResultMatrixSchema = z.object({
             groupId: z.string(),
             lessonId: z.string(),
             startDate: z.string().nullable(),
+            feedbackVisible: z.boolean().default(false),
         })
         .nullable(),
     pupils: z.array(AssignmentResultPupilSchema),

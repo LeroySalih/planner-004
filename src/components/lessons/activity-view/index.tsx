@@ -85,6 +85,7 @@ export interface LessonActivityPresentViewProps extends LessonActivityViewBasePr
   voicePlayback?: { url: string | null; isLoading: boolean }
   fetchActivityFileUrl?: (activityId: string, fileName: string) => Promise<string | null>
   viewerCanReveal?: boolean
+  forceEnableFeedback?: boolean
 }
 
 export interface LessonActivityEditViewProps extends LessonActivityViewBaseProps {
@@ -682,6 +683,7 @@ function ActivityPresentView({
   fetchActivityFileUrl,
   viewerCanReveal,
   lessonId,
+  forceEnableFeedback,
 }: LessonActivityPresentViewProps) {
   const hasSuccessCriteria = Array.isArray(activity.success_criteria) && activity.success_criteria.length > 0
 
@@ -698,7 +700,9 @@ function ActivityPresentView({
   }
 
   if (activity.type === "feedback") {
-    return wrap(<FeedbackPresentView activity={activity} lessonId={lessonId} />)
+    return wrap(
+      <FeedbackPresentView activity={activity} lessonId={lessonId} forceEnable={forceEnableFeedback} />,
+    )
   }
 
   if (activity.type === "text") {
@@ -1058,7 +1062,15 @@ function ActivityEditView({ activity, resolvedImageUrl }: LessonActivityEditView
   return null
 }
 
-function FeedbackPresentView({ activity, lessonId }: { activity: LessonActivity; lessonId?: string }) {
+function FeedbackPresentView({
+  activity,
+  lessonId,
+  forceEnable,
+}: {
+  activity: LessonActivity
+  lessonId?: string
+  forceEnable?: boolean
+}) {
   const feedbackBody = useMemo(() => getFeedbackBody(activity), [activity])
   const assignedEntries = useMemo(() => Object.entries(feedbackBody.groups), [feedbackBody])
   const assignedGroupIds = useMemo(
@@ -1103,8 +1115,8 @@ function FeedbackPresentView({ activity, lessonId }: { activity: LessonActivity;
     }))
   }, [assignedEntries, assignedGroupIds, feedbackBody.groups, memberships])
 
-  const hasGroupConfiguration = candidateConfigs.length > 0
-  const hasEnabledGroup = candidateConfigs.some((entry) => entry.settings.isEnabled)
+  const hasGroupConfiguration = forceEnable || candidateConfigs.length > 0
+  const hasEnabledGroup = forceEnable || candidateConfigs.some((entry) => entry.settings.isEnabled)
   const showScores = candidateConfigs.some((entry) => entry.settings.showScore)
   const showCorrectAnswers = candidateConfigs.some((entry) => entry.settings.showCorrectAnswers)
 

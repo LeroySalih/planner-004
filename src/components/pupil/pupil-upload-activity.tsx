@@ -13,6 +13,7 @@ import {
 } from "@/lib/server-updates"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { useFeedbackVisibility } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/feedback-visibility-debug"
 
 export interface ActivityFileInfo {
   name: string
@@ -29,6 +30,9 @@ interface PupilUploadActivityProps {
   canUpload: boolean
   stepNumber: number
   onSubmissionsChange?: (files: ActivityFileInfo[]) => void
+  feedbackAssignmentIds?: string[]
+  feedbackLessonId?: string
+  feedbackInitiallyVisible?: boolean
 }
 
 export function PupilUploadActivity({
@@ -40,16 +44,24 @@ export function PupilUploadActivity({
   canUpload,
   stepNumber,
   onSubmissionsChange,
+  feedbackAssignmentIds = [],
+  feedbackLessonId,
+  feedbackInitiallyVisible = false,
 }: PupilUploadActivityProps) {
   const [isPending, startTransition] = useTransition()
   const [submissions, setSubmissions] = useState<ActivityFileInfo[]>(() => initialSubmissions)
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null)
   const [isDragActive, setIsDragActive] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const { currentVisible } = useFeedbackVisibility({
+    assignmentIds: feedbackAssignmentIds ?? [],
+    lessonId: feedbackLessonId ?? lessonId,
+    initialVisible: feedbackInitiallyVisible ?? false,
+  })
 
   const hasInstructions = instructions.trim().length > 0
 
-  const uploadDisabled = !canUpload || isPending
+  const uploadDisabled = !canUpload || isPending || currentVisible
 
   const refreshSubmissions = useCallback(async () => {
     const result = await listPupilActivitySubmissionsAction(lessonId, activity.activity_id, pupilId)

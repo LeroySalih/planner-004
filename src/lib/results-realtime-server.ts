@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 
 import {
   ASSIGNMENT_RESULTS_UPDATE_EVENT,
+  ASSIGNMENT_FEEDBACK_VISIBILITY_EVENT,
   buildAssignmentResultsChannelName as buildResultsChannelName,
 } from "@/lib/results-channel"
 import { createSupabaseServiceClient } from "@/lib/supabase/server"
@@ -15,6 +16,10 @@ export type AssignmentResultsRealtimePayload = {
   aiScore: number | null
   aiFeedback: string | null
   successCriteriaScores: Record<string, number>
+}
+
+export type AssignmentFeedbackVisibilityPayload = {
+  feedbackVisible: boolean
 }
 
 export { buildAssignmentResultsChannelName } from "@/lib/results-channel"
@@ -63,6 +68,43 @@ export async function publishAssignmentResultsEventsWithClient(
     console.info("[assignment-results] published realtime events", {
       channelName,
       count: events.length,
+    })
+  } finally {
+    await supabase.removeChannel(channel)
+  }
+}
+
+export async function publishAssignmentFeedbackVisibilityUpdate(
+  assignmentId: string,
+  payload: AssignmentFeedbackVisibilityPayload,
+) {
+  const supabase = await createSupabaseServiceClient()
+  const channelName = buildResultsChannelName(assignmentId)
+  const channel = supabase.channel(channelName, ASSIGNMENT_CHANNEL_CONFIG)
+
+  try {
+    await subscribeWithAck(channel)
+
+    const sendResult = await channel.send({
+      type: "broadcast",
+      event: ASSIGNMENT_FEEDBACK_VISIBILITY_EVENT,
+      payload,
+    })
+
+    if (sendResult !== "ok") {
+      const status =
+        typeof sendResult === "string"
+          ? sendResult
+          : (sendResult as { status?: string })?.status ?? "ok"
+
+      if (status !== "ok") {
+        throw new Error(`Assignment feedback visibility realtime send failed with status: ${status}`)
+      }
+    }
+
+    console.info("[assignment-results] published feedback visibility event", {
+      channelName,
+      feedbackVisible: payload.feedbackVisible,
     })
   } finally {
     await supabase.removeChannel(channel)

@@ -12,6 +12,7 @@ import {
 } from "@/components/lessons/activity-view/utils"
 import { saveShortTextAnswerAction } from "@/lib/server-updates"
 import { triggerFeedbackRefresh } from "@/lib/feedback-events"
+import { useFeedbackVisibility } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/feedback-visibility-debug"
 
 interface PupilShortTextActivityProps {
   lessonId: string
@@ -20,6 +21,9 @@ interface PupilShortTextActivityProps {
   canAnswer: boolean
   stepNumber: number
   initialAnswer: string | null
+  feedbackAssignmentIds?: string[]
+  feedbackLessonId?: string
+  feedbackInitiallyVisible?: boolean
 }
 
 type FeedbackState = { type: "success" | "error"; message: string } | null
@@ -31,9 +35,18 @@ export function PupilShortTextActivity({
   canAnswer,
   stepNumber,
   initialAnswer,
+  feedbackAssignmentIds = [],
+  feedbackLessonId,
+  feedbackInitiallyVisible = false,
 }: PupilShortTextActivityProps) {
   const shortTextBody = useMemo(() => getShortTextBody(activity), [activity])
   const questionMarkup = getRichTextMarkup(shortTextBody.question)
+  const { currentVisible } = useFeedbackVisibility({
+    assignmentIds: feedbackAssignmentIds,
+    lessonId: feedbackLessonId ?? lessonId,
+    initialVisible: feedbackInitiallyVisible,
+  })
+  const canAnswerEffective = canAnswer && !currentVisible
 
   const [answer, setAnswer] = useState(initialAnswer ?? "")
   const [lastSaved, setLastSaved] = useState(initialAnswer ?? "")
@@ -50,7 +63,7 @@ export function PupilShortTextActivity({
   }, [initialAnswer])
 
   const handleSave = useCallback(() => {
-    if (!canAnswer) {
+    if (!canAnswerEffective) {
       return
     }
 
@@ -86,7 +99,7 @@ export function PupilShortTextActivity({
       setFeedback({ type: "success", message: "Answer saved" })
       triggerFeedbackRefresh(lessonId)
     })
-  }, [activity.activity_id, answer, canAnswer, lastSaved, lessonId, pupilId, startTransition])
+  }, [activity.activity_id, answer, canAnswerEffective, lastSaved, lessonId, pupilId, startTransition])
 
   const handleBlur = useCallback(() => {
     if (!isPending) {
@@ -95,14 +108,14 @@ export function PupilShortTextActivity({
   }, [handleSave, isPending])
 
   const helperMessage = useMemo(() => {
-    if (!canAnswer) {
+    if (!canAnswerEffective) {
       return "You can view this question, but answers can only be edited by pupils."
     }
     if (!feedback) {
       return "Your teacher will mark this after the lesson. Keep your answer short and precise."
     }
     return feedback.type === "success" ? feedback.message : feedback.message
-  }, [canAnswer, feedback])
+  }, [canAnswerEffective, feedback])
 
   return (
     <div className="space-y-4 rounded-md border border-border bg-card p-4 shadow-sm">
@@ -126,7 +139,7 @@ export function PupilShortTextActivity({
             {shortTextBody.question?.trim() || "Your teacher will add the question soon."}
           </p>
         )}
-        {!canAnswer ? (
+        {!canAnswerEffective ? (
           <p className="text-xs text-muted-foreground">
             You can review this question, but only pupils can enter an answer.
           </p>
@@ -142,7 +155,7 @@ export function PupilShortTextActivity({
           }}
           onBlur={handleBlur}
           placeholder="Type your short answer"
-          disabled={!canAnswer || isPending}
+          disabled={!canAnswerEffective || isPending}
         />
         <div
           className={cnFeedback(feedback)}
@@ -151,7 +164,7 @@ export function PupilShortTextActivity({
         </div>
       </section>
 
-      {canAnswer ? (
+      {canAnswerEffective ? (
         <div className="flex flex-wrap items-center gap-2">
           <Button onClick={handleSave} disabled={isPending}>
             {isPending ? "Saving…" : "Save answer"}

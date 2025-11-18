@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Switch } from "@/components/ui/switch"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
@@ -27,13 +28,18 @@ import {
   clearActivityAiMarksAction,
   requestAiMarkAction,
   resetAssignmentScoreAction,
+  updateAssignmentFeedbackVisibilityAction,
 } from "@/lib/server-updates"
 import { resolveScoreTone } from "@/lib/results/colors"
 import {
   computeAverageSuccessCriteriaScore,
   normaliseSuccessCriteriaScores,
 } from "@/lib/scoring/success-criteria"
-import { ASSIGNMENT_RESULTS_UPDATE_EVENT, buildAssignmentResultsChannelName } from "@/lib/results-channel"
+import {
+  ASSIGNMENT_FEEDBACK_VISIBILITY_EVENT,
+  ASSIGNMENT_RESULTS_UPDATE_EVENT,
+  buildAssignmentResultsChannelName,
+} from "@/lib/results-channel"
 import { extractScoreFromSubmission, selectLatestSubmission } from "@/lib/scoring/activity-scores"
 import { supabaseBrowserClient } from "@/lib/supabase-browser"
 
@@ -396,6 +402,7 @@ function resolvePupilLabels(pupil: AssignmentResultRow["pupil"]) {
 
 export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResultMatrix }) {
   const [matrixState, setMatrixState] = useState<MatrixWithState>({ ...matrix, rows: matrix.rows })
+  const [feedbackVisible, setFeedbackVisible] = useState<boolean>(matrix.assignment?.feedbackVisible ?? false)
   const [selection, setSelection] = useState<CellSelection | null>(null)
   const [activitySummarySelection, setActivitySummarySelection] = useState<string | null>(null)
   const [criterionDrafts, setCriterionDrafts] = useState<Record<string, string>>({})
@@ -451,6 +458,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
   const [resetUITransitionPending, startResetUITransition] = useTransition()
   const [aiMarkPending, startAiMarkTransition] = useTransition()
   const [clearAiPending, startClearAiTransition] = useTransition()
+  const [feedbackTogglePending, startFeedbackToggleTransition] = useTransition()
   const router = useRouter()
   const matrixStateRef = useRef(matrixState)
   const buildOverrideKey = useCallback((rowIndex: number, activityIndex: number) => `${rowIndex}:${activityIndex}`, [])
@@ -497,6 +505,24 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     },
     [buildOverrideKey],
   )
+
+  const applyFeedbackVisibilityUpdate = useCallback((visible: boolean) => {
+    setMatrixState((current) => {
+      const currentVisible = current.assignment?.feedbackVisible ?? false
+      if (currentVisible === visible) {
+        return current
+      }
+      return {
+        ...current,
+        assignment: current.assignment ? { ...current.assignment, feedbackVisible: visible } : current.assignment,
+      }
+    })
+    setFeedbackVisible((previous) => (previous === visible ? previous : visible))
+  }, [])
+
+  useEffect(() => {
+    applyFeedbackVisibilityUpdate(matrix.assignment?.feedbackVisible ?? false)
+  }, [applyFeedbackVisibilityUpdate, matrix.assignment?.feedbackVisible])
 
   const activities = matrixState.activities
   const assignmentChannelName = useMemo(
@@ -1211,10 +1237,32 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     [applyCellUpdate, clearOptimisticEntry],
   )
 
+  const handleFeedbackVisibilityBroadcast = useCallback(
+    (payload: { payload?: { feedbackVisible?: boolean } } | { feedbackVisible?: boolean }) => {
+      const maybePayload = "payload" in payload ? payload.payload : payload
+      const nextVisible =
+        (maybePayload as { feedbackVisible?: boolean })?.feedbackVisible ??
+        (maybePayload as { payload?: { feedbackVisible?: boolean } })?.payload?.feedbackVisible
+
+      if (typeof nextVisible !== "boolean") {
+        return
+      }
+      if (nextVisible === feedbackVisible) {
+        return
+      }
+      applyFeedbackVisibilityUpdate(nextVisible)
+      setRealtimeDebug((entries) => {
+        const next = [...entries, `feedback:${nextVisible ? "on" : "off"}`]
+        return next.slice(-8)
+      })
+    },
+    [applyFeedbackVisibilityUpdate, feedbackVisible],
+  )
+
   const channelRef = useRef<ReturnType<typeof supabaseBrowserClient.channel> | null>(null)
 
   useEffect(() => {
-    if (!RESULTS_REALTIME_ENABLED || !realtimeFilter) {
+    if (!RESULTS_REALTIME_ENABLED) {
       return
     }
     const channelName = assignmentChannelName
@@ -1236,11 +1284,13 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       filter: realtimeFilter,
     })
     const channel = supabaseBrowserClient.channel(channelName, { config: { broadcast: { ack: true } } })
-    channel.on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "submissions", filter: realtimeFilter },
-      handleRealtimeSubmission,
-    )
+    if (realtimeFilter) {
+      channel.on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "submissions", filter: realtimeFilter },
+        handleRealtimeSubmission,
+      )
+    }
     ;(channel as unknown as {
       on: (
         event: "broadcast",
@@ -1248,6 +1298,13 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
         cb: (payload: { payload?: AssignmentResultsRealtimePayload } | AssignmentResultsRealtimePayload) => void,
       ) => void
     }).on("broadcast", { event: ASSIGNMENT_RESULTS_UPDATE_EVENT }, handleRealtimeBroadcast)
+    ;(channel as unknown as {
+      on: (
+        event: "broadcast",
+        filter: { event: string },
+        cb: (payload: { payload?: { feedbackVisible?: boolean } } | { feedbackVisible?: boolean }) => void,
+      ) => void
+    }).on("broadcast", { event: ASSIGNMENT_FEEDBACK_VISIBILITY_EVENT }, handleFeedbackVisibilityBroadcast)
     channel.subscribe((status) => {
       if (status === "CHANNEL_ERROR") {
         console.error("[assignment-results] Realtime channel error", channelName)
@@ -1267,7 +1324,45 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
         channelRef.current = null
       }
     }
-  }, [handleRealtimeSubmission, handleRealtimeBroadcast, realtimeFilter, assignmentChannelName])
+  }, [
+    handleRealtimeSubmission,
+    handleRealtimeBroadcast,
+    handleFeedbackVisibilityBroadcast,
+    realtimeFilter,
+    assignmentChannelName,
+  ])
+
+  const handleFeedbackToggle = useCallback(
+    (nextVisible: boolean) => {
+      if (!matrix.assignmentId) {
+        toast.error("Assignment context unavailable.")
+        return
+      }
+      if (nextVisible === feedbackVisible) {
+        return
+      }
+      applyFeedbackVisibilityUpdate(nextVisible)
+      startFeedbackToggleTransition(async () => {
+        const result = await updateAssignmentFeedbackVisibilityAction({
+          assignmentId: matrix.assignmentId,
+          feedbackVisible: nextVisible,
+        })
+        if (!result.success) {
+          applyFeedbackVisibilityUpdate(!nextVisible)
+          toast.error(result.error ?? "Unable to update feedback visibility.")
+          return
+        }
+        const resolvedVisibility = result.feedbackVisible ?? nextVisible
+        applyFeedbackVisibilityUpdate(resolvedVisibility)
+        setRealtimeDebug((entries) => {
+          const next = [...entries, `feedback:${resolvedVisibility ? "on" : "off"} (local)`]
+          return next.slice(-8)
+        })
+        toast.success(resolvedVisibility ? "Feedback is now visible to pupils." : "Feedback hidden from pupils.")
+      })
+    },
+    [applyFeedbackVisibilityUpdate, matrix.assignmentId, startFeedbackToggleTransition],
+  )
 
   const handleOverrideSubmit = () => {
     if (!selection) return
@@ -1496,9 +1591,11 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       )
       setFeedbackDraft(derived.feedback ?? "")
       toast.success("Override saved.")
-      triggerOverrideAction({ type: "reset" })
+      startOverrideUITransition(() => {
+        triggerOverrideAction({ type: "reset" })
+      })
     }
-  }, [overrideActionState, applyCellUpdate, triggerOverrideAction, clearOptimisticEntry, getOptimisticEntry])
+  }, [overrideActionState, applyCellUpdate, triggerOverrideAction, clearOptimisticEntry, getOptimisticEntry, startOverrideUITransition])
 
   useEffect(() => {
     if (resetActionState.status === "idle") {
@@ -1506,7 +1603,9 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     }
     if (resetActionState.status === "error") {
       toast.error(resetActionState.error ?? "Unable to reset override.")
-      triggerResetAction({ type: "reset" })
+      startResetUITransition(() => {
+        triggerResetAction({ type: "reset" })
+      })
       return
     }
     if (resetActionState.status === "success") {
@@ -1560,9 +1659,11 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       )
       setFeedbackDraft("")
       toast.success("Override cleared.")
-      triggerResetAction({ type: "reset" })
+      startResetUITransition(() => {
+        triggerResetAction({ type: "reset" })
+      })
     }
-  }, [resetActionState, applyCellUpdate, triggerResetAction])
+  }, [resetActionState, applyCellUpdate, triggerResetAction, startResetUITransition])
 
   const goToAssignments = () => {
     router.push("/assignments")
@@ -1638,8 +1739,8 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
           <div className="rounded-md border border-dashed border-primary/40 bg-primary/5 p-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-primary">Realtime debug feed</p>
             <ul className="mt-2 space-y-1 text-xs font-mono text-primary/80">
-              {realtimeDebug.map((entry) => (
-                <li key={entry}>{entry}</li>
+              {realtimeDebug.map((entry, idx) => (
+                <li key={`${entry}-${idx}`}>{entry}</li>
               ))}
             </ul>
           </div>
@@ -1671,6 +1772,25 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                     <span className="font-medium text-muted-foreground">Lesson ID:</span>{" "}
                     <span className="text-foreground">{matrixState.lesson?.lessonId ?? "Not available"}</span>
                   </p>
+                </div>
+                <div className="mt-2 flex items-start justify-between gap-3 rounded-md border border-border/60 bg-muted/40 px-3 py-3">
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-foreground">Pupil feedback visibility</p>
+                    <p className="text-xs text-muted-foreground">
+                      Control whether pupils can see automatic or teacher feedback for this assignment.
+                    </p>
+                    {!matrixState.assignment ? (
+                      <p className="text-[11px] text-muted-foreground">Assignment context unavailable.</p>
+                    ) : feedbackTogglePending ? (
+                      <p className="text-[11px] text-muted-foreground">Saving…</p>
+                    ) : null}
+                  </div>
+                  <Switch
+                    checked={feedbackVisible}
+                    onCheckedChange={handleFeedbackToggle}
+                    disabled={!matrixState.assignment || feedbackTogglePending}
+                    aria-label="Toggle pupil feedback visibility"
+                  />
                 </div>
               </div>
             </div>
