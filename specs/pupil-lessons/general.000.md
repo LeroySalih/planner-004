@@ -1,5 +1,7 @@
 
 # Change Log:
+2025-11-18 Clarified feedback toggle: per-assignment flag (default hidden), reuse existing Realtime channel, applies to both pupil lessons and assignment results views.
+2025-11-18 Added the feedback section
 2025-11-10 Removed the requirement to display activities of lessons.  Added need to highlight whether the lesson includes homework as a flag in the title.  Also added the need to display LO and SC for lessons instead of activities.
 
 # Description
@@ -20,3 +22,9 @@ To keep long lists manageable, only individual lessons may collapse/expand (e.g.
 - Within the week shoudl be a list of subjects. 
 - Within each subject should be a list of lessons
 - ~~With in each lesson should be a list of activities.~~
+
+## Feedback.
+-- Feedback visibility is controlled per assignment and defaults to hidden for existing assignments.
+-- A switch will be palced on the /results/assignments/id that will either show or hide the feedback for the pupil activities on this assignment.
+-- Use the existing Supabase RT channel to update the value that controls whether feedback is visible so that feedback can be seen without the pupil refreshign the page, when enabled by the teacher.
+-- When enabled, feedback should surface live in both the pupil lessons list and the assignment results view without requiring a refresh.

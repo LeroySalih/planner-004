@@ -20,6 +20,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { triggerFeedbackRefresh } from "@/lib/feedback-events"
+import { useFeedbackVisibility } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/feedback-visibility-debug"
 
 interface PupilMcqActivityProps {
   lessonId: string
@@ -29,6 +30,9 @@ interface PupilMcqActivityProps {
   stepNumber: number
   initialSelection: string | null
   onSelectionChange?: (optionId: string | null) => void
+  feedbackAssignmentIds?: string[]
+  feedbackLessonId?: string
+  feedbackInitiallyVisible?: boolean
 }
 
 type FeedbackState = { type: "success" | "error"; message: string } | null
@@ -40,6 +44,9 @@ export function PupilMcqActivity({
   canAnswer,
   stepNumber,
   initialSelection,
+  feedbackAssignmentIds = [],
+  feedbackLessonId,
+  feedbackInitiallyVisible = false,
   onSelectionChange,
 }: PupilMcqActivityProps) {
   const mcqBody = useMemo<McqBody>(() => getMcqBody(activity), [activity])
@@ -57,6 +64,12 @@ export function PupilMcqActivity({
     error: null,
   })
   const [isPending, startTransition] = useTransition()
+  const { currentVisible } = useFeedbackVisibility({
+    assignmentIds: feedbackAssignmentIds,
+    lessonId: feedbackLessonId ?? lessonId,
+    initialVisible: feedbackInitiallyVisible,
+  })
+  const canAnswerEffective = canAnswer && !currentVisible
 
   useEffect(() => {
     const nextInitial = initialSelection && optionMap.has(initialSelection) ? initialSelection : null
@@ -119,7 +132,7 @@ export function PupilMcqActivity({
 
   const handleSelect = useCallback(
     (optionId: string) => {
-      if (!canAnswer || optionId === selection) {
+      if (!canAnswerEffective || optionId === selection) {
         return
       }
 
@@ -157,16 +170,7 @@ export function PupilMcqActivity({
         triggerFeedbackRefresh(lessonId)
       })
     },
-    [
-      activity.activity_id,
-      canAnswer,
-      lessonId,
-      onSelectionChange,
-      optionMap,
-      pupilId,
-      selection,
-      startTransition,
-    ],
+    [activity.activity_id, canAnswerEffective, lessonId, onSelectionChange, optionMap, pupilId, selection, startTransition],
   )
 
   const question = mcqBody.question.trim()
@@ -197,7 +201,7 @@ export function PupilMcqActivity({
             {question || "The teacher hasn’t added the question text yet."}
           </p>
         )}
-        {!canAnswer ? (
+        {!canAnswerEffective ? (
           <p className="text-xs text-muted-foreground">
             You can review this question, but only pupils can select an answer.
           </p>
@@ -239,13 +243,13 @@ export function PupilMcqActivity({
                   className={cn(
                     "flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-background p-3 transition",
                     isSelected && "border-primary bg-primary/5",
-                    (!canAnswer || isPending) && "cursor-not-allowed opacity-90",
+                    (!canAnswerEffective || isPending) && "cursor-not-allowed opacity-90",
                   )}
                 >
                   <RadioGroupItem
                     id={`${activity.activity_id}-${optionId}`}
                     value={optionId}
-                    disabled={!canAnswer || isPending}
+                    disabled={!canAnswerEffective || isPending}
                     className="mt-1"
                   />
                   <div>

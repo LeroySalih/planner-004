@@ -74,6 +74,7 @@ export { readAssignmentsBootstrapAction } from "./server-actions/assignments-boo
 
 export {
   readAssignmentResultsAction,
+  updateAssignmentFeedbackVisibilityAction,
   overrideAssignmentScoreAction,
   resetAssignmentScoreAction,
   clearActivityAiMarksAction,

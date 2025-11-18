@@ -11,6 +11,7 @@ import {
   listActivityFilesAction,
   listPupilActivitySubmissionsAction,
   getLatestSubmissionForActivityAction,
+  readLessonSubmissionSummariesAction,
 } from "@/lib/server-updates"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -19,6 +20,63 @@ import { PupilMcqActivity } from "@/components/pupil/pupil-mcq-activity"
 import { PupilFeedbackActivity } from "@/components/pupil/pupil-feedback-activity"
 import { PupilShortTextActivity } from "@/components/pupil/pupil-short-text-activity"
 import { LegacyMcqSubmissionBodySchema, McqSubmissionBodySchema, ShortTextSubmissionBodySchema } from "@/types"
+import { ActivityProgressPanel } from "./activity-progress-panel"
+import { extractScoreFromSubmission } from "@/lib/scoring/activity-scores"
+
+type McqOption = { id: string; text: string }
+
+function getMcqBodyServer(activity: { body_data: unknown }) {
+  const defaultOptions: McqOption[] = [
+    { id: "option-1", text: "Option 1" },
+    { id: "option-2", text: "Option 2" },
+  ]
+
+  if (!activity.body_data || typeof activity.body_data !== "object") {
+    return { question: "", options: defaultOptions, correctOptionId: defaultOptions[0].id }
+  }
+
+  const record = activity.body_data as Record<string, unknown>
+  const question = typeof record.question === "string" ? record.question : ""
+  const optionsRaw = Array.isArray(record.options) ? record.options : []
+  const options =
+    optionsRaw.map((item, index) => {
+      if (!item || typeof item !== "object") {
+        return { id: `option-${index + 1}`, text: "" }
+      }
+      const option = item as Record<string, unknown>
+      const id =
+        typeof option.id === "string" && option.id.trim() !== ""
+          ? option.id.trim()
+          : `option-${index + 1}`
+      const text = typeof option.text === "string" ? option.text : ""
+      return { id, text }
+    }) ?? defaultOptions
+
+  const normalizedOptions = options.length > 0 ? options : defaultOptions
+  const fallbackOptionId = normalizedOptions[0]?.id ?? defaultOptions[0].id
+  const candidateCorrectId = typeof record.correctOptionId === "string" ? record.correctOptionId.trim() : null
+  const correctOptionId = normalizedOptions.some((option) => option.id === candidateCorrectId)
+    ? candidateCorrectId!
+    : fallbackOptionId
+
+  return {
+    question,
+    options: normalizedOptions,
+    correctOptionId,
+  }
+}
+
+function getShortTextBodyServer(activity: { body_data: unknown }) {
+  if (!activity.body_data || typeof activity.body_data !== "object") {
+    return { question: "", modelAnswer: "" }
+  }
+
+  const record = activity.body_data as Record<string, unknown>
+  const question = typeof record.question === "string" ? record.question : ""
+  const modelAnswer = typeof record.modelAnswer === "string" ? record.modelAnswer : ""
+
+  return { question, modelAnswer }
+}
 
 function formatDateLabel(value: string | null | undefined) {
   if (!value) {
@@ -168,9 +226,10 @@ export default async function PupilLessonFriendlyPage({
     redirect(`/pupil-lessons/${encodeURIComponent(profile.userId)}`)
   }
 
-  const [summaries, lessonDetailResult] = await Promise.all([
+  const [summaries, lessonDetailResult, lessonSubmissionSummaries] = await Promise.all([
     loadPupilLessonsSummaries(pupilId),
     readLessonDetailBootstrapAction(lessonId),
+    readLessonSubmissionSummariesAction(lessonId, { userId: pupilId }),
   ])
 
   const summary = summaries[0]
@@ -213,9 +272,19 @@ export default async function PupilLessonFriendlyPage({
   const submissionMap = new Map(uploadActivityData.map((item) => [item.activityId, item.submissions]))
 
   const mcqActivities = activities.filter((activity) => activity.type === "multiple-choice-question")
+  const activityFeedbackMap = new Map<string, string | null>()
+  const activityModelAnswerMap = new Map<string, string | null>()
 
   const mcqSubmissionEntries = await Promise.all(
     mcqActivities.map(async (activity) => {
+      const mcqBody = getMcqBodyServer(activity)
+      const optionTextMap = Object.fromEntries(
+        mcqBody.options.map((option) => [option.id, option.text?.trim() || option.id]),
+      )
+      const correctOptionText = optionTextMap[mcqBody.correctOptionId] ?? null
+      const questionText = mcqBody.question?.trim() || null
+      activityModelAnswerMap.set(activity.activity_id, correctOptionText)
+
       const result = await getLatestSubmissionForActivityAction(activity.activity_id, pupilId)
       if (result.error || !result.data) {
         return { activityId: activity.activity_id, optionId: null as string | null }
@@ -223,6 +292,15 @@ export default async function PupilLessonFriendlyPage({
 
       const parsedBody = McqSubmissionBodySchema.safeParse(result.data.body)
       if (parsedBody.success) {
+        const extraction = extractScoreFromSubmission(activity.type ?? "", result.data.body, [], {
+          question: questionText,
+          correctAnswer: correctOptionText,
+          optionTextMap,
+        })
+        activityFeedbackMap.set(
+          activity.activity_id,
+          extraction.feedback ?? extraction.autoFeedback ?? null,
+        )
         return {
           activityId: activity.activity_id,
           optionId: parsedBody.data.answer_chosen,
@@ -248,6 +326,11 @@ export default async function PupilLessonFriendlyPage({
 
   const shortTextSubmissionEntries = await Promise.all(
     shortTextActivities.map(async (activity) => {
+      const shortTextBody = getShortTextBodyServer(activity)
+      const modelAnswer = shortTextBody.modelAnswer?.trim() || null
+      const questionText = shortTextBody.question?.trim() || null
+      activityModelAnswerMap.set(activity.activity_id, modelAnswer)
+
       const result = await getLatestSubmissionForActivityAction(activity.activity_id, pupilId)
       if (result.error || !result.data) {
         return { activityId: activity.activity_id, answer: "" }
@@ -255,6 +338,15 @@ export default async function PupilLessonFriendlyPage({
 
       const parsedBody = ShortTextSubmissionBodySchema.safeParse(result.data.body)
       if (parsedBody.success) {
+        const extraction = extractScoreFromSubmission(activity.type ?? "", result.data.body, [], {
+          question: questionText,
+          correctAnswer: modelAnswer,
+          optionTextMap: undefined,
+        })
+        activityFeedbackMap.set(
+          activity.activity_id,
+          extraction.feedback ?? extraction.autoFeedback ?? null,
+        )
         return {
           activityId: activity.activity_id,
           answer: parsedBody.data.answer ?? "",
@@ -267,19 +359,41 @@ export default async function PupilLessonFriendlyPage({
 
   const shortTextAnswerMap = new Map(shortTextSubmissionEntries.map((entry) => [entry.activityId, entry.answer ?? ""]))
 
-  const canUpload = !profile.isTeacher && profile.userId === pupilId
+  const isPupilViewer = !profile.isTeacher && profile.userId === pupilId
 
   const assignments = summary
     ? summary.sections.flatMap((section) =>
-        section.groups
-          .filter((group) => group.lessons.some((l) => l.lessonId === lesson.lesson_id))
-          .map((group) => ({
-            date: section.date,
-            groupId: group.groupId,
-            subject: group.subject,
-          })),
+        section.groups.flatMap((group) =>
+          group.lessons
+            .filter((lessonEntry) => lessonEntry.lessonId === lesson.lesson_id)
+            .map((lessonEntry) => ({
+              date: section.date,
+              groupId: group.groupId,
+              subject: group.subject,
+              feedbackVisible: lessonEntry.feedbackVisible ?? false,
+              assignmentId: `${group.groupId}__${lessonEntry.lessonId}`,
+            })),
+        ),
       )
     : []
+  const assignmentIds = assignments.map((assignment) => assignment.assignmentId)
+  const initialFeedbackVisible = assignments.some((assignment) => assignment.feedbackVisible)
+
+  const activityScoreMap = new Map<string, number | null>()
+  if (!lessonSubmissionSummaries.error) {
+    (lessonSubmissionSummaries.data ?? []).forEach((entry) => {
+      const viewerScore = entry.scores.find((score) => score.userId === pupilId)
+      activityScoreMap.set(
+        entry.activityId,
+        typeof viewerScore?.score === "number" && Number.isFinite(viewerScore.score) ? viewerScore.score : null,
+      )
+    })
+  }
+
+  const formatScoreLabel = (score: number | null | undefined) =>
+    typeof score === "number" && Number.isFinite(score) ? `${Math.round(score * 100)}%` : "No score yet"
+
+  const inputActivityTypes = new Set(["multiple-choice-question", "short-text-question", "upload-file"])
 
   return (
     <main className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-6 py-10">
@@ -359,6 +473,13 @@ export default async function PupilLessonFriendlyPage({
                   : null
                 const titleLink = !isDisplayImage || !resolvedImageUrl ? linkUrl : null
                 const icon = selectActivityIcon(activity.type, Boolean(audioUrl), titleLink)
+                const feedbackText =
+                  activity.type === "feedback"
+                    ? "Your teacher has shared feedback in this activity."
+                    : activityFeedbackMap.get(activity.activity_id)
+                const modelAnswer = activityModelAnswerMap.get(activity.activity_id)
+                const rawScore = activityScoreMap.get(activity.activity_id)
+                const showProgress = inputActivityTypes.has(activity.type ?? "")
 
                 return (
                   <li
@@ -372,31 +493,42 @@ export default async function PupilLessonFriendlyPage({
                         pupilId={pupilId}
                         instructions={extractUploadInstructions(activity)}
                         initialSubmissions={submissionMap.get(activity.activity_id) ?? []}
-                        canUpload={canUpload}
+                        canUpload={isPupilViewer}
                         stepNumber={index + 1}
+                        feedbackAssignmentIds={assignmentIds}
+                        feedbackLessonId={lesson.lesson_id}
+                        feedbackInitiallyVisible={initialFeedbackVisible}
                       />
                     ) : activity.type === "short-text-question" ? (
                       <PupilShortTextActivity
                         lessonId={lesson.lesson_id}
                         activity={activity}
                         pupilId={pupilId}
-                        canAnswer={canUpload}
+                        canAnswer={isPupilViewer}
                         stepNumber={index + 1}
                         initialAnswer={shortTextAnswerMap.get(activity.activity_id) ?? ""}
+                        feedbackAssignmentIds={assignmentIds}
+                        feedbackLessonId={lesson.lesson_id}
+                        feedbackInitiallyVisible={initialFeedbackVisible}
                       />
                     ) : activity.type === "multiple-choice-question" ? (
                       <PupilMcqActivity
                         lessonId={lesson.lesson_id}
                         activity={activity}
                         pupilId={pupilId}
-                        canAnswer={canUpload}
+                        canAnswer={isPupilViewer}
                         stepNumber={index + 1}
                         initialSelection={mcqSelectionMap.get(activity.activity_id) ?? null}
+                        feedbackAssignmentIds={assignmentIds}
+                        feedbackLessonId={lesson.lesson_id}
+                        feedbackInitiallyVisible={initialFeedbackVisible}
                       />
                     ) : activity.type === "feedback" ? (
                       <PupilFeedbackActivity
                         activity={activity}
                         lessonId={lesson.lesson_id}
+                        assignmentIds={assignmentIds}
+                        initialVisible={initialFeedbackVisible}
                       />
                     ) : (
                       <>
@@ -458,16 +590,26 @@ export default async function PupilLessonFriendlyPage({
                               This image isn&apos;t available yet. Please let your teacher know.
                             </p>
                           )
-                        ) : audioUrl && activity.type !== "show-video" ? (
-                          <audio className="mt-3 w-full" controls preload="none" src={audioUrl}>
-                            Your browser does not support the audio element.
-                          </audio>
-                        ) : null}
-                      </>
-                    )}
-                  </li>
-                )
-              })}
+                    ) : audioUrl && activity.type !== "show-video" ? (
+                      <audio className="mt-3 w-full" controls preload="none" src={audioUrl}>
+                        Your browser does not support the audio element.
+                      </audio>
+                    ) : null}
+                  </>
+                )}
+
+                <ActivityProgressPanel
+                  assignmentIds={assignmentIds}
+                  lessonId={lesson.lesson_id}
+                  initialVisible={initialFeedbackVisible}
+                  show={showProgress}
+                  scoreLabel={formatScoreLabel(rawScore)}
+                  feedbackText={feedbackText}
+                  modelAnswer={modelAnswer}
+                />
+              </li>
+            )
+          })}
             </ol>
           )}
         </CardContent>

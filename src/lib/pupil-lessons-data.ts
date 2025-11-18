@@ -15,6 +15,7 @@ export type PupilLessonLesson = {
   title: string
   unitId: string
   startDate: string | null
+  feedbackVisible: boolean
 }
 
 export type PupilLessonGroup = {
@@ -76,6 +77,8 @@ export type PupilLessonWeekSubject = {
     groupId: string
     hasHomework: boolean
     objectives: PupilLessonObjective[]
+    feedbackVisible: boolean
+    assignmentId: string
   }>
 }
 
@@ -105,9 +108,21 @@ export type PupilSubjectUnitsEntry = {
 
 export type PupilLessonsDetail = {
   summary: PupilLessonsSummary | null
+  assignments: PupilLessonAssignment[]
   homework: PupilHomeworkSection[]
   weeks: PupilLessonWeek[]
   units: PupilSubjectUnitsEntry[]
+}
+
+export type PupilLessonAssignment = {
+  lessonId: string
+  lessonTitle: string
+  unitId: string
+  subject: string | null
+  groupId: string
+  date: string | null
+  feedbackVisible: boolean
+  assignmentId: string
 }
 
 type SummaryBootstrapPayload = PupilLessonsSummaryBootstrap
@@ -174,6 +189,7 @@ function normalizeSummaryDatasetFromDetail(detail: PupilLessonsDetailBootstrap |
     lesson_title: assignment.lesson_title ?? null,
     unit_id: assignment.unit_id ?? null,
     subject: assignment.subject ?? null,
+    feedback_visible: assignment.feedback_visible ?? null,
   }))
 
   return {
@@ -271,6 +287,7 @@ function buildSummariesFromBootstrap(payload: SummaryBootstrapPayload, targetPup
         title: lessonTitle,
         unitId,
         startDate: assignment.start_date ?? null,
+        feedbackVisible: Boolean(assignment.feedback_visible),
       })
 
       groupsMap.set(groupId, groupEntry)
@@ -504,6 +521,8 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
       subject: assignment.subject ?? null,
       groupId: assignment.group_id,
       date: assignment.start_date ?? null,
+      feedbackVisible: Boolean(assignment.feedback_visible),
+      assignmentId: `${assignment.group_id}__${assignment.lesson_id}`,
     }))
 
   const unitTitleMap = new Map<string, string>()
@@ -745,6 +764,8 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
         groupId: assignment.groupId,
         hasHomework: homeworkActivities.length > 0,
         objectives: lessonObjectives,
+        feedbackVisible: assignment.feedbackVisible ?? false,
+        assignmentId: assignment.assignmentId,
       })
     }
 
@@ -801,6 +822,7 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
 
   return {
     summary,
+    assignments,
     homework: homeworkSections,
     weeks,
     units,

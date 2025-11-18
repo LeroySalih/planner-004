@@ -702,7 +702,8 @@ begin
       la.start_date,
       tm.subject,
       l.title as lesson_title,
-      l.unit_id
+      l.unit_id,
+      coalesce(la.feedback_visible, false) as feedback_visible
     from target_memberships tm
     join lesson_assignments la on la.group_id = tm.group_id
     join lessons l on l.lesson_id = la.lesson_id
@@ -878,7 +879,8 @@ begin
       la.start_date,
       l.title as lesson_title,
       l.unit_id,
-      g.subject
+      g.subject,
+      coalesce(la.feedback_visible, false) as feedback_visible
     from lesson_assignments la
     join lessons l on l.lesson_id = la.lesson_id
     left join groups g on g.group_id = la.group_id
@@ -1637,7 +1639,8 @@ ALTER TABLE "public"."learning_objectives" OWNER TO "postgres";
 CREATE TABLE IF NOT EXISTS "public"."lesson_assignments" (
     "group_id" "text" NOT NULL,
     "lesson_id" "text" NOT NULL,
-    "start_date" "date" NOT NULL
+    "start_date" "date" NOT NULL,
+    "feedback_visible" boolean DEFAULT false NOT NULL
 );
 
 
@@ -3606,9 +3609,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "anon";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "authenticated";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "service_role";
-
-
-
 
 
 

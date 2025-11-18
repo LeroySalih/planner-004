@@ -27,6 +27,7 @@ const SummaryAssignmentSchema = z.object({
   lesson_title: z.string().nullable().optional(),
   unit_id: z.string().nullable().optional(),
   subject: z.string().nullable().optional(),
+  feedback_visible: z.boolean().nullable().optional(),
 })
 
 const PupilLessonsSummaryBootstrapSchema = z.object({

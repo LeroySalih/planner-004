@@ -31,6 +31,7 @@ import {
 } from "@/lib/scoring/activity-scores"
 import { schedulePupilReportRecalc } from "@/lib/report-cache-jobs"
 import { withTelemetry } from "@/lib/telemetry"
+import { publishAssignmentFeedbackVisibilityUpdate } from "@/lib/results-realtime-server"
 
 const ASSIGNMENT_ID_SEPARATOR = "__"
 const SHORT_TEXT_ACTIVITY_TYPE = "short-text-question"
@@ -38,6 +39,17 @@ const SHORT_TEXT_CORRECTNESS_THRESHOLD = 0.8
 const LESSON_FILES_BUCKET = "lessons"
 const AssignmentIdentifierSchema = z.object({
   assignmentId: z.string().min(3),
+})
+
+const AssignmentFeedbackVisibilityInputSchema = z.object({
+  assignmentId: z.string().min(3),
+  feedbackVisible: z.boolean(),
+})
+
+const AssignmentFeedbackVisibilityResultSchema = z.object({
+  success: z.boolean(),
+  error: z.string().nullable(),
+  feedbackVisible: z.boolean().optional(),
 })
 
 const AssignmentOverrideInputSchema = z.object({
@@ -230,7 +242,7 @@ export async function readAssignmentResultsAction(
             .maybeSingle(),
           supabase
             .from("lesson_assignments")
-            .select("group_id, lesson_id, start_date")
+            .select("group_id, lesson_id, start_date, feedback_visible")
             .eq("group_id", groupId)
             .eq("lesson_id", lessonId)
             .maybeSingle(),
@@ -868,11 +880,13 @@ export async function readAssignmentResultsAction(
             groupId: assignmentResult.data.group_id,
             lessonId: assignmentResult.data.lesson_id,
             startDate: normaliseDate(assignmentResult.data.start_date),
+            feedbackVisible: Boolean(assignmentResult.data.feedback_visible),
           }
         : {
             groupId,
             lessonId,
             startDate: null,
+            feedbackVisible: false,
           },
       pupils,
       activities,
@@ -894,6 +908,70 @@ export async function readAssignmentResultsAction(
           error: "Unable to load assignment results.",
         })
       }
+    },
+  )
+}
+
+export async function updateAssignmentFeedbackVisibilityAction(
+  input: z.infer<typeof AssignmentFeedbackVisibilityInputSchema>,
+  options?: { authEndTime?: number | null; routeTag?: string },
+) {
+  await requireTeacherProfile()
+  const authEndTime = options?.authEndTime ?? performance.now()
+  const routeTag = options?.routeTag ?? "/results/assignments/feedbackVisibility"
+
+  return withTelemetry(
+    {
+      routeTag,
+      functionName: "updateAssignmentFeedbackVisibilityAction",
+      params: { assignmentId: input.assignmentId, feedbackVisible: input.feedbackVisible },
+      authEndTime,
+    },
+    async () => {
+      const parsed = AssignmentFeedbackVisibilityInputSchema.safeParse(input)
+      if (!parsed.success) {
+        return AssignmentFeedbackVisibilityResultSchema.parse({
+          success: false,
+          error: "Invalid assignment identifier.",
+        })
+      }
+
+      const identifiers = decodeAssignmentId(parsed.data.assignmentId)
+      if (!identifiers) {
+        return AssignmentFeedbackVisibilityResultSchema.parse({
+          success: false,
+          error: "Assignment not found.",
+        })
+      }
+
+      const supabase = await createSupabaseServerClient()
+      const { data, error } = await supabase
+        .from("lesson_assignments")
+        .update({ feedback_visible: parsed.data.feedbackVisible })
+        .eq("group_id", identifiers.groupId)
+        .eq("lesson_id", identifiers.lessonId)
+        .select("feedback_visible")
+        .maybeSingle()
+
+      if (error || !data) {
+        console.error("[assignment-results] Failed to update feedback visibility:", error ?? null)
+        return AssignmentFeedbackVisibilityResultSchema.parse({
+          success: false,
+          error: "Unable to update feedback visibility.",
+        })
+      }
+
+      const updatedVisible = Boolean(data.feedback_visible)
+
+      await publishAssignmentFeedbackVisibilityUpdate(parsed.data.assignmentId, {
+        feedbackVisible: updatedVisible,
+      })
+
+      return AssignmentFeedbackVisibilityResultSchema.parse({
+        success: true,
+        error: null,
+        feedbackVisible: updatedVisible,
+      })
     },
   )
 }
