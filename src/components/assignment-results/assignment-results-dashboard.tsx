@@ -59,11 +59,12 @@ type OverrideDerivedState = {
   feedback: string | null
   submittedAt: string
   order: string[]
+  optimisticToken: string
 }
 
 type OverrideActionState =
   | { status: "idle" }
-  | { status: "error"; error: string }
+  | { status: "error"; error: string; derived: OverrideDerivedState }
   | { status: "success"; submissionId: string | null; derived: OverrideDerivedState }
 
 type OverrideActionDispatch =
@@ -401,6 +402,15 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
   const [feedbackDraft, setFeedbackDraft] = useState<string>("")
   const [uploadFiles, setUploadFiles] = useState<Record<string, UploadFileState>>({})
   const [realtimeDebug, setRealtimeDebug] = useState<string[]>([])
+  const [optimisticOverrides, setOptimisticOverrides] = useState<
+    Record<
+      string,
+      {
+        token: string
+        snapshot: AssignmentResultCell
+      }
+    >
+  >({})
   const [overrideActionState, triggerOverrideAction, overridePending] = useActionState<
     OverrideActionState,
     OverrideActionDispatch
@@ -411,7 +421,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       }
       const result = await overrideAssignmentScoreAction(payload.request)
       if (!result.success) {
-        return { status: "error", error: result.error ?? "Unable to save override." }
+        return { status: "error", error: result.error ?? "Unable to save override.", derived: payload.derived }
       }
       return {
         status: "success",
@@ -443,6 +453,50 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
   const [clearAiPending, startClearAiTransition] = useTransition()
   const router = useRouter()
   const matrixStateRef = useRef(matrixState)
+  const buildOverrideKey = useCallback((rowIndex: number, activityIndex: number) => `${rowIndex}:${activityIndex}`, [])
+  const recordOptimisticSnapshot = useCallback(
+    (rowIndex: number, activityIndex: number, cell: AssignmentResultCell, token: string) => {
+      const key = buildOverrideKey(rowIndex, activityIndex)
+      const snapshot: AssignmentResultCell = {
+        ...cell,
+        successCriteriaScores: { ...(cell.successCriteriaScores ?? {}) },
+        autoSuccessCriteriaScores: cell.autoSuccessCriteriaScores
+          ? { ...cell.autoSuccessCriteriaScores }
+          : cell.autoSuccessCriteriaScores,
+        overrideSuccessCriteriaScores: cell.overrideSuccessCriteriaScores
+          ? { ...cell.overrideSuccessCriteriaScores }
+          : cell.overrideSuccessCriteriaScores,
+      }
+      setOptimisticOverrides((current) => ({
+        ...current,
+        [key]: { token, snapshot },
+      }))
+    },
+    [buildOverrideKey],
+  )
+  const optimisticOverridesRef = useRef(optimisticOverrides)
+  const clearOptimisticEntry = useCallback(
+    (rowIndex: number, activityIndex: number, token?: string) => {
+      const key = buildOverrideKey(rowIndex, activityIndex)
+      setOptimisticOverrides((current) => {
+        const existing = current[key]
+        if (!existing || (token && existing.token !== token)) {
+          return current
+        }
+        const next = { ...current }
+        delete next[key]
+        return next
+      })
+    },
+    [buildOverrideKey],
+  )
+  const getOptimisticEntry = useCallback(
+    (rowIndex: number, activityIndex: number) => {
+      const key = buildOverrideKey(rowIndex, activityIndex)
+      return optimisticOverridesRef.current[key]
+    },
+    [buildOverrideKey],
+  )
 
   const activities = matrixState.activities
   const assignmentChannelName = useMemo(
@@ -537,6 +591,9 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
   useEffect(() => {
     matrixStateRef.current = matrixState
   }, [matrixState])
+  useEffect(() => {
+    optimisticOverridesRef.current = optimisticOverrides
+  }, [optimisticOverrides])
   const handleAiMark = useCallback(() => {
     if (!selectedActivity) {
       toast.error("No activity is selected.")
@@ -991,6 +1048,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       if (rowIndex === -1) {
         return
       }
+      clearOptimisticEntry(rowIndex, activityIndex)
       const successCriteriaIds = currentMatrix.activities[activityIndex].successCriteria.map(
         (criterion) => criterion.successCriteriaId,
       )
@@ -1090,7 +1148,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
         })
       }
     },
-    [applyCellUpdate],
+    [applyCellUpdate, clearOptimisticEntry],
   )
 
   const handleRealtimeBroadcast = useCallback(
@@ -1113,6 +1171,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       if (activityIndex === -1 || rowIndex === -1) {
         return
       }
+      clearOptimisticEntry(rowIndex, activityIndex)
 
       const successCriteriaIds = currentMatrix.activities[activityIndex].successCriteria.map(
         (criterion) => criterion.successCriteriaId,
@@ -1149,7 +1208,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
         { rowIndex, activityIndex },
       )
     },
-    [applyCellUpdate],
+    [applyCellUpdate, clearOptimisticEntry],
   )
 
   const channelRef = useRef<ReturnType<typeof supabaseBrowserClient.channel> | null>(null)
@@ -1242,6 +1301,59 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     const parsedAverage = computeAverageSuccessCriteriaScore(successCriteriaScores) ?? 0
     const feedback = feedbackDraft.trim()
     const submittedAt = new Date().toISOString()
+    const optimisticToken = `${Date.now()}-${Math.random().toString(16).slice(2)}`
+
+    const currentMatrix = matrixStateRef.current
+    const currentCell = currentMatrix.rows[selection.rowIndex]?.cells[selection.activityIndex]
+    if (currentCell) {
+      recordOptimisticSnapshot(selection.rowIndex, selection.activityIndex, currentCell, optimisticToken)
+    }
+
+    applyCellUpdate(
+      (cell) => ({
+        ...cell,
+        submissionId: selection.cell.submissionId ?? cell.submissionId ?? null,
+        score: parsedAverage,
+        overrideScore: parsedAverage,
+        status: "override",
+        feedback: feedback.length > 0 ? feedback : null,
+        successCriteriaScores,
+        overrideSuccessCriteriaScores: successCriteriaScores,
+        submittedAt,
+        needsMarking: false,
+      }),
+      { rowIndex: selection.rowIndex, activityIndex: selection.activityIndex },
+    )
+    setSelection((current) => {
+      if (!current || current.rowIndex !== selection.rowIndex || current.activityIndex !== selection.activityIndex) {
+        return current
+      }
+      return {
+        ...current,
+        cell: {
+          ...current.cell,
+          submissionId: selection.cell.submissionId ?? current.cell.submissionId ?? null,
+          score: parsedAverage,
+          overrideScore: parsedAverage,
+          status: "override",
+          feedback: feedback.length > 0 ? feedback : null,
+          successCriteriaScores,
+          overrideSuccessCriteriaScores: successCriteriaScores,
+          submittedAt,
+          needsMarking: false,
+        },
+      }
+    })
+    setCriterionDrafts(
+      Object.fromEntries(
+        selection.activity.successCriteria.map((criterion) => {
+          const value = successCriteriaScores[criterion.successCriteriaId]
+          const normalised = typeof value === "number" && Number.isFinite(value) ? value : 0
+          return [criterion.successCriteriaId, formatPercentInput(normalised)]
+        }),
+      ),
+    )
+    setFeedbackDraft(feedback)
 
     startOverrideUITransition(() => {
       triggerOverrideAction({
@@ -1263,6 +1375,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
           feedback: feedback.length > 0 ? feedback : null,
           submittedAt,
           order: selection.activity.successCriteria.map((criterion) => criterion.successCriteriaId),
+          optimisticToken,
         },
       })
     })
@@ -1314,27 +1427,50 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       return
     }
     if (overrideActionState.status === "error") {
+      console.error("[assignment-results] Override save failed:", overrideActionState.error)
+      const { derived } = overrideActionState
+      const optimisticEntry = getOptimisticEntry(derived.rowIndex, derived.activityIndex)
+      if (optimisticEntry && optimisticEntry.token === derived.optimisticToken) {
+        applyCellUpdate(
+          () => optimisticEntry.snapshot,
+          { rowIndex: derived.rowIndex, activityIndex: derived.activityIndex },
+        )
+        setSelection((current) => {
+          if (!current || current.rowIndex !== derived.rowIndex || current.activityIndex !== derived.activityIndex) {
+            return current
+          }
+          return { ...current, cell: optimisticEntry.snapshot }
+        })
+        setCriterionDrafts(
+          Object.fromEntries(
+            derived.order.map((criterionId) => {
+              const value = optimisticEntry.snapshot.successCriteriaScores?.[criterionId]
+              const normalised = typeof value === "number" && Number.isFinite(value) ? value : 0
+              return [criterionId, formatPercentInput(normalised)]
+            }),
+          ),
+        )
+        setFeedbackDraft(optimisticEntry.snapshot.feedback ?? "")
+        clearOptimisticEntry(derived.rowIndex, derived.activityIndex, derived.optimisticToken)
+      }
       toast.error(overrideActionState.error ?? "Unable to save override.")
       triggerOverrideAction({ type: "reset" })
       return
     }
     if (overrideActionState.status === "success") {
       const { derived, submissionId } = overrideActionState
-      applyCellUpdate(
-        (cell) => ({
-          ...cell,
-          submissionId,
-          score: derived.parsedAverage,
-          overrideScore: derived.parsedAverage,
-          status: "override",
-          feedback: derived.feedback,
-          successCriteriaScores: derived.successCriteriaScores,
-          overrideSuccessCriteriaScores: derived.successCriteriaScores,
-          submittedAt: derived.submittedAt,
-          needsMarking: false,
-        }),
-        { rowIndex: derived.rowIndex, activityIndex: derived.activityIndex },
-      )
+      clearOptimisticEntry(derived.rowIndex, derived.activityIndex, derived.optimisticToken)
+      if (submissionId) {
+        applyCellUpdate(
+          (cell) => {
+            if (cell.submissionId === submissionId) {
+              return cell
+            }
+            return { ...cell, submissionId }
+          },
+          { rowIndex: derived.rowIndex, activityIndex: derived.activityIndex },
+        )
+      }
       setSelection((current) => {
         if (!current || current.rowIndex !== derived.rowIndex || current.activityIndex !== derived.activityIndex) {
           return current
@@ -1343,15 +1479,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
           ...current,
           cell: {
             ...current.cell,
-            submissionId,
-            score: derived.parsedAverage,
-            overrideScore: derived.parsedAverage,
-            status: "override",
-            feedback: derived.feedback,
-            successCriteriaScores: derived.successCriteriaScores,
-            overrideSuccessCriteriaScores: derived.successCriteriaScores,
-            submittedAt: derived.submittedAt,
-            needsMarking: false,
+            submissionId: submissionId ?? current.cell.submissionId ?? null,
           },
         }
       })
@@ -1370,7 +1498,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       toast.success("Override saved.")
       triggerOverrideAction({ type: "reset" })
     }
-  }, [overrideActionState, applyCellUpdate, triggerOverrideAction])
+  }, [overrideActionState, applyCellUpdate, triggerOverrideAction, clearOptimisticEntry, getOptimisticEntry])
 
   useEffect(() => {
     if (resetActionState.status === "idle") {

@@ -1,6 +1,7 @@
 # Results: Feedback Write + Reports Cache Prototype
 
 # Change Log
+2025-11-18 10:15 Documented optimistic override apply/rollback with realtime precedence and console error logging.
 2025-11-09 17:25 Updated the Editing section with changes to the side bar.
 2025-11-12 09:10 Added the AI Marking section describing automated scoring UX, data flows, and telemetry expectations.
 2025-11-13 14:20 Clarified cell background states (white vs. gray vs. RAG) for the assignment results grid.
@@ -27,6 +28,7 @@ The results/assignments page allows the teacher to view and override the feedbac
 
 - Override: This will display all ofthe Success Criteria that are associated with the acitvity, and allow the teacher to enter 0, Partial (50%) or Full via button, or a specific value by text box.  The teacher can also add text feedback.
    - Override reasons remain free-form text; no structured status field is required beyond the override marker.
+   - Override saves apply immediately as an optimistic update; if the server action fails, roll back only when the pending token still matches the current edit, otherwise keep the latest realtime value. Errors toast and are also logged to the console.
 
 
 - Automatic Score tab now also renders any AI-generated feedback (distinct from the teacher override text) so staff can compare machine commentary with their own notes.
@@ -44,6 +46,7 @@ The results/assignments page allows the teacher to view and override the feedbac
    - Server action returns immediately after the basic Supabase write.
    - Client performs optimistic updates and keeps buttons interactive.
    - Browser members subscribe via Supabase Realtime to reconcile the eventual authoritative state.
+   - For override saves, rollback occurs only if the pending optimistic token still matches the current cell; realtime updates take precedence.
 2. Extend the feedback write flow so that, after the immediate response, the server fire-and-forget queues async transactional work that recalculates and stores cached report data for the affected pupil only.
 3. Introduce derived calculation tables dedicated to powering `/reports`, aggregated per student so `/reports/{pupilId}` can render directly from precomputed unit summaries (`report_pupil_unit_summaries`) while `/reports/groups/{groupId}` derives cohort views from those rows. Provide a migration-time backfill that seeds these tables from existing feedback scores so the prototype works immediately on current data.
 4. Write the async calculations as explicit transactional procedures/operators inside the database layer (no triggers) so success/failure stays observable. All access from Next.js must go through the Supabase API/SDK.

@@ -1,5 +1,6 @@
 
 # Change Log:
+2025-11-18 Added the feedback section
 2025-11-10 Removed the requirement to display activities of lessons.  Added need to highlight whether the lesson includes homework as a flag in the title.  Also added the need to display LO and SC for lessons instead of activities.
 
 # Description
@@ -20,3 +21,8 @@ To keep long lists manageable, only individual lessons may collapse/expand (e.g.
 - Within the week shoudl be a list of subjects. 
 - Within each subject should be a list of lessons
 - ~~With in each lesson should be a list of activities.~~
+
+## Feedback.
+-- By default, pupils will not see the feedback (either auto, AI generated or overriden by teacher).
+-- A switch will be palced on the /results/assignments/id that will either show or hide the feedback for the pupil activities on this assignment.
+-- USe the Supabase RT api to update the value that controls whether feedback is visible so that feedback can be seen without the pupil refreshign the page, when enabled by the teacher.
