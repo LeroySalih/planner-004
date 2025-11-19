@@ -14,8 +14,8 @@ import {
   ReportsPupilListingsSchema,
 } from "@/types"
 
-import { getAuthenticatedProfile, requireAuthenticatedProfile } from "@/lib/auth"
-import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { getAuthenticatedProfile, requireAuthenticatedProfile, requireTeacherProfile } from "@/lib/auth"
+import { createSupabaseServerClient, createSupabaseServiceClient } from "@/lib/supabase/server"
 import { withTelemetry } from "@/lib/telemetry"
 
 const GroupReturnValue = z.object({
@@ -73,6 +73,17 @@ const LeaveGroupReturnSchema = z.object({
   success: z.boolean(),
   error: z.string().nullable(),
 })
+
+const ResetPupilPasswordInputSchema = z.object({
+  userId: z.string().min(1),
+})
+
+const ResetPupilPasswordResultSchema = z.object({
+  success: z.boolean(),
+  error: z.string().nullable(),
+})
+
+const DEFAULT_PUPIL_PASSWORD = "bisak123"
 
 export type GroupActionResult = z.infer<typeof GroupReturnValue>
 export type ProfileGroupsResult = z.infer<typeof ProfileGroupsResultSchema>
@@ -311,6 +322,47 @@ export async function removeGroupMemberAction(input: { groupId: string; userId: 
   console.log("[v0] Server action completed for removing group member:", { groupId, userId })
 
   return RemoveGroupMemberReturnSchema.parse({
+    success: true,
+    error: null,
+  })
+}
+
+export async function resetPupilPasswordAction(input: { userId: string }) {
+  await requireTeacherProfile()
+
+  const parsed = ResetPupilPasswordInputSchema.safeParse(input)
+  if (!parsed.success) {
+    return ResetPupilPasswordResultSchema.parse({
+      success: false,
+      error: "Invalid pupil reset payload.",
+    })
+  }
+
+  const { userId } = parsed.data
+  console.info("[groups] Resetting pupil password.", { userId })
+
+  try {
+    const supabase = await createSupabaseServiceClient()
+    const { error } = await supabase.auth.admin.updateUserById(userId, {
+      password: DEFAULT_PUPIL_PASSWORD,
+    })
+
+    if (error) {
+      console.error("[groups] Failed to reset pupil password.", { userId, error })
+      return ResetPupilPasswordResultSchema.parse({
+        success: false,
+        error: "Unable to reset pupil password.",
+      })
+    }
+  } catch (error) {
+    console.error("[groups] Unexpected error resetting pupil password.", { userId, error })
+    return ResetPupilPasswordResultSchema.parse({
+      success: false,
+      error: "Unable to reset pupil password.",
+    })
+  }
+
+  return ResetPupilPasswordResultSchema.parse({
     success: true,
     error: null,
   })

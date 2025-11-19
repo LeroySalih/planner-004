@@ -79,3 +79,7 @@ This guide captures the working knowledge future coding agents need to extend th
 
 Stay vigilant for unexpected file changes. If Supabase tables or shared types evolve, ripple the updates through server actions, client components, and tests in one pass to avoid drift.
 .
+
+# Dates
+Dates should be displayed in DD-mm-yyyy format.
+Weeks start on Sunday, Friday and Saturday are non working days. 

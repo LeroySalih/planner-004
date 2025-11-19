@@ -6,6 +6,7 @@ export {
   updateGroupAction,
   deleteGroupAction,
   removeGroupMemberAction,
+  resetPupilPasswordAction,
   readProfileGroupsForCurrentUserAction,
   joinGroupByCodeAction,
   leaveGroupAction,
@@ -199,6 +200,8 @@ export {
   type ReadProfileDetailResult,
   type UpdateProfileDetailInput,
   type UpdateProfileDetailResult,
+  updateProfilePasswordAction,
+  type UpdateProfilePasswordResult,
 } from "./server-actions/profile"
 
 export { triggerFastUiUpdateAction } from "./server-actions/prototypes/fast-ui"

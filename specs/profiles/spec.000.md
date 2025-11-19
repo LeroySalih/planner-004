@@ -17,10 +17,15 @@ The profile data panel will have the following fields:
 - If the update process is sucessful, notify the user using a toast.
 - If an error occures, notify the user using an error toast.
 
+### Password Panel
+- Renders two password inputs (new password, confirm password) and a submit button.
+- Button remains disabled until both values match and the password length is at least six characters; enforce the same constraints on the server action to avoid tampering.
+- On submit, call the profile password server action via `useActionState`, show pending text on the button, and surface success/error using `sonner` toasts.
+- Clearing the fields after a successful change keeps the user from resubmitting the same password unintentionally.
+
 ### Other Components
 - There is a button to allow the user to navigate to group memberships, which links to the profiles/groups page.
 
 
 ## General Guidance.
 Where possible, components should be pure server components.
-
