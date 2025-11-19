@@ -685,6 +685,54 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
     throw new Error(lessonObjectiveLinksResult.error)
   }
 
+  lessonObjectiveLinksResult.data.forEach((entry) => {
+    if (!entry.learningObjectiveId) {
+      return
+    }
+
+    const nextTitle = typeof entry.learningObjectiveTitle === "string" ? entry.learningObjectiveTitle.trim() : ""
+    const lessonLinkTitle =
+      typeof entry.lessonObjectiveTitle === "string" ? entry.lessonObjectiveTitle.trim() : ""
+    const resolvedTitle = nextTitle || lessonLinkTitle
+    const nextAssessmentCode =
+      typeof entry.assessmentObjectiveCode === "string" && entry.assessmentObjectiveCode.length > 0
+        ? entry.assessmentObjectiveCode
+        : null
+    const existing = learningObjectiveMeta.get(entry.learningObjectiveId)
+
+    if (!existing) {
+      if (!resolvedTitle && !nextAssessmentCode) {
+        return
+      }
+      learningObjectiveMeta.set(entry.learningObjectiveId, {
+        id: entry.learningObjectiveId,
+        title: resolvedTitle || "Learning objective",
+        assessmentObjectiveCode: nextAssessmentCode,
+      })
+      return
+    }
+
+    let shouldUpdate = false
+    const updated = { ...existing }
+
+    if (
+      resolvedTitle &&
+      (!updated.title || updated.title.trim().length === 0 || updated.title === "Learning objective")
+    ) {
+      updated.title = resolvedTitle
+      shouldUpdate = true
+    }
+
+    if (nextAssessmentCode && !updated.assessmentObjectiveCode) {
+      updated.assessmentObjectiveCode = nextAssessmentCode
+      shouldUpdate = true
+    }
+
+    if (shouldUpdate) {
+      learningObjectiveMeta.set(entry.learningObjectiveId, updated)
+    }
+  })
+
   const lessonSuccessCriteriaMap = new Map<string, LessonSuccessCriterion[]>()
   lessonSuccessCriteriaResult.data.forEach((entry) => {
     if (!entry.lesson_id) {
@@ -709,7 +757,7 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
   })
 
   const now = new Date()
-  const currentWeekStart = startOfWeek(now, { weekStartsOn: 1 })
+  const currentWeekStart = startOfWeek(now, { weekStartsOn: 0 })
 
   const weeksMap = new Map<
     string,
@@ -728,7 +776,7 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
       return
     }
 
-    const weekStartDate = startOfWeek(dateValue, { weekStartsOn: 1 })
+    const weekStartDate = startOfWeek(dateValue, { weekStartsOn: 0 })
     if (weekStartDate > currentWeekStart) {
       return
     }
