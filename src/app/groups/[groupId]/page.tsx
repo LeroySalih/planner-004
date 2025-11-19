@@ -1,10 +1,11 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
 
-import { readGroupAction } from "@/lib/server-updates"
-import { removeGroupMemberAction } from "@/lib/server-actions/groups"
+import { readGroupAction, removeGroupMemberAction, resetPupilPasswordAction } from "@/lib/server-updates"
 import { requireTeacherProfile } from "@/lib/auth"
-import { Button } from "@/components/ui/button"
+
+import type { PupilActionState } from "./pupil-action-state"
+import { GroupPupilList, type PupilMember } from "./group-pupil-list"
 
 const roleLabelMap: Record<string, string> = {
   pupil: "Pupil",
@@ -30,31 +31,96 @@ export default async function GroupDetailPage({
   }
 
   const membershipError = result.error
-  const pupils = group.members
+  const pupils: PupilMember[] = group.members
     .filter((member) => member.role.toLowerCase() === "pupil")
     .map((member) => {
       const first = member.profile?.first_name?.trim() ?? ""
       const last = member.profile?.last_name?.trim() ?? ""
       const displayName = `${first} ${last}`.trim()
       return {
-        ...member,
+        user_id: member.user_id,
         displayName: displayName.length > 0 ? displayName : member.user_id,
+        roleLabel: roleLabelMap[member.role.toLowerCase()] ?? member.role,
       }
     })
     .sort((a, b) => a.displayName.localeCompare(b.displayName))
 
-  async function handleRemovePupil(formData: FormData) {
+  async function handleRemovePupil(_prevState: PupilActionState, formData: FormData): Promise<PupilActionState> {
     "use server"
 
     const userId = formData.get("userId")
     if (typeof userId !== "string" || userId.trim().length === 0) {
-      return
+      return {
+        status: "error",
+        message: "Missing pupil identifier.",
+        userId: null,
+        displayName: null,
+      }
     }
+
+    const rawDisplayName = formData.get("displayName")
+    const displayName =
+      typeof rawDisplayName === "string" && rawDisplayName.trim().length > 0
+        ? rawDisplayName.trim()
+        : userId
 
     const outcome = await removeGroupMemberAction({ groupId, userId })
     if (!outcome.success) {
       console.error("[groups] Failed to remove pupil from group:", { groupId, userId, error: outcome.error })
-      throw new Error(outcome.error ?? "Unable to remove pupil from group.")
+      return {
+        status: "error",
+        message: outcome.error ?? "Unable to remove pupil from group.",
+        userId,
+        displayName,
+      }
+    }
+
+    return {
+      status: "success",
+      message: `Removed ${displayName} from this group.`,
+      userId,
+      displayName,
+    }
+  }
+
+  async function handleResetPupilPassword(
+    _prevState: PupilActionState,
+    formData: FormData,
+  ): Promise<PupilActionState> {
+    "use server"
+
+    const userId = formData.get("userId")
+    if (typeof userId !== "string" || userId.trim().length === 0) {
+      return {
+        status: "error",
+        message: "Missing pupil identifier.",
+        userId: null,
+        displayName: null,
+      }
+    }
+
+    const rawDisplayName = formData.get("displayName")
+    const displayName =
+      typeof rawDisplayName === "string" && rawDisplayName.trim().length > 0
+        ? rawDisplayName.trim()
+        : userId
+
+    const outcome = await resetPupilPasswordAction({ userId })
+    if (!outcome.success) {
+      console.error("[groups] Failed to reset pupil password:", { groupId, userId, error: outcome.error })
+      return {
+        status: "error",
+        message: outcome.error ?? "Unable to reset pupil password.",
+        userId,
+        displayName,
+      }
+    }
+
+    return {
+      status: "success",
+      message: `Password reset for ${displayName}.`,
+      userId,
+      displayName,
     }
   }
 
@@ -90,37 +156,11 @@ export default async function GroupDetailPage({
           {pupils.length === 0 ? (
             <p className="mt-3 text-sm text-slate-600">No pupils assigned to this group yet.</p>
           ) : (
-            <ul className="mt-3 space-y-2 text-sm">
-              {pupils.map((member) => (
-                <li
-                  key={member.user_id}
-                  className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-background px-3 py-2"
-                >
-                  <div className="flex flex-col">
-                    <Link
-                      href={`/reports/${member.user_id}`}
-                      className="font-medium text-slate-900 underline-offset-4 hover:underline"
-                    >
-                      {member.displayName}
-                    </Link>
-                    {member.displayName !== member.user_id ? (
-                      <span className="text-xs text-slate-500">{member.user_id}</span>
-                    ) : null}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                      {roleLabelMap[member.role.toLowerCase()] ?? member.role}
-                    </span>
-                    <form action={handleRemovePupil} className="flex items-center">
-                      <input type="hidden" name="userId" value={member.user_id} />
-                      <Button type="submit" variant="outline" size="sm" className="text-xs">
-                        Remove
-                      </Button>
-                    </form>
-                  </div>
-                </li>
-              ))}
-            </ul>
+            <GroupPupilList
+              pupils={pupils}
+              resetPupilPasswordAction={handleResetPupilPassword}
+              removePupilAction={handleRemovePupil}
+            />
           )}
         </div>
       </section>

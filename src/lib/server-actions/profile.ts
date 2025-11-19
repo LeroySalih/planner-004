@@ -97,6 +97,21 @@ const UpdateProfileDetailInputSchema = ProfileNameInputSchema.extend({
   profileId: z.string().min(1, "Profile identifier is required."),
 })
 
+const UpdatePasswordInputSchema = z.object({
+  profileId: z.string().min(1, "Profile identifier is required."),
+  password: z
+    .string()
+    .trim()
+    .min(6, "Password must be at least 6 characters long."),
+})
+
+const UpdatePasswordResultSchema = z.object({
+  success: z.boolean(),
+  error: z.string().nullable(),
+})
+
+export type UpdateProfilePasswordResult = z.infer<typeof UpdatePasswordResultSchema>
+
 export async function updateCurrentProfileAction(
   input: UpdateCurrentProfileInput,
 ): Promise<UpdateCurrentProfileResult> {
@@ -163,6 +178,46 @@ export async function updateCurrentProfileAction(
     success: true,
     error: null,
     data: profile,
+  })
+}
+
+export async function updateProfilePasswordAction(
+  input: z.infer<typeof UpdatePasswordInputSchema>,
+): Promise<UpdateProfilePasswordResult> {
+  const parsed = UpdatePasswordInputSchema.safeParse(input)
+
+  if (!parsed.success) {
+    const [firstError] = parsed.error.issues
+    return UpdatePasswordResultSchema.parse({
+      success: false,
+      error: firstError?.message ?? "Invalid password payload.",
+    })
+  }
+
+  const authProfile = await requireAuthenticatedProfile()
+  if (parsed.data.profileId !== authProfile.userId) {
+    return UpdatePasswordResultSchema.parse({
+      success: false,
+      error: "You can only update your own password.",
+    })
+  }
+
+  const supabase = await createSupabaseServerClient()
+  const { error } = await supabase.auth.updateUser({
+    password: parsed.data.password,
+  })
+
+  if (error) {
+    console.error("[profile] Failed to update password", error)
+    return UpdatePasswordResultSchema.parse({
+      success: false,
+      error: "Unable to update your password right now. Please try again shortly.",
+    })
+  }
+
+  return UpdatePasswordResultSchema.parse({
+    success: true,
+    error: null,
   })
 }
 
