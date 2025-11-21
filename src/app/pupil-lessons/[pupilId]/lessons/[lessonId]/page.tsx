@@ -22,6 +22,8 @@ import { PupilShortTextActivity } from "@/components/pupil/pupil-short-text-acti
 import { LegacyMcqSubmissionBodySchema, McqSubmissionBodySchema, ShortTextSubmissionBodySchema } from "@/types"
 import { ActivityProgressPanel } from "./activity-progress-panel"
 import { extractScoreFromSubmission } from "@/lib/scoring/activity-scores"
+import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { fetchPupilActivityFeedbackMap, selectLatestFeedbackEntry } from "@/lib/feedback/pupil-activity-feedback"
 
 type McqOption = { id: string; text: string }
 
@@ -242,6 +244,34 @@ export default async function PupilLessonFriendlyPage({
   const activities = (lessonPayload?.lessonActivities ?? []).filter((activity) => activity.active !== false)
   const lessonFiles = lessonPayload?.lessonFiles ?? []
 
+  const activityIds = activities.map((activity) => activity.activity_id)
+  const latestFeedbackByActivity = new Map<string, string | null>()
+  if (activityIds.length > 0) {
+    try {
+      const supabase = await createSupabaseServerClient()
+      const feedbackLookup = await fetchPupilActivityFeedbackMap(supabase, {
+        activityIds,
+        pupilIds: [pupilId],
+      })
+      if (feedbackLookup.error) {
+        console.error("[pupil-lessons] Failed to load pupil feedback entries:", feedbackLookup.error)
+      } else {
+        for (const rows of feedbackLookup.data.values()) {
+          const latest = selectLatestFeedbackEntry(rows, ["teacher", "ai", "auto"])
+          if (latest) {
+            const trimmed =
+              typeof latest.feedback_text === "string" && latest.feedback_text.trim().length > 0
+                ? latest.feedback_text.trim()
+                : null
+            latestFeedbackByActivity.set(latest.activity_id, trimmed)
+          }
+        }
+      }
+    } catch (error) {
+      console.error("[pupil-lessons] Unexpected error loading pupil feedback entries:", error)
+    }
+  }
+
   const displayImageUrlEntries = await Promise.all(
     activities
       .filter((activity) => activity.type === "display-image")
@@ -297,10 +327,11 @@ export default async function PupilLessonFriendlyPage({
           correctAnswer: correctOptionText,
           optionTextMap,
         })
-        activityFeedbackMap.set(
-          activity.activity_id,
-          extraction.feedback ?? extraction.autoFeedback ?? null,
-        )
+      const latestFeedback = latestFeedbackByActivity.get(activity.activity_id)
+      activityFeedbackMap.set(
+        activity.activity_id,
+        latestFeedback ?? extraction.feedback ?? extraction.autoFeedback ?? null,
+      )
         return {
           activityId: activity.activity_id,
           optionId: parsedBody.data.answer_chosen,
@@ -343,10 +374,11 @@ export default async function PupilLessonFriendlyPage({
           correctAnswer: modelAnswer,
           optionTextMap: undefined,
         })
-        activityFeedbackMap.set(
-          activity.activity_id,
-          extraction.feedback ?? extraction.autoFeedback ?? null,
-        )
+      const latestFeedback = latestFeedbackByActivity.get(activity.activity_id)
+      activityFeedbackMap.set(
+        activity.activity_id,
+        latestFeedback ?? extraction.feedback ?? extraction.autoFeedback ?? null,
+      )
         return {
           activityId: activity.activity_id,
           answer: parsedBody.data.answer ?? "",

@@ -465,6 +465,23 @@ export const ShortTextSubmissionBodySchema = z
 export type ShortTextActivityBody = z.infer<typeof ShortTextActivityBodySchema>;
 export type ShortTextSubmissionBody = z.infer<typeof ShortTextSubmissionBodySchema>;
 
+export const FeedbackSourceSchema = z.enum(["teacher", "auto", "ai"]);
+export type FeedbackSource = z.infer<typeof FeedbackSourceSchema>;
+
+export const PupilActivityFeedbackRowSchema = z.object({
+    feedback_id: z.string(),
+    activity_id: z.string(),
+    pupil_id: z.string(),
+    submission_id: z.string().nullable(),
+    source: FeedbackSourceSchema,
+    score: z.number().min(0).max(1).nullable(),
+    feedback_text: z.string().nullable(),
+    created_at: z.string(),
+    created_by: z.string().nullable().optional(),
+});
+
+export type PupilActivityFeedbackRow = z.infer<typeof PupilActivityFeedbackRowSchema>;
+
 export const ShortTextFeedbackRequestSchema = z
     .object({
         assignment_id: z.string().min(1),
@@ -689,7 +706,11 @@ export const AssignmentResultCellSchema = z.object({
     status: z.enum(["missing", "auto", "override"]).default("missing"),
     submittedAt: z.string().nullable(),
     feedback: z.string().nullable(),
+    feedbackSource: FeedbackSourceSchema.nullable().optional(),
+    feedbackUpdatedAt: z.string().nullable().optional(),
     autoFeedback: z.string().nullable().optional(),
+    autoFeedbackSource: FeedbackSourceSchema.nullable().optional(),
+    autoFeedbackUpdatedAt: z.string().nullable().optional(),
     successCriteriaScores: AssignmentResultCriterionScoresSchema,
     autoSuccessCriteriaScores: AssignmentResultCriterionScoresSchema.optional(),
     overrideSuccessCriteriaScores: AssignmentResultCriterionScoresSchema.optional(),
