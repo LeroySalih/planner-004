@@ -60,7 +60,7 @@ CREATE POLICY "All Athenticated can Update"
     ON public.pupil_activity_feedback
     AS PERMISSIVE
     FOR UPDATE
-    TO "authenticated, authenticator"
+    TO authenticated, authenticator
     USING (true)
     WITH CHECK (true);
 CREATE POLICY "All Authenticated can Insert"
