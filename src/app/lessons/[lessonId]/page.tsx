@@ -60,7 +60,10 @@ export default async function LessonDetailPage({
           routeTag: "/lessons/[lessonId]",
           authEndTime: authEnd,
         }),
-        readAllLearningObjectivesAction({ routeTag: "/lessons/[lessonId]", authEndTime: authEnd }),
+        readLearningObjectivesByUnitAction(lesson.unit_id, {
+          routeTag: "/lessons/[lessonId]",
+          authEndTime: authEnd,
+        }),
       ]),
   )
 
