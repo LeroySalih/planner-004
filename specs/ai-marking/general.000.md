@@ -21,11 +21,11 @@
     ]
   }
   ```
-- Authentication: `Authorization: Bearer <AI_MARK_SERVICE_KEY>`.
+- Authentication: `mark-service-key: <AI_MARK_SERVICE_KEY>` header.
 
 ## Processing Steps
 1. **Auth & Validation**
-   - Reject missing/invalid bearer tokens.
+   - Reject requests without a valid `mark-service-key` header.
    - Validate payload via Zod; ensure `group_assignment_id` decodes to `groupId` + `lessonId`.
    - For now, only process when `activity_id` resolves to a short-text activity; other types return 202.
 
@@ -33,19 +33,22 @@
    - Use existing helper to split `group_assignment_id`.
    - Load activity metadata to confirm type and fetch lesson context.
 
-3. **Submissions Handling**
+3. **Feedback & Submissions Handling**
+   - Process submissions on a per-pupil basis: when a pupil finishes a quiz, queue only that pupil’s activities that require AI marking.
    - Fetch/create submissions per `pupilid`.
-   - Preserve existing teacher overrides; AI updates only adjust `ai_model_score`, `teacher_feedback` (used for auto feedback), `is_correct`, and `success_criteria_scores`.
-   - If no submission exists, create one with the AI data and mark as AI-generated.
+   - All feedback (teacher, auto, or AI) must be written to the shared `pupil_activity_feedback` table with columns: `feedback_id`, `activity_id`, `pupil_id`, `source` (`"teacher" | "auto" | "ai"`), `score`, `feedback_text`, `created_at`.
+   - When AI feedback arrives, insert a new row in that table (`source = "ai"`) alongside any existing manual entries; teacher overrides continue to win when calculating the effective score.
+   - The UI queries this table for the latest entry per pupil/activity to decide which score and feedback to render.
+   - Submissions keep `ai_model_score`/`success_criteria_scores` in sync, but the canonical feedback text now lives in the shared table.
 
 4. **Score & Feedback Updates**
    - Set `ai_model_score = results.score`.
-   - Store AI textual feedback inside the existing `teacher_feedback` field (auto feedback lives alongside manual overrides, which always win when present).
-   - Recompute derived averages/success criteria using existing helpers.
+   - Insert/update rows in `pupil_activity_feedback` rather than mutating `teacher_feedback`; downstream consumers read the newest feedback entry for the authoritative text + score.
+   - Recompute derived averages/success criteria using existing helpers so aggregates stay in sync with the chosen score.
 
 5. **Response & Revalidation**
    - Return counts for `updated`, `skipped`, `errors`.
-   - Trigger `revalidatePath("/results/assignments/[assignmentId]")`.
+   - Always trigger `revalidatePath("/results/assignments/[assignmentId]")`, even when some entries fail, so the UI reflects partial updates promptly.
 
 ## Future Considerations
 - Extend schema to support MCQ/other activity types.

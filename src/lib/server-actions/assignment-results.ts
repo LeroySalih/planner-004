@@ -32,6 +32,13 @@ import {
 import { schedulePupilReportRecalc } from "@/lib/report-cache-jobs"
 import { withTelemetry } from "@/lib/telemetry"
 import { publishAssignmentFeedbackVisibilityUpdate } from "@/lib/results-realtime-server"
+import {
+  fetchPupilActivityFeedbackMap,
+  insertPupilActivityFeedbackEntry,
+  selectLatestFeedbackEntry,
+  type FeedbackLookupMap,
+  type FeedbackLookupKey,
+} from "@/lib/feedback/pupil-activity-feedback"
 
 const ASSIGNMENT_ID_SEPARATOR = "__"
 const SHORT_TEXT_ACTIVITY_TYPE = "short-text-question"
@@ -550,6 +557,16 @@ export async function readAssignmentResultsAction(
       submissionRows = submissions ?? []
     }
 
+    let feedbackLookupMap: FeedbackLookupMap = new Map()
+    if (activityIds.length > 0 && pupilIds.length > 0) {
+      const feedbackLookup = await fetchPupilActivityFeedbackMap(supabase, { activityIds, pupilIds })
+      if (feedbackLookup.error) {
+        console.error("[assignment-results] Failed to load feedback entries for assignment:", feedbackLookup.error)
+      } else {
+        feedbackLookupMap = feedbackLookup.data
+      }
+    }
+
     const baseCellMap = new Map<string, z.infer<typeof AssignmentResultCellSchema>>()
 
     for (const pupil of pupils) {
@@ -575,7 +592,11 @@ export async function readAssignmentResultsAction(
           status: "missing",
           submittedAt: null,
           feedback: null,
+          feedbackSource: null,
+          feedbackUpdatedAt: null,
           autoFeedback: null,
+          autoFeedbackSource: null,
+          autoFeedbackUpdatedAt: null,
           successCriteriaScores: zeroScores,
           autoSuccessCriteriaScores: zeroScores,
           question: metadata.question,
@@ -594,7 +615,7 @@ export async function readAssignmentResultsAction(
         continue
       }
 
-      const key = `${pupilId}::${activityId}`
+      const key: FeedbackLookupKey = `${pupilId}::${activityId}`
       const existingCell = baseCellMap.get(key)
       if (!existingCell) {
         continue
@@ -628,6 +649,20 @@ export async function readAssignmentResultsAction(
       const finalScore =
         computeAverageSuccessCriteriaScore(extracted.successCriteriaScores) ?? extracted.effectiveScore ?? 0
 
+      const feedbackRows = feedbackLookupMap.get(key)
+      const latestTeacherFeedback = selectLatestFeedbackEntry(feedbackRows, "teacher")
+      const latestAutoFeedback = selectLatestFeedbackEntry(feedbackRows, ["ai", "auto"])
+      const teacherFeedbackText =
+        latestTeacherFeedback?.feedback_text && latestTeacherFeedback.feedback_text.trim().length > 0
+          ? latestTeacherFeedback.feedback_text.trim()
+          : null
+      const autoFeedbackText =
+        latestAutoFeedback?.feedback_text && latestAutoFeedback.feedback_text.trim().length > 0
+          ? latestAutoFeedback.feedback_text.trim()
+          : null
+      const resolvedFeedback = teacherFeedbackText ?? extracted.feedback ?? null
+      const resolvedAutoFeedback = autoFeedbackText ?? extracted.autoFeedback ?? null
+
       baseCellMap.set(
         key,
         AssignmentResultCellSchema.parse({
@@ -639,8 +674,12 @@ export async function readAssignmentResultsAction(
           overrideScore: extracted.overrideScore,
           status,
           submittedAt,
-          feedback: extracted.feedback,
-          autoFeedback: extracted.autoFeedback ?? null,
+          feedback: resolvedFeedback,
+          feedbackSource: latestTeacherFeedback?.source ?? (resolvedFeedback ? "teacher" : null),
+          feedbackUpdatedAt: latestTeacherFeedback?.created_at ?? null,
+          autoFeedback: resolvedAutoFeedback,
+          autoFeedbackSource: latestAutoFeedback?.source ?? null,
+          autoFeedbackUpdatedAt: latestAutoFeedback?.created_at ?? null,
           successCriteriaScores: extracted.successCriteriaScores,
           autoSuccessCriteriaScores: extracted.autoSuccessCriteriaScores,
           overrideSuccessCriteriaScores: extracted.overrideSuccessCriteriaScores ?? undefined,
@@ -1074,7 +1113,7 @@ export async function overrideAssignmentScoreAction(
   input: z.infer<typeof AssignmentOverrideInputSchema>,
   options?: { authEndTime?: number | null; routeTag?: string },
 ) {
-  await requireTeacherProfile()
+  const teacherProfile = await requireTeacherProfile()
   const authEndTime = options?.authEndTime ?? performance.now()
   const routeTag = options?.routeTag ?? "/results/assignments:override"
 
@@ -1266,6 +1305,17 @@ export async function overrideAssignmentScoreAction(
           submittedAt = normaliseTimestamp(insertedSubmission?.submitted_at) ?? submittedAt
         }
 
+        await insertPupilActivityFeedbackEntry({
+          supabase,
+          activityId: parsed.data.activityId,
+          pupilId: parsed.data.pupilId,
+          submissionId,
+          source: "teacher",
+          score: parsed.data.score,
+          feedbackText: parsed.data.feedback ?? null,
+          createdBy: teacherProfile.userId,
+        })
+
         revalidatePath(`/results/assignments/${parsed.data.assignmentId}`)
         schedulePupilReportRecalc({
           pupilId: parsed.data.pupilId,
@@ -1292,7 +1342,7 @@ export async function resetAssignmentScoreAction(
   input: z.infer<typeof AssignmentResetInputSchema>,
   options?: { authEndTime?: number | null; routeTag?: string },
 ) {
-  await requireTeacherProfile()
+  const teacherProfile = await requireTeacherProfile()
   const authEndTime = options?.authEndTime ?? performance.now()
   const routeTag = options?.routeTag ?? "/results/assignments:reset"
 
@@ -1442,6 +1492,17 @@ export async function resetAssignmentScoreAction(
           })
         }
 
+        await insertPupilActivityFeedbackEntry({
+          supabase,
+          activityId: parsed.data.activityId,
+          pupilId: parsed.data.pupilId,
+          submissionId,
+          source: "teacher",
+          score: null,
+          feedbackText: null,
+          createdBy: teacherProfile.userId,
+        })
+
         revalidatePath(`/results/assignments/${parsed.data.assignmentId}`)
         schedulePupilReportRecalc({
           pupilId: parsed.data.pupilId,
@@ -1464,7 +1525,7 @@ export async function clearActivityAiMarksAction(
   input: z.infer<typeof ClearAiMarksInputSchema>,
   options?: { authEndTime?: number | null; routeTag?: string },
 ) {
-  await requireTeacherProfile()
+  const teacherProfile = await requireTeacherProfile()
   const parsedInput = ClearAiMarksInputSchema.safeParse(input)
   if (!parsedInput.success) {
     return ClearAiMarksResultSchema.parse({
@@ -1520,7 +1581,7 @@ export async function clearActivityAiMarksAction(
 
       const { data: submissions, error: submissionsError } = await supabase
         .from("submissions")
-        .select("submission_id, body")
+        .select("submission_id, body, user_id")
         .eq("activity_id", parsedInput.data.activityId)
 
       if (submissionsError) {
@@ -1580,6 +1641,19 @@ export async function clearActivityAiMarksAction(
             error: updateError,
           })
           continue
+        }
+
+        if (typeof submission.user_id === "string" && submission.user_id.trim().length > 0) {
+          await insertPupilActivityFeedbackEntry({
+            supabase,
+            activityId: parsedInput.data.activityId,
+            pupilId: submission.user_id,
+            submissionId: submission.submission_id ?? null,
+            source: "ai",
+            score: null,
+            feedbackText: null,
+            createdBy: teacherProfile.userId,
+          })
         }
 
         clearedCount += 1

@@ -695,6 +695,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
           ? `Cleared AI marks for ${result.cleared} submission${result.cleared === 1 ? "" : "s"}.`
           : "No AI marks were present to clear."
       toast.success(clearedMessage)
+      const clearedAt = new Date().toISOString()
       setMatrixState((previous) => {
         const activityIndex = previous.activities.findIndex(
           (activity) => activity.activityId === selectedActivity.activityId,
@@ -721,6 +722,8 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
             ...targetCell,
             autoScore: null,
             autoFeedback: null,
+            autoFeedbackSource: null,
+            autoFeedbackUpdatedAt: clearedAt,
             autoSuccessCriteriaScores: resetScores,
             successCriteriaScores: hasOverride ? targetCell.successCriteriaScores : resetScores,
             status: hasOverride ? "override" : "missing",
@@ -756,6 +759,8 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
             ...current.cell,
             autoScore: null,
             autoFeedback: null,
+            autoFeedbackSource: null,
+            autoFeedbackUpdatedAt: clearedAt,
             autoSuccessCriteriaScores: resetScores,
             successCriteriaScores: hasOverride ? current.cell.successCriteriaScores : resetScores,
             status: hasOverride ? "override" : "missing",
@@ -1097,7 +1102,11 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
               status: "missing",
               submittedAt: null,
               feedback: null,
+              feedbackSource: null,
+              feedbackUpdatedAt: null,
               autoFeedback: null,
+              autoFeedbackSource: null,
+              autoFeedbackUpdatedAt: null,
               successCriteriaScores: zeroScores,
               autoSuccessCriteriaScores: zeroScores,
               overrideSuccessCriteriaScores: undefined,
@@ -1151,7 +1160,25 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
             status,
             submittedAt,
             feedback: extracted.feedback,
+            feedbackSource:
+              extracted.feedback && extracted.feedback.trim().length > 0
+                ? status === "override"
+                  ? "teacher"
+                  : cell.feedbackSource ?? null
+                : cell.feedbackSource ?? null,
+            feedbackUpdatedAt:
+              extracted.feedback && extracted.feedback.trim().length > 0 ? submittedAt : cell.feedbackUpdatedAt ?? null,
             autoFeedback: extracted.autoFeedback ?? null,
+            autoFeedbackSource:
+              extracted.autoFeedback && extracted.autoFeedback.trim().length > 0
+                ? activityType === "short-text-question"
+                  ? "ai"
+                  : cell.autoFeedbackSource ?? "auto"
+                : cell.autoFeedbackSource ?? null,
+            autoFeedbackUpdatedAt:
+              extracted.autoFeedback && extracted.autoFeedback.trim().length > 0
+                ? submittedAt
+                : cell.autoFeedbackUpdatedAt ?? null,
             successCriteriaScores: extracted.successCriteriaScores,
             autoSuccessCriteriaScores: extracted.autoSuccessCriteriaScores,
             overrideSuccessCriteriaScores: extracted.overrideSuccessCriteriaScores ?? undefined,
@@ -1219,11 +1246,20 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
               ? rawPayload.aiScore
               : null
           const nextSuccessCriteriaScores = hasOverride ? cell.successCriteriaScores : normalisedScores
+          const autoFeedbackUpdatedAt =
+            rawPayload.aiFeedback && rawPayload.aiFeedback.trim().length > 0
+              ? new Date().toISOString()
+              : cell.autoFeedbackUpdatedAt ?? null
           return {
             ...cell,
             submissionId: rawPayload.submissionId ?? cell.submissionId,
             autoScore: nextAutoScore,
             autoFeedback: rawPayload.aiFeedback ?? null,
+            autoFeedbackSource:
+              rawPayload.aiFeedback && rawPayload.aiFeedback.trim().length > 0
+                ? "ai"
+                : cell.autoFeedbackSource ?? null,
+            autoFeedbackUpdatedAt,
             autoSuccessCriteriaScores: normalisedScores,
             successCriteriaScores: nextSuccessCriteriaScores,
             score: hasOverride ? cell.overrideScore ?? nextAutoScore ?? fallbackScore : nextAutoScore ?? fallbackScore,
@@ -1404,19 +1440,21 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       recordOptimisticSnapshot(selection.rowIndex, selection.activityIndex, currentCell, optimisticToken)
     }
 
-    applyCellUpdate(
-      (cell) => ({
-        ...cell,
-        submissionId: selection.cell.submissionId ?? cell.submissionId ?? null,
-        score: parsedAverage,
-        overrideScore: parsedAverage,
-        status: "override",
-        feedback: feedback.length > 0 ? feedback : null,
-        successCriteriaScores,
-        overrideSuccessCriteriaScores: successCriteriaScores,
-        submittedAt,
-        needsMarking: false,
-      }),
+      applyCellUpdate(
+        (cell) => ({
+          ...cell,
+          submissionId: selection.cell.submissionId ?? cell.submissionId ?? null,
+          score: parsedAverage,
+          overrideScore: parsedAverage,
+          status: "override",
+          feedback: feedback.length > 0 ? feedback : null,
+          feedbackSource: feedback.length > 0 ? "teacher" : cell.feedbackSource ?? null,
+          feedbackUpdatedAt: submittedAt,
+          successCriteriaScores,
+          overrideSuccessCriteriaScores: successCriteriaScores,
+          submittedAt,
+          needsMarking: false,
+        }),
       { rowIndex: selection.rowIndex, activityIndex: selection.activityIndex },
     )
     setSelection((current) => {
@@ -1426,17 +1464,19 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       return {
         ...current,
         cell: {
-          ...current.cell,
-          submissionId: selection.cell.submissionId ?? current.cell.submissionId ?? null,
-          score: parsedAverage,
-          overrideScore: parsedAverage,
-          status: "override",
-          feedback: feedback.length > 0 ? feedback : null,
-          successCriteriaScores,
-          overrideSuccessCriteriaScores: successCriteriaScores,
-          submittedAt,
-          needsMarking: false,
-        },
+            ...current.cell,
+            submissionId: selection.cell.submissionId ?? current.cell.submissionId ?? null,
+            score: parsedAverage,
+            overrideScore: parsedAverage,
+            status: "override",
+            feedback: feedback.length > 0 ? feedback : null,
+            feedbackSource: feedback.length > 0 ? "teacher" : current.cell.feedbackSource ?? null,
+            feedbackUpdatedAt: submittedAt,
+            successCriteriaScores,
+            overrideSuccessCriteriaScores: successCriteriaScores,
+            submittedAt,
+            needsMarking: false,
+          },
       }
     })
     setCriterionDrafts(
@@ -1617,6 +1657,8 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
           overrideScore: null,
           status: derived.status,
           feedback: null,
+          feedbackSource: null,
+          feedbackUpdatedAt: derived.submittedAt,
           successCriteriaScores: derived.successCriteriaScores,
           autoSuccessCriteriaScores: derived.successCriteriaScores,
           overrideSuccessCriteriaScores: undefined,
@@ -1638,6 +1680,8 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
             overrideScore: null,
             status: derived.status,
             feedback: null,
+            feedbackSource: null,
+            feedbackUpdatedAt: derived.submittedAt,
             successCriteriaScores: derived.successCriteriaScores,
             autoSuccessCriteriaScores: derived.successCriteriaScores,
             overrideSuccessCriteriaScores: undefined,

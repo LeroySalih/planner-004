@@ -9,6 +9,7 @@ import {
   type AssignmentResultsRealtimePayload,
   publishAssignmentResultsEventsWithClient,
 } from "@/lib/results-realtime-server"
+import { insertPupilActivityFeedbackEntry } from "@/lib/feedback/pupil-activity-feedback"
 
 export const dynamic = "force-dynamic"
 
@@ -193,6 +194,7 @@ export async function POST(request: Request) {
           activityId: parsed.data.activity_id,
           successCriteriaIds,
           answerFallback: answersByPupil.get(resultPupilId) ?? null,
+          pupilId: resultPupilId,
         })
         if (updated?.updated) {
           summary.updated += 1
@@ -291,6 +293,7 @@ async function applyAiMarkToSubmission({
   activityId,
   successCriteriaIds,
   answerFallback,
+  pupilId,
 }: {
   supabase: ReturnType<typeof createSupabaseServiceClient>
   submission: { submission_id: string; user_id?: string | null; body: unknown; submitted_at?: string | null }
@@ -298,6 +301,7 @@ async function applyAiMarkToSubmission({
   activityId: string
   successCriteriaIds: string[]
   answerFallback: string | null
+  pupilId: string
 }): Promise<{ updated: boolean; payload: AssignmentResultsRealtimePayload | null }> {
   const parsedBody = ShortTextSubmissionBodySchema.safeParse(submission.body ?? {})
   const baseBody = parsedBody.success ? parsedBody.data : ShortTextSubmissionBodySchema.parse({})
@@ -336,6 +340,17 @@ async function applyAiMarkToSubmission({
   if (error) {
     throw error
   }
+
+  await insertPupilActivityFeedbackEntry({
+    supabase,
+    activityId,
+    pupilId,
+    submissionId: submission.submission_id,
+    source: "ai",
+    score: aiScore,
+    feedbackText: nextAiFeedback,
+    createdBy: null,
+  })
 
   return {
     updated: true,
@@ -395,6 +410,17 @@ async function createAiMarkedSubmission({
   if (error) {
     throw error
   }
+
+  await insertPupilActivityFeedbackEntry({
+    supabase,
+    activityId,
+    pupilId,
+    submissionId: insertedRow?.submission_id ?? null,
+    source: "ai",
+    score,
+    feedbackText: submissionBody.ai_model_feedback ?? null,
+    createdBy: null,
+  })
 
   return {
     created: true,
