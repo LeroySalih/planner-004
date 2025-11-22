@@ -211,3 +211,4 @@ export { UNIT_MUTATION_INITIAL_STATE, type UnitMutationState } from "./prototype
 export { LESSON_MUTATION_INITIAL_STATE, type LessonMutationState } from "./prototypes/lesson-mutations"
 
 export { runPupilReportRecalcAction } from "./server-actions/reports"
+export { createUserWithoutEmailConfirmationAction } from "./server-actions/auth"

@@ -6,6 +6,7 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { createUserWithoutEmailConfirmationAction } from "@/lib/server-updates"
 import { supabaseBrowserClient } from "@/lib/supabase-browser"
 import { useRouter } from "next/navigation"
 
@@ -16,12 +17,10 @@ export function SignupForm() {
   const [confirmPassword, setConfirmPassword] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setError(null)
-    setSuccessMessage(null)
 
     if (password.length < 6) {
       setError("Password must be at least 6 characters long.")
@@ -36,22 +35,21 @@ export function SignupForm() {
     setIsLoading(true)
 
     try {
-      const { data, error: signUpError } = await supabaseBrowserClient.auth.signUp({
+      const signupResult = await createUserWithoutEmailConfirmationAction({ email, password })
+
+      if (!signupResult.success) {
+        setError(signupResult.error ?? "Unable to create your account.")
+        return
+      }
+
+      const { error: signInError } = await supabaseBrowserClient.auth.signInWithPassword({
         email,
         password,
       })
 
-      if (signUpError) {
-        console.error("SignupForm: sign up error", signUpError)
-        setError(signUpError.message)
-        return
-      }
-
-      if (!data?.user) {
-        setSuccessMessage("Check your email to confirm your account.")
-        setEmail("")
-        setPassword("")
-        setConfirmPassword("")
+      if (signInError) {
+        console.error("SignupForm: auto sign-in error", signInError)
+        setError("Account created, but sign-in failed. Please try signing in.")
         return
       }
 
@@ -101,7 +99,6 @@ export function SignupForm() {
       </div>
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
-      {successMessage ? <p className="text-sm text-emerald-500">{successMessage}</p> : null}
 
       <Button type="submit" disabled={isLoading} className="w-full">
         {isLoading ? "Signing up..." : "Create account"}

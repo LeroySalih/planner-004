@@ -7,7 +7,7 @@ node_modules/
 .npm-cache/
 **/.npm-cache/
 
-
+*.dump
 /.pnp
 .pnp.*
 .yarn/*
