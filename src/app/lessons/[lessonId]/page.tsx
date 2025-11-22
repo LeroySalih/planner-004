@@ -5,6 +5,7 @@ import { notFound } from "next/navigation"
 import { LessonDetailClient } from "@/components/lessons/lesson-detail-client"
 import {
   readAllLearningObjectivesAction,
+  readLearningObjectivesByUnitAction,
   readLessonDetailBootstrapAction,
   readLessonReferenceDataAction,
 } from "@/lib/server-updates"
