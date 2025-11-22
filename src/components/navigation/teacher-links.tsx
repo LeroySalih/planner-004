@@ -11,7 +11,11 @@ type NavState =
   | { status: "teacher"; userId: string }
   | { status: "pupil"; userId: string }
 
-export function TeacherNavLinks() {
+type TeacherNavLinksProps = {
+  onNavigate?: () => void
+}
+
+export function TeacherNavLinks({ onNavigate }: TeacherNavLinksProps) {
   const [state, setState] = useState<NavState>({ status: "loading" })
 
   useEffect(() => {
@@ -67,30 +71,35 @@ export function TeacherNavLinks() {
         <Link
           href="/assignments"
           className="text-muted-foreground transition-colors hover:text-primary"
+          onClick={onNavigate}
         >
           SoW
         </Link>
         <Link
           href="/groups"
           className="text-muted-foreground transition-colors hover:text-primary"
+          onClick={onNavigate}
         >
           Groups
         </Link>
         <Link
           href="/units"
           className="text-muted-foreground transition-colors hover:text-primary"
+          onClick={onNavigate}
         >
           Units
         </Link>
         <Link
           href="/reports"
           className="text-muted-foreground transition-colors hover:text-primary"
+          onClick={onNavigate}
         >
           Reports
         </Link>
         <Link
           href="/curriculum"
           className="text-muted-foreground transition-colors hover:text-primary"
+          onClick={onNavigate}
         >
           Curriculum
         </Link>
@@ -104,12 +113,14 @@ export function TeacherNavLinks() {
         <Link
           href={`/pupil-lessons/${encodeURIComponent(state.userId)}`}
           className="text-muted-foreground transition-colors hover:text-primary"
+          onClick={onNavigate}
         >
           My Lessons
         </Link>
         <Link
           href={`/reports/${encodeURIComponent(state.userId)}`}
           className="text-muted-foreground transition-colors hover:text-primary"
+          onClick={onNavigate}
         >
           Dashboard
         </Link>

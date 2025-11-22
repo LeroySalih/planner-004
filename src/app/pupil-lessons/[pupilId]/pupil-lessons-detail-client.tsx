@@ -17,7 +17,7 @@ function formatLessonDate(value: string): string {
       return value
     }
 
-    return format(parsed, "EEE d MMM yyyy")
+    return format(parsed, "dd-MM-yyyy")
   } catch {
     return value
   }
@@ -45,7 +45,7 @@ function formatDisplayDate(date: Date | null) {
   }
 
   try {
-    return format(date, "do MMM yyyy")
+    return format(date, "dd-MM-yyyy")
   } catch {
     return "No scheduled date"
   }
@@ -82,15 +82,18 @@ export function PupilLessonsDetailClient({ detail, pupilId }: PupilLessonsDetail
   }
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-8 sm:space-y-10">
       {weeks.map((week) => {
         const { weekIssued, weekDue } = getWeekWindow(week.weekStart)
 
         return (
-          <section key={week.weekStart} className="space-y-6">
-            <div className="space-y-1">
-              <h2 className="text-xl font-semibold text-foreground">{week.label}</h2>
-              <p className="text-xs text-muted-foreground">
+          <section
+            key={week.weekStart}
+            className="space-y-6 rounded-2xl border border-border/60 bg-card/50 p-4 shadow-sm sm:p-6"
+          >
+            <div className="space-y-2">
+              <h2 className="text-xl font-semibold text-foreground sm:text-2xl">{week.label}</h2>
+              <p className="text-xs text-muted-foreground sm:text-sm">
                 Week issued: {weekIssued}
                 {weekDue ? ` · Week due: ${weekDue}` : null}
               </p>
@@ -107,14 +110,14 @@ export function PupilLessonsDetailClient({ detail, pupilId }: PupilLessonsDetail
 
                       return (
                         <Card key={lesson.lessonId} className="border-border/70 shadow-sm">
-                          <CardHeader className="space-y-1">
+                          <CardHeader className="space-y-2">
                             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                               <div className="space-y-1">
                                 <div className="flex flex-wrap items-center gap-2">
                                   <button
                                     type="button"
                                     onClick={() => toggleLesson(lesson.lessonId)}
-                                    className="rounded-full border border-border/60 p-1 text-muted-foreground hover:text-foreground"
+                                    className="flex h-9 w-9 items-center justify-center rounded-full border border-border/60 text-muted-foreground hover:text-foreground sm:h-8 sm:w-8 sm:p-1.5"
                                     aria-expanded={!isLessonCollapsed}
                                     aria-label={isLessonCollapsed ? "Expand lesson" : "Collapse lesson"}
                                   >
@@ -142,14 +145,14 @@ export function PupilLessonsDetailClient({ detail, pupilId }: PupilLessonsDetail
                                     </Badge>
                                   ) : null}
                                 </div>
-                                <p className="text-xs text-muted-foreground">
+                                <p className="text-xs text-muted-foreground sm:text-sm">
                                   {formatLessonDate(lesson.date)} • Class {lesson.groupId} • Unit {lesson.unitTitle}
                                 </p>
                               </div>
                             </div>
                           </CardHeader>
                           {isLessonCollapsed ? null : (
-                            <CardContent className="space-y-3">
+                            <CardContent className="space-y-4 sm:space-y-3">
                               {lesson.objectives.length === 0 ? (
                                 <p className="text-sm text-muted-foreground">
                                   No learning objectives linked to this lesson yet.
@@ -174,7 +177,7 @@ export function PupilLessonsDetailClient({ detail, pupilId }: PupilLessonsDetail
                                         No success criteria linked to this objective.
                                       </p>
                                     ) : (
-                                      <ul className="list-disc space-y-1 pl-4 text-xs text-muted-foreground">
+                                      <ul className="list-disc space-y-2 pl-4 text-xs text-muted-foreground sm:space-y-1">
                                         {objective.successCriteria.map((criterion) => (
                                           <li key={criterion.id}>
                                             {criterion.description}

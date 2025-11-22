@@ -1343,14 +1343,14 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     }).on("broadcast", { event: ASSIGNMENT_FEEDBACK_VISIBILITY_EVENT }, handleFeedbackVisibilityBroadcast)
     channel.subscribe((status) => {
       if (status === "CHANNEL_ERROR") {
-        console.error("[assignment-results] Realtime channel error", channelName)
+        console.error("[assignment-results] Realtime channel error", { channelName, status })
         supabaseBrowserClient.removeChannel(channel)
         if (channelRef.current === channel) {
           channelRef.current = null
         }
       }
       if (status === "TIMED_OUT") {
-        console.warn("[assignment-results] Realtime channel timed out", channelName)
+        console.warn("[assignment-results] Realtime channel timed out", { channelName, status })
       }
     })
     channelRef.current = channel
