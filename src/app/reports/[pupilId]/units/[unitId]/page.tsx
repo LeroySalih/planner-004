@@ -45,7 +45,7 @@ export default async function UnitReportPage({
   )
 
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 px-6 py-10">
+    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 px-4 py-8 sm:px-6 sm:py-10">
       <header className="space-y-4">
         <Link
           href={`/reports/${pupilId}`}
@@ -53,7 +53,7 @@ export default async function UnitReportPage({
         >
           ← Back to report
         </Link>
-        <div className="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 px-8 py-6 text-white shadow-lg">
+        <div className="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 px-6 py-6 text-white shadow-lg sm:px-8">
           <div className="flex flex-col gap-3">
             <p className="text-xs uppercase tracking-wide text-slate-300">Pupil Report</p>
             <h1 className="text-3xl font-semibold text-white">{profileName}</h1>
@@ -66,14 +66,14 @@ export default async function UnitReportPage({
       </header>
 
       <section className="space-y-4 rounded-xl border border-border bg-card p-6 shadow-sm">
-        <header className="flex flex-wrap items-start justify-between gap-3">
+        <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h2 className="text-2xl font-semibold text-foreground">{unit.unitTitle}</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               {unit.unitDescription?.trim() || "No description available."}
             </p>
           </div>
-          <dl className="grid grid-cols-1 gap-3 text-sm text-muted-foreground sm:grid-cols-3">
+          <dl className="grid w-full grid-cols-1 gap-3 text-sm text-muted-foreground sm:w-auto sm:grid-cols-3">
             <div className="rounded-md bg-muted/60 px-3 py-2">
               <dt className="text-xs uppercase tracking-wide">Activities</dt>
               <dd className="text-base font-medium text-foreground">{formatPercent(unit.activitiesAverage)}</dd>
@@ -102,49 +102,93 @@ export default async function UnitReportPage({
             No success criteria are linked to this unit yet.
           </p>
         ) : (
-          <div className="overflow-auto rounded-lg border border-border">
-            <table className="min-w-full border-collapse text-sm">
-              <thead className="bg-muted text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                <tr>
-                  <th className="border border-border px-4 py-3 text-left">Level</th>
-                  <th className="border border-border px-4 py-3 text-left">Assessment Objective</th>
-                  <th className="border border-border px-4 py-3 text-left">Learning Objective</th>
-                  <th className="border border-border px-4 py-3 text-left">Success Criteria</th>
-                  <th className="border border-border px-4 py-3 text-left">Activities %</th>
-                  <th className="border border-border px-4 py-3 text-left">Assessment %</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row, index) => (
-                  <tr key={`${row.criterionId}-${row.level}-${index}`}>
-                    <td className="border border-border px-4 py-2 align-top text-muted-foreground">
-                      {row.level ?? "—"}
-                    </td>
-                    <td className="border border-border px-4 py-2 align-top text-muted-foreground">
-                      <div className="flex flex-col">
-                        <span className="font-medium text-foreground">
-                          {row.assessmentObjectiveCode ?? "Not set"}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {row.assessmentObjectiveTitle ?? "No title provided"}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="border border-border px-4 py-2 align-top text-foreground">{row.objectiveTitle}</td>
-                    <td className="border border-border px-4 py-2 align-top text-muted-foreground">
-                      {row.criterionDescription}
-                    </td>
-                    <td className="border border-border px-4 py-2 align-top text-foreground">
-                      {formatPercent(row.activitiesScore)}
-                    </td>
-                    <td className="border border-border px-4 py-2 align-top text-foreground">
-                      {formatPercent(row.assessmentScore)}
-                    </td>
+          <>
+            <div className="space-y-3 md:hidden">
+              {rows.map((row, index) => (
+                <div
+                  key={`${row.criterionId}-${row.level}-${index}`}
+                  className="space-y-3 rounded-lg border border-border bg-card/60 p-4 shadow-sm"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="space-y-1">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Level</p>
+                      <p className="text-base font-semibold text-foreground">{row.level ?? "—"}</p>
+                    </div>
+                    <div className="space-y-1 text-right">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Assessment %</p>
+                      <p className="text-base font-semibold text-foreground">{formatPercent(row.assessmentScore)}</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-sm font-semibold text-foreground">{row.objectiveTitle}</p>
+                    <p className="text-xs text-muted-foreground">{row.criterionDescription}</p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                      <span className="rounded-full bg-muted px-3 py-1 text-foreground">
+                        AO {row.assessmentObjectiveCode ?? "Not set"}
+                      </span>
+                      <span className="rounded-full bg-muted px-3 py-1 text-foreground">
+                        Activities {formatPercent(row.activitiesScore)}
+                      </span>
+                      <span className="rounded-full bg-muted px-3 py-1 text-foreground">
+                        Level {row.level ?? "—"}
+                      </span>
+                    </div>
+                    {row.assessmentObjectiveTitle ? (
+                      <p className="text-xs text-muted-foreground">{row.assessmentObjectiveTitle}</p>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="hidden overflow-auto rounded-lg border border-border md:block">
+              <table className="min-w-full border-collapse text-sm">
+                <thead className="bg-muted text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <tr>
+                    <th className="border border-border px-4 py-3 text-left">Level</th>
+                    <th className="border border-border px-4 py-3 text-left">Assessment Objective</th>
+                    <th className="border border-border px-4 py-3 text-left">Learning Objective</th>
+                    <th className="border border-border px-4 py-3 text-left">Success Criteria</th>
+                    <th className="border border-border px-4 py-3 text-left">Activities %</th>
+                    <th className="border border-border px-4 py-3 text-left">Assessment %</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {rows.map((row, index) => (
+                    <tr key={`${row.criterionId}-${row.level}-${index}`}>
+                      <td className="border border-border px-4 py-2 align-top text-muted-foreground">
+                        {row.level ?? "—"}
+                      </td>
+                      <td className="border border-border px-4 py-2 align-top text-muted-foreground">
+                        <div className="flex flex-col">
+                          <span className="font-medium text-foreground">
+                            {row.assessmentObjectiveCode ?? "Not set"}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {row.assessmentObjectiveTitle ?? "No title provided"}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="border border-border px-4 py-2 align-top text-foreground">{row.objectiveTitle}</td>
+                      <td className="border border-border px-4 py-2 align-top text-muted-foreground">
+                        {row.criterionDescription}
+                      </td>
+                      <td className="border border-border px-4 py-2 align-top text-foreground">
+                        {formatPercent(row.activitiesScore)}
+                      </td>
+                      <td className="border border-border px-4 py-2 align-top text-foreground">
+                        {formatPercent(row.assessmentScore)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </section>
     </main>

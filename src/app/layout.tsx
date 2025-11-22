@@ -1,20 +1,18 @@
 import type { Metadata } from "next"
-import { GeistSans } from "geist/font/sans"
 import { GeistMono } from "geist/font/mono"
-import Link from "next/link"
-import { Analytics } from "@vercel/analytics/next"
-import Image from "next/image"
+import { GeistSans } from "geist/font/sans"
 
 import "./globals.css"
+
+import { Analytics } from "@vercel/analytics/next"
 import { Toaster } from "sonner"
 
-import { UserNav } from "@/components/navigation/user-nav"
-import { TeacherNavLinks } from "@/components/navigation/teacher-links"
+import { TopBar } from "@/components/navigation/top-bar"
 
 export const metadata: Metadata = {
-  title: 'Dino',
-  description: 'mr-salih.org',
-  generator: 'open-ai & v0',
+  title: "Dino",
+  description: "mr-salih.org",
+  generator: "open-ai & v0",
 }
 
 export default async function RootLayout({
@@ -26,18 +24,7 @@ export default async function RootLayout({
     <html lang="en">
       <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable}`}>
         <div className="flex min-h-screen flex-col bg-background text-foreground">
-          <header className="sticky top-0 z-50 border-b bg-card" style={{ height: '80px' }}>
-            <div className="mx-auto flex h-full w-full max-w-6xl items-center justify-between px-6">
-              <Link href="/" className="flex items-center gap-3">
-                <Image src="/header-logo.png" alt="Planner" width={48} height={16} priority />
-                Dino
-              </Link>
-              <nav className="flex items-center gap-4 text-sm font-medium">
-                <TeacherNavLinks />
-              </nav>
-              <UserNav />
-            </div>
-          </header>
+          <TopBar />
           <main className="flex-1">{children}</main>
         </div>
         <Analytics />

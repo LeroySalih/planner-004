@@ -3,6 +3,7 @@
 ## Scope
 - Applies to short-text assignment activities evaluated by the AI marking service.
 - Webhook endpoint: `POST /webhooks/ai-mark`.
+- Pupil-initiated short-text submission flow posts to `AI_MARK_WEBHOOK_STS_URL` (workflow `short-text-submission`).
 - Incoming payload structure matches:
   ```json
   {
@@ -22,6 +23,26 @@
   }
   ```
 - Authentication: `mark-service-key: <AI_MARK_SERVICE_KEY>` header.
+
+## Pupil Submission Flow (Short-Text)
+- A "Submit for AI marking" button lives on the pupil-lessons page once a pupil completes a lesson's activities.
+- On submit, gather the pupil's short-text activities for the lesson and `POST` to `AI_MARK_WEBHOOK_STS_URL` using workflow `short-text-submission`.
+- Payload shape:
+  ```json
+  {
+    "pupilId": "uuid",
+    "assignmentId": "uuid",
+    "activities": [
+      {
+        "activityId": "uuid",
+        "question": "string",
+        "modelAnswer": "string",
+        "pupilAnswer": "string"
+      }
+    ]
+  }
+  ```
+- Only short-text activities are included in this payload; other activity types are ignored for this workflow.
 
 ## Processing Steps
 1. **Auth & Validation**

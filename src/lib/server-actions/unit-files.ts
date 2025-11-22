@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
-import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { requireTeacherProfile } from "@/lib/auth"
+import { createSupabaseServerClient, createSupabaseServiceClient } from "@/lib/supabase/server"
 import { withTelemetry } from "@/lib/telemetry"
 
 const UNIT_FILES_BUCKET = "units"
@@ -48,17 +49,21 @@ export async function listUnitFilesAction(
 ) {
   const routeTag = options?.routeTag ?? "/units:files"
 
+  const authProfile = await requireTeacherProfile()
+
   return withTelemetry(
     {
       routeTag,
       functionName: "listUnitFilesAction",
-      params: { unitId },
+      params: { unitId, userId: authProfile.userId },
       authEndTime: options?.authEndTime ?? null,
     },
     async () => {
       console.log("[v0] Server action started for listing unit files:", { unitId })
 
-      const supabase = await createSupabaseServerClient()
+      const supabase = process.env.SUPABASE_SERVICE_ROLE_KEY
+        ? createSupabaseServiceClient()
+        : await createSupabaseServerClient()
 
       const { data, error } = await supabase.storage
         .from(UNIT_FILES_BUCKET)
@@ -92,6 +97,8 @@ export async function listUnitFilesAction(
 }
 
 export async function uploadUnitFileAction(formData: FormData) {
+  await requireTeacherProfile()
+
   const unitId = formData.get("unitId")
   const file = formData.get("file")
 
@@ -104,7 +111,9 @@ export async function uploadUnitFileAction(formData: FormData) {
   }
 
   const fileName = file.name
-  const supabase = await createSupabaseServerClient()
+  const supabase = process.env.SUPABASE_SERVICE_ROLE_KEY
+    ? createSupabaseServiceClient()
+    : await createSupabaseServerClient()
   const bucket = supabase.storage.from(UNIT_FILES_BUCKET)
   const fullPath = buildFilePath(unitId, fileName)
 
@@ -145,7 +154,11 @@ export async function uploadUnitFileAction(formData: FormData) {
 }
 
 export async function deleteUnitFileAction(unitId: string, fileName: string) {
-  const supabase = await createSupabaseServerClient()
+  await requireTeacherProfile()
+
+  const supabase = process.env.SUPABASE_SERVICE_ROLE_KEY
+    ? createSupabaseServiceClient()
+    : await createSupabaseServerClient()
   const bucket = supabase.storage.from(UNIT_FILES_BUCKET)
   const { error } = await bucket.remove([buildFilePath(unitId, fileName)])
 
@@ -159,7 +172,11 @@ export async function deleteUnitFileAction(unitId: string, fileName: string) {
 }
 
 export async function getUnitFileDownloadUrlAction(unitId: string, fileName: string) {
-  const supabase = await createSupabaseServerClient()
+  await requireTeacherProfile()
+
+  const supabase = process.env.SUPABASE_SERVICE_ROLE_KEY
+    ? createSupabaseServiceClient()
+    : await createSupabaseServerClient()
   const bucket = supabase.storage.from(UNIT_FILES_BUCKET)
   const { data, error } = await bucket.createSignedUrl(buildFilePath(unitId, fileName), 60 * 10)
 
