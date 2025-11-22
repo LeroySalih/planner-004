@@ -44,8 +44,13 @@ async function readLearningObjectivesWithCriteria(options: {
   filterUnitId?: string
 }) {
   const { learningObjectiveIds = [], filterUnitId } = options
+  const debugContext = {
+    filterUnitId: filterUnitId ?? null,
+    requestedIds: learningObjectiveIds.length,
+  }
 
   const supabase = await createSupabaseServerClient()
+  console.log("[learning-objectives] Start readLearningObjectivesWithCriteria", debugContext)
 
   const {
     map: successCriteriaMap,
@@ -62,8 +67,14 @@ async function readLearningObjectivesWithCriteria(options: {
     learningObjectiveIds.length > 0 ? learningObjectiveIds : discoveredIds
 
   if (objectiveIdsToLoad.length === 0) {
+    console.log("[learning-objectives] No objective IDs to load", debugContext)
     return LearningObjectivesReturnValue.parse({ data: [], error: null })
   }
+
+  console.log("[learning-objectives] Loading objectives", {
+    ...debugContext,
+    objectiveIdsToLoad: objectiveIdsToLoad.length,
+  })
 
   const { data: learningObjectives, error } = await supabase
     .from("learning_objectives")
@@ -118,6 +129,12 @@ async function readLearningObjectivesWithCriteria(options: {
       }
     })
     .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0))
+
+  console.log("[learning-objectives] Completed readLearningObjectivesWithCriteria", {
+    ...debugContext,
+    objectiveCount: normalized.length,
+    successCriteriaCount: successCriteriaMap.size,
+  })
 
   return LearningObjectivesReturnValue.parse({ data: normalized, error: null })
 }
@@ -181,6 +198,10 @@ export async function fetchSuccessCriteriaForLearningObjectives(
   error: string | null
 }> {
   const supabase = supabaseClient ?? (await createSupabaseServerClient())
+  console.log("[learning-objectives] Fetching success criteria", {
+    filterUnitId,
+    hasSuppliedIds: learningObjectiveIds.length > 0,
+  })
 
   let criteriaQuery = supabase
     .from("success_criteria")
@@ -197,6 +218,9 @@ export async function fetchSuccessCriteriaForLearningObjectives(
       .eq("unit_id", filterUnitId)
 
     if (linkError) {
+      console.error("[learning-objectives] Failed to load success_criteria_units", linkError, {
+        filterUnitId,
+      })
       return { map: new Map(), learningObjectiveIds: [], error: linkError.message }
     }
 
@@ -205,8 +229,14 @@ export async function fetchSuccessCriteriaForLearningObjectives(
       .filter((id): id is string => Boolean(id))
 
     if (criterionIds.length === 0) {
+      console.log("[learning-objectives] No linked success criteria for unit", { filterUnitId })
       return { map: new Map(), learningObjectiveIds: [], error: null }
     }
+
+    console.log("[learning-objectives] Loaded success_criteria_units links", {
+      filterUnitId,
+      linkCount: criterionIds.length,
+    })
 
     criterionIdsToFetch = criterionIds
     criteriaQuery = criteriaQuery.in("success_criteria_id", criterionIds)
@@ -215,6 +245,11 @@ export async function fetchSuccessCriteriaForLearningObjectives(
   const { data: criteriaRows, error: criteriaError } = await criteriaQuery
 
   if (criteriaError) {
+    console.error("[learning-objectives] Failed to load success_criteria", criteriaError, {
+      filterUnitId,
+      requestedIds: learningObjectiveIds.length,
+      criteriaIdsToFetch: criterionIdsToFetch?.length ?? null,
+    })
     return { map: new Map(), learningObjectiveIds: [], error: criteriaError.message }
   }
 
