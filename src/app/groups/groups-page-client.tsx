@@ -31,16 +31,11 @@ export function GroupsPageClient({
   currentProfile,
 }: GroupsPageClientProps) {
   const router = useRouter()
-  const [groups, setGroups] = useState<Group[]>(() => sortGroups(initialGroups))
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [editingGroup, setEditingGroup] = useState<Group | null>(null)
   const [filter, setFilter] = useState(() => initialFilter)
   const [activeJoinCode, setActiveJoinCode] = useState<string | null>(null)
   const [siteUrl, setSiteUrl] = useState<string>("")
-
-  useEffect(() => {
-    setGroups(sortGroups(initialGroups))
-  }, [initialGroups])
 
   useEffect(() => {
     setFilter(initialFilter)
@@ -52,41 +47,19 @@ export function GroupsPageClient({
     }
   }, [])
 
-  const filteredGroups = useMemo(() => {
-    const trimmedFilter = filter.trim()
-    if (!trimmedFilter) {
-      return groups
-    }
+  const groups = useMemo(() => sortGroups(initialGroups), [initialGroups])
 
-    try {
-      const regex = buildWildcardRegex(trimmedFilter)
-      return groups.filter((group) => regex.test(group.group_id) || regex.test(group.subject ?? ""))
-    } catch (buildError) {
-      console.error("[groups] Failed to build wildcard regex", buildError)
-      return []
-    }
-  }, [filter, groups])
+  const filteredGroups = groups
 
   const handleFilterChange = useCallback((nextFilter: string) => {
     setFilter(nextFilter)
-  }, [])
-
-  const handleGroupsCreated = (created: Group[]) => {
-    if (created.length === 0) {
-      return
+    const params = new URLSearchParams()
+    if (nextFilter.trim().length > 0) {
+      params.set("q", nextFilter.trim())
     }
-    setGroups((previous) => sortGroups([...previous, ...created]))
-    router.refresh()
-  }
-
-  const handleGroupUpdated = (updated: Group, previousId: string) => {
-    setGroups((previous) =>
-      sortGroups(
-        previous.map((group) => (group.group_id === previousId ? updated : group)),
-      ),
-    )
-    router.refresh()
-  }
+    const queryString = params.toString()
+    router.replace(queryString ? `/groups?${queryString}` : "/groups")
+  }, [router])
 
   const handleJoinCodeClick = useCallback((code: string | null) => {
     if (!code) {
@@ -198,7 +171,7 @@ export function GroupsPageClient({
       <CreateGroupsSidebar
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
-        onCreated={handleGroupsCreated}
+        onCreated={() => router.refresh()}
         existingSubjects={deriveSubjectOptions(groups)}
         currentProfile={currentProfile}
       />
@@ -206,7 +179,7 @@ export function GroupsPageClient({
       <EditGroupSidebar
         group={editingGroup}
         onClose={() => setEditingGroup(null)}
-        onUpdated={handleGroupUpdated}
+        onUpdated={() => router.refresh()}
         currentProfile={currentProfile}
       />
 
@@ -243,18 +216,6 @@ export function GroupsPageClient({
       </Dialog>
     </main>
   )
-}
-
-function buildWildcardRegex(pattern: string) {
-  const escaped = Array.from(pattern)
-    .map((char) => {
-      if (char === "?") {
-        return "."
-      }
-      return char.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-    })
-    .join("")
-  return new RegExp(escaped, "i")
 }
 
 function sortGroups(groups: Group[]) {

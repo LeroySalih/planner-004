@@ -228,6 +228,7 @@ export async function readGroupsAction(options?: {
   authEndTime?: number | null
   routeTag?: string
   currentProfile?: AuthenticatedProfile | null
+  filter?: string | null
 }) {
   const routeTag = options?.routeTag ?? "/groups:readGroups"
 
@@ -240,7 +241,7 @@ export async function readGroupsAction(options?: {
     {
       routeTag,
       functionName: "readGroupsAction",
-      params: null,
+      params: { filter: options?.filter ?? null },
       authEndTime: options?.authEndTime ?? null,
     },
     async () => {
@@ -254,9 +255,30 @@ export async function readGroupsAction(options?: {
       let data: z.infer<typeof GroupsSchema> | null = null
 
       try {
-    await client.connect()
+        await client.connect()
         const queryStart = Date.now()
-        const result = await client.query("select * from groups where active = true;")
+        const filters: Array<string | boolean> = []
+        const values: Array<string | boolean> = []
+        filters.push("g.active = true")
+
+        if (options?.filter && options.filter.trim().length > 0) {
+          const pattern = `%${options.filter.trim().replace(/\?/g, "%")}%`
+          filters.push("(g.group_id ILIKE $1 OR g.subject ILIKE $1)")
+          values.push(pattern)
+        }
+
+        const whereClause = filters.length > 0 ? `where ${filters.join(" AND ")}` : ""
+
+        const sql = `
+          select g.group_id, g.subject, g.join_code, g.active, count(m.user_id) as member_count
+          from groups g
+          left join group_membership m on m.group_id = g.group_id
+          ${whereClause}
+          group by g.group_id, g.subject, g.join_code, g.active
+          order by g.group_id asc;
+        `
+
+        const result = await client.query(sql, values)
         const queryEnd = Date.now()
         data = result.rows
         console.log(`[v0] Direct PG connect took ${queryStart - connectionStart} ms, query took ${queryEnd - queryStart} ms.`)

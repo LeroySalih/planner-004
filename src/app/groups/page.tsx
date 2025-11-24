@@ -11,7 +11,7 @@ export default async function GroupsIndexPage({
   const { q: rawFilter = "" } = await searchParams
   const filter = rawFilter.trim()
 
-  const result = await readGroupsAction({ currentProfile: teacherProfile })
+  const result = await readGroupsAction({ currentProfile: teacherProfile, filter })
   return (
     <GroupsPageClient
       groups={result.data ?? []}
