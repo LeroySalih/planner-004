@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
+import { Client } from "pg"
 
 import {
   GroupsSchema,
@@ -17,7 +18,6 @@ import {
 import { getAuthenticatedProfile, requireAuthenticatedProfile, requireTeacherProfile } from "@/lib/auth"
 import { createSupabaseServerClient, createSupabaseServiceClient } from "@/lib/supabase/server"
 import { withTelemetry } from "@/lib/telemetry"
-import { Client } from "pg"
 
 const GroupReturnValue = z.object({
   data: GroupWithMembershipSchema.nullable(),
@@ -101,95 +101,111 @@ function generateJoinCode(): string {
   return result
 }
 
+function resolveConnectionString() {
+  return process.env.POSTSQL_URL ?? process.env.SUPABASE_DB_URL ?? process.env.DATABASE_URL ?? null
+}
+
+function createPgClient() {
+  const connectionString = resolveConnectionString()
+  if (!connectionString) {
+    throw new Error("Database connection is not configured (POSTSQL_URL or SUPABASE_DB_URL missing).")
+  }
+
+  return new Client({
+    connectionString,
+    ssl: connectionString.includes("localhost") ? false : { rejectUnauthorized: false },
+  })
+}
+
 export async function createGroupAction(groupId: string, subject: string): Promise<GroupActionResult> {
   const joinCode = generateJoinCode()
   console.log("[v0] Server action started for group:", { groupId, subject, joinCode })
 
-  const supabase = await createSupabaseServerClient()
+  const client = createPgClient()
 
-  const { data, error } = await supabase
-    .from("groups")
-    .insert({
-      group_id: groupId,
-      subject,
-      join_code: joinCode,
-      active: true,
-    })
-    .select()
-    .single()
+  try {
+    await client.connect()
+    const { rows } = await client.query(
+      "insert into groups (group_id, subject, join_code, active) values ($1, $2, $3, true) returning group_id, subject, join_code, active",
+      [groupId, subject, joinCode],
+    )
+    const row = rows[0] ?? null
+    const mapped = row ? GroupWithMembershipSchema.parse({ ...row, members: [] }) : null
 
-  if (error) {
+    console.log("[v0] Server action completed for group:", { groupId, subject, joinCode })
+    revalidatePath("/")
+    return GroupReturnValue.parse({ data: mapped, error: null })
+  } catch (error) {
     console.error("[v0] Server action failed for group:", error)
-    return GroupReturnValue.parse({ data: null, error: error.message })
+    const message = error instanceof Error ? error.message : "Unable to create group."
+    return GroupReturnValue.parse({ data: null, error: message })
+  } finally {
+    try {
+      await client.end()
+    } catch {
+      // ignore close errors
+    }
   }
-
-  console.log("[v0] Server action completed for group:", { groupId, subject, joinCode })
-  revalidatePath("/")
-  const mapped = data ? { ...data, members: [] } : null
-
-  return GroupReturnValue.parse({ data: mapped, error: null })
 }
 
 export async function readGroupAction(groupId: string) {
   console.log("[v0] Server action started for reading group:", { groupId })
 
-  const supabase = await createSupabaseServerClient()
+  const client = createPgClient()
 
-  const { data, error } = await supabase
-    .from("groups")
-    .select("*")
-    .eq("group_id", groupId)
-    .eq("active", true)
-    .single()
+  try {
+    await client.connect()
 
-  if (error) {
+    const { rows: groupRows } = await client.query(
+      "select group_id, subject, join_code, active from groups where group_id = $1 and active = true limit 1",
+      [groupId],
+    )
+    const groupRow = groupRows[0] ?? null
+
+    if (!groupRow) {
+      return GroupReturnValue.parse({ data: null, error: "Group not found." })
+    }
+
+    const { rows: membershipRows } = await client.query(
+      "select group_id, user_id, role from group_membership where group_id = $1 order by user_id asc",
+      [groupId],
+    )
+
+    const parsedMembership = GroupMembershipsSchema.parse(membershipRows ?? [])
+    let parsedProfiles: z.infer<typeof ProfilesSchema> = []
+
+    if (parsedMembership.length > 0) {
+      const memberIds = parsedMembership.map((member) => member.user_id)
+      const { rows: profileRows } = await client.query(
+        "select user_id, first_name, last_name, is_teacher from profiles where user_id = any($1::text[])",
+        [memberIds],
+      )
+      parsedProfiles = ProfilesSchema.parse(profileRows ?? [])
+    }
+
+    const profileMap = new Map(parsedProfiles.map((profile) => [profile.user_id, profile]))
+    const membershipWithProfiles = parsedMembership.map((member) => ({
+      ...member,
+      profile: profileMap.get(member.user_id) ?? member.profile,
+    }))
+
+    console.log("[v0] Server action completed for reading group:", { groupId })
+
+    return GroupReturnValue.parse({
+      data: GroupWithMembershipSchema.parse({ ...groupRow, members: membershipWithProfiles }),
+      error: null,
+    })
+  } catch (error) {
     console.error("[v0] Server action failed for reading group:", error)
-    return GroupReturnValue.parse({ data: null, error: error.message })
-  }
-
-  const { data: membership, error: membershipError } = await supabase
-    .from("group_membership")
-    .select("*")
-    .eq("group_id", groupId)
-    .order("user_id", { ascending: true })
-
-  let parsedMembership: z.infer<typeof GroupMembershipsSchema> = []
-  let membershipErrorMessage: string | null = null
-
-  if (membershipError) {
-    console.error("[v0] Server action failed for reading group membership:", membershipError)
-    membershipErrorMessage = membershipError.message
-  } else {
-    parsedMembership = GroupMembershipsSchema.parse(membership ?? [])
-  }
-
-  let parsedProfiles: z.infer<typeof ProfilesSchema> = []
-  if (parsedMembership.length > 0) {
-    const memberIds = parsedMembership.map((member) => member.user_id)
-    const { data: profiles, error: profilesError } = await supabase
-      .from("profiles")
-      .select("user_id, first_name, last_name, is_teacher")
-      .in("user_id", memberIds)
-
-    if (profilesError) {
-      console.error("[v0] Server action failed for reading profiles:", profilesError)
-    } else {
-      parsedProfiles = ProfilesSchema.parse(profiles ?? [])
+    const message = error instanceof Error ? error.message : "Unable to read group."
+    return GroupReturnValue.parse({ data: null, error: message })
+  } finally {
+    try {
+      await client.end()
+    } catch {
+      // ignore close errors
     }
   }
-
-  const profileMap = new Map(parsedProfiles.map((profile) => [profile.user_id, profile]))
-  const membershipWithProfiles = parsedMembership.map((member) => ({
-    ...member,
-    profile: profileMap.get(member.user_id) ?? member.profile,
-  }))
-
-  console.log("[v0] Server action completed for reading group:", { groupId })
-
-  return GroupReturnValue.parse({
-    data: data ? { ...data, members: membershipWithProfiles } : null,
-    error: membershipErrorMessage,
-  })
 }
 
 export async function readGroupsAction(options?: { authEndTime?: number | null; routeTag?: string }) {
@@ -207,19 +223,8 @@ export async function readGroupsAction(options?: { authEndTime?: number | null; 
 
       let error: string | null = null
 
-      const connectionString =
-        process.env.POSTSQL_URL ?? process.env.SUPABASE_DB_URL ?? process.env.DATABASE_URL ?? null
-
-      if (!connectionString) {
-        console.error("[v0] readGroupsAction missing database connection string")
-        return GroupsReturnValue.parse({ data: null, error: "Database connection not configured." })
-      }
-
       const connectionStart = Date.now()
-      const client = new Client({
-        connectionString,
-        ssl: connectionString.includes("localhost") ? false : { rejectUnauthorized: false },
-      })
+      const client = createPgClient()
 
       let data: z.infer<typeof GroupsSchema> | null = null
 
@@ -274,19 +279,32 @@ export async function listPupilsWithGroupsAction(): Promise<PupilListing[]> {
 export async function updateGroupAction(oldGroupId: string, newGroupId: string, subject: string) {
   console.log("[v0] Server action started for group update:", { oldGroupId, newGroupId, subject })
 
-  const supabase = await createSupabaseServerClient()
+  const client = createPgClient()
 
-  const { error } = await supabase
-    .from("groups")
-    .update({ group_id: newGroupId, subject })
-    .eq("group_id", oldGroupId)
+  try {
+    await client.connect()
+    const { rowCount } = await client.query(
+      "update groups set group_id = $2, subject = $3 where group_id = $1",
+      [oldGroupId, newGroupId, subject],
+    )
 
-  if (error) {
+    if (rowCount === 0) {
+      console.error("[v0] Server action failed for group update: no rows updated")
+      return { success: false, error: "Group not found." }
+    }
+
+    console.log("[v0] Server action completed for group update:", { oldGroupId, newGroupId, subject })
+  } catch (error) {
     console.error("[v0] Server action failed for group update:", error)
-    return { success: false, error: error.message }
+    const message = error instanceof Error ? error.message : "Unable to update group."
+    return { success: false, error: message }
+  } finally {
+    try {
+      await client.end()
+    } catch {
+      // ignore close errors
+    }
   }
-
-  console.log("[v0] Server action completed for group update:", { oldGroupId, newGroupId, subject })
 
   revalidatePath("/")
   return { success: true, oldGroupId, newGroupId, subject }
@@ -295,16 +313,26 @@ export async function updateGroupAction(oldGroupId: string, newGroupId: string, 
 export async function deleteGroupAction(groupId: string) {
   console.log("[v0] Server action started for group deletion:", { groupId })
 
-  const supabase = await createSupabaseServerClient()
+  const client = createPgClient()
 
-  const { error } = await supabase
-    .from("groups")
-    .update({ active: false })
-    .eq("group_id", groupId)
+  try {
+    await client.connect()
+    const { rowCount } = await client.query("update groups set active = false where group_id = $1", [groupId])
 
-  if (error) {
+    if (rowCount === 0) {
+      console.error("[v0] Server action failed for group deletion: no rows updated")
+      return { success: false, error: "Group not found." }
+    }
+  } catch (error) {
     console.error("[v0] Server action failed for group deletion:", error)
-    return { success: false, error: error.message }
+    const message = error instanceof Error ? error.message : "Unable to delete group."
+    return { success: false, error: message }
+  } finally {
+    try {
+      await client.end()
+    } catch {
+      // ignore close errors
+    }
   }
 
   console.log("[v0] Server action completed for group deletion:", { groupId })
@@ -326,19 +354,34 @@ export async function removeGroupMemberAction(input: { groupId: string; userId: 
 
   console.log("[v0] Server action started for removing group member:", { groupId, userId })
 
-  const supabase = await createSupabaseServerClient()
-  const { error } = await supabase
-    .from("group_membership")
-    .delete()
-    .eq("group_id", groupId)
-    .eq("user_id", userId)
+  const client = createPgClient()
 
-  if (error) {
+  try {
+    await client.connect()
+    const { rowCount } = await client.query(
+      "delete from group_membership where group_id = $1 and user_id = $2",
+      [groupId, userId],
+    )
+
+    if (rowCount === 0) {
+      console.error("[v0] Server action failed for removing group member: no rows affected", { groupId, userId })
+      return RemoveGroupMemberReturnSchema.parse({
+        success: false,
+        error: "Unable to remove pupil from group.",
+      })
+    }
+  } catch (error) {
     console.error("[v0] Server action failed for removing group member:", { groupId, userId, error })
     return RemoveGroupMemberReturnSchema.parse({
       success: false,
       error: "Unable to remove pupil from group.",
     })
+  } finally {
+    try {
+      await client.end()
+    } catch {
+      // ignore close errors
+    }
   }
 
   revalidatePath(`/groups/${groupId}`)
