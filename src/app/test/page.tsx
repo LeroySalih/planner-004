@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js"
+import { Client } from "pg"
 
 import { ClientSupabaseStatus } from "./client-status"
 
@@ -19,6 +20,7 @@ interface EnvSnapshot {
   supabaseServiceRoleKey: string | undefined
   supabaseDbKey: string | undefined
   authHealthUrl: string | undefined
+  postsqlUrl: string | undefined
 }
 
 function captureEnv(): EnvSnapshot {
@@ -40,6 +42,8 @@ function captureEnv(): EnvSnapshot {
     process.env.SUPABASE_SERVICE_KEY ??
     process.env.SERVICE_ROLE_KEY
 
+  const postsqlUrl = process.env.POSTSQL_URL
+
   const supabaseDbKey = supabaseServiceRoleKey ?? supabaseAnonKey
 
   const authHealthUrl = supabaseUrl ? `${supabaseUrl}/auth/v1/health` : undefined
@@ -50,6 +54,7 @@ function captureEnv(): EnvSnapshot {
     supabaseServiceRoleKey,
     supabaseDbKey,
     authHealthUrl,
+    postsqlUrl,
   }
 }
 
@@ -165,15 +170,71 @@ async function checkAuth(env: EnvSnapshot): Promise<CheckResult> {
   }
 }
 
+async function checkDirectPostgres(env: EnvSnapshot): Promise<CheckResult> {
+  if (!env.postsqlUrl) {
+    return {
+      label: "Direct Postgres (POSTSQL_URL)",
+      status: "fail",
+      summary: "POSTSQL_URL is not set",
+      details: { env },
+    }
+  }
+
+  const client = new Client({
+    connectionString: env.postsqlUrl,
+    ssl: { rejectUnauthorized: false },
+  })
+
+  try {
+    const connectStart = Date.now()
+    await client.connect()
+    const connectMs = Date.now() - connectStart
+
+    const queryStart = Date.now()
+    const result = await client.query("SELECT * FROM groups;")
+    const queryMs = Date.now() - queryStart
+
+    return {
+      label: "Direct Postgres (POSTSQL_URL)",
+      status: "ok",
+      summary: "Successfully queried groups via direct Postgres connection",
+      details: {
+        env: { postsqlUrl: env.postsqlUrl },
+        connectMs,
+        queryMs,
+        rowCount: result.rowCount,
+        rows: result.rows,
+      },
+    }
+  } catch (error) {
+    return {
+      label: "Direct Postgres (POSTSQL_URL)",
+      status: "fail",
+      summary: "Direct Postgres query failed",
+      details: { env: { postsqlUrl: env.postsqlUrl }, error: serializeError(error) },
+    }
+  } finally {
+    try {
+      await client.end()
+    } catch {
+      // ignore
+    }
+  }
+}
+
 function formatDetails(details: unknown) {
   return JSON.stringify(details, null, 2)
 }
 
 export default async function TestStatusPage() {
   const env = captureEnv()
-  const [databaseResult, authResult] = await Promise.all([checkDatabase(env), checkAuth(env)])
+  const [databaseResult, authResult, directPgResult] = await Promise.all([
+    checkDatabase(env),
+    checkAuth(env),
+    checkDirectPostgres(env),
+  ])
 
-  const checks = [databaseResult, authResult]
+  const checks = [databaseResult, authResult, directPgResult]
   const clientEnv = {
     supabaseUrl: env.supabaseUrl ?? null,
     supabaseAnonKey: env.supabaseAnonKey ?? null,
