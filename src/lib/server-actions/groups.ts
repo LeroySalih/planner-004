@@ -212,12 +212,12 @@ export async function readGroupsAction(options?: { authEndTime?: number | null; 
       const { data, error: readError } = await supabase
         .from("groups")
         .select("*")
-        .eq("active", true)
+        .eq("active", true);
 
       const E = Date.now();
 
       console.log(`[v0] Supabase client creation took ${s2 - s1} ms, query took ${E - s2} ms.`);
-      
+
       if (readError) {
         error = readError.message
         console.error(error)
