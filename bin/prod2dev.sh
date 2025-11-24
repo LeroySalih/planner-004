@@ -30,4 +30,53 @@ psql \
   -f "$DUMP_FILE" \
   >restore.log 2>&1
 
-echo "Done."
+echo "Restore Done."
+
+
+echo "Enabling RLS"
+
+psql "postgresql://postgres.local:$PGPASSWORD@localhost:5432/postgres" <<'SQL'
+DO $$
+DECLARE
+  r record;
+  policy_name text := 'allow_all_authenticated';
+BEGIN
+  FOR r IN
+    SELECT n.nspname AS schema_name,
+           c.relname  AS table_name
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE c.relkind = 'r'         -- ordinary tables
+      AND n.nspname = 'public'    -- limit to public schema
+  LOOP
+    -- Enable RLS on the table
+    EXECUTE format(
+      'ALTER TABLE %I.%I ENABLE ROW LEVEL SECURITY;',
+      r.schema_name,
+      r.table_name
+    );
+
+    -- Only create the policy if it doesn't already exist
+    IF NOT EXISTS (
+      SELECT 1
+      FROM pg_policy p
+      WHERE p.polrelid = format('%I.%I', r.schema_name, r.table_name)::regclass
+        AND p.polname  = policy_name
+    ) THEN
+      EXECUTE format(
+        'CREATE POLICY %I
+           ON %I.%I
+         AS PERMISSIVE
+         FOR ALL
+         TO authenticated
+         USING (true)
+         WITH CHECK (true);',
+        policy_name,
+        r.schema_name,
+        r.table_name
+      );
+    END IF;
+  END LOOP;
+END
+$$ LANGUAGE plpgsql;
+SQL

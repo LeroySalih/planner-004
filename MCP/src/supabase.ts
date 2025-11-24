@@ -7,8 +7,12 @@ export function getSupabaseServiceClient(): SupabaseClient {
     return cachedClient;
   }
 
-  const url = process.env.PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const url = process.env.PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL ?? null;
+  const serviceKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ??
+    process.env.SUPABASE_SERVICE_KEY ??
+    process.env.SERVICE_ROLE_KEY ??
+    null;
 
   if (!url) {
     throw new Error('PUBLIC_SUPABASE_URL (or SUPABASE_URL) is not set. Cannot create Supabase client.');
