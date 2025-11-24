@@ -3,13 +3,14 @@ import { cookies } from "next/headers"
 import { createServerClient } from "@supabase/ssr"
 
 const supabaseUrlEnv =
-  process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.NEXT_SUPABASE_URL ?? process.env.SUPABASE_URL
+  process.env.PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL ?? process.env.NEXT_SUPABASE_URL ?? null
 const supabaseKeyEnv =
+  process.env.SUPABASE_ANON_KEY ??
+  process.env.NEXT_SUPABASE_ANON_KEY ??
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
-  process.env.NEXT_SUPABASE_ANON_KEY ??
-  process.env.SUPABASE_ANON_KEY
-const serviceRoleKeyEnv = process.env.SUPABASE_SERVICE_ROLE_KEY ?? null
+  null
+const serviceRoleKeyEnv = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_KEY ?? null
 
 if (!supabaseUrlEnv || !supabaseKeyEnv) {
   throw new Error("Supabase environment variables are not configured")

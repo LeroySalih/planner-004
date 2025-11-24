@@ -266,10 +266,25 @@ export async function uploadPupilActivitySubmissionAction(formData: FormData) {
   }
 
   const supabase = await createSupabaseServerClient()
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser()
+
+  if (authError || !user) {
+    console.error("[pupil-lessons] Unable to load auth session for upload:", authError)
+    return { success: false, error: "You need to sign in again before uploading." }
+  }
+
+  if (user.id !== pupilId) {
+    return { success: false, error: "You can only upload files for your own account." }
+  }
+
+  const userId = user.id
   const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
 
   const fileName = file.name
-  const path = buildSubmissionPath(lessonId, activityId, pupilId, fileName)
+  const path = buildSubmissionPath(lessonId, activityId, userId, fileName)
 
   const arrayBuffer = await file.arrayBuffer()
   const { error: uploadError } = await bucket.upload(path, arrayBuffer, {
@@ -286,7 +301,7 @@ export async function uploadPupilActivitySubmissionAction(formData: FormData) {
   const submissionResult = await upsertUploadSubmissionRecord({
     supabase,
     activityId,
-    pupilId,
+    pupilId: userId,
     fileName,
     submittedAt,
   })
@@ -298,13 +313,13 @@ export async function uploadPupilActivitySubmissionAction(formData: FormData) {
 
   console.log("[realtime-debug] Upload submission stored", {
     activityId,
-    pupilId,
+    pupilId: userId,
     lessonId,
     fileName,
     submittedAt,
   })
 
-  revalidatePath(`/pupil-lessons/${encodeURIComponent(pupilId)}/lessons/${encodeURIComponent(lessonId)}`)
+  revalidatePath(`/pupil-lessons/${encodeURIComponent(userId)}/lessons/${encodeURIComponent(lessonId)}`)
   return { success: true }
 }
 
