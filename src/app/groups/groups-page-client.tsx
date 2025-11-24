@@ -7,6 +7,7 @@ import { Plus, Pencil, X } from "lucide-react"
 import { toast } from "sonner"
 
 import type { Group } from "@/types"
+import type { AuthenticatedProfile } from "@/lib/server-actions/groups"
 import { createGroupAction, updateGroupAction } from "@/lib/server-updates"
 import { GroupsFilterControls } from "./groups-filter-controls"
 import { Button } from "@/components/ui/button"
@@ -20,9 +21,15 @@ interface GroupsPageClientProps {
   groups: Group[]
   initialFilter: string
   error: string | null
+  currentProfile: AuthenticatedProfile
 }
 
-export function GroupsPageClient({ groups: initialGroups, initialFilter, error }: GroupsPageClientProps) {
+export function GroupsPageClient({
+  groups: initialGroups,
+  initialFilter,
+  error,
+  currentProfile,
+}: GroupsPageClientProps) {
   const router = useRouter()
   const [groups, setGroups] = useState<Group[]>(() => sortGroups(initialGroups))
   const [isCreateOpen, setIsCreateOpen] = useState(false)
@@ -193,12 +200,14 @@ export function GroupsPageClient({ groups: initialGroups, initialFilter, error }
         onClose={() => setIsCreateOpen(false)}
         onCreated={handleGroupsCreated}
         existingSubjects={deriveSubjectOptions(groups)}
+        currentProfile={currentProfile}
       />
 
       <EditGroupSidebar
         group={editingGroup}
         onClose={() => setEditingGroup(null)}
         onUpdated={handleGroupUpdated}
+        currentProfile={currentProfile}
       />
 
       <Dialog
@@ -267,9 +276,16 @@ interface CreateGroupsSidebarProps {
   onClose: () => void
   onCreated: (groups: Group[]) => void
   existingSubjects: string[]
+  currentProfile: AuthenticatedProfile
 }
 
-function CreateGroupsSidebar({ isOpen, onClose, onCreated, existingSubjects }: CreateGroupsSidebarProps) {
+function CreateGroupsSidebar({
+  isOpen,
+  onClose,
+  onCreated,
+  existingSubjects,
+  currentProfile,
+}: CreateGroupsSidebarProps) {
   const [groupNames, setGroupNames] = useState("")
   const [subject, setSubject] = useState(existingSubjects[0] ?? "")
   const [isPending, startTransition] = useTransition()
@@ -311,7 +327,7 @@ function CreateGroupsSidebar({ isOpen, onClose, onCreated, existingSubjects }: C
 
       for (const name of parsedNames) {
         try {
-          const result = await createGroupAction(name, subjectValue)
+          const result = await createGroupAction(name, subjectValue, { currentProfile })
           if (!result.data || result.error) {
             throw new Error(result.error ?? "Unknown error")
           }
@@ -412,9 +428,10 @@ interface EditGroupSidebarProps {
   group: Group | null
   onClose: () => void
   onUpdated: (group: Group, previousId: string) => void
+  currentProfile: AuthenticatedProfile
 }
 
-function EditGroupSidebar({ group, onClose, onUpdated }: EditGroupSidebarProps) {
+function EditGroupSidebar({ group, onClose, onUpdated, currentProfile }: EditGroupSidebarProps) {
   const [groupId, setGroupId] = useState(group?.group_id ?? "")
   const [subject, setSubject] = useState(group?.subject ?? "")
   const [isPending, startTransition] = useTransition()
@@ -443,7 +460,7 @@ function EditGroupSidebar({ group, onClose, onUpdated }: EditGroupSidebarProps) 
     }
 
     startTransition(async () => {
-      const response = await updateGroupAction(group.group_id, trimmedId, trimmedSubject)
+      const response = await updateGroupAction(group.group_id, trimmedId, trimmedSubject, { currentProfile })
 
       if (!response.success) {
         toast.error("Failed to update group", {

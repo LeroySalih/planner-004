@@ -15,7 +15,7 @@ import {
   ReportsPupilListingsSchema,
 } from "@/types"
 
-import { getAuthenticatedProfile, requireAuthenticatedProfile, requireTeacherProfile } from "@/lib/auth"
+import { getAuthenticatedProfile, requireAuthenticatedProfile, type AuthenticatedProfile as BaseAuthenticatedProfile } from "@/lib/auth"
 import { createSupabaseServerClient, createSupabaseServiceClient } from "@/lib/supabase/server"
 import { withTelemetry } from "@/lib/telemetry"
 
@@ -85,6 +85,7 @@ const ResetPupilPasswordResultSchema = z.object({
 })
 
 const DEFAULT_PUPIL_PASSWORD = "bisak123"
+export type AuthenticatedProfile = BaseAuthenticatedProfile
 
 export type GroupActionResult = z.infer<typeof GroupReturnValue>
 export type ProfileGroupsResult = z.infer<typeof ProfileGroupsResultSchema>
@@ -117,7 +118,15 @@ function createPgClient() {
   })
 }
 
-export async function createGroupAction(groupId: string, subject: string): Promise<GroupActionResult> {
+export async function createGroupAction(
+  groupId: string,
+  subject: string,
+  options?: { currentProfile?: AuthenticatedProfile | null },
+): Promise<GroupActionResult> {
+  const profile = options?.currentProfile ?? (await requireAuthenticatedProfile())
+  if (!profile.isTeacher) {
+    return GroupReturnValue.parse({ data: null, error: "You do not have permission to create groups." })
+  }
   const joinCode = generateJoinCode()
   console.log("[v0] Server action started for group:", { groupId, subject, joinCode })
 
@@ -148,8 +157,15 @@ export async function createGroupAction(groupId: string, subject: string): Promi
   }
 }
 
-export async function readGroupAction(groupId: string) {
+export async function readGroupAction(
+  groupId: string,
+  options?: { currentProfile?: AuthenticatedProfile | null },
+) {
   console.log("[v0] Server action started for reading group:", { groupId })
+  const profile = options?.currentProfile ?? (await requireAuthenticatedProfile())
+  if (!profile.isTeacher) {
+    return GroupReturnValue.parse({ data: null, error: "You do not have permission to view groups." })
+  }
 
   const client = createPgClient()
 
@@ -208,8 +224,17 @@ export async function readGroupAction(groupId: string) {
   }
 }
 
-export async function readGroupsAction(options?: { authEndTime?: number | null; routeTag?: string }) {
+export async function readGroupsAction(options?: {
+  authEndTime?: number | null
+  routeTag?: string
+  currentProfile?: AuthenticatedProfile | null
+}) {
   const routeTag = options?.routeTag ?? "/groups:readGroups"
+
+  const profile = options?.currentProfile ?? (await requireAuthenticatedProfile())
+  if (!profile.isTeacher) {
+    return GroupsReturnValue.parse({ data: null, error: "You do not have permission to view groups." })
+  }
 
   return withTelemetry(
     {
@@ -229,7 +254,7 @@ export async function readGroupsAction(options?: { authEndTime?: number | null; 
       let data: z.infer<typeof GroupsSchema> | null = null
 
       try {
-        await client.connect()
+    await client.connect()
         const queryStart = Date.now()
         const result = await client.query("select * from groups where active = true;")
         const queryEnd = Date.now()
@@ -276,8 +301,18 @@ export async function listPupilsWithGroupsAction(): Promise<PupilListing[]> {
 }
 
 
-export async function updateGroupAction(oldGroupId: string, newGroupId: string, subject: string) {
+export async function updateGroupAction(
+  oldGroupId: string,
+  newGroupId: string,
+  subject: string,
+  options?: { currentProfile?: AuthenticatedProfile | null },
+) {
   console.log("[v0] Server action started for group update:", { oldGroupId, newGroupId, subject })
+
+  const profile = options?.currentProfile ?? (await requireAuthenticatedProfile())
+  if (!profile.isTeacher) {
+    return { success: false, error: "You do not have permission to update groups." }
+  }
 
   const client = createPgClient()
 
@@ -310,8 +345,13 @@ export async function updateGroupAction(oldGroupId: string, newGroupId: string, 
   return { success: true, oldGroupId, newGroupId, subject }
 }
 
-export async function deleteGroupAction(groupId: string) {
+export async function deleteGroupAction(groupId: string, options?: { currentProfile?: AuthenticatedProfile | null }) {
   console.log("[v0] Server action started for group deletion:", { groupId })
+
+  const profile = options?.currentProfile ?? (await requireAuthenticatedProfile())
+  if (!profile.isTeacher) {
+    return { success: false, error: "You do not have permission to delete groups." }
+  }
 
   const client = createPgClient()
 
@@ -341,7 +381,10 @@ export async function deleteGroupAction(groupId: string) {
   return { success: true, groupId }
 }
 
-export async function removeGroupMemberAction(input: { groupId: string; userId: string }) {
+export async function removeGroupMemberAction(
+  input: { groupId: string; userId: string },
+  options?: { currentProfile?: AuthenticatedProfile | null },
+) {
   const parsed = RemoveGroupMemberInputSchema.safeParse(input)
   if (!parsed.success) {
     return RemoveGroupMemberReturnSchema.parse({
@@ -353,6 +396,14 @@ export async function removeGroupMemberAction(input: { groupId: string; userId: 
   const { groupId, userId } = parsed.data
 
   console.log("[v0] Server action started for removing group member:", { groupId, userId })
+
+  const profile = options?.currentProfile ?? (await requireAuthenticatedProfile())
+  if (!profile.isTeacher) {
+    return RemoveGroupMemberReturnSchema.parse({
+      success: false,
+      error: "You do not have permission to remove pupils.",
+    })
+  }
 
   const client = createPgClient()
 
@@ -395,8 +446,15 @@ export async function removeGroupMemberAction(input: { groupId: string; userId: 
   })
 }
 
-export async function resetPupilPasswordAction(input: { userId: string }) {
-  await requireTeacherProfile()
+export async function resetPupilPasswordAction(input: { userId: string }, options?: { currentProfile?: AuthenticatedProfile | null }) {
+  // Password reset must go through Supabase auth admin API; keep this path using Supabase.
+  const profile = options?.currentProfile ?? (await requireAuthenticatedProfile())
+  if (!profile.isTeacher) {
+    return ResetPupilPasswordResultSchema.parse({
+      success: false,
+      error: "You do not have permission to reset passwords.",
+    })
+  }
 
   const parsed = ResetPupilPasswordInputSchema.safeParse(input)
   if (!parsed.success) {
