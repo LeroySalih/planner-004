@@ -16,9 +16,9 @@ export default async function GroupDetailPage({
 }: {
   params: Promise<{ groupId: string }>
 }) {
-  await requireTeacherProfile()
+  const teacherProfile = await requireTeacherProfile()
   const { groupId } = await params
-  const result = await readGroupAction(groupId)
+  const result = await readGroupAction(groupId, { currentProfile: teacherProfile })
 
   if (result.error && !result.data) {
     throw new Error(result.error)
@@ -64,7 +64,7 @@ export default async function GroupDetailPage({
         ? rawDisplayName.trim()
         : userId
 
-    const outcome = await removeGroupMemberAction({ groupId, userId })
+    const outcome = await removeGroupMemberAction({ groupId, userId }, { currentProfile: teacherProfile })
     if (!outcome.success) {
       console.error("[groups] Failed to remove pupil from group:", { groupId, userId, error: outcome.error })
       return {
@@ -105,7 +105,7 @@ export default async function GroupDetailPage({
         ? rawDisplayName.trim()
         : userId
 
-    const outcome = await resetPupilPasswordAction({ userId })
+    const outcome = await resetPupilPasswordAction({ userId }, { currentProfile: teacherProfile })
     if (!outcome.success) {
       console.error("[groups] Failed to reset pupil password:", { groupId, userId, error: outcome.error })
       return {

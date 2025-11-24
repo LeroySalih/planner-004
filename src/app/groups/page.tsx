@@ -7,10 +7,17 @@ export default async function GroupsIndexPage({
 }: {
   searchParams: Promise<{ q?: string }>
 }) {
-  await requireTeacherProfile()
+  const teacherProfile = await requireTeacherProfile()
   const { q: rawFilter = "" } = await searchParams
   const filter = rawFilter.trim()
 
-  const result = await readGroupsAction()
-  return <GroupsPageClient groups={result.data ?? []} initialFilter={filter} error={result.error ?? null} />
+  const result = await readGroupsAction({ currentProfile: teacherProfile })
+  return (
+    <GroupsPageClient
+      groups={result.data ?? []}
+      initialFilter={filter}
+      error={result.error ?? null}
+      currentProfile={teacherProfile}
+    />
+  )
 }

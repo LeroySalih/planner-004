@@ -2,7 +2,7 @@ import { redirect } from "next/navigation"
 
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 
-type AuthenticatedProfile = {
+export type AuthenticatedProfile = {
   userId: string
   isTeacher: boolean
 }
