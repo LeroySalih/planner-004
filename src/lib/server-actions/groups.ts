@@ -17,6 +17,7 @@ import {
 import { getAuthenticatedProfile, requireAuthenticatedProfile, requireTeacherProfile } from "@/lib/auth"
 import { createSupabaseServerClient, createSupabaseServiceClient } from "@/lib/supabase/server"
 import { withTelemetry } from "@/lib/telemetry"
+import { Client } from "pg"
 
 const GroupReturnValue = z.object({
   data: GroupWithMembershipSchema.nullable(),
@@ -206,22 +207,41 @@ export async function readGroupsAction(options?: { authEndTime?: number | null; 
 
       let error: string | null = null
 
-      const s1 = Date.now();
-      const supabase = await createSupabaseServerClient()
-      const s2 = Date.now();
-      const { data, error: readError } = await supabase
-        .from("groups")
-        .select("*")
-        .eq("active", true);
+      const connectionString =
+        process.env.POSTSQL_URL ?? process.env.SUPABASE_DB_URL ?? process.env.DATABASE_URL ?? null
 
-      const E = Date.now();
-
-      console.log(`[v0] Supabase client creation took ${s2 - s1} ms, query took ${E - s2} ms.`);
-
-      if (readError) {
-        error = readError.message
-        console.error(error)
+      if (!connectionString) {
+        console.error("[v0] readGroupsAction missing database connection string")
+        return GroupsReturnValue.parse({ data: null, error: "Database connection not configured." })
       }
+
+      const connectionStart = Date.now()
+      const client = new Client({
+        connectionString,
+        ssl: connectionString.includes("localhost") ? false : { rejectUnauthorized: false },
+      })
+
+      let data: z.infer<typeof GroupsSchema> | null = null
+
+      try {
+        await client.connect()
+        const queryStart = Date.now()
+        const result = await client.query("select * from groups where active = true;")
+        const queryEnd = Date.now()
+        data = result.rows
+        console.log(`[v0] Direct PG connect took ${queryStart - connectionStart} ms, query took ${queryEnd - queryStart} ms.`)
+      } catch (queryError) {
+        error = queryError instanceof Error ? queryError.message : "Unable to read groups."
+        console.error("[v0] Failed to read groups via direct PG client", queryError)
+      } finally {
+        try {
+          await client.end()
+        } catch {
+          // ignore close errors
+        }
+      }
+
+      data = data ? GroupsSchema.parse(data) : null
 
       console.log("[v0] Server action completed for reading groups:", error)
 
