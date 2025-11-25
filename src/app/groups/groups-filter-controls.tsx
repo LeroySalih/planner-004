@@ -18,6 +18,10 @@ export function GroupsFilterControls({ value, onValueChange }: GroupsFilterContr
     [onValueChange],
   )
 
+  const handleCommit = useCallback(() => {
+    onValueChange(value)
+  }, [onValueChange, value])
+
   const handleClear = useCallback(() => {
     onValueChange("")
   }, [onValueChange])
@@ -35,6 +39,13 @@ export function GroupsFilterControls({ value, onValueChange }: GroupsFilterContr
           className="flex-1"
           inputMode="search"
           aria-label="Filter groups"
+          onBlur={handleCommit}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault()
+              handleCommit()
+            }
+          }}
         />
       </div>
       <div className="flex items-center gap-2">

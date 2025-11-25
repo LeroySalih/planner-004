@@ -34,6 +34,13 @@ export function UnitSearchControls({ subjectOptions }: UnitSearchControlsProps) 
     [router],
   )
 
+  const handleSearchCommit = useCallback(
+    (value: string) => {
+      applyFilters(value, subject, includeInactive)
+    },
+    [applyFilters, includeInactive, subject],
+  )
+
   return (
     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="w-full sm:max-w-md">
@@ -42,7 +49,13 @@ export function UnitSearchControls({ subjectOptions }: UnitSearchControlsProps) 
           <Input
             placeholder="Search by title, subject, or unit ID..."
             defaultValue={search}
-            onChange={(event) => applyFilters(event.target.value, subject, includeInactive)}
+            onBlur={(event) => handleSearchCommit(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault()
+                handleSearchCommit((event.target as HTMLInputElement).value)
+              }
+            }}
             className="pl-10"
           />
         </div>
