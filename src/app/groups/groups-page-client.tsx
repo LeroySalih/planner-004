@@ -1,15 +1,15 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from "react"
-import Link from "next/link"
+import React, { useCallback, useEffect, useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
-import { Plus, Pencil, X } from "lucide-react"
+import { Plus, X } from "lucide-react"
 import { toast } from "sonner"
 
 import type { Group } from "@/types"
 import type { AuthenticatedProfile } from "@/lib/server-actions/groups"
 import { createGroupAction, updateGroupAction } from "@/lib/server-updates"
 import { GroupsFilterControls } from "./groups-filter-controls"
+import { GroupsList } from "./groups-list"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
@@ -24,12 +24,7 @@ interface GroupsPageClientProps {
   currentProfile: AuthenticatedProfile
 }
 
-export function GroupsPageClient({
-  groups: initialGroups,
-  initialFilter,
-  error,
-  currentProfile,
-}: GroupsPageClientProps) {
+export function GroupsPageClient({ groups: initialGroups, initialFilter, error, currentProfile }: GroupsPageClientProps) {
   const router = useRouter()
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [editingGroup, setEditingGroup] = useState<Group | null>(null)
@@ -48,8 +43,6 @@ export function GroupsPageClient({
   }, [])
 
   const groups = useMemo(() => sortGroups(initialGroups), [initialGroups])
-
-  const filteredGroups = groups
 
   const handleFilterChange = useCallback((nextFilter: string) => {
     setFilter(nextFilter)
@@ -116,57 +109,7 @@ export function GroupsPageClient({
         </div>
       ) : null}
 
-      <section className="mt-8 grid gap-4 sm:grid-cols-2">
-        {filteredGroups.map((group) => (
-          <Card key={group.group_id} className="flex flex-col border-border shadow-sm">
-            <CardHeader className="pb-2">
-              <div className="flex items-start justify-between gap-2">
-                <CardTitle className="text-xl font-semibold text-slate-900">{group.group_id}</CardTitle>
-                <span className="rounded-full border border-primary/30 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-slate-100 bg-primary/80">
-                  {group.subject}
-                </span>
-              </div>
-            </CardHeader>
-            <CardContent className="flex flex-1 flex-col justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-3">
-                  <span className="text-sm text-slate-600">Join code:</span>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => handleJoinCodeClick(group.join_code ?? null)}
-                    disabled={!group.join_code}
-                    className="font-mono tracking-[0.35em] uppercase"
-                    aria-label={`Display join code for ${group.group_id}`}
-                  >
-                    {group.join_code ?? "—"}
-                  </Button>
-                </div>
-              </div>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <Button asChild size="sm" className="w-full sm:w-auto">
-                  <Link href={`/groups/${encodeURIComponent(group.group_id)}`}>View group</Link>
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="w-full sm:w-auto"
-                  onClick={() => setEditingGroup(group)}
-                >
-                  <Pencil className="mr-2 h-4 w-4" />
-                  Edit
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </section>
-
-      {filter && filteredGroups.length === 0 && groups.length > 0 ? (
-        <p className="mt-6 text-sm text-slate-600">No groups match the current filter.</p>
-      ) : null}
+      <GroupsList groups={groups} onEdit={setEditingGroup} onJoinCodeClick={handleJoinCodeClick} />
 
       <CreateGroupsSidebar
         isOpen={isCreateOpen}

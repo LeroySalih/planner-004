@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { ArrowLeft, BookOpen, Search } from "lucide-react"
 
 import type { Subjects, Unit } from "@/types"
-import { createWildcardRegExp, truncateText } from "@/lib/utils"
+import { truncateText } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -18,40 +18,44 @@ import { UnitCreateSidebar } from "@/components/units/unit-create-sidebar"
 interface UnitsPageClientProps {
   units: Unit[]
   subjects: Subjects
+  initialFilter: {
+    search: string
+    subject: string | null
+    showInactive: boolean
+  }
 }
 
-export function UnitsPageClient({ units, subjects }: UnitsPageClientProps) {
+export function UnitsPageClient({ units, subjects, initialFilter }: UnitsPageClientProps) {
   const router = useRouter()
-  const [allUnits, setAllUnits] = useState<Unit[]>(units)
-  const [searchTerm, setSearchTerm] = useState("")
-  const [selectedSubject, setSelectedSubject] = useState<string | null>(null)
+  const [searchTerm, setSearchTerm] = useState(initialFilter.search)
+  const [selectedSubject, setSelectedSubject] = useState<string | null>(initialFilter.subject)
   const [isCreateSidebarOpen, setIsCreateSidebarOpen] = useState(false)
-  const [showInactive, setShowInactive] = useState(false)
+  const [showInactive, setShowInactive] = useState(initialFilter.showInactive)
 
   const subjectOptions = useMemo(() => {
-    const fromUnits = new Set(allUnits.map((unit) => unit.subject))
-    subjects.forEach((subject) => fromUnits.add(subject.subject))
-    return Array.from(fromUnits).sort((a, b) => a.localeCompare(b))
-  }, [subjects, allUnits])
-
-  const filteredUnits = useMemo(() => {
-    const term = searchTerm.trim()
-    const searchRegex = term ? createWildcardRegExp(term) : null
-
-    return allUnits.filter((unit) => {
-      const matchesSubject = !selectedSubject || unit.subject === selectedSubject
-      const matchesActivity = showInactive || unit.active !== false
-      if (!searchRegex) {
-        return matchesSubject && matchesActivity
+    const fromUnits = new Set(units.map((unit) => unit.subject))
+    subjects.forEach((subject) => {
+      if (subject.active !== false) {
+        fromUnits.add(subject.subject)
       }
-
-      const matchesSearch =
-        searchRegex.test(unit.title) ||
-        searchRegex.test(unit.subject) ||
-        searchRegex.test(unit.unit_id)
-      return matchesSubject && matchesActivity && matchesSearch
     })
-  }, [allUnits, searchTerm, selectedSubject, showInactive])
+    return Array.from(fromUnits).sort((a, b) => a.localeCompare(b))
+  }, [subjects, units])
+
+  const applyFilters = (nextSearch: string, nextSubject: string | null, includeInactive: boolean) => {
+    setSearchTerm(nextSearch)
+    setSelectedSubject(nextSubject)
+    setShowInactive(includeInactive)
+
+    const params = new URLSearchParams()
+    if (nextSearch.trim()) params.set("q", nextSearch.trim())
+    if (nextSubject) params.set("subject", nextSubject)
+    if (includeInactive) params.set("inactive", "1")
+
+    const query = params.toString()
+    router.replace(query ? `/units?${query}` : "/units")
+    router.refresh()
+  }
 
   const handleCardClick = (unitId: string) => {
     router.push(`/units/${unitId}`)
@@ -83,7 +87,7 @@ export function UnitsPageClient({ units, subjects }: UnitsPageClientProps) {
               <Input
                 placeholder="Search by title, subject, or unit ID..."
                 value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
+                onChange={(event) => applyFilters(event.target.value, selectedSubject, showInactive)}
                 className="pl-10"
               />
             </div>
@@ -94,7 +98,7 @@ export function UnitsPageClient({ units, subjects }: UnitsPageClientProps) {
             <Button
               variant={selectedSubject === null ? "default" : "outline"}
               size="sm"
-              onClick={() => setSelectedSubject(null)}
+              onClick={() => applyFilters(searchTerm, null, showInactive)}
             >
               All Subjects
             </Button>
@@ -103,7 +107,7 @@ export function UnitsPageClient({ units, subjects }: UnitsPageClientProps) {
                 key={subjectOption}
                 variant={selectedSubject === subjectOption ? "default" : "outline"}
                 size="sm"
-                onClick={() => setSelectedSubject(subjectOption)}
+                onClick={() => applyFilters(searchTerm, subjectOption, showInactive)}
               >
                 {subjectOption}
               </Button>
@@ -112,7 +116,7 @@ export function UnitsPageClient({ units, subjects }: UnitsPageClientProps) {
               <Switch
                 id="show-inactive-switch"
                 checked={showInactive}
-                onCheckedChange={(checked) => setShowInactive(Boolean(checked))}
+                onCheckedChange={(checked) => applyFilters(searchTerm, selectedSubject, Boolean(checked))}
               />
               <Label htmlFor="show-inactive-switch" className="text-sm font-medium">
                 Show inactive units
@@ -123,18 +127,18 @@ export function UnitsPageClient({ units, subjects }: UnitsPageClientProps) {
 
         {(searchTerm || selectedSubject !== null || showInactive) && (
           <p className="text-sm text-muted-foreground">
-            Showing {filteredUnits.length} of {allUnits.length} units
+            Showing {units.length} units
           </p>
         )}
       </div>
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {filteredUnits.map((unit) => (
+        {units.map((unit) => (
           <UnitCard key={unit.unit_id} unit={unit} onClick={handleCardClick} />
         ))}
       </div>
 
-      {filteredUnits.length === 0 && (
+      {units.length === 0 && (
         <div className="py-12 text-center">
           <BookOpen className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
           <h3 className="mb-2 text-lg font-semibold">No units found</h3>
@@ -147,7 +151,6 @@ export function UnitsPageClient({ units, subjects }: UnitsPageClientProps) {
         onClose={() => setIsCreateSidebarOpen(false)}
         subjects={subjects}
         onCreate={(newUnit) => {
-          setAllUnits((prev) => [...prev, newUnit])
           setIsCreateSidebarOpen(false)
           router.refresh()
         }}

@@ -7,9 +7,18 @@ import { readSubjectsAction, readUnitsAction } from "@/lib/server-updates"
 import { requireTeacherProfile } from "@/lib/auth"
 import { withTelemetry } from "@/lib/telemetry"
 
-export default async function UnitsPage() {
-  await requireTeacherProfile()
+export default async function UnitsPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ q?: string; subject?: string; inactive?: string }>
+}) {
+  const teacherProfile = await requireTeacherProfile()
   const authEnd = performance.now()
+
+  const resolvedSearchParams = (await searchParams) ?? {}
+  const filter = (resolvedSearchParams.q ?? "").trim()
+  const subjectFilter = (resolvedSearchParams.subject ?? "").trim() || null
+  const includeInactive = (resolvedSearchParams.inactive ?? "").trim() === "1"
 
   const [unitsResult, subjectsResult] = await withTelemetry(
     {
@@ -20,8 +29,15 @@ export default async function UnitsPage() {
     },
     () =>
       Promise.all([
-        readUnitsAction({ routeTag: "/units", authEndTime: authEnd }),
-        readSubjectsAction({ routeTag: "/units", authEndTime: authEnd }),
+        readUnitsAction({
+          routeTag: "/units",
+          authEndTime: authEnd,
+          currentProfile: teacherProfile,
+          filter,
+          subject: subjectFilter,
+          includeInactive,
+        }),
+        readSubjectsAction({ routeTag: "/units", authEndTime: authEnd, currentProfile: teacherProfile }),
       ]),
   )
 
@@ -46,5 +62,11 @@ export default async function UnitsPage() {
     )
   }
 
-  return <UnitsPageClient units={units ?? []} subjects={subjects ?? []} />
+  return (
+    <UnitsPageClient
+      units={units ?? []}
+      subjects={subjects ?? []}
+      initialFilter={{ search: filter, subject: subjectFilter, showInactive: includeInactive }}
+    />
+  )
 }
