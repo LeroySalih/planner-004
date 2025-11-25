@@ -25,7 +25,7 @@ export default async function UnitDetailPage({
 }: {
   params: Promise<{ unitId: string }>
 }) {
-  await requireTeacherProfile()
+  const teacherProfile = await requireTeacherProfile()
   const authEnd = performance.now()
   const { unitId } = await params
 
@@ -46,10 +46,10 @@ export default async function UnitDetailPage({
     },
     () =>
       Promise.all([
-        readUnitAction(unitId, { routeTag: "/units/[unitId]", authEndTime: authEnd }),
+        readUnitAction(unitId, { routeTag: "/units/[unitId]", authEndTime: authEnd, currentProfile: teacherProfile }),
         readAssignmentsAction({ routeTag: "/units/[unitId]", authEndTime: authEnd }),
-        readGroupsAction({ routeTag: "/units/[unitId]", authEndTime: authEnd }),
-        readSubjectsAction({ routeTag: "/units/[unitId]", authEndTime: authEnd }),
+        readGroupsAction({ routeTag: "/units/[unitId]", authEndTime: authEnd, currentProfile: teacherProfile }),
+        readSubjectsAction({ routeTag: "/units/[unitId]", authEndTime: authEnd, currentProfile: teacherProfile }),
         readLearningObjectivesByUnitAction(unitId, {
           routeTag: "/units/[unitId]",
           authEndTime: authEnd,
