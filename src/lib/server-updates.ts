@@ -45,6 +45,8 @@ export {
   readLessonReferenceDataAction,
   createLessonAction,
   updateLessonAction,
+  updateLessonHeaderAction,
+  updateLessonHeaderMutation,
   triggerLessonCreateJobAction,
   setLessonSuccessCriteriaAction,
   createLessonLearningObjectiveAction,
@@ -53,6 +55,7 @@ export {
   createLessonSuccessCriterionFormAction,
   deactivateLessonAction,
   reorderLessonsAction,
+  type LessonHeaderUpdateState,
 } from "./server-actions/lessons"
 
 export type {

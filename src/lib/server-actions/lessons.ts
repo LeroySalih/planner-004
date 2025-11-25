@@ -31,6 +31,7 @@ import { withTelemetry } from "@/lib/telemetry"
 import { LESSON_CHANNEL_NAME, LESSON_CREATED_EVENT } from "@/lib/lesson-channel"
 import { enqueueLessonMutationJob } from "@/lib/lesson-job-runner"
 import { LessonDetailPayloadSchema } from "@/lib/lesson-snapshot-schema"
+import { Client } from "pg"
 
 const LessonsReturnValue = z.object({
   data: LessonsWithObjectivesSchema.nullable(),
@@ -46,6 +47,19 @@ const LessonDetailReturnValue = z.object({
   data: LessonDetailPayloadSchema.nullable(),
   error: z.string().nullable(),
 })
+
+const LessonUpdateReturnValue = z.object({
+  data: LessonWithObjectivesSchema.nullable(),
+  error: z.string().nullable(),
+})
+
+const LessonHeaderUpdateStateSchema = z.object({
+  status: z.enum(["idle", "success", "error"]),
+  message: z.string().nullable(),
+  lesson: LessonWithObjectivesSchema.nullable(),
+})
+
+export type LessonHeaderUpdateState = z.infer<typeof LessonHeaderUpdateStateSchema>
 
 const LessonReferencePayloadSchema = z.object({
   curricula: CurriculaSchema.default([]),
@@ -68,6 +82,22 @@ const LessonSuccessCriterionMutationResultSchema = z.object({
   data: SuccessCriterionSchema.nullable(),
   error: z.string().nullable(),
 })
+
+function resolvePgConnectionString() {
+  return process.env.POSTSQL_URL ?? process.env.SUPABASE_DB_URL ?? process.env.DATABASE_URL ?? null
+}
+
+function createPgClient() {
+  const connectionString = resolvePgConnectionString()
+  if (!connectionString) {
+    throw new Error("Database connection is not configured (POSTSQL_URL or SUPABASE_DB_URL missing).")
+  }
+
+  return new Client({
+    connectionString,
+    ssl: connectionString.includes("localhost") ? false : { rejectUnauthorized: false },
+  })
+}
 
 const LESSON_ROUTE_TAG = "/units/[unitId]"
 const LESSON_CHANNEL_CONFIG = { config: { broadcast: { ack: true } } }
@@ -1777,6 +1807,110 @@ async function loadLessonReferencePayload(
   }
 
   return LessonReferenceReturnValue.parse({ data: parsed.data, error: null })
+}
+
+const LessonHeaderUpdateInputSchema = z.object({
+  lessonId: z.string(),
+  title: z.string().trim().min(1).max(255),
+  active: z.boolean(),
+})
+
+export async function updateLessonHeaderMutation(
+  input: z.infer<typeof LessonHeaderUpdateInputSchema>,
+  options?: { authEndTime?: number | null; routeTag?: string },
+) {
+  const payload = LessonHeaderUpdateInputSchema.parse(input)
+  const profile = await requireTeacherProfile()
+  const authEndTime = options?.authEndTime ?? performance.now()
+  const routeTag = options?.routeTag ?? "/lessons:updateHeader"
+
+  return withTelemetry(
+    {
+      routeTag,
+      functionName: "updateLessonHeaderMutation",
+      params: { lessonId: payload.lessonId, active: payload.active, hasTitle: payload.title.length > 0 },
+      authEndTime,
+    },
+    async () => {
+      let client: Client | null = null
+      try {
+        client = createPgClient()
+        await client.connect()
+        const result = await client.query(
+          `update lessons
+            set title = $1, active = $2
+            where lesson_id = $3
+            returning lesson_id, unit_id, title, active, order_by`,
+          [payload.title, payload.active, payload.lessonId],
+        )
+
+        if (result.rowCount === 0) {
+          return LessonUpdateReturnValue.parse({ data: null, error: "Lesson not found." })
+        }
+      } catch (error) {
+        console.error("[lessons] Failed to update lesson header via PG:", error, {
+          lessonId: payload.lessonId,
+          userId: profile.userId,
+        })
+        const message =
+          error && typeof error === "object" && "message" in error
+            ? String((error as { message?: string }).message ?? "Unable to update lesson header.")
+            : "Unable to update lesson header."
+        return LessonUpdateReturnValue.parse({ data: null, error: message })
+      } finally {
+        if (client) {
+          await client.end()
+        }
+      }
+
+      const refreshed = await loadLessonDetailBootstrapPayload(payload.lessonId)
+      if (refreshed.error || !refreshed.data?.lesson) {
+        return LessonUpdateReturnValue.parse({
+          data: null,
+          error: refreshed.error ?? "Unable to load updated lesson.",
+        })
+      }
+
+      revalidatePath(`/lessons/${payload.lessonId}`)
+      return LessonUpdateReturnValue.parse({ data: refreshed.data.lesson, error: null })
+    },
+  )
+}
+
+export async function updateLessonHeaderAction(
+  _prevState: LessonHeaderUpdateState,
+  formData: FormData,
+): Promise<LessonHeaderUpdateState> {
+  const lessonId = String(formData.get("lessonId") ?? "").trim()
+  const title = String(formData.get("title") ?? "").trim()
+  const activeValue = formData.get("active")
+  const active =
+    typeof activeValue === "string" &&
+    ["true", "1", "on", "checked"].includes(activeValue.toLowerCase())
+
+  if (!lessonId || !title) {
+    return LessonHeaderUpdateStateSchema.parse({
+      status: "error",
+      message: "Lesson id and title are required.",
+      lesson: null,
+    })
+  }
+
+  const result = await updateLessonHeaderMutation({ lessonId, title, active })
+
+  if (result.error || !result.data) {
+    return LessonHeaderUpdateStateSchema.parse({
+      status: "error",
+      message: result.error ?? "Unable to update lesson.",
+      lesson: null,
+    })
+  }
+
+  return LessonHeaderUpdateStateSchema.parse({
+    status: "success",
+    message: "Lesson updated.",
+    lesson: result.data,
+  })
 }
 
 async function readLessonWithObjectives(lessonId: string) {
