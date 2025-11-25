@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,28 +11,32 @@ interface GroupsFilterControlsProps {
 }
 
 export function GroupsFilterControls({ value, onValueChange }: GroupsFilterControlsProps) {
-  const handleChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      onValueChange(event.target.value)
-    },
-    [onValueChange],
-  )
+  const [draft, setDraft] = useState(value)
+
+  useEffect(() => {
+    setDraft(value)
+  }, [value])
+
+  const handleChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    setDraft(event.target.value)
+  }, [])
 
   const handleCommit = useCallback(() => {
-    onValueChange(value)
-  }, [onValueChange, value])
+    onValueChange(draft)
+  }, [draft, onValueChange])
 
   const handleClear = useCallback(() => {
+    setDraft("")
     onValueChange("")
   }, [onValueChange])
 
-  const isClearDisabled = useMemo(() => value.trim().length === 0, [value])
+  const isClearDisabled = useMemo(() => draft.trim().length === 0, [draft])
 
   return (
     <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
       <div className="flex flex-1 items-center gap-2">
         <Input
-          value={value}
+          value={draft}
           onChange={handleChange}
           name="q"
           placeholder="Filter by group or subject (use '?' as wildcard)"
