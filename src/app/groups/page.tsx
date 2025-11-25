@@ -1,6 +1,7 @@
 import { readGroupsAction } from "@/lib/server-updates"
-import { GroupsPageClient } from "./groups-page-client"
 import { requireTeacherProfile } from "@/lib/auth"
+import { GroupsList } from "./groups-list"
+import { GroupsPageClient } from "./groups-page-client"
 
 export default async function GroupsIndexPage({
   searchParams,
@@ -12,12 +13,6 @@ export default async function GroupsIndexPage({
   const filter = rawFilter.trim()
 
   const result = await readGroupsAction({ currentProfile: teacherProfile, filter })
-  return (
-    <GroupsPageClient
-      groups={result.data ?? []}
-      initialFilter={filter}
-      error={result.error ?? null}
-      currentProfile={teacherProfile}
-    />
-  )
+  const groups = result.data ?? []
+  return <GroupsPageClient groups={groups} initialFilter={filter} error={result.error ?? null} currentProfile={teacherProfile} />
 }

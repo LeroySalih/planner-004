@@ -12,9 +12,10 @@ import {
   UnitJobPayloadSchema,
   UnitMutationStateSchema,
 } from "@/types"
-import { requireTeacherProfile } from "@/lib/auth"
+import { requireTeacherProfile, type AuthenticatedProfile } from "@/lib/auth"
 import { createSupabaseServerClient, createSupabaseServiceClient } from "@/lib/supabase/server"
 import { withTelemetry } from "@/lib/telemetry"
+import { Client } from "pg"
 
 const UnitsReturnValue = z.object({
   data: UnitsSchema.nullable(),
@@ -25,6 +26,22 @@ const UnitReturnValue = z.object({
   data: UnitSchema.nullable(),
   error: z.string().nullable(),
 })
+
+function resolveConnectionString() {
+  return process.env.POSTSQL_URL ?? process.env.SUPABASE_DB_URL ?? process.env.DATABASE_URL ?? null
+}
+
+function createPgClient() {
+  const connectionString = resolveConnectionString()
+  if (!connectionString) {
+    throw new Error("Database connection is not configured (POSTSQL_URL or SUPABASE_DB_URL missing).")
+  }
+
+  return new Client({
+    connectionString,
+    ssl: connectionString.includes("localhost") ? false : { rejectUnauthorized: false },
+  })
+}
 
 const UNIT_ROUTE_TAG = "/units/[unitId]"
 const UNIT_CHANNEL_NAME = "unit_updates"
@@ -286,7 +303,7 @@ export async function createUnitAction(
 
 export async function readUnitAction(
   unitId: string,
-  options?: { authEndTime?: number | null; routeTag?: string },
+  options?: { authEndTime?: number | null; routeTag?: string; currentProfile?: AuthenticatedProfile | null },
 ) {
   const routeTag = options?.routeTag ?? "/units:readUnit"
 
@@ -300,34 +317,64 @@ export async function readUnitAction(
     async () => {
       console.log("[v0] Server action started for reading unit:", { unitId })
 
-      const supabase = await createSupabaseServerClient()
-
-      const { data, error } = await supabase
-        .from("units")
-        .select("*")
-        .eq("unit_id", unitId)
-        .maybeSingle()
-
-      if (error) {
-        console.error("[v0] Server action failed for reading unit:", error)
-        return UnitReturnValue.parse({ data: null, error: error.message })
+      const profile = options?.currentProfile ?? (await requireTeacherProfile())
+      if (!profile.isTeacher) {
+        return UnitReturnValue.parse({ data: null, error: "You do not have permission to view units." })
       }
 
-      console.log("[v0] Server action completed for reading unit:", { unitId })
+      const client = createPgClient()
 
-      return UnitReturnValue.parse({ data, error: null })
+      try {
+        await client.connect()
+        const { rows } = await client.query("select unit_id, title, subject, description, active, year from units where unit_id = $1 limit 1", [unitId])
+        const row = rows[0] ?? null
+
+        if (!row) {
+          return UnitReturnValue.parse({ data: null, error: "Unit not found." })
+        }
+
+        console.log("[v0] Server action completed for reading unit:", { unitId })
+
+        return UnitReturnValue.parse({ data: row, error: null })
+      } catch (error) {
+        console.error("[v0] Server action failed for reading unit:", error)
+        const message = error instanceof Error ? error.message : "Unable to load unit."
+        return UnitReturnValue.parse({ data: null, error: message })
+      } finally {
+        try {
+          await client.end()
+        } catch {
+          // ignore
+        }
+      }
     },
   )
 }
 
-export async function readUnitsAction(options?: { authEndTime?: number | null; routeTag?: string }) {
+export async function readUnitsAction(options?: {
+  authEndTime?: number | null
+  routeTag?: string
+  currentProfile?: AuthenticatedProfile | null
+  filter?: string | null
+  subject?: string | null
+  includeInactive?: boolean
+}) {
   const routeTag = options?.routeTag ?? "/units:readUnits"
+
+  const profile = options?.currentProfile ?? (await requireTeacherProfile())
+  if (!profile.isTeacher) {
+    return UnitsReturnValue.parse({ data: null, error: "You do not have permission to view units." })
+  }
 
   return withTelemetry(
     {
       routeTag,
       functionName: "readUnitsAction",
-      params: null,
+      params: {
+        filter: options?.filter ?? null,
+        subject: options?.subject ?? null,
+        includeInactive: options?.includeInactive ?? false,
+      },
       authEndTime: options?.authEndTime ?? null,
     },
     async () => {
@@ -335,20 +382,52 @@ export async function readUnitsAction(options?: { authEndTime?: number | null; r
 
       let error: string | null = null
 
-      const supabase = await createSupabaseServerClient()
+      const client = createPgClient()
 
-      const { data, error: readError } = await supabase
-        .from("units")
-        .select("*")
+      try {
+        await client.connect()
+        const filters: string[] = []
+        const values: unknown[] = []
 
-      if (readError) {
-        error = readError.message
-        console.error(error)
+        if (!options?.includeInactive) {
+          filters.push("active = true")
+        }
+
+        if (options?.filter && options.filter.trim().length > 0) {
+          const pattern = `%${options.filter.trim().replace(/\?/g, "%")}%`
+          values.push(pattern)
+          const idx = values.length
+          filters.push(`(unit_id ILIKE $${idx} OR title ILIKE $${idx} OR subject ILIKE $${idx})`)
+        }
+
+        if (options?.subject && options.subject.trim().length > 0) {
+          values.push(options.subject.trim())
+          filters.push(`subject = $${values.length}`)
+        }
+
+        const whereClause = filters.length > 0 ? `where ${filters.join(" AND ")}` : ""
+        const sql = `
+          select unit_id, title, subject, description, active, year
+          from units
+          ${whereClause}
+          order by title asc, unit_id asc;
+        `
+        const { rows } = await client.query(sql, values)
+        const data = rows ?? []
+
+        console.log("[v0] Server action completed for reading units:", error)
+        return UnitsReturnValue.parse({ data, error: null })
+      } catch (queryError) {
+        error = queryError instanceof Error ? queryError.message : "Unable to load units."
+        console.error("[v0] Failed to read units via direct PG client", queryError)
+        return UnitsReturnValue.parse({ data: null, error })
+      } finally {
+        try {
+          await client.end()
+        } catch {
+          // ignore
+        }
       }
-
-      console.log("[v0] Server action completed for reading units:", error)
-
-      return UnitsReturnValue.parse({ data, error })
     },
   )
 }
