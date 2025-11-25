@@ -1,3 +1,4 @@
+import { Suspense } from "react"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 
@@ -125,45 +126,47 @@ export default async function GroupDetailPage({
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-6 py-10 text-slate-900">
-      <div className="mb-6 text-sm text-slate-600">
-        <Link href="/groups" className="underline-offset-4 hover:underline">
-          ← Back to groups
-        </Link>
-      </div>
+    <Suspense fallback={<div className="mx-auto w-full max-w-6xl px-6 py-10">Loading group…</div>}>
+      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-6 py-10 text-slate-900">
+        <div className="mb-6 text-sm text-slate-600">
+          <Link href="/groups" className="underline-offset-4 hover:underline">
+            ← Back to groups
+          </Link>
+        </div>
 
-      <header className="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 px-8 py-6 text-white shadow-lg">
-        <div className="flex flex-col gap-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">Group</p>
-          <div>
-            <h1 className="text-3xl font-semibold text-white">{group.group_id}</h1>
-            <p className="mt-2 text-sm text-slate-200">
-              Subject: <span className="font-medium text-white">{group.subject}</span>
-            </p>
+        <header className="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 px-8 py-6 text-white shadow-lg">
+          <div className="flex flex-col gap-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">Group</p>
+            <div>
+              <h1 className="text-3xl font-semibold text-white">{group.group_id}</h1>
+              <p className="mt-2 text-sm text-slate-200">
+                Subject: <span className="font-medium text-white">{group.subject}</span>
+              </p>
+            </div>
           </div>
-        </div>
-      </header>
+        </header>
 
-      {membershipError ? (
-        <div className="mt-4 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          Unable to load group membership: {membershipError}
-        </div>
-      ) : null}
+        {membershipError ? (
+          <div className="mt-4 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            Unable to load group membership: {membershipError}
+          </div>
+        ) : null}
 
-      <section className="mt-6">
-        <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
-          <h2 className="text-lg font-semibold text-slate-900">Pupils</h2>
-          {pupils.length === 0 ? (
-            <p className="mt-3 text-sm text-slate-600">No pupils assigned to this group yet.</p>
-          ) : (
-            <GroupPupilList
-              pupils={pupils}
-              resetPupilPasswordAction={handleResetPupilPassword}
-              removePupilAction={handleRemovePupil}
-            />
-          )}
-        </div>
-      </section>
-    </main>
+        <section className="mt-6">
+          <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
+            <h2 className="text-lg font-semibold text-slate-900">Pupils</h2>
+            {pupils.length === 0 ? (
+              <p className="mt-3 text-sm text-slate-600">No pupils assigned to this group yet.</p>
+            ) : (
+              <GroupPupilList
+                pupils={pupils}
+                resetPupilPasswordAction={handleResetPupilPassword}
+                removePupilAction={handleRemovePupil}
+              />
+            )}
+          </div>
+        </section>
+      </main>
+    </Suspense>
   )
 }

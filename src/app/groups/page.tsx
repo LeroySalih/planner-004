@@ -1,3 +1,5 @@
+import { Suspense } from "react"
+
 import { readGroupsAction } from "@/lib/server-updates"
 import { requireTeacherProfile } from "@/lib/auth"
 import { GroupsList } from "./groups-list"
@@ -14,5 +16,9 @@ export default async function GroupsIndexPage({
 
   const result = await readGroupsAction({ currentProfile: teacherProfile, filter })
   const groups = result.data ?? []
-  return <GroupsPageClient groups={groups} initialFilter={filter} error={result.error ?? null} currentProfile={teacherProfile} />
+  return (
+    <Suspense fallback={<div className="container mx-auto px-6 py-8">Loading groups...</div>}>
+      <GroupsPageClient groups={groups} initialFilter={filter} error={result.error ?? null} currentProfile={teacherProfile} />
+    </Suspense>
+  )
 }
