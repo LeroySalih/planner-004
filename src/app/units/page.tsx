@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import Link from "next/link"
 import { ArrowLeft, BookOpen } from "lucide-react"
 import { truncateText } from "@/lib/utils"
+import { AddUnitTrigger } from "./add-unit-trigger"
 
 export default async function UnitsPage({
   searchParams,
@@ -83,6 +84,9 @@ export default async function UnitsPage({
           <div className="flex items-center gap-2">
             <BookOpen className="h-6 w-6 text-primary" />
             <h1 className="text-3xl font-bold text-balance">Units Overview</h1>
+          </div>
+          <div className="ml-auto">
+            <AddUnitTrigger subjects={subjects ?? []} />
           </div>
         </div>
 
