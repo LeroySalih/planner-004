@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic"
 
+import { Suspense } from "react"
 import { performance } from "node:perf_hooks"
 
 import Link from "next/link"
@@ -98,23 +99,25 @@ export default async function UnitDetailPage({
   )
 
   return (
-    <main className="container mx-auto flex flex-col gap-6 p-6">
-      <Button asChild variant="outline" size="sm" className="w-fit">
-        <Link href="/units">
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to Units
-        </Link>
-      </Button>
+    <Suspense fallback={<div className="container mx-auto p-6">Loading unit...</div>}>
+      <main className="container mx-auto flex flex-col gap-6 p-6">
+        <Button asChild variant="outline" size="sm" className="w-fit">
+          <Link href="/units">
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to Units
+          </Link>
+        </Button>
 
-      <UnitDetailView
-        unit={unit}
-        assignments={assignments}
-        groups={groupsResult.data ?? []}
-        subjects={subjectsResult.data ?? []}
-        learningObjectives={learningObjectivesResult.data ?? []}
-        lessons={lessonsResult.data ?? []}
-        unitFiles={unitFilesResult.data ?? []}
-      />
-    </main>
+        <UnitDetailView
+          unit={unit}
+          assignments={assignments}
+          groups={groupsResult.data ?? []}
+          subjects={subjectsResult.data ?? []}
+          learningObjectives={learningObjectivesResult.data ?? []}
+          lessons={lessonsResult.data ?? []}
+          unitFiles={unitFilesResult.data ?? []}
+        />
+      </main>
+    </Suspense>
   )
 }

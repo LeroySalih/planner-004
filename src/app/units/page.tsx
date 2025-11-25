@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic"
 
+import { Suspense } from "react"
 import { performance } from "node:perf_hooks"
 
 import { UnitsPageClient } from "@/components/units/units-page-client"
@@ -63,10 +64,12 @@ export default async function UnitsPage({
   }
 
   return (
-    <UnitsPageClient
-      units={units ?? []}
-      subjects={subjects ?? []}
-      initialFilter={{ search: filter, subject: subjectFilter, showInactive: includeInactive }}
-    />
+    <Suspense fallback={<div className="container mx-auto p-6">Loading units...</div>}>
+      <UnitsPageClient
+        units={units ?? []}
+        subjects={subjects ?? []}
+        initialFilter={{ search: filter, subject: subjectFilter, showInactive: includeInactive }}
+      />
+    </Suspense>
   )
 }
