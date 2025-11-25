@@ -127,7 +127,11 @@ function UnitCard({
     <Card className="border-border shadow-sm">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between gap-2">
-          <CardTitle className="text-lg font-semibold text-slate-900">{unit.title}</CardTitle>
+          <CardTitle className="text-lg font-semibold text-slate-900">
+            <Link href={`/units/${unit.unit_id}`} className="hover:underline">
+              {unit.title}
+            </Link>
+          </CardTitle>
           <Badge variant={isActive ? "default" : "secondary"}>{isActive ? "Active" : "Inactive"}</Badge>
         </div>
         <p className="text-sm text-muted-foreground">{unit.subject}</p>
