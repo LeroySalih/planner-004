@@ -4,21 +4,32 @@ import { useCallback, useEffect, useRef, useState, useTransition, type ChangeEve
 import { toast } from "sonner"
 import { Download, Loader2, Trash2, Upload } from "lucide-react"
 
-import type { LessonActivity } from "@/types"
+import type { LessonActivity, SubmissionStatus } from "@/types"
 import {
   listPupilActivitySubmissionsAction,
   uploadPupilActivitySubmissionAction,
   deletePupilActivitySubmissionAction,
   getPupilActivitySubmissionUrlAction,
+  updatePupilSubmissionStatusAction,
 } from "@/lib/server-updates"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { useFeedbackVisibility } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/feedback-visibility-debug"
 
 export interface ActivityFileInfo {
   name: string
   path: string
   size?: number
+  status: SubmissionStatus
+  submissionId?: string | null
+  submittedAt?: string | null
 }
 
 interface PupilUploadActivityProps {
@@ -48,8 +59,22 @@ export function PupilUploadActivity({
   feedbackLessonId,
   feedbackInitiallyVisible = false,
 }: PupilUploadActivityProps) {
+  const normalizeFiles = useCallback(
+    (files: ActivityFileInfo[]) =>
+      files.map((file) => ({
+        ...file,
+        status: file.status ?? "inprogress",
+        submissionId: file.submissionId ?? null,
+        submittedAt: file.submittedAt ?? null,
+      })),
+    [],
+  )
+
   const [isPending, startTransition] = useTransition()
-  const [submissions, setSubmissions] = useState<ActivityFileInfo[]>(() => initialSubmissions)
+  const [submissions, setSubmissions] = useState<ActivityFileInfo[]>(() =>
+    normalizeFiles(initialSubmissions),
+  )
+  const [statusPendingPath, setStatusPendingPath] = useState<string | null>(null)
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null)
   const [isDragActive, setIsDragActive] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -71,7 +96,7 @@ export function PupilUploadActivity({
       })
       return false
     }
-    const files = result.data ?? []
+    const files = normalizeFiles(result.data ?? [])
     setSubmissions((prev) => {
       const next = files.length === 0 && prev.length > 0 ? prev : files
       if (next !== prev) {
@@ -80,7 +105,7 @@ export function PupilUploadActivity({
       return next
     })
     return true
-  }, [activity.activity_id, lessonId, onSubmissionsChange, pupilId])
+  }, [activity.activity_id, lessonId, normalizeFiles, onSubmissionsChange, pupilId])
 
   useEffect(() => {
     if (!pupilId) {
@@ -139,6 +164,9 @@ export function PupilUploadActivity({
           name: file.name,
           path: `${lessonId}/activities/${activity.activity_id}/${pupilId}/${file.name}`,
           size: file.size,
+          status: "inprogress",
+          submissionId: null,
+          submittedAt: new Date().toISOString(),
         }
 
         setSubmissions([optimisticEntry])
@@ -205,6 +233,41 @@ export function PupilUploadActivity({
       })
     },
     [activity.activity_id, lessonId, pupilId, refreshSubmissions],
+  )
+
+  const handleStatusChange = useCallback(
+    (file: ActivityFileInfo, nextStatus: SubmissionStatus) => {
+      if (!canUpload) return
+      startTransition(async () => {
+        setStatusPendingPath(file.path)
+        try {
+          const result = await updatePupilSubmissionStatusAction({
+            lessonId,
+            activityId: activity.activity_id,
+            pupilId,
+            status: nextStatus,
+          })
+
+          if (!result.success) {
+            toast.error("Unable to update status", {
+              description: result.error ?? "Please try again later.",
+            })
+            return
+          }
+
+          toast.success("Status updated")
+          await refreshSubmissions()
+        } catch (error) {
+          console.error("[pupil-lessons] Failed to update upload status", error)
+          toast.error("Unable to update status", {
+            description: "Please try again later.",
+          })
+        } finally {
+          setStatusPendingPath(null)
+        }
+      })
+    },
+    [activity.activity_id, canUpload, lessonId, pupilId, refreshSubmissions],
   )
 
   const handleDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
@@ -335,37 +398,63 @@ export function PupilUploadActivity({
           <p className="text-sm text-muted-foreground">No files uploaded yet.</p>
         ) : (
           <ul className="space-y-2 text-sm">
-            {submissions.map((file) => (
-              <li key={file.path} className="flex items-center justify-between rounded-md border border-border/60 px-3 py-2">
-                <span className="truncate pr-4" title={file.name}>
-                  {file.name}
-                </span>
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="secondary"
-                    onClick={() => handleDownloadSubmission(file.name)}
-                    disabled={isPending}
-                    aria-label={`Download ${file.name}`}
-                  >
-                    <Download className="h-4 w-4" />
-                  </Button>
-                  {canUpload ? (
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="destructive"
-                      onClick={() => handleDeleteSubmission(file.name)}
-                      disabled={isPending}
-                      aria-label={`Delete ${file.name}`}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  ) : null}
-                </div>
-              </li>
-            ))}
+            {submissions.map((file) => {
+              const statusDisabled = isPending || statusPendingPath === file.path || !canUpload
+              return (
+                <li key={file.path} className="rounded-md border border-border/60 px-3 py-2">
+                  <div className="flex flex-col gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <span className="truncate pr-4 font-medium" title={file.name}>
+                        {file.name}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Status</span>
+                        <Select
+                          value={file.status}
+                          onValueChange={(value) => handleStatusChange(file, value as SubmissionStatus)}
+                          disabled={statusDisabled}
+                        >
+                          <SelectTrigger className="w-36">
+                            <SelectValue aria-label={file.status} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="inprogress">In progress</SelectItem>
+                            <SelectItem value="submitted">Submitted</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {statusPendingPath === file.path ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-end gap-2">
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="secondary"
+                        onClick={() => handleDownloadSubmission(file.name)}
+                        disabled={isPending}
+                        aria-label={`Download ${file.name}`}
+                      >
+                        <Download className="h-4 w-4" />
+                      </Button>
+                      {canUpload ? (
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="destructive"
+                          onClick={() => handleDeleteSubmission(file.name)}
+                          disabled={isPending}
+                          aria-label={`Delete ${file.name}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                </li>
+              )
+            })}
           </ul>
         )}
       </div>

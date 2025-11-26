@@ -114,6 +114,9 @@ export type Profile = z.infer<typeof ProfileSchema>;
 export type Profiles = z.infer<typeof ProfilesSchema>;
 export type CurrentProfile = z.infer<typeof CurrentProfileSchema>;
 
+export const SubmissionStatusSchema = z.enum(["inprogress", "submitted", "completed", "rejected"]);
+export type SubmissionStatus = z.infer<typeof SubmissionStatusSchema>;
+
 export const FeedbackSchema = z.object({
     id: z.number().int(),
     user_id: z.string(),
@@ -629,6 +632,29 @@ export const LessonActivitiesSchema = z.array(LessonActivitySchema);
 
 export type LessonActivity = z.infer<typeof LessonActivitySchema>;
 export type LessonActivities = z.infer<typeof LessonActivitiesSchema>;
+
+export const UploadSubmissionFileSchema = z.object({
+    submissionId: z.string().nullable(),
+    pupilId: z.string(),
+    activityId: z.string(),
+    lessonId: z.string().nullable().optional(),
+    groupId: z.string().nullable().optional(),
+    groupName: z.string().nullable().optional(),
+    pupilName: z.string().nullable().optional(),
+    fileName: z.string().nullable(),
+    filePath: z.string().nullable(),
+    status: SubmissionStatusSchema.default("inprogress"),
+    submittedAt: z.string().nullable(),
+    size: z.number().optional(),
+    lessonTitle: z.string().nullable().optional(),
+    unitTitle: z.string().nullable().optional(),
+    activityTitle: z.string().nullable().optional(),
+});
+
+export const UploadSubmissionFilesSchema = z.array(UploadSubmissionFileSchema);
+
+export type UploadSubmissionFile = z.infer<typeof UploadSubmissionFileSchema>;
+export type UploadSubmissionFiles = z.infer<typeof UploadSubmissionFilesSchema>;
 
 export const AssignmentSchema = z.object({
     group_id: z.string(),
