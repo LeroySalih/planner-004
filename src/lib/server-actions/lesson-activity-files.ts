@@ -2,8 +2,11 @@
 
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
+import { Client } from "pg"
 
+import { SubmissionStatusSchema } from "@/types"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { withTelemetry } from "@/lib/telemetry"
 
 const LESSON_FILES_BUCKET = "lessons"
 
@@ -14,12 +17,31 @@ const ActivityFileSchema = z.object({
   updated_at: z.string().optional(),
   last_accessed_at: z.string().optional(),
   size: z.number().optional(),
+  submission_id: z.string().nullable().optional(),
+  status: SubmissionStatusSchema.default("inprogress"),
+  submitted_at: z.string().nullable().optional(),
 })
 
 const ActivityFilesReturnValue = z.object({
   data: z.array(ActivityFileSchema).nullable(),
   error: z.string().nullable(),
 })
+
+function resolvePgConnectionString() {
+  return process.env.POSTSQL_URL ?? process.env.SUPABASE_DB_URL ?? process.env.DATABASE_URL ?? null
+}
+
+function createPgClient() {
+  const connectionString = resolvePgConnectionString()
+  if (!connectionString) {
+    throw new Error("Database connection is not configured (POSTSQL_URL or SUPABASE_DB_URL missing).")
+  }
+
+  return new Client({
+    connectionString,
+    ssl: connectionString.includes("localhost") ? false : { rejectUnauthorized: false },
+  })
+}
 
 function buildDirectory(lessonId: string, activityId: string) {
   return `lessons/${lessonId}/activities/${activityId}`
@@ -185,62 +207,115 @@ export async function listPupilActivitySubmissionsAction(
   activityId: string,
   pupilId: string,
 ) {
-  const supabase = await createSupabaseServerClient()
-  const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
+  const routeTag = "/pupil-lessons"
 
-  const directories = [
-    buildSubmissionDirectory(lessonId, activityId, pupilId),
-    buildLegacySubmissionDirectory(lessonId, activityId, pupilId),
-  ].filter((value, index, array) => array.indexOf(value) === index)
+  return withTelemetry(
+    { routeTag, functionName: "listPupilActivitySubmissionsAction", params: { lessonId, activityId, pupilId } },
+    async () => {
+      const supabase = await createSupabaseServerClient()
+      const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
+      const client = createPgClient()
 
-  try {
-    const seen = new Set<string>()
-    const collected: Array<z.infer<typeof ActivityFileSchema>> = []
+      try {
+        await client.connect()
 
-    for (const directory of directories) {
-      const { data, error } = await bucket.list(directory, { limit: 100 })
-
-      if (error) {
-        if (isStorageNotFoundError(error)) {
-          continue
-        }
-        console.error("[v0] Failed to list pupil submissions:", error)
-        return ActivityFilesReturnValue.parse({ data: null, error: error.message })
-      }
-
-      for (const file of data ?? []) {
-        const fullPath = `${directory}/${file.name}`
-        if (seen.has(fullPath)) {
-          continue
-        }
-        seen.add(fullPath)
-        collected.push(
-          ActivityFileSchema.parse({
-            name: file.name,
-            path: fullPath,
-            created_at: file.created_at ?? undefined,
-            updated_at: file.updated_at ?? undefined,
-            last_accessed_at: file.last_accessed_at ?? undefined,
-            size: file.metadata?.size ?? undefined,
-          }),
+        const { rows } = await client.query(
+          `
+            select submission_id, submission_status, submitted_at, coalesce(body->>'upload_file_name', '') as file_name
+            from submissions
+            where activity_id = $1 and user_id = $2
+            order by submitted_at desc
+            limit 1
+          `,
+          [activityId, pupilId],
         )
+
+        const row = rows[0]
+        const fileName = row?.file_name ?? ""
+        const statusParse = SubmissionStatusSchema.safeParse(row?.submission_status)
+        const status = statusParse.success ? statusParse.data : "inprogress"
+        const submittedAt =
+          typeof row?.submitted_at === "string"
+            ? row.submitted_at
+            : row?.submitted_at instanceof Date
+              ? row.submitted_at.toISOString()
+              : null
+
+        if (!row || !fileName) {
+          return ActivityFilesReturnValue.parse({ data: [], error: null })
+        }
+
+        const directories = [
+          buildSubmissionDirectory(lessonId, activityId, pupilId),
+          buildLegacySubmissionDirectory(lessonId, activityId, pupilId),
+        ].filter((value, index, array) => array.indexOf(value) === index)
+
+        let matchedPath: string | null = null
+        let metadata: { created_at?: string; updated_at?: string; last_accessed_at?: string; size?: number } = {}
+        let lastError: { message?: string } | null = null
+
+        for (const directory of directories) {
+          const { data, error } = await bucket.list(directory, { limit: 100 })
+
+          if (error) {
+            if (isStorageNotFoundError(error)) {
+              lastError = error
+              continue
+            }
+            console.error("[v0] Failed to list pupil submissions:", error)
+            return ActivityFilesReturnValue.parse({ data: null, error: error.message })
+          }
+
+          const match = (data ?? []).find((file) => file.name === fileName)
+          if (match) {
+            matchedPath = `${directory}/${match.name}`
+            metadata = {
+              created_at: match.created_at ?? undefined,
+              updated_at: match.updated_at ?? undefined,
+              last_accessed_at: match.last_accessed_at ?? undefined,
+              size: match.metadata?.size ?? undefined,
+            }
+            break
+          }
+        }
+
+        const resolvedPath = matchedPath ?? buildSubmissionPath(lessonId, activityId, pupilId, fileName)
+
+        if (!matchedPath && lastError && isStorageNotFoundError(lastError)) {
+          return ActivityFilesReturnValue.parse({
+            data: [],
+            error: "Uploaded file could not be found. Please upload again.",
+          })
+        }
+
+        return ActivityFilesReturnValue.parse({
+          data: [
+            ActivityFileSchema.parse({
+              name: fileName,
+              path: resolvedPath,
+              ...metadata,
+              submission_id: row?.submission_id ?? null,
+              status,
+              submitted_at: submittedAt,
+            }),
+          ],
+          error: null,
+        })
+      } catch (error) {
+        console.error("[v0] Unexpected error listing pupil submissions:", error)
+        return ActivityFilesReturnValue.parse({
+          data: null,
+          error: "Unable to load pupil submissions.",
+        })
+      } finally {
+        try {
+          await client.end()
+        } catch {
+          // ignore close errors
+        }
       }
-    }
-
-    const normalized = collected.sort((a, b) => {
-      const aTime = Date.parse(a.updated_at ?? a.created_at ?? "0")
-      const bTime = Date.parse(b.updated_at ?? b.created_at ?? "0")
-      return bTime - aTime
-    })
-
-    return ActivityFilesReturnValue.parse({ data: normalized, error: null })
-  } catch (error) {
-    console.error("[v0] Unexpected error listing pupil submissions:", error)
-    return ActivityFilesReturnValue.parse({
-      data: null,
-      error: "Unable to load pupil submissions.",
-    })
-  }
+    },
+  )
 }
 
 export async function uploadPupilActivitySubmissionAction(formData: FormData) {
@@ -249,78 +324,103 @@ export async function uploadPupilActivitySubmissionAction(formData: FormData) {
   const pupilId = formData.get("pupilId")
   const file = formData.get("file")
 
-  if (typeof lessonId !== "string" || lessonId.trim() === "") {
-    return { success: false, error: "Missing lesson identifier" }
-  }
+  const routeTag = "/pupil-lessons"
 
-  if (typeof activityId !== "string" || activityId.trim() === "") {
-    return { success: false, error: "Missing activity identifier" }
-  }
+  return withTelemetry(
+    { routeTag, functionName: "uploadPupilActivitySubmissionAction", params: { lessonId, activityId, pupilId } },
+    async () => {
+      if (typeof lessonId !== "string" || lessonId.trim() === "") {
+        return { success: false, error: "Missing lesson identifier" }
+      }
 
-  if (typeof pupilId !== "string" || pupilId.trim() === "") {
-    return { success: false, error: "Missing pupil identifier" }
-  }
+      if (typeof activityId !== "string" || activityId.trim() === "") {
+        return { success: false, error: "Missing activity identifier" }
+      }
 
-  if (!(file instanceof File)) {
-    return { success: false, error: "No file provided" }
-  }
+      if (typeof pupilId !== "string" || pupilId.trim() === "") {
+        return { success: false, error: "Missing pupil identifier" }
+      }
 
-  const supabase = await createSupabaseServerClient()
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser()
+      if (!(file instanceof File)) {
+        return { success: false, error: "No file provided" }
+      }
 
-  if (authError || !user) {
-    console.error("[pupil-lessons] Unable to load auth session for upload:", authError)
-    return { success: false, error: "You need to sign in again before uploading." }
-  }
+      const supabase = await createSupabaseServerClient()
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser()
 
-  if (user.id !== pupilId) {
-    return { success: false, error: "You can only upload files for your own account." }
-  }
+      if (authError || !user) {
+        console.error("[pupil-lessons] Unable to load auth session for upload:", authError)
+        return { success: false, error: "You need to sign in again before uploading." }
+      }
 
-  const userId = user.id
-  const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
+      if (user.id !== pupilId) {
+        return { success: false, error: "You can only upload files for your own account." }
+      }
 
-  const fileName = file.name
-  const path = buildSubmissionPath(lessonId, activityId, userId, fileName)
+      const userId = user.id
+      const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
 
-  const arrayBuffer = await file.arrayBuffer()
-  const { error: uploadError } = await bucket.upload(path, arrayBuffer, {
-    upsert: true,
-    contentType: file.type || "application/octet-stream",
-  })
+      const fileName = file.name
+      const path = buildSubmissionPath(lessonId, activityId, userId, fileName)
 
-  if (uploadError) {
-    console.error("[v0] Failed to upload pupil submission:", uploadError)
-    return { success: false, error: uploadError.message }
-  }
+      const arrayBuffer = await file.arrayBuffer()
+      const { error: uploadError } = await bucket.upload(path, arrayBuffer, {
+        upsert: true,
+        contentType: file.type || "application/octet-stream",
+      })
 
-  const submittedAt = new Date().toISOString()
-  const submissionResult = await upsertUploadSubmissionRecord({
-    supabase,
-    activityId,
-    pupilId: userId,
-    fileName,
-    submittedAt,
-  })
+      if (uploadError) {
+        console.error("[v0] Failed to upload pupil submission:", uploadError)
+        return { success: false, error: uploadError.message }
+      }
 
-  if (!submissionResult.success) {
-    await bucket.remove([path])
-    return { success: false, error: submissionResult.error ?? "Unable to record submission." }
-  }
+      const submittedAt = new Date().toISOString()
+      const client = createPgClient()
 
-  console.log("[realtime-debug] Upload submission stored", {
-    activityId,
-    pupilId: userId,
-    lessonId,
-    fileName,
-    submittedAt,
-  })
+      try {
+        await client.connect()
 
-  revalidatePath(`/pupil-lessons/${encodeURIComponent(userId)}/lessons/${encodeURIComponent(lessonId)}`)
-  return { success: true }
+        try {
+          const submissionResult = await upsertUploadSubmissionRecord({
+            client,
+            activityId,
+            pupilId: userId,
+            fileName,
+            submittedAt,
+          })
+
+          if (!submissionResult.success) {
+            await bucket.remove([path])
+            return { success: false, error: "Unable to record submission." }
+          }
+        } catch (error) {
+          console.error("[v0] Failed to upsert upload submission record:", error)
+          await bucket.remove([path])
+          return { success: false, error: "Unable to record submission." }
+        }
+      } finally {
+        try {
+          await client.end()
+        } catch {
+          // ignore close errors
+        }
+      }
+
+      console.log("[realtime-debug] Upload submission stored", {
+        activityId,
+        pupilId: userId,
+        lessonId,
+        fileName,
+        submittedAt,
+      })
+
+      revalidatePath(`/pupil-lessons/${encodeURIComponent(userId)}/lessons/${encodeURIComponent(lessonId)}`)
+      return { success: true }
+    },
+  )
 }
 
 export async function deletePupilActivitySubmissionAction(
@@ -329,43 +429,60 @@ export async function deletePupilActivitySubmissionAction(
   pupilId: string,
   fileName: string,
 ) {
-  const supabase = await createSupabaseServerClient()
-  const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
-  const paths = [
-    buildSubmissionPath(lessonId, activityId, pupilId, fileName),
-    buildLegacySubmissionPath(lessonId, activityId, pupilId, fileName),
-  ].filter((value, index, array) => array.indexOf(value) === index)
+  const routeTag = "/pupil-lessons"
 
-  let deleted = false
-  let lastError: { message?: string } | null = null
+  return withTelemetry(
+    { routeTag, functionName: "deletePupilActivitySubmissionAction", params: { lessonId, activityId, pupilId } },
+    async () => {
+      const supabase = await createSupabaseServerClient()
+      const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
+      const paths = [
+        buildSubmissionPath(lessonId, activityId, pupilId, fileName),
+        buildLegacySubmissionPath(lessonId, activityId, pupilId, fileName),
+      ].filter((value, index, array) => array.indexOf(value) === index)
 
-  for (const path of paths) {
-    const { error } = await bucket.remove([path])
-    if (!error) {
-      deleted = true
-      continue
-    }
+      let deleted = false
+      let lastError: { message?: string } | null = null
 
-    if (isStorageNotFoundError(error)) {
-      continue
-    }
+      for (const path of paths) {
+        const { error } = await bucket.remove([path])
+        if (!error) {
+          deleted = true
+          continue
+        }
 
-    lastError = error
-    console.error("[v0] Failed to delete pupil submission:", error, { path })
-    break
-  }
+        if (isStorageNotFoundError(error)) {
+          continue
+        }
 
-  if (!deleted && lastError) {
-    return { success: false, error: lastError.message }
-  }
+        lastError = error
+        console.error("[v0] Failed to delete pupil submission:", error, { path })
+        break
+      }
 
-  const cleanupResult = await cleanupUploadSubmissionRecord({ supabase, activityId, pupilId })
-  if (!cleanupResult.success) {
-    return { success: false, error: cleanupResult.error ?? "Unable to update submission." }
-  }
+      if (!deleted && lastError) {
+        return { success: false, error: lastError.message }
+      }
 
-  revalidatePath(`/pupil-lessons/${encodeURIComponent(pupilId)}/lessons/${encodeURIComponent(lessonId)}`)
-  return { success: true }
+      const client = createPgClient()
+      try {
+        await client.connect()
+        const cleanupResult = await cleanupUploadSubmissionRecord({ client, activityId, pupilId })
+        if (!cleanupResult.success) {
+          return { success: false, error: "Unable to update submission." }
+        }
+      } finally {
+        try {
+          await client.end()
+        } catch {
+          // ignore close errors
+        }
+      }
+
+      revalidatePath(`/pupil-lessons/${encodeURIComponent(pupilId)}/lessons/${encodeURIComponent(lessonId)}`)
+      return { success: true }
+    },
+  )
 }
 
 export async function getPupilActivitySubmissionUrlAction(
@@ -401,8 +518,88 @@ export async function getPupilActivitySubmissionUrlAction(
   return { success: false, error: lastError?.message ?? "NOT_FOUND" }
 }
 
+export async function updatePupilSubmissionStatusAction(input: {
+  lessonId: string
+  activityId: string
+  pupilId: string
+  status: z.infer<typeof SubmissionStatusSchema>
+}) {
+  const { lessonId, activityId, pupilId, status } = input
+  const routeTag = "/pupil-lessons"
+
+  const parsedStatus = SubmissionStatusSchema.safeParse(status)
+  if (!parsedStatus.success) {
+    return { success: false, error: "Invalid status." }
+  }
+
+  const normalizedStatus = parsedStatus.data
+  if (normalizedStatus === "completed" || normalizedStatus === "rejected") {
+    return { success: false, error: "Only teachers can mark uploads as completed or rejected." }
+  }
+
+  return withTelemetry(
+    { routeTag, functionName: "updatePupilSubmissionStatusAction", params: { lessonId, activityId, pupilId, status } },
+    async () => {
+      const supabase = await createSupabaseServerClient()
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser()
+
+      if (authError || !user) {
+        return { success: false, error: "You need to sign in again before updating status." }
+      }
+
+      if (user.id !== pupilId) {
+        return { success: false, error: "You can only update your own submission status." }
+      }
+
+      const client = createPgClient()
+      try {
+        await client.connect()
+
+        const { rows } = await client.query(
+          `
+            with target as (
+              select submission_id
+              from submissions
+              where activity_id = $2 and user_id = $3
+              order by submitted_at desc
+              limit 1
+            )
+            update submissions s
+            set submission_status = $1, submitted_at = case when $1 = 'submitted' then now() else s.submitted_at end
+            from target t
+            where s.submission_id = t.submission_id
+            returning s.submission_id
+          `,
+          [normalizedStatus, activityId, pupilId],
+        )
+
+        if (rows.length === 0) {
+          return { success: false, error: "No submission to update yet." }
+        }
+
+        revalidatePath(
+          `/pupil-lessons/${encodeURIComponent(pupilId)}/lessons/${encodeURIComponent(lessonId)}`,
+        )
+        return { success: true }
+      } catch (error) {
+        console.error("[pupil-lessons] Failed to update submission status:", error)
+        return { success: false, error: "Unable to update status right now." }
+      } finally {
+        try {
+          await client.end()
+        } catch {
+          // ignore close errors
+        }
+      }
+    },
+  )
+}
+
 type UploadSubmissionSyncParams = {
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
+  client: Client
   activityId: string
   pupilId: string
   fileName: string
@@ -410,7 +607,7 @@ type UploadSubmissionSyncParams = {
 }
 
 async function upsertUploadSubmissionRecord({
-  supabase,
+  client,
   activityId,
   pupilId,
   fileName,
@@ -424,74 +621,65 @@ async function upsertUploadSubmissionRecord({
     success_criteria_scores: {},
   }
 
-  const { data: existing, error: fetchError } = await supabase
-    .from("submissions")
-    .select("submission_id")
-    .eq("activity_id", activityId)
-    .eq("user_id", pupilId)
-    .order("submitted_at", { ascending: false })
-    .limit(1)
-    .maybeSingle()
+  const { rows: existingRows } = await client.query(
+    `
+      select submission_id
+      from submissions
+      where activity_id = $1 and user_id = $2
+      order by submitted_at desc
+      limit 1
+    `,
+    [activityId, pupilId],
+  )
 
-  if (fetchError) {
-    console.error("[v0] Failed to load existing upload submission:", fetchError)
-    return { success: false, error: "Unable to record submission." }
-  }
+  const existing = existingRows[0] ?? null
 
   if (existing?.submission_id) {
-    const { error: updateError } = await supabase
-      .from("submissions")
-      .update({ body: payload, submitted_at: submittedAt })
-      .eq("submission_id", existing.submission_id)
-
-    if (updateError) {
-      console.error("[v0] Failed to update upload submission record:", updateError)
-      return { success: false, error: "Unable to record submission." }
-    }
+    await client.query(
+      `
+        update submissions
+        set body = $1, submitted_at = $2, submission_status = 'inprogress'
+        where submission_id = $3
+      `,
+      [payload, submittedAt, existing.submission_id],
+    )
     return { success: true }
   }
 
-  const { error: insertError } = await supabase
-    .from("submissions")
-    .insert({
-      activity_id: activityId,
-      user_id: pupilId,
-      body: payload,
-      submitted_at: submittedAt,
-    })
-
-  if (insertError) {
-    console.error("[v0] Failed to create upload submission record:", insertError)
-    return { success: false, error: "Unable to record submission." }
-  }
+  await client.query(
+    `
+      insert into submissions (activity_id, user_id, body, submitted_at, submission_status)
+      values ($1, $2, $3, $4, 'inprogress')
+    `,
+    [activityId, pupilId, payload, submittedAt],
+  )
 
   return { success: true }
 }
 
 type UploadSubmissionCleanupParams = {
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>
+  client: Client
   activityId: string
   pupilId: string
 }
 
 async function cleanupUploadSubmissionRecord({
-  supabase,
+  client,
   activityId,
   pupilId,
 }: UploadSubmissionCleanupParams) {
-  const { data, error } = await supabase
-    .from("submissions")
-    .select("submission_id, body")
-    .eq("activity_id", activityId)
-    .eq("user_id", pupilId)
-    .order("submitted_at", { ascending: false })
-    .limit(1)
-    .maybeSingle()
+  const { rows } = await client.query(
+    `
+      select submission_id, body
+      from submissions
+      where activity_id = $1 and user_id = $2
+      order by submitted_at desc
+      limit 1
+    `,
+    [activityId, pupilId],
+  )
 
-  if (error) {
-    console.error("[v0] Failed to load upload submission for cleanup:", error)
-    return { success: false, error: "Unable to update submission." }
-  }
+  const data = rows[0]
 
   if (!data) {
     return { success: true }
@@ -503,34 +691,26 @@ async function cleanupUploadSubmissionRecord({
     typeof record.teacher_override_score === "number" && Number.isFinite(record.teacher_override_score)
 
   if (hasOverride) {
-    const { error: updateError } = await supabase
-      .from("submissions")
-      .update({
-        body: {
+    await client.query(
+      `
+        update submissions
+        set body = $1, submission_status = 'inprogress'
+        where submission_id = $2
+      `,
+      [
+        {
           ...record,
           upload_submission: false,
           upload_file_name: null,
           upload_updated_at: null,
         },
-      })
-      .eq("submission_id", data.submission_id)
-
-    if (updateError) {
-      console.error("[v0] Failed to retain override submission during cleanup:", updateError)
-      return { success: false, error: "Unable to update submission." }
-    }
+        data.submission_id,
+      ],
+    )
     return { success: true }
   }
 
-  const { error: deleteError } = await supabase
-    .from("submissions")
-    .delete()
-    .eq("submission_id", data.submission_id)
-
-  if (deleteError) {
-    console.error("[v0] Failed to delete upload submission record:", deleteError)
-    return { success: false, error: "Unable to update submission." }
-  }
+  await client.query("delete from submissions where submission_id = $1", [data.submission_id])
 
   return { success: true }
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { Suspense, lazy, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { LinkIcon, List, Target, Upload } from "lucide-react"
@@ -30,6 +30,12 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+
+const LessonHeaderSidebar = lazy(() =>
+  import("@/components/lessons/lesson-header-sidebar").then((mod) => ({
+    default: mod.LessonHeaderSidebar,
+  })),
+)
 
 interface LessonPickerOption {
   lesson_id: string
@@ -66,6 +72,7 @@ export function LessonDetailClient({
 }: LessonDetailClientProps) {
   const router = useRouter()
   const [currentLesson, setCurrentLesson] = useState<LessonWithObjectives>(lesson)
+  const [isHeaderSidebarOpen, setIsHeaderSidebarOpen] = useState(false)
   const [isObjectivesSidebarOpen, setIsObjectivesSidebarOpen] = useState(false)
   const [lessonFilesState, setLessonFilesState] = useState(lessonFiles)
   const [lessonActivitiesState, setLessonActivitiesState] = useState(lessonActivities)
@@ -348,7 +355,17 @@ export function LessonDetailClient({
               </div>
             </div>
             <div className="space-y-1">
-              <h1 className="text-3xl font-semibold text-white">{currentLesson.title}</h1>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h1 className="text-3xl font-semibold text-white">{currentLesson.title}</h1>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="bg-white/10 text-white hover:bg-white/20"
+                  onClick={() => setIsHeaderSidebarOpen(true)}
+                >
+                  Edit lesson details
+                </Button>
+              </div>
             </div>
           </div>
         </header>
@@ -452,6 +469,17 @@ export function LessonDetailClient({
           </Card>
         </div>
       </main>
+
+      <Suspense fallback={null}>
+        {isHeaderSidebarOpen ? (
+          <LessonHeaderSidebar
+            lesson={currentLesson}
+            isOpen={isHeaderSidebarOpen}
+            onClose={() => setIsHeaderSidebarOpen(false)}
+            onUpdated={handleLessonUpdated}
+          />
+        ) : null}
+      </Suspense>
 
       <LessonObjectivesSidebar
         unitId={currentUnit?.unit_id ?? currentLesson.unit_id}

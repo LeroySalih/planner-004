@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import Link from "next/link"
 import { ArrowLeft, BookOpen } from "lucide-react"
 import { truncateText } from "@/lib/utils"
+import { AddUnitTrigger } from "./add-unit-trigger"
 
 export default async function UnitsPage({
   searchParams,
@@ -84,6 +85,9 @@ export default async function UnitsPage({
             <BookOpen className="h-6 w-6 text-primary" />
             <h1 className="text-3xl font-bold text-balance">Units Overview</h1>
           </div>
+          <div className="ml-auto">
+            <AddUnitTrigger subjects={subjects ?? []} />
+          </div>
         </div>
 
         <UnitSearchControls subjectOptions={subjectOptions} />
@@ -123,7 +127,11 @@ function UnitCard({
     <Card className="border-border shadow-sm">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between gap-2">
-          <CardTitle className="text-lg font-semibold text-slate-900">{unit.title}</CardTitle>
+          <CardTitle className="text-lg font-semibold text-slate-900">
+            <Link href={`/units/${unit.unit_id}`} className="hover:underline">
+              {unit.title}
+            </Link>
+          </CardTitle>
           <Badge variant={isActive ? "default" : "secondary"}>{isActive ? "Active" : "Inactive"}</Badge>
         </div>
         <p className="text-sm text-muted-foreground">{unit.subject}</p>

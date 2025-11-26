@@ -5,7 +5,6 @@ import { notFound } from "next/navigation"
 import { LessonDetailClient } from "@/components/lessons/lesson-detail-client"
 import {
   readAllLearningObjectivesAction,
-  readLearningObjectivesByUnitAction,
   readLessonDetailBootstrapAction,
   readLessonReferenceDataAction,
 } from "@/lib/server-updates"
@@ -61,7 +60,7 @@ export default async function LessonDetailPage({
           routeTag: "/lessons/[lessonId]",
           authEndTime: authEnd,
         }),
-        readLearningObjectivesByUnitAction(lesson.unit_id, {
+        readAllLearningObjectivesAction({
           routeTag: "/lessons/[lessonId]",
           authEndTime: authEnd,
         }),
@@ -100,11 +99,28 @@ export default async function LessonDetailPage({
     title: item.title,
   }))
 
+  const allowedCurriculumIds = new Set(
+    (referenceResult.data?.curricula ?? [])
+      .map((curriculum) => curriculum.curriculum_id)
+      .filter((id): id is string => Boolean(id)),
+  )
+
+  const curriculumLearningObjectives =
+    allowedCurriculumIds.size === 0
+      ? learningObjectivesResult.data ?? []
+      : (learningObjectivesResult.data ?? []).filter((objective) => {
+          const curriculumId =
+            objective.assessment_objective_curriculum_id ??
+            objective.assessment_objective?.curriculum_id ??
+            null
+          return curriculumId ? allowedCurriculumIds.has(curriculumId) : false
+        })
+
   return (
     <LessonDetailClient
       lesson={lesson}
       unit={lessonPayload?.unit ?? null}
-      learningObjectives={learningObjectivesResult.data ?? []}
+      learningObjectives={curriculumLearningObjectives}
       curricula={referenceResult.data?.curricula ?? []}
       assessmentObjectives={referenceResult.data?.assessmentObjectives ?? []}
       lessonFiles={lessonPayload?.lessonFiles ?? []}

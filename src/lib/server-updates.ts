@@ -45,6 +45,8 @@ export {
   readLessonReferenceDataAction,
   createLessonAction,
   updateLessonAction,
+  updateLessonHeaderAction,
+  updateLessonHeaderMutation,
   triggerLessonCreateJobAction,
   setLessonSuccessCriteriaAction,
   createLessonLearningObjectiveAction,
@@ -53,6 +55,7 @@ export {
   createLessonSuccessCriterionFormAction,
   deactivateLessonAction,
   reorderLessonsAction,
+  type LessonHeaderUpdateState,
 } from "./server-actions/lessons"
 
 export type {
@@ -115,6 +118,7 @@ export {
   uploadPupilActivitySubmissionAction,
   deletePupilActivitySubmissionAction,
   getPupilActivitySubmissionUrlAction,
+  updatePupilSubmissionStatusAction,
 } from "./server-actions/lesson-activity-files"
 
 export {
@@ -153,6 +157,14 @@ export {
   markShortTextActivityAction,
   overrideShortTextSubmissionScoreAction,
 } from "./server-actions/short-text"
+
+export {
+  readQueueFiltersAction,
+  readQueueItemsAction,
+  updateUploadSubmissionStatusAction,
+  readQueueAllItemsAction,
+  getQueueFileDownloadUrlAction,
+} from "./server-actions/upload-queue"
 
 export { fetchLessonLinkMetadataAction } from "./server-actions/link-metadata"
 
