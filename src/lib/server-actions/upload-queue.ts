@@ -146,9 +146,9 @@ export async function readQueueItemsAction(input: {
   return withTelemetry(
     { routeTag, functionName: "readQueueItemsAction", params: input },
     async () => {
-      const client = createPgClient()
-
+      let client: Client | null = null
       try {
+        client = createPgClient()
         await client.connect()
 
         const { rows: activityRows } = await client.query(
@@ -252,16 +252,19 @@ export async function readQueueItemsAction(input: {
           error: null,
         })
       } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error"
         console.error("[queue] Failed to load queue items:", error)
         return QueueItemsResultSchema.parse({
           data: null,
-          error: "Unable to load queue items.",
+          error: `Unable to load queue items: ${message}`,
         })
       } finally {
-        try {
-          await client.end()
-        } catch {
-          // ignore close errors
+        if (client) {
+          try {
+            await client.end()
+          } catch {
+            // ignore close errors
+          }
         }
       }
     },
@@ -274,8 +277,9 @@ export async function readQueueAllItemsAction(): Promise<QueueAllItemsResult> {
   return withTelemetry(
     { routeTag, functionName: "readQueueAllItemsAction" },
     async () => {
-      const client = createPgClient()
+      let client: Client | null = null
       try {
+        client = createPgClient()
         await client.connect()
 
         const { rows } = await client.query(
@@ -348,16 +352,19 @@ export async function readQueueAllItemsAction(): Promise<QueueAllItemsResult> {
 
         return QueueAllItemsResultSchema.parse({ data: UploadSubmissionFilesSchema.parse(queueItems), error: null })
       } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error"
         console.error("[queue] Failed to load all queue items:", error)
         return QueueAllItemsResultSchema.parse({
           data: null,
-          error: "Unable to load queue items.",
+          error: `Unable to load queue items: ${message}`,
         })
       } finally {
-        try {
-          await client.end()
-        } catch {
-          // ignore close errors
+        if (client) {
+          try {
+            await client.end()
+          } catch {
+            // ignore close errors
+          }
         }
       }
     },
