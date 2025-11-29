@@ -1,84 +1,201 @@
+import { randomBytes, randomUUID } from "node:crypto"
+import { cookies, headers } from "next/headers"
 import { redirect } from "next/navigation"
+import bcrypt from "bcryptjs"
 
-import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { query } from "@/lib/db"
+
+const SESSION_COOKIE = "planner_session"
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 days rolling
+const BCRYPT_COST = 10
 
 export type AuthenticatedProfile = {
   userId: string
+  email: string | null
   isTeacher: boolean
+  firstName?: string | null
+  lastName?: string | null
 }
 
-async function ensureProfileExists(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>, userId: string) {
-  const { data: profileData, error: profileError } = await supabase
-    .from("profiles")
-    .select("user_id")
-    .eq("user_id", userId)
-    .maybeSingle()
+type SessionRow = {
+  session_id: string
+  user_id: string
+  token_hash: string
+  expires_at: string
+}
 
-  if (profileError && profileError.code !== "PGRST116") {
-    console.error("Failed to verify profile existence", profileError)
-    return
-  }
+async function setSessionCookie(sessionId: string, token: string, expiresAt: Date) {
+  const cookieStore = await cookies()
+  cookieStore.set({
+    name: SESSION_COOKIE,
+    value: `${sessionId}.${token}`,
+    httpOnly: true,
+    sameSite: "lax",
+    secure: true,
+    path: "/",
+    expires: expiresAt,
+  })
+}
 
-  if (profileData) {
-    return
-  }
+async function clearSessionCookie() {
+  const cookieStore = await cookies()
+  cookieStore.set({
+    name: SESSION_COOKIE,
+    value: "",
+    httpOnly: true,
+    sameSite: "lax",
+    secure: true,
+    path: "/",
+    maxAge: 0,
+  })
+}
 
-  const { error: upsertError } = await supabase
-    .from("profiles")
-    .upsert(
-      {
-        user_id: userId,
-        first_name: "",
-        last_name: "",
-        is_teacher: false,
-      },
-      { onConflict: "user_id" },
-    )
+function parseSessionCookie(raw: string | undefined | null) {
+  if (!raw) return null
+  const [sessionId, token] = raw.split(".")
+  if (!sessionId || !token) return null
+  return { sessionId, token }
+}
 
-  if (upsertError) {
-    console.error("Failed to auto-create profile", upsertError)
+async function refreshSession(sessionId: string, token: string) {
+  const expiresAt = new Date(Date.now() + SESSION_TTL_MS)
+  await query(
+    `update auth_sessions
+     set expires_at = $1, last_active_at = now()
+     where session_id = $2`,
+    [expiresAt.toISOString(), sessionId],
+  )
+  // Only safe inside Server Actions / Route Handlers. Skip when called from RSCs.
+  try {
+    await setSessionCookie(sessionId, token, expiresAt)
+  } catch {
+    // Best-effort: DB expiry is refreshed even if cookie set is disallowed in this context.
   }
 }
 
-export async function getAuthenticatedProfile(): Promise<AuthenticatedProfile | null> {
-  const supabase = await createSupabaseServerClient()
+async function revokeSession(sessionId: string) {
+  await query("delete from auth_sessions where session_id = $1", [sessionId])
+}
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser()
+export async function hashPassword(password: string) {
+  return bcrypt.hash(password, BCRYPT_COST)
+}
 
-  if (userError) {
-    console.error("Failed to load auth session", userError)
+export async function verifyPassword(password: string, hash: string) {
+  return bcrypt.compare(password, hash)
+}
+
+export async function createSession(userId: string) {
+  const token = randomBytes(32).toString("base64url")
+  const tokenHash = await bcrypt.hash(token, BCRYPT_COST)
+  const expiresAt = new Date(Date.now() + SESSION_TTL_MS)
+  const headerList = await headers()
+  const ip = headerList.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null
+  const userAgent = headerList.get("user-agent") ?? null
+
+  const sessionId = randomUUID()
+  await query(
+    `insert into auth_sessions (session_id, user_id, token_hash, expires_at, ip, user_agent)
+     values ($1, $2, $3, $4, $5, $6)`,
+    [sessionId, userId, tokenHash, expiresAt.toISOString(), ip, userAgent],
+  )
+
+  await setSessionCookie(sessionId, token, expiresAt)
+  return { sessionId, token, expiresAt }
+}
+
+async function readProfile(userId: string): Promise<AuthenticatedProfile | null> {
+  const { rows } = await query<{
+    user_id: string
+    email: string | null
+    is_teacher: boolean | null
+    first_name: string | null
+    last_name: string | null
+  }>(
+    "select user_id, email, is_teacher, first_name, last_name from profiles where user_id = $1 limit 1",
+    [userId],
+  )
+
+  const row = rows[0]
+  if (!row) {
     return null
   }
-
-  if (!user) {
-    return null
-  }
-
-  await ensureProfileExists(supabase, user.id)
-
-  const { data, error: profileError } = await supabase
-    .from("profiles")
-    .select("is_teacher")
-    .eq("user_id", user.id)
-    .maybeSingle()
-
-  if (profileError) {
-    console.error("Failed to load profile", profileError)
-    return { userId: user.id, isTeacher: false }
-  }
-
 
   return {
-    userId: user.id,
-    isTeacher: Boolean(data?.is_teacher),
+    userId: row.user_id,
+    email: row.email ?? null,
+    isTeacher: Boolean(row.is_teacher),
+    firstName: row.first_name ?? null,
+    lastName: row.last_name ?? null,
   }
 }
 
-export async function requireTeacherProfile(): Promise<AuthenticatedProfile> {
-  const profile = await getAuthenticatedProfile()
+async function loadSessionProfile(refreshSessionCookie = false): Promise<AuthenticatedProfile | null> {
+  const cookieStore = await cookies()
+  const parsed = parseSessionCookie(cookieStore.get(SESSION_COOKIE)?.value ?? null)
+
+  if (!parsed) {
+    return null
+  }
+
+  const { sessionId, token } = parsed
+  const { rows } = await query<SessionRow>(
+    "select session_id, user_id, token_hash, expires_at from auth_sessions where session_id = $1 limit 1",
+    [sessionId],
+  )
+
+  const session = rows[0]
+  if (!session) {
+    await clearSessionCookie()
+    return null
+  }
+
+  const expiresAt = new Date(session.expires_at)
+  const now = Date.now()
+  if (Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() <= now) {
+    await revokeSession(sessionId)
+    await clearSessionCookie()
+    return null
+  }
+
+  const matches = await bcrypt.compare(token, session.token_hash)
+  if (!matches) {
+    await revokeSession(sessionId)
+    await clearSessionCookie()
+    return null
+  }
+
+  if (refreshSessionCookie) {
+    await refreshSession(sessionId, token)
+  }
+
+  const profile = await readProfile(session.user_id)
+  if (!profile) {
+    await revokeSession(sessionId)
+    await clearSessionCookie()
+    return null
+  }
+
+  return profile
+}
+
+export async function endSession() {
+  const cookieStore = await cookies()
+  const parsed = parseSessionCookie(cookieStore.get(SESSION_COOKIE)?.value ?? null)
+
+  if (parsed?.sessionId) {
+    await revokeSession(parsed.sessionId)
+  }
+
+  await clearSessionCookie()
+}
+
+export async function getAuthenticatedProfile(options?: { refreshSessionCookie?: boolean }): Promise<AuthenticatedProfile | null> {
+  return loadSessionProfile(Boolean(options?.refreshSessionCookie))
+}
+
+export async function requireTeacherProfile(options?: { refreshSessionCookie?: boolean }): Promise<AuthenticatedProfile> {
+  const profile = await getAuthenticatedProfile({ refreshSessionCookie: options?.refreshSessionCookie })
 
   if (!profile) {
     redirect("/signin")
@@ -91,8 +208,8 @@ export async function requireTeacherProfile(): Promise<AuthenticatedProfile> {
   return profile
 }
 
-export async function requireAuthenticatedProfile(): Promise<AuthenticatedProfile> {
-  const profile = await getAuthenticatedProfile()
+export async function requireAuthenticatedProfile(options?: { refreshSessionCookie?: boolean }): Promise<AuthenticatedProfile> {
+  const profile = await getAuthenticatedProfile({ refreshSessionCookie: options?.refreshSessionCookie })
 
   if (!profile) {
     redirect("/signin")

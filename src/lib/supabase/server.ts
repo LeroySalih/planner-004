@@ -19,11 +19,12 @@ if (!supabaseUrlEnv || !supabaseKeyEnv) {
 const SUPABASE_URL = supabaseUrlEnv as string
 const SUPABASE_KEY = supabaseKeyEnv as string
 const SUPABASE_SERVICE_KEY = serviceRoleKeyEnv ?? undefined
+const SERVER_CLIENT_KEY = SUPABASE_SERVICE_KEY ?? SUPABASE_KEY
 
 export async function createSupabaseServerClient() {
   const cookieStore = await cookies()
 
-  return createServerClient(SUPABASE_URL, SUPABASE_KEY, {
+  return createServerClient(SUPABASE_URL, SERVER_CLIENT_KEY, {
     cookies: {
       get(name: string) {
         return cookieStore.get(name)?.value

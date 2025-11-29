@@ -1,65 +1,53 @@
 "use client"
 
-import { useState, type FormEvent } from "react"
+import { useEffect, useState, useTransition, type FormEvent } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 
+import { signupAction } from "@/lib/server-updates"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { createUserWithoutEmailConfirmationAction } from "@/lib/server-updates"
-import { supabaseBrowserClient } from "@/lib/supabase-browser"
-import { useRouter } from "next/navigation"
+
+type SignupState = {
+  success: boolean
+  error: string | null
+}
 
 export function SignupForm() {
   const router = useRouter()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [state, setState] = useState<SignupState>({ success: false, error: null })
+  const [isPending, startTransition] = useTransition()
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+  useEffect(() => {
+    if (state.success) {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("auth-state-changed", { detail: { status: "signed-in" } }))
+      }
+      router.push("/profiles")
+      router.refresh()
+    }
+  }, [state.success, router])
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    setError(null)
-
     if (password.length < 6) {
-      setError("Password must be at least 6 characters long.")
+      setState({ success: false, error: "Password must be at least 6 characters long." })
       return
     }
 
     if (password !== confirmPassword) {
-      setError("Passwords do not match.")
+      setState({ success: false, error: "Passwords do not match." })
       return
     }
 
-    setIsLoading(true)
-
-    try {
-      const signupResult = await createUserWithoutEmailConfirmationAction({ email, password })
-
-      if (!signupResult.success) {
-        setError(signupResult.error ?? "Unable to create your account.")
-        return
-      }
-
-      const { error: signInError } = await supabaseBrowserClient.auth.signInWithPassword({
-        email,
-        password,
-      })
-
-      if (signInError) {
-        console.error("SignupForm: auto sign-in error", signInError)
-        setError("Account created, but sign-in failed. Please try signing in.")
-        return
-      }
-
-      router.push("/profiles")
-    } catch (submitError) {
-      console.error("SignupForm: unexpected sign up error", submitError)
-      setError(submitError instanceof Error ? submitError.message : "Unable to complete sign up.")
-    } finally {
-      setIsLoading(false)
-    }
+    startTransition(async () => {
+      const result = await signupAction({ email, password })
+      setState({ success: result.success, error: result.error })
+    })
   }
 
   return (
@@ -68,6 +56,7 @@ export function SignupForm() {
         <Label htmlFor="email">Email address</Label>
         <Input
           id="email"
+          name="email"
           type="email"
           placeholder="you@example.com"
           value={email}
@@ -80,6 +69,7 @@ export function SignupForm() {
         <Label htmlFor="password">Password</Label>
         <Input
           id="password"
+          name="password"
           type="password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
@@ -91,6 +81,7 @@ export function SignupForm() {
         <Label htmlFor="confirm-password">Confirm password</Label>
         <Input
           id="confirm-password"
+          name="confirm-password"
           type="password"
           value={confirmPassword}
           onChange={(event) => setConfirmPassword(event.target.value)}
@@ -98,14 +89,17 @@ export function SignupForm() {
         />
       </div>
 
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      {state.error ? <p className="text-sm text-destructive">{state.error}</p> : null}
 
-      <Button type="submit" disabled={isLoading} className="w-full">
-        {isLoading ? "Signing up..." : "Create account"}
+      <Button type="submit" disabled={isPending} className="w-full">
+        {isPending ? "Signing up..." : "Create account"}
       </Button>
 
       <p className="text-center text-sm text-muted-foreground">
-        Already have an account? <Link href="/signin" className="text-primary underline-offset-4 hover:underline">Sign in</Link>
+        Already have an account?{" "}
+        <Link href="/signin" className="text-primary underline-offset-4 hover:underline">
+          Sign in
+        </Link>
       </p>
     </form>
   )

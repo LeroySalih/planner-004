@@ -27,8 +27,8 @@ import {
   listShortTextSubmissionsAction,
   markShortTextActivityAction,
   overrideShortTextSubmissionScoreAction,
+  readProfileGroupsForCurrentUserAction,
 } from "@/lib/server-updates"
-import { supabaseBrowserClient } from "@/lib/supabase-browser"
 import { CheckCircle2, Eye, EyeOff, Loader2 } from "lucide-react"
 import type { LessonSubmissionSummary } from "@/types"
 import { addFeedbackRefreshListener, triggerFeedbackRefresh } from "@/lib/feedback-events"
@@ -1133,47 +1133,31 @@ function FeedbackPresentView({
   useEffect(() => {
     let cancelled = false
 
-    supabaseBrowserClient.auth
-      .getUser()
-      .then(async ({ data, error }) => {
+    readProfileGroupsForCurrentUserAction()
+      .then((result) => {
         if (cancelled) return
-        if (error) {
-          console.error("[feedback-present] Failed to load current user", error)
+        if (result.error) {
+          console.error("[feedback-present] Failed to read memberships", result.error)
           setMemberships([])
+          setCurrentUserId(null)
           return
         }
 
-        const userId = data.user?.id ?? null
-        setCurrentUserId(userId)
-        if (!userId) {
-          setMemberships([])
-          return
-        }
-
-        const { data: membershipRows, error: membershipError } = await supabaseBrowserClient
-          .from("group_membership")
-          .select("group_id, role")
-          .eq("user_id", userId)
-
-        if (cancelled) return
-
-        if (membershipError) {
-          console.error("[feedback-present] Failed to read memberships", membershipError)
-          setMemberships([])
-        } else {
-          setMemberships(
-            (membershipRows ?? []).map((row) => ({
-              groupId: row.group_id,
-              role: typeof row.role === "string" ? row.role : "",
-            })),
-          )
-        }
-
+        const profile = result.data?.profile ?? null
+        const membershipRows = result.data?.memberships ?? []
+        setCurrentUserId(profile?.user_id ?? null)
+        setMemberships(
+          membershipRows.map((row) => ({
+            groupId: row.group_id,
+            role: typeof row.role === "string" ? row.role : "",
+          })),
+        )
       })
       .catch((error) => {
         if (!cancelled) {
           console.error("[feedback-present] Failed to resolve viewer membership", error)
           setMemberships([])
+          setCurrentUserId(null)
         }
       })
 

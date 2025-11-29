@@ -5,7 +5,8 @@ import { z } from "zod"
 import { Client } from "pg"
 
 import { SubmissionStatusSchema } from "@/types"
-import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { createSupabaseServiceClient } from "@/lib/supabase/server"
+import { requireAuthenticatedProfile } from "@/lib/auth"
 import { withTelemetry } from "@/lib/telemetry"
 
 const LESSON_FILES_BUCKET = "lessons"
@@ -81,7 +82,7 @@ function isStorageNotFoundError(error: { message?: string } | null): boolean {
 
 export async function listActivityFilesAction(lessonId: string, activityId: string) {
   const directory = buildDirectory(lessonId, activityId)
-  const supabase = await createSupabaseServerClient()
+  const supabase = await createSupabaseServiceClient()
   const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
 
   const { data, error } = await bucket.list(directory, { limit: 100 })
@@ -136,7 +137,7 @@ export async function uploadActivityFileAction(formData: FormData) {
     return { success: false, error: "No file provided" }
   }
 
-  const supabase = await createSupabaseServerClient()
+  const supabase = await createSupabaseServiceClient()
   const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
   const fileName = file.name
   const fullPath = buildFilePath(lessonId, activityId, fileName)
@@ -163,7 +164,7 @@ export async function deleteActivityFileAction(
   activityId: string,
   fileName: string,
 ) {
-  const supabase = await createSupabaseServerClient()
+  const supabase = await createSupabaseServiceClient()
   const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
   const { error } = await bucket.remove([buildFilePath(lessonId, activityId, fileName)])
 
@@ -182,7 +183,7 @@ export async function getActivityFileDownloadUrlAction(
   activityId: string,
   fileName: string,
 ) {
-  const supabase = await createSupabaseServerClient()
+  const supabase = await createSupabaseServiceClient()
   const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
   const { data, error } = await bucket.createSignedUrl(
     buildFilePath(lessonId, activityId, fileName),
@@ -212,7 +213,7 @@ export async function listPupilActivitySubmissionsAction(
   return withTelemetry(
     { routeTag, functionName: "listPupilActivitySubmissionsAction", params: { lessonId, activityId, pupilId } },
     async () => {
-      const supabase = await createSupabaseServerClient()
+      const supabase = await createSupabaseServiceClient()
       const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
       const client = createPgClient()
 
@@ -345,22 +346,14 @@ export async function uploadPupilActivitySubmissionAction(formData: FormData) {
         return { success: false, error: "No file provided" }
       }
 
-      const supabase = await createSupabaseServerClient()
-      const {
-        data: { user },
-        error: authError,
-      } = await supabase.auth.getUser()
+      const profile = await requireAuthenticatedProfile()
 
-      if (authError || !user) {
-        console.error("[pupil-lessons] Unable to load auth session for upload:", authError)
-        return { success: false, error: "You need to sign in again before uploading." }
-      }
-
-      if (user.id !== pupilId) {
+      if (profile.userId !== pupilId) {
         return { success: false, error: "You can only upload files for your own account." }
       }
 
-      const userId = user.id
+      const userId = profile.userId
+      const supabase = await createSupabaseServiceClient()
       const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
 
       const fileName = file.name
@@ -434,7 +427,7 @@ export async function deletePupilActivitySubmissionAction(
   return withTelemetry(
     { routeTag, functionName: "deletePupilActivitySubmissionAction", params: { lessonId, activityId, pupilId } },
     async () => {
-      const supabase = await createSupabaseServerClient()
+      const supabase = await createSupabaseServiceClient()
       const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
       const paths = [
         buildSubmissionPath(lessonId, activityId, pupilId, fileName),
@@ -491,7 +484,7 @@ export async function getPupilActivitySubmissionUrlAction(
   pupilId: string,
   fileName: string,
 ) {
-  const supabase = await createSupabaseServerClient()
+  const supabase = await createSupabaseServiceClient()
   const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
   const paths = [
     buildSubmissionPath(lessonId, activityId, pupilId, fileName),
@@ -540,17 +533,9 @@ export async function updatePupilSubmissionStatusAction(input: {
   return withTelemetry(
     { routeTag, functionName: "updatePupilSubmissionStatusAction", params: { lessonId, activityId, pupilId, status } },
     async () => {
-      const supabase = await createSupabaseServerClient()
-      const {
-        data: { user },
-        error: authError,
-      } = await supabase.auth.getUser()
+      const profile = await requireAuthenticatedProfile()
 
-      if (authError || !user) {
-        return { success: false, error: "You need to sign in again before updating status." }
-      }
-
-      if (user.id !== pupilId) {
+      if (profile.userId !== pupilId) {
         return { success: false, error: "You can only update your own submission status." }
       }
 
@@ -573,7 +558,7 @@ export async function updatePupilSubmissionStatusAction(input: {
             where s.submission_id = t.submission_id
             returning s.submission_id
           `,
-          [normalizedStatus, activityId, pupilId],
+          [normalizedStatus, activityId, profile.userId],
         )
 
         if (rows.length === 0) {

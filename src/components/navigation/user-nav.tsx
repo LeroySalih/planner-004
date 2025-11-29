@@ -1,11 +1,11 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useState, useTransition } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { MoreVertical } from "lucide-react"
 
-import { supabaseBrowserClient } from "@/lib/supabase-browser"
+import { getSessionProfileAction, signoutAction } from "@/lib/server-updates"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,49 +24,30 @@ type UserProfile = {
 export function UserNav() {
   const router = useRouter()
   const [profile, setProfile] = useState<UserProfile | null | undefined>(undefined)
+  const [isPending, startTransition] = useTransition()
 
-  useEffect(() => {
-    let isMounted = true
-
-    const loadProfile = async () => {
-      if (isMounted) {
-        setProfile(undefined)
-      }
-
-      const { data: sessionData } = await supabaseBrowserClient.auth.getUser()
-      const user = sessionData?.user
-
-      if (!user) {
-        if (isMounted) {
-          setProfile(null)
-        }
-        return
-      }
-
-      const { data: profileData } = await supabaseBrowserClient
-        .from("profiles")
-        .select("first_name, last_name, is_teacher")
-        .eq("user_id", user.id)
-        .maybeSingle()
-
-      const first = profileData?.first_name?.trim() ?? ""
-      const last = profileData?.last_name?.trim() ?? ""
-      const combined = `${first} ${last}`.trim()
-
-      if (isMounted) {
-        setProfile({
-          userId: user.id,
-          displayName: combined.length > 0 ? combined : user.email ?? user.id,
-          isTeacher: Boolean(profileData?.is_teacher),
-        })
-      }
+  const loadProfile = useCallback(async () => {
+    setProfile(undefined)
+    const session = await getSessionProfileAction()
+    if (!session) {
+      setProfile(null)
+      return
     }
 
-    void loadProfile()
+    const first = session.firstName?.trim() ?? ""
+    const last = session.lastName?.trim() ?? ""
+    const combined = `${first} ${last}`.trim()
+    const displayName = combined.length > 0 ? combined : session.email ?? session.userId
 
-    const { data: authListener } = supabaseBrowserClient.auth.onAuthStateChange(() => {
-      void loadProfile()
+    setProfile({
+      userId: session.userId,
+      displayName,
+      isTeacher: session.isTeacher,
     })
+  }, [])
+
+  useEffect(() => {
+    void loadProfile()
 
     const handleProfileUpdated = (event: Event) => {
       const customEvent = event as CustomEvent<{
@@ -96,25 +77,19 @@ export function UserNav() {
     }
 
     window.addEventListener("profile-updated", handleProfileUpdated as EventListener)
-
-    return () => {
-      isMounted = false
-      authListener?.subscription.unsubscribe()
-      window.removeEventListener("profile-updated", handleProfileUpdated as EventListener)
-    }
-  }, [])
+    return () => window.removeEventListener("profile-updated", handleProfileUpdated as EventListener)
+  }, [loadProfile])
 
   const handleSignOut = useCallback(async () => {
-    const { error } = await supabaseBrowserClient.auth.signOut()
-
-    if (error) {
-      console.error("Failed to sign out", error)
-      return
-    }
-
-    setProfile(null)
-    router.replace("/")
-    router.refresh()
+    startTransition(async () => {
+      await signoutAction()
+      setProfile(null)
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("auth-state-changed", { detail: { status: "signed-out" } }))
+      }
+      router.replace("/")
+      router.refresh()
+    })
   }, [router])
 
   const handleSignOutSelect = useCallback(
@@ -159,7 +134,9 @@ export function UserNav() {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-44">
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={handleSignOutSelect}>Sign out</DropdownMenuItem>
+          <DropdownMenuItem onSelect={handleSignOutSelect} disabled={isPending}>
+            Sign out
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </div>

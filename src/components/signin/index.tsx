@@ -1,44 +1,42 @@
 "use client"
 
-import { useState, type FormEvent } from "react"
+import { useEffect, useState, useTransition, type FormEvent } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 
-import { supabaseBrowserClient } from "@/lib/supabase-browser"
+import { signinAction } from "@/lib/server-updates"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+
+type SigninState = {
+  success: boolean
+  error: string | null
+}
 
 export function SigninForm() {
   const router = useRouter()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [state, setState] = useState<SigninState>({ success: false, error: null })
+  const [isPending, startTransition] = useTransition()
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    setError(null)
-    setIsLoading(true)
-
-    try {
-      const { error: signInError } = await supabaseBrowserClient.auth.signInWithPassword({
-        email,
-        password,
-      })
-
-      if (signInError) {
-        setError(signInError.message)
-        return
+  useEffect(() => {
+    if (state.success) {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("auth-state-changed", { detail: { status: "signed-in" } }))
       }
-
       router.replace("/")
       router.refresh()
-    } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "Unable to sign in.")
-    } finally {
-      setIsLoading(false)
     }
+  }, [state.success, router])
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    startTransition(async () => {
+      const result = await signinAction({ email, password })
+      setState({ success: result.success, error: result.error })
+    })
   }
 
   return (
@@ -47,6 +45,7 @@ export function SigninForm() {
         <Label htmlFor="email">Email address</Label>
         <Input
           id="email"
+          name="email"
           type="email"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
@@ -59,6 +58,7 @@ export function SigninForm() {
         <Label htmlFor="password">Password</Label>
         <Input
           id="password"
+          name="password"
           type="password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
@@ -66,10 +66,10 @@ export function SigninForm() {
         />
       </div>
 
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      {state.error ? <p className="text-sm text-destructive">{state.error}</p> : null}
 
-      <Button type="submit" className="w-full" disabled={isLoading}>
-        {isLoading ? "Signing in..." : "Sign in"}
+      <Button type="submit" className="w-full" disabled={isPending}>
+        {isPending ? "Signing in..." : "Sign in"}
       </Button>
 
       <p className="text-center text-sm text-muted-foreground">
@@ -81,4 +81,3 @@ export function SigninForm() {
     </form>
   )
 }
-

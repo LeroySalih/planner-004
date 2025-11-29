@@ -99,9 +99,11 @@ export type ReportsPupilListings = z.infer<typeof ReportsPupilListingsSchema>;
 
 export const ProfileSchema = z.object({
     user_id: z.string(),
+    email: z.string().email().nullable().optional(),
     first_name: z.string().nullable(),
     last_name: z.string().nullable(),
     is_teacher: z.boolean().default(false),
+    password_hash: z.string().optional(),
 });
 
 export const ProfilesSchema = z.array(ProfileSchema);

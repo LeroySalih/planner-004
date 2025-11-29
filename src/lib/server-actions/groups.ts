@@ -15,8 +15,13 @@ import {
   ReportsPupilListingsSchema,
 } from "@/types"
 
-import { getAuthenticatedProfile, requireAuthenticatedProfile, type AuthenticatedProfile as BaseAuthenticatedProfile } from "@/lib/auth"
-import { createSupabaseServerClient, createSupabaseServiceClient } from "@/lib/supabase/server"
+import {
+  getAuthenticatedProfile,
+  hashPassword,
+  requireAuthenticatedProfile,
+  type AuthenticatedProfile as BaseAuthenticatedProfile,
+} from "@/lib/auth"
+import { createSupabaseServiceClient } from "@/lib/supabase/server"
 import { withTelemetry } from "@/lib/telemetry"
 
 const GroupReturnValue = z.object({
@@ -303,7 +308,7 @@ export async function readGroupsAction(options?: {
 }
 
 export async function listPupilsWithGroupsAction(): Promise<PupilListing[]> {
-  const supabase = await createSupabaseServerClient()
+  const supabase = await createSupabaseServiceClient()
 
   const { data, error } = await supabase.rpc("reports_list_pupils_with_groups")
 
@@ -489,18 +494,30 @@ export async function resetPupilPasswordAction(input: { userId: string }, option
   const { userId } = parsed.data
   console.info("[groups] Resetting pupil password.", { userId })
 
-  try {
-    const supabase = await createSupabaseServiceClient()
-    const { error } = await supabase.auth.admin.updateUserById(userId, {
-      password: DEFAULT_PUPIL_PASSWORD,
-    })
+  const hashedPassword = await hashPassword(DEFAULT_PUPIL_PASSWORD)
 
-    if (error) {
-      console.error("[groups] Failed to reset pupil password.", { userId, error })
-      return ResetPupilPasswordResultSchema.parse({
-        success: false,
-        error: "Unable to reset pupil password.",
-      })
+  try {
+    const client = createPgClient()
+    try {
+      await client.connect()
+      const { rowCount } = await client.query(
+        "update profiles set password_hash = $1 where user_id = $2",
+        [hashedPassword, userId],
+      )
+
+      if (rowCount === 0) {
+        console.error("[groups] No profile found while resetting password.", { userId })
+        return ResetPupilPasswordResultSchema.parse({
+          success: false,
+          error: "Unable to reset pupil password.",
+        })
+      }
+    } finally {
+      try {
+        await client.end()
+      } catch {
+        // ignore close errors
+      }
     }
   } catch (error) {
     console.error("[groups] Unexpected error resetting pupil password.", { userId, error })
@@ -519,7 +536,7 @@ export async function resetPupilPasswordAction(input: { userId: string }, option
 export async function readProfileGroupsForCurrentUserAction(): Promise<ProfileGroupsResult> {
   let error: string | null = null
   const authProfile = await requireAuthenticatedProfile()
-  const supabase = await createSupabaseServerClient()
+  const supabase = await createSupabaseServiceClient()
 
   const { data: profileRow, error: profileError } = await supabase
     .from("profiles")
@@ -606,7 +623,7 @@ export async function joinGroupByCodeAction(input: { joinCode: string }): Promis
     })
   }
 
-  const supabase = await createSupabaseServerClient()
+  const supabase = await createSupabaseServiceClient()
 
   const { data: group, error: groupError } = await supabase
     .from("groups")
@@ -697,7 +714,7 @@ export async function leaveGroupAction(input: { groupId: string }): Promise<Leav
     })
   }
 
-  const supabase = await createSupabaseServerClient()
+  const supabase = await createSupabaseServiceClient()
 
   const { data: deletedRows, error: deleteError } = await supabase
     .from("group_membership")
