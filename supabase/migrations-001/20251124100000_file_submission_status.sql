@@ -26,4 +26,4 @@ end;
 $$;
 
 alter table public.submissions
-  alter column submission_status set not null;
+  alter column submission_status set not null; 
