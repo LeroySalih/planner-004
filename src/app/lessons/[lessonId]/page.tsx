@@ -47,7 +47,7 @@ export default async function LessonDetailPage({
     notFound()
   }
 
-  const [referenceResult, learningObjectivesResult] = await withTelemetry(
+  const referenceResult = await withTelemetry(
     {
       routeTag: "/lessons/[lessonId]",
       functionName: "LessonDetailPage.loadReferenceData",
@@ -55,17 +55,21 @@ export default async function LessonDetailPage({
       authEndTime: authEnd,
     },
     () =>
-      Promise.all([
-        readLessonReferenceDataAction(lesson.lesson_id, {
-          routeTag: "/lessons/[lessonId]",
-          authEndTime: authEnd,
-        }),
-        readAllLearningObjectivesAction({
-          routeTag: "/lessons/[lessonId]",
-          authEndTime: authEnd,
-        }),
-      ]),
+      readLessonReferenceDataAction(lesson.lesson_id, {
+        routeTag: "/lessons/[lessonId]",
+        authEndTime: authEnd,
+      }),
   )
+
+  const curriculumIds =
+    referenceResult.data?.curricula?.map((c) => c.curriculum_id).filter((id): id is string => Boolean(id)) ?? []
+
+  const learningObjectivesResult = await readAllLearningObjectivesAction({
+    routeTag: "/lessons/[lessonId]",
+    authEndTime: authEnd,
+    curriculumIds,
+    unitId: lesson.unit_id,
+  })
 
   if (referenceResult.error || learningObjectivesResult.error) {
     return (
