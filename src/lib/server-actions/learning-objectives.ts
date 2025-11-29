@@ -7,6 +7,7 @@ import { LearningObjectiveSchema, SuccessCriteriaSchema } from "@/types"
 import { createSupabaseServerClient, createSupabaseServiceClient } from "@/lib/supabase/server"
 import { withTelemetry } from "@/lib/telemetry"
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { Client } from "pg"
 
 const LearningObjectiveWithCriteriaSchema = LearningObjectiveSchema.extend({
   success_criteria: SuccessCriteriaSchema.default([]),
@@ -39,6 +40,22 @@ const SuccessCriteriaInputSchema = z.array(SuccessCriterionInputSchema)
 export type LearningObjectiveWithCriteria = z.infer<typeof LearningObjectiveWithCriteriaSchema>
 export type SuccessCriteriaInput = z.infer<typeof SuccessCriteriaInputSchema>
 
+function resolvePgConnectionString() {
+  return process.env.POSTSQL_URL ?? process.env.SUPABASE_DB_URL ?? process.env.DATABASE_URL ?? null
+}
+
+function createPgClient() {
+  const connectionString = resolvePgConnectionString()
+  if (!connectionString) {
+    throw new Error("Database connection is not configured (POSTSQL_URL or SUPABASE_DB_URL missing).")
+  }
+
+  return new Client({
+    connectionString,
+    ssl: connectionString.includes("localhost") ? false : { rejectUnauthorized: false },
+  })
+}
+
 async function readLearningObjectivesWithCriteria(options: {
   learningObjectiveIds?: string[]
   filterUnitId?: string
@@ -51,179 +68,224 @@ async function readLearningObjectivesWithCriteria(options: {
     curriculumIds: curriculumIds.length,
   }
 
-  // Use service client to avoid RLS or edge errors when pulling shared reference data in production.
-  let supabase
-  try {
-    supabase = await createSupabaseServiceClient()
-  } catch {
-    supabase = await createSupabaseServerClient()
-  }
+  return [];
+
   console.log("[learning-objectives] Start readLearningObjectivesWithCriteria", debugContext)
 
-  let initialMeta: Array<{
-    learning_objective_id: string
-    assessment_objective_id: string | null
-    title: string | null
-    order_index: number | null
-    active: boolean | null
-    spec_ref: string | null
-    assessment_objective?: Array<{
-      assessment_objective_id?: string | null
-      curriculum_id?: string | null
-      unit_id?: string | null
-      code?: string | null
-      title?: string | null
-      order_index?: number | null
-    }> | {
-      assessment_objective_id?: string | null
-      curriculum_id?: string | null
-      unit_id?: string | null
-      code?: string | null
-      title?: string | null
-      order_index?: number | null
-    } | null
-  }> = []
+  let client: Client | null = null
+  try {
+    client = createPgClient()
+    await client.connect()
 
-  let curriculumObjectiveIds: string[] = []
+    let initialMeta: Array<{
+      learning_objective_id: string
+      assessment_objective_id: string | null
+      title: string | null
+      order_index: number | null
+      active: boolean | null
+      spec_ref: string | null
+      assessment_objective?: {
+        assessment_objective_id?: string | null
+        curriculum_id?: string | null
+        unit_id?: string | null
+        code?: string | null
+        title?: string | null
+        order_index?: number | null
+      } | null
+    }> = []
 
-  if (curriculumIds.length > 0 && learningObjectiveIds.length === 0) {
-    const { data, error } = await supabase
-      .from("learning_objectives")
-      .select(
-        `learning_objective_id,
-        assessment_objective_id,
-        title,
-        order_index,
-        active,
-        spec_ref,
-        assessment_objective:assessment_objectives(
-          assessment_objective_id,
-          curriculum_id,
-          unit_id,
-          code,
-          title,
-          order_index
-        )`,
+    let curriculumObjectiveIds: string[] = []
+
+    if (curriculumIds.length > 0 && learningObjectiveIds.length === 0) {
+      const { rows } = await client.query(
+        `
+          select lo.learning_objective_id,
+                 lo.assessment_objective_id,
+                 lo.title,
+                 lo.order_index,
+                 lo.active,
+                 lo.spec_ref,
+                 ao.assessment_objective_id as ao_id,
+                 ao.curriculum_id as ao_curriculum_id,
+                 ao.unit_id as ao_unit_id,
+                 ao.code as ao_code,
+                 ao.title as ao_title,
+                 ao.order_index as ao_order_index
+          from learning_objectives lo
+          join assessment_objectives ao on ao.assessment_objective_id = lo.assessment_objective_id
+          where ao.curriculum_id = any($1::text[])
+        `,
+        [curriculumIds],
       )
-      .in("assessment_objective.curriculum_id", curriculumIds)
 
-    if (error) {
-      console.error("[learning-objectives] Failed to load objectives by curriculum:", error, {
+      initialMeta = (rows ?? []).map((row) => ({
+        learning_objective_id: row.learning_objective_id,
+        assessment_objective_id: row.assessment_objective_id,
+        title: row.title,
+        order_index: row.order_index,
+        active: row.active,
+        spec_ref: row.spec_ref,
+        assessment_objective: {
+          assessment_objective_id: row.ao_id,
+          curriculum_id: row.ao_curriculum_id,
+          unit_id: row.ao_unit_id,
+          code: row.ao_code,
+          title: row.ao_title,
+          order_index: row.ao_order_index,
+        },
+      }))
+
+      curriculumObjectiveIds = initialMeta
+        .map((item) => item.learning_objective_id)
+        .filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+
+      console.log("[learning-objectives] Loaded objectives by curriculum", {
         curriculumIds,
+        count: curriculumObjectiveIds.length,
       })
-      return LearningObjectivesReturnValue.parse({ data: null, error: error.message })
     }
 
-    initialMeta = data ?? []
-    curriculumObjectiveIds = (data ?? [])
-      .map((item) => item.learning_objective_id)
-      .filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+    const targetLearningObjectiveIds =
+      learningObjectiveIds.length > 0 ? learningObjectiveIds : curriculumObjectiveIds
 
-    console.log("[learning-objectives] Loaded objectives by curriculum", {
-      curriculumIds,
-      count: curriculumObjectiveIds.length,
-    })
-  }
+    if (targetLearningObjectiveIds.length === 0) {
+      console.log("[learning-objectives] No objective IDs to load", debugContext)
+      return LearningObjectivesReturnValue.parse({ data: [], error: null })
+    }
 
-  const {
-    map: successCriteriaMap,
-    learningObjectiveIds: discoveredIds,
-    error: successCriteriaError,
-  } = await fetchSuccessCriteriaForLearningObjectives(
-    learningObjectiveIds.length > 0 ? learningObjectiveIds : curriculumObjectiveIds,
-    filterUnitId,
-    supabase,
-  )
-
-  if (successCriteriaError) {
-    console.error("[v0] Failed to read success criteria:", successCriteriaError)
-    return LearningObjectivesReturnValue.parse({ data: null, error: successCriteriaError })
-  }
-
-  const objectiveIdsToLoad =
-    learningObjectiveIds.length > 0
-      ? learningObjectiveIds
-      : curriculumObjectiveIds.length > 0
-        ? curriculumObjectiveIds
-        : discoveredIds
-
-  if (objectiveIdsToLoad.length === 0) {
-    console.log("[learning-objectives] No objective IDs to load", debugContext)
-    return LearningObjectivesReturnValue.parse({ data: [], error: null })
-  }
-
-  console.log("[learning-objectives] Loading objectives", {
-    ...debugContext,
-    objectiveIdsToLoad: objectiveIdsToLoad.length,
-  })
-
-  let learningObjectives = initialMeta
-
-  if (learningObjectives.length === 0) {
-    const { data, error } = await supabase
-      .from("learning_objectives")
-      .select(
-        `learning_objective_id,
-        assessment_objective_id,
-        title,
-        order_index,
-        active,
-        spec_ref,
-        assessment_objective:assessment_objectives(
-          assessment_objective_id,
-          curriculum_id,
-          unit_id,
-          code,
-          title,
-          order_index
-        )
+    const { rows: criteriaRows } = await client.query(
+      `
+        select sc.success_criteria_id,
+               sc.learning_objective_id,
+               sc.level,
+               sc.description,
+               sc.order_index,
+               sc.active
+        from success_criteria sc
+        where sc.learning_objective_id = any($1::text[])
       `,
-      )
-      .in("learning_objective_id", objectiveIdsToLoad)
-      .order("order_index", { ascending: true })
+      [targetLearningObjectiveIds],
+    )
 
-    if (error) {
-      console.error("[v0] Failed to read learning objectives metadata:", error)
-      return LearningObjectivesReturnValue.parse({ data: null, error: error.message })
+    const successCriteriaMap = new Map<string, NormalizedSuccessCriterion[]>()
+    for (const row of criteriaRows ?? []) {
+      const entry: NormalizedSuccessCriterion = {
+        success_criteria_id: row.success_criteria_id,
+        learning_objective_id: row.learning_objective_id,
+        level: row.level,
+        description: row.description,
+        order_index: row.order_index,
+        active: row.active ?? true,
+        units: [],
+      }
+      const bucket = successCriteriaMap.get(row.learning_objective_id) ?? []
+      bucket.push(entry)
+      successCriteriaMap.set(row.learning_objective_id, bucket)
     }
 
-    learningObjectives = data ?? []
-  }
-
-  const metaMap = new Map(
-    (learningObjectives ?? []).map((lo) => [lo.learning_objective_id ?? "", lo]),
-  )
-
-  const normalized = Array.from(successCriteriaMap.entries())
-    .map(([learningObjectiveId, criteria], index) => {
-      const meta = metaMap.get(learningObjectiveId)
-      const assessmentObjective = Array.isArray(meta?.assessment_objective)
-        ? meta?.assessment_objective[0] ?? null
-        : meta?.assessment_objective ?? null
-      return {
-        learning_objective_id: learningObjectiveId,
-        assessment_objective_id: meta?.assessment_objective_id ?? null,
-        spec_ref: meta?.spec_ref ?? null,
-        assessment_objective_code: assessmentObjective?.code ?? null,
-        assessment_objective_title: assessmentObjective?.title ?? null,
-        assessment_objective_order_index: assessmentObjective?.order_index ?? null,
-        assessment_objective_curriculum_id: assessmentObjective?.curriculum_id ?? null,
-        assessment_objective_unit_id: assessmentObjective?.unit_id ?? null,
-        title: meta?.title ?? "",
-        order_index: meta?.order_index ?? index,
-        active: meta?.active ?? true,
-        success_criteria: criteria,
-      }
+    console.log("[learning-objectives] Loading objectives", {
+      ...debugContext,
+      objectiveIdsToLoad: targetLearningObjectiveIds.length,
     })
-    .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0))
 
-  console.log("[learning-objectives] Completed readLearningObjectivesWithCriteria", {
-    ...debugContext,
-    objectiveCount: normalized.length,
-    successCriteriaCount: successCriteriaMap.size,
-  })
+    let learningObjectives = initialMeta
 
-  return LearningObjectivesReturnValue.parse({ data: normalized, error: null })
+    if (learningObjectives.length === 0) {
+      const { rows } = await client.query(
+        `
+          select lo.learning_objective_id,
+                 lo.assessment_objective_id,
+                 lo.title,
+                 lo.order_index,
+                 lo.active,
+                 lo.spec_ref,
+                 ao.assessment_objective_id as ao_id,
+                 ao.curriculum_id as ao_curriculum_id,
+                 ao.unit_id as ao_unit_id,
+                 ao.code as ao_code,
+                 ao.title as ao_title,
+                 ao.order_index as ao_order_index
+          from learning_objectives lo
+          left join assessment_objectives ao on ao.assessment_objective_id = lo.assessment_objective_id
+          where lo.learning_objective_id = any($1::text[])
+          order by lo.order_index asc
+        `,
+        [targetLearningObjectiveIds],
+      )
+
+      learningObjectives = rows ?? []
+    }
+
+    const metaMap = new Map(
+      (learningObjectives ?? []).map((lo) => [lo.learning_objective_id ?? "", lo]),
+    )
+
+    const normalized = Array.from(successCriteriaMap.entries())
+      .map(([learningObjectiveId, criteria], index) => {
+        const meta = metaMap.get(learningObjectiveId)
+        const assessmentObjective = meta
+          ? {
+              assessment_objective_id: meta.assessment_objective_id ?? null,
+              curriculum_id:
+                typeof meta.assessment_objective === "object" && meta.assessment_objective
+                  ? (meta.assessment_objective as { curriculum_id?: string | null }).curriculum_id ?? null
+                  : null,
+              unit_id:
+                typeof meta.assessment_objective === "object" && meta.assessment_objective
+                  ? (meta.assessment_objective as { unit_id?: string | null }).unit_id ?? null
+                  : null,
+              code:
+                typeof meta.assessment_objective === "object" && meta.assessment_objective
+                  ? (meta.assessment_objective as { code?: string | null }).code ?? null
+                  : null,
+              title:
+                typeof meta.assessment_objective === "object" && meta.assessment_objective
+                  ? (meta.assessment_objective as { title?: string | null }).title ?? null
+                  : null,
+              order_index:
+                typeof meta.assessment_objective === "object" && meta.assessment_objective
+                  ? (meta.assessment_objective as { order_index?: number | null }).order_index ?? null
+                  : null,
+            }
+          : null
+        return {
+          learning_objective_id: learningObjectiveId,
+          assessment_objective_id: meta?.assessment_objective_id ?? null,
+          spec_ref: meta?.spec_ref ?? null,
+          assessment_objective_code: assessmentObjective?.code ?? null,
+          assessment_objective_title: assessmentObjective?.title ?? null,
+          assessment_objective_order_index:
+            typeof assessmentObjective?.order_index === "number" ? assessmentObjective.order_index : null,
+          assessment_objective_curriculum_id: assessmentObjective?.curriculum_id ?? null,
+          assessment_objective_unit_id: assessmentObjective?.unit_id ?? null,
+          title: meta?.title ?? "",
+          order_index: meta?.order_index ?? index,
+          active: meta?.active ?? true,
+          success_criteria: criteria,
+        }
+      })
+      .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0))
+
+    console.log("[learning-objectives] Completed readLearningObjectivesWithCriteria", {
+      ...debugContext,
+      objectiveCount: normalized.length,
+      successCriteriaCount: successCriteriaMap.size,
+    })
+
+    return LearningObjectivesReturnValue.parse({ data: normalized, error: null })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error"
+    console.error("[learning-objectives] Failed to read objectives via PG:", error)
+    return LearningObjectivesReturnValue.parse({ data: null, error: message })
+  } finally {
+    if (client) {
+      try {
+        await client.end()
+      } catch {
+        // ignore close errors
+      }
+    }
+  }
 }
 
 export async function readLearningObjectivesByUnitAction(
