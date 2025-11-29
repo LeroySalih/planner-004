@@ -68,6 +68,8 @@ async function readLearningObjectivesWithCriteria(options: {
     curriculumIds: curriculumIds.length,
   }
 
+  return [];
+
   console.log("[learning-objectives] Start readLearningObjectivesWithCriteria", debugContext)
 
   let client: Client | null = null
