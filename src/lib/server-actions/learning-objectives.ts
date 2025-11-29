@@ -42,21 +42,92 @@ export type SuccessCriteriaInput = z.infer<typeof SuccessCriteriaInputSchema>
 async function readLearningObjectivesWithCriteria(options: {
   learningObjectiveIds?: string[]
   filterUnitId?: string
+  curriculumIds?: string[]
 }) {
-  const { learningObjectiveIds = [], filterUnitId } = options
+  const { learningObjectiveIds = [], filterUnitId, curriculumIds = [] } = options
   const debugContext = {
     filterUnitId: filterUnitId ?? null,
     requestedIds: learningObjectiveIds.length,
+    curriculumIds: curriculumIds.length,
   }
 
   const supabase = await createSupabaseServerClient()
   console.log("[learning-objectives] Start readLearningObjectivesWithCriteria", debugContext)
 
+  let initialMeta: Array<{
+    learning_objective_id: string
+    assessment_objective_id: string | null
+    title: string | null
+    order_index: number | null
+    active: boolean | null
+    spec_ref: string | null
+    assessment_objective?: Array<{
+      assessment_objective_id?: string | null
+      curriculum_id?: string | null
+      unit_id?: string | null
+      code?: string | null
+      title?: string | null
+      order_index?: number | null
+    }> | {
+      assessment_objective_id?: string | null
+      curriculum_id?: string | null
+      unit_id?: string | null
+      code?: string | null
+      title?: string | null
+      order_index?: number | null
+    } | null
+  }> = []
+
+  let curriculumObjectiveIds: string[] = []
+
+  if (curriculumIds.length > 0 && learningObjectiveIds.length === 0) {
+    const { data, error } = await supabase
+      .from("learning_objectives")
+      .select(
+        `learning_objective_id,
+        assessment_objective_id,
+        title,
+        order_index,
+        active,
+        spec_ref,
+        assessment_objective:assessment_objectives(
+          assessment_objective_id,
+          curriculum_id,
+          unit_id,
+          code,
+          title,
+          order_index
+        )`,
+      )
+      .in("assessment_objective.curriculum_id", curriculumIds)
+
+    if (error) {
+      console.error("[learning-objectives] Failed to load objectives by curriculum:", error, {
+        curriculumIds,
+      })
+      return LearningObjectivesReturnValue.parse({ data: null, error: error.message })
+    }
+
+    initialMeta = data ?? []
+    curriculumObjectiveIds = (data ?? [])
+      .map((item) => item.learning_objective_id)
+      .filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+
+    console.log("[learning-objectives] Loaded objectives by curriculum", {
+      curriculumIds,
+      count: curriculumObjectiveIds.length,
+    })
+  }
+
   const {
     map: successCriteriaMap,
     learningObjectiveIds: discoveredIds,
     error: successCriteriaError,
-  } = await fetchSuccessCriteriaForLearningObjectives(learningObjectiveIds, filterUnitId, supabase)
+  } = await fetchSuccessCriteriaForLearningObjectives(
+    learningObjectiveIds.length > 0 ? learningObjectiveIds : curriculumObjectiveIds,
+    filterUnitId,
+    supabase,
+  )
 
   if (successCriteriaError) {
     console.error("[v0] Failed to read success criteria:", successCriteriaError)
@@ -64,7 +135,11 @@ async function readLearningObjectivesWithCriteria(options: {
   }
 
   const objectiveIdsToLoad =
-    learningObjectiveIds.length > 0 ? learningObjectiveIds : discoveredIds
+    learningObjectiveIds.length > 0
+      ? learningObjectiveIds
+      : curriculumObjectiveIds.length > 0
+        ? curriculumObjectiveIds
+        : discoveredIds
 
   if (objectiveIdsToLoad.length === 0) {
     console.log("[learning-objectives] No objective IDs to load", debugContext)
@@ -76,10 +151,13 @@ async function readLearningObjectivesWithCriteria(options: {
     objectiveIdsToLoad: objectiveIdsToLoad.length,
   })
 
-  const { data: learningObjectives, error } = await supabase
-    .from("learning_objectives")
-    .select(
-      `learning_objective_id,
+  let learningObjectives = initialMeta
+
+  if (learningObjectives.length === 0) {
+    const { data, error } = await supabase
+      .from("learning_objectives")
+      .select(
+        `learning_objective_id,
         assessment_objective_id,
         title,
         order_index,
@@ -94,13 +172,16 @@ async function readLearningObjectivesWithCriteria(options: {
           order_index
         )
       `,
-    )
-    .in("learning_objective_id", objectiveIdsToLoad)
-    .order("order_index", { ascending: true })
+      )
+      .in("learning_objective_id", objectiveIdsToLoad)
+      .order("order_index", { ascending: true })
 
-  if (error) {
-    console.error("[v0] Failed to read learning objectives metadata:", error)
-    return LearningObjectivesReturnValue.parse({ data: null, error: error.message })
+    if (error) {
+      console.error("[v0] Failed to read learning objectives metadata:", error)
+      return LearningObjectivesReturnValue.parse({ data: null, error: error.message })
+    }
+
+    learningObjectives = data ?? []
   }
 
   const metaMap = new Map(
@@ -160,20 +241,29 @@ export async function readLearningObjectivesByUnitAction(
 }
 
 export async function readAllLearningObjectivesAction(
-  options?: { authEndTime?: number | null; routeTag?: string },
+  options?: { authEndTime?: number | null; routeTag?: string; curriculumIds?: string[]; unitId?: string | null },
 ) {
   const routeTag = options?.routeTag ?? "/learning-objectives:all"
+  const curriculumIds = (options?.curriculumIds ?? []).filter((id) => typeof id === "string" && id.trim().length > 0)
+  const filterUnitId = options?.unitId ?? undefined
 
   return withTelemetry(
     {
       routeTag,
       functionName: "readAllLearningObjectivesAction",
-      params: null,
+      params: { curriculumIds: curriculumIds.length, unitId: filterUnitId ?? null },
       authEndTime: options?.authEndTime ?? null,
     },
     async () => {
-      console.log("[v0] Server action started for curriculum learning objectives")
-      return readLearningObjectivesWithCriteria({})
+      console.log("[v0] Server action started for curriculum learning objectives", {
+        curriculumIdsCount: curriculumIds.length,
+        unitId: filterUnitId ?? null,
+      })
+
+      return readLearningObjectivesWithCriteria({
+        curriculumIds,
+        filterUnitId,
+      })
     },
   )
 }
