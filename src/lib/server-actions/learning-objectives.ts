@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
 import { LearningObjectiveSchema, SuccessCriteriaSchema } from "@/types"
-import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { createSupabaseServerClient, createSupabaseServiceClient } from "@/lib/supabase/server"
 import { withTelemetry } from "@/lib/telemetry"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
@@ -51,7 +51,13 @@ async function readLearningObjectivesWithCriteria(options: {
     curriculumIds: curriculumIds.length,
   }
 
-  const supabase = await createSupabaseServerClient()
+  // Use service client to avoid RLS or edge errors when pulling shared reference data in production.
+  let supabase
+  try {
+    supabase = await createSupabaseServiceClient()
+  } catch {
+    supabase = await createSupabaseServerClient()
+  }
   console.log("[learning-objectives] Start readLearningObjectivesWithCriteria", debugContext)
 
   let initialMeta: Array<{
@@ -439,7 +445,12 @@ export async function createLearningObjectiveAction(
     hasSpecRef: Boolean(specRef?.trim()),
   })
 
-  const supabase = await createSupabaseServerClient()
+  let supabase
+  try {
+    supabase = await createSupabaseServiceClient()
+  } catch {
+    supabase = await createSupabaseServerClient()
+  }
 
   const sanitizedSuccessCriteria = SuccessCriteriaInputSchema.parse(successCriteria).map((criterion, index) => {
     const description = (criterion.description ?? criterion.title ?? "").trim()
