@@ -1768,45 +1768,68 @@ async function enrichLessonsWithSuccessCriteria<
 async function loadLessonDetailBootstrapPayload(
   lessonId: string,
 ): Promise<z.infer<typeof LessonDetailReturnValue>> {
-  const supabase = await createSupabaseServerClient()
+  let client: Client | null = null
+  try {
+    client = createPgClient()
+    await client.connect()
+    const { rows } = await client.query("select lesson_detail_bootstrap($1) as payload", [lessonId])
+    const payload = rows[0]?.payload ?? null
+    const parsed = LessonDetailPayloadSchema.safeParse(payload)
 
-  const { data, error } = await supabase.rpc("lesson_detail_bootstrap", { p_lesson_id: lessonId })
+    if (!parsed.success) {
+      console.error("[lessons] Invalid lesson detail payload:", parsed.error)
+      return LessonDetailReturnValue.parse({ data: null, error: "Unable to parse lesson detail payload" })
+    }
 
-  if (error) {
-    console.error("[lessons] Failed to load lesson detail bootstrap RPC:", error)
-    return LessonDetailReturnValue.parse({ data: null, error: error.message })
+    return LessonDetailReturnValue.parse({ data: parsed.data, error: null })
+  } catch (error) {
+    console.error("[lessons] Failed to load lesson detail bootstrap via PG:", error)
+    const message = error instanceof Error ? error.message : "Unable to load lesson detail."
+    return LessonDetailReturnValue.parse({ data: null, error: message })
+  } finally {
+    if (client) {
+      try {
+        await client.end()
+      } catch {
+        // ignore close errors
+      }
+    }
   }
-
-  const parsed = LessonDetailPayloadSchema.safeParse(data)
-
-  if (!parsed.success) {
-    console.error("[lessons] Invalid lesson detail payload:", parsed.error)
-    return LessonDetailReturnValue.parse({ data: null, error: "Unable to parse lesson detail payload" })
-  }
-
-  return LessonDetailReturnValue.parse({ data: parsed.data, error: null })
 }
 
 async function loadLessonReferencePayload(
   lessonId: string,
 ): Promise<z.infer<typeof LessonReferenceReturnValue>> {
-  const supabase = await createSupabaseServerClient()
+  let client: Client | null = null
+  try {
+    client = createPgClient()
+    await client.connect()
+    const { rows } = await client.query("select lesson_reference_bootstrap($1) as payload", [lessonId])
+    const payload = rows[0]?.payload ?? null
+    const parsed = LessonReferencePayloadSchema.safeParse(payload)
 
-  const { data, error } = await supabase.rpc("lesson_reference_bootstrap", { p_lesson_id: lessonId })
+    if (!parsed.success) {
+      console.error("[lessons] Invalid lesson reference payload:", parsed.error)
+      return LessonReferenceReturnValue.parse({
+        data: null,
+        error: "Unable to parse lesson reference payload",
+      })
+    }
 
-  if (error) {
-    console.error("[lessons] Failed to load lesson reference payload:", error)
-    return LessonReferenceReturnValue.parse({ data: null, error: error.message })
+    return LessonReferenceReturnValue.parse({ data: parsed.data, error: null })
+  } catch (error) {
+    console.error("[lessons] Failed to load lesson reference payload via PG:", error)
+    const message = error instanceof Error ? error.message : "Unable to load lesson reference payload."
+    return LessonReferenceReturnValue.parse({ data: null, error: message })
+  } finally {
+    if (client) {
+      try {
+        await client.end()
+      } catch {
+        // ignore close errors
+      }
+    }
   }
-
-  const parsed = LessonReferencePayloadSchema.safeParse(data)
-
-  if (!parsed.success) {
-    console.error("[lessons] Invalid lesson reference payload:", parsed.error)
-    return LessonReferenceReturnValue.parse({ data: null, error: "Unable to parse lesson reference payload" })
-  }
-
-  return LessonReferenceReturnValue.parse({ data: parsed.data, error: null })
 }
 
 const LessonHeaderUpdateInputSchema = z.object({

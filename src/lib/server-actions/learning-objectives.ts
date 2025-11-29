@@ -60,15 +60,14 @@ async function readLearningObjectivesWithCriteria(options: {
   learningObjectiveIds?: string[]
   filterUnitId?: string
   curriculumIds?: string[]
-}) {
+}): Promise<z.infer<typeof LearningObjectivesReturnValue>> {
   const { learningObjectiveIds = [], filterUnitId, curriculumIds = [] } = options
   const debugContext = {
     filterUnitId: filterUnitId ?? null,
     requestedIds: learningObjectiveIds.length,
     curriculumIds: curriculumIds.length,
+    routeTag: "/learning-objectives",
   }
-
-  return [];
 
   console.log("[learning-objectives] Start readLearningObjectivesWithCriteria", debugContext)
 
@@ -142,6 +141,8 @@ async function readLearningObjectivesWithCriteria(options: {
       console.log("[learning-objectives] Loaded objectives by curriculum", {
         curriculumIds,
         count: curriculumObjectiveIds.length,
+        filterUnitId,
+        routeTag: debugContext.routeTag,
       })
     }
 
@@ -186,6 +187,7 @@ async function readLearningObjectivesWithCriteria(options: {
     console.log("[learning-objectives] Loading objectives", {
       ...debugContext,
       objectiveIdsToLoad: targetLearningObjectiveIds.length,
+      criteriaCount: criteriaRows?.length ?? 0,
     })
 
     let learningObjectives = initialMeta
@@ -275,7 +277,15 @@ async function readLearningObjectivesWithCriteria(options: {
     return LearningObjectivesReturnValue.parse({ data: normalized, error: null })
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error"
-    console.error("[learning-objectives] Failed to read objectives via PG:", error)
+    const stack = error instanceof Error ? error.stack : null
+    console.error("[learning-objectives] Failed to read objectives via PG", {
+      ...debugContext,
+      errorMessage: message,
+      stack,
+      connectionInfo: {
+        hasEnv: Boolean(resolvePgConnectionString()),
+      },
+    })
     return LearningObjectivesReturnValue.parse({ data: null, error: message })
   } finally {
     if (client) {
@@ -310,7 +320,7 @@ export async function readLearningObjectivesByUnitAction(
 
 export async function readAllLearningObjectivesAction(
   options?: { authEndTime?: number | null; routeTag?: string; curriculumIds?: string[]; unitId?: string | null },
-) {
+): Promise<z.infer<typeof LearningObjectivesReturnValue>> {
   const routeTag = options?.routeTag ?? "/learning-objectives:all"
   const curriculumIds = (options?.curriculumIds ?? []).filter((id) => typeof id === "string" && id.trim().length > 0)
   const filterUnitId = options?.unitId ?? undefined
