@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import Link from "next/link"
 
-import { supabaseBrowserClient } from "@/lib/supabase-browser"
+import { getSessionProfileAction } from "@/lib/server-updates"
 
 type NavState =
   | { status: "loading" }
@@ -19,45 +19,44 @@ export function TeacherNavLinks({ onNavigate }: TeacherNavLinksProps) {
   const [state, setState] = useState<NavState>({ status: "loading" })
 
   useEffect(() => {
-    let isMounted = true
+    let cancelled = false
 
     const load = async () => {
-      const { data: authData } = await supabaseBrowserClient.auth.getUser()
-      const user = authData?.user
-
-      if (!user) {
-        if (isMounted) {
+      try {
+        const session = await getSessionProfileAction()
+        if (cancelled) return
+        if (!session) {
           setState({ status: "visitor" })
+          return
         }
-        return
+
+        setState(
+          session.isTeacher
+            ? { status: "teacher", userId: session.userId }
+            : { status: "pupil", userId: session.userId },
+        )
+      } catch (error) {
+        if (cancelled) return
+        console.error("Failed to load nav session", error)
+        setState({ status: "visitor" })
       }
-
-      const { data, error } = await supabaseBrowserClient
-        .from("profiles")
-        .select("is_teacher")
-        .eq("user_id", user.id)
-        .maybeSingle()
-
-      if (!isMounted) return
-
-      if (error) {
-        console.error("Failed to determine teacher status", error)
-        setState({ status: "pupil", userId: user.id })
-        return
-      }
-
-      setState(data?.is_teacher ? { status: "teacher", userId: user.id } : { status: "pupil", userId: user.id })
     }
-
-    const { data: listener } = supabaseBrowserClient.auth.onAuthStateChange(() => {
-      void load()
-    })
 
     void load()
 
+    const handleAuthChange = () => {
+      void load()
+    }
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("auth-state-changed", handleAuthChange)
+    }
+
     return () => {
-      isMounted = false
-      listener?.subscription.unsubscribe()
+      cancelled = true
+      if (typeof window !== "undefined") {
+        window.removeEventListener("auth-state-changed", handleAuthChange)
+      }
     }
   }, [])
 

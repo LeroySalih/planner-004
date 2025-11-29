@@ -4,8 +4,8 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
 import { CurrentProfileSchema } from "@/types"
-import { createSupabaseServerClient } from "@/lib/supabase/server"
-import { requireAuthenticatedProfile } from "@/lib/auth"
+import { query } from "@/lib/db"
+import { hashPassword, requireAuthenticatedProfile } from "@/lib/auth"
 
 const ReadCurrentProfileResultSchema = z.object({
   data: CurrentProfileSchema.nullable(),
@@ -21,41 +21,22 @@ const ProfileIdSchema = z.object({
 
 export async function readCurrentProfileAction(): Promise<ReadCurrentProfileResult> {
   const authProfile = await requireAuthenticatedProfile()
-  const supabase = await createSupabaseServerClient()
+  const { rows } = await query<{
+    user_id: string
+    email: string | null
+    first_name: string | null
+    last_name: string | null
+    is_teacher: boolean | null
+  }>(
+    "select user_id, email, first_name, last_name, is_teacher from profiles where user_id = $1 limit 1",
+    [authProfile.userId],
+  )
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser()
-
-  if (userError) {
-    console.error("[profile] Failed to load authenticated user", userError)
-    return ReadCurrentProfileResultSchema.parse({
-      data: null,
-      error: "Unable to load your profile at the moment. Please try again shortly.",
-    })
-  }
-
-  if (!user) {
-    return ReadCurrentProfileResultSchema.parse({
-      data: null,
-      error: "You must be signed in to view your profile.",
-    })
-  }
-
-  const { data: profileRow, error: profileError } = await supabase
-    .from("profiles")
-    .select("user_id, first_name, last_name, is_teacher")
-    .eq("user_id", authProfile.userId)
-    .maybeSingle()
-
-  if (profileError && profileError.code !== "PGRST116") {
-    console.error("[profile] Failed to read profile row", profileError)
-  }
+  const profileRow = rows[0] ?? null
 
   const profile = CurrentProfileSchema.parse({
     user_id: authProfile.userId,
-    email: user.email ?? null,
+    email: profileRow?.email ?? authProfile.email ?? null,
     first_name: profileRow?.first_name ?? null,
     last_name: profileRow?.last_name ?? null,
     is_teacher: Boolean(profileRow?.is_teacher ?? authProfile.isTeacher),
@@ -127,35 +108,24 @@ export async function updateCurrentProfileAction(
   }
 
   const authProfile = await requireAuthenticatedProfile()
-  const supabase = await createSupabaseServerClient()
-
-  const { data: authUser, error: userError } = await supabase.auth.getUser()
-
-  if (userError) {
-    console.error("[profile] Failed to reload user session during update", userError)
-    return UpdateCurrentProfileResultSchema.parse({
-      success: false,
-      error: "Unable to verify your session. Please refresh and try again.",
-      data: null,
-    })
-  }
-
   const { firstName, lastName } = parsed.data
 
-  const { error: updateError } = await supabase
-    .from("profiles")
-    .upsert(
-      {
-        user_id: authProfile.userId,
-        first_name: firstName,
-        last_name: lastName,
-        is_teacher: authProfile.isTeacher,
-      },
-      { onConflict: "user_id" },
-    )
+  const { rows, rowCount } = await query<{
+    email: string | null
+    is_teacher: boolean | null
+  }>(
+    `
+      update profiles
+      set first_name = $1,
+          last_name = $2
+      where user_id = $3
+      returning email, is_teacher
+    `,
+    [firstName, lastName, authProfile.userId],
+  )
 
-  if (updateError) {
-    console.error("[profile] Failed to update profile", updateError)
+  if (rowCount === 0) {
+    console.error("[profile] Failed to update profile: no matching row", { userId: authProfile.userId })
     return UpdateCurrentProfileResultSchema.parse({
       success: false,
       error: "We couldn't save your profile just now. Please try again.",
@@ -168,10 +138,10 @@ export async function updateCurrentProfileAction(
 
   const profile = CurrentProfileSchema.parse({
     user_id: authProfile.userId,
-    email: authUser?.user?.email ?? null,
+    email: rows[0]?.email ?? authProfile.email ?? null,
     first_name: firstName,
     last_name: lastName,
-    is_teacher: authProfile.isTeacher,
+    is_teacher: Boolean(rows[0]?.is_teacher ?? authProfile.isTeacher),
   })
 
   return UpdateCurrentProfileResultSchema.parse({
@@ -202,13 +172,14 @@ export async function updateProfilePasswordAction(
     })
   }
 
-  const supabase = await createSupabaseServerClient()
-  const { error } = await supabase.auth.updateUser({
-    password: parsed.data.password,
-  })
+  const hashedPassword = await hashPassword(parsed.data.password)
+  const { rowCount } = await query("update profiles set password_hash = $1 where user_id = $2", [
+    hashedPassword,
+    authProfile.userId,
+  ])
 
-  if (error) {
-    console.error("[profile] Failed to update password", error)
+  if (rowCount === 0) {
+    console.error("[profile] Failed to update password (no row found)", { userId: authProfile.userId })
     return UpdatePasswordResultSchema.parse({
       success: false,
       error: "Unable to update your password right now. Please try again shortly.",
@@ -233,34 +204,23 @@ export async function readProfileDetailAction(profileId: string): Promise<ReadPr
   }
 
   const authProfile = await requireAuthenticatedProfile()
-  const supabase = await createSupabaseServerClient()
+  const { rows } = await query<{
+    user_id: string
+    email: string | null
+    first_name: string | null
+    last_name: string | null
+    is_teacher: boolean | null
+  }>(
+    `
+      select user_id, email, first_name, last_name, is_teacher
+      from profiles
+      where user_id = $1
+      limit 1
+    `,
+    [parsed.data.profileId],
+  )
 
-  const {
-    data: { user },
-    error: sessionError,
-  } = await supabase.auth.getUser()
-
-  if (sessionError) {
-    console.error("[profile] Failed to load auth session for profile detail", sessionError)
-    return ReadCurrentProfileResultSchema.parse({
-      data: null,
-      error: "Unable to load profile details right now. Please try again shortly.",
-    })
-  }
-
-  const { data: profileRow, error: profileError } = await supabase
-    .from("profiles")
-    .select("user_id, first_name, last_name, is_teacher")
-    .eq("user_id", parsed.data.profileId)
-    .maybeSingle()
-
-  if (profileError && profileError.code !== "PGRST116") {
-    console.error("[profile] Failed to read profile detail", profileError)
-    return ReadCurrentProfileResultSchema.parse({
-      data: null,
-      error: "Unable to load profile details right now. Please try again shortly.",
-    })
-  }
+  const profileRow = rows[0] ?? null
 
   if (!profileRow) {
     return ReadCurrentProfileResultSchema.parse({
@@ -269,7 +229,7 @@ export async function readProfileDetailAction(profileId: string): Promise<ReadPr
     })
   }
 
-  const email = user && user.id === profileRow.user_id ? user.email ?? null : null
+  const email = authProfile.userId === profileRow.user_id ? profileRow.email ?? null : null
 
   const profile = CurrentProfileSchema.parse({
     user_id: profileRow.user_id,
@@ -302,42 +262,24 @@ export async function updateProfileDetailAction(
   const { profileId, firstName, lastName } = parsed.data
 
   const authProfile = await requireAuthenticatedProfile()
-  const supabase = await createSupabaseServerClient()
+  const { rows, rowCount } = await query<{
+    user_id: string
+    email: string | null
+    first_name: string | null
+    last_name: string | null
+    is_teacher: boolean | null
+  }>(
+    `
+      update profiles
+      set first_name = $1,
+          last_name = $2
+      where user_id = $3
+      returning user_id, email, first_name, last_name, is_teacher
+    `,
+    [firstName, lastName, profileId],
+  )
 
-  const {
-    data: { user },
-    error: sessionError,
-  } = await supabase.auth.getUser()
-
-  if (sessionError) {
-    console.error("[profile] Failed to load auth session during profile detail update", sessionError)
-    return UpdateCurrentProfileResultSchema.parse({
-      success: false,
-      error: "Unable to verify your session. Please refresh and try again.",
-      data: null,
-    })
-  }
-
-  const { data: updatedRow, error: updateError } = await supabase
-    .from("profiles")
-    .update({
-      first_name: firstName,
-      last_name: lastName,
-    })
-    .eq("user_id", profileId)
-    .select("user_id, first_name, last_name, is_teacher")
-    .maybeSingle()
-
-  if (updateError) {
-    console.error("[profile] Failed to update profile detail", { profileId, updateError })
-    return UpdateCurrentProfileResultSchema.parse({
-      success: false,
-      error: "We couldn't save that profile just now. Please try again.",
-      data: null,
-    })
-  }
-
-  if (!updatedRow) {
+  if (rowCount === 0) {
     return UpdateCurrentProfileResultSchema.parse({
       success: false,
       error: "Profile not found.",
@@ -345,11 +287,13 @@ export async function updateProfileDetailAction(
     })
   }
 
+  const updatedRow = rows[0]
+
   revalidatePath(`/profiles/${profileId}`)
   revalidatePath("/profiles")
   revalidatePath(`/profile/dashboard/${profileId}`)
 
-  const email = user && user.id === profileId ? user.email ?? null : null
+  const email = authProfile.userId === profileId ? updatedRow.email ?? null : null
 
   const profile = CurrentProfileSchema.parse({
     user_id: updatedRow.user_id,

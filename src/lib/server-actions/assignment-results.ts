@@ -3,7 +3,6 @@
 import { performance } from "node:perf_hooks"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
-import { createClient } from "@supabase/supabase-js"
 
 import {
   AssignmentResultActivitySchema,
@@ -16,7 +15,8 @@ import {
   ShortTextActivityBodySchema,
   ShortTextSubmissionBodySchema,
 } from "@/types"
-import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { query } from "@/lib/db"
+import { createSupabaseServiceClient } from "@/lib/supabase/server"
 import { requireTeacherProfile } from "@/lib/auth"
 import {
   computeAverageSuccessCriteriaScore,
@@ -234,7 +234,7 @@ export async function readAssignmentResultsAction(
       const { groupId, lessonId } = identifiers
 
       try {
-        const supabase = await createSupabaseServerClient()
+        const supabase = await createSupabaseServiceClient()
 
         const [groupResult, lessonResult, assignmentResult] = await Promise.all([
           supabase
@@ -307,52 +307,19 @@ export async function readAssignmentResultsAction(
           }
         }
 
-    const supabaseUrl =
-      process.env.PUBLIC_SUPABASE_URL ??
-      process.env.SUPABASE_URL ??
-      process.env.NEXT_SUPABASE_URL ??
-      process.env.NEXT_PUBLIC_SUPABASE_URL ??
-      null
-    const supabaseServiceRoleKey =
-      process.env.SUPABASE_SERVICE_ROLE_KEY ??
-      process.env.SUPABASE_SERVICE_KEY ??
-      process.env.SERVICE_ROLE_KEY ??
-      null
-
-    if (supabaseUrl && supabaseServiceRoleKey && pupilIds.length > 0) {
+    if (pupilIds.length > 0) {
       try {
-        const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
-          auth: {
-            persistSession: false,
-            autoRefreshToken: false,
-          },
-        })
-
-        await Promise.all(
-          pupilIds.map(async (userId) => {
-            try {
-              const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId)
-              if (error) {
-                throw error
-              }
-              const email = data?.user?.email?.trim()
-              if (email) {
-                emailByUserId.set(userId, email)
-              }
-            } catch (error) {
-              const message =
-                error && typeof error === "object" && "message" in error
-                  ? (error as { message?: string }).message
-                  : "Unknown admin API error"
-              console.warn("[assignment-results] Unable to fetch pupil email via admin API.", {
-                userId,
-                message,
-              })
-            }
-          }),
+        const { rows } = await query<{ user_id: string; email: string | null }>(
+          "select user_id, email from profiles where user_id = any($1::text[])",
+          [pupilIds],
         )
+        rows.forEach(({ user_id, email }) => {
+          if (email) {
+            emailByUserId.set(user_id, email)
+          }
+        })
       } catch (error) {
-        console.error("[assignment-results] Unexpected error loading pupil emails:", error)
+        console.error("[assignment-results] Unable to fetch pupil emails from profiles table.", error)
       }
     }
 
@@ -983,7 +950,7 @@ export async function updateAssignmentFeedbackVisibilityAction(
         })
       }
 
-      const supabase = await createSupabaseServerClient()
+      const supabase = await createSupabaseServiceClient()
       const { data, error } = await supabase
         .from("lesson_assignments")
         .update({ feedback_visible: parsed.data.feedbackVisible })
@@ -1027,7 +994,7 @@ type UploadPresenceEntry = {
 }
 
 async function detectPendingUploadSubmissions(
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  supabase: Awaited<ReturnType<typeof createSupabaseServiceClient>>,
   lessonId: string,
   checks: UploadPresenceCheck[],
 ) {
@@ -1072,7 +1039,7 @@ async function detectPendingUploadSubmissions(
 }
 
 async function getSubmissionRow(
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  supabase: Awaited<ReturnType<typeof createSupabaseServiceClient>>,
   activityId: string,
   pupilId: string,
   submissionId: string | null,
@@ -1146,7 +1113,7 @@ export async function overrideAssignmentScoreAction(
       }
 
       try {
-        const supabase = await createSupabaseServerClient()
+        const supabase = await createSupabaseServiceClient()
 
         const { data: activityRow, error: activityError } = await supabase
           .from("activities")
@@ -1375,7 +1342,7 @@ export async function resetAssignmentScoreAction(
       }
 
       try {
-        const supabase = await createSupabaseServerClient()
+        const supabase = await createSupabaseServiceClient()
 
         const { data: activityRow, error: activityError } = await supabase
           .from("activities")
@@ -1546,7 +1513,7 @@ export async function clearActivityAiMarksAction(
       authEndTime,
     },
     async () => {
-      const supabase = await createSupabaseServerClient()
+      const supabase = await createSupabaseServiceClient()
 
       const { data: activityRow, error: activityError } = await supabase
         .from("activities")
