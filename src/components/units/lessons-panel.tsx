@@ -6,7 +6,7 @@ import { BookOpen, GripVertical, Plus } from "lucide-react"
 
 import type { LessonWithObjectives, LearningObjectiveWithCriteria } from "@/lib/server-updates"
 import { LessonJobPayloadSchema } from "@/types"
-import { reorderLessonsAction } from "@/lib/server-updates"
+import { reorderLessonsAction } from "@/lib/server-actions/lessons"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
