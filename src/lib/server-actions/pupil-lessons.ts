@@ -147,7 +147,19 @@ export async function readPupilLessonsSummaryBootstrapAction(
           [targetPupilId ?? null],
         )
 
-        const payload = rows[0] ?? null
+        const rawRow = rows[0] ?? null
+        const payloadValue =
+          (rawRow as Record<string, unknown> & { pupil_lessons_summary_bootstrap?: unknown })
+            ?.pupil_lessons_summary_bootstrap ??
+          (rawRow as Record<string, unknown> & { pupilLessonsSummaryBootstrap?: unknown })
+            ?.pupilLessonsSummaryBootstrap ??
+          rawRow
+
+        const payload = payloadValue as
+          | (typeof rows)[number]
+          | Record<string, unknown>
+          | null
+
         if (!payload) {
           return PupilLessonsSummaryBootstrapReturnSchema.parse({
             data: null,
@@ -223,7 +235,20 @@ export async function readPupilLessonsDetailBootstrapAction(
           [pupilId],
         )
 
-        const payload = rows[0] ?? null
+        const rawRow = rows[0] ?? null
+
+        const payloadValue =
+          (rawRow as Record<string, unknown> & { pupil_lessons_detail_bootstrap?: unknown })
+            ?.pupil_lessons_detail_bootstrap ??
+          (rawRow as Record<string, unknown> & { pupilLessonsDetailBootstrap?: unknown })
+            ?.pupilLessonsDetailBootstrap ??
+          rawRow
+
+        const payload = payloadValue as
+          | (typeof rows)[number]
+          | Record<string, unknown>
+          | null
+
         if (!payload) {
           return PupilLessonsDetailBootstrapReturnSchema.parse({
             data: null,
