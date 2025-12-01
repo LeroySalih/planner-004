@@ -13,6 +13,22 @@ const AssignmentReturnValue = z.object({
   error: z.string().nullable(),
 })
 
+type RawAssignmentRow = {
+  group_id: string
+  unit_id: string
+  start_date: string | Date | null
+  end_date: string | Date | null
+  active?: boolean | null
+}
+
+function normalizeAssignmentRow(row: RawAssignmentRow) {
+  return {
+    ...row,
+    start_date: row.start_date instanceof Date ? row.start_date.toISOString() : row.start_date,
+    end_date: row.end_date instanceof Date ? row.end_date.toISOString() : row.end_date,
+  }
+}
+
 const AssignmentsReturnValue = z.object({
   data: AssignmentsSchema.nullable(),
   error: z.string().nullable(),
@@ -129,18 +145,8 @@ export async function readAssignmentsAction(options?: { authEndTime?: number | n
     async () => {
       console.log("[v0] Server action started for reading assignments")
       try {
-        const { rows } = await query<{
-          group_id: string
-          unit_id: string
-          start_date: string | Date | null
-          end_date: string | Date | null
-          active?: boolean | null
-        }>("select * from assignments where active = true")
-        const normalized = (rows ?? []).map((row) => ({
-          ...row,
-          start_date: row.start_date instanceof Date ? row.start_date.toISOString() : row.start_date,
-          end_date: row.end_date instanceof Date ? row.end_date.toISOString() : row.end_date,
-        }))
+        const { rows } = await query<RawAssignmentRow>("select * from assignments where active = true")
+        const normalized = (rows ?? []).map(normalizeAssignmentRow)
         console.log("[v0] Server action completed for reading assignments")
         return AssignmentsReturnValue.parse({ data: normalized ?? [], error: null })
       } catch (error) {
@@ -168,9 +174,13 @@ export async function readAssignmentsForGroupAction(
     async () => {
       console.log("[v0] Server action started for reading assignments for group:", { groupId })
       try {
-        const { rows } = await query("select * from assignments where group_id = $1 and active = true", [groupId])
+        const { rows } = await query<RawAssignmentRow>(
+          "select * from assignments where group_id = $1 and active = true",
+          [groupId],
+        )
+        const normalized = (rows ?? []).map(normalizeAssignmentRow)
         console.log("[v0] Server action completed for reading assignments for group:", { groupId })
-        return AssignmentsReturnValue.parse({ data: rows ?? [], error: null })
+        return AssignmentsReturnValue.parse({ data: normalized ?? [], error: null })
       } catch (error) {
         console.error("[v0] Server action failed for reading assignments for group:", error)
         const message = error instanceof Error ? error.message : "Unable to load assignments."
@@ -238,7 +248,7 @@ export async function updateAssignmentAction(
       [unitId, startDate, endDate, groupId, options.originalUnitId, options.originalStartDate],
     )
 
-    const data = rows?.[0] ?? null
+    const data = rows?.[0] ? normalizeAssignmentRow(rows[0] as RawAssignmentRow) : null
     if (!data) {
       return AssignmentReturnValue.parse({ data: null, error: "Assignment not found." })
     }
