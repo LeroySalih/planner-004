@@ -46,7 +46,9 @@ export async function readLessonAssignmentScoreSummariesAction(
   )
 
   try {
-    const { rows } = await query<LessonAssignmentScoreSummary>(
+    const { rows } = await query<
+      LessonAssignmentScoreSummary & { activities_average: number | string | null }
+    >(
       `
         select *
         from lesson_assignment_score_summaries($1::jsonb)
@@ -54,7 +56,23 @@ export async function readLessonAssignmentScoreSummariesAction(
       [JSON.stringify(uniquePairs)],
     )
 
-    const parsed = LessonAssignmentScoreSummariesSchema.safeParse(rows ?? [])
+    const normalized = (rows ?? []).map((row) => {
+      const raw = row.activities_average
+      let parsedAverage: number | null = null
+
+      if (raw === null) {
+        parsedAverage = null
+      } else if (typeof raw === "number") {
+        parsedAverage = raw
+      } else {
+        const numeric = Number(raw)
+        parsedAverage = Number.isFinite(numeric) ? numeric : null
+      }
+
+      return { ...row, activities_average: parsedAverage }
+    })
+
+    const parsed = LessonAssignmentScoreSummariesSchema.safeParse(normalized)
 
     if (!parsed.success) {
       console.error("[lesson-assignment-scores] Invalid payload from lesson_assignment_score_summaries", parsed.error)

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { BookOpen } from "lucide-react"
 import { readAssignmentsBootstrapAction, readLessonAssignmentScoreSummariesAction } from "@/lib/server-updates"
 import { requireTeacherProfile } from "@/lib/auth"
-import type { Assignments, Groups, LessonAssignments, Lessons, Subjects, Units } from "@/types"
+import type { Assignments, AssignmentsBootstrapPayload, Groups, LessonAssignments, Lessons, Subjects, Units } from "@/types"
 
 export default async function Home() {
   const teacherProfile = await requireTeacherProfile()
@@ -24,15 +24,7 @@ export default async function Home() {
     )
   }
 
-  const bootstrap =
-    (Array.isArray(bootstrapData) && bootstrapData.length > 0 ? bootstrapData[0] ?? {} : bootstrapData) as {
-      groups?: unknown[]
-      subjects?: unknown[]
-      assignments?: unknown[]
-      units?: unknown[]
-      lessons?: unknown[]
-      lessonAssignments?: unknown[]
-    }
+  const bootstrap = (bootstrapData ?? {}) as AssignmentsBootstrapPayload
 
   const groups = (bootstrap.groups ?? []) as Groups
   const subjects = (bootstrap.subjects ?? []) as Subjects

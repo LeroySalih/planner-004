@@ -256,7 +256,10 @@ export async function readPupilLessonsDetailBootstrapAction(
             : (payloadRecord as Record<string, unknown> & { homeworkActivities?: unknown[] }).homeworkActivities ?? []
 
         const normalized = {
-          pupilProfile: payload.pupil_profile,
+          pupilProfile:
+            payload.pupil_profile ??
+            (payloadRecord as Record<string, unknown> & { pupilProfile?: unknown }).pupilProfile ??
+            null,
           memberships: payload.memberships ?? [],
           lessonAssignments,
           units: payload.units ?? [],
