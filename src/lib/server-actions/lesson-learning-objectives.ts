@@ -62,8 +62,11 @@ export async function listLessonsLearningObjectivesAction(lessonIds: string[]) {
         assessment_objective_code: string | null
       }>(
         `
-          select learning_objective_id, title, assessment_objective_code
-          from learning_objectives
+          select lo.learning_objective_id,
+                 lo.title,
+                 ao.code as assessment_objective_code
+          from learning_objectives lo
+          left join assessment_objectives ao on ao.assessment_objective_id = lo.assessment_objective_id
           where learning_objective_id = any($1::text[])
         `,
         [learningObjectiveIds],
