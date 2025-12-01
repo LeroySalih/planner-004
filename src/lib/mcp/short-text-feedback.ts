@@ -9,7 +9,7 @@ import {
   type ShortTextFeedbackRequest,
   type ShortTextFeedbackResult,
 } from "@/types"
-import { createSupabaseServiceClient } from "@/lib/supabase/server"
+import { query } from "@/lib/db"
 import { scoreShortTextAnswers } from "@/lib/ai/short-text-scoring"
 
 const HYDRATE_RPC = "get_latest_short_text_submission"
@@ -31,9 +31,7 @@ export async function generateShortTextFeedback(
   input: ShortTextFeedbackRequest,
 ): Promise<ShortTextFeedbackResult> {
   const payload = ShortTextFeedbackRequestSchema.parse(input)
-  const supabase = createSupabaseServiceClient()
-
-  const latest = await loadLatestSubmission(payload.activity_id, payload.pupil_id, supabase)
+  const latest = await loadLatestSubmission(payload.activity_id, payload.pupil_id)
 
   const finalQuestion = (payload.activity_question ?? latest?.activity_question ?? "").trim()
   const finalModelAnswer = (payload.activity_model_answer ?? latest?.activity_model_answer ?? "").trim()
@@ -63,26 +61,42 @@ export async function generateShortTextFeedback(
 
   const feedbackMessage = buildFeedbackMessage(score, finalQuestion, finalModelAnswer, finalPupilAnswer ?? "")
 
-  const { data: inserted, error: insertError } = await supabase
-    .from("short_text_feedback_events")
-    .insert({
-      assignment_id: payload.assignment_id,
-      lesson_id: finalLessonId,
-      activity_id: payload.activity_id,
-      submission_id: resolvedSubmissionId,
-      pupil_id: payload.pupil_id,
-      activity_question: finalQuestion,
-      activity_model_answer: finalModelAnswer,
-      pupil_answer: finalPupilAnswer ?? "",
-      ai_score: score,
-      ai_feedback: feedbackMessage,
-      request_context: payload.request_context ?? null,
-    })
-    .select("*")
-    .single()
+  const { rows: insertedRows } = await query(
+    `
+      insert into short_text_feedback_events (
+        assignment_id,
+        lesson_id,
+        activity_id,
+        submission_id,
+        pupil_id,
+        activity_question,
+        activity_model_answer,
+        pupil_answer,
+        ai_score,
+        ai_feedback,
+        request_context
+      )
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      returning *
+    `,
+    [
+      payload.assignment_id,
+      finalLessonId,
+      payload.activity_id,
+      resolvedSubmissionId,
+      payload.pupil_id,
+      finalQuestion,
+      finalModelAnswer,
+      finalPupilAnswer ?? "",
+      score,
+      feedbackMessage,
+      payload.request_context ?? null,
+    ],
+  )
 
-  if (insertError) {
-    console.error("[mcp-feedback] Failed to persist short text feedback event:", insertError)
+  const inserted = insertedRows?.[0] ?? null
+  if (!inserted) {
+    console.error("[mcp-feedback] Failed to persist short text feedback event: empty result")
     throw new Error("Unable to persist short-text feedback event.")
   }
 
@@ -105,33 +119,30 @@ export async function generateShortTextFeedback(
   })
 }
 
-async function loadLatestSubmission(
-  activityId: string,
-  pupilId: string,
-  supabase = createSupabaseServiceClient(),
-): Promise<LatestShortTextSubmission> {
-  const { data, error } = await supabase.rpc(HYDRATE_RPC, {
-    p_activity_id: activityId,
-    p_pupil_id: pupilId,
-  })
+async function loadLatestSubmission(activityId: string, pupilId: string): Promise<LatestShortTextSubmission> {
+  try {
+    const { rows } = await query(
+      "select get_latest_short_text_submission($1, $2) as payload",
+      [activityId, pupilId],
+    )
 
-  if (error) {
+    const data = rows?.[0]?.payload ?? null
+    if (!data) {
+      return null
+    }
+
+    const firstRow = Array.isArray(data) ? data[0] ?? null : data
+    const parsed = LatestShortTextSubmissionSchema.safeParse(firstRow)
+    if (!parsed.success) {
+      console.error("[mcp-feedback] Latest submission RPC returned invalid payload:", parsed.error)
+      throw new Error("Unable to parse short-text submission data.")
+    }
+
+    return parsed.data
+  } catch (error) {
     console.error("[mcp-feedback] Failed to load latest short-text submission:", error)
     throw new Error("Unable to load latest short-text submission.")
   }
-
-  if (!data) {
-    return null
-  }
-
-  const firstRow = Array.isArray(data) ? data[0] ?? null : data
-  const parsed = LatestShortTextSubmissionSchema.safeParse(firstRow)
-  if (!parsed.success) {
-    console.error("[mcp-feedback] Latest submission RPC returned invalid payload:", parsed.error)
-    throw new Error("Unable to parse short-text submission data.")
-  }
-
-  return parsed.data
 }
 
 function buildFeedbackMessage(score: number, question: string, modelAnswer: string, pupilAnswer: string) {

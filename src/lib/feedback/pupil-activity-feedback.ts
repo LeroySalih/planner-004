@@ -1,4 +1,3 @@
-import type { SupabaseClient } from "@supabase/supabase-js"
 import { z } from "zod"
 
 import {
@@ -6,8 +5,7 @@ import {
   type FeedbackSource,
   type PupilActivityFeedbackRow,
 } from "@/types"
-
-type SupabaseClientLike = SupabaseClient<any, "public", any>
+import { query } from "@/lib/db"
 
 const FeedbackRowArraySchema = z.array(PupilActivityFeedbackRowSchema)
 
@@ -16,7 +14,6 @@ export type FeedbackLookupKey = `${string}::${string}`
 export type FeedbackLookupMap = Map<FeedbackLookupKey, PupilActivityFeedbackRow[]>
 
 export async function fetchPupilActivityFeedbackMap(
-  supabase: SupabaseClientLike,
   filters: { activityIds: string[]; pupilIds: string[] },
 ): Promise<{ data: FeedbackLookupMap; error: Error | null }> {
   const { activityIds, pupilIds } = filters
@@ -26,34 +23,45 @@ export async function fetchPupilActivityFeedbackMap(
     return { data: lookup, error: null }
   }
 
-  const { data, error } = await supabase
-    .from("pupil_activity_feedback")
-    .select("feedback_id, activity_id, pupil_id, submission_id, source, score, feedback_text, created_at, created_by")
-    .in("activity_id", activityIds)
-    .in("pupil_id", pupilIds)
-    .order("created_at", { ascending: false })
+  try {
+    const { rows } = await query(
+      `
+        select feedback_id,
+               activity_id,
+               pupil_id,
+               submission_id,
+               source,
+               score,
+               feedback_text,
+               created_at,
+               created_by
+        from pupil_activity_feedback
+        where activity_id = any($1::text[])
+          and pupil_id = any($2::text[])
+        order by created_at desc
+      `,
+      [activityIds, pupilIds],
+    )
 
-  if (error) {
-    return { data: lookup, error: new Error(error.message) }
-  }
+    const parsed = FeedbackRowArraySchema.safeParse(rows ?? [])
+    if (!parsed.success) {
+      return { data: lookup, error: new Error(parsed.error.message) }
+    }
 
-  const parsed = FeedbackRowArraySchema.safeParse(data ?? [])
-  if (!parsed.success) {
-    return { data: lookup, error: new Error(parsed.error.message) }
-  }
-
-  for (const row of parsed.data) {
-    const key: FeedbackLookupKey = `${row.pupil_id}::${row.activity_id}`
-    const existing = lookup.get(key) ?? []
-    existing.push(row)
-    lookup.set(key, existing)
+    for (const row of parsed.data) {
+      const key: FeedbackLookupKey = `${row.pupil_id}::${row.activity_id}`
+      const existing = lookup.get(key) ?? []
+      existing.push(row)
+      lookup.set(key, existing)
+    }
+  } catch (error) {
+    return { data: lookup, error: error instanceof Error ? error : new Error("Unable to load feedback.") }
   }
 
   return { data: lookup, error: null }
 }
 
 type InsertFeedbackEntryInput = {
-  supabase: SupabaseClientLike
   activityId: string
   pupilId: string
   submissionId?: string | null
@@ -64,23 +72,31 @@ type InsertFeedbackEntryInput = {
 }
 
 export async function insertPupilActivityFeedbackEntry(input: InsertFeedbackEntryInput): Promise<boolean> {
-  const { supabase, activityId, pupilId, submissionId, source, score, feedbackText, createdBy } = input
+  const { activityId, pupilId, submissionId, source, score, feedbackText, createdBy } = input
 
   const normalisedScore =
     typeof score === "number" && Number.isFinite(score) ? Math.min(Math.max(score, 0), 1) : null
   const text = typeof feedbackText === "string" ? feedbackText.trim() : null
 
-  const { error } = await supabase.from("pupil_activity_feedback").insert({
-    activity_id: activityId,
-    pupil_id: pupilId,
-    submission_id: submissionId ?? null,
-    source,
-    score: normalisedScore,
-    feedback_text: text && text.length > 0 ? text : null,
-    created_by: createdBy ?? null,
-  })
-
-  if (error) {
+  try {
+    await query(
+      `
+        insert into pupil_activity_feedback (
+          activity_id, pupil_id, submission_id, source, score, feedback_text, created_by
+        ) values ($1, $2, $3, $4, $5, $6, $7)
+      `,
+      [
+        activityId,
+        pupilId,
+        submissionId ?? null,
+        source,
+        normalisedScore,
+        text && text.length > 0 ? text : null,
+        createdBy ?? null,
+      ],
+    )
+    return true
+  } catch (error) {
     console.error("[feedback] Failed to insert pupil activity feedback entry:", error, {
       activityId,
       pupilId,
@@ -88,8 +104,6 @@ export async function insertPupilActivityFeedbackEntry(input: InsertFeedbackEntr
     })
     return false
   }
-
-  return true
 }
 
 export function selectLatestFeedbackEntry(

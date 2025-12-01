@@ -5,7 +5,7 @@ import { z } from "zod"
 
 import type { Assignment } from "@/types"
 import { AssignmentSchema, AssignmentsSchema } from "@/types"
-import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { query } from "@/lib/db"
 import { withTelemetry } from "@/lib/telemetry"
 
 const AssignmentReturnValue = z.object({
@@ -28,8 +28,6 @@ export async function createAssignmentAction(
 ) {
   console.log("[v0] Server action started for assignment creation:", { groupId, unitId, startDate, endDate })
 
-  const supabase = await createSupabaseServerClient()
-
   const payload = {
     group_id: groupId,
     unit_id: unitId,
@@ -38,41 +36,48 @@ export async function createAssignmentAction(
     active: true,
   }
 
-  const { data: reactivatedRows, error: reactivationError } = await supabase
-    .from("assignments")
-    .update({
-      unit_id: unitId,
-      start_date: startDate,
-      end_date: endDate,
-      active: true,
-    })
-    .eq("group_id", groupId)
-    .eq("unit_id", unitId)
-    .eq("start_date", startDate)
-    .eq("active", false)
-    .select()
+  try {
+    const { rows: reactivatedRows } = await query(
+      `
+        update assignments
+        set unit_id = $1, start_date = $2, end_date = $3, active = true
+        where group_id = $4 and unit_id = $1 and start_date = $2 and active = false
+        returning *
+      `,
+      [unitId, startDate, endDate, groupId],
+    )
 
-  if (reactivationError) {
-    console.error("[v0] Server action failed while attempting assignment reactivation:", reactivationError)
-  }
+    if (reactivatedRows && reactivatedRows.length > 0) {
+      const assignment = reactivatedRows[0]
+      console.log("[v0] Server action completed by reactivating assignment:", {
+        groupId,
+        unitId,
+        startDate,
+        endDate,
+      })
 
-  if (reactivatedRows && reactivatedRows.length > 0) {
-    const assignment = reactivatedRows[0]
-    console.log("[v0] Server action completed by reactivating assignment:", { groupId, unitId, startDate, endDate })
+      revalidatePath("/")
+      return AssignmentReturnValue.parse({ data: assignment, error: null })
+    }
+
+    const { rows } = await query(
+      `
+        insert into assignments (group_id, unit_id, start_date, end_date, active)
+        values ($1, $2, $3, $4, true)
+        returning *
+      `,
+      [groupId, unitId, startDate, endDate],
+    )
+
+    const data = rows[0] ?? null
+
+    console.log("[v0] Server action completed for assignment creation:", { groupId, unitId, startDate, endDate })
 
     revalidatePath("/")
-    return AssignmentReturnValue.parse({ data: assignment, error: null })
-  }
-
-  const { data, error } = await supabase
-    .from("assignments")
-    .insert(payload)
-    .select()
-    .single()
-
-  if (error) {
-    if (error.code === "23505") {
-      console.error("[v0] Assignment creation failed because an active assignment already exists:", error)
+    return AssignmentReturnValue.parse({ data, error: null })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to create assignment."
+    if (message.includes("duplicate") || message.includes("unique") || message.includes("already exists")) {
       return AssignmentReturnValue.parse({
         data: null,
         error: "An assignment already exists for this group, unit, and start date.",
@@ -80,38 +85,35 @@ export async function createAssignmentAction(
     }
 
     console.error("[v0] Server action failed for assignment creation:", error)
-    return AssignmentReturnValue.parse({ data: null, error: error.message })
+    return AssignmentReturnValue.parse({ data: null, error: message })
   }
-
-  console.log("[v0] Server action completed for assignment creation:", { groupId, unitId, startDate, endDate })
-
-  revalidatePath("/")
-  return AssignmentReturnValue.parse({ data, error: null })
 }
 
 export async function readAssignmentAction(groupId: string, unitId: string, startDate: string) {
   console.log("[v0] Server action started for reading assignment:", { groupId, unitId, startDate })
 
-  const supabase = await createSupabaseServerClient()
+  try {
+    const { rows } = await query(
+      `
+        select *
+        from assignments
+        where group_id = $1 and unit_id = $2 and start_date = $3 and active = true
+        limit 1
+      `,
+      [groupId, unitId, startDate],
+    )
 
-  const { data, error } = await supabase
-    .from("assignments")
-    .select("*")
-    .eq("group_id", groupId)
-    .eq("unit_id", unitId)
-    .eq("start_date", startDate)
-    .eq("active", true)
-    .maybeSingle()
+    const data = rows[0] ?? null
 
-  if (error) {
+    console.log("[v0] Server action completed for reading assignment:", { groupId, unitId, startDate })
+
+    revalidatePath("/")
+    return AssignmentReturnValue.parse({ data, error: null })
+  } catch (error) {
     console.error("[v0] Server action failed for reading assignment:", error)
-    return AssignmentReturnValue.parse({ data: null, error: error.message })
+    const message = error instanceof Error ? error.message : "Unable to load assignment."
+    return AssignmentReturnValue.parse({ data: null, error: message })
   }
-
-  console.log("[v0] Server action completed for reading assignment:", { groupId, unitId, startDate })
-
-  revalidatePath("/")
-  return AssignmentReturnValue.parse({ data, error: null })
 }
 
 export async function readAssignmentsAction(options?: { authEndTime?: number | null; routeTag?: string }) {
@@ -125,46 +127,73 @@ export async function readAssignmentsAction(options?: { authEndTime?: number | n
       authEndTime: options?.authEndTime ?? null,
     },
     async () => {
-      console.log("[v0] Server action started for reading assignments:")
-
-      let error: string | null = null
-
-      const supabase = await createSupabaseServerClient()
-
-      const { data, error: readError } = await supabase
-        .from("assignments")
-        .select("*")
-        .eq("active", true)
-
-      if (readError) {
-        error = readError.message
-        console.error(error)
+      console.log("[v0] Server action started for reading assignments")
+      try {
+        const { rows } = await query("select * from assignments where active = true")
+        console.log("[v0] Server action completed for reading assignments")
+        return AssignmentsReturnValue.parse({ data: rows ?? [], error: null })
+      } catch (error) {
+        console.error("[v0] Server action failed for reading assignments:", error)
+        const message = error instanceof Error ? error.message : "Unable to load assignments."
+        return AssignmentsReturnValue.parse({ data: null, error: message })
       }
-
-      console.log("[v0] Server action completed for reading assignments:", error)
-
-      return AssignmentsReturnValue.parse({ data, error })
     },
   )
 }
 
-export async function readAssignmentsForGroupAction(groupId: string) {
-  console.log("[v0] Server action started for reading assignments for group:", { groupId })
+export async function readAssignmentsForGroupAction(
+  groupId: string,
+  options?: { authEndTime?: number | null; routeTag?: string },
+) {
+  const routeTag = options?.routeTag ?? "/assignments:readAssignmentsForGroup"
 
-  const supabase = await createSupabaseServerClient()
+  return withTelemetry(
+    {
+      routeTag,
+      functionName: "readAssignmentsForGroupAction",
+      params: { groupId },
+      authEndTime: options?.authEndTime ?? null,
+    },
+    async () => {
+      console.log("[v0] Server action started for reading assignments for group:", { groupId })
+      try {
+        const { rows } = await query("select * from assignments where group_id = $1 and active = true", [groupId])
+        console.log("[v0] Server action completed for reading assignments for group:", { groupId })
+        return AssignmentsReturnValue.parse({ data: rows ?? [], error: null })
+      } catch (error) {
+        console.error("[v0] Server action failed for reading assignments for group:", error)
+        const message = error instanceof Error ? error.message : "Unable to load assignments."
+        return AssignmentsReturnValue.parse({ data: null, error: message })
+      }
+    },
+  )
+}
 
-  const { data, error } = await supabase
-    .from("assignments")
-    .select("*")
-    .eq("group_id", groupId)
-    .eq("active", true)
+export async function deleteAssignmentAction(groupId: string, unitId: string, startDate: string) {
+  console.log("[v0] Server action started for deleting assignment:", { groupId, unitId, startDate })
 
-  if (error) {
-    console.error("[v0] Server action failed for reading assignments for group:", error)
-    return AssignmentsReturnValue.parse({ data: null, error: error.message })
+  try {
+    const { rowCount } = await query(
+      `
+        delete from assignments
+        where group_id = $1 and unit_id = $2 and start_date = $3
+      `,
+      [groupId, unitId, startDate],
+    )
+
+    if (rowCount === 0) {
+      return { success: false, error: "Assignment not found." }
+    }
+  } catch (error) {
+    console.error("[v0] Server action failed for deleting assignment:", error)
+    const message = error instanceof Error ? error.message : "Unable to delete assignment."
+    return { success: false, error: message }
   }
 
-  return AssignmentsReturnValue.parse({ data, error: null })
+  console.log("[v0] Server action completed for deleting assignment:", { groupId, unitId, startDate })
+
+  revalidatePath("/")
+  return { success: true }
 }
 
 export async function updateAssignmentAction(
@@ -172,174 +201,49 @@ export async function updateAssignmentAction(
   unitId: string,
   startDate: string,
   endDate: string,
-  options?: { originalUnitId?: string; originalStartDate?: string },
+  options: { originalUnitId: string; originalStartDate: string },
 ) {
-  console.log("[v0] Server action started for assignment update:", {
+  console.log("[v0] Server action started for updating assignment:", {
     groupId,
     unitId,
     startDate,
     endDate,
-    originalUnitId: options?.originalUnitId,
-    originalStartDate: options?.originalStartDate,
+    options,
   })
 
-  const matchUnitId = options?.originalUnitId ?? unitId
-  const matchStartDate = options?.originalStartDate ?? startDate
+  try {
+    const { rows } = await query(
+      `
+        update assignments
+        set unit_id = $1,
+            start_date = $2,
+            end_date = $3,
+            active = true
+        where group_id = $4
+          and unit_id = $5
+          and start_date = $6
+        returning *
+      `,
+      [unitId, startDate, endDate, groupId, options.originalUnitId, options.originalStartDate],
+    )
 
-  const supabase = await createSupabaseServerClient()
+    const data = rows?.[0] ?? null
+    if (!data) {
+      return AssignmentReturnValue.parse({ data: null, error: "Assignment not found." })
+    }
 
-  const { data, error } = await supabase
-    .from("assignments")
-    .update({
-      unit_id: unitId,
-      start_date: startDate,
-      end_date: endDate,
-      active: true,
+    console.log("[v0] Server action completed for updating assignment:", {
+      groupId,
+      unitId,
+      startDate,
+      endDate,
     })
-    .eq("group_id", groupId)
-    .eq("unit_id", matchUnitId)
-    .eq("start_date", matchStartDate)
-    .select()
-    .single()
 
-  if (error) {
-    console.error("[v0] Server action failed for assignment update:", error)
-    return AssignmentReturnValue.parse({ data: null, error: error.message })
+    revalidatePath("/")
+    return AssignmentReturnValue.parse({ data, error: null })
+  } catch (error) {
+    console.error("[v0] Server action failed for updating assignment:", error)
+    const message = error instanceof Error ? error.message : "Unable to update assignment."
+    return AssignmentReturnValue.parse({ data: null, error: message })
   }
-
-  console.log("[v0] Server action completed for assignment update:", { groupId, unitId, startDate, endDate })
-
-  revalidatePath("/")
-  return AssignmentReturnValue.parse({ data, error: null })
-}
-
-export async function deleteAssignmentAction(groupId: string, unitId: string, startDate: string) {
-  console.log("[v0] Server action started for assignment deletion:", { groupId, unitId, startDate })
-
-  const supabase = await createSupabaseServerClient()
-
-  const { error } = await supabase
-    .from("assignments")
-    .update({ active: false })
-    .eq("group_id", groupId)
-    .eq("unit_id", unitId)
-    .eq("start_date", startDate)
-
-  if (error) {
-    console.error("[v0] Server action failed for assignment deletion:", error)
-    return { success: false, error: error.message }
-  }
-
-  console.log("[v0] Server action completed for assignment deletion:", { groupId, unitId, startDate })
-
-  revalidatePath("/")
-  return { success: true }
-}
-
-export async function batchCreateAssignmentsAction(assignments: Assignment[]) {
-  console.log("[v0] Server action started for batch assignment creation:", { count: assignments.length })
-
-  if (assignments.length === 0) {
-    return { success: true, count: 0 }
-  }
-
-  const payload = assignments.map((assignment) => ({
-    group_id: assignment.group_id,
-    unit_id: assignment.unit_id,
-    start_date: assignment.start_date,
-    end_date: assignment.end_date,
-    active: assignment.active ?? true,
-  }))
-
-  const supabase = await createSupabaseServerClient()
-
-  const errors: string[] = []
-  let successCount = 0
-
-  for (const assignment of payload) {
-    const { data: reactivatedRows, error: reactivationError } = await supabase
-      .from("assignments")
-      .update({
-        unit_id: assignment.unit_id,
-        start_date: assignment.start_date,
-        end_date: assignment.end_date,
-        active: assignment.active ?? true,
-      })
-      .eq("group_id", assignment.group_id)
-      .eq("unit_id", assignment.unit_id)
-      .eq("start_date", assignment.start_date)
-      .eq("active", false)
-      .select()
-
-    if (reactivationError) {
-      console.error("[v0] Batch assignment reactivation failed:", reactivationError)
-      errors.push(reactivationError.message)
-      continue
-    }
-
-    if (reactivatedRows && reactivatedRows.length > 0) {
-      successCount += 1
-      continue
-    }
-
-    const { error: insertError } = await supabase.from("assignments").insert(assignment)
-
-    if (insertError) {
-      if (insertError.code === "23505") {
-        const duplicateMessage = `Assignment already exists for group ${assignment.group_id}, unit ${assignment.unit_id}, start date ${assignment.start_date}.`
-        console.error("[v0] Batch assignment creation encountered an active duplicate:", insertError)
-        errors.push(duplicateMessage)
-      } else {
-        console.error("[v0] Batch assignment creation failed:", insertError)
-        errors.push(insertError.message)
-      }
-      continue
-    }
-
-    successCount += 1
-  }
-
-  if (errors.length > 0) {
-    return { success: false, error: errors.join("; ") }
-  }
-
-  console.log("[v0] Server action completed for batch assignment creation:", { count: successCount })
-
-  revalidatePath("/")
-  return { success: true, count: successCount }
-}
-
-export async function batchDeleteAssignmentsAction(assignments: { groupId: string; unitId: string; startDate: string }[]) {
-  console.log("[v0] Server action started for batch assignment deletion:", { count: assignments.length })
-
-  if (assignments.length === 0) {
-    return { success: true, count: 0 }
-  }
-
-  const supabase = await createSupabaseServerClient()
-
-  const errors: string[] = []
-
-  for (const assignment of assignments) {
-    const { error } = await supabase
-      .from("assignments")
-      .update({ active: false })
-      .eq("group_id", assignment.groupId)
-      .eq("unit_id", assignment.unitId)
-      .eq("start_date", assignment.startDate)
-
-    if (error) {
-      console.error("[v0] Server action failed during batch assignment deletion:", error)
-      errors.push(error.message)
-    }
-  }
-
-  if (errors.length > 0) {
-    return { success: false, error: errors.join("; ") }
-  }
-
-  console.log("[v0] Server action completed for batch assignment deletion:", { count: assignments.length })
-
-  revalidatePath("/")
-  return { success: true, count: assignments.length }
 }

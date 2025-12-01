@@ -2,7 +2,7 @@
 
 // --file: src/actions/groups/get-groups.ts
 
-import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { query } from "@/lib/db"
 import { GroupsSchema } from "./types";
 
 import {z} from "zod";
@@ -14,16 +14,8 @@ const ReturnValSchema = z.object({
 
 export async function getGroups() {
   try {
-    const supabase = await createSupabaseServerClient()
-
-    const { data, error } = await supabase
-      .from("groups")
-      .select("*")
-      .eq("active", true);
-      
-    if (error) throw new Error(error.message);
-
-    return ReturnValSchema.parse({ data, error: null });
+    const { rows } = await query("select * from groups where active = true")
+    return ReturnValSchema.parse({ data: rows ?? [], error: null });
   } catch (caught) {
     const message = caught instanceof Error ? caught.message : "Unknown error";
     console.error("Error fetching groups:", caught);

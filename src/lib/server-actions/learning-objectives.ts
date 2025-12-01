@@ -4,9 +4,8 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
 import { LearningObjectiveSchema, SuccessCriteriaSchema } from "@/types"
-import { createSupabaseServerClient, createSupabaseServiceClient } from "@/lib/supabase/server"
+import { query, withDbClient } from "@/lib/db"
 import { withTelemetry } from "@/lib/telemetry"
-import type { SupabaseClient } from "@supabase/supabase-js"
 import { Client } from "pg"
 
 const LearningObjectiveWithCriteriaSchema = LearningObjectiveSchema.extend({
@@ -356,153 +355,130 @@ export type NormalizedSuccessCriterion = {
   units: string[]
 }
 
+
 export async function fetchSuccessCriteriaForLearningObjectives(
   learningObjectiveIds: string[],
   filterUnitId?: string,
-  supabaseClient?: SupabaseClient,
 ): Promise<{
   map: Map<string, NormalizedSuccessCriterion[]>
   learningObjectiveIds: string[]
   error: string | null
 }> {
-  const supabase = supabaseClient ?? (await createSupabaseServerClient())
   console.log("[learning-objectives] Fetching success criteria", {
     filterUnitId,
     hasSuppliedIds: learningObjectiveIds.length > 0,
   })
 
-  let criteriaQuery = supabase
-    .from("success_criteria")
-    .select("success_criteria_id, learning_objective_id, level, description, order_index, active")
+  const client = createPgClient()
+  await client.connect()
 
-  let criterionIdsToFetch: string[] | null = null
-
-  if (learningObjectiveIds.length > 0) {
-    criteriaQuery = criteriaQuery.in("learning_objective_id", learningObjectiveIds)
-  } else if (filterUnitId) {
-    const { data: linkRows, error: linkError } = await supabase
-      .from("success_criteria_units")
-      .select("success_criteria_id")
-      .eq("unit_id", filterUnitId)
-
-    if (linkError) {
-      console.error("[learning-objectives] Failed to load success_criteria_units", linkError, {
-        filterUnitId,
-      })
-      return { map: new Map(), learningObjectiveIds: [], error: linkError.message }
-    }
-
-    const criterionIds = (linkRows ?? [])
-      .map((row) => row.success_criteria_id)
-      .filter((id): id is string => Boolean(id))
-
-    if (criterionIds.length === 0) {
-      console.log("[learning-objectives] No linked success criteria for unit", { filterUnitId })
-      return { map: new Map(), learningObjectiveIds: [], error: null }
-    }
-
-    console.log("[learning-objectives] Loaded success_criteria_units links", {
-      filterUnitId,
-      linkCount: criterionIds.length,
-    })
-
-    criterionIdsToFetch = criterionIds
-    criteriaQuery = criteriaQuery.in("success_criteria_id", criterionIds)
-  }
-
-  const { data: criteriaRows, error: criteriaError } = await criteriaQuery
-
-  if (criteriaError) {
-    console.error("[learning-objectives] Failed to load success_criteria", criteriaError, {
-      filterUnitId,
-      requestedIds: learningObjectiveIds.length,
-      criteriaIdsToFetch: criterionIdsToFetch?.length ?? null,
-    })
-    return { map: new Map(), learningObjectiveIds: [], error: criteriaError.message }
-  }
-
-  const criteria = criteriaRows ?? []
-  if (criteria.length === 0) {
-    return { map: new Map(), learningObjectiveIds: [], error: null }
-  }
-
-  const criterionIds = criterionIdsToFetch ?? criteria.map((row) => row.success_criteria_id).filter(Boolean)
-
-  if (criterionIds.length === 0) {
-    return { map: new Map(), learningObjectiveIds: [], error: null }
-  }
-
-  const { data: linkRows, error: linkError } = await supabase
-    .from("success_criteria_units")
-    .select("success_criteria_id, unit_id")
-    .in("success_criteria_id", criterionIds)
-
-  if (linkError) {
-    return { map: new Map(), learningObjectiveIds: [], error: linkError.message }
-  }
-
-  const unitsByCriterion = new Map<string, string[]>()
-  for (const link of linkRows ?? []) {
-    if (!link.success_criteria_id) continue
-    const units = unitsByCriterion.get(link.success_criteria_id) ?? []
-    units.push(link.unit_id)
-    unitsByCriterion.set(link.success_criteria_id, units)
-  }
-
-  let allowedCriterionIds: Set<string> | null = null
-
-  if (filterUnitId) {
-    allowedCriterionIds = new Set(
-      (linkRows ?? [])
-        .filter((link) => link.unit_id === filterUnitId)
-        .map((link) => link.success_criteria_id)
-        .filter((id): id is string => Boolean(id)),
-    )
-  }
-
-  const map = new Map<string, NormalizedSuccessCriterion[]>()
-  const learningObjectiveIdSet = new Set<string>()
-
-  for (const criterion of criteria) {
-    const criterionId = criterion.success_criteria_id
-    const learningObjectiveId = criterion.learning_objective_id
-
-    if (!criterionId || !learningObjectiveId) continue
+  try {
+    let criteriaRows: Array<{
+      success_criteria_id: string
+      learning_objective_id: string
+      level: number | null
+      description: string | null
+      order_index: number | null
+      active: boolean | null
+    }> = []
 
     if (filterUnitId) {
-      const units = unitsByCriterion.get(criterionId) ?? []
-      if (units.length > 0 && allowedCriterionIds && !allowedCriterionIds.has(criterionId)) {
-        continue
+      const { rows } = await client.query(
+        `
+          select sc.success_criteria_id,
+                 sc.learning_objective_id,
+                 sc.level,
+                 sc.description,
+                 sc.order_index,
+                 sc.active
+          from success_criteria sc
+          join success_criteria_units scu on scu.success_criteria_id = sc.success_criteria_id
+          where scu.unit_id = $1
+        `,
+        [filterUnitId],
+      )
+      criteriaRows = rows ?? []
+    } else if (learningObjectiveIds.length > 0) {
+      const { rows } = await client.query(
+        `
+          select success_criteria_id,
+                 learning_objective_id,
+                 level,
+                 description,
+                 order_index,
+                 active
+          from success_criteria
+          where learning_objective_id = any($1::text[])
+        `,
+        [learningObjectiveIds],
+      )
+      criteriaRows = rows ?? []
+    }
+
+    const successCriteriaIds = criteriaRows.map((row) => row.success_criteria_id)
+    const unitsByCriterion = new Map<string, string[]>()
+
+    if (successCriteriaIds.length > 0) {
+      const { rows: unitRows } = await client.query(
+        `
+          select success_criteria_id, unit_id
+          from success_criteria_units
+          where success_criteria_id = any($1::text[])
+        `,
+        [successCriteriaIds],
+      )
+
+      for (const unitRow of unitRows ?? []) {
+        const units = unitsByCriterion.get(unitRow.success_criteria_id) ?? []
+        units.push(unitRow.unit_id)
+        unitsByCriterion.set(unitRow.success_criteria_id, units)
       }
     }
 
-    const entry: NormalizedSuccessCriterion = {
-      success_criteria_id: criterionId,
-      learning_objective_id: learningObjectiveId,
-      level: criterion.level ?? 1,
-      description: criterion.description ?? "",
-      order_index: criterion.order_index ?? null,
-      active: criterion.active ?? true,
-      units: unitsByCriterion.get(criterionId) ?? [],
+    const successCriteriaMap = new Map<string, NormalizedSuccessCriterion[]>()
+    const loadedLearningObjectiveIds = new Set<string>()
+
+    for (const criterion of criteriaRows ?? []) {
+      const bucket = successCriteriaMap.get(criterion.learning_objective_id) ?? []
+      bucket.push({
+        success_criteria_id: criterion.success_criteria_id,
+        learning_objective_id: criterion.learning_objective_id,
+        level: criterion.level ?? 1,
+        description: criterion.description ?? "",
+        order_index: criterion.order_index ?? 0,
+        active: criterion.active ?? true,
+        units: unitsByCriterion.get(criterion.success_criteria_id) ?? [],
+      })
+      successCriteriaMap.set(criterion.learning_objective_id, bucket)
+      loadedLearningObjectiveIds.add(criterion.learning_objective_id)
     }
 
-    const collection = map.get(learningObjectiveId) ?? []
-    collection.push(entry)
-    map.set(learningObjectiveId, collection)
-    learningObjectiveIdSet.add(learningObjectiveId)
-  }
+    successCriteriaMap.forEach((bucket) =>
+      bucket.sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0)),
+    )
 
-  for (const [key, list] of map.entries()) {
-    list.sort((a, b) => {
-      if (a.level !== b.level) {
-        return a.level - b.level
-      }
-      return (a.order_index ?? 0) - (b.order_index ?? 0)
+    return {
+      map: successCriteriaMap,
+      learningObjectiveIds: Array.from(loadedLearningObjectiveIds),
+      error: null,
+    }
+  } catch (error) {
+    console.error("[learning-objectives] Failed to load success_criteria", error, {
+      filterUnitId,
+      requestedIds: learningObjectiveIds.length,
     })
-    map.set(key, list)
+    return {
+      map: new Map(),
+      learningObjectiveIds: [],
+      error: error instanceof Error ? error.message : "Unable to load success criteria.",
+    }
+  } finally {
+    try {
+      await client.end()
+    } catch {
+      // ignore
+    }
   }
-
-  return { map, learningObjectiveIds: Array.from(learningObjectiveIdSet), error: null }
 }
 
 export async function createLearningObjectiveAction(
@@ -517,13 +493,6 @@ export async function createLearningObjectiveAction(
     hasSpecRef: Boolean(specRef?.trim()),
   })
 
-  let supabase
-  try {
-    supabase = await createSupabaseServiceClient()
-  } catch {
-    supabase = await createSupabaseServerClient()
-  }
-
   const sanitizedSuccessCriteria = SuccessCriteriaInputSchema.parse(successCriteria).map((criterion, index) => {
     const description = (criterion.description ?? criterion.title ?? "").trim()
     return {
@@ -537,84 +506,82 @@ export async function createLearningObjectiveAction(
   })
   const filteredCriteria = sanitizedSuccessCriteria.filter((criterion) => criterion.description.length > 0)
 
-  const { data: assessmentObjective, error: readAoError } = await supabase
-    .from("assessment_objectives")
-    .select("assessment_objective_id")
-    .eq("unit_id", unitId)
-    .maybeSingle()
-
-  if (readAoError) {
-    console.error("[v0] Failed to read assessment objective for unit:", readAoError)
-    return LearningObjectiveReturnValue.parse({ data: null, error: readAoError.message })
-  }
-
-  if (!assessmentObjective) {
-    return LearningObjectiveReturnValue.parse({ data: null, error: "No assessment objective found for unit" })
-  }
-
   const normalizedSpecRef = specRef?.trim() ? specRef.trim() : null
 
-  const { data: learningObjective, error } = await supabase
-    .from("learning_objectives")
-    .insert({
-      assessment_objective_id: assessmentObjective.assessment_objective_id,
-      title,
-      spec_ref: normalizedSpecRef,
-    })
-    .select("*")
-    .single()
+  let createdLearningObjectiveId: string | null = null
 
-  if (error) {
-    console.error("[v0] Failed to create learning objective:", error)
-    return LearningObjectiveReturnValue.parse({ data: null, error: error.message })
-  }
-
-  if (filteredCriteria.length > 0) {
-    const { data: insertedCriteria, error: insertError } = await supabase
-      .from("success_criteria")
-      .insert(
-        filteredCriteria.map((criterion) => ({
-          learning_objective_id: learningObjective.learning_objective_id,
-          description: criterion.description,
-          level: criterion.level,
-          order_index: criterion.order_index,
-          active: criterion.active,
-        })),
+  try {
+    await withDbClient(async (client) => {
+      const { rows: aoRows } = await client.query(
+        "select assessment_objective_id from assessment_objectives where unit_id = $1 limit 1",
+        [unitId],
       )
-      .select("success_criteria_id, order_index")
+      const assessmentObjectiveId = aoRows?.[0]?.assessment_objective_id ?? null
 
-    if (insertError) {
-      console.error("[v0] Failed to insert success criteria:", insertError)
-      return LearningObjectiveReturnValue.parse({ data: null, error: insertError.message })
-    }
+      if (!assessmentObjectiveId) {
+        throw new Error("No assessment objective found for unit")
+      }
 
-    const successCriteriaRows = insertedCriteria ?? []
+      const { rows: loRows } = await client.query(
+        `
+          insert into learning_objectives (assessment_objective_id, title, spec_ref, active)
+          values ($1, $2, $3, true)
+          returning learning_objective_id
+        `,
+        [assessmentObjectiveId, title, normalizedSpecRef],
+      )
 
-    for (let index = 0; index < successCriteriaRows.length; index++) {
-      const row = successCriteriaRows[index]
-      const payload = filteredCriteria[index]
-      if (!payload) continue
+      createdLearningObjectiveId = loRows?.[0]?.learning_objective_id ?? null
 
-      const unitIds = payload.unit_ids ?? []
-      if (unitIds.length > 0) {
-        const { error: unitInsertError } = await supabase
-          .from("success_criteria_units")
-          .insert(
-            unitIds.map((unitId) => ({
-              success_criteria_id: row.success_criteria_id,
-              unit_id: unitId,
-            })),
+      if (!createdLearningObjectiveId) {
+        throw new Error("Unable to create learning objective.")
+      }
+
+      for (const criterion of filteredCriteria) {
+        const { rows: inserted } = await client.query(
+          `
+            insert into success_criteria (learning_objective_id, description, level, order_index, active)
+            values ($1, $2, $3, $4, $5)
+            returning success_criteria_id
+          `,
+          [createdLearningObjectiveId, criterion.description, criterion.level, criterion.order_index, criterion.active],
+        )
+
+        const successCriteriaId = inserted?.[0]?.success_criteria_id ?? null
+        if (!successCriteriaId) {
+          throw new Error("Unable to create success criterion.")
+        }
+
+        const unitIds = criterion.unit_ids ?? []
+        if (unitIds.length > 0) {
+          const values: Array<unknown> = []
+          const placeholders: string[] = []
+          unitIds.forEach((unit, idx) => {
+            values.push(successCriteriaId, unit)
+            placeholders.push(`($${values.length - 1}, $${values.length})`)
+          })
+
+          await client.query(
+            `
+              insert into success_criteria_units (success_criteria_id, unit_id)
+              values ${placeholders.join(", ")}
+            `,
+            values,
           )
-
-        if (unitInsertError) {
-          console.error("[v0] Failed to link success criteria units:", unitInsertError)
-          return LearningObjectiveReturnValue.parse({ data: null, error: unitInsertError.message })
         }
       }
-    }
+    })
+  } catch (creationError) {
+    console.error("[v0] Failed to create learning objective:", creationError)
+    const message = creationError instanceof Error ? creationError.message : "Unable to create learning objective."
+    return LearningObjectiveReturnValue.parse({ data: null, error: message })
   }
 
-  const finalObjective = await readSingleLearningObjective(learningObjective.learning_objective_id)
+  if (!createdLearningObjectiveId) {
+    return LearningObjectiveReturnValue.parse({ data: null, error: "Unable to create learning objective." })
+  }
+
+  const finalObjective = await readSingleLearningObjective(createdLearningObjectiveId)
 
   revalidatePath(`/units/${unitId}`)
   return finalObjective
@@ -634,8 +601,6 @@ export async function updateLearningObjectiveAction(
     hasSpecRef: Boolean(specRef?.trim()),
   })
 
-  const supabase = await createSupabaseServerClient()
-
   const sanitizedSuccessCriteria = SuccessCriteriaInputSchema.parse(successCriteria).map((criterion, index) => {
     const description = (criterion.description ?? criterion.title ?? "").trim()
     return {
@@ -651,146 +616,138 @@ export async function updateLearningObjectiveAction(
 
   const normalizedSpecRef = specRef?.trim() ? specRef.trim() : null
 
-  const { error } = await supabase
-    .from("learning_objectives")
-    .update({ title, spec_ref: normalizedSpecRef })
-    .eq("learning_objective_id", learningObjectiveId)
+  try {
+    await withDbClient(async (client) => {
+      await client.query("update learning_objectives set title = $1, spec_ref = $2 where learning_objective_id = $3", [
+        title,
+        normalizedSpecRef,
+        learningObjectiveId,
+      ])
 
-  if (error) {
-    console.error("[v0] Failed to update learning objective:", error)
-    return LearningObjectiveReturnValue.parse({ data: null, error: error.message })
-  }
+      const { rows: existingCriteria } = await client.query<{
+        success_criteria_id: string
+        level: number | null
+        description: string | null
+        order_index: number | null
+        active: boolean | null
+        unit_ids: string[] | null
+      }>(
+        `
+          select sc.success_criteria_id,
+                 sc.level,
+                 sc.description,
+                 sc.order_index,
+                 sc.active,
+                 coalesce(array_agg(scu.unit_id) filter (where scu.unit_id is not null), '{}') as unit_ids
+          from success_criteria sc
+          left join success_criteria_units scu on scu.success_criteria_id = sc.success_criteria_id
+          where sc.learning_objective_id = $1
+          group by sc.success_criteria_id
+        `,
+        [learningObjectiveId],
+      )
 
-  const { data: existingCriteria, error: readCriteriaError } = await supabase
-    .from("success_criteria")
-    .select("success_criteria_id, level, description, order_index, active, success_criteria_units(unit_id)")
-    .eq("learning_objective_id", learningObjectiveId)
+      const existingIds = new Set((existingCriteria ?? []).map((criterion) => criterion.success_criteria_id))
+      const incomingIds = new Set(
+        filteredCriteria
+          .map((criterion) => criterion.success_criteria_id)
+          .filter((id): id is string => Boolean(id)),
+      )
 
-  if (readCriteriaError) {
-    console.error("[v0] Failed to read success criteria:", readCriteriaError)
-    return LearningObjectiveReturnValue.parse({ data: null, error: readCriteriaError.message })
-  }
+      const idsToDelete = Array.from(existingIds).filter((id) => !incomingIds.has(id))
 
-  const existingIds = new Set((existingCriteria ?? []).map((criterion) => criterion.success_criteria_id))
-  const incomingIds = new Set(
-    filteredCriteria
-      .map((criterion) => criterion.success_criteria_id)
-      .filter((id): id is string => Boolean(id)),
-  )
-
-  const idsToDelete = Array.from(existingIds).filter((id) => !incomingIds.has(id))
-
-  if (idsToDelete.length > 0) {
-    const { error: deleteError } = await supabase
-      .from("success_criteria")
-      .delete()
-      .in("success_criteria_id", idsToDelete)
-
-    if (deleteError) {
-      console.error("[v0] Failed to delete removed success criteria:", deleteError)
-      return LearningObjectiveReturnValue.parse({ data: null, error: deleteError.message })
-    }
-  }
-
-  const updates = filteredCriteria.filter((criterion) => criterion.success_criteria_id)
-  for (const criterion of updates) {
-    const { error: updateError } = await supabase
-      .from("success_criteria")
-      .update({
-        description: criterion.description,
-        level: criterion.level,
-        order_index: criterion.order_index,
-        active: criterion.active,
-      })
-      .eq("success_criteria_id", criterion.success_criteria_id)
-
-    if (updateError) {
-      console.error("[v0] Failed to update success criterion:", updateError)
-      return LearningObjectiveReturnValue.parse({ data: null, error: updateError.message })
-    }
-
-    const existingUnits = new Set(
-      (existingCriteria ?? [])
-        .find((row) => row.success_criteria_id === criterion.success_criteria_id)?.success_criteria_units?.map((entry) => entry.unit_id) ?? [],
-    )
-    const incomingUnits = new Set(criterion.unit_ids ?? [])
-
-    const unitsToRemove = Array.from(existingUnits).filter((unitId) => !incomingUnits.has(unitId))
-    const unitsToAdd = Array.from(incomingUnits).filter((unitId) => !existingUnits.has(unitId))
-
-    if (unitsToRemove.length > 0) {
-      const { error: removeError } = await supabase
-        .from("success_criteria_units")
-        .delete()
-        .eq("success_criteria_id", criterion.success_criteria_id)
-        .in("unit_id", unitsToRemove)
-
-      if (removeError) {
-        console.error("[v0] Failed to remove success criteria units:", removeError)
-        return LearningObjectiveReturnValue.parse({ data: null, error: removeError.message })
+      if (idsToDelete.length > 0) {
+        await client.query("delete from success_criteria where success_criteria_id = any($1::text[])", [idsToDelete])
       }
-    }
 
-    if (unitsToAdd.length > 0) {
-      const { error: addError } = await supabase
-        .from("success_criteria_units")
-        .insert(
-          unitsToAdd.map((unitId) => ({
-            success_criteria_id: criterion.success_criteria_id!,
-            unit_id: unitId,
-          })),
+      const updates = filteredCriteria.filter((criterion) => criterion.success_criteria_id)
+      for (const criterion of updates) {
+        await client.query(
+          `
+            update success_criteria
+            set description = $1, level = $2, order_index = $3, active = $4
+            where success_criteria_id = $5
+          `,
+          [criterion.description, criterion.level, criterion.order_index, criterion.active, criterion.success_criteria_id],
         )
 
-      if (addError) {
-        console.error("[v0] Failed to add success criteria units:", addError)
-        return LearningObjectiveReturnValue.parse({ data: null, error: addError.message })
-      }
-    }
-  }
+        const existingUnits = new Set(
+          (existingCriteria ?? []).find((row) => row.success_criteria_id === criterion.success_criteria_id)?.unit_ids ??
+            [],
+        )
+        const incomingUnits = new Set(criterion.unit_ids ?? [])
 
-  const inserts = filteredCriteria.filter((criterion) => !criterion.success_criteria_id)
-  if (inserts.length > 0) {
-    const { data: insertedRows, error: insertError } = await supabase
-      .from("success_criteria")
-      .insert(
-        inserts.map((criterion) => ({
-          learning_objective_id: learningObjectiveId,
-          description: criterion.description,
-          level: criterion.level,
-          order_index: criterion.order_index,
-          active: criterion.active,
-        })),
-      )
-      .select("success_criteria_id")
+        const unitsToRemove = Array.from(existingUnits).filter((unitId) => !incomingUnits.has(unitId))
+        const unitsToAdd = Array.from(incomingUnits).filter((unitId) => !existingUnits.has(unitId))
 
-    if (insertError) {
-      console.error("[v0] Failed to insert new success criterion:", insertError)
-      return LearningObjectiveReturnValue.parse({ data: null, error: insertError.message })
-    }
-
-    const inserted = insertedRows ?? []
-    for (let index = 0; index < inserted.length; index++) {
-      const row = inserted[index]
-      const payload = inserts[index]
-      if (!payload) continue
-
-      const units = payload.unit_ids ?? []
-      if (units.length > 0) {
-        const { error: unitInsertError } = await supabase
-          .from("success_criteria_units")
-          .insert(
-            units.map((unitId) => ({
-              success_criteria_id: row.success_criteria_id,
-              unit_id: unitId,
-            })),
+        if (unitsToRemove.length > 0) {
+          await client.query(
+            `
+              delete from success_criteria_units
+              where success_criteria_id = $1
+                and unit_id = any($2::text[])
+            `,
+            [criterion.success_criteria_id, unitsToRemove],
           )
+        }
 
-        if (unitInsertError) {
-          console.error("[v0] Failed to insert success criteria units:", unitInsertError)
-          return LearningObjectiveReturnValue.parse({ data: null, error: unitInsertError.message })
+        if (unitsToAdd.length > 0) {
+          const values: Array<unknown> = []
+          const placeholders: string[] = []
+          unitsToAdd.forEach((unitId, index) => {
+            values.push(criterion.success_criteria_id, unitId)
+            placeholders.push(`($${values.length - 1}, $${values.length})`)
+          })
+
+          await client.query(
+            `
+              insert into success_criteria_units (success_criteria_id, unit_id)
+              values ${placeholders.join(", ")}
+            `,
+            values,
+          )
         }
       }
-    }
+
+      const inserts = filteredCriteria.filter((criterion) => !criterion.success_criteria_id)
+      for (const criterion of inserts) {
+        const { rows: insertedRows } = await client.query(
+          `
+            insert into success_criteria (learning_objective_id, description, level, order_index, active)
+            values ($1, $2, $3, $4, $5)
+            returning success_criteria_id
+          `,
+          [learningObjectiveId, criterion.description, criterion.level, criterion.order_index, criterion.active],
+        )
+
+        const successCriteriaId = insertedRows?.[0]?.success_criteria_id ?? null
+        if (!successCriteriaId) {
+          throw new Error("Unable to create success criterion.")
+        }
+
+        const units = criterion.unit_ids ?? []
+        if (units.length > 0) {
+          const values: Array<unknown> = []
+          const placeholders: string[] = []
+          units.forEach((unitId) => {
+            values.push(successCriteriaId, unitId)
+            placeholders.push(`($${values.length - 1}, $${values.length})`)
+          })
+
+          await client.query(
+            `
+              insert into success_criteria_units (success_criteria_id, unit_id)
+              values ${placeholders.join(", ")}
+            `,
+            values,
+          )
+        }
+      }
+    })
+  } catch (updateError) {
+    console.error("[v0] Failed to update learning objective:", updateError)
+    const message = updateError instanceof Error ? updateError.message : "Unable to update learning objective."
+    return LearningObjectiveReturnValue.parse({ data: null, error: message })
   }
 
   const finalObjective = await readSingleLearningObjective(learningObjectiveId)
@@ -802,16 +759,12 @@ export async function updateLearningObjectiveAction(
 export async function deleteLearningObjectiveAction(learningObjectiveId: string, unitId: string) {
   console.log("[v0] Server action started for learning objective deletion:", { learningObjectiveId })
 
-  const supabase = await createSupabaseServerClient()
-
-  const { error } = await supabase
-    .from("learning_objectives")
-    .delete()
-    .eq("learning_objective_id", learningObjectiveId)
-
-  if (error) {
+  try {
+    await query("delete from learning_objectives where learning_objective_id = $1", [learningObjectiveId])
+  } catch (error) {
     console.error("[v0] Failed to delete learning objective:", error)
-    return { success: false, error: error.message }
+    const message = error instanceof Error ? error.message : "Unable to delete learning objective."
+    return { success: false, error: message }
   }
 
   revalidatePath(`/units/${unitId}`)
@@ -829,18 +782,19 @@ export async function reorderLearningObjectivesAction(
 
   const updates = [...ordering].sort((a, b) => a.orderBy - b.orderBy)
 
-  const supabase = await createSupabaseServerClient()
-
-  for (const update of updates) {
-    const { error } = await supabase
-      .from("learning_objectives")
-      .update({ order_index: update.orderBy })
-      .eq("learning_objective_id", update.learningObjectiveId)
-
-    if (error) {
-      console.error("[v0] Failed to reorder learning objective:", error)
-      return { success: false, error: error.message }
-    }
+  try {
+    await withDbClient(async (client) => {
+      for (const update of updates) {
+        await client.query("update learning_objectives set order_index = $1 where learning_objective_id = $2", [
+          update.orderBy,
+          update.learningObjectiveId,
+        ])
+      }
+    })
+  } catch (error) {
+    console.error("[v0] Failed to reorder learning objective:", error)
+    const message = error instanceof Error ? error.message : "Unable to reorder learning objectives."
+    return { success: false, error: message }
   }
 
   revalidatePath(`/units/${unitId}`)
@@ -848,60 +802,12 @@ export async function reorderLearningObjectivesAction(
 }
 
 async function readSingleLearningObjective(learningObjectiveId: string) {
-  const supabase = await createSupabaseServerClient()
-
-  const { data, error } = await supabase
-    .from("learning_objectives")
-    .select(
-      `learning_objective_id,
-        assessment_objective_id,
-        title,
-        order_index,
-        active,
-        spec_ref,
-        assessment_objective:assessment_objectives(
-          assessment_objective_id,
-          curriculum_id,
-          unit_id,
-          code,
-          title,
-          order_index
-        ),
-        success_criteria(*)
-      `,
-    )
-    .eq("learning_objective_id", learningObjectiveId)
-    .maybeSingle()
+  const { data, error } = await readLearningObjectivesWithCriteria({ learningObjectiveIds: [learningObjectiveId] })
 
   if (error) {
-    console.error("[v0] Failed to read learning objective:", error)
-    return LearningObjectiveReturnValue.parse({ data: null, error: error.message })
+    return LearningObjectiveReturnValue.parse({ data: null, error })
   }
 
-  if (!data) {
-    return LearningObjectiveReturnValue.parse({ data: null, error: null })
-  }
-
-  const assessmentObjective = Array.isArray(data.assessment_objective)
-    ? data.assessment_objective[0] ?? null
-    : data.assessment_objective ?? null
-
-  const base = data as Record<string, any>
-
-  const normalized: Record<string, any> = {
-    ...base,
-    assessment_objective: assessmentObjective,
-    assessment_objective_code:
-      base.assessment_objective_code ?? assessmentObjective?.code ?? null,
-    assessment_objective_title:
-      base.assessment_objective_title ?? assessmentObjective?.title ?? null,
-    assessment_objective_order_index:
-      base.assessment_objective_order_index ?? assessmentObjective?.order_index ?? null,
-    assessment_objective_curriculum_id:
-      base.assessment_objective_curriculum_id ?? assessmentObjective?.curriculum_id ?? null,
-    assessment_objective_unit_id:
-      base.assessment_objective_unit_id ?? assessmentObjective?.unit_id ?? null,
-  }
-
-  return LearningObjectiveReturnValue.parse({ data: normalized, error: null })
+  const first = data?.[0] ?? null
+  return LearningObjectiveReturnValue.parse({ data: first, error: null })
 }

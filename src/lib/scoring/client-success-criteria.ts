@@ -1,5 +1,4 @@
 import type { AssignmentResultCriterionScores } from "@/types"
-import { query } from "@/lib/db"
 
 export type SuccessCriteriaScoreRecord = AssignmentResultCriterionScores
 
@@ -7,6 +6,13 @@ interface NormaliseOptions {
   successCriteriaIds: string[]
   existingScores?: SuccessCriteriaScoreRecord | null | undefined
   fillValue?: number | null
+}
+
+export function clampScore(score: number): number {
+  if (Number.isNaN(score)) return 0
+  if (score < 0) return 0
+  if (score > 1) return 1
+  return score
 }
 
 /**
@@ -58,27 +64,4 @@ export function computeAverageSuccessCriteriaScore(scores: SuccessCriteriaScoreR
   }
 
   return total / count
-}
-
-export function clampScore(score: number): number {
-  if (Number.isNaN(score)) return 0
-  if (score < 0) return 0
-  if (score > 1) return 1
-  return score
-}
-
-export async function fetchActivitySuccessCriteriaIds(activityId: string): Promise<string[]> {
-  try {
-    const { rows } = await query(
-      "select success_criteria_id from activity_success_criteria where activity_id = $1",
-      [activityId],
-    )
-
-    return (rows ?? [])
-      .map((row) => (typeof row?.success_criteria_id === "string" ? row.success_criteria_id : null))
-      .filter((id): id is string => Boolean(id && id.trim().length > 0))
-  } catch (error) {
-    console.error("[scoring] Failed to load activity success criteria:", error)
-    return []
-  }
 }

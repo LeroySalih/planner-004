@@ -34,7 +34,7 @@ import { resolveScoreTone } from "@/lib/results/colors"
 import {
   computeAverageSuccessCriteriaScore,
   normaliseSuccessCriteriaScores,
-} from "@/lib/scoring/success-criteria"
+} from "@/lib/scoring/client-success-criteria"
 import {
   ASSIGNMENT_FEEDBACK_VISIBILITY_EVENT,
   ASSIGNMENT_RESULTS_UPDATE_EVENT,

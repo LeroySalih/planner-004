@@ -147,7 +147,7 @@ export async function POST(request: Request) {
     )
   }
 
-  const successCriteriaIds = await fetchActivitySuccessCriteriaIds(supabase, parsed.data.activity_id)
+  const successCriteriaIds = await fetchActivitySuccessCriteriaIds(parsed.data.activity_id)
   const pupilIds = parsed.data.results.map((entry) => entry.pupilid)
 
   const { data: submissionRows, error: submissionsError } = await supabase
@@ -342,7 +342,6 @@ async function applyAiMarkToSubmission({
   }
 
   await insertPupilActivityFeedbackEntry({
-    supabase,
     activityId,
     pupilId,
     submissionId: submission.submission_id,
@@ -412,7 +411,6 @@ async function createAiMarkedSubmission({
   }
 
   await insertPupilActivityFeedbackEntry({
-    supabase,
     activityId,
     pupilId,
     submissionId: insertedRow?.submission_id ?? null,

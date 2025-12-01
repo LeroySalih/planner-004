@@ -2,9 +2,13 @@
 
 import { z } from "zod"
 
-import { LessonAssignmentScoreSummariesSchema, type LessonAssignmentScoreSummaries } from "@/types"
-import { createSupabaseServerClient } from "@/lib/supabase/server"
+import {
+  LessonAssignmentScoreSummariesSchema,
+  type LessonAssignmentScoreSummary,
+  type LessonAssignmentScoreSummaries,
+} from "@/types"
 import { requireTeacherProfile } from "@/lib/auth"
+import { query } from "@/lib/db"
 
 const LessonAssignmentScoreSummaryInputSchema = z.object({
   pairs: z
@@ -41,24 +45,29 @@ export async function readLessonAssignmentScoreSummariesAction(
     new Map(payload.pairs.map((pair) => [`${pair.groupId}::${pair.lessonId}`, pair])).values(),
   )
 
-  const supabase = await createSupabaseServerClient()
+  try {
+    const { rows } = await query<LessonAssignmentScoreSummary>(
+      `
+        select *
+        from lesson_assignment_score_summaries($1::jsonb)
+      `,
+      [JSON.stringify(uniquePairs)],
+    )
 
-  const { data, error } = await supabase.rpc("lesson_assignment_score_summaries", { pairs: uniquePairs })
+    const parsed = LessonAssignmentScoreSummariesSchema.safeParse(rows ?? [])
 
-  if (error) {
+    if (!parsed.success) {
+      console.error("[lesson-assignment-scores] Invalid payload from lesson_assignment_score_summaries", parsed.error)
+      return LessonAssignmentScoreSummaryResultSchema.parse({ data: null, error: "Invalid lesson score payload." })
+    }
+
+    return LessonAssignmentScoreSummaryResultSchema.parse({ data: parsed.data, error: null })
+  } catch (error) {
     console.error("[lesson-assignment-scores] Failed to load lesson score summaries", error)
+    const message = error instanceof Error ? error.message : "Unable to load lesson scores."
     return LessonAssignmentScoreSummaryResultSchema.parse({
       data: null,
-      error: error.message ?? "Unable to load lesson scores.",
+      error: message,
     })
   }
-
-  const parsed = LessonAssignmentScoreSummariesSchema.safeParse(data ?? [])
-
-  if (!parsed.success) {
-    console.error("[lesson-assignment-scores] Invalid payload from lesson_assignment_score_summaries", parsed.error)
-    return LessonAssignmentScoreSummaryResultSchema.parse({ data: null, error: "Invalid lesson score payload." })
-  }
-
-  return LessonAssignmentScoreSummaryResultSchema.parse({ data: parsed.data, error: null })
 }

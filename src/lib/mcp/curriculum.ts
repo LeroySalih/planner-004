@@ -1,4 +1,4 @@
-import { createSupabaseServiceClient } from "@/lib/supabase/server"
+import { query } from "@/lib/db"
 
 type CurriculumSummary = {
   curriculum_id: string
@@ -7,44 +7,28 @@ type CurriculumSummary = {
 }
 
 export async function listCurriculumSummaries(): Promise<CurriculumSummary[]> {
-  const supabase = createSupabaseServiceClient()
+  const { rows } = await query(
+    "select curriculum_id, title, active from curricula order by title asc",
+  )
 
-  const { data, error } = await supabase
-    .from("curricula")
-    .select("curriculum_id, title, active")
-    .order("title", { ascending: true })
-
-  if (error) {
-    throw new Error(error.message)
-  }
-
-  return (data ?? []).map((entry) => ({
-    curriculum_id: entry.curriculum_id,
-    title: entry.title ?? "",
-    is_active: entry.active ?? false,
+  return (rows ?? []).map((entry) => ({
+    curriculum_id: typeof entry.curriculum_id === "string" ? entry.curriculum_id : String(entry.curriculum_id ?? ""),
+    title: typeof entry.title === "string" ? entry.title : "",
+    is_active: entry.active === true,
   }))
 }
 
 export async function getCurriculumSummary(curriculumId: string): Promise<CurriculumSummary | null> {
-  const supabase = createSupabaseServiceClient()
-
-  const { data, error } = await supabase
-    .from("curricula")
-    .select("curriculum_id, title, active")
-    .eq("curriculum_id", curriculumId)
-    .maybeSingle()
-
-  if (error && error.code !== "PGRST116") {
-    throw new Error(error.message)
-  }
-
-  if (!data) {
-    return null
-  }
+  const { rows } = await query(
+    "select curriculum_id, title, active from curricula where curriculum_id = $1 limit 1",
+    [curriculumId],
+  )
+  const data = rows?.[0] ?? null
+  if (!data) return null
 
   return {
-    curriculum_id: data.curriculum_id,
-    title: data.title ?? "",
-    is_active: data.active ?? false,
+    curriculum_id: typeof data.curriculum_id === "string" ? data.curriculum_id : String(data.curriculum_id ?? ""),
+    title: typeof data.title === "string" ? data.title : "",
+    is_active: data.active === true,
   }
 }

@@ -6,16 +6,11 @@ import { performance } from "node:perf_hooks"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
-import {
-  UnitSchema,
-  UnitsSchema,
-  UnitJobPayloadSchema,
-  UnitMutationStateSchema,
-} from "@/types"
+import { UnitSchema, UnitsSchema, UnitJobPayloadSchema, UnitMutationStateSchema } from "@/types"
 import { requireTeacherProfile, type AuthenticatedProfile } from "@/lib/auth"
-import { createSupabaseServerClient, createSupabaseServiceClient } from "@/lib/supabase/server"
+import { query, withDbClient } from "@/lib/db"
+import { createSupabaseServiceClient } from "@/lib/supabase/server"
 import { withTelemetry } from "@/lib/telemetry"
-import { Client } from "pg"
 
 const UnitsReturnValue = z.object({
   data: UnitsSchema.nullable(),
@@ -26,22 +21,6 @@ const UnitReturnValue = z.object({
   data: UnitSchema.nullable(),
   error: z.string().nullable(),
 })
-
-function resolveConnectionString() {
-  return process.env.POSTSQL_URL ?? process.env.SUPABASE_DB_URL ?? process.env.DATABASE_URL ?? null
-}
-
-function createPgClient() {
-  const connectionString = resolveConnectionString()
-  if (!connectionString) {
-    throw new Error("Database connection is not configured (POSTSQL_URL or SUPABASE_DB_URL missing).")
-  }
-
-  return new Client({
-    connectionString,
-    ssl: connectionString.includes("localhost") ? false : { rejectUnauthorized: false },
-  })
-}
 
 const UNIT_ROUTE_TAG = "/units/[unitId]"
 const UNIT_CHANNEL_NAME = "unit_updates"
@@ -136,26 +115,30 @@ type UnitUpdateJobArgs = {
 
 async function runUnitUpdateJob({ supabase, jobId, unitId, updates }: UnitUpdateJobArgs) {
   try {
-    const payload: Record<string, unknown> = {
-      title: updates.title,
-      subject: updates.subject,
-      description: updates.description,
-    }
+    let updatedUnit: Record<string, unknown> | null = null
+    await withDbClient(async (client) => {
+      const payload: Record<string, unknown> = {
+        title: updates.title,
+        subject: updates.subject,
+        description: updates.description,
+      }
 
-    if (updates.year !== undefined) {
-      payload.year = updates.year
-    }
+      if (updates.year !== undefined) {
+        payload.year = updates.year
+      }
 
-    const { data, error } = await supabase
-      .from("units")
-      .update(payload)
-      .eq("unit_id", unitId)
-      .select()
-      .single()
+      const { rows } = await client.query(
+        `
+          update units
+          set title = $1, subject = $2, description = $3, year = $4
+          where unit_id = $5
+          returning unit_id, title, subject, description, active, year
+        `,
+        [payload.title, payload.subject, payload.description, payload.year ?? null, unitId],
+      )
 
-    if (error) {
-      throw error
-    }
+      updatedUnit = rows[0] ?? null
+    })
 
     await revalidateUnitPaths(unitId)
     await publishUnitJobEvent(supabase, UNIT_UPDATE_EVENT, {
@@ -164,7 +147,7 @@ async function runUnitUpdateJob({ supabase, jobId, unitId, updates }: UnitUpdate
       status: "completed",
       operation: "update",
       message: "Unit updated successfully",
-      unit: data ?? null,
+      unit: updatedUnit,
     })
   } catch (error) {
     const message =
@@ -196,11 +179,7 @@ type UnitDeactivateJobArgs = {
 
 async function runUnitDeactivateJob({ supabase, jobId, unitId }: UnitDeactivateJobArgs) {
   try {
-    const { error } = await supabase.from("units").update({ active: false }).eq("unit_id", unitId)
-
-    if (error) {
-      throw error
-    }
+    await query("update units set active = false where unit_id = $1", [unitId])
 
     await revalidateUnitPaths(unitId)
     await publishUnitJobEvent(supabase, UNIT_DEACTIVATE_EVENT, {
@@ -242,8 +221,6 @@ export async function createUnitAction(
 ) {
   console.log("[v0] Server action started for unit creation:", { unitId, title, subject, year })
 
-  const supabase = await createSupabaseServerClient()
-
   const sanitizedYear =
     typeof year === "number" && Number.isFinite(year)
       ? Math.min(Math.max(Math.trunc(year), 1), 13)
@@ -254,20 +231,17 @@ export async function createUnitAction(
   let lastError: { message: string } | null = null
 
   while (attempt < 5) {
-    const { data, error } = await supabase
-      .from("units")
-      .insert({
-        unit_id: finalUnitId,
-        title,
-        subject,
-        description,
-        year: sanitizedYear,
-        active: true,
-      })
-      .select()
-      .single()
+    try {
+      const { rows } = await query(
+        `
+          insert into units (unit_id, title, subject, description, year, active)
+          values ($1, $2, $3, $4, $5, true)
+          returning unit_id, title, subject, description, active, year
+        `,
+        [finalUnitId, title, subject, description, sanitizedYear],
+      )
 
-    if (!error) {
+      const data = rows[0] ?? null
       console.log("[v0] Server action completed for unit creation:", {
         unitId: finalUnitId,
         title,
@@ -279,22 +253,20 @@ export async function createUnitAction(
       revalidatePath("/units")
       revalidatePath("/assignments")
       return UnitReturnValue.parse({ data, error: null })
+    } catch (error) {
+      const pgError = error as { code?: string; message?: string }
+      lastError = { message: pgError.message ?? "Unable to create unit" }
+
+      if (pgError.code === "23505" && pgError.message?.includes("units_pkey")) {
+        attempt += 1
+        finalUnitId = `${unitId}-${Date.now()}-${attempt}`
+        console.warn("[v0] Duplicate unit_id detected, retrying with suffix", { attempt, finalUnitId })
+        continue
+      }
+
+      console.error("[v0] Server action failed for unit creation:", error)
+      return UnitReturnValue.parse({ data: null, error: pgError.message ?? "Unable to create unit" })
     }
-
-    lastError = error
-
-    if (error.code === "23505" && error.message?.includes("units_pkey")) {
-      attempt += 1
-      finalUnitId = `${unitId}-${Date.now()}-${attempt}`
-      console.warn(
-        "[v0] Duplicate unit_id detected, retrying with suffix",
-        { attempt, finalUnitId },
-      )
-      continue
-    }
-
-    console.error("[v0] Server action failed for unit creation:", error)
-    return UnitReturnValue.parse({ data: null, error: error.message })
   }
 
   console.error("[v0] Server action failed for unit creation after retries:", lastError)
@@ -322,11 +294,11 @@ export async function readUnitAction(
         return UnitReturnValue.parse({ data: null, error: "You do not have permission to view units." })
       }
 
-      const client = createPgClient()
-
       try {
-        await client.connect()
-        const { rows } = await client.query("select unit_id, title, subject, description, active, year from units where unit_id = $1 limit 1", [unitId])
+        const { rows } = await query(
+          "select unit_id, title, subject, description, active, year from units where unit_id = $1 limit 1",
+          [unitId],
+        )
         const row = rows[0] ?? null
 
         if (!row) {
@@ -340,12 +312,6 @@ export async function readUnitAction(
         console.error("[v0] Server action failed for reading unit:", error)
         const message = error instanceof Error ? error.message : "Unable to load unit."
         return UnitReturnValue.parse({ data: null, error: message })
-      } finally {
-        try {
-          await client.end()
-        } catch {
-          // ignore
-        }
       }
     },
   )
@@ -382,10 +348,7 @@ export async function readUnitsAction(options?: {
 
       let error: string | null = null
 
-      const client = createPgClient()
-
       try {
-        await client.connect()
         const filters: string[] = []
         const values: unknown[] = []
 
@@ -412,7 +375,7 @@ export async function readUnitsAction(options?: {
           ${whereClause}
           order by title asc, unit_id asc;
         `
-        const { rows } = await client.query(sql, values)
+        const { rows } = await query(sql, values)
         const data = rows ?? []
 
         console.log("[v0] Server action completed for reading units:", error)
@@ -421,12 +384,6 @@ export async function readUnitsAction(options?: {
         error = queryError instanceof Error ? queryError.message : "Unable to load units."
         console.error("[v0] Failed to read units via direct PG client", queryError)
         return UnitsReturnValue.parse({ data: null, error })
-      } finally {
-        try {
-          await client.end()
-        } catch {
-          // ignore
-        }
       }
     },
   )
@@ -437,8 +394,6 @@ export async function updateUnitAction(
   updates: { title: string; subject: string; description?: string | null; active?: boolean; year?: number | null },
 ) {
   console.log("[v0] Server action started for unit update:", { unitId, updates })
-
-  const supabase = await createSupabaseServerClient()
 
   const payload: Record<string, unknown> = {
     title: updates.title,
@@ -454,40 +409,53 @@ export async function updateUnitAction(
     payload.active = updates.active
   }
 
-  const { data, error } = await supabase
-    .from("units")
-    .update(payload)
-    .eq("unit_id", unitId)
-    .select()
-    .single()
+  try {
+    const { rows } = await query(
+      `
+        update units
+        set title = $1, subject = $2, description = $3, active = coalesce($4, active), year = $5
+        where unit_id = $6
+        returning unit_id, title, subject, description, active, year
+      `,
+      [
+        payload.title,
+        payload.subject,
+        payload.description,
+        typeof payload.active === "boolean" ? payload.active : null,
+        payload.year ?? null,
+        unitId,
+      ],
+    )
 
-  if (error) {
+    const data = rows[0] ?? null
+
+    if (!data) {
+      return UnitReturnValue.parse({ data: null, error: "Unit not found." })
+    }
+
+    console.log("[v0] Server action completed for unit update:", { unitId })
+
+    revalidatePath("/")
+    revalidatePath("/units")
+    revalidatePath("/assignments")
+    revalidatePath(`/units/${unitId}`)
+    return UnitReturnValue.parse({ data, error: null })
+  } catch (error) {
     console.error("[v0] Server action failed for unit update:", error)
-    return UnitReturnValue.parse({ data: null, error: error.message })
+    const message = error instanceof Error ? error.message : "Unable to update unit."
+    return UnitReturnValue.parse({ data: null, error: message })
   }
-
-  console.log("[v0] Server action completed for unit update:", { unitId })
-
-  revalidatePath("/")
-  revalidatePath("/units")
-  revalidatePath("/assignments")
-  revalidatePath(`/units/${unitId}`)
-  return UnitReturnValue.parse({ data, error: null })
 }
 
 export async function deleteUnitAction(unitId: string) {
   console.log("[v0] Server action started for unit deletion:", { unitId })
 
-  const supabase = await createSupabaseServerClient()
-
-  const { error } = await supabase
-    .from("units")
-    .update({ active: false })
-    .eq("unit_id", unitId)
-
-  if (error) {
+  try {
+    await query("update units set active = false where unit_id = $1", [unitId])
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to delete unit."
     console.error("[v0] Server action failed for unit deletion:", error)
-    return { success: false, error: error.message }
+    return { success: false, error: message }
   }
 
   console.log("[v0] Server action completed for unit deletion:", { unitId })

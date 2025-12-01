@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
 import { LessonAssignmentSchema, LessonAssignmentsSchema } from "@/types"
-import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { query } from "@/lib/db"
 
 const LessonAssignmentReturnValue = z.object({
   data: LessonAssignmentSchema.nullable(),
@@ -21,20 +21,15 @@ export type LessonAssignmentActionResult = z.infer<typeof LessonAssignmentReturn
 export async function readLessonAssignmentsAction() {
   console.log("[v0] Server action started for reading lesson assignments")
 
-  const supabase = await createSupabaseServerClient()
-
-  const { data, error } = await supabase
-    .from("lesson_assignments")
-    .select("*")
-
-  if (error) {
+  try {
+    const { rows } = await query("select * from lesson_assignments")
+    console.log("[v0] Server action completed for reading lesson assignments")
+    return LessonAssignmentsReturnValue.parse({ data: rows ?? [], error: null })
+  } catch (error) {
     console.error("[v0] Server action failed for reading lesson assignments:", error)
-    return LessonAssignmentsReturnValue.parse({ data: null, error: error.message })
+    const message = error instanceof Error ? error.message : "Unable to load lesson assignments."
+    return LessonAssignmentsReturnValue.parse({ data: null, error: message })
   }
-
-  console.log("[v0] Server action completed for reading lesson assignments")
-
-  return LessonAssignmentsReturnValue.parse({ data, error: null })
 }
 
 export async function upsertLessonAssignmentAction(groupId: string, lessonId: string, startDate: string) {
@@ -44,50 +39,45 @@ export async function upsertLessonAssignmentAction(groupId: string, lessonId: st
     startDate,
   })
 
-  const supabase = await createSupabaseServerClient()
+  let resultData: Record<string, unknown> | null = null
 
-  const { data: existing, error: readError } = await supabase
-    .from("lesson_assignments")
-    .select("*")
-    .eq("group_id", groupId)
-    .eq("lesson_id", lessonId)
-    .maybeSingle()
+  try {
+    const { rows: existingRows } = await query(
+      `
+        select *
+        from lesson_assignments
+        where group_id = $1 and lesson_id = $2
+        limit 1
+      `,
+      [groupId, lessonId],
+    )
 
-  if (readError && readError.code !== "PGRST116") {
-    console.error("[v0] Server action failed to read existing lesson assignment:", readError)
-    return LessonAssignmentReturnValue.parse({ data: null, error: readError.message })
-  }
-
-  let resultData = existing ?? null
-
-  if (existing) {
-    const { data, error } = await supabase
-      .from("lesson_assignments")
-      .update({ start_date: startDate })
-      .eq("group_id", groupId)
-      .eq("lesson_id", lessonId)
-      .select()
-      .single()
-
-    if (error) {
-      console.error("[v0] Server action failed for updating lesson assignment:", error)
-      return LessonAssignmentReturnValue.parse({ data: null, error: error.message })
+    if (existingRows.length > 0) {
+      const { rows } = await query(
+        `
+          update lesson_assignments
+          set start_date = $1
+          where group_id = $2 and lesson_id = $3
+          returning *
+        `,
+        [startDate, groupId, lessonId],
+      )
+      resultData = rows[0] ?? null
+    } else {
+      const { rows } = await query(
+        `
+          insert into lesson_assignments (group_id, lesson_id, start_date)
+          values ($1, $2, $3)
+          returning *
+        `,
+        [groupId, lessonId, startDate],
+      )
+      resultData = rows[0] ?? null
     }
-
-    resultData = data
-  } else {
-    const { data, error } = await supabase
-      .from("lesson_assignments")
-      .insert({ group_id: groupId, lesson_id: lessonId, start_date: startDate })
-      .select()
-      .single()
-
-    if (error) {
-      console.error("[v0] Server action failed for inserting lesson assignment:", error)
-      return LessonAssignmentReturnValue.parse({ data: null, error: error.message })
-    }
-
-    resultData = data
+  } catch (error) {
+    console.error("[v0] Server action failed for upserting lesson assignment:", error)
+    const message = error instanceof Error ? error.message : "Unable to save lesson assignment."
+    return LessonAssignmentReturnValue.parse({ data: null, error: message })
   }
 
   console.log("[v0] Server action completed for upserting lesson assignment:", {
@@ -103,17 +93,19 @@ export async function upsertLessonAssignmentAction(groupId: string, lessonId: st
 export async function deleteLessonAssignmentAction(groupId: string, lessonId: string) {
   console.log("[v0] Server action started for deleting lesson assignment:", { groupId, lessonId })
 
-  const supabase = await createSupabaseServerClient()
+  try {
+    const { rowCount } = await query(
+      "delete from lesson_assignments where group_id = $1 and lesson_id = $2",
+      [groupId, lessonId],
+    )
 
-  const { error } = await supabase
-    .from("lesson_assignments")
-    .delete()
-    .eq("group_id", groupId)
-    .eq("lesson_id", lessonId)
-
-  if (error) {
+    if (rowCount === 0) {
+      return { success: false, error: "Lesson assignment not found." }
+    }
+  } catch (error) {
     console.error("[v0] Server action failed for deleting lesson assignment:", error)
-    return { success: false, error: error.message }
+    const message = error instanceof Error ? error.message : "Unable to delete lesson assignment."
+    return { success: false, error: message }
   }
 
   console.log("[v0] Server action completed for deleting lesson assignment:", { groupId, lessonId })

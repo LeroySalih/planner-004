@@ -234,47 +234,36 @@ export async function readAssignmentResultsAction(
       const { groupId, lessonId } = identifiers
 
       try {
-        const supabase = await createSupabaseServiceClient()
-
-        const [groupResult, lessonResult, assignmentResult] = await Promise.all([
-          supabase
-            .from("groups")
-            .select("group_id, subject")
-            .eq("group_id", groupId)
-            .maybeSingle(),
-          supabase
-            .from("lessons")
-            .select("lesson_id, unit_id, title")
-            .eq("lesson_id", lessonId)
-            .maybeSingle(),
-          supabase
-            .from("lesson_assignments")
-            .select("group_id, lesson_id, start_date, feedback_visible")
-            .eq("group_id", groupId)
-            .eq("lesson_id", lessonId)
-            .maybeSingle(),
+        const [groupRowResult, lessonRowResult, assignmentRowResult] = await Promise.all([
+          query("select group_id, subject from groups where group_id = $1 limit 1", [groupId]),
+          query("select lesson_id, unit_id, title from lessons where lesson_id = $1 limit 1", [lessonId]),
+          query(
+            "select group_id, lesson_id, start_date, feedback_visible from lesson_assignments where group_id = $1 and lesson_id = $2 limit 1",
+            [groupId, lessonId],
+          ),
         ])
 
-        if (groupResult.error) {
-          console.error("[assignment-results] Failed to load group:", groupResult.error)
-          return AssignmentResultsReturnSchema.parse({ data: null, error: "Unable to load group information." })
-        }
+        const groupRow = groupRowResult.rows?.[0] ?? null
+        const lessonRow = lessonRowResult.rows?.[0] ?? null
+        const assignmentRow = assignmentRowResult.rows?.[0] ?? null
 
-        if (lessonResult.error) {
-          console.error("[assignment-results] Failed to load lesson:", lessonResult.error)
-          return AssignmentResultsReturnSchema.parse({ data: null, error: "Unable to load lesson information." })
-        }
-
-        if (!groupResult.data || !lessonResult.data) {
+        if (!groupRow || !lessonRow) {
           return AssignmentResultsReturnSchema.parse({ data: null, error: "Assignment context not found." })
         }
 
-        const { data: membershipRows, error: membershipError } = await supabase
-          .from("group_membership")
-          .select("user_id, role")
-          .eq("group_id", groupId)
-
-        if (membershipError) {
+        let membershipRows: Array<{ user_id: string; role: string | null }> = []
+        try {
+          const { rows } = await query(
+            "select user_id, role from group_membership where group_id = $1",
+            [groupId],
+          )
+          membershipRows = (rows ?? [])
+            .filter((entry) => typeof entry.user_id === "string")
+            .map((entry) => ({
+              user_id: entry.user_id as string,
+              role: typeof entry.role === "string" ? entry.role : null,
+            }))
+        } catch (membershipError) {
           console.error("[assignment-results] Failed to load group membership:", membershipError)
           return AssignmentResultsReturnSchema.parse({
             data: null,
@@ -289,39 +278,26 @@ export async function readAssignmentResultsAction(
         const emailByUserId = new Map<string, string>()
 
         if (pupilIds.length > 0) {
-          const { data: profileRows, error: profileError } = await supabase
-            .from("profiles")
-            .select("user_id, first_name, last_name")
-            .in("user_id", pupilIds)
-
-          if (profileError) {
-            console.error("[assignment-results] Failed to load pupil profiles:", profileError)
-          } else {
+          try {
+            const { rows: profileRows } = await query(
+              "select user_id, first_name, last_name, email from profiles where user_id = any($1::text[])",
+              [pupilIds],
+            )
             for (const profile of profileRows ?? []) {
-              if (!profile?.user_id) continue
-              profilesByUserId.set(profile.user_id, {
+              if (typeof profile?.user_id !== "string") continue
+              const userId = profile.user_id as string
+              profilesByUserId.set(userId, {
                 firstName: typeof profile.first_name === "string" ? profile.first_name : null,
                 lastName: typeof profile.last_name === "string" ? profile.last_name : null,
               })
+              if (typeof profile.email === "string" && profile.email.length > 0) {
+                emailByUserId.set(userId, profile.email)
+              }
             }
+          } catch (profileError) {
+            console.error("[assignment-results] Failed to load pupil profiles:", profileError)
           }
         }
-
-    if (pupilIds.length > 0) {
-      try {
-        const { rows } = await query<{ user_id: string; email: string | null }>(
-          "select user_id, email from profiles where user_id = any($1::text[])",
-          [pupilIds],
-        )
-        rows.forEach(({ user_id, email }) => {
-          if (email) {
-            emailByUserId.set(user_id, email)
-          }
-        })
-      } catch (error) {
-        console.error("[assignment-results] Unable to fetch pupil emails from profiles table.", error)
-      }
-    }
 
     const pupils = pupilIds
       .map((userId) => {
@@ -338,14 +314,19 @@ export async function readAssignmentResultsAction(
       })
       .sort((a, b) => a.displayName.localeCompare(b.displayName, undefined, { sensitivity: "base" }))
 
-    const { data: activityRows, error: activityError } = await supabase
-      .from("activities")
-      .select("activity_id, title, type, order_by, body_data, active, is_summative")
-      .eq("lesson_id", lessonId)
-      .eq("active", true)
-      .order("order_by", { ascending: true, nullsFirst: true })
-
-    if (activityError) {
+    let activityRows: Array<Record<string, any>> = []
+    try {
+      const { rows } = await query(
+        `
+          select activity_id, title, type, order_by, body_data, active, is_summative
+          from activities
+          where lesson_id = $1 and active = true
+          order by order_by asc nulls first
+        `,
+        [lessonId],
+      )
+      activityRows = rows ?? []
+    } catch (activityError) {
       console.error("[assignment-results] Failed to load activities:", activityError)
       return AssignmentResultsReturnSchema.parse({
         data: null,
@@ -376,12 +357,17 @@ export async function readAssignmentResultsAction(
     >()
 
     if (activityIds.length > 0) {
-      const { data: activitySuccessCriteriaRows, error: activitySuccessCriteriaError } = await supabase
-        .from("activity_success_criteria")
-        .select("activity_id, success_criteria_id")
-        .in("activity_id", activityIds)
-
-      if (activitySuccessCriteriaError) {
+      let activitySuccessCriteriaRows: Array<{ activity_id: string | null; success_criteria_id: string | null }> = []
+      try {
+        const { rows } = await query(
+          "select activity_id, success_criteria_id from activity_success_criteria where activity_id = any($1::text[])",
+          [activityIds],
+        )
+        activitySuccessCriteriaRows = (rows ?? []).map((row) => ({
+          activity_id: typeof row?.activity_id === "string" ? row.activity_id : null,
+          success_criteria_id: typeof row?.success_criteria_id === "string" ? row.success_criteria_id : null,
+        }))
+      } catch (activitySuccessCriteriaError) {
         console.error("[assignment-results] Failed to load activity success criteria:", activitySuccessCriteriaError)
         return AssignmentResultsReturnSchema.parse({
           data: null,
@@ -407,25 +393,23 @@ export async function readAssignmentResultsAction(
       >()
 
       if (successCriteriaIds.length > 0) {
-        const { data: successCriteriaRows, error: successCriteriaError } = await supabase
-          .from("success_criteria")
-          .select("success_criteria_id, description, level")
-          .in("success_criteria_id", successCriteriaIds)
-
-        if (successCriteriaError) {
-          console.error(
-            "[assignment-results] Failed to load success criteria details:",
-            successCriteriaError,
+        try {
+          const { rows: successCriteriaRows } = await query(
+            "select success_criteria_id, description, level from success_criteria where success_criteria_id = any($1::text[])",
+            [successCriteriaIds],
           )
-        } else {
           for (const criterion of successCriteriaRows ?? []) {
-            if (!criterion?.success_criteria_id) continue
-            successCriteriaDetails.set(criterion.success_criteria_id, {
+            const criterionId =
+              typeof criterion?.success_criteria_id === "string" ? criterion.success_criteria_id : null
+            if (!criterionId) continue
+            successCriteriaDetails.set(criterionId, {
               title: null,
               description: typeof criterion.description === "string" ? criterion.description : null,
               level: typeof criterion.level === "number" ? criterion.level : null,
             })
           }
+        } catch (successCriteriaError) {
+          console.error("[assignment-results] Failed to load success criteria details:", successCriteriaError)
         }
       }
 
@@ -507,26 +491,37 @@ export async function readAssignmentResultsAction(
     }> = []
 
     if (activityIds.length > 0 && pupilIds.length > 0) {
-      const { data: submissions, error: submissionsError } = await supabase
-        .from("submissions")
-        .select("submission_id, activity_id, user_id, submitted_at, body")
-        .in("activity_id", activityIds)
-        .in("user_id", pupilIds)
+      try {
+        const { rows } = await query(
+          `
+            select submission_id, activity_id, user_id, submitted_at, body
+            from submissions
+            where activity_id = any($1::text[])
+              and user_id = any($2::text[])
+          `,
+          [activityIds, pupilIds],
+        )
 
-      if (submissionsError) {
+        submissionRows = (rows ?? []).map((row) => ({
+          submission_id: typeof row?.submission_id === "string" ? row.submission_id : null,
+          activity_id: typeof row?.activity_id === "string" ? row.activity_id : null,
+          user_id: typeof row?.user_id === "string" ? row.user_id : null,
+          submitted_at:
+            typeof row?.submitted_at === "string" || row?.submitted_at instanceof Date ? row.submitted_at : null,
+          body: row?.body ?? null,
+        }))
+      } catch (submissionsError) {
         console.error("[assignment-results] Failed to load submissions:", submissionsError)
         return AssignmentResultsReturnSchema.parse({
           data: null,
           error: "Unable to load submissions.",
         })
       }
-
-      submissionRows = submissions ?? []
     }
 
     let feedbackLookupMap: FeedbackLookupMap = new Map()
     if (activityIds.length > 0 && pupilIds.length > 0) {
-      const feedbackLookup = await fetchPupilActivityFeedbackMap(supabase, { activityIds, pupilIds })
+      const feedbackLookup = await fetchPupilActivityFeedbackMap({ activityIds, pupilIds })
       if (feedbackLookup.error) {
         console.error("[assignment-results] Failed to load feedback entries for assignment:", feedbackLookup.error)
       } else {
@@ -658,8 +653,9 @@ export async function readAssignmentResultsAction(
       )
     }
 
-    const resolvedLessonId = lessonResult.data?.lesson_id ?? null
+    const resolvedLessonId = typeof lessonRow?.lesson_id === "string" ? lessonRow.lesson_id : null
     if (resolvedLessonId) {
+      const supabase = await createSupabaseServiceClient()
       const uploadPresenceChecks: Array<{ key: string; activityId: string; pupilId: string }> = []
       for (const pupil of pupils) {
         for (const activity of activities) {
@@ -868,25 +864,21 @@ export async function readAssignmentResultsAction(
 
     const result = AssignmentResultMatrixSchema.parse({
       assignmentId: parsedInput.data.assignmentId,
-      group: groupResult.data
+      group: {
+        groupId: groupRow.group_id,
+        subject: groupRow.subject ?? null,
+      },
+      lesson: {
+        lessonId: lessonRow.lesson_id,
+        title: lessonRow.title ?? "Untitled lesson",
+        unitId: lessonRow.unit_id ?? null,
+      },
+      assignment: assignmentRow
         ? {
-            groupId: groupResult.data.group_id,
-            subject: groupResult.data.subject ?? null,
-          }
-        : null,
-      lesson: lessonResult.data
-        ? {
-            lessonId: lessonResult.data.lesson_id,
-            title: lessonResult.data.title ?? "Untitled lesson",
-            unitId: lessonResult.data.unit_id ?? null,
-          }
-        : null,
-      assignment: assignmentResult.data
-        ? {
-            groupId: assignmentResult.data.group_id,
-            lessonId: assignmentResult.data.lesson_id,
-            startDate: normaliseDate(assignmentResult.data.start_date),
-            feedbackVisible: Boolean(assignmentResult.data.feedback_visible),
+            groupId: assignmentRow.group_id,
+            lessonId: assignmentRow.lesson_id,
+            startDate: normaliseDate(assignmentRow.start_date),
+            feedbackVisible: Boolean(assignmentRow.feedback_visible),
           }
         : {
             groupId,
@@ -950,24 +942,34 @@ export async function updateAssignmentFeedbackVisibilityAction(
         })
       }
 
-      const supabase = await createSupabaseServiceClient()
-      const { data, error } = await supabase
-        .from("lesson_assignments")
-        .update({ feedback_visible: parsed.data.feedbackVisible })
-        .eq("group_id", identifiers.groupId)
-        .eq("lesson_id", identifiers.lessonId)
-        .select("feedback_visible")
-        .maybeSingle()
+      let updatedVisible = parsed.data.feedbackVisible
 
-      if (error || !data) {
-        console.error("[assignment-results] Failed to update feedback visibility:", error ?? null)
+      try {
+        const { rows } = await query(
+          `
+            update lesson_assignments
+            set feedback_visible = $1
+            where group_id = $2 and lesson_id = $3
+            returning feedback_visible
+          `,
+          [parsed.data.feedbackVisible, identifiers.groupId, identifiers.lessonId],
+        )
+
+        const row = rows?.[0]
+        if (!row) {
+          return AssignmentFeedbackVisibilityResultSchema.parse({
+            success: false,
+            error: "Unable to update feedback visibility.",
+          })
+        }
+        updatedVisible = Boolean(row.feedback_visible)
+      } catch (error) {
+        console.error("[assignment-results] Failed to update feedback visibility:", error)
         return AssignmentFeedbackVisibilityResultSchema.parse({
           success: false,
           error: "Unable to update feedback visibility.",
         })
       }
-
-      const updatedVisible = Boolean(data.feedback_visible)
 
       await publishAssignmentFeedbackVisibilityUpdate(parsed.data.assignmentId, {
         feedbackVisible: updatedVisible,
@@ -1038,42 +1040,43 @@ async function detectPendingUploadSubmissions(
   return results
 }
 
-async function getSubmissionRow(
-  supabase: Awaited<ReturnType<typeof createSupabaseServiceClient>>,
-  activityId: string,
-  pupilId: string,
-  submissionId: string | null,
-) {
-  if (submissionId) {
-    const { data, error } = await supabase
-      .from("submissions")
-      .select("submission_id, body, submitted_at")
-      .eq("submission_id", submissionId)
-      .maybeSingle()
+async function getSubmissionRow(activityId: string, pupilId: string, submissionId: string | null) {
+  try {
+    if (submissionId) {
+      const { rows } = await query(
+        `
+          select submission_id, body, submitted_at
+          from submissions
+          where submission_id = $1
+          limit 1
+        `,
+        [submissionId],
+      )
 
-    if (error) {
-      return { data: null, error }
+      const data = rows?.[0] ?? null
+      if (data) {
+        return { data, error: null }
+      }
     }
 
-    if (data) {
-      return { data, error: null }
-    }
+    const { rows } = await query(
+      `
+        select submission_id, body, submitted_at
+        from submissions
+        where activity_id = $1
+          and user_id = $2
+        order by submitted_at desc nulls last
+        limit 1
+      `,
+      [activityId, pupilId],
+    )
+
+    const data = rows?.[0] ?? null
+    return { data, error: null }
+  } catch (error) {
+    console.error("[assignment-results] Failed to load submission row:", error)
+    return { data: null, error: error instanceof Error ? error : new Error("Unable to load submission.") }
   }
-
-  const { data, error } = await supabase
-    .from("submissions")
-    .select("submission_id, body, submitted_at")
-    .eq("activity_id", activityId)
-    .eq("user_id", pupilId)
-    .order("submitted_at", { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  if (error) {
-    return { data: null, error }
-  }
-
-  return { data, error: null }
 }
 
 export async function overrideAssignmentScoreAction(
@@ -1113,21 +1116,11 @@ export async function overrideAssignmentScoreAction(
       }
 
       try {
-        const supabase = await createSupabaseServiceClient()
-
-        const { data: activityRow, error: activityError } = await supabase
-          .from("activities")
-          .select("activity_id, type")
-          .eq("activity_id", parsed.data.activityId)
-          .maybeSingle()
-
-        if (activityError) {
-          console.error("[assignment-results] Failed to load activity for override:", activityError)
-          return MutateAssignmentScoreReturnSchema.parse({
-            success: false,
-            error: "Unable to load activity.",
-          })
-        }
+        const { rows: activityRows } = await query(
+          "select activity_id, type from activities where activity_id = $1 limit 1",
+          [parsed.data.activityId],
+        )
+        const activityRow = activityRows?.[0] ?? null
 
         if (!activityRow) {
           return MutateAssignmentScoreReturnSchema.parse({
@@ -1136,9 +1129,9 @@ export async function overrideAssignmentScoreAction(
           })
         }
 
-        const type = (activityRow.type ?? "").trim()
+        const type = typeof activityRow.type === "string" ? activityRow.type.trim() : ""
 
-        const successCriteriaIds = await fetchActivitySuccessCriteriaIds(supabase, parsed.data.activityId)
+        const successCriteriaIds = await fetchActivitySuccessCriteriaIds(parsed.data.activityId)
 
         const buildOverrideScores = (existing?: Record<string, number | null>) =>
           parsed.data.criterionScores
@@ -1153,12 +1146,7 @@ export async function overrideAssignmentScoreAction(
                 fillValue: parsed.data.score,
               })
 
-        const submissionLookup = await getSubmissionRow(
-          supabase,
-          parsed.data.activityId,
-          parsed.data.pupilId,
-          parsed.data.submissionId,
-        )
+        const submissionLookup = await getSubmissionRow(parsed.data.activityId, parsed.data.pupilId, parsed.data.submissionId)
 
         if (submissionLookup.error) {
           console.error("[assignment-results] Failed to load submission for override:", submissionLookup.error)
@@ -1168,7 +1156,8 @@ export async function overrideAssignmentScoreAction(
           })
         }
 
-        let submissionId = submissionLookup.data?.submission_id ?? null
+        let submissionId =
+          typeof submissionLookup.data?.submission_id === "string" ? submissionLookup.data.submission_id : null
         let submittedAt = normaliseTimestamp(submissionLookup.data?.submitted_at) ?? new Date().toISOString()
         const currentBody = submissionLookup.data?.body
 
@@ -1233,47 +1222,38 @@ export async function overrideAssignmentScoreAction(
         }
 
         if (submissionId) {
-          const { error: updateError } = await supabase
-            .from("submissions")
-            .update({
-              body: nextBody,
-              submitted_at: submittedAt,
-            })
-            .eq("submission_id", submissionId)
-
-          if (updateError) {
-            console.error("[assignment-results] Failed to apply score override:", updateError)
-            return MutateAssignmentScoreReturnSchema.parse({
-              success: false,
-              error: "Unable to save override.",
-            })
-          }
+          await query(
+            `
+              update submissions
+              set body = $1, submitted_at = $2
+              where submission_id = $3
+            `,
+            [nextBody, submittedAt, submissionId],
+          )
         } else {
-          const { data: insertedSubmission, error: insertError } = await supabase
-            .from("submissions")
-            .insert({
-              activity_id: parsed.data.activityId,
-              user_id: parsed.data.pupilId,
-              submitted_at: submittedAt,
-              body: nextBody,
-            })
-            .select("submission_id, submitted_at")
-            .single()
+          const { rows: insertedRows } = await query(
+            `
+              insert into submissions (activity_id, user_id, submitted_at, body)
+              values ($1, $2, $3, $4)
+              returning submission_id, submitted_at
+            `,
+            [parsed.data.activityId, parsed.data.pupilId, submittedAt, nextBody],
+          )
 
-          if (insertError) {
-            console.error("[assignment-results] Failed to create submission for override:", insertError)
+          const insertedSubmission = insertedRows?.[0] ?? null
+          if (!insertedSubmission) {
             return MutateAssignmentScoreReturnSchema.parse({
               success: false,
               error: "Unable to save override.",
             })
           }
 
-          submissionId = insertedSubmission?.submission_id ?? null
-          submittedAt = normaliseTimestamp(insertedSubmission?.submitted_at) ?? submittedAt
+          submissionId =
+            typeof insertedSubmission.submission_id === "string" ? insertedSubmission.submission_id : null
+          submittedAt = normaliseTimestamp(insertedSubmission.submitted_at) ?? submittedAt
         }
 
         await insertPupilActivityFeedbackEntry({
-          supabase,
           activityId: parsed.data.activityId,
           pupilId: parsed.data.pupilId,
           submissionId,
@@ -1342,21 +1322,11 @@ export async function resetAssignmentScoreAction(
       }
 
       try {
-        const supabase = await createSupabaseServiceClient()
-
-        const { data: activityRow, error: activityError } = await supabase
-          .from("activities")
-          .select("activity_id, type")
-          .eq("activity_id", parsed.data.activityId)
-          .maybeSingle()
-
-        if (activityError) {
-          console.error("[assignment-results] Failed to load activity for reset:", activityError)
-          return MutateAssignmentScoreReturnSchema.parse({
-            success: false,
-            error: "Unable to load activity.",
-          })
-        }
+        const { rows: activityRows } = await query(
+          "select activity_id, type from activities where activity_id = $1 limit 1",
+          [parsed.data.activityId],
+        )
+        const activityRow = activityRows?.[0] ?? null
 
         if (!activityRow) {
           return MutateAssignmentScoreReturnSchema.parse({
@@ -1365,12 +1335,7 @@ export async function resetAssignmentScoreAction(
           })
         }
 
-        const submissionLookup = await getSubmissionRow(
-          supabase,
-          parsed.data.activityId,
-          parsed.data.pupilId,
-          parsed.data.submissionId,
-        )
+        const submissionLookup = await getSubmissionRow(parsed.data.activityId, parsed.data.pupilId, parsed.data.submissionId)
 
         if (submissionLookup.error) {
           console.error("[assignment-results] Failed to load submission for reset:", submissionLookup.error)
@@ -1387,12 +1352,19 @@ export async function resetAssignmentScoreAction(
           })
         }
 
-        const submissionId = submissionLookup.data.submission_id
+        const submissionId =
+          typeof submissionLookup.data.submission_id === "string" ? submissionLookup.data.submission_id : null
+        if (!submissionId) {
+          return MutateAssignmentScoreReturnSchema.parse({
+            success: false,
+            error: "Submission not found for this pupil.",
+          })
+        }
         const body = submissionLookup.data.body ?? {}
 
         let nextBody: Record<string, unknown> = {}
-        const successCriteriaIds = await fetchActivitySuccessCriteriaIds(supabase, parsed.data.activityId)
-        const type = (activityRow.type ?? "").trim()
+        const successCriteriaIds = await fetchActivitySuccessCriteriaIds(parsed.data.activityId)
+        const type = typeof activityRow.type === "string" ? activityRow.type.trim() : ""
 
         if (body && typeof body === "object") {
           const record = body as Record<string, unknown>
@@ -1444,14 +1416,9 @@ export async function resetAssignmentScoreAction(
           }
         }
 
-        const { error: updateError } = await supabase
-          .from("submissions")
-          .update({
-            body: nextBody,
-          })
-          .eq("submission_id", submissionId)
-
-        if (updateError) {
+        try {
+          await query("update submissions set body = $1 where submission_id = $2", [nextBody, submissionId])
+        } catch (updateError) {
           console.error("[assignment-results] Failed to reset score override:", updateError)
           return MutateAssignmentScoreReturnSchema.parse({
             success: false,
@@ -1460,7 +1427,6 @@ export async function resetAssignmentScoreAction(
         }
 
         await insertPupilActivityFeedbackEntry({
-          supabase,
           activityId: parsed.data.activityId,
           pupilId: parsed.data.pupilId,
           submissionId,
@@ -1513,22 +1479,11 @@ export async function clearActivityAiMarksAction(
       authEndTime,
     },
     async () => {
-      const supabase = await createSupabaseServiceClient()
-
-      const { data: activityRow, error: activityError } = await supabase
-        .from("activities")
-        .select("activity_id, type")
-        .eq("activity_id", parsedInput.data.activityId)
-        .maybeSingle()
-
-      if (activityError) {
-        console.error("[assignment-results] Failed to load activity for AI clear:", activityError)
-        return ClearAiMarksResultSchema.parse({
-          success: false,
-          error: "Unable to load activity.",
-          cleared: 0,
-        })
-      }
+      const { rows: activityRows } = await query(
+        "select activity_id, type from activities where activity_id = $1 limit 1",
+        [parsedInput.data.activityId],
+      )
+      const activityRow = activityRows?.[0] ?? null
 
       if (!activityRow) {
         return ClearAiMarksResultSchema.parse({
@@ -1538,7 +1493,9 @@ export async function clearActivityAiMarksAction(
         })
       }
 
-      if ((activityRow.type ?? "").trim() !== SHORT_TEXT_ACTIVITY_TYPE) {
+      const activityType = typeof activityRow.type === "string" ? activityRow.type.trim() : ""
+
+      if (activityType !== SHORT_TEXT_ACTIVITY_TYPE) {
         return ClearAiMarksResultSchema.parse({
           success: false,
           error: "Only short-text activities support AI marks.",
@@ -1546,12 +1503,20 @@ export async function clearActivityAiMarksAction(
         })
       }
 
-      const { data: submissions, error: submissionsError } = await supabase
-        .from("submissions")
-        .select("submission_id, body, user_id")
-        .eq("activity_id", parsedInput.data.activityId)
-
-      if (submissionsError) {
+      let submissions: Array<{ submission_id: string; body: unknown; user_id: string }> = []
+      try {
+        const { rows } = await query(
+          "select submission_id, body, user_id from submissions where activity_id = $1",
+          [parsedInput.data.activityId],
+        )
+        submissions = (rows ?? [])
+          .filter((row) => typeof row?.submission_id === "string" && typeof row?.user_id === "string")
+          .map((row) => ({
+            submission_id: row.submission_id as string,
+            body: row.body ?? null,
+            user_id: row.user_id as string,
+          }))
+      } catch (submissionsError) {
         console.error("[assignment-results] Failed to read submissions for AI clear:", submissionsError)
         return ClearAiMarksResultSchema.parse({
           success: false,
@@ -1560,7 +1525,7 @@ export async function clearActivityAiMarksAction(
         })
       }
 
-      const successCriteriaIds = await fetchActivitySuccessCriteriaIds(supabase, parsedInput.data.activityId)
+      const successCriteriaIds = await fetchActivitySuccessCriteriaIds(parsedInput.data.activityId)
       let clearedCount = 0
 
       for (const submission of submissions ?? []) {
@@ -1597,12 +1562,12 @@ export async function clearActivityAiMarksAction(
           }),
         })
 
-        const { error: updateError } = await supabase
-          .from("submissions")
-          .update({ body: nextBody })
-          .eq("submission_id", submission.submission_id)
-
-        if (updateError) {
+        try {
+          await query("update submissions set body = $1 where submission_id = $2", [
+            nextBody,
+            submission.submission_id,
+          ])
+        } catch (updateError) {
           console.error("[assignment-results] Failed to clear AI mark for submission:", {
             submissionId: submission.submission_id,
             error: updateError,
@@ -1612,7 +1577,6 @@ export async function clearActivityAiMarksAction(
 
         if (typeof submission.user_id === "string" && submission.user_id.trim().length > 0) {
           await insertPupilActivityFeedbackEntry({
-            supabase,
             activityId: parsedInput.data.activityId,
             pupilId: submission.user_id,
             submissionId: submission.submission_id ?? null,

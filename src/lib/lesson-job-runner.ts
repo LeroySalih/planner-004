@@ -100,7 +100,7 @@ export async function publishLessonSnapshotEvent({
   type,
   fallbackMessage = null,
 }: SnapshotEventOptions) {
-  const { data: snapshot, error } = await fetchLessonDetailPayload(lessonId, supabase)
+  const { data: snapshot, error } = await fetchLessonDetailPayload(lessonId)
 
   await publishLessonMutationEventWithClient(supabase, {
     job_id: jobId,

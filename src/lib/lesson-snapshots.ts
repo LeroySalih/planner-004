@@ -1,27 +1,25 @@
 "use server"
 
-import type { SupabaseClient } from "@supabase/supabase-js"
 import { z } from "zod"
 
 import { LessonDetailPayloadSchema, type LessonDetailPayload } from "@/lib/lesson-snapshot-schema"
-import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { query } from "@/lib/db"
 
 export async function fetchLessonDetailPayload(
   lessonId: string,
-  supabaseOverride?: SupabaseClient,
 ): Promise<{ data: LessonDetailPayload | null; error: string | null }> {
-  const supabase = supabaseOverride ?? (await createSupabaseServerClient())
+  try {
+    const { rows } = await query("select lesson_detail_bootstrap($1) as payload", [lessonId])
+    const data = rows?.[0]?.payload ?? null
 
-  const { data, error } = await supabase.rpc("lesson_detail_bootstrap", { p_lesson_id: lessonId })
+    const parsed = LessonDetailPayloadSchema.safeParse(data)
+    if (!parsed.success) {
+      return { data: null, error: "Unable to parse lesson detail payload" }
+    }
 
-  if (error) {
-    return { data: null, error: error.message }
+    return { data: parsed.data, error: null }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to load lesson detail."
+    return { data: null, error: message }
   }
-
-  const parsed = LessonDetailPayloadSchema.safeParse(data)
-  if (!parsed.success) {
-    return { data: null, error: "Unable to parse lesson detail payload" }
-  }
-
-  return { data: parsed.data, error: null }
 }

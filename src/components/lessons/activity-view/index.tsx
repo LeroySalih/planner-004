@@ -1471,10 +1471,33 @@ function ShortTextPresentView({ activity, lessonId }: { activity: LessonActivity
         }
 
         setError(result.error ?? null)
-        const rows = result.data ?? []
-        setSubmissions(rows)
+        const rows = result.submissions ?? []
+        const normalizedRows: ShortTextSubmissionRow[] = rows.map((row) => {
+          const body = (row.body ?? {}) as Record<string, unknown>
+          const submittedAt =
+            typeof row.submitted_at === "string"
+              ? row.submitted_at
+              : row.submitted_at instanceof Date
+                ? row.submitted_at.toISOString()
+                : null
+
+          return {
+            submissionId: row.submission_id,
+            activityId: row.activity_id,
+            userId: row.user_id,
+            submittedAt,
+            answer: typeof body.answer === "string" ? body.answer : "",
+            aiModelScore: typeof body.ai_model_score === "number" ? body.ai_model_score : null,
+            teacherOverrideScore:
+              typeof body.teacher_override_score === "number" ? body.teacher_override_score : null,
+            isCorrect: body.is_correct === true,
+            profile: null,
+          }
+        })
+
+        setSubmissions(normalizedRows)
         const drafts: Record<string, string> = {}
-        rows.forEach((row) => {
+        normalizedRows.forEach((row) => {
           drafts[row.submissionId] =
             row.teacherOverrideScore !== null && Number.isFinite(row.teacherOverrideScore)
               ? row.teacherOverrideScore.toFixed(2)
@@ -1550,14 +1573,7 @@ function ShortTextPresentView({ activity, lessonId }: { activity: LessonActivity
               description: result.error ?? "Please try again shortly.",
             })
           } else {
-            const failedCount = result.failed.filter((entry) => entry.error).length
-            if (failedCount > 0) {
-              toast.warning("Marked with warnings", {
-                description: `${result.updated} answers updated, ${failedCount} could not be processed.`,
-              })
-            } else {
-              toast.success("All answers have been marked.")
-            }
+            toast.success("Submission marked.")
             setRefreshKey((previous) => previous + 1)
             triggerFeedbackRefresh(lessonId ?? null)
           }

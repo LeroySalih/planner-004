@@ -1,17 +1,7 @@
 "use server"
 
-import { z } from "zod"
-
-import { AssignmentsBootstrapPayloadSchema } from "@/types"
-import { createSupabaseServerClient } from "@/lib/supabase/server"
 import { withTelemetry } from "@/lib/telemetry"
-
-const AssignmentsBootstrapReturnSchema = z.object({
-  data: AssignmentsBootstrapPayloadSchema.nullable(),
-  error: z.string().nullable(),
-})
-
-export type AssignmentsBootstrapResult = z.infer<typeof AssignmentsBootstrapReturnSchema>
+import { query } from "@/lib/db"
 
 export async function readAssignmentsBootstrapAction(options?: { authEndTime?: number | null; routeTag?: string }) {
   const routeTag = options?.routeTag ?? "/assignments:bootstrap"
@@ -24,23 +14,14 @@ export async function readAssignmentsBootstrapAction(options?: { authEndTime?: n
       authEndTime: options?.authEndTime ?? null,
     },
     async () => {
-      const supabase = await createSupabaseServerClient()
-
-      const { data, error } = await supabase.rpc("assignments_bootstrap")
-
-      if (error) {
-        console.error("[assignments] Failed to load bootstrap payload", error)
-        return AssignmentsBootstrapReturnSchema.parse({ data: null, error: error.message })
+      try {
+        const { rows } = await query("select * from assignments_bootstrap")
+        return { data: rows ?? [], error: null }
+      } catch (error) {
+        console.error("[assignments-bootstrap] Failed to load bootstrap data", error)
+        const message = error instanceof Error ? error.message : "Unable to load assignments bootstrap."
+        return { data: null, error: message }
       }
-
-      const parsed = AssignmentsBootstrapPayloadSchema.safeParse(data)
-
-      if (!parsed.success) {
-        console.error("[assignments] Invalid payload from assignments_bootstrap", parsed.error)
-        return AssignmentsBootstrapReturnSchema.parse({ data: null, error: "Invalid assignments payload" })
-      }
-
-      return AssignmentsBootstrapReturnSchema.parse({ data: parsed.data, error: null })
     },
   )
 }

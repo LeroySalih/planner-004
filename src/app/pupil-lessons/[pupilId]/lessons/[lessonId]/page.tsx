@@ -22,7 +22,6 @@ import { PupilShortTextActivity } from "@/components/pupil/pupil-short-text-acti
 import { LegacyMcqSubmissionBodySchema, McqSubmissionBodySchema, ShortTextSubmissionBodySchema } from "@/types"
 import { ActivityProgressPanel } from "./activity-progress-panel"
 import { extractScoreFromSubmission } from "@/lib/scoring/activity-scores"
-import { createSupabaseServerClient } from "@/lib/supabase/server"
 import { fetchPupilActivityFeedbackMap, selectLatestFeedbackEntry } from "@/lib/feedback/pupil-activity-feedback"
 
 type McqOption = { id: string; text: string }
@@ -248,8 +247,7 @@ export default async function PupilLessonFriendlyPage({
   const latestFeedbackByActivity = new Map<string, string | null>()
   if (activityIds.length > 0) {
     try {
-      const supabase = await createSupabaseServerClient()
-      const feedbackLookup = await fetchPupilActivityFeedbackMap(supabase, {
+      const feedbackLookup = await fetchPupilActivityFeedbackMap({
         activityIds,
         pupilIds: [pupilId],
       })

@@ -2,7 +2,7 @@
 
 // --file: src/actions/units/get-units.ts
 
-import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { query } from "@/lib/db"
 import { UnitsSchema } from "./types";
 
 import {z} from "zod";
@@ -18,15 +18,8 @@ export async function getUnits() {
 
     try {
 
-        const supabase = await createSupabaseServerClient()
-
-        const result = await supabase
-                .from("units")
-                .select("*")
-
-        if (result.error) throw new Error(result.error.message);
-
-        data = result.data;
+        const { rows } = await query("select * from units")
+        data = rows ?? [];
 
     } catch (err) { 
         console.error("Error fetching units:", err);

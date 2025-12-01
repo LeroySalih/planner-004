@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
-import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { query } from "@/lib/db"
 
 const LessonLinkSchema = z.object({
   lesson_link_id: z.string(),
@@ -18,20 +18,23 @@ const LessonLinksReturnValue = z.object({
 })
 
 export async function listLessonLinksAction(lessonId: string) {
-  const supabase = await createSupabaseServerClient()
+  try {
+    const { rows } = await query(
+      `
+        select lesson_link_id, lesson_id, url, description
+        from lesson_links
+        where lesson_id = $1
+        order by lesson_link_id
+      `,
+      [lessonId],
+    )
 
-  const { data, error } = await supabase
-    .from("lesson_links")
-    .select("*")
-    .eq("lesson_id", lessonId)
-    .order("lesson_link_id")
-
-  if (error) {
+    return LessonLinksReturnValue.parse({ data: rows ?? [], error: null })
+  } catch (error) {
     console.error("[v0] Failed to list lesson links:", error)
-    return LessonLinksReturnValue.parse({ data: null, error: error.message })
+    const message = error instanceof Error ? error.message : "Unable to list lesson links."
+    return LessonLinksReturnValue.parse({ data: null, error: message })
   }
-
-  return LessonLinksReturnValue.parse({ data, error: null })
 }
 
 export async function createLessonLinkAction(
@@ -40,26 +43,34 @@ export async function createLessonLinkAction(
   url: string,
   description: string | null,
 ) {
-  const supabase = await createSupabaseServerClient()
+  try {
+    const { rows } = await query<{
+      lesson_link_id: string
+      lesson_id: string
+      url: string
+      description: string | null
+    }>(
+      `
+        insert into lesson_links (lesson_id, url, description)
+        values ($1, $2, $3)
+        returning lesson_link_id, lesson_id, url, description
+      `,
+      [lessonId, url, description],
+    )
 
-  const { data, error } = await supabase
-    .from("lesson_links")
-    .insert({
-      lesson_id: lessonId,
-      url,
-      description,
-    })
-    .select("*")
-    .single()
+    const data = rows[0] ?? null
+    if (!data) {
+      return { success: false, error: "Unable to create lesson link.", data: null }
+    }
 
-  if (error) {
+    revalidatePath(`/units/${unitId}`)
+    revalidatePath(`/lessons/${lessonId}`)
+    return { success: true, data }
+  } catch (error) {
     console.error("[v0] Failed to create lesson link:", error)
-    return { success: false, error: error.message, data: null }
+    const message = error instanceof Error ? error.message : "Unable to create lesson link."
+    return { success: false, error: message, data: null }
   }
-
-  revalidatePath(`/units/${unitId}`)
-  revalidatePath(`/lessons/${lessonId}`)
-  return { success: true, data }
 }
 
 export async function updateLessonLinkAction(
@@ -69,39 +80,51 @@ export async function updateLessonLinkAction(
   url: string,
   description: string | null,
 ) {
-  const supabase = await createSupabaseServerClient()
+  try {
+    const { rows } = await query<{
+      lesson_link_id: string
+      lesson_id: string
+      url: string
+      description: string | null
+    }>(
+      `
+        update lesson_links
+        set url = $1, description = $2
+        where lesson_link_id = $3
+        returning lesson_link_id, lesson_id, url, description
+      `,
+      [url, description, lessonLinkId],
+    )
 
-  const { data, error } = await supabase
-    .from("lesson_links")
-    .update({ url, description })
-    .eq("lesson_link_id", lessonLinkId)
-    .select("*")
-    .single()
+    const data = rows[0] ?? null
+    if (!data) {
+      return { success: false, error: "Lesson link not found.", data: null }
+    }
 
-  if (error) {
+    revalidatePath(`/units/${unitId}`)
+    revalidatePath(`/lessons/${lessonId}`)
+    return { success: true, data }
+  } catch (error) {
     console.error("[v0] Failed to update lesson link:", error)
-    return { success: false, error: error.message, data: null }
+    const message = error instanceof Error ? error.message : "Unable to update lesson link."
+    return { success: false, error: message, data: null }
   }
-
-  revalidatePath(`/units/${unitId}`)
-  revalidatePath(`/lessons/${lessonId}`)
-  return { success: true, data }
 }
 
 export async function deleteLessonLinkAction(unitId: string, lessonId: string, lessonLinkId: string) {
-  const supabase = await createSupabaseServerClient()
+  try {
+    const { rowCount } = await query("delete from lesson_links where lesson_link_id = $1", [lessonLinkId])
 
-  const { error } = await supabase
-    .from("lesson_links")
-    .delete()
-    .eq("lesson_link_id", lessonLinkId)
+    if (rowCount === 0) {
+      return { success: false, error: "Lesson link not found." }
+    }
 
-  if (error) {
+    revalidatePath(`/units/${unitId}`)
+    revalidatePath(`/lessons/${lessonId}`)
+    return { success: true }
+  } catch (error) {
     console.error("[v0] Failed to delete lesson link:", error)
-    return { success: false, error: error.message }
+    const message = error instanceof Error ? error.message : "Unable to delete lesson link."
+    return { success: false, error: message }
   }
-
-  revalidatePath(`/units/${unitId}`)
-  revalidatePath(`/lessons/${lessonId}`)
-  return { success: true }
 }

@@ -3,8 +3,6 @@
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
-import type { SupabaseClient } from "@supabase/supabase-js"
-
 import {
   LessonActivitySchema,
   LessonActivitiesSchema,
@@ -14,12 +12,10 @@ import {
   FeedbackActivityBodySchema,
   type FeedbackActivityGroupSettings,
 } from "@/types"
-import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { query, withDbClient } from "@/lib/db"
 import { withTelemetry } from "@/lib/telemetry"
 import { isScorableActivityType } from "@/dino.config"
 import { enqueueLessonMutationJob } from "@/lib/lesson-job-runner"
-
-type SupabaseServerClient = Awaited<ReturnType<typeof createSupabaseServerClient>>
 
 const LessonActivitiesReturnValue = z.object({
   data: LessonActivitiesSchema.nullable(),
@@ -67,19 +63,23 @@ export async function listLessonActivitiesAction(
       authEndTime: options?.authEndTime ?? null,
     },
     async () => {
-      const supabase = await createSupabaseServerClient()
-
-      const { data, error } = await supabase
-        .from("activities")
-        .select("*")
-        .eq("lesson_id", lessonId)
-        .eq("active", true)
-        .order("order_by", { ascending: true, nullsFirst: true })
-        .order("title", { ascending: true })
-
-      if (error) {
+      let data: Array<Record<string, unknown>> = []
+      try {
+        const { rows } = await query(
+          `
+            select *
+            from activities
+            where lesson_id = $1
+              and active = true
+            order by order_by asc nulls first, title asc
+          `,
+          [lessonId],
+        )
+        data = rows ?? []
+      } catch (error) {
         console.error("[v0] Failed to list lesson activities:", error)
-        return LessonActivitiesReturnValue.parse({ data: null, error: error.message })
+        const message = error instanceof Error ? error.message : "Unable to list activities."
+        return LessonActivitiesReturnValue.parse({ data: null, error: message })
       }
 
       const sorted = (data ?? []).sort((a, b) => {
@@ -88,10 +88,12 @@ export async function listLessonActivitiesAction(
         if (aOrder !== bOrder) {
           return aOrder - bOrder
         }
-        return (a.title ?? "").localeCompare(b.title ?? "")
+        const aTitle = typeof a.title === "string" ? a.title : ""
+        const bTitle = typeof b.title === "string" ? b.title : ""
+        return aTitle.localeCompare(bTitle)
       })
 
-      const { data: enriched, error: scError } = await enrichActivitiesWithSuccessCriteria(supabase, sorted)
+      const { data: enriched, error: scError } = await enrichActivitiesWithSuccessCriteria(sorted)
 
       if (scError) {
         console.error("[v0] Failed to read activity success criteria:", scError)
@@ -133,71 +135,86 @@ export async function createLessonActivityAction(
     }
   }
 
-  const supabase = await createSupabaseServerClient()
+  let createdActivity: Record<string, unknown> | null = null
 
-  const { data: maxOrderActivity, error: maxOrderError } = await supabase
-    .from("activities")
-    .select("order_by")
-    .eq("lesson_id", lessonId)
-    .order("order_by", { ascending: false, nullsFirst: false })
-    .limit(1)
-    .maybeSingle()
-
-  if (maxOrderError) {
-    console.error("[v0] Failed to read existing activity order:", maxOrderError)
-    return { success: false, error: maxOrderError.message, data: null }
-  }
-
-  const nextOrder = typeof maxOrderActivity?.order_by === "number" ? maxOrderActivity.order_by + 1 : 0
-
-  const { data, error } = await supabase
-    .from("activities")
-    .insert({
-      lesson_id: lessonId,
-      title: payload.title,
-      type: payload.type,
-      body_data: normalizedBody.bodyData,
-      is_homework: payload.isHomework ?? false,
-      is_summative: isSummativeAllowed ? isSummativeRequested : false,
-      order_by: nextOrder,
-      active: true,
-    })
-    .select("*")
-    .single()
-
-  if (error) {
-    console.error("[v0] Failed to create lesson activity:", error)
-    return { success: false, error: error.message, data: null }
-  }
-
-  if (successCriteriaIds.length > 0) {
-    const { error: linkError } = await supabase
-      .from("activity_success_criteria")
-      .insert(
-        successCriteriaIds.map((successCriteriaId) => ({
-          activity_id: data.activity_id,
-          success_criteria_id: successCriteriaId,
-        })),
+  try {
+    await withDbClient(async (client) => {
+      const { rows: maxOrderRows } = await client.query(
+        `
+          select order_by
+          from activities
+          where lesson_id = $1
+          order by order_by desc nulls last
+          limit 1
+        `,
+        [lessonId],
       )
 
-    if (linkError) {
-      console.error("[v0] Failed to link success criteria to activity:", linkError)
-      await supabase.from("activities").delete().eq("activity_id", data.activity_id)
-      return { success: false, error: linkError.message, data: null }
-    }
+      const maxOrder = maxOrderRows[0]?.order_by
+      const nextOrder = typeof maxOrder === "number" ? maxOrder + 1 : 0
+
+      const { rows } = await client.query(
+        `
+          insert into activities (
+            lesson_id, title, type, body_data, is_homework, is_summative, order_by, active
+          )
+          values ($1, $2, $3, $4, $5, $6, $7, true)
+          returning *
+        `,
+        [
+          lessonId,
+          payload.title,
+          payload.type,
+          normalizedBody.bodyData,
+          payload.isHomework ?? false,
+          isSummativeAllowed ? isSummativeRequested : false,
+          nextOrder,
+        ],
+      )
+
+      createdActivity = rows[0] ?? null
+
+      if (!createdActivity) {
+        throw new Error("Unable to create lesson activity.")
+      }
+
+      if (successCriteriaIds.length > 0) {
+        await client.query(
+          `
+            insert into activity_success_criteria (activity_id, success_criteria_id)
+            select $1, unnest($2::text[])
+          `,
+          [createdActivity.activity_id, successCriteriaIds],
+        )
+      }
+    })
+  } catch (error) {
+    console.error("[v0] Failed to create lesson activity:", error)
+    const message = error instanceof Error ? error.message : "Unable to create lesson activity."
+    return { success: false, error: message, data: null }
   }
 
-  const { data: hydratedRows, error: hydrationError } = await enrichActivitiesWithSuccessCriteria(supabase, [data])
+  const { data: hydratedRows, error: hydrationError } = await enrichActivitiesWithSuccessCriteria(
+    createdActivity ? [createdActivity] : [],
+  )
 
   if (hydrationError) {
     console.error("[v0] Failed to hydrate created activity success criteria:", hydrationError)
     return { success: false, error: hydrationError, data: null }
   }
 
-  const hydratedActivity = hydratedRows[0] ?? {
-    ...data,
-    success_criteria_ids: successCriteriaIds,
-    success_criteria: [],
+  const hydratedActivity = (hydratedRows[0] ?? createdActivity) as Record<string, unknown> | null
+  if (!hydratedActivity) {
+    return { success: false, error: "Unable to load created activity.", data: null }
+  }
+
+  const normalizedActivity: Record<string, unknown> = {
+    ...hydratedActivity,
+    success_criteria_ids:
+      Array.isArray((hydratedActivity as Record<string, unknown>)?.success_criteria_ids)
+        ? (hydratedActivity as Record<string, unknown>).success_criteria_ids
+        : successCriteriaIds,
+    success_criteria: (hydratedActivity as Record<string, unknown>)?.success_criteria ?? [],
   }
 
   revalidatePath(`/units/${unitId}`)
@@ -205,7 +222,7 @@ export async function createLessonActivityAction(
 
   return {
     success: true,
-    data: LessonActivitySchema.parse(hydratedActivity),
+    data: LessonActivitySchema.parse(normalizedActivity),
   }
 }
 
@@ -218,23 +235,30 @@ export async function updateLessonActivityAction(
   const payload = UpdateActivityInputSchema.parse(input)
   const updates: Record<string, unknown> = {}
 
-  const supabase = await createSupabaseServerClient()
-
   const nextSuccessCriteriaIds =
     payload.successCriteriaIds !== undefined
       ? normalizeSuccessCriteriaIds(payload.successCriteriaIds)
       : null
 
-  const { data: existing, error: existingError } = await supabase
-    .from("activities")
-    .select("*")
-    .eq("activity_id", activityId)
-    .eq("lesson_id", lessonId)
-    .single()
-
-  if (existingError) {
-    console.error("[v0] Failed to load activity for update:", existingError)
-    return { success: false, error: existingError.message, data: null }
+  let existing: any = null
+  try {
+    const { rows } = await query(
+      `
+        select *
+        from activities
+        where activity_id = $1 and lesson_id = $2
+        limit 1
+      `,
+      [activityId, lessonId],
+    )
+    existing = rows[0] ?? null
+    if (!existing) {
+      return { success: false, error: "Activity not found.", data: null }
+    }
+  } catch (error) {
+    console.error("[v0] Failed to load activity for update:", error)
+    const message = error instanceof Error ? error.message : "Unable to load activity."
+    return { success: false, error: message, data: null }
   }
 
   const finalType = typeof payload.type === "string" ? payload.type : existing.type
@@ -292,76 +316,79 @@ export async function updateLessonActivityAction(
   let updatedActivityRow = existing
 
   if (Object.keys(updates).length > 0) {
-    const { data, error } = await supabase
-      .from("activities")
-      .update(updates)
-      .eq("activity_id", activityId)
-      .eq("lesson_id", lessonId)
-      .select("*")
-      .single()
-
-    if (error) {
-      console.error("[v0] Failed to update lesson activity:", error)
-      return { success: false, error: error.message, data: null }
+    const setFragments: string[] = []
+    const values: unknown[] = []
+    let idx = 1
+    for (const [key, value] of Object.entries(updates)) {
+      setFragments.push(`${key} = $${idx++}`)
+      values.push(value)
     }
+    values.push(activityId)
+    values.push(lessonId)
 
-    updatedActivityRow = data
+    try {
+      const { rows } = await query(
+        `
+          update activities
+          set ${setFragments.join(", ")}
+          where activity_id = $${idx} and lesson_id = $${idx + 1}
+          returning *
+        `,
+        values,
+      )
+      updatedActivityRow = rows[0] ?? updatedActivityRow
+    } catch (error) {
+      console.error("[v0] Failed to update lesson activity:", error)
+      const message = error instanceof Error ? error.message : "Unable to update activity."
+      return { success: false, error: message, data: null }
+    }
   }
 
   if (nextSuccessCriteriaIds !== null) {
-    const { data: existingLinksRows, error: readLinksError } = await supabase
-      .from("activity_success_criteria")
-      .select("success_criteria_id")
-      .eq("activity_id", activityId)
+    try {
+      const { rows: existingLinksRows } = await query<{ success_criteria_id: string }>(
+        "select success_criteria_id from activity_success_criteria where activity_id = $1",
+        [activityId],
+      )
 
-    if (readLinksError) {
-      console.error("[v0] Failed to read existing activity success criteria:", readLinksError)
-      return { success: false, error: readLinksError.message, data: null }
-    }
+      const existingIds = Array.from(
+        new Set(
+          (existingLinksRows ?? [])
+            .map((row) => row?.success_criteria_id)
+            .filter((id): id is string => typeof id === "string" && id.trim().length > 0),
+        ),
+      )
 
-    const existingIds = Array.from(
-      new Set(
-        (existingLinksRows ?? [])
-          .map((row) => row?.success_criteria_id)
-          .filter((id): id is string => typeof id === "string" && id.trim().length > 0),
-      ),
-    )
+      const toInsert = nextSuccessCriteriaIds.filter((id) => !existingIds.includes(id))
+      const toDelete = existingIds.filter((id) => !nextSuccessCriteriaIds.includes(id))
 
-    const toInsert = nextSuccessCriteriaIds.filter((id) => !existingIds.includes(id))
-    const toDelete = existingIds.filter((id) => !nextSuccessCriteriaIds.includes(id))
-
-    if (toDelete.length > 0) {
-      const { error: deleteLinksError } = await supabase
-        .from("activity_success_criteria")
-        .delete()
-        .eq("activity_id", activityId)
-        .in("success_criteria_id", toDelete)
-
-      if (deleteLinksError) {
-        console.error("[v0] Failed to remove activity success criteria links:", deleteLinksError)
-        return { success: false, error: deleteLinksError.message, data: null }
-      }
-    }
-
-    if (toInsert.length > 0) {
-      const { error: insertLinksError } = await supabase
-        .from("activity_success_criteria")
-        .insert(
-          toInsert.map((successCriteriaId) => ({
-            activity_id: activityId,
-            success_criteria_id: successCriteriaId,
-          })),
+      if (toDelete.length > 0) {
+        await query(
+          `
+            delete from activity_success_criteria
+            where activity_id = $1 and success_criteria_id = any($2::text[])
+          `,
+          [activityId, toDelete],
         )
-
-      if (insertLinksError) {
-        console.error("[v0] Failed to add activity success criteria links:", insertLinksError)
-        return { success: false, error: insertLinksError.message, data: null }
       }
+
+      if (toInsert.length > 0) {
+        await query(
+          `
+            insert into activity_success_criteria (activity_id, success_criteria_id)
+            select $1, unnest($2::text[])
+          `,
+          [activityId, toInsert],
+        )
+      }
+    } catch (error) {
+      console.error("[v0] Failed to update activity success criteria links:", error)
+      const message = error instanceof Error ? error.message : "Unable to update activity links."
+      return { success: false, error: message, data: null }
     }
   }
 
   const { data: hydratedRows, error: hydrationError } = await enrichActivitiesWithSuccessCriteria(
-    supabase,
     [updatedActivityRow],
   )
 
@@ -398,28 +425,29 @@ export async function reorderLessonActivitiesAction(
   }
 
   const activityIds = payload.map((entry) => entry.activityId)
-  const supabase = await createSupabaseServerClient()
+  try {
+    const { rows: existing } = await query<{ activity_id: string }>(
+      `
+        select activity_id
+        from activities
+        where lesson_id = $1 and activity_id = any($2::text[])
+      `,
+      [lessonId, activityIds],
+    )
 
-  const { data: existing, error: existingError } = await supabase
-    .from("activities")
-    .select("activity_id")
-    .eq("lesson_id", lessonId)
-    .in("activity_id", activityIds)
-
-  if (existingError) {
-    console.error("[v0] Failed to verify lesson activities for reorder:", existingError)
+    if ((existing ?? []).length !== activityIds.length) {
+      return LessonJobResponseSchema.parse({
+        status: "error",
+        jobId: null,
+        message: "Some activities were not found for this lesson.",
+      })
+    }
+  } catch (error) {
+    console.error("[v0] Failed to verify lesson activities for reorder:", error)
     return LessonJobResponseSchema.parse({
       status: "error",
       jobId: null,
-      message: existingError.message,
-    })
-  }
-
-  if ((existing ?? []).length !== activityIds.length) {
-    return LessonJobResponseSchema.parse({
-      status: "error",
-      jobId: null,
-      message: "Some activities were not found for this lesson.",
+      message: error instanceof Error ? error.message : "Unable to verify activities.",
     })
   }
 
@@ -428,36 +456,41 @@ export async function reorderLessonActivitiesAction(
     unitId,
     type: "lesson.activities.reorder",
     message: "Activity reorder queued.",
-    executor: async ({ supabase }) => {
-      await applyLessonActivitiesReorder(supabase, lessonId, payload)
+    executor: async () => {
+      await applyLessonActivitiesReorder(lessonId, payload)
       revalidatePath(`/units/${unitId}`)
       revalidatePath(`/lessons/${lessonId}`)
     },
   })
 }
 
+async function applyLessonActivitiesReorder(
+  lessonId: string,
+  activities: Array<{ activityId: string; orderBy: number }>,
+) {
+  await withDbClient(async (client) => {
+    for (const entry of activities) {
+      await client.query(
+        "update activities set order_by = $1 where activity_id = $2 and lesson_id = $3",
+        [entry.orderBy, entry.activityId, lessonId],
+      )
+    }
+  })
+}
+
 export async function deleteLessonActivityAction(unitId: string, lessonId: string, activityId: string) {
-  const supabase = await createSupabaseServerClient()
-
-  const { error: linkDeleteError } = await supabase
-    .from("activity_success_criteria")
-    .delete()
-    .eq("activity_id", activityId)
-
-  if (linkDeleteError) {
-    console.error("[v0] Failed to remove success criteria for activity:", linkDeleteError)
-    return { success: false, error: linkDeleteError.message }
-  }
-
-  const { error } = await supabase
-    .from("activities")
-    .delete()
-    .eq("activity_id", activityId)
-    .eq("lesson_id", lessonId)
-
-  if (error) {
+  try {
+    await withDbClient(async (client) => {
+      await client.query("delete from activity_success_criteria where activity_id = $1", [activityId])
+      await client.query(
+        "delete from activities where activity_id = $1 and lesson_id = $2",
+        [activityId, lessonId],
+      )
+    })
+  } catch (error) {
     console.error("[v0] Failed to delete lesson activity:", error)
-    return { success: false, error: error.message }
+    const message = error instanceof Error ? error.message : "Unable to delete lesson activity."
+    return { success: false, error: message }
   }
 
   revalidatePath(`/units/${unitId}`)
@@ -488,7 +521,6 @@ function normalizeSuccessCriteriaIds(value: readonly string[] | undefined): stri
 }
 
 async function enrichActivitiesWithSuccessCriteria(
-  supabase: SupabaseServerClient,
   activities: Array<Record<string, unknown>>,
 ): Promise<{ data: Array<Record<string, unknown>>; error: string | null }> {
   if (activities.length === 0) {
@@ -521,431 +553,167 @@ async function enrichActivitiesWithSuccessCriteria(
     }
   }
 
-  const { data: linkRows, error: linksError } = await supabase
-    .from("activity_success_criteria")
-    .select("activity_id, success_criteria_id")
-    .in("activity_id", activityIds)
+  try {
+    const { rows: links } = await query<{ activity_id: string; success_criteria_id: string }>(
+      `
+        select activity_id, success_criteria_id
+        from activity_success_criteria
+        where activity_id = any($1::text[])
+      `,
+      [activityIds],
+    )
 
-  if (linksError) {
-    return { data: [], error: linksError.message }
-  }
-
-  const normalizedLinks =
-    linkRows?.filter(
-      (row): row is { activity_id: string; success_criteria_id: string } =>
-        typeof row?.activity_id === "string" &&
-        row.activity_id.trim().length > 0 &&
-        typeof row?.success_criteria_id === "string" &&
-        row.success_criteria_id.trim().length > 0,
-    ) ?? []
-
-  const criteriaIds = Array.from(new Set(normalizedLinks.map((row) => row.success_criteria_id)))
-
-  const criteriaMap = new Map<
-    string,
-    { success_criteria_id: string; learning_objective_id: string | null; description: string | null; level: number | null; active: boolean | null }
-  >()
-
-  const objectiveMap = new Map<string, { title: string | null }>()
-
-  if (criteriaIds.length > 0) {
-    const { data: criteriaRows, error: criteriaError } = await supabase
-      .from("success_criteria")
-      .select("success_criteria_id, learning_objective_id, description, level, active")
-      .in("success_criteria_id", criteriaIds)
-
-    if (criteriaError) {
-      return { data: [], error: criteriaError.message }
-    }
-
-    const normalizedCriteria =
-      criteriaRows?.map((row) => ({
-        success_criteria_id: row?.success_criteria_id ?? "",
-        learning_objective_id: row?.learning_objective_id ?? null,
-        description: typeof row?.description === "string" ? row.description : null,
-        level: typeof row?.level === "number" ? row.level : null,
-        active: typeof row?.active === "boolean" ? row.active : null,
-      })) ?? []
-
-    normalizedCriteria.forEach((criterion) => {
-      if (criterion.success_criteria_id) {
-        criteriaMap.set(criterion.success_criteria_id, criterion)
-      }
-    })
-
-    const objectiveIds = Array.from(
+    const successCriteriaIds = Array.from(
       new Set(
-        normalizedCriteria
-          .map((criterion) => criterion.learning_objective_id)
+        (links ?? [])
+          .map((row) => row?.success_criteria_id)
           .filter((id): id is string => typeof id === "string" && id.trim().length > 0),
       ),
     )
 
-    if (objectiveIds.length > 0) {
-      const { data: objectiveRows, error: objectiveError } = await supabase
-        .from("learning_objectives")
-        .select("learning_objective_id, title")
-        .in("learning_objective_id", objectiveIds)
+    let successCriteriaDetails: Array<{
+      success_criteria_id: string
+      learning_objective_id: string | null
+      description: string | null
+      level: number | null
+    }> = []
 
-      if (objectiveError) {
-        return { data: [], error: objectiveError.message }
-      }
-
-      objectiveRows?.forEach((objective) => {
-        const id = typeof objective?.learning_objective_id === "string" ? objective.learning_objective_id : null
-        if (!id) return
-        const title =
-          typeof objective?.title === "string" && objective.title.trim().length > 0
-            ? objective.title.trim()
-            : null
-        objectiveMap.set(id, { title })
-      })
-    }
-  }
-
-  const linksByActivity = normalizedLinks.reduce<Map<string, string[]>>((acc, row) => {
-    const existing = acc.get(row.activity_id) ?? []
-    if (!existing.includes(row.success_criteria_id)) {
-      existing.push(row.success_criteria_id)
-    }
-    acc.set(row.activity_id, existing)
-    return acc
-  }, new Map())
-
-  const enriched = activities.map((activity) => {
-    const activityId = typeof activity.activity_id === "string" ? activity.activity_id : ""
-    const linkedIds = linksByActivity.get(activityId) ?? []
-    const uniqueIds = Array.from(new Set(linkedIds))
-
-    const successCriteria = uniqueIds
-      .map((id) => {
-        const base = criteriaMap.get(id)
-        if (!base) {
-          return null
-        }
-
-        const objectiveTitle =
-          base.learning_objective_id && objectiveMap.has(base.learning_objective_id)
-            ? objectiveMap.get(base.learning_objective_id)?.title ?? null
-            : null
-
-        const rawTitle =
-          (typeof base.description === "string" && base.description.trim().length > 0
-            ? base.description.trim()
-            : null) ??
-          (objectiveTitle && objectiveTitle.trim().length > 0 ? objectiveTitle.trim() : null)
-
-        return {
-          success_criteria_id: id,
-          learning_objective_id: base.learning_objective_id,
-          title: rawTitle ?? "Success criterion",
-          description: base.description,
-          level: base.level,
-          active: base.active,
-        }
-      })
-      .filter(
-        (
-          entry,
-        ): entry is {
-          success_criteria_id: string
-          learning_objective_id: string | null
-          title: string
-          description: string | null
-          level: number | null
-          active: boolean | null
-        } => entry !== null,
+    if (successCriteriaIds.length > 0) {
+      const { rows: criteriaRows } = await query<{
+        success_criteria_id: string
+        learning_objective_id: string | null
+        description: string | null
+        level: number | null
+      }>(
+        `
+          select success_criteria_id, learning_objective_id, description, level
+          from success_criteria
+          where success_criteria_id = any($1::text[])
+        `,
+        [successCriteriaIds],
       )
-
-    return {
-      ...activity,
-      success_criteria_ids: uniqueIds,
-      success_criteria: successCriteria,
+      successCriteriaDetails = criteriaRows ?? []
     }
-  })
 
-  return { data: enriched, error: null }
-}
+    const detailMap = new Map<
+      string,
+      { description: string | null; level: number | null; learning_objective_id: string | null }
+    >()
+    for (const row of successCriteriaDetails ?? []) {
+      if (!row?.success_criteria_id) continue
+      detailMap.set(row.success_criteria_id, {
+        description: typeof row.description === "string" ? row.description : null,
+        level: typeof row.level === "number" ? row.level : null,
+        learning_objective_id: typeof row.learning_objective_id === "string" ? row.learning_objective_id : null,
+      })
+    }
 
-async function applyLessonActivitiesReorder(
-  supabase: SupabaseClient,
-  lessonId: string,
-  payload: z.infer<typeof ReorderActivityInputSchema>,
-) {
-  const { error } = await supabase
-    .from("activities")
-    .upsert(
-      payload.map((entry) => ({
-        activity_id: entry.activityId,
-        order_by: entry.orderBy,
-      })),
-      { onConflict: "activity_id" },
-    )
+    const payload = activities.map((activity) => {
+      const linkedIds = (links ?? [])
+        .filter((link) => link.activity_id === activity.activity_id)
+        .map((link) => link.success_criteria_id)
 
-  if (error) {
-    console.error("[v0] Failed to reorder lesson activities:", error)
-    throw error
+      return {
+        ...activity,
+        success_criteria_ids: linkedIds,
+        success_criteria: linkedIds.map((id) => {
+          const details = detailMap.get(id) ?? {
+            description: null,
+            level: null,
+            learning_objective_id: null,
+          }
+
+          const title =
+            (details.description && details.description.trim().length > 0 ? details.description.trim() : null) ??
+            "Success criterion"
+
+          return {
+            success_criteria_id: id,
+            learning_objective_id: details.learning_objective_id,
+            description: details.description,
+            level: details.level,
+            title,
+          }
+        }),
+      }
+    })
+
+    return { data: payload, error: null }
+  } catch (error) {
+    console.error("[v0] Failed to load activity success criteria links/details:", error)
+    const message = error instanceof Error ? error.message : "Unable to load activity success criteria."
+    return { data: [], error: message }
   }
-}
-
-const TextActivityBodySchema = z.object({ text: z.string() }).passthrough()
-const UploadFileBodySchema = z
-  .object({
-    instructions: z.string().nullable().optional(),
-  })
-  .passthrough()
-const VideoActivityBodySchema = z.object({ fileUrl: z.string() }).passthrough()
-const VoiceActivityBodySchema = z
-  .object({
-    audioFile: z.string().min(1).nullable().optional(),
-    mimeType: z.string().nullable().optional(),
-    duration: z.number().nonnegative().nullable().optional(),
-    size: z.number().nonnegative().nullable().optional(),
-  })
-  .passthrough()
-const FeedbackGroupDefaults: FeedbackActivityGroupSettings = {
-  isEnabled: false,
-  showScore: false,
-  showCorrectAnswers: false,
 }
 
 function normalizeActivityBody(
   type: string,
-  rawBody: unknown,
-  options: { allowFallback?: boolean } = {},
-):
-  | { success: true; bodyData: unknown }
-  | { success: false; error: string } {
-  const { allowFallback = false } = options
-
-  if (type === "text") {
-    if (rawBody === undefined || rawBody === null) {
-      return { success: true, bodyData: { text: "" } }
-    }
-
-    if (typeof rawBody === "string") {
-      return { success: true, bodyData: { text: rawBody } }
-    }
-
-    if (typeof rawBody === "object") {
-      const parsed = TextActivityBodySchema.safeParse(rawBody)
-      if (parsed.success) {
-        return { success: true, bodyData: { text: parsed.data.text } }
-      }
-    }
-
-    if (allowFallback) {
-      return { success: true, bodyData: { text: "" } }
-    }
-
-    return { success: false, error: "Text activities require textual content." }
+  bodyData: unknown,
+  options?: { allowFallback?: boolean },
+): { success: true; bodyData: unknown } | { success: false; error: string } {
+  if (!type) {
+    return { success: false, error: "Activity type is required." }
   }
 
-  if (type === "show-video") {
-    if (rawBody === undefined || rawBody === null) {
-      return { success: true, bodyData: { fileUrl: "" } }
-    }
-
-    if (typeof rawBody === "string") {
-      return { success: true, bodyData: { fileUrl: rawBody } }
-    }
-
-    if (typeof rawBody === "object") {
-      const parsed = VideoActivityBodySchema.safeParse(rawBody)
-      if (parsed.success) {
-        return { success: true, bodyData: { fileUrl: parsed.data.fileUrl } }
-      }
-    }
-
-    if (allowFallback) {
-      return { success: true, bodyData: { fileUrl: "" } }
-    }
-
-    return { success: false, error: "Video activities require a URL." }
+  const trimmed = typeof type === "string" ? type.trim() : ""
+  if (!trimmed) {
+    return { success: false, error: "Activity type is required." }
   }
 
-  if (type === "voice") {
-    if (rawBody === undefined || rawBody === null) {
-      return { success: true, bodyData: { audioFile: null } }
-    }
-
-    if (typeof rawBody === "object") {
-      const parsed = VoiceActivityBodySchema.safeParse(rawBody)
-      if (parsed.success) {
-        const { audioFile = null, mimeType = null, duration = null, size = null, ...rest } = parsed.data
-        return {
-          success: true,
-          bodyData: {
-            audioFile,
-            mimeType,
-            duration,
-            size,
-            ...rest,
-          },
-        }
+  switch (trimmed) {
+    case "mcq": {
+      const parsed = McqActivityBodySchema.safeParse(bodyData)
+      if (!parsed.success) {
+        return { success: false, error: "Invalid multiple-choice activity body." }
       }
+      return { success: true, bodyData: parsed.data }
     }
-
-    if (allowFallback) {
-      return { success: true, bodyData: { audioFile: null } }
-    }
-
-    return { success: false, error: "Voice activities require a recording." }
-  }
-
-  if (type === "upload-file") {
-    if (rawBody === undefined || rawBody === null) {
-      return { success: true, bodyData: { instructions: "" } }
-    }
-
-    if (typeof rawBody === "string") {
-      return { success: true, bodyData: { instructions: rawBody } }
-    }
-
-    if (typeof rawBody === "object") {
-      const parsed = UploadFileBodySchema.safeParse(rawBody)
-      if (parsed.success) {
-        const instructions = parsed.data.instructions ?? ""
-        return { success: true, bodyData: { ...parsed.data, instructions } }
+    case "short-text-question": {
+      const parsed = ShortTextActivityBodySchema.safeParse(bodyData)
+      if (!parsed.success) {
+        return { success: false, error: "Invalid short text activity body." }
       }
+      return { success: true, bodyData: parsed.data }
     }
-
-    if (allowFallback) {
-      return { success: true, bodyData: { instructions: "" } }
-    }
-
-    return { success: false, error: "Upload file activities require instructions." }
-  }
-
-  if (type === "multiple-choice-question") {
-    const defaultOptions = [
-      { id: "option-a", text: "" },
-      { id: "option-b", text: "" },
-      { id: "option-c", text: "" },
-      { id: "option-d", text: "" },
-    ] as const
-
-    const defaultBody = {
-      question: "",
-      imageFile: null,
-      imageUrl: null,
-      imageAlt: null,
-      options: [...defaultOptions],
-      correctOptionId: defaultOptions[0].id,
-    }
-
-    if (rawBody === undefined || rawBody === null) {
-      return { success: true, bodyData: defaultBody }
-    }
-
-    if (typeof rawBody === "object") {
-      const parsed = McqActivityBodySchema.safeParse(rawBody)
-      if (parsed.success) {
-        const normalizedOptions = parsed.data.options.map((option, index) => {
-          const trimmedId = option.id.trim()
-          const trimmedText = option.text.trim()
-          return {
-            id: trimmedId || `option-${index + 1}`,
-            text: trimmedText,
-            imageUrl: typeof option.imageUrl === "string" ? option.imageUrl.trim() || null : null,
-          }
-        })
-
-        const hasValidCorrectOption = normalizedOptions.some(
-          (option) => option.id === parsed.data.correctOptionId,
-        )
-
-        const fallbackCorrectOptionId = normalizedOptions[0]?.id ?? defaultBody.correctOptionId
-
-        return {
-          success: true,
-          bodyData: {
-            question: parsed.data.question.trim(),
-            imageFile: parsed.data.imageFile?.trim() || null,
-            imageUrl: parsed.data.imageUrl?.trim() || null,
-            imageAlt: parsed.data.imageAlt?.trim() || null,
-            options: normalizedOptions,
-            correctOptionId: hasValidCorrectOption
-              ? parsed.data.correctOptionId
-              : fallbackCorrectOptionId,
-          },
-        }
+    case "feedback": {
+      const parsed = FeedbackActivityBodySchema.safeParse(bodyData)
+      if (!parsed.success) {
+        return { success: false, error: "Invalid feedback activity body." }
       }
+      const data = parsed.data ?? null
+      return { success: true, bodyData: data }
     }
-
-    if (allowFallback) {
-      return { success: true, bodyData: defaultBody }
-    }
-
-    return { success: false, error: "Multiple choice activities require a question and options." }
-  }
-
-  if (type === "short-text-question") {
-    const defaultBody = { question: "", modelAnswer: "" }
-
-    if (rawBody === undefined || rawBody === null) {
-      return { success: true, bodyData: defaultBody }
-    }
-
-    if (typeof rawBody === "object") {
-      const parsed = ShortTextActivityBodySchema.safeParse(rawBody)
-      if (parsed.success) {
-        return {
-          success: true,
-          bodyData: {
-            ...parsed.data,
-            question: parsed.data.question.trim(),
-            modelAnswer: parsed.data.modelAnswer.trim(),
-          },
-        }
+    default: {
+      if (options?.allowFallback && typeof bodyData !== "undefined") {
+        return { success: true, bodyData }
       }
-    }
-
-    if (allowFallback) {
-      return { success: true, bodyData: defaultBody }
-    }
-
-    return { success: false, error: "Short text activities require a question and model answer." }
-  }
-
-  if (type === "feedback") {
-    const defaultBody = { groups: {} as Record<string, FeedbackActivityGroupSettings> }
-
-    if (rawBody === undefined || rawBody === null) {
-      return { success: true, bodyData: defaultBody }
-    }
-
-    if (typeof rawBody === "object") {
-      const parsed = FeedbackActivityBodySchema.safeParse(rawBody)
-      if (parsed.success) {
-        const normalizedGroups = Object.entries(parsed.data.groups ?? {}).reduce<
-          Record<string, FeedbackActivityGroupSettings>
-        >((acc, [groupId, settings]) => {
-          const trimmedId = groupId.trim()
-          if (trimmedId.length === 0) {
-            return acc
-          }
-          acc[trimmedId] = {
-            ...FeedbackGroupDefaults,
-            isEnabled: settings?.isEnabled === true,
-            showScore: settings?.showScore === true,
-            showCorrectAnswers: settings?.showCorrectAnswers === true,
-          }
-          return acc
-        }, {})
-
-        const rest = { ...parsed.data } as Record<string, unknown>
-        delete rest.groups
-        return { success: true, bodyData: { ...rest, groups: normalizedGroups } }
+      if (bodyData === null) {
+        return { success: true, bodyData: null }
       }
+      if (typeof bodyData === "object" || typeof bodyData === "string") {
+        return { success: true, bodyData }
+      }
+      return { success: false, error: "Unsupported activity body format." }
     }
-
-    if (allowFallback) {
-      return { success: true, bodyData: defaultBody }
-    }
-
-    return { success: false, error: "Feedback activities require configuration for assigned groups." }
   }
+}
 
-  return { success: true, bodyData: rawBody ?? null }
+function normalizeSuccessCriteria(successCriteriaIds: string[], details: Map<string, unknown>) {
+  const entries = successCriteriaIds.map((id) => {
+    const detail = details.get(id) as any
+    const title =
+      detail?.description && typeof detail.description === "string" && detail.description.trim().length > 0
+        ? detail.description.trim()
+        : "Success criterion"
+
+    return {
+      success_criteria_id: id,
+      learning_objective_id: detail?.learning_objective_id ?? null,
+      description: detail?.description ?? null,
+      level: detail?.level ?? null,
+      title,
+    }
+  })
+
+  return entries
 }

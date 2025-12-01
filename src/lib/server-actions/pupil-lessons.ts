@@ -2,7 +2,7 @@
 
 import { z } from "zod"
 
-import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { query } from "@/lib/db"
 import { withTelemetry } from "@/lib/telemetry"
 
 const SummaryPupilSchema = z.object({
@@ -134,32 +134,59 @@ export async function readPupilLessonsSummaryBootstrapAction(
       authEndTime: options?.authEndTime ?? null,
     },
     async () => {
-      const supabase = await createSupabaseServerClient()
-      const { data, error } = await supabase.rpc("pupil_lessons_summary_bootstrap", {
-        p_target_user_id: targetPupilId ?? null,
-      })
+      try {
+        const { rows } = await query<{
+          pupils: PupilLessonsSummaryBootstrap["pupils"]
+          memberships: PupilLessonsSummaryBootstrap["memberships"]
+          lesson_assignments: PupilLessonsSummaryBootstrap["lessonAssignments"]
+        }>(
+          `
+            select *
+            from pupil_lessons_summary_bootstrap($1::text)
+          `,
+          [targetPupilId ?? null],
+        )
 
-      if (error) {
-        console.error("[pupil-lessons] summary bootstrap RPC failed", error)
+        const payload = rows[0] ?? null
+        if (!payload) {
+          return PupilLessonsSummaryBootstrapReturnSchema.parse({
+            data: null,
+            error: "Unable to load pupil lesson summaries.",
+          })
+        }
+
+        const lessonAssignments =
+          Array.isArray((payload as Record<string, unknown>)?.lesson_assignments)
+            ? ((payload as { lesson_assignments: unknown[] }).lesson_assignments as unknown[])
+            : (payload as Record<string, unknown> & { lessonAssignments?: unknown[] }).lessonAssignments ?? []
+
+        const normalized = {
+          pupils: payload.pupils ?? [],
+          memberships: payload.memberships ?? [],
+          lessonAssignments,
+        }
+
+        const parsed = PupilLessonsSummaryBootstrapSchema.safeParse(normalized)
+        if (!parsed.success) {
+          console.error("[pupil-lessons] invalid summary bootstrap payload", parsed.error)
+          return PupilLessonsSummaryBootstrapReturnSchema.parse({
+            data: null,
+            error: "Received malformed pupil lesson summary data.",
+          })
+        }
+
+        return PupilLessonsSummaryBootstrapReturnSchema.parse({
+          data: parsed.data,
+          error: null,
+        })
+      } catch (error) {
+        console.error("[pupil-lessons] summary bootstrap query failed", error)
+        const message = error instanceof Error ? error.message : "Unable to load pupil lesson summaries."
         return PupilLessonsSummaryBootstrapReturnSchema.parse({
           data: null,
-          error: "Unable to load pupil lesson summaries.",
+          error: message,
         })
       }
-
-      const parsed = PupilLessonsSummaryBootstrapSchema.safeParse(data)
-      if (!parsed.success) {
-        console.error("[pupil-lessons] invalid summary bootstrap payload", parsed.error)
-        return PupilLessonsSummaryBootstrapReturnSchema.parse({
-          data: null,
-          error: "Received malformed pupil lesson summary data.",
-        })
-      }
-
-      return PupilLessonsSummaryBootstrapReturnSchema.parse({
-        data: parsed.data,
-        error: null,
-      })
     },
   )
 }
@@ -178,32 +205,88 @@ export async function readPupilLessonsDetailBootstrapAction(
       authEndTime: options?.authEndTime ?? null,
     },
     async () => {
-      const supabase = await createSupabaseServerClient()
-      const { data, error } = await supabase.rpc("pupil_lessons_detail_bootstrap", {
-        p_target_user_id: pupilId,
-      })
+      try {
+        const { rows } = await query<{
+          pupil_profile: PupilLessonsDetailBootstrap["pupilProfile"]
+          memberships: PupilLessonsDetailBootstrap["memberships"]
+          lesson_assignments: PupilLessonsDetailBootstrap["lessonAssignments"]
+          units: PupilLessonsDetailBootstrap["units"]
+          learning_objectives: PupilLessonsDetailBootstrap["learningObjectives"]
+          success_criteria: PupilLessonsDetailBootstrap["successCriteria"]
+          success_criteria_units: PupilLessonsDetailBootstrap["successCriteriaUnits"]
+          homework_activities: PupilLessonsDetailBootstrap["homeworkActivities"]
+        }>(
+          `
+            select *
+            from pupil_lessons_detail_bootstrap($1::text)
+          `,
+          [pupilId],
+        )
 
-      if (error) {
-        console.error("[pupil-lessons] detail bootstrap RPC failed", { pupilId, error })
+        const payload = rows[0] ?? null
+        if (!payload) {
+          return PupilLessonsDetailBootstrapReturnSchema.parse({
+            data: null,
+            error: "Unable to load pupil lesson detail.",
+          })
+        }
+
+        const payloadRecord = payload as Record<string, unknown>
+
+        const lessonAssignments =
+          Array.isArray((payload as Record<string, unknown>)?.lesson_assignments)
+            ? ((payload as { lesson_assignments: unknown[] }).lesson_assignments as unknown[])
+            : (payload as Record<string, unknown> & { lessonAssignments?: unknown[] }).lessonAssignments ?? []
+        const learningObjectives =
+          Array.isArray((payloadRecord as any)?.learning_objectives)
+            ? ((payload as { learning_objectives: unknown[] }).learning_objectives as unknown[])
+            : (payloadRecord as Record<string, unknown> & { learningObjectives?: unknown[] }).learningObjectives ?? []
+        const successCriteria =
+          Array.isArray((payloadRecord as any)?.success_criteria)
+            ? ((payload as { success_criteria: unknown[] }).success_criteria as unknown[])
+            : (payloadRecord as Record<string, unknown> & { successCriteria?: unknown[] }).successCriteria ?? []
+        const successCriteriaUnits =
+          Array.isArray((payloadRecord as any)?.success_criteria_units)
+            ? ((payload as { success_criteria_units: unknown[] }).success_criteria_units as unknown[])
+            : (payloadRecord as Record<string, unknown> & { successCriteriaUnits?: unknown[] }).successCriteriaUnits ??
+              []
+        const homeworkActivities =
+          Array.isArray((payloadRecord as any)?.homework_activities)
+            ? ((payload as { homework_activities: unknown[] }).homework_activities as unknown[])
+            : (payloadRecord as Record<string, unknown> & { homeworkActivities?: unknown[] }).homeworkActivities ?? []
+
+        const normalized = {
+          pupilProfile: payload.pupil_profile,
+          memberships: payload.memberships ?? [],
+          lessonAssignments,
+          units: payload.units ?? [],
+          learningObjectives,
+          successCriteria,
+          successCriteriaUnits,
+          homeworkActivities,
+        }
+
+        const parsed = PupilLessonsDetailBootstrapSchema.safeParse(normalized)
+        if (!parsed.success) {
+          console.error("[pupil-lessons] invalid detail bootstrap payload", parsed.error)
+          return PupilLessonsDetailBootstrapReturnSchema.parse({
+            data: null,
+            error: "Received malformed pupil lesson detail data.",
+          })
+        }
+
+        return PupilLessonsDetailBootstrapReturnSchema.parse({
+          data: parsed.data,
+          error: null,
+        })
+      } catch (error) {
+        console.error("[pupil-lessons] detail bootstrap query failed", { pupilId, error })
+        const message = error instanceof Error ? error.message : "Unable to load pupil lesson detail."
         return PupilLessonsDetailBootstrapReturnSchema.parse({
           data: null,
-          error: "Unable to load pupil lesson detail.",
+          error: message,
         })
       }
-
-      const parsed = PupilLessonsDetailBootstrapSchema.safeParse(data)
-      if (!parsed.success) {
-        console.error("[pupil-lessons] invalid detail bootstrap payload", parsed.error)
-        return PupilLessonsDetailBootstrapReturnSchema.parse({
-          data: null,
-          error: "Received malformed pupil lesson detail data.",
-        })
-      }
-
-      return PupilLessonsDetailBootstrapReturnSchema.parse({
-        data: parsed.data,
-        error: null,
-      })
     },
   )
 }
