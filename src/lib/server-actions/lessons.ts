@@ -1414,15 +1414,18 @@ async function enrichLessonsWithSuccessCriteria<
 
   if (lessonIds.length > 0) {
     try {
-      const { rows } = await query(
-        "select lesson_id, success_criteria_id, activity_id from lesson_success_criteria where lesson_id = any($1::text[])",
-        [lessonIds],
-      )
+      const { rows } = await query<{
+        lesson_id: string
+        success_criteria_id: string
+      }>("select lesson_id, success_criteria_id from lesson_success_criteria where lesson_id = any($1::text[])", [
+        lessonIds,
+      ])
 
       lessonCriteriaRows = (rows ?? []).filter(
         (row): row is { lesson_id: string; success_criteria_id: string; activity_id: string | null } =>
           typeof row?.lesson_id === "string" && typeof row?.success_criteria_id === "string",
       )
+      lessonCriteriaRows = lessonCriteriaRows.map((row) => ({ ...row, activity_id: null }))
     } catch (lessonCriteriaError) {
       console.error("[lessons] Failed to load lesson success criteria:", lessonCriteriaError)
       return { lessons: [], error: "Unable to load lesson success criteria." }

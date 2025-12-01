@@ -129,9 +129,20 @@ export async function readAssignmentsAction(options?: { authEndTime?: number | n
     async () => {
       console.log("[v0] Server action started for reading assignments")
       try {
-        const { rows } = await query("select * from assignments where active = true")
+        const { rows } = await query<{
+          group_id: string
+          unit_id: string
+          start_date: string | Date | null
+          end_date: string | Date | null
+          active?: boolean | null
+        }>("select * from assignments where active = true")
+        const normalized = (rows ?? []).map((row) => ({
+          ...row,
+          start_date: row.start_date instanceof Date ? row.start_date.toISOString() : row.start_date,
+          end_date: row.end_date instanceof Date ? row.end_date.toISOString() : row.end_date,
+        }))
         console.log("[v0] Server action completed for reading assignments")
-        return AssignmentsReturnValue.parse({ data: rows ?? [], error: null })
+        return AssignmentsReturnValue.parse({ data: normalized ?? [], error: null })
       } catch (error) {
         console.error("[v0] Server action failed for reading assignments:", error)
         const message = error instanceof Error ? error.message : "Unable to load assignments."
