@@ -22,9 +22,17 @@ export async function readLessonAssignmentsAction() {
   console.log("[v0] Server action started for reading lesson assignments")
 
   try {
-    const { rows } = await query("select * from lesson_assignments")
+    const { rows } = await query<{
+      group_id: string
+      lesson_id: string
+      start_date: string | Date | null
+    }>("select * from lesson_assignments")
+    const normalized = (rows ?? []).map((row) => ({
+      ...row,
+      start_date: row.start_date instanceof Date ? row.start_date.toISOString() : row.start_date,
+    }))
     console.log("[v0] Server action completed for reading lesson assignments")
-    return LessonAssignmentsReturnValue.parse({ data: rows ?? [], error: null })
+    return LessonAssignmentsReturnValue.parse({ data: normalized ?? [], error: null })
   } catch (error) {
     console.error("[v0] Server action failed for reading lesson assignments:", error)
     const message = error instanceof Error ? error.message : "Unable to load lesson assignments."

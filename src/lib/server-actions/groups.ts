@@ -308,16 +308,18 @@ export async function readGroupsAction(options?: {
 }
 
 export async function listPupilsWithGroupsAction(): Promise<PupilListing[]> {
-  let rows: unknown[] = []
+  let payload: unknown = null
   try {
-    const { rows: result } = await query("select * from reports_list_pupils_with_groups()")
-    rows = result ?? []
+    const { rows } = await query<{ reports_list_pupils_with_groups: unknown }>(
+      "select reports_list_pupils_with_groups() as reports_list_pupils_with_groups",
+    )
+    payload = rows[0]?.reports_list_pupils_with_groups ?? null
   } catch (error) {
     console.error("[reports] Failed to load pupil report listings", error)
     return []
   }
 
-  const parsed = ReportsPupilListingsSchema.safeParse(rows ?? [])
+  const parsed = ReportsPupilListingsSchema.safeParse(Array.isArray(payload) ? payload : [])
 
   if (!parsed.success) {
     console.error("[reports] Invalid payload from reports_list_pupils_with_groups", parsed.error)
