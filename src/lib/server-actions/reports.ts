@@ -4,7 +4,7 @@ import { z } from "zod"
 
 import { ReportDatasetSchema, buildDatasetUnitSummaries, buildFeedbackMapFromDataset } from "@/app/reports/[pupilId]/report-data"
 import { withTelemetry } from "@/lib/telemetry"
-import { createSupabaseServiceClient } from "@/lib/supabase/server"
+import { query } from "@/lib/db"
 
 const PupilReportRecalcInput = z.object({
   pupilId: z.string().min(1),
@@ -20,7 +20,6 @@ export type PupilReportRecalcResult = z.infer<typeof PupilReportRecalcResult>
 
 export async function runPupilReportRecalcAction(input: z.infer<typeof PupilReportRecalcInput>) {
   const payload = PupilReportRecalcInput.parse(input)
-  const supabase = createSupabaseServiceClient()
 
   return withTelemetry(
     {
@@ -29,16 +28,19 @@ export async function runPupilReportRecalcAction(input: z.infer<typeof PupilRepo
       params: { pupilId: payload.pupilId, reason: payload.reason ?? null },
     },
     async () => {
-      const { data, error } = await supabase.rpc("reports_recalculate_pupil_cache", {
-        p_pupil_id: payload.pupilId,
-      })
-
-      if (error) {
+      let data: unknown
+      try {
+        const { rows } = await query("select reports_recalculate_pupil_cache($1) as payload", [
+          payload.pupilId,
+        ])
+        data = rows[0]?.payload ?? {}
+      } catch (error) {
         console.error("[reports] Failed to recalculate pupil cache", {
           pupilId: payload.pupilId,
           error,
         })
-        throw new Error(error.message ?? "Unable to recalculate report cache")
+        const message = error instanceof Error ? error.message : "Unable to recalculate report cache"
+        throw new Error(message)
       }
 
       const dataset = ReportDatasetSchema.parse(data ?? {})
@@ -49,31 +51,35 @@ export async function runPupilReportRecalcAction(input: z.infer<typeof PupilRepo
         feedbackByCriterion,
       })
 
-      const { error: storeError } = await supabase.rpc("reports_store_pupil_unit_summaries", {
-        p_pupil_id: payload.pupilId,
-        p_units: unitSummaries.map((unit) => ({
-          unitId: unit.unitId,
-          unitTitle: unit.unitTitle,
-          unitSubject: unit.unitSubject,
-          unitDescription: unit.unitDescription,
-          unitYear: unit.unitYear,
-          relatedGroups: unit.relatedGroups,
-          groupedLevels: unit.groupedLevels,
-          workingLevel: unit.workingLevel,
-          activitiesAverage: unit.activitiesAverage,
-          assessmentAverage: unit.assessmentAverage,
-          assessmentLevel: unit.assessmentLevel,
-          scoreError: unit.scoreError,
-          objectiveError: unit.objectiveError ?? null,
-        })),
-      })
-
-      if (storeError) {
+      try {
+        await query(
+          "select reports_store_pupil_unit_summaries($1, $2)",
+          [
+            payload.pupilId,
+            unitSummaries.map((unit) => ({
+              unitId: unit.unitId,
+              unitTitle: unit.unitTitle,
+              unitSubject: unit.unitSubject,
+              unitDescription: unit.unitDescription,
+              unitYear: unit.unitYear,
+              relatedGroups: unit.relatedGroups,
+              groupedLevels: unit.groupedLevels,
+              workingLevel: unit.workingLevel,
+              activitiesAverage: unit.activitiesAverage,
+              assessmentAverage: unit.assessmentAverage,
+              assessmentLevel: unit.assessmentLevel,
+              scoreError: unit.scoreError,
+              objectiveError: unit.objectiveError ?? null,
+            })),
+          ],
+        )
+      } catch (error) {
         console.error("[reports] Failed to persist unit summaries", {
           pupilId: payload.pupilId,
-          error: storeError,
+          error,
         })
-        throw new Error(storeError.message ?? "Unable to store report summaries")
+        const message = error instanceof Error ? error.message : "Unable to store report summaries"
+        throw new Error(message)
       }
 
       return PupilReportRecalcResult.parse({ success: true, error: null })

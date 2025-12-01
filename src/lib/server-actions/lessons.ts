@@ -5,7 +5,6 @@ import { performance } from "node:perf_hooks"
 
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
-import type { SupabaseClient } from "@supabase/supabase-js"
 
 import {
   AssessmentObjectivesSchema,
@@ -23,7 +22,7 @@ import {
   type LessonObjectiveFormState,
   type LessonSuccessCriterionFormState,
 } from "@/lib/lesson-form-state"
-import { createSupabaseServerClient, createSupabaseServiceClient } from "@/lib/supabase/server"
+import { createSupabaseServiceClient } from "@/lib/supabase/server"
 import { type NormalizedSuccessCriterion } from "./learning-objectives"
 import { isScorableActivityType } from "@/dino.config"
 import { requireTeacherProfile } from "@/lib/auth"
@@ -32,6 +31,7 @@ import { LESSON_CHANNEL_NAME, LESSON_CREATED_EVENT } from "@/lib/lesson-channel"
 import { enqueueLessonMutationJob } from "@/lib/lesson-job-runner"
 import { LessonDetailPayloadSchema } from "@/lib/lesson-snapshot-schema"
 import { Client } from "pg"
+import { query, withDbClient } from "@/lib/db"
 
 const LessonsReturnValue = z.object({
   data: LessonsWithObjectivesSchema.nullable(),
@@ -172,31 +172,36 @@ type LessonCreateJobArgs = {
 
 async function runLessonCreateJob({ supabase, jobId, unitId, title }: LessonCreateJobArgs) {
   try {
-    const { data: maxOrderLesson, error: orderError } = await supabase
-      .from("lessons")
-      .select("order_by")
-      .eq("unit_id", unitId)
-      .order("order_by", { ascending: false })
-      .limit(1)
-      .maybeSingle()
+    let lessonId: string | null = null
+    let orderValue = 0
 
-    if (orderError) {
-      throw orderError
+    await withDbClient(async (client) => {
+      const { rows: maxOrderRows } = await client.query(
+        "select order_by from lessons where unit_id = $1 order by order_by desc nulls last limit 1",
+        [unitId],
+      )
+      orderValue = (maxOrderRows?.[0]?.order_by ?? -1) + 1
+
+      const { rows: inserted } = await client.query(
+        `
+          insert into lessons (unit_id, title, active, order_by)
+          values ($1, $2, true, $3)
+          returning lesson_id, order_by
+        `,
+        [unitId, title, orderValue],
+      )
+
+      const row = inserted?.[0] ?? null
+      if (!row?.lesson_id) {
+        throw new Error("Unable to create lesson.")
+      }
+      lessonId = row.lesson_id
+      orderValue = row.order_by ?? orderValue
+    })
+
+    if (!lessonId) {
+      throw new Error("Unable to create lesson.")
     }
-
-    const nextOrder = (maxOrderLesson?.order_by ?? -1) + 1
-
-    const { data, error } = await supabase
-      .from("lessons")
-      .insert({ unit_id: unitId, title, active: true, order_by: nextOrder })
-      .select("*")
-      .single()
-
-    if (error) {
-      throw error
-    }
-
-    const lessonId = data.lesson_id
 
     await publishLessonJobEvent(supabase, {
       job_id: jobId,
@@ -208,7 +213,7 @@ async function runLessonCreateJob({ supabase, jobId, unitId, title }: LessonCrea
         lesson_id: lessonId,
         unit_id: unitId,
         title,
-        order_by: data.order_by ?? nextOrder,
+        order_by: orderValue,
         active: true,
         lesson_objectives: [],
         lesson_links: [],
@@ -254,32 +259,28 @@ export async function readLessonsByUnitAction(
     async () => {
       console.log("[v0] Server action started for lessons:", { unitId })
 
-      const supabase = await createSupabaseServerClient()
-
-      const { data, error } = await supabase
-        .from("lessons")
-        .select(
-          `*,
-        lessons_learning_objective(
-          *,
-          learning_objective:learning_objectives(
-            *,
-            assessment_objective:assessment_objectives(*)
-          )
-        ),
-        lesson_links(*)
-      `,
+      let lessons: Array<Record<string, unknown>> = []
+      try {
+        const { rows } = await query(
+          `
+            select l.*,
+                   json_agg(ll.*) filter (where ll.lesson_id is not null) as lessons_learning_objective,
+                   json_agg(links.*) filter (where links.lesson_id is not null) as lesson_links
+            from lessons l
+            left join lessons_learning_objective ll on ll.lesson_id = l.lesson_id
+            left join lesson_links links on links.lesson_id = l.lesson_id
+            where l.unit_id = $1
+            group by l.lesson_id
+            order by l.order_by asc, l.title asc
+          `,
+          [unitId],
         )
-        .eq("unit_id", unitId)
-        .order("order_by", { ascending: true })
-        .order("title", { ascending: true })
-
-      if (error) {
-        console.error("[v0] Failed to read lessons:", error)
-        return LessonsReturnValue.parse({ data: null, error: error.message })
+        lessons = rows ?? []
+      } catch (error) {
+        console.error("[v0] Failed to read lessons via PG:", error)
+        const message = error instanceof Error ? error.message : "Unable to load lessons."
+        return LessonsReturnValue.parse({ data: null, error: message })
       }
-
-      const lessons = data ?? []
 
       const { lessons: enrichedLessons, error: scError } = await enrichLessonsWithSuccessCriteria(lessons)
 
@@ -323,32 +324,26 @@ export async function readLessonsAction(options?: { authEndTime?: number | null;
     async () => {
       console.log("[v0] Server action started for all lessons")
 
-      const supabase = await createSupabaseServerClient()
-
-      const { data, error } = await supabase
-        .from("lessons")
-        .select(
-          `*,
-        lessons_learning_objective(
-          *,
-          learning_objective:learning_objectives(
-            *,
-            assessment_objective:assessment_objectives(*)
-          )
-        ),
-        lesson_links(*)
-      `,
+      let lessons: Array<Record<string, unknown>> = []
+      try {
+        const { rows } = await query(
+          `
+            select l.*,
+                   json_agg(ll.*) filter (where ll.lesson_id is not null) as lessons_learning_objective,
+                   json_agg(links.*) filter (where links.lesson_id is not null) as lesson_links
+            from lessons l
+            left join lessons_learning_objective ll on ll.lesson_id = l.lesson_id
+            left join lesson_links links on links.lesson_id = l.lesson_id
+            group by l.lesson_id
+            order by l.unit_id asc, l.order_by asc nulls first, l.title asc
+          `,
         )
-        .order("unit_id", { ascending: true })
-        .order("order_by", { ascending: true, nullsFirst: true })
-        .order("title", { ascending: true })
-
-      if (error) {
-        console.error("[v0] Failed to read all lessons:", error)
-        return LessonsReturnValue.parse({ data: null, error: error.message })
+        lessons = rows ?? []
+      } catch (error) {
+        console.error("[v0] Failed to read all lessons via PG:", error)
+        const message = error instanceof Error ? error.message : "Unable to load lessons."
+        return LessonsReturnValue.parse({ data: null, error: message })
       }
-
-      const lessons = data ?? []
 
       const { lessons: enrichedLessons, error: scError } = await enrichLessonsWithSuccessCriteria(lessons)
 
@@ -384,50 +379,62 @@ export async function createLessonAction(unitId: string, title: string, objectiv
 
   const sanitizedObjectiveIds = ObjectiveIdsSchema.parse(objectiveIds)
 
-  const supabase = await createSupabaseServerClient()
+  let createdLessonId: string | null = null
 
-  const { data: maxOrderLesson } = await supabase
-    .from("lessons")
-    .select("order_by")
-    .eq("unit_id", unitId)
-    .order("order_by", { ascending: false })
-    .limit(1)
-    .maybeSingle()
+  try {
+    await withDbClient(async (client) => {
+      const { rows: maxOrderRows } = await client.query(
+        "select order_by from lessons where unit_id = $1 order by order_by desc nulls last limit 1",
+        [unitId],
+      )
+      const nextOrder = (maxOrderRows?.[0]?.order_by ?? -1) + 1
 
-  const nextOrder = (maxOrderLesson?.order_by ?? -1) + 1
-
-  const { data, error } = await supabase
-    .from("lessons")
-    .insert({ unit_id: unitId, title, active: true, order_by: nextOrder })
-    .select("*")
-    .single()
-
-  if (error) {
-    console.error("[v0] Failed to create lesson:", error)
-    return LessonReturnValue.parse({ data: null, error: error.message })
-  }
-
-  if (sanitizedObjectiveIds.length > 0) {
-    const { error: linkError } = await supabase
-      .from("lessons_learning_objective")
-      .insert(
-        sanitizedObjectiveIds.map((learningObjectiveId, index) => ({
-          learning_objective_id: learningObjectiveId,
-          lesson_id: data.lesson_id,
-          order_by: index,
-          title,
-          active: true,
-        })),
+      const { rows: insertedLesson } = await client.query(
+        `
+          insert into lessons (unit_id, title, active, order_by)
+          values ($1, $2, true, $3)
+          returning *
+        `,
+        [unitId, title, nextOrder],
       )
 
-    if (linkError) {
-      console.error("[v0] Failed to link objectives to lesson:", linkError)
-      return LessonReturnValue.parse({ data: null, error: linkError.message })
-    }
+      const lessonRow = insertedLesson?.[0] ?? null
+      if (!lessonRow?.lesson_id) {
+        throw new Error("Unable to create lesson.")
+      }
+      createdLessonId = lessonRow.lesson_id
+
+      if (sanitizedObjectiveIds.length > 0) {
+        const values: unknown[] = []
+        const placeholders: string[] = []
+        sanitizedObjectiveIds.forEach((learningObjectiveId, index) => {
+          values.push(learningObjectiveId, createdLessonId, index, title)
+          placeholders.push(
+            `($${values.length - 3}, $${values.length - 2}, $${values.length - 1}, $${values.length})`,
+          )
+        })
+
+        await client.query(
+          `
+            insert into lessons_learning_objective (learning_objective_id, lesson_id, order_by, title, active)
+            values ${placeholders.join(", ")}
+          `,
+          values,
+        )
+      }
+    })
+  } catch (error) {
+    console.error("[v0] Failed to create lesson via PG:", error)
+    const message = error instanceof Error ? error.message : "Unable to create lesson."
+    return LessonReturnValue.parse({ data: null, error: message })
+  }
+
+  if (!createdLessonId) {
+    return LessonReturnValue.parse({ data: null, error: "Unable to create lesson." })
   }
 
   revalidatePath(`/units/${unitId}`)
-  return readLessonWithObjectives(data.lesson_id)
+  return readLessonWithObjectives(createdLessonId)
 }
 
 export async function triggerLessonCreateJobAction(
@@ -504,86 +511,71 @@ export async function updateLessonAction(
 
   const sanitizedObjectiveIds = ObjectiveIdsSchema.parse(objectiveIds)
 
-  const supabase = await createSupabaseServerClient()
+  try {
+    await withDbClient(async (client) => {
+      await client.query("update lessons set title = $1 where lesson_id = $2", [title, lessonId])
 
-  const { data, error } = await supabase
-    .from("lessons")
-    .update({ title })
-    .eq("lesson_id", lessonId)
-    .select("*")
-    .single()
-
-  if (error) {
-    console.error("[v0] Failed to update lesson:", error)
-    return LessonReturnValue.parse({ data: null, error: error.message })
-  }
-
-  const { data: existingLinks, error: readLinksError } = await supabase
-    .from("lessons_learning_objective")
-    .select("learning_objective_id")
-    .eq("lesson_id", lessonId)
-
-  if (readLinksError) {
-    console.error("[v0] Failed to read lesson links:", readLinksError)
-    return LessonReturnValue.parse({ data: null, error: readLinksError.message })
-  }
-
-  const existingIds = new Set((existingLinks ?? []).map((link) => link.learning_objective_id))
-  const incomingIds = new Set(sanitizedObjectiveIds)
-
-  const idsToDelete = Array.from(existingIds).filter((id) => !incomingIds.has(id))
-  const idsToInsert = sanitizedObjectiveIds.filter((id) => !existingIds.has(id))
-
-  // Update order and ensure active for retained objectives
-  for (const [index, learningObjectiveId] of sanitizedObjectiveIds.entries()) {
-    if (existingIds.has(learningObjectiveId)) {
-      const { error: updateLinkError } = await supabase
-        .from("lessons_learning_objective")
-        .update({ order_by: index, active: true })
-        .eq("lesson_id", lessonId)
-        .eq("learning_objective_id", learningObjectiveId)
-
-      if (updateLinkError) {
-        console.error("[v0] Failed to update lesson link order:", updateLinkError)
-        return LessonReturnValue.parse({ data: null, error: updateLinkError.message })
-      }
-    }
-  }
-
-  if (idsToDelete.length > 0) {
-    const { error: deleteError } = await supabase
-      .from("lessons_learning_objective")
-      .delete()
-      .eq("lesson_id", lessonId)
-      .in("learning_objective_id", idsToDelete)
-
-    if (deleteError) {
-      console.error("[v0] Failed to remove lesson links:", deleteError)
-      return LessonReturnValue.parse({ data: null, error: deleteError.message })
-    }
-  }
-
-  if (idsToInsert.length > 0) {
-    const { error: insertError } = await supabase
-      .from("lessons_learning_objective")
-      .insert(
-        idsToInsert.map((learningObjectiveId) => ({
-          learning_objective_id: learningObjectiveId,
-          lesson_id: lessonId,
-          order_by: sanitizedObjectiveIds.indexOf(learningObjectiveId),
-          title,
-          active: true,
-        })),
+      const { rows: existingLinks } = await client.query(
+        "select learning_objective_id from lessons_learning_objective where lesson_id = $1",
+        [lessonId],
       )
 
-    if (insertError) {
-      console.error("[v0] Failed to insert lesson links:", insertError)
-      return LessonReturnValue.parse({ data: null, error: insertError.message })
-    }
+      const existingIds = new Set((existingLinks ?? []).map((link) => link.learning_objective_id))
+      const incomingIds = new Set(sanitizedObjectiveIds)
+
+      const idsToDelete = Array.from(existingIds).filter((id) => !incomingIds.has(id))
+      const idsToInsert = sanitizedObjectiveIds.filter((id) => !existingIds.has(id))
+
+      for (const [index, learningObjectiveId] of sanitizedObjectiveIds.entries()) {
+        if (existingIds.has(learningObjectiveId)) {
+          await client.query(
+            `
+              update lessons_learning_objective
+              set order_by = $1, active = true
+              where lesson_id = $2 and learning_objective_id = $3
+            `,
+            [index, lessonId, learningObjectiveId],
+          )
+        }
+      }
+
+      if (idsToDelete.length > 0) {
+        await client.query(
+          `
+            delete from lessons_learning_objective
+            where lesson_id = $1 and learning_objective_id = any($2::text[])
+          `,
+          [lessonId, idsToDelete],
+        )
+      }
+
+      if (idsToInsert.length > 0) {
+        const values: unknown[] = []
+        const placeholders: string[] = []
+        idsToInsert.forEach((learningObjectiveId) => {
+          values.push(learningObjectiveId, lessonId, sanitizedObjectiveIds.indexOf(learningObjectiveId), title)
+          placeholders.push(
+            `($${values.length - 3}, $${values.length - 2}, $${values.length - 1}, $${values.length})`,
+          )
+        })
+
+        await client.query(
+          `
+            insert into lessons_learning_objective (learning_objective_id, lesson_id, order_by, title, active)
+            values ${placeholders.join(", ")}
+          `,
+          values,
+        )
+      }
+    })
+  } catch (error) {
+    console.error("[v0] Failed to update lesson via PG:", error)
+    const message = error instanceof Error ? error.message : "Unable to update lesson."
+    return LessonReturnValue.parse({ data: null, error: message })
   }
 
   revalidatePath(`/units/${unitId}`)
-  return readLessonWithObjectives(data.lesson_id)
+  return readLessonWithObjectives(lessonId)
 }
 
 const LessonSuccessCriteriaUpdateSchema = z.object({
@@ -610,151 +602,152 @@ export async function setLessonSuccessCriteriaAction(
     unitId: payload.unitId,
     type: "lesson.successCriteria",
     message: "Lesson success criteria update queued.",
-    executor: async ({ supabase }) => {
-      await applyLessonSuccessCriteriaUpdate(supabase, payload)
+    executor: async () => {
+      await applyLessonSuccessCriteriaUpdate(payload)
     },
   })
 }
 
-async function applyLessonSuccessCriteriaUpdate(
-  supabase: SupabaseClient,
-  payload: z.infer<typeof LessonSuccessCriteriaUpdateSchema>,
-) {
+async function applyLessonSuccessCriteriaUpdate(payload: z.infer<typeof LessonSuccessCriteriaUpdateSchema>) {
   const normalizedIds = Array.from(new Set(payload.successCriteriaIds))
 
-  const { data: existingCriteriaLinks, error: existingCriteriaError } = await supabase
-    .from("lesson_success_criteria")
-    .select("success_criteria_id")
-    .eq("lesson_id", payload.lessonId)
+  await withDbClient(async (client) => {
+    const { rows: existingCriteriaLinks } = await client.query(
+      "select success_criteria_id from lesson_success_criteria where lesson_id = $1",
+      [payload.lessonId],
+    )
 
-  if (existingCriteriaError) {
-    throw existingCriteriaError
-  }
+    const existingCriteriaIds = new Set(
+      (existingCriteriaLinks ?? [])
+        .map((link) => link.success_criteria_id)
+        .filter((id): id is string => typeof id === "string" && id.length > 0),
+    )
 
-  const existingCriteriaIds = new Set(
-    (existingCriteriaLinks ?? [])
-      .map((link) => link.success_criteria_id)
-      .filter((id): id is string => typeof id === "string" && id.length > 0),
-  )
+    const idsToInsert = normalizedIds.filter((id) => !existingCriteriaIds.has(id))
+    const idsToDelete = Array.from(existingCriteriaIds).filter((id) => !normalizedIds.includes(id))
 
-  const idsToInsert = normalizedIds.filter((id) => !existingCriteriaIds.has(id))
-  const idsToDelete = Array.from(existingCriteriaIds).filter((id) => !normalizedIds.includes(id))
+    if (idsToInsert.length > 0) {
+      const values: unknown[] = []
+      const placeholders: string[] = []
+      idsToInsert.forEach((id) => {
+        values.push(payload.lessonId, id)
+        placeholders.push(`($${values.length - 1}, $${values.length})`)
+      })
+      await client.query(
+        `
+          insert into lesson_success_criteria (lesson_id, success_criteria_id)
+          values ${placeholders.join(", ")}
+        `,
+        values,
+      )
+    }
 
-  if (idsToInsert.length > 0) {
-    const { error: insertCriteriaError } = await supabase.from("lesson_success_criteria").insert(
-      idsToInsert.map((successCriteriaId) => ({
+    if (idsToDelete.length > 0) {
+      await client.query(
+        `
+          delete from lesson_success_criteria
+          where lesson_id = $1
+            and success_criteria_id = any($2::text[])
+        `,
+        [payload.lessonId, idsToDelete],
+      )
+    }
+
+    let learningObjectiveIdsFromSelection: string[] = []
+
+    if (normalizedIds.length > 0) {
+      const { rows: criteriaMetadata } = await client.query(
+        `
+          select success_criteria_id, learning_objective_id
+          from success_criteria
+          where success_criteria_id = any($1::text[])
+        `,
+        [normalizedIds],
+      )
+
+      learningObjectiveIdsFromSelection = Array.from(
+        new Set(
+          (criteriaMetadata ?? [])
+            .map((row) => row.learning_objective_id)
+            .filter((id): id is string => typeof id === "string" && id.length > 0),
+        ),
+      )
+    }
+
+    const { rows: existingObjectiveLinks } = await client.query(
+      "select learning_objective_id, order_by from lessons_learning_objective where lesson_id = $1",
+      [payload.lessonId],
+    )
+
+    const existingObjectiveOrderMap = new Map<string, number>()
+    for (const row of existingObjectiveLinks ?? []) {
+      if (!row?.learning_objective_id) continue
+      existingObjectiveOrderMap.set(
+        row.learning_objective_id,
+        typeof row.order_by === "number" ? row.order_by : existingObjectiveOrderMap.size,
+      )
+    }
+
+    const existingObjectiveIds = new Set(existingObjectiveOrderMap.keys())
+    const objectiveIdsToRemove = Array.from(existingObjectiveIds).filter(
+      (id) => !learningObjectiveIdsFromSelection.includes(id),
+    )
+    const objectiveIdsToInsert = learningObjectiveIdsFromSelection.filter(
+      (id) => !existingObjectiveIds.has(id),
+    )
+
+    if (objectiveIdsToRemove.length > 0) {
+      await client.query(
+        `
+          delete from lessons_learning_objective
+          where lesson_id = $1
+            and learning_objective_id = any($2::text[])
+        `,
+        [payload.lessonId, objectiveIdsToRemove],
+      )
+    }
+
+    if (objectiveIdsToInsert.length > 0) {
+      const { rows: learningObjectiveMetadata } = await client.query(
+        `
+          select learning_objective_id, title
+          from learning_objectives
+          where learning_objective_id = any($1::text[])
+        `,
+        [objectiveIdsToInsert],
+      )
+
+      const existingOrders = Array.from(existingObjectiveOrderMap.values())
+      const maxExistingOrder = existingOrders.length > 0 ? Math.max(...existingOrders) : -1
+
+      const insertRows = (learningObjectiveMetadata ?? []).map((meta, index) => ({
         lesson_id: payload.lessonId,
-        success_criteria_id: successCriteriaId,
-      })),
-    )
+        learning_objective_id: meta.learning_objective_id,
+        order_by: maxExistingOrder + index + 1,
+        title: meta.title ?? "",
+        active: true,
+      }))
 
-    if (insertCriteriaError) {
-      throw insertCriteriaError
-    }
-  }
+      if (insertRows.length > 0) {
+        const values: unknown[] = []
+        const placeholders: string[] = []
+        insertRows.forEach((row) => {
+          values.push(row.lesson_id, row.learning_objective_id, row.order_by, row.title, row.active)
+          placeholders.push(
+            `($${values.length - 4}, $${values.length - 3}, $${values.length - 2}, $${values.length - 1}, $${values.length})`,
+          )
+        })
 
-  if (idsToDelete.length > 0) {
-    const { error: deleteCriteriaError } = await supabase
-      .from("lesson_success_criteria")
-      .delete()
-      .eq("lesson_id", payload.lessonId)
-      .in("success_criteria_id", idsToDelete)
-
-    if (deleteCriteriaError) {
-      throw deleteCriteriaError
-    }
-  }
-
-  let learningObjectiveIdsFromSelection: string[] = []
-
-  if (normalizedIds.length > 0) {
-    const { data: criteriaMetadata, error: criteriaMetadataError } = await supabase
-      .from("success_criteria")
-      .select("success_criteria_id, learning_objective_id")
-      .in("success_criteria_id", normalizedIds)
-
-    if (criteriaMetadataError) {
-      throw criteriaMetadataError
-    }
-
-    learningObjectiveIdsFromSelection = Array.from(
-      new Set(
-        (criteriaMetadata ?? [])
-          .map((row) => row.learning_objective_id)
-          .filter((id): id is string => typeof id === "string" && id.length > 0),
-      ),
-    )
-  }
-
-  const { data: existingObjectiveLinks, error: objectiveReadError } = await supabase
-    .from("lessons_learning_objective")
-    .select("learning_objective_id, order_by")
-    .eq("lesson_id", payload.lessonId)
-
-  if (objectiveReadError) {
-    throw objectiveReadError
-  }
-
-  const existingObjectiveOrderMap = new Map<string, number>()
-  for (const row of existingObjectiveLinks ?? []) {
-    if (!row?.learning_objective_id) continue
-    existingObjectiveOrderMap.set(
-      row.learning_objective_id,
-      typeof row.order_by === "number" ? row.order_by : existingObjectiveOrderMap.size,
-    )
-  }
-
-  const existingObjectiveIds = new Set(existingObjectiveOrderMap.keys())
-  const objectiveIdsToRemove = Array.from(existingObjectiveIds).filter(
-    (id) => !learningObjectiveIdsFromSelection.includes(id),
-  )
-  const objectiveIdsToInsert = learningObjectiveIdsFromSelection.filter(
-    (id) => !existingObjectiveIds.has(id),
-  )
-
-  if (objectiveIdsToRemove.length > 0) {
-    const { error: objectiveDeleteError } = await supabase
-      .from("lessons_learning_objective")
-      .delete()
-      .eq("lesson_id", payload.lessonId)
-      .in("learning_objective_id", objectiveIdsToRemove)
-
-    if (objectiveDeleteError) {
-      throw objectiveDeleteError
-    }
-  }
-
-  if (objectiveIdsToInsert.length > 0) {
-    const { data: learningObjectiveMetadata, error: learningObjectiveError } = await supabase
-      .from("learning_objectives")
-      .select("learning_objective_id, title")
-      .in("learning_objective_id", objectiveIdsToInsert)
-
-    if (learningObjectiveError) {
-      throw learningObjectiveError
-    }
-
-    const existingOrders = Array.from(existingObjectiveOrderMap.values())
-    const maxExistingOrder = existingOrders.length > 0 ? Math.max(...existingOrders) : -1
-
-    const insertRows = (learningObjectiveMetadata ?? []).map((meta, index) => ({
-      lesson_id: payload.lessonId,
-      learning_objective_id: meta.learning_objective_id,
-      order_by: maxExistingOrder + index + 1,
-      title: meta.title ?? "",
-      active: true,
-    }))
-
-    if (insertRows.length > 0) {
-      const { error: objectiveInsertError } = await supabase
-        .from("lessons_learning_objective")
-        .insert(insertRows)
-
-      if (objectiveInsertError) {
-        throw objectiveInsertError
+        await client.query(
+          `
+            insert into lessons_learning_objective (lesson_id, learning_objective_id, order_by, title, active)
+            values ${placeholders.join(", ")}
+          `,
+          values,
+        )
       }
     }
-  }
+  })
 
   revalidatePath(`/lessons/${payload.lessonId}`)
   revalidatePath(`/units/${payload.unitId}`)
@@ -803,215 +796,212 @@ export async function createLessonLearningObjectiveAction(input: {
       authEndTime,
     },
     async () => {
-      const supabase = await createSupabaseServerClient()
-
-      const { data: assessmentObjective, error: assessmentObjectiveError } = await supabase
-        .from("assessment_objectives")
-        .select("assessment_objective_id, curriculum_id, unit_id, code, title, order_index")
-        .eq("assessment_objective_id", payload.assessmentObjectiveId)
-        .maybeSingle()
-
-      if (assessmentObjectiveError) {
-        console.error(
-          "[lessons] Failed to read assessment objective for lesson learning objective creation:",
-          assessmentObjectiveError,
-        )
-        return LessonObjectiveMutationResultSchema.parse({
-          data: null,
-          error: assessmentObjectiveError.message,
-        })
-      }
-
-      if (!assessmentObjective) {
-        return LessonObjectiveMutationResultSchema.parse({
-          data: null,
-          error: "Assessment objective not found",
-        })
-      }
-
-      const { data: maxOrderRow, error: maxOrderError } = await supabase
-        .from("learning_objectives")
-        .select("order_index")
-        .eq("assessment_objective_id", payload.assessmentObjectiveId)
-        .order("order_index", { ascending: false, nullsFirst: false })
-        .limit(1)
-        .maybeSingle()
-
-      if (maxOrderError) {
-        console.error("[lessons] Failed to read learning objective ordering:", maxOrderError)
-        return LessonObjectiveMutationResultSchema.parse({
-          data: null,
-          error: maxOrderError.message,
-        })
-      }
-
-      const nextOrder =
-        typeof maxOrderRow?.order_index === "number" && Number.isFinite(maxOrderRow.order_index)
-          ? maxOrderRow.order_index + 1
-          : 0
+      let assessmentObjective:
+        | {
+            assessment_objective_id: string
+            curriculum_id: string | null
+            unit_id: string | null
+            code: string | null
+            title: string | null
+            order_index: number | null
+          }
+        | null = null
+      let insertedObjective:
+        | {
+            learning_objective_id: string
+            assessment_objective_id: string | null
+            title: string | null
+            order_index: number | null
+            active: boolean | null
+            spec_ref: string | null
+          }
+        | null = null
+      let createdCriterion:
+        | {
+            success_criteria_id: string
+            learning_objective_id: string
+            level: number
+            description: string
+            order_index: number | null
+            active: boolean
+            units: string[]
+          }
+        | null = null
 
       const specRef = payload.specRef?.trim()
       const normalizedSpecRef = specRef && specRef.length > 0 ? specRef : null
+      let nextOrder = 0
 
-      const { data: insertedObjective, error: insertError } = await supabase
-        .from("learning_objectives")
-        .insert({
-          assessment_objective_id: payload.assessmentObjectiveId,
-          title: payload.title,
-          order_index: nextOrder,
-          active: true,
-          spec_ref: normalizedSpecRef,
+      try {
+        await withDbClient(async (client) => {
+          const { rows: aoRows } = await client.query(
+            `
+              select assessment_objective_id, curriculum_id, unit_id, code, title, order_index
+              from assessment_objectives
+              where assessment_objective_id = $1
+              limit 1
+            `,
+            [payload.assessmentObjectiveId],
+          )
+          assessmentObjective = aoRows?.[0] ?? null
+
+          if (!assessmentObjective) {
+            throw new Error("Assessment objective not found")
+          }
+
+          const { rows: maxOrderRow } = await client.query(
+            `
+              select order_index
+              from learning_objectives
+              where assessment_objective_id = $1
+              order by order_index desc nulls last
+              limit 1
+            `,
+            [payload.assessmentObjectiveId],
+          )
+
+          nextOrder =
+            typeof maxOrderRow?.[0]?.order_index === "number" && Number.isFinite(maxOrderRow[0].order_index)
+              ? maxOrderRow[0].order_index + 1
+              : 0
+
+          const { rows: insertedObjectiveRows } = await client.query(
+            `
+              insert into learning_objectives (assessment_objective_id, title, order_index, active, spec_ref)
+              values ($1, $2, $3, true, $4)
+              returning learning_objective_id, assessment_objective_id, title, order_index, active, spec_ref
+            `,
+            [payload.assessmentObjectiveId, payload.title, nextOrder, normalizedSpecRef],
+          )
+
+          insertedObjective = insertedObjectiveRows?.[0] ?? null
+          if (!insertedObjective) {
+            throw new Error("Unable to create learning objective.")
+          }
+
+          const { successCriterionDescription, successCriterionLevel } = payload
+
+          const { rows: insertedCriteriaRows } = await client.query(
+            `
+              insert into success_criteria (learning_objective_id, description, level, order_index, active)
+              values ($1, $2, $3, 0, true)
+              returning success_criteria_id, learning_objective_id, level, description, order_index, active
+            `,
+            [insertedObjective.learning_objective_id, successCriterionDescription, successCriterionLevel],
+          )
+
+          const insertedCriterion = insertedCriteriaRows?.[0] ?? null
+          if (!insertedCriterion) {
+            throw new Error("Unable to create success criterion.")
+          }
+
+          createdCriterion = {
+            success_criteria_id: insertedCriterion.success_criteria_id,
+            learning_objective_id: insertedCriterion.learning_objective_id,
+            level: insertedCriterion.level ?? successCriterionLevel,
+            description: insertedCriterion.description ?? successCriterionDescription,
+            order_index: insertedCriterion.order_index ?? 0,
+            active: insertedCriterion.active ?? true,
+            units: [],
+          }
+
+          await client.query(
+            `
+              insert into lesson_success_criteria (lesson_id, success_criteria_id)
+              values ($1, $2)
+            `,
+            [payload.lessonId, createdCriterion.success_criteria_id],
+          )
+
+          const { rows: lessonObjectiveOrders } = await client.query(
+            "select order_by from lessons_learning_objective where lesson_id = $1",
+            [payload.lessonId],
+          )
+
+          const nextLessonObjectiveOrder =
+            (lessonObjectiveOrders ?? []).reduce<number>((max, row) => {
+              const value = typeof row?.order_by === "number" ? row.order_by : -1
+              return value > max ? value : max
+            }, -1) + 1
+
+          await client.query(
+            `
+              insert into lessons_learning_objective (lesson_id, learning_objective_id, order_by, title, active)
+              values ($1, $2, $3, $4, true)
+            `,
+            [
+              payload.lessonId,
+              insertedObjective.learning_objective_id,
+              nextLessonObjectiveOrder,
+              insertedObjective.title ?? payload.title,
+            ],
+          )
         })
-        .select(
-          "learning_objective_id, assessment_objective_id, title, order_index, active, spec_ref",
-        )
-        .single()
+      } catch (error) {
+    console.error("[lessons] Failed to create learning objective via PG:", error)
+    const message = error instanceof Error ? error.message : "Unable to create learning objective."
+    return LessonObjectiveMutationResultSchema.parse({ data: null, error: message })
+  }
 
-      if (insertError) {
-        console.error("[lessons] Failed to create learning objective:", insertError)
-        return LessonObjectiveMutationResultSchema.parse({
-          data: null,
-          error: insertError.message,
-        })
-      }
+  if (!insertedObjective || !assessmentObjective) {
+    return LessonObjectiveMutationResultSchema.parse({
+      data: null,
+      error: "Unable to create learning objective.",
+    })
+  }
 
-      let createdCriterion: {
-        success_criteria_id: string
-        learning_objective_id: string
-        level: number
-        description: string
-        order_index: number | null
-        active: boolean
-        units: string[]
-      } | null = null
+  const assessmentObjectiveRecord = assessmentObjective as {
+    assessment_objective_id?: string | null
+    code?: string | null
+    title?: string | null
+    order_index?: number | null
+    curriculum_id?: string | null
+    unit_id?: string | null
+  }
 
-      const { successCriterionDescription, successCriterionLevel } = payload
+  const objectiveRecord = insertedObjective as {
+    learning_objective_id: string
+    assessment_objective_id: string
+    title?: string | null
+    order_index?: number | null
+    active?: boolean | null
+    spec_ref?: string | null
+  }
 
-      const { data: insertedCriterion, error: insertCriterionError } = await supabase
-        .from("success_criteria")
-        .insert({
-          learning_objective_id: insertedObjective.learning_objective_id,
-          description: successCriterionDescription,
-          level: successCriterionLevel,
-          order_index: 0,
-          active: true,
-        })
-        .select(
-          "success_criteria_id, learning_objective_id, level, description, order_index, active",
-        )
-        .single()
+  const normalizedObjective = {
+    learning_objective_id: objectiveRecord.learning_objective_id,
+    assessment_objective_id:
+      assessmentObjectiveRecord.assessment_objective_id ?? objectiveRecord.assessment_objective_id,
+    title: objectiveRecord.title ?? payload.title,
+    order_index: objectiveRecord.order_index ?? nextOrder,
+    active: objectiveRecord.active ?? true,
+    spec_ref: objectiveRecord.spec_ref ?? normalizedSpecRef,
+    assessment_objective_code: assessmentObjectiveRecord.code ?? null,
+    assessment_objective_title: assessmentObjectiveRecord.title ?? null,
+    assessment_objective_order_index: assessmentObjectiveRecord.order_index ?? null,
+    assessment_objective_curriculum_id: assessmentObjectiveRecord.curriculum_id ?? null,
+    assessment_objective_unit_id: assessmentObjectiveRecord.unit_id ?? null,
+    assessment_objective: {
+      assessment_objective_id:
+        assessmentObjectiveRecord.assessment_objective_id ?? objectiveRecord.assessment_objective_id,
+      code: assessmentObjectiveRecord.code ?? null,
+      title: assessmentObjectiveRecord.title ?? null,
+      order_index: assessmentObjectiveRecord.order_index ?? null,
+      curriculum_id: assessmentObjectiveRecord.curriculum_id ?? null,
+      unit_id: assessmentObjectiveRecord.unit_id ?? null,
+    },
+    success_criteria: createdCriterion ? [createdCriterion] : [],
+  }
 
-      if (insertCriterionError) {
-        console.error("[lessons] Failed to create default success criterion:", insertCriterionError)
-        return LessonObjectiveMutationResultSchema.parse({
-          data: null,
-          error: insertCriterionError.message,
-        })
-      }
+  revalidatePath(`/lessons/${payload.lessonId}`)
+  if (assessmentObjectiveRecord.curriculum_id) {
+    revalidatePath(`/curriculum/${assessmentObjectiveRecord.curriculum_id}`)
+  }
 
-      createdCriterion = {
-        success_criteria_id: insertedCriterion.success_criteria_id,
-        learning_objective_id: insertedCriterion.learning_objective_id,
-        level: insertedCriterion.level ?? successCriterionLevel,
-        description: insertedCriterion.description ?? successCriterionDescription,
-        order_index: insertedCriterion.order_index ?? 0,
-        active: insertedCriterion.active ?? true,
-        units: [],
-      }
-
-      const { error: lessonCriterionLinkError } = await supabase
-        .from("lesson_success_criteria")
-        .insert({
-          lesson_id: payload.lessonId,
-          success_criteria_id: createdCriterion.success_criteria_id,
-        })
-
-      if (lessonCriterionLinkError) {
-        console.error(
-          "[lessons] Failed to link success criterion to lesson:",
-          lessonCriterionLinkError,
-        )
-        return LessonObjectiveMutationResultSchema.parse({
-          data: null,
-          error: lessonCriterionLinkError.message,
-        })
-      }
-
-      const { data: lessonObjectiveOrders, error: lessonObjectiveOrdersError } = await supabase
-        .from("lessons_learning_objective")
-        .select("order_by")
-        .eq("lesson_id", payload.lessonId)
-
-      if (lessonObjectiveOrdersError) {
-        console.error(
-          "[lessons] Failed to read lesson learning objective ordering:",
-          lessonObjectiveOrdersError,
-        )
-        return LessonObjectiveMutationResultSchema.parse({
-          data: null,
-          error: lessonObjectiveOrdersError.message,
-        })
-      }
-
-      const nextLessonObjectiveOrder =
-        (lessonObjectiveOrders ?? []).reduce<number>((max, row) => {
-          const value = typeof row?.order_by === "number" ? row.order_by : -1
-          return value > max ? value : max
-        }, -1) + 1
-
-      const { error: lessonObjectiveInsertError } = await supabase
-        .from("lessons_learning_objective")
-        .insert({
-          lesson_id: payload.lessonId,
-          learning_objective_id: insertedObjective.learning_objective_id,
-          order_by: nextLessonObjectiveOrder,
-          title: insertedObjective.title ?? payload.title,
-          active: true,
-        })
-
-      if (lessonObjectiveInsertError) {
-        console.error(
-          "[lessons] Failed to link learning objective to lesson:",
-          lessonObjectiveInsertError,
-        )
-        return LessonObjectiveMutationResultSchema.parse({
-          data: null,
-          error: lessonObjectiveInsertError.message,
-        })
-      }
-
-      const normalizedObjective = {
-        learning_objective_id: insertedObjective.learning_objective_id,
-        assessment_objective_id: insertedObjective.assessment_objective_id,
-        title: insertedObjective.title ?? payload.title,
-        order_index: insertedObjective.order_index ?? nextOrder,
-        active: insertedObjective.active ?? true,
-        spec_ref: insertedObjective.spec_ref ?? normalizedSpecRef,
-        assessment_objective_code: assessmentObjective.code ?? null,
-        assessment_objective_title: assessmentObjective.title ?? null,
-        assessment_objective_order_index: assessmentObjective.order_index ?? null,
-        assessment_objective_curriculum_id: assessmentObjective.curriculum_id ?? null,
-        assessment_objective_unit_id: assessmentObjective.unit_id ?? null,
-        assessment_objective: {
-          assessment_objective_id: assessmentObjective.assessment_objective_id,
-          code: assessmentObjective.code ?? null,
-          title: assessmentObjective.title ?? null,
-          order_index: assessmentObjective.order_index ?? null,
-          curriculum_id: assessmentObjective.curriculum_id ?? null,
-          unit_id: assessmentObjective.unit_id ?? null,
-        },
-        success_criteria: createdCriterion ? [createdCriterion] : [],
-      }
-
-      revalidatePath(`/lessons/${payload.lessonId}`)
-      if (assessmentObjective.curriculum_id) {
-        revalidatePath(`/curriculum/${assessmentObjective.curriculum_id}`)
-      }
-
-      return LessonObjectiveMutationResultSchema.parse({
-        data: normalizedObjective,
-        error: null,
-      })
+  return LessonObjectiveMutationResultSchema.parse({
+    data: normalizedObjective,
+    error: null,
+  })
     },
   )
 }
@@ -1107,105 +1097,113 @@ export async function createLessonSuccessCriterionAction(input: {
       authEndTime,
     },
     async () => {
-      const supabase = await createSupabaseServerClient()
+      let learningObjective: {
+        learning_objective_id: string
+        assessment_objective_id: string | null
+        assessment_objective?: { curriculum_id?: string | null; code?: string | null; title?: string | null; order_index?: number | null } | null
+      } | null = null
+      let insertedCriterion: {
+        success_criteria_id: string
+        learning_objective_id: string
+        level: number | null
+        description: string | null
+        order_index: number | null
+        active: boolean | null
+      } | null = null
+      let nextOrder = 0
 
-      const { data: learningObjective, error: learningObjectiveError } = await supabase
-        .from("learning_objectives")
-        .select(
-          `learning_objective_id,
-            assessment_objective_id,
-            assessment_objective:assessment_objectives(
-              curriculum_id,
-              code,
-              title,
-              order_index
-            )`,
-        )
-        .eq("learning_objective_id", payload.learningObjectiveId)
-        .maybeSingle()
+      try {
+        await withDbClient(async (client) => {
+          const { rows: loRows } = await client.query(
+            `
+              select lo.learning_objective_id,
+                     lo.assessment_objective_id,
+                     ao.curriculum_id,
+                     ao.code,
+                     ao.title,
+                     ao.order_index
+              from learning_objectives lo
+              left join assessment_objectives ao on ao.assessment_objective_id = lo.assessment_objective_id
+              where lo.learning_objective_id = $1
+              limit 1
+            `,
+            [payload.learningObjectiveId],
+          )
+          learningObjective = loRows?.[0] ?? null
 
-      if (learningObjectiveError) {
-        console.error(
-          "[lessons] Failed to read learning objective for success criterion creation:",
-          learningObjectiveError,
-        )
+          if (!learningObjective) {
+            throw new Error("Learning objective not found")
+          }
+
+          const { rows: maxOrderRow } = await client.query(
+            `
+              select order_index
+              from success_criteria
+              where learning_objective_id = $1
+              order by order_index desc nulls last
+              limit 1
+            `,
+            [payload.learningObjectiveId],
+          )
+
+          nextOrder =
+            typeof maxOrderRow?.[0]?.order_index === "number" && Number.isFinite(maxOrderRow[0].order_index)
+              ? maxOrderRow[0].order_index + 1
+              : 0
+
+          const { rows: insertedRows } = await client.query(
+            `
+              insert into success_criteria (learning_objective_id, description, level, order_index, active)
+              values ($1, $2, $3, $4, true)
+              returning success_criteria_id, learning_objective_id, level, description, order_index, active
+            `,
+            [payload.learningObjectiveId, payload.description, payload.level, nextOrder],
+          )
+
+          insertedCriterion = insertedRows?.[0] ?? null
+          if (!insertedCriterion) {
+            throw new Error("Unable to create success criterion.")
+          }
+        })
+      } catch (error) {
+        console.error("[lessons] Failed to create success criterion via PG:", error)
+        const message = error instanceof Error ? error.message : "Unable to create success criterion."
+        return LessonSuccessCriterionMutationResultSchema.parse({ data: null, error: message })
+      }
+
+      if (!insertedCriterion) {
         return LessonSuccessCriterionMutationResultSchema.parse({
           data: null,
-          error: learningObjectiveError.message,
+          error: "Unable to create success criterion.",
         })
       }
 
-      if (!learningObjective) {
-        return LessonSuccessCriterionMutationResultSchema.parse({
-          data: null,
-          error: "Learning objective not found",
-        })
-      }
-
-      const { data: maxOrderRow, error: maxOrderError } = await supabase
-        .from("success_criteria")
-        .select("order_index")
-        .eq("learning_objective_id", payload.learningObjectiveId)
-        .order("order_index", { ascending: false, nullsFirst: false })
-        .limit(1)
-        .maybeSingle()
-
-      if (maxOrderError) {
-        console.error("[lessons] Failed to read success criterion ordering:", maxOrderError)
-        return LessonSuccessCriterionMutationResultSchema.parse({
-          data: null,
-          error: maxOrderError.message,
-        })
-      }
-
-      const nextOrder =
-        typeof maxOrderRow?.order_index === "number" && Number.isFinite(maxOrderRow.order_index)
-          ? maxOrderRow.order_index + 1
-          : 0
-
-      const { data: insertedCriterion, error: insertError } = await supabase
-        .from("success_criteria")
-        .insert({
-          learning_objective_id: payload.learningObjectiveId,
-          description: payload.description,
-          level: payload.level,
-          order_index: nextOrder,
-          active: true,
-        })
-        .select(
-          "success_criteria_id, learning_objective_id, level, description, order_index, active",
-        )
-        .single()
-
-      if (insertError) {
-        console.error("[lessons] Failed to create success criterion:", insertError)
-        return LessonSuccessCriterionMutationResultSchema.parse({
-          data: null,
-          error: insertError.message,
-        })
+      const criterionRecord = insertedCriterion as {
+        success_criteria_id: string
+        learning_objective_id: string | null
+        level?: number | null
+        description?: string | null
+        order_index?: number | null
+        active?: boolean | null
       }
 
       const normalizedCriterion = {
-        success_criteria_id: insertedCriterion.success_criteria_id,
-        learning_objective_id: insertedCriterion.learning_objective_id,
-        level: insertedCriterion.level ?? payload.level,
-        description: insertedCriterion.description ?? payload.description,
-        order_index: insertedCriterion.order_index ?? nextOrder,
-        active: insertedCriterion.active ?? true,
+        success_criteria_id: criterionRecord.success_criteria_id,
+        learning_objective_id: criterionRecord.learning_objective_id,
+        level: criterionRecord.level ?? payload.level,
+        description: criterionRecord.description ?? payload.description,
+        order_index: criterionRecord.order_index ?? nextOrder,
+        active: criterionRecord.active ?? true,
         units: [],
       }
 
       revalidatePath(`/lessons/${payload.lessonId}`)
 
-      const rawAssessmentObjective = learningObjective
-        .assessment_objective as
-        | { curriculum_id?: string | null }
-        | Array<{ curriculum_id?: string | null }>
+      const learningObjectiveRecord = learningObjective as
+        | { assessment_objective?: { curriculum_id?: string | null } | null }
         | null
-        | undefined
-      const normalizedAssessmentObjective = Array.isArray(rawAssessmentObjective)
-        ? rawAssessmentObjective[0] ?? null
-        : rawAssessmentObjective ?? null
+      const rawAssessmentObjective = learningObjectiveRecord?.assessment_objective ?? null
+      const normalizedAssessmentObjective = rawAssessmentObjective ?? null
       const curriculumId = normalizedAssessmentObjective?.curriculum_id ?? null
 
       if (curriculumId) {
@@ -1281,16 +1279,12 @@ export async function createLessonSuccessCriterionFormAction(
 export async function deactivateLessonAction(lessonId: string, unitId: string) {
   console.log("[v0] Server action started for lesson deactivation:", { lessonId, unitId })
 
-  const supabase = await createSupabaseServerClient()
-
-  const { error } = await supabase
-    .from("lessons")
-    .update({ active: false })
-    .eq("lesson_id", lessonId)
-
-  if (error) {
+  try {
+    await query("update lessons set active = false where lesson_id = $1", [lessonId])
+  } catch (error) {
     console.error("[v0] Failed to deactivate lesson:", error)
-    return { success: false, error: error.message }
+    const message = error instanceof Error ? error.message : "Unable to deactivate lesson."
+    return { success: false, error: message }
   }
 
   revalidatePath(`/units/${unitId}`)
@@ -1308,18 +1302,19 @@ export async function reorderLessonsAction(
 
   const updates = ordering.sort((a, b) => a.orderBy - b.orderBy)
 
-  const supabase = await createSupabaseServerClient()
-
-  for (const update of updates) {
-    const { error } = await supabase
-      .from("lessons")
-      .update({ order_by: update.orderBy })
-      .eq("lesson_id", update.lessonId)
-
-    if (error) {
-      console.error("[v0] Failed to reorder lesson:", error)
-      return { success: false, error: error.message }
-    }
+  try {
+    await withDbClient(async (client) => {
+      for (const update of updates) {
+        await client.query("update lessons set order_by = $1 where lesson_id = $2", [
+          update.orderBy,
+          update.lessonId,
+        ])
+      }
+    })
+  } catch (error) {
+    console.error("[v0] Failed to reorder lesson:", error)
+    const message = error instanceof Error ? error.message : "Unable to reorder lessons."
+    return { success: false, error: message }
   }
 
   revalidatePath(`/units/${unitId}`)
@@ -1332,8 +1327,6 @@ async function enrichLessonsWithSuccessCriteria<
   if (lessons.length === 0) {
     return { lessons: [], error: null }
   }
-
-  const supabase = await createSupabaseServerClient()
 
   const ids = new Set<string>()
 
@@ -1392,46 +1385,48 @@ async function enrichLessonsWithSuccessCriteria<
   const activitySummativeFlags = new Map<string, boolean>()
 
   if (lessonIds.length > 0) {
-    const { data: activityRows, error: activitiesError } = await supabase
-      .from("activities")
-      .select("activity_id, lesson_id, is_summative, type")
-      .in("lesson_id", lessonIds)
+    try {
+      const { rows: activityRows } = await query(
+        "select activity_id, lesson_id, is_summative, type from activities where lesson_id = any($1::text[])",
+        [lessonIds],
+      )
 
-    if (activitiesError) {
-      return { lessons: [], error: activitiesError.message }
-    }
-
-    for (const row of activityRows ?? []) {
-      const activityId = typeof row?.activity_id === "string" ? row.activity_id : null
-      if (!activityId) continue
-      const rawIsSummative =
-        typeof (row as { is_summative?: unknown }).is_summative === "boolean"
-          ? ((row as { is_summative?: unknown }).is_summative as boolean)
-          : false
-      const activityType =
-        typeof (row as { type?: unknown }).type === "string"
-          ? ((row as { type?: unknown }).type as string)
-          : null
-      activitySummativeFlags.set(activityId, rawIsSummative && isScorableActivityType(activityType))
+      for (const row of activityRows ?? []) {
+        const activityId = typeof row?.activity_id === "string" ? row.activity_id : null
+        if (!activityId) continue
+        const rawIsSummative =
+          typeof (row as { is_summative?: unknown }).is_summative === "boolean"
+            ? ((row as { is_summative?: unknown }).is_summative as boolean)
+            : false
+        const activityType =
+          typeof (row as { type?: unknown }).type === "string"
+            ? ((row as { type?: unknown }).type as string)
+            : null
+        activitySummativeFlags.set(activityId, rawIsSummative && isScorableActivityType(activityType))
+      }
+    } catch (activitiesError) {
+      console.error("[lessons] Failed to load activities for enrichment:", activitiesError)
+      return { lessons: [], error: "Unable to load activity metadata." }
     }
   }
 
   let lessonCriteriaRows: Array<{ lesson_id: string; success_criteria_id: string; activity_id: string | null }> = []
 
   if (lessonIds.length > 0) {
-    const { data: rows, error: lessonCriteriaError } = await supabase
-      .from("lesson_success_criteria")
-      .select("lesson_id, success_criteria_id")
-      .in("lesson_id", lessonIds)
+    try {
+      const { rows } = await query(
+        "select lesson_id, success_criteria_id, activity_id from lesson_success_criteria where lesson_id = any($1::text[])",
+        [lessonIds],
+      )
 
-    if (lessonCriteriaError) {
-      return { lessons: [], error: lessonCriteriaError.message }
+      lessonCriteriaRows = (rows ?? []).filter(
+        (row): row is { lesson_id: string; success_criteria_id: string; activity_id: string | null } =>
+          typeof row?.lesson_id === "string" && typeof row?.success_criteria_id === "string",
+      )
+    } catch (lessonCriteriaError) {
+      console.error("[lessons] Failed to load lesson success criteria:", lessonCriteriaError)
+      return { lessons: [], error: "Unable to load lesson success criteria." }
     }
-
-    lessonCriteriaRows = (rows ?? []).filter(
-      (row): row is { lesson_id: string; success_criteria_id: string; activity_id: string | null } =>
-        typeof row?.lesson_id === "string" && typeof row?.success_criteria_id === "string",
-    )
 
     const missingIds = Array.from(
       new Set(
@@ -1442,43 +1437,49 @@ async function enrichLessonsWithSuccessCriteria<
     )
 
     if (missingIds.length > 0) {
-      const { data: missingRows, error: missingError } = await supabase
-        .from("success_criteria")
-        .select("success_criteria_id, description, level, learning_objective_id")
-        .in("success_criteria_id", missingIds)
+      try {
+        const { rows: missingRows } = await query(
+          `
+            select success_criteria_id, description, level, learning_objective_id
+            from success_criteria
+            where success_criteria_id = any($1::text[])
+          `,
+          [missingIds],
+        )
 
-      if (missingError) {
-        return { lessons: [], error: missingError.message }
-      }
+        for (const row of missingRows ?? []) {
+          const successCriteriaId = typeof row?.success_criteria_id === "string" ? row.success_criteria_id : null
+          if (!successCriteriaId) continue
+          const description = typeof row.description === "string" ? row.description : null
+          const level = typeof row.level === "number" ? row.level : null
+          const learningObjectiveId =
+            typeof row.learning_objective_id === "string" ? row.learning_objective_id : null
 
-      for (const row of missingRows ?? []) {
-        if (!row?.success_criteria_id) continue
-        const description = typeof row.description === "string" ? row.description : null
-        const level = typeof row.level === "number" ? row.level : null
-        const learningObjectiveId =
-          typeof row.learning_objective_id === "string" ? row.learning_objective_id : null
-
-        detailMap.set(row.success_criteria_id, {
-          description,
-          level,
-          learning_objective_id: learningObjectiveId,
-        })
-
-        if (learningObjectiveId) {
-          const normalized: NormalizedSuccessCriterion = {
-            success_criteria_id: row.success_criteria_id,
+          detailMap.set(successCriteriaId, {
+            description,
+            level,
             learning_objective_id: learningObjectiveId,
-            level: level ?? 1,
-            description: description ?? "",
-            order_index: null,
-            active: true,
-            units: [],
+          })
+
+          if (learningObjectiveId) {
+            const normalized: NormalizedSuccessCriterion = {
+              success_criteria_id: successCriteriaId,
+              learning_objective_id: learningObjectiveId,
+              level: level ?? 1,
+              description: description ?? "",
+              order_index: null,
+              active: true,
+              units: [],
+            }
+            const list = loCriteriaMap.get(learningObjectiveId) ?? []
+            list.push(normalized)
+            loCriteriaMap.set(learningObjectiveId, list)
+            ids.add(learningObjectiveId)
           }
-          const list = loCriteriaMap.get(learningObjectiveId) ?? []
-          list.push(normalized)
-          loCriteriaMap.set(learningObjectiveId, list)
-          ids.add(learningObjectiveId)
         }
+      } catch (missingError) {
+        console.error("[lessons] Failed to load missing success criteria:", missingError)
+        return { lessons: [], error: "Unable to load success criteria metadata." }
       }
     }
   }
@@ -1501,19 +1502,31 @@ async function enrichLessonsWithSuccessCriteria<
   )
 
   if (lessonCriteriaRows.length > 0) {
-    const { data, error: criteriaMetadataError } = await supabase
-      .from("success_criteria")
-      .select("success_criteria_id, learning_objective_id, description, level")
-      .in(
-        "success_criteria_id",
-        Array.from(new Set(lessonCriteriaRows.map((row) => row.success_criteria_id))).filter((id) => Boolean(id)),
+    try {
+      const { rows } = await query(
+        `
+          select success_criteria_id, learning_objective_id, description, level
+          from success_criteria
+          where success_criteria_id = any($1::text[])
+        `,
+        [
+          Array.from(new Set(lessonCriteriaRows.map((row) => row.success_criteria_id))).filter(
+            (id) => Boolean(id),
+          ),
+        ],
       )
-
-    if (criteriaMetadataError) {
-      return { lessons: [], error: criteriaMetadataError.message }
+      criteriaMetadataRows = (rows ?? [])
+        .filter((row) => typeof row?.success_criteria_id === "string")
+        .map((row) => ({
+          success_criteria_id: row.success_criteria_id as string,
+          learning_objective_id: typeof row.learning_objective_id === "string" ? row.learning_objective_id : null,
+          description: typeof row.description === "string" ? row.description : null,
+          level: typeof row.level === "number" ? row.level : null,
+        }))
+    } catch (criteriaMetadataError) {
+      console.error("[lessons] Failed to load success criteria metadata:", criteriaMetadataError)
+      return { lessons: [], error: "Unable to load success criteria metadata." }
     }
-
-    criteriaMetadataRows = data ?? []
   }
 
   for (const row of criteriaMetadataRows) {
@@ -1560,36 +1573,49 @@ async function enrichLessonsWithSuccessCriteria<
   const metadataIdsToFetch = Array.from(ids).filter((id) => !learningObjectiveMetadata.has(id))
 
   if (metadataIdsToFetch.length > 0) {
-    const { data: learningObjectiveRows, error: learningObjectiveError } = await supabase
-      .from("learning_objectives")
-      .select(
-        "learning_objective_id, title, assessment_objective_id, order_index, active, spec_ref, assessment_objective:assessment_objectives(code, title, order_index)"
+    try {
+      const { rows: learningObjectiveRows } = await query(
+        `
+          select lo.learning_objective_id,
+                 lo.title,
+                 lo.assessment_objective_id,
+                 lo.order_index,
+                 lo.active,
+                 lo.spec_ref,
+                 ao.code as assessment_objective_code,
+                 ao.title as assessment_objective_title,
+                 ao.order_index as assessment_objective_order_index
+          from learning_objectives lo
+          left join assessment_objectives ao on ao.assessment_objective_id = lo.assessment_objective_id
+          where lo.learning_objective_id = any($1::text[])
+        `,
+        [metadataIdsToFetch],
       )
-      .in("learning_objective_id", metadataIdsToFetch)
 
-    if (learningObjectiveError) {
-      return { lessons: [], error: learningObjectiveError.message }
-    }
-
-    for (const row of learningObjectiveRows ?? []) {
-      if (!row?.learning_objective_id) continue
-      const assessmentObjective = Array.isArray(row.assessment_objective)
-        ? row.assessment_objective[0]
-        : row.assessment_objective
-      learningObjectiveMetadata.set(row.learning_objective_id, {
-        title: typeof row.title === "string" ? row.title : null,
-        assessment_objective_id:
-          typeof row.assessment_objective_id === "string" ? row.assessment_objective_id : null,
-        assessment_objective_title:
-          typeof assessmentObjective?.title === "string" ? assessmentObjective.title : null,
-        assessment_objective_code:
-          typeof assessmentObjective?.code === "string" ? assessmentObjective.code : null,
-        assessment_objective_order_index:
-          typeof assessmentObjective?.order_index === "number" ? assessmentObjective.order_index : null,
-        order_index: typeof row.order_index === "number" ? row.order_index : null,
-        active: typeof row.active === "boolean" ? row.active : null,
-        spec_ref: typeof row.spec_ref === "string" ? row.spec_ref : null,
-      })
+      for (const row of learningObjectiveRows ?? []) {
+        const learningObjectiveId =
+          typeof row?.learning_objective_id === "string" ? row.learning_objective_id : null
+        if (!learningObjectiveId) continue
+        learningObjectiveMetadata.set(learningObjectiveId, {
+          title: typeof row.title === "string" ? row.title : null,
+          assessment_objective_id:
+            typeof row.assessment_objective_id === "string" ? row.assessment_objective_id : null,
+          assessment_objective_title:
+            typeof row.assessment_objective_title === "string" ? row.assessment_objective_title : null,
+          assessment_objective_code:
+            typeof row.assessment_objective_code === "string" ? row.assessment_objective_code : null,
+          assessment_objective_order_index:
+            typeof row.assessment_objective_order_index === "number"
+              ? row.assessment_objective_order_index
+              : null,
+          order_index: typeof row.order_index === "number" ? row.order_index : null,
+          active: typeof row.active === "boolean" ? row.active : null,
+          spec_ref: typeof row.spec_ref === "string" ? row.spec_ref : null,
+        })
+      }
+    } catch (learningObjectiveError) {
+      console.error("[lessons] Failed to load learning objective metadata:", learningObjectiveError)
+      return { lessons: [], error: "Unable to load learning objectives." }
     }
   }
 
@@ -1937,44 +1963,43 @@ export async function updateLessonHeaderAction(
 }
 
 async function readLessonWithObjectives(lessonId: string) {
-  const supabase = await createSupabaseServerClient()
-
-  const { data, error } = await supabase
-    .from("lessons")
-    .select(
-      `*,
-        lessons_learning_objective(
-          *,
-          learning_objective:learning_objectives(
-            *,
-            assessment_objective:assessment_objectives(*)
-          )
-        ),
-        lesson_links(*)
+  let lesson: Record<string, unknown> | null = null
+  try {
+    const { rows } = await query(
+      `
+        select l.*,
+               json_agg(ll.*) filter (where ll.lesson_id is not null) as lessons_learning_objective,
+               json_agg(links.*) filter (where links.lesson_id is not null) as lesson_links
+        from lessons l
+        left join lessons_learning_objective ll on ll.lesson_id = l.lesson_id
+        left join lesson_links links on links.lesson_id = l.lesson_id
+        where l.lesson_id = $1
+        group by l.lesson_id
+        limit 1
       `,
+      [lessonId],
     )
-    .eq("lesson_id", lessonId)
-    .maybeSingle()
-
-  if (error) {
-    console.error("[v0] Failed to read lesson:", error)
-    return LessonReturnValue.parse({ data: null, error: error.message })
+    lesson = rows?.[0] ?? null
+  } catch (error) {
+    console.error("[v0] Failed to read lesson via PG:", error)
+    const message = error instanceof Error ? error.message : "Unable to load lesson."
+    return LessonReturnValue.parse({ data: null, error: message })
   }
 
-  if (!data) {
+  if (!lesson) {
     return LessonReturnValue.parse({ data: null, error: null })
   }
 
-  const { lessons: enrichedLessons, error: scError } = await enrichLessonsWithSuccessCriteria([data])
+  const { lessons: enrichedLessons, error: scError } = await enrichLessonsWithSuccessCriteria([lesson])
 
   if (scError) {
     console.error("[v0] Failed to read success criteria for lesson:", scError)
     return LessonReturnValue.parse({ data: null, error: scError })
   }
 
-  const lesson = enrichedLessons[0]
+  const enrichedLesson = enrichedLessons[0]
 
-  const { lessons_learning_objective, lesson_links, ...rest } = lesson
+  const { lessons_learning_objective, lesson_links, ...rest } = enrichedLesson
   const normalized = {
     ...rest,
     lesson_objectives: ((lessons_learning_objective ?? []) as LessonLearningObjective[])

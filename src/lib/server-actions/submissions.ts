@@ -11,7 +11,7 @@ import {
   type LessonSubmissionSummary,
   type Submission,
 } from "@/types"
-import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { query } from "@/lib/db"
 import { isScorableActivityType } from "@/dino.config"
 import {
   computeAverageSuccessCriteriaScore,
@@ -44,27 +44,30 @@ export async function getLatestSubmissionForActivityAction(activityId: string, u
     userId,
   })
 
-  const supabase = await createSupabaseServerClient()
-
-  const { data, error } = await supabase
-    .from("submissions")
-    .select("*")
-    .eq("activity_id", input.activityId)
-    .eq("user_id", input.userId)
-    .order("submitted_at", { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  if (error) {
+  let row: any = null
+  try {
+    const { rows } = await query(
+      `
+        select *
+        from submissions
+        where activity_id = $1 and user_id = $2
+        order by submitted_at desc
+        limit 1
+      `,
+      [input.activityId, input.userId],
+    )
+    row = rows[0] ?? null
+  } catch (error) {
     console.error("[submissions] Failed to load submission:", error)
-    return SubmissionResultSchema.parse({ data: null, error: error.message })
+    const message = error instanceof Error ? error.message : "Unable to load submission."
+    return SubmissionResultSchema.parse({ data: null, error: message })
   }
 
-  if (!data) {
+  if (!row) {
     return SubmissionResultSchema.parse({ data: null, error: null })
   }
 
-  const parsed = SubmissionSchema.safeParse(data)
+  const parsed = SubmissionSchema.safeParse(row)
   if (!parsed.success) {
     console.error("[submissions] Failed to parse submission row:", parsed.error)
     return SubmissionResultSchema.parse({ data: null, error: "Invalid submission data." })
@@ -89,25 +92,28 @@ export async function readLessonSubmissionSummariesAction(
 
   try {
     const viewerUserId = options.userId ?? null
-    const supabase = await createSupabaseServerClient()
-
-    const { data: activityRows, error: activitiesError } = await supabase
-      .from("activities")
-      .select("activity_id, title, type, body_data, active, is_summative")
-      .eq("lesson_id", trimmedLessonId)
-      .eq("active", true)
-
-    if (activitiesError) {
+    let activityRows: any[] = []
+    try {
+      const { rows } = await query(
+        `
+          select activity_id, title, type, body_data, active, is_summative
+          from activities
+          where lesson_id = $1 and active = true
+        `,
+        [trimmedLessonId],
+      )
+      activityRows = rows ?? []
+    } catch (activitiesError) {
       console.error("[submissions] Failed to read lesson activities for feedback summary:", activitiesError)
       return {
         data: [],
         averages: { activitiesAverage: null, assessmentAverage: null },
-        error: activitiesError.message ?? "Unable to load activities.",
+        error: activitiesError instanceof Error ? activitiesError.message : "Unable to load activities.",
       }
     }
 
-  const activities = LessonActivitySummaryRowSchema.array().parse(activityRows ?? [])
-  const scorableActivities = activities.filter((activity) => isScorableActivityType(activity.type))
+    const activities = LessonActivitySummaryRowSchema.array().parse(activityRows ?? [])
+    const scorableActivities = activities.filter((activity) => isScorableActivityType(activity.type))
 
   if (scorableActivities.length === 0) {
     return { data: [], averages: { activitiesAverage: null, assessmentAverage: null }, error: null }
@@ -117,38 +123,55 @@ export async function readLessonSubmissionSummariesAction(
 
   const activitySuccessCriteriaMap = new Map<string, string[]>()
 
-  if (activityIds.length > 0) {
-    const { data: activityCriteriaRows, error: activityCriteriaError } = await supabase
-      .from("activity_success_criteria")
-      .select("activity_id, success_criteria_id")
-      .in("activity_id", activityIds)
+    if (activityIds.length > 0) {
+      try {
+        const { rows: activityCriteriaRows } = await query<{
+          activity_id: string
+          success_criteria_id: string
+        }>(
+          `
+            select activity_id, success_criteria_id
+            from activity_success_criteria
+            where activity_id = any($1::text[])
+          `,
+          [activityIds],
+        )
 
-    if (activityCriteriaError) {
-      console.error("[submissions] Failed to load activity success criteria for summaries:", activityCriteriaError)
-    } else {
-      for (const row of activityCriteriaRows ?? []) {
-        const activityId = typeof row?.activity_id === "string" ? row.activity_id : null
-        const successCriteriaId = typeof row?.success_criteria_id === "string" ? row.success_criteria_id : null
-        if (!activityId || !successCriteriaId) continue
+        for (const row of activityCriteriaRows ?? []) {
+          const activityId = typeof row?.activity_id === "string" ? row.activity_id : null
+          const successCriteriaId =
+            typeof row?.success_criteria_id === "string" ? row.success_criteria_id : null
+          if (!activityId || !successCriteriaId) continue
 
-        const list = activitySuccessCriteriaMap.get(activityId) ?? []
-        list.push(successCriteriaId)
-        activitySuccessCriteriaMap.set(activityId, list)
+          const list = activitySuccessCriteriaMap.get(activityId) ?? []
+          list.push(successCriteriaId)
+          activitySuccessCriteriaMap.set(activityId, list)
+        }
+      } catch (activityCriteriaError) {
+        console.error(
+          "[submissions] Failed to load activity success criteria for summaries:",
+          activityCriteriaError,
+        )
       }
     }
-  }
 
-    const { data: submissionRows, error: submissionsError } = await supabase
-      .from("submissions")
-      .select("submission_id, activity_id, user_id, submitted_at, body")
-      .in("activity_id", activityIds)
-
-    if (submissionsError) {
+    let submissionRows: any[] = []
+    try {
+      const { rows } = await query(
+        `
+          select submission_id, activity_id, user_id, submitted_at, body
+          from submissions
+          where activity_id = any($1::text[])
+        `,
+        [activityIds],
+      )
+      submissionRows = rows ?? []
+    } catch (submissionsError) {
       console.error("[submissions] Failed to read lesson submissions for feedback summary:", submissionsError)
       return {
         data: [],
         averages: { activitiesAverage: null, assessmentAverage: null },
-        error: submissionsError.message ?? "Unable to load submissions.",
+        error: submissionsError instanceof Error ? submissionsError.message : "Unable to load submissions.",
       }
     }
 
@@ -161,7 +184,7 @@ export async function readLessonSubmissionSummariesAction(
       submissionsByActivity.set(submission.activity_id, list)
     }
 
-  const summaries: LessonSubmissionSummary[] = []
+    const summaries: LessonSubmissionSummary[] = []
   const overallTotals = { total: 0, count: 0 }
   const overallSummativeTotals = { total: 0, count: 0 }
   const viewerTotals = { total: 0, count: 0 }
@@ -490,17 +513,16 @@ export async function readLessonSubmissionSummariesAction(
 
 export async function upsertMcqSubmissionAction(input: z.infer<typeof McqSubmissionInputSchema>) {
   const payload = McqSubmissionInputSchema.parse(input)
-  const supabase = await createSupabaseServerClient()
-
-  const { data: activity, error: activityError } = await supabase
-    .from("activities")
-    .select("body_data")
-    .eq("activity_id", payload.activityId)
-    .maybeSingle()
-
-  if (activityError) {
-    console.error("[submissions] Failed to load activity for submission:", activityError)
-    return { success: false, error: activityError.message, data: null as Submission | null }
+  let activity: { body_data: unknown } | null = null
+  try {
+    const { rows } = await query<{ body_data: unknown }>(
+      "select body_data from activities where activity_id = $1 limit 1",
+      [payload.activityId],
+    )
+    activity = rows[0] ?? null
+  } catch (error) {
+    console.error("[submissions] Failed to load activity for submission:", error)
+    return { success: false, error: error instanceof Error ? error.message : "Unable to load activity.", data: null as Submission | null }
   }
 
   if (!activity) {
@@ -524,7 +546,7 @@ export async function upsertMcqSubmissionAction(input: z.infer<typeof McqSubmiss
     return { success: false, error: "Selected option is no longer available.", data: null as Submission | null }
   }
 
-  const successCriteriaIds = await fetchActivitySuccessCriteriaIds(supabase, payload.activityId)
+  const successCriteriaIds = await fetchActivitySuccessCriteriaIds(payload.activityId)
   const isCorrect = mcqBody.correctOptionId === payload.optionId
   const successCriteriaScores = normaliseSuccessCriteriaScores({
     successCriteriaIds,
@@ -537,81 +559,90 @@ export async function upsertMcqSubmissionAction(input: z.infer<typeof McqSubmiss
     success_criteria_scores: successCriteriaScores,
   })
 
-  const existing = await supabase
-    .from("submissions")
-    .select("submission_id")
-    .eq("activity_id", payload.activityId)
-    .eq("user_id", payload.userId)
-    .order("submitted_at", { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  if (existing.error) {
-    console.error("[submissions] Failed to check existing submission:", existing.error)
-    return { success: false, error: existing.error.message, data: null as Submission | null }
+  let existingSubmissionId: string | null = null
+  try {
+    const { rows } = await query(
+      `
+        select submission_id
+        from submissions
+        where activity_id = $1
+          and user_id = $2
+        order by submitted_at desc nulls last
+        limit 1
+      `,
+      [payload.activityId, payload.userId],
+    )
+    const existingRow = rows?.[0] ?? null
+    existingSubmissionId =
+      existingRow && typeof existingRow.submission_id === "string" ? existingRow.submission_id : null
+  } catch (existingError) {
+    console.error("[submissions] Failed to check existing submission:", existingError)
+    const message = existingError instanceof Error ? existingError.message : "Unable to load submission."
+    return { success: false, error: message, data: null as Submission | null }
   }
 
   const timestamp = new Date().toISOString()
 
-  if (existing.data?.submission_id) {
-    const { data, error } = await supabase
-      .from("submissions")
-      .update({
-        body: submissionBody,
-        submitted_at: timestamp,
+  if (existingSubmissionId) {
+    try {
+      const { rows } = await query(
+        `
+          update submissions
+          set body = $1, submitted_at = $2
+          where submission_id = $3
+          returning *
+        `,
+        [submissionBody, timestamp, existingSubmissionId],
+      )
+
+      const parsed = SubmissionSchema.safeParse(rows?.[0])
+      if (!parsed.success) {
+        console.error("[submissions] Failed to parse updated submission:", parsed.error)
+        return { success: false, error: "Invalid submission data.", data: null as Submission | null }
+      }
+
+      console.log("[realtime-debug] MCQ submission stored", {
+        type: "update",
+        activityId: payload.activityId,
+        pupilId: payload.userId,
+        submissionId: parsed.data.submission_id,
       })
-      .eq("submission_id", existing.data.submission_id)
-      .select("*")
-      .single()
 
-    if (error) {
+      return { success: true, error: null, data: parsed.data }
+    } catch (error) {
       console.error("[submissions] Failed to update submission:", error)
-      return { success: false, error: error.message, data: null as Submission | null }
+      const message = error instanceof Error ? error.message : "Unable to update submission."
+      return { success: false, error: message, data: null as Submission | null }
     }
+  }
 
-    const parsed = SubmissionSchema.safeParse(data)
+  try {
+    const { rows } = await query(
+      `
+        insert into submissions (activity_id, user_id, body)
+        values ($1, $2, $3)
+        returning *
+      `,
+      [payload.activityId, payload.userId, submissionBody],
+    )
+
+    const parsed = SubmissionSchema.safeParse(rows?.[0])
     if (!parsed.success) {
-      console.error("[submissions] Failed to parse updated submission:", parsed.error)
+      console.error("[submissions] Failed to parse inserted submission:", parsed.error)
       return { success: false, error: "Invalid submission data.", data: null as Submission | null }
     }
 
     console.log("[realtime-debug] MCQ submission stored", {
-      type: "update",
+      type: "insert",
       activityId: payload.activityId,
       pupilId: payload.userId,
       submissionId: parsed.data.submission_id,
     })
 
     return { success: true, error: null, data: parsed.data }
-  }
-
-  const { data, error } = await supabase
-    .from("submissions")
-    .insert({
-      activity_id: payload.activityId,
-      user_id: payload.userId,
-      body: submissionBody,
-    })
-    .select("*")
-    .single()
-
-  if (error) {
+  } catch (error) {
     console.error("[submissions] Failed to insert submission:", error)
-    return { success: false, error: error.message, data: null as Submission | null }
+    const message = error instanceof Error ? error.message : "Unable to insert submission."
+    return { success: false, error: message, data: null as Submission | null }
   }
-
-  const parsed = SubmissionSchema.safeParse(data)
-  if (!parsed.success) {
-    console.error("[submissions] Failed to parse inserted submission:", parsed.error)
-    return { success: false, error: "Invalid submission data.", data: null as Submission | null }
-  }
-
-  console.log("[realtime-debug] MCQ submission stored", {
-    type: "insert",
-    activityId: payload.activityId,
-    pupilId: payload.userId,
-    submissionId: parsed.data.submission_id,
-  })
-
-  return { success: true, error: null, data: parsed.data }
 }

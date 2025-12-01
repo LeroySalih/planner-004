@@ -22,7 +22,7 @@ import {
 } from "@/types"
 import { getLevelForYearScore } from "@/lib/levels"
 import { withTelemetry } from "@/lib/telemetry"
-import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { query } from "@/lib/db"
 import { computeAverageSuccessCriteriaScore, normaliseSuccessCriteriaScores } from "@/lib/scoring/success-criteria"
 import { isScorableActivityType } from "@/dino.config"
 
@@ -50,129 +50,114 @@ export type ReportDataset = z.infer<typeof ReportDatasetSchema>
 export type ReportMembership = z.infer<typeof GroupMembershipsWithGroupSchema>[number]
 export type ReportAssignment = z.infer<typeof AssignmentsWithUnitSchema>[number]
 
-type SupabaseServerClient = Awaited<ReturnType<typeof createSupabaseServerClient>>
-
 async function fetchReportDataset(
   pupilId: string,
   _groupIdFilter?: string | null,
-  options?: { supabase?: SupabaseServerClient },
 ): Promise<ReportDataset> {
-  const supabase = options?.supabase ?? (await createSupabaseServerClient())
-  const { data: cachedRow, error: cacheError } = await supabase
-    .from("report_pupil_cache")
-    .select("dataset")
-    .eq("pupil_id", pupilId)
-    .maybeSingle()
+  try {
+    const { rows } = await query("select dataset from report_pupil_cache where pupil_id = $1 limit 1", [pupilId])
+    let datasetPayload = rows?.[0]?.dataset ?? null
 
-  if (cacheError) {
-    console.error("[reports] Failed to load cached dataset", { pupilId, error: cacheError })
-    throw new Error(cacheError.message ?? "Failed to load cached report dataset.")
-  }
-
-  let datasetPayload = cachedRow?.dataset
-
-  if (!datasetPayload) {
-    const { data: recalculated, error: recalcError } = await supabase.rpc("reports_recalculate_pupil_cache", {
-      p_pupil_id: pupilId,
-    })
-
-    if (recalcError) {
-      console.error("[reports] Failed to recalculate dataset on demand", { pupilId, error: recalcError })
-      throw new Error(recalcError.message ?? "Failed to recalculate report dataset.")
+    if (!datasetPayload) {
+      const { rows: recalcRows } = await query(
+        "select reports_recalculate_pupil_cache($1) as dataset",
+        [pupilId],
+      )
+      datasetPayload = recalcRows?.[0]?.dataset ?? {}
     }
 
-    datasetPayload = recalculated ?? {}
+    return ReportDatasetSchema.parse(datasetPayload ?? {})
+  } catch (error) {
+    console.error("[reports] Failed to load or recalc dataset via PG", { pupilId, error })
+    throw new Error(error instanceof Error ? error.message : "Failed to load report dataset.")
   }
-
-  return ReportDatasetSchema.parse(datasetPayload ?? {})
 }
 
 async function fetchLatestFeedbackSnapshot(
   pupilId: string,
-  options?: { supabase?: SupabaseServerClient },
 ): Promise<Record<string, number>> {
-  const supabase = options?.supabase ?? (await createSupabaseServerClient())
-  const { data, error } = await supabase
-    .from("report_pupil_feedback_cache")
-    .select("success_criteria_id, latest_rating")
-    .eq("pupil_id", pupilId)
-
-  if (error) {
-    console.error("[reports] Failed to read feedback cache", { pupilId, error })
+  try {
+    const { rows } = await query(
+      "select success_criteria_id, latest_rating from report_pupil_feedback_cache where pupil_id = $1",
+      [pupilId],
+    )
+    const snapshot: Record<string, number> = {}
+    for (const entry of rows ?? []) {
+      const criterionId =
+        typeof entry.success_criteria_id === "string" ? entry.success_criteria_id.trim() : ""
+      if (!criterionId) continue
+      if (typeof entry.latest_rating === "number") {
+        snapshot[criterionId] = entry.latest_rating
+      }
+    }
+    return snapshot
+  } catch (error) {
+    console.error("[reports] Failed to read feedback cache via PG", { pupilId, error })
     return {}
   }
-
-  const snapshot: Record<string, number> = {}
-  for (const entry of data ?? []) {
-    const criterionId = (entry.success_criteria_id ?? "").trim()
-    if (!criterionId) continue
-    if (typeof entry.latest_rating === "number") {
-      snapshot[criterionId] = entry.latest_rating
-    }
-  }
-  return snapshot
 }
 
 async function readCachedUnitSummaries(
   pupilId: string,
-  options?: { supabase?: SupabaseServerClient; groupIdFilter?: string },
+  options?: { groupIdFilter?: string },
 ): Promise<ReportUnitSummary[]> {
-  const supabase = options?.supabase ?? (await createSupabaseServerClient())
-  const { data, error } = await supabase
-    .from("report_pupil_unit_summaries")
-    .select(
-      "unit_id, unit_title, unit_subject, unit_description, unit_year, related_group_ids, grouped_levels, working_level, activities_average, assessment_average, assessment_level, score_error, objective_error",
+  try {
+    const { rows } = await query(
+      `
+        select unit_id, unit_title, unit_subject, unit_description, unit_year, related_group_ids, grouped_levels, working_level, activities_average, assessment_average, assessment_level, score_error, objective_error
+        from report_pupil_unit_summaries
+        where pupil_id = $1
+      `,
+      [pupilId],
     )
-    .eq("pupil_id", pupilId)
 
-  if (error) {
-    console.error("[reports] Failed to read unit summaries cache", { pupilId, error })
-    return []
-  }
+    const parsed = ReportUnitSummaryRowSchema.array().safeParse(rows ?? [])
+    if (!parsed.success) {
+      console.warn("[reports] Invalid unit summary cache rows", {
+        pupilId,
+        issues: parsed.error.issues,
+      })
+      return []
+    }
 
-  const parsed = ReportUnitSummaryRowSchema.array().safeParse(data ?? [])
-  if (!parsed.success) {
-    console.warn("[reports] Invalid unit summary cache rows", {
-      pupilId,
-      issues: parsed.error.issues,
-    })
-    return []
-  }
-
-  return parsed.data
-    .filter((row) => {
-      if (!options?.groupIdFilter) return true
-      const groupIds = row.related_group_ids ?? []
-      return groupIds.includes(options.groupIdFilter)
-    })
-    .map<ReportUnitSummary>((row) => ({
-      unitId: row.unit_id,
-      unitTitle: row.unit_title ?? row.unit_id,
-      unitSubject: row.unit_subject ?? "Subject not set",
-      unitDescription: row.unit_description ?? null,
-      unitYear: row.unit_year ?? null,
-      relatedGroups: Array.from(new Set(row.related_group_ids ?? [])),
-      objectiveError: row.objective_error,
-      groupedLevels: row.grouped_levels.map((group) => ({
-        level: group.level,
-        rows: group.rows.map((entry) => ({
-          level: entry.level,
-          assessmentObjectiveCode: entry.assessmentObjectiveCode,
-          assessmentObjectiveTitle: entry.assessmentObjectiveTitle,
-          objectiveTitle: entry.objectiveTitle,
-          learningObjectiveId: entry.learningObjectiveId,
-          criterionId: entry.criterionId,
-          criterionDescription: entry.criterionDescription,
-          activitiesScore: entry.activitiesScore,
-          assessmentScore: entry.assessmentScore,
+    return parsed.data
+      .filter((row) => {
+        if (!options?.groupIdFilter) return true
+        const groupIds = row.related_group_ids ?? []
+        return groupIds.includes(options.groupIdFilter)
+      })
+      .map<ReportUnitSummary>((row) => ({
+        unitId: row.unit_id,
+        unitTitle: row.unit_title ?? row.unit_id,
+        unitSubject: row.unit_subject ?? "Subject not set",
+        unitDescription: row.unit_description ?? null,
+        unitYear: row.unit_year ?? null,
+        relatedGroups: Array.from(new Set(row.related_group_ids ?? [])),
+        objectiveError: row.objective_error,
+        groupedLevels: row.grouped_levels.map((group) => ({
+          level: group.level,
+          rows: group.rows.map((entry) => ({
+            level: entry.level,
+            assessmentObjectiveCode: entry.assessmentObjectiveCode,
+            assessmentObjectiveTitle: entry.assessmentObjectiveTitle,
+            objectiveTitle: entry.objectiveTitle,
+            learningObjectiveId: entry.learningObjectiveId,
+            criterionId: entry.criterionId,
+            criterionDescription: entry.criterionDescription,
+            activitiesScore: entry.activitiesScore,
+            assessmentScore: entry.assessmentScore,
+          })),
         })),
-      })),
-      workingLevel: row.working_level ?? null,
-      activitiesAverage: row.activities_average ?? null,
-      assessmentAverage: row.assessment_average ?? null,
-      assessmentLevel: row.assessment_level ?? null,
-      scoreError: row.score_error ?? null,
-    }))
+        workingLevel: row.working_level ?? null,
+        activitiesAverage: row.activities_average ?? null,
+        assessmentAverage: row.assessment_average ?? null,
+        assessmentLevel: row.assessment_level ?? null,
+        scoreError: row.score_error ?? null,
+      }))
+  } catch (error) {
+    console.error("[reports] Failed to read unit summaries cache via PG", { pupilId, error })
+    return []
+  }
 }
 
 export function buildFeedbackMapFromDataset(entries: ReportDataset["feedback"]) {
@@ -293,25 +278,49 @@ export async function getPreparedReportData(
       authEndTime: options?.authEndTime ?? null,
     },
     async () => {
-      const supabase = await createSupabaseServerClient()
+      let profile: z.infer<typeof ProfileSchema> | null = null
+      let memberships: z.infer<typeof GroupMembershipsWithGroupSchema> = []
 
-      const [profileResult, membershipResult] = await Promise.all([
-        supabase.from("profiles").select("*").eq("user_id", pupilId).maybeSingle(),
-        supabase
-          .from("group_membership")
-          .select("group_id, user_id, role, group:groups(*)")
-          .eq("user_id", pupilId),
-      ])
-
-      if (profileResult.error) {
-        console.error("[reports] Failed to load pupil profile", { pupilId, error: profileResult.error })
-      }
-      if (membershipResult.error) {
-        console.error("[reports] Failed to load memberships", { pupilId, error: membershipResult.error })
+      try {
+        const { rows: profileRows } = await query(
+          "select * from profiles where user_id = $1 limit 1",
+          [pupilId],
+        )
+        profile = profileRows?.[0] ? ProfileSchema.nullable().parse(profileRows[0]) : null
+      } catch (error) {
+        console.error("[reports] Failed to load pupil profile via PG", { pupilId, error })
       }
 
-      const profile = profileResult.data ? ProfileSchema.nullable().parse(profileResult.data) : null
-      const memberships = GroupMembershipsWithGroupSchema.parse(membershipResult.data ?? [])
+      try {
+        const { rows: membershipRows } = await query(
+          `
+            select gm.group_id, gm.user_id, gm.role, g.group_id as group_group_id, g.subject, g.join_code, g.active
+            from group_membership gm
+            left join groups g on g.group_id = gm.group_id
+            where gm.user_id = $1
+          `,
+          [pupilId],
+        )
+
+        memberships = GroupMembershipsWithGroupSchema.parse(
+          (membershipRows ?? []).map((row) => ({
+            group_id: row.group_id,
+            user_id: row.user_id,
+            role: row.role,
+            group:
+              row.group_group_id !== null && row.group_group_id !== undefined
+                ? {
+                    group_id: row.group_group_id,
+                    subject: row.subject,
+                    join_code: row.join_code,
+                    active: row.active,
+                  }
+                : undefined,
+          })),
+        )
+      } catch (error) {
+        console.error("[reports] Failed to load memberships via PG", { pupilId, error })
+      }
       const membershipByGroupId = new Map(memberships.map((membership) => [membership.group_id, membership]))
       const primaryMembership = groupIdFilter ? membershipByGroupId.get(groupIdFilter) ?? null : null
 
@@ -336,11 +345,11 @@ export async function getPreparedReportData(
         .replace(/^-+|-+$/g, "")
       const exportFileName = `pupil-report-${exportSlug || pupilId}-${exportDate}.pdf`
 
-      let unitSummaries = await readCachedUnitSummaries(pupilId, { supabase, groupIdFilter })
-      let feedbackByCriterion = await fetchLatestFeedbackSnapshot(pupilId, { supabase })
+      let unitSummaries = await readCachedUnitSummaries(pupilId, { groupIdFilter })
+      let feedbackByCriterion = await fetchLatestFeedbackSnapshot(pupilId)
 
       if (unitSummaries.length === 0) {
-        const dataset = await fetchReportDataset(pupilId, groupIdFilter, { supabase })
+        const dataset = await fetchReportDataset(pupilId, groupIdFilter)
         const fallbackFeedbackMap = buildFeedbackMapFromDataset(dataset.feedback)
         feedbackByCriterion = { ...fallbackFeedbackMap, ...feedbackByCriterion }
         unitSummaries = await buildDatasetUnitSummaries({

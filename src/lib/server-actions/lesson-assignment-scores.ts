@@ -2,9 +2,13 @@
 
 import { z } from "zod"
 
-import { LessonAssignmentScoreSummariesSchema, type LessonAssignmentScoreSummaries } from "@/types"
-import { createSupabaseServerClient } from "@/lib/supabase/server"
+import {
+  LessonAssignmentScoreSummariesSchema,
+  type LessonAssignmentScoreSummary,
+  type LessonAssignmentScoreSummaries,
+} from "@/types"
 import { requireTeacherProfile } from "@/lib/auth"
+import { query } from "@/lib/db"
 
 const LessonAssignmentScoreSummaryInputSchema = z.object({
   pairs: z
@@ -41,24 +45,47 @@ export async function readLessonAssignmentScoreSummariesAction(
     new Map(payload.pairs.map((pair) => [`${pair.groupId}::${pair.lessonId}`, pair])).values(),
   )
 
-  const supabase = await createSupabaseServerClient()
+  try {
+    const { rows } = await query<
+      LessonAssignmentScoreSummary & { activities_average: number | string | null }
+    >(
+      `
+        select *
+        from lesson_assignment_score_summaries($1::jsonb)
+      `,
+      [JSON.stringify(uniquePairs)],
+    )
 
-  const { data, error } = await supabase.rpc("lesson_assignment_score_summaries", { pairs: uniquePairs })
+    const normalized = (rows ?? []).map((row) => {
+      const raw = row.activities_average
+      let parsedAverage: number | null = null
 
-  if (error) {
+      if (raw === null) {
+        parsedAverage = null
+      } else if (typeof raw === "number") {
+        parsedAverage = raw
+      } else {
+        const numeric = Number(raw)
+        parsedAverage = Number.isFinite(numeric) ? numeric : null
+      }
+
+      return { ...row, activities_average: parsedAverage }
+    })
+
+    const parsed = LessonAssignmentScoreSummariesSchema.safeParse(normalized)
+
+    if (!parsed.success) {
+      console.error("[lesson-assignment-scores] Invalid payload from lesson_assignment_score_summaries", parsed.error)
+      return LessonAssignmentScoreSummaryResultSchema.parse({ data: null, error: "Invalid lesson score payload." })
+    }
+
+    return LessonAssignmentScoreSummaryResultSchema.parse({ data: parsed.data, error: null })
+  } catch (error) {
     console.error("[lesson-assignment-scores] Failed to load lesson score summaries", error)
+    const message = error instanceof Error ? error.message : "Unable to load lesson scores."
     return LessonAssignmentScoreSummaryResultSchema.parse({
       data: null,
-      error: error.message ?? "Unable to load lesson scores.",
+      error: message,
     })
   }
-
-  const parsed = LessonAssignmentScoreSummariesSchema.safeParse(data ?? [])
-
-  if (!parsed.success) {
-    console.error("[lesson-assignment-scores] Invalid payload from lesson_assignment_score_summaries", parsed.error)
-    return LessonAssignmentScoreSummaryResultSchema.parse({ data: null, error: "Invalid lesson score payload." })
-  }
-
-  return LessonAssignmentScoreSummaryResultSchema.parse({ data: parsed.data, error: null })
 }

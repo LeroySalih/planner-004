@@ -1,17 +1,8 @@
 "use server"
 
-import { z } from "zod"
-
-import { AssignmentsBootstrapPayloadSchema } from "@/types"
-import { createSupabaseServerClient } from "@/lib/supabase/server"
 import { withTelemetry } from "@/lib/telemetry"
-
-const AssignmentsBootstrapReturnSchema = z.object({
-  data: AssignmentsBootstrapPayloadSchema.nullable(),
-  error: z.string().nullable(),
-})
-
-export type AssignmentsBootstrapResult = z.infer<typeof AssignmentsBootstrapReturnSchema>
+import { query } from "@/lib/db"
+import { AssignmentsBootstrapPayloadSchema, type AssignmentsBootstrapPayload } from "@/types"
 
 export async function readAssignmentsBootstrapAction(options?: { authEndTime?: number | null; routeTag?: string }) {
   const routeTag = options?.routeTag ?? "/assignments:bootstrap"
@@ -24,23 +15,28 @@ export async function readAssignmentsBootstrapAction(options?: { authEndTime?: n
       authEndTime: options?.authEndTime ?? null,
     },
     async () => {
-      const supabase = await createSupabaseServerClient()
+      try {
+        const { rows } = await query<{ payload: AssignmentsBootstrapPayload }>(
+          "select assignments_bootstrap() as payload",
+        )
 
-      const { data, error } = await supabase.rpc("assignments_bootstrap")
+        const payload = rows[0]?.payload ?? null
+        if (!payload) {
+          return { data: null, error: "Unable to load assignments bootstrap data." }
+        }
 
-      if (error) {
-        console.error("[assignments] Failed to load bootstrap payload", error)
-        return AssignmentsBootstrapReturnSchema.parse({ data: null, error: error.message })
+        const parsed = AssignmentsBootstrapPayloadSchema.safeParse(payload)
+        if (!parsed.success) {
+          console.error("[assignments-bootstrap] Invalid bootstrap payload", parsed.error)
+          return { data: null, error: "Received malformed assignments bootstrap data." }
+        }
+
+        return { data: parsed.data, error: null }
+      } catch (error) {
+        console.error("[assignments-bootstrap] Failed to load bootstrap data", error)
+        const message = error instanceof Error ? error.message : "Unable to load assignments bootstrap."
+        return { data: null, error: message }
       }
-
-      const parsed = AssignmentsBootstrapPayloadSchema.safeParse(data)
-
-      if (!parsed.success) {
-        console.error("[assignments] Invalid payload from assignments_bootstrap", parsed.error)
-        return AssignmentsBootstrapReturnSchema.parse({ data: null, error: "Invalid assignments payload" })
-      }
-
-      return AssignmentsBootstrapReturnSchema.parse({ data: parsed.data, error: null })
     },
   )
 }

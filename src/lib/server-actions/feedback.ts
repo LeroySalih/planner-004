@@ -3,7 +3,7 @@
 import { z } from "zod"
 
 import { FeedbacksSchema, LessonFeedbackSummariesSchema } from "@/types"
-import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { query } from "@/lib/db"
 
 const FeedbackListReturnValue = z.object({
   data: FeedbacksSchema.nullable(),
@@ -59,8 +59,6 @@ export async function readLessonFeedbackSummariesAction(
     return LessonFeedbackSummaryResult.parse({ data: [], error: null })
   }
 
-  const supabase = await createSupabaseServerClient()
-
   const groupIds = Array.from(new Set(payload.pairs.map((pair) => pair.groupId)))
   const lessonIds = Array.from(new Set(payload.pairs.map((pair) => pair.lessonId)))
 
@@ -68,17 +66,21 @@ export async function readLessonFeedbackSummariesAction(
   const membershipChunkSize = 50
   for (let index = 0; index < groupIds.length; index += membershipChunkSize) {
     const chunk = groupIds.slice(index, index + membershipChunkSize)
-    const { data: membershipRows, error: membershipError } = await supabase
-      .from("group_membership")
-      .select("group_id, user_id, role")
-      .in("group_id", chunk)
-
-    if (membershipError) {
-      console.error("[feedback] Failed to read group membership for summaries", membershipError)
-      return LessonFeedbackSummaryResult.parse({ data: null, error: membershipError.message })
+    try {
+      const { rows } = await query(
+        `
+          select group_id, user_id, role
+          from group_membership
+          where group_id = any($1::text[])
+        `,
+        [chunk],
+      )
+      membershipRowsAccumulator.push(...(rows ?? []))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load group membership."
+      console.error("[feedback] Failed to read group membership for summaries", error)
+      return LessonFeedbackSummaryResult.parse({ data: null, error: message })
     }
-
-    membershipRowsAccumulator.push(...(membershipRows ?? []))
   }
 
   const memberships = MembershipRowSchema.array().parse(membershipRowsAccumulator)
@@ -115,18 +117,22 @@ export async function readLessonFeedbackSummariesAction(
     const lessonChunk = lessonIds.slice(lessonIndex, lessonIndex + lessonChunkSize)
     for (let pupilIndex = 0; pupilIndex < pupilIdList.length; pupilIndex += pupilChunkSize) {
       const pupilChunk = pupilIdList.slice(pupilIndex, pupilIndex + pupilChunkSize)
-      const { data: feedbackRows, error: feedbackError } = await supabase
-        .from("feedback")
-        .select("user_id, lesson_id, rating")
-        .in("lesson_id", lessonChunk)
-        .in("user_id", pupilChunk)
-
-      if (feedbackError) {
-        console.error("[feedback] Failed to read feedback entries for summaries", feedbackError)
-        return LessonFeedbackSummaryResult.parse({ data: null, error: feedbackError.message })
+      try {
+        const { rows } = await query(
+          `
+            select user_id, lesson_id, rating
+            from feedback
+            where lesson_id = any($1::text[])
+              and user_id = any($2::text[])
+          `,
+          [lessonChunk, pupilChunk],
+        )
+        feedbackRowsAccumulator.push(...(rows ?? []))
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to load feedback entries."
+        console.error("[feedback] Failed to read feedback entries for summaries", error)
+        return LessonFeedbackSummaryResult.parse({ data: null, error: message })
       }
-
-      feedbackRowsAccumulator.push(...(feedbackRows ?? []))
     }
   }
 
@@ -186,16 +192,14 @@ export async function readLessonFeedbackSummariesAction(
 }
 
 export async function readFeedbackForLessonAction(lessonId: string) {
-  const supabase = await createSupabaseServerClient()
-
-  const { data, error } = await supabase
-    .from("feedback")
-    .select("*")
-    .eq("lesson_id", lessonId)
-
-  if (error) {
+  let data: unknown[] = []
+  try {
+    const { rows } = await query("select * from feedback where lesson_id = $1", [lessonId])
+    data = rows ?? []
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to load feedback."
     console.error("[feedback] Failed to read feedback for lesson", { lessonId, error })
-    return FeedbackListReturnValue.parse({ data: null, error: error.message })
+    return FeedbackListReturnValue.parse({ data: null, error: message })
   }
 
   return FeedbackListReturnValue.parse({ data, error: null })
@@ -205,40 +209,39 @@ export async function upsertFeedbackAction(input: z.infer<typeof FeedbackMutatio
   const payload = FeedbackMutationInput.parse(input)
 
   if (payload.rating === null) {
-    const supabase = await createSupabaseServerClient()
-
-    const { error } = await supabase
-      .from("feedback")
-      .delete()
-      .eq("user_id", payload.userId)
-      .eq("lesson_id", payload.lessonId)
-      .eq("success_criteria_id", payload.successCriteriaId)
-
-    if (error) {
+    try {
+      await query(
+        `
+          delete from feedback
+          where user_id = $1
+            and lesson_id = $2
+            and success_criteria_id = $3
+        `,
+        [payload.userId, payload.lessonId, payload.successCriteriaId],
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to clear feedback."
       console.error("[feedback] Failed to clear feedback", { payload, error })
-      return FeedbackMutationResult.parse({ success: false, error: error.message })
+      return FeedbackMutationResult.parse({ success: false, error: message })
     }
 
     return FeedbackMutationResult.parse({ success: true, error: null })
   }
 
-  const supabase = await createSupabaseServerClient()
-
-  const { error } = await supabase
-    .from("feedback")
-    .upsert(
-      {
-        user_id: payload.userId,
-        lesson_id: payload.lessonId,
-        success_criteria_id: payload.successCriteriaId,
-        rating: payload.rating,
-      },
-      { onConflict: "user_id,lesson_id,success_criteria_id" },
+  try {
+    await query(
+      `
+        insert into feedback (user_id, lesson_id, success_criteria_id, rating)
+        values ($1, $2, $3, $4)
+        on conflict (user_id, lesson_id, success_criteria_id)
+        do update set rating = excluded.rating
+      `,
+      [payload.userId, payload.lessonId, payload.successCriteriaId, payload.rating],
     )
-
-  if (error) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to save feedback."
     console.error("[feedback] Failed to upsert feedback", { payload, error })
-    return FeedbackMutationResult.parse({ success: false, error: error.message })
+    return FeedbackMutationResult.parse({ success: false, error: message })
   }
 
   return FeedbackMutationResult.parse({ success: true, error: null })

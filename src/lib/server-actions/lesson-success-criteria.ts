@@ -7,8 +7,8 @@ import {
   LessonSuccessCriteriaSchema,
   LessonSuccessCriterionSchema,
 } from "@/types"
-import { createSupabaseServerClient } from "@/lib/supabase/server"
 import { requireTeacherProfile } from "@/lib/auth"
+import { query } from "@/lib/db"
 
 const LessonSuccessCriteriaReturnValue = z.object({
   data: LessonSuccessCriteriaSchema.default([]),
@@ -31,76 +31,48 @@ const mutateInputSchema = z.object({
 })
 
 export async function listLessonSuccessCriteriaAction(lessonId: string) {
-  const supabase = await createSupabaseServerClient()
+  try {
+    const { rows } = await query<{
+      lesson_id: string
+      success_criteria_id: string
+      description: string | null
+      level: number | null
+      learning_objective_id: string | null
+    }>(
+      `
+        select l.lesson_id,
+               l.success_criteria_id,
+               sc.description,
+               sc.level,
+               sc.learning_objective_id
+        from lesson_success_criteria l
+        left join success_criteria sc on sc.success_criteria_id = l.success_criteria_id
+        where l.lesson_id = $1
+      `,
+      [lessonId],
+    )
 
-  const { data: linkRows, error: linkError } = await supabase
-    .from("lesson_success_criteria")
-    .select("lesson_id, success_criteria_id")
-    .eq("lesson_id", lessonId)
-
-  if (linkError) {
-    console.error("[lesson-success-criteria] Failed to read lesson success criteria:", linkError)
-    return LessonSuccessCriteriaReturnValue.parse({ data: [], error: linkError.message })
-  }
-
-
-  const ids = Array.from(
-    new Set(
-      (linkRows ?? [])
-        .map((row) => row?.success_criteria_id)
-        .filter((id): id is string => typeof id === "string" && id.trim().length > 0),
-    ),
-  )
-
-  if (ids.length === 0) {
-    return LessonSuccessCriteriaReturnValue.parse({ data: [], error: null })
-  }
-
-  const { data: criteriaRows, error: criteriaError } = await supabase
-    .from("success_criteria")
-    .select("success_criteria_id, learning_objective_id, description, level")
-    .in("success_criteria_id", ids)
-
-  if (criteriaError) {
-    console.error("[lesson-success-criteria] Failed to load success criteria metadata:", criteriaError)
-    return LessonSuccessCriteriaReturnValue.parse({ data: [], error: criteriaError.message })
-  }
-
-
-  const detailMap = new Map<string, { description: string | null; level: number | null; learning_objective_id: string | null }>()
-  for (const row of criteriaRows ?? []) {
-    if (!row?.success_criteria_id) continue
-    detailMap.set(row.success_criteria_id, {
-      description: typeof row.description === "string" ? row.description : null,
-      level: typeof row.level === "number" ? row.level : null,
-      learning_objective_id: typeof row.learning_objective_id === "string" ? row.learning_objective_id : null,
+    const payload = (rows ?? []).map((row) => {
+      const title =
+        row.description && row.description.trim().length > 0 ? row.description.trim() : "Success criterion"
+      return LessonSuccessCriterionSchema.parse({
+        lesson_id: row.lesson_id,
+        success_criteria_id: row.success_criteria_id,
+        title,
+        description: row.description ?? null,
+        level: row.level ?? null,
+        learning_objective_id: row.learning_objective_id ?? null,
+      })
     })
+
+    payload.sort((a, b) => a.title.localeCompare(b.title))
+
+    return LessonSuccessCriteriaReturnValue.parse({ data: payload, error: null })
+  } catch (error) {
+    console.error("[lesson-success-criteria] Failed to read lesson success criteria:", error)
+    const message = error instanceof Error ? error.message : "Unable to load success criteria."
+    return LessonSuccessCriteriaReturnValue.parse({ data: [], error: message })
   }
-
-  const payload = (linkRows ?? []).map((row) => {
-    const details = detailMap.get(row.success_criteria_id ?? "") ?? {
-      description: null,
-      level: null,
-      learning_objective_id: null,
-    }
-
-    const title =
-      (details.description && details.description.trim().length > 0 ? details.description.trim() : null) ??
-      "Success criterion"
-
-    return LessonSuccessCriterionSchema.parse({
-      lesson_id: row.lesson_id,
-      success_criteria_id: row.success_criteria_id,
-      title,
-      description: details.description,
-      level: details.level,
-      learning_objective_id: details.learning_objective_id,
-    })
-  })
-
-  payload.sort((a, b) => a.title.localeCompare(b.title))
-
-  return LessonSuccessCriteriaReturnValue.parse({ data: payload, error: null })
 }
 
 export async function listLessonsSuccessCriteriaAction(lessonIds: string[]) {
@@ -109,82 +81,53 @@ export async function listLessonsSuccessCriteriaAction(lessonIds: string[]) {
     return LessonSuccessCriteriaReturnValue.parse({ data: [], error: null })
   }
 
-  const supabase = await createSupabaseServerClient()
+  try {
+    const { rows } = await query<{
+      lesson_id: string
+      success_criteria_id: string
+      description: string | null
+      level: number | null
+      learning_objective_id: string | null
+    }>(
+      `
+        select l.lesson_id,
+               l.success_criteria_id,
+               sc.description,
+               sc.level,
+               sc.learning_objective_id
+        from lesson_success_criteria l
+        left join success_criteria sc on sc.success_criteria_id = l.success_criteria_id
+        where l.lesson_id = any($1::text[])
+      `,
+      [normalizedIds],
+    )
 
-  const { data: linkRows, error: linkError } = await supabase
-    .from("lesson_success_criteria")
-    .select("lesson_id, success_criteria_id")
-    .in("lesson_id", normalizedIds)
-
-  if (linkError) {
-    console.error("[lesson-success-criteria] Failed to read lesson success criteria:", linkError)
-    return LessonSuccessCriteriaReturnValue.parse({ data: [], error: linkError.message })
-  }
-
-  const ids = Array.from(
-    new Set(
-      (linkRows ?? [])
-        .map((row) => row?.success_criteria_id)
-        .filter((id): id is string => typeof id === "string" && id.trim().length > 0),
-    ),
-  )
-
-  if (ids.length === 0) {
-    return LessonSuccessCriteriaReturnValue.parse({ data: [], error: null })
-  }
-
-  const { data: criteriaRows, error: criteriaError } = await supabase
-    .from("success_criteria")
-    .select("success_criteria_id, learning_objective_id, description, level")
-    .in("success_criteria_id", ids)
-
-  if (criteriaError) {
-    console.error("[lesson-success-criteria] Failed to load success criteria metadata:", criteriaError)
-    return LessonSuccessCriteriaReturnValue.parse({ data: [], error: criteriaError.message })
-  }
-
-  const detailMap = new Map<
-    string,
-    { description: string | null; level: number | null; learning_objective_id: string | null }
-  >()
-  for (const row of criteriaRows ?? []) {
-    if (!row?.success_criteria_id) continue
-    detailMap.set(row.success_criteria_id, {
-      description: typeof row.description === "string" ? row.description : null,
-      level: typeof row.level === "number" ? row.level : null,
-      learning_objective_id: typeof row.learning_objective_id === "string" ? row.learning_objective_id : null,
+    const payload = (rows ?? []).map((row) => {
+      const title =
+        row.description && row.description.trim().length > 0 ? row.description.trim() : "Success criterion"
+      return LessonSuccessCriterionSchema.parse({
+        lesson_id: row.lesson_id,
+        success_criteria_id: row.success_criteria_id,
+        title,
+        description: row.description ?? null,
+        level: row.level ?? null,
+        learning_objective_id: row.learning_objective_id ?? null,
+      })
     })
-  }
 
-  const payload = (linkRows ?? []).map((row) => {
-    const details = detailMap.get(row.success_criteria_id ?? "") ?? {
-      description: null,
-      level: null,
-      learning_objective_id: null,
-    }
-
-    const title =
-      (details.description && details.description.trim().length > 0 ? details.description.trim() : null) ??
-      "Success criterion"
-
-    return LessonSuccessCriterionSchema.parse({
-      lesson_id: row.lesson_id,
-      success_criteria_id: row.success_criteria_id,
-      title,
-      description: details.description,
-      level: details.level,
-      learning_objective_id: details.learning_objective_id,
+    payload.sort((a, b) => {
+      if (a.lesson_id === b.lesson_id) {
+        return a.title.localeCompare(b.title)
+      }
+      return a.lesson_id.localeCompare(b.lesson_id)
     })
-  })
 
-  payload.sort((a, b) => {
-    if (a.lesson_id === b.lesson_id) {
-      return a.title.localeCompare(b.title)
-    }
-    return a.lesson_id.localeCompare(b.lesson_id)
-  })
-
-  return LessonSuccessCriteriaReturnValue.parse({ data: payload, error: null })
+    return LessonSuccessCriteriaReturnValue.parse({ data: payload, error: null })
+  } catch (error) {
+    console.error("[lesson-success-criteria] Failed to read lesson success criteria:", error)
+    const message = error instanceof Error ? error.message : "Unable to load success criteria."
+    return LessonSuccessCriteriaReturnValue.parse({ data: [], error: message })
+  }
 }
 
 export async function linkLessonSuccessCriterionAction(input: z.infer<typeof mutateInputSchema>) {
@@ -192,22 +135,23 @@ export async function linkLessonSuccessCriterionAction(input: z.infer<typeof mut
 
   const payload = mutateInputSchema.parse(input)
 
-  const supabase = await createSupabaseServerClient()
-
-  const { error } = await supabase
-    .from("lesson_success_criteria")
-    .insert({
-      lesson_id: payload.lessonId,
-      success_criteria_id: payload.successCriteriaId,
-    })
-
-  if (error) {
-    console.error("[lesson-success-criteria] Failed to link success criterion:", error)
-    return { success: false, error: error.message }
-  }
+  try {
+    await query(
+      `
+        insert into lesson_success_criteria (lesson_id, success_criteria_id)
+        values ($1, $2)
+        on conflict do nothing
+      `,
+      [payload.lessonId, payload.successCriteriaId],
+    )
 
   revalidatePath(`/lessons/${payload.lessonId}`)
   return { success: true, error: null }
+  } catch (error) {
+    console.error("[lesson-success-criteria] Failed to link success criterion:", error)
+    const message = error instanceof Error ? error.message : "Unable to link success criterion."
+    return { success: false, error: message }
+  }
 }
 
 export async function unlinkLessonSuccessCriterionAction(input: z.infer<typeof mutateInputSchema>) {
@@ -215,19 +159,20 @@ export async function unlinkLessonSuccessCriterionAction(input: z.infer<typeof m
 
   const payload = mutateInputSchema.parse(input)
 
-  const supabase = await createSupabaseServerClient()
-
-  const { error } = await supabase
-    .from("lesson_success_criteria")
-    .delete()
-    .eq("lesson_id", payload.lessonId)
-    .eq("success_criteria_id", payload.successCriteriaId)
-
-  if (error) {
-    console.error("[lesson-success-criteria] Failed to unlink success criterion:", error)
-    return { success: false, error: error.message }
-  }
+  try {
+    await query(
+      `
+        delete from lesson_success_criteria
+        where lesson_id = $1 and success_criteria_id = $2
+      `,
+      [payload.lessonId, payload.successCriteriaId],
+    )
 
   revalidatePath(`/lessons/${payload.lessonId}`)
   return { success: true, error: null }
+  } catch (error) {
+    console.error("[lesson-success-criteria] Failed to unlink success criterion:", error)
+    const message = error instanceof Error ? error.message : "Unable to unlink success criterion."
+    return { success: false, error: message }
+  }
 }

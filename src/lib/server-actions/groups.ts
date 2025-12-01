@@ -21,7 +21,7 @@ import {
   requireAuthenticatedProfile,
   type AuthenticatedProfile as BaseAuthenticatedProfile,
 } from "@/lib/auth"
-import { createSupabaseServiceClient } from "@/lib/supabase/server"
+import { query } from "@/lib/db"
 import { withTelemetry } from "@/lib/telemetry"
 
 const GroupReturnValue = z.object({
@@ -308,16 +308,16 @@ export async function readGroupsAction(options?: {
 }
 
 export async function listPupilsWithGroupsAction(): Promise<PupilListing[]> {
-  const supabase = await createSupabaseServiceClient()
-
-  const { data, error } = await supabase.rpc("reports_list_pupils_with_groups")
-
-  if (error) {
+  let rows: unknown[] = []
+  try {
+    const { rows: result } = await query("select * from reports_list_pupils_with_groups()")
+    rows = result ?? []
+  } catch (error) {
     console.error("[reports] Failed to load pupil report listings", error)
     return []
   }
 
-  const parsed = ReportsPupilListingsSchema.safeParse(data ?? [])
+  const parsed = ReportsPupilListingsSchema.safeParse(rows ?? [])
 
   if (!parsed.success) {
     console.error("[reports] Invalid payload from reports_list_pupils_with_groups", parsed.error)
@@ -536,57 +536,68 @@ export async function resetPupilPasswordAction(input: { userId: string }, option
 export async function readProfileGroupsForCurrentUserAction(): Promise<ProfileGroupsResult> {
   let error: string | null = null
   const authProfile = await requireAuthenticatedProfile()
-  const supabase = await createSupabaseServiceClient()
+  let resolvedProfile = ProfileSchema.parse({
+    user_id: authProfile.userId,
+    first_name: null,
+    last_name: null,
+    is_teacher: authProfile.isTeacher,
+  })
 
-  const { data: profileRow, error: profileError } = await supabase
-    .from("profiles")
-    .select("user_id, first_name, last_name, is_teacher")
-    .eq("user_id", authProfile.userId)
-    .maybeSingle()
-
-  if (profileError && profileError.code !== "PGRST116") {
+  try {
+    const { rows: profileRows } = await query(
+      "select user_id, first_name, last_name, is_teacher from profiles where user_id = $1 limit 1",
+      [authProfile.userId],
+    )
+    const profileRow = profileRows?.[0]
+    if (profileRow) {
+      resolvedProfile = ProfileSchema.parse({
+        user_id: profileRow.user_id ?? authProfile.userId,
+        first_name: profileRow.first_name ?? null,
+        last_name: profileRow.last_name ?? null,
+        is_teacher: Boolean(profileRow.is_teacher ?? authProfile.isTeacher),
+      })
+    }
+  } catch (profileError) {
     console.error("[profile-groups] Failed to load profile", profileError)
   }
 
-  const resolvedProfile = ProfileSchema.parse({
-    user_id: profileRow?.user_id ?? authProfile.userId,
-    first_name: profileRow?.first_name ?? null,
-    last_name: profileRow?.last_name ?? null,
-    is_teacher: Boolean(profileRow?.is_teacher ?? authProfile.isTeacher),
-  })
+  let memberships: Array<z.infer<typeof GroupMembershipsWithGroupSchema.element>> = []
+  try {
+    const { rows } = await query(
+      `
+        select gm.group_id,
+               gm.user_id,
+               gm.role,
+               g.group_id as group_group_id,
+               g.subject as group_subject,
+               g.join_code as group_join_code,
+               g.active as group_active
+        from group_membership gm
+        join groups g on g.group_id = gm.group_id
+        where gm.user_id = $1
+          and g.active = true
+        order by gm.group_id asc
+      `,
+      [authProfile.userId],
+    )
 
-  const { data: membershipRows, error: membershipError } = await supabase
-    .from("group_membership")
-    .select("group_id, user_id, role, group:groups(group_id, subject, join_code, active)")
-    .eq("user_id", authProfile.userId)
-    .order("group_id", { ascending: true })
-
-  if (membershipError) {
+    memberships = GroupMembershipsWithGroupSchema.parse(
+      (rows ?? []).map((membership) => ({
+        group_id: membership.group_id,
+        user_id: membership.user_id,
+        role: membership.role,
+        group: {
+          group_id: membership.group_group_id,
+          subject: membership.group_subject,
+          join_code: membership.group_join_code,
+          active: membership.group_active,
+        },
+      })),
+    )
+  } catch (membershipError) {
     console.error("[profile-groups] Failed to load memberships", membershipError)
     error = "Unable to load your groups right now. Please try again shortly."
   }
-
-  const memberships = GroupMembershipsWithGroupSchema.parse(
-    (membershipRows ?? [])
-      .map((membership) => {
-        const group = Array.isArray(membership.group) ? membership.group[0] : membership.group
-        if (group && group.active === false) {
-          return {
-            group_id: membership.group_id,
-            user_id: membership.user_id,
-            role: membership.role,
-          }
-        }
-
-        return {
-          group_id: membership.group_id,
-          user_id: membership.user_id,
-          role: membership.role,
-          group: group ?? undefined,
-        }
-      })
-      .filter((membership) => membership.group !== undefined),
-  )
 
   return ProfileGroupsResultSchema.parse({
     data: {
@@ -623,15 +634,20 @@ export async function joinGroupByCodeAction(input: { joinCode: string }): Promis
     })
   }
 
-  const supabase = await createSupabaseServiceClient()
-
-  const { data: group, error: groupError } = await supabase
-    .from("groups")
-    .select("group_id, subject, active")
-    .eq("join_code", joinCode)
-    .maybeSingle()
-
-  if (groupError) {
+  let group: { group_id: string; subject: string | null; active: boolean | null } | null = null
+  try {
+    const { rows } = await query("select group_id, subject, active from groups where join_code = $1 limit 1", [
+      joinCode,
+    ])
+    const rawGroup = rows?.[0] ?? null
+    if (rawGroup && typeof rawGroup.group_id === "string") {
+      group = {
+        group_id: rawGroup.group_id,
+        subject: typeof rawGroup.subject === "string" ? rawGroup.subject : null,
+        active: typeof rawGroup.active === "boolean" ? rawGroup.active : null,
+      }
+    }
+  } catch (groupError) {
     console.error("[profile-groups] Failed to find group by join code", joinCode, groupError)
     return JoinGroupReturnSchema.parse({
       success: false,
@@ -650,31 +666,29 @@ export async function joinGroupByCodeAction(input: { joinCode: string }): Promis
     })
   }
 
-  const { data: existingMembership } = await supabase
-    .from("group_membership")
-    .select("group_id")
-    .eq("group_id", group.group_id)
-    .eq("user_id", authProfile.userId)
-    .maybeSingle()
+  try {
+    const { rows: existingMembership } = await query(
+      "select 1 from group_membership where group_id = $1 and user_id = $2 limit 1",
+      [group.group_id, authProfile.userId],
+    )
 
-  if (existingMembership) {
-    return JoinGroupReturnSchema.parse({
-      success: false,
-      error: "You are already a member of that group.",
-      groupId: null,
-      subject: null,
-    })
-  }
+    if (existingMembership && existingMembership.length > 0) {
+      return JoinGroupReturnSchema.parse({
+        success: false,
+        error: "You are already a member of that group.",
+        groupId: null,
+        subject: null,
+      })
+    }
 
-  const role = authProfile.isTeacher ? "teacher" : "pupil"
+    const role = authProfile.isTeacher ? "teacher" : "pupil"
 
-  const { error: insertError } = await supabase.from("group_membership").insert({
-    group_id: group.group_id,
-    user_id: authProfile.userId,
-    role,
-  })
-
-  if (insertError) {
+    await query("insert into group_membership (group_id, user_id, role) values ($1, $2, $3)", [
+      group.group_id,
+      authProfile.userId,
+      role,
+    ])
+  } catch (insertError) {
     console.error("[profile-groups] Failed to join group", { joinCode, userId: authProfile.userId }, insertError)
     return JoinGroupReturnSchema.parse({
       success: false,
@@ -714,27 +728,23 @@ export async function leaveGroupAction(input: { groupId: string }): Promise<Leav
     })
   }
 
-  const supabase = await createSupabaseServiceClient()
+  try {
+    const { rowCount } = await query(
+      "delete from group_membership where group_id = $1 and user_id = $2",
+      [parsed.data.groupId, authProfile.userId],
+    )
 
-  const { data: deletedRows, error: deleteError } = await supabase
-    .from("group_membership")
-    .delete()
-    .eq("group_id", parsed.data.groupId)
-    .eq("user_id", authProfile.userId)
-    .select("group_id")
-
-  if (deleteError) {
+    if (!rowCount || rowCount === 0) {
+      return LeaveGroupReturnSchema.parse({
+        success: false,
+        error: "You are not a member of that group.",
+      })
+    }
+  } catch (deleteError) {
     console.error("[profile-groups] Failed to leave group", { groupId: parsed.data.groupId, userId: authProfile.userId }, deleteError)
     return LeaveGroupReturnSchema.parse({
       success: false,
       error: "Unable to leave that group right now.",
-    })
-  }
-
-  if (!deletedRows || deletedRows.length === 0) {
-    return LeaveGroupReturnSchema.parse({
-      success: false,
-      error: "You are not a member of that group.",
     })
   }
 

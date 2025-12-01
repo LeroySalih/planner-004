@@ -9,16 +9,14 @@ import {
   ShortTextSubmissionBodySchema,
   SubmissionSchema,
   type Submission,
+  type LessonActivity,
 } from "@/types"
-import { createSupabaseServerClient } from "@/lib/supabase/server"
 import {
   scoreShortTextAnswers,
   type ShortTextEvaluationResult,
 } from "@/lib/ai/short-text-scoring"
-import {
-  fetchActivitySuccessCriteriaIds,
-  normaliseSuccessCriteriaScores,
-} from "@/lib/scoring/success-criteria"
+import { fetchActivitySuccessCriteriaIds, normaliseSuccessCriteriaScores } from "@/lib/scoring/success-criteria"
+import { query } from "@/lib/db"
 
 const ShortTextAnswerInputSchema = z.object({
   activityId: z.string().min(1),
@@ -66,26 +64,29 @@ const SHORT_TEXT_CORRECTNESS_THRESHOLD = 0.8
 
 export async function saveShortTextAnswerAction(input: z.infer<typeof ShortTextAnswerInputSchema>) {
   const payload = ShortTextAnswerInputSchema.parse(input)
-  const supabase = await createSupabaseServerClient()
 
-  const successCriteriaIds = await fetchActivitySuccessCriteriaIds(supabase, payload.activityId)
+  const successCriteriaIds = await fetchActivitySuccessCriteriaIds(payload.activityId)
   const initialScores = normaliseSuccessCriteriaScores({
     successCriteriaIds,
     fillValue: 0,
   })
 
-  const existing = await supabase
-    .from("submissions")
-    .select("submission_id")
-    .eq("activity_id", payload.activityId)
-    .eq("user_id", payload.userId)
-    .order("submitted_at", { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  if (existing.error) {
-    console.error("[short-text] Failed to read existing submission:", existing.error)
-    return { success: false, error: existing.error.message, data: null as Submission | null }
+  let existingId: string | null = null
+  try {
+    const { rows } = await query<{ submission_id: string }>(
+      `
+        select submission_id
+        from submissions
+        where activity_id = $1 and user_id = $2
+        order by submitted_at desc
+        limit 1
+      `,
+      [payload.activityId, payload.userId],
+    )
+    existingId = rows[0]?.submission_id ?? null
+  } catch (error) {
+    console.error("[short-text] Failed to read existing submission:", error)
+    return { success: false, error: error instanceof Error ? error.message : "Unable to save submission.", data: null as Submission | null }
   }
 
   const submissionBody = ShortTextSubmissionBodySchema.parse({
@@ -99,401 +100,292 @@ export async function saveShortTextAnswerAction(input: z.infer<typeof ShortTextA
 
   const timestamp = new Date().toISOString()
 
-  if (existing.data?.submission_id) {
-    const { data, error } = await supabase
-      .from("submissions")
-      .update({
-        body: submissionBody,
-        submitted_at: timestamp,
-      })
-      .eq("submission_id", existing.data.submission_id)
-      .select("*")
-      .single()
-
-    if (error) {
-      console.error("[short-text] Failed to update submission:", error)
-      return { success: false, error: error.message, data: null as Submission | null }
+  try {
+    if (existingId) {
+      const { rows } = await query(
+        `
+          update submissions
+          set body = $1, submitted_at = $2
+          where submission_id = $3
+          returning *
+        `,
+        [submissionBody, timestamp, existingId],
+      )
+      const parsed = SubmissionSchema.safeParse(rows[0])
+      if (!parsed.success) {
+        console.error("[short-text] Invalid submission payload after update:", parsed.error)
+        return { success: false, error: "Invalid submission data.", data: null as Submission | null }
+      }
+      revalidatePath(`/lessons/${payload.activityId}`)
+      return { success: true, error: null, data: parsed.data }
     }
 
-    const parsed = SubmissionSchema.safeParse(data)
+    const { rows } = await query(
+      `
+        insert into submissions (activity_id, user_id, body, submitted_at)
+        values ($1, $2, $3, $4)
+        returning *
+      `,
+      [payload.activityId, payload.userId, submissionBody, timestamp],
+    )
+
+    const parsed = SubmissionSchema.safeParse(rows[0])
     if (!parsed.success) {
-      console.error("[short-text] Invalid submission payload after update:", parsed.error)
+      console.error("[short-text] Invalid submission payload after insert:", parsed.error)
       return { success: false, error: "Invalid submission data.", data: null as Submission | null }
     }
 
-    console.log("[realtime-debug] Short-text submission stored", {
-      type: "update",
-      activityId: payload.activityId,
-      pupilId: payload.userId,
-      submissionId: parsed.data.submission_id,
-    })
-
+    revalidatePath(`/lessons/${payload.activityId}`)
     return { success: true, error: null, data: parsed.data }
+  } catch (error) {
+    console.error("[short-text] Failed to save submission:", error)
+    const message = error instanceof Error ? error.message : "Unable to save submission."
+    return { success: false, error: message, data: null as Submission | null }
   }
-
-  const { data, error } = await supabase
-    .from("submissions")
-    .insert({
-      activity_id: payload.activityId,
-      user_id: payload.userId,
-      body: submissionBody,
-    })
-    .select("*")
-    .single()
-
-  if (error) {
-    console.error("[short-text] Failed to insert submission:", error)
-    return { success: false, error: error.message, data: null as Submission | null }
-  }
-
-  const parsed = SubmissionSchema.safeParse(data)
-  if (!parsed.success) {
-    console.error("[short-text] Invalid submission payload after insert:", parsed.error)
-    return { success: false, error: "Invalid submission data.", data: null as Submission | null }
-  }
-
-  console.log("[realtime-debug] Short-text submission stored", {
-    type: "insert",
-    activityId: payload.activityId,
-    pupilId: payload.userId,
-    submissionId: parsed.data.submission_id,
-  })
-
-  return { success: true, error: null, data: parsed.data }
 }
 
 export async function listShortTextSubmissionsAction(activityId: string) {
-  const trimmedActivityId = activityId.trim()
-  if (!trimmedActivityId) {
-    return { success: true, error: null, data: [] as ShortTextSubmissionView[] }
-  }
+  try {
+    const { rows } = await query(
+      `
+        select submission_id, activity_id, user_id, submitted_at, body
+        from submissions
+        where activity_id = $1
+        order by submitted_at desc
+      `,
+      [activityId],
+    )
 
-  const supabase = await createSupabaseServerClient()
+    const parsed = ShortTextSubmissionsQuerySchema.array().parse(rows ?? [])
 
-  const { data, error } = await supabase
-    .from("submissions")
-    .select("submission_id, activity_id, user_id, submitted_at, body")
-    .eq("activity_id", trimmedActivityId)
-
-  if (error) {
+    return {
+      success: true as const,
+      error: null,
+      submissions: parsed,
+    }
+  } catch (error) {
     console.error("[short-text] Failed to list submissions:", error)
-    return { success: false, error: error.message, data: [] as ShortTextSubmissionView[] }
-  }
-
-  const parsedRows = ShortTextSubmissionsQuerySchema.array().safeParse(data ?? [])
-  if (!parsedRows.success) {
-    console.error("[short-text] Failed to parse submissions result:", parsedRows.error)
-    return { success: false, error: "Invalid submission data returned.", data: [] as ShortTextSubmissionView[] }
-  }
-
-  const userIds = Array.from(
-    new Set(parsedRows.data.map((row) => row.user_id).filter((id): id is string => Boolean(id?.trim()))),
-  )
-
-  const profilesByUserId = new Map<string, { userId: string; firstName: string | null; lastName: string | null }>()
-
-  if (userIds.length > 0) {
-    const { data: profileRows, error: profileError } = await supabase
-      .from("profiles")
-      .select("user_id, first_name, last_name")
-      .in("user_id", userIds)
-
-    if (profileError) {
-      console.error("[short-text] Failed to load profiles for submissions:", profileError)
-    } else {
-      (profileRows ?? []).forEach((profile) => {
-        if (profile?.user_id) {
-          profilesByUserId.set(profile.user_id, {
-            userId: profile.user_id,
-            firstName: typeof profile.first_name === "string" ? profile.first_name : null,
-            lastName: typeof profile.last_name === "string" ? profile.last_name : null,
-          })
-        }
-      })
+    const message = error instanceof Error ? error.message : "Unable to load submissions."
+    return {
+      success: false as const,
+      error: message,
+      submissions: [],
     }
   }
-
-  const submissions: ShortTextSubmissionView[] = []
-
-  for (const row of parsedRows.data) {
-    const parsedBody = ShortTextSubmissionBodySchema.safeParse(row.body ?? {})
-    if (!parsedBody.success) {
-      console.warn("[short-text] Skipping submission with invalid body:", {
-        submissionId: row.submission_id,
-        error: parsedBody.error,
-      })
-      continue
-    }
-
-    submissions.push({
-      submissionId: row.submission_id,
-      activityId: row.activity_id,
-      userId: row.user_id,
-      submittedAt:
-        row.submitted_at instanceof Date
-          ? row.submitted_at.toISOString()
-          : row.submitted_at ?? null,
-      answer: parsedBody.data.answer ?? "",
-      aiModelScore: typeof parsedBody.data.ai_model_score === "number" ? parsedBody.data.ai_model_score : null,
-      teacherOverrideScore:
-        typeof parsedBody.data.teacher_override_score === "number"
-          ? parsedBody.data.teacher_override_score
-          : null,
-      isCorrect: parsedBody.data.is_correct === true,
-      profile: profilesByUserId.get(row.user_id) ?? null,
-    })
-  }
-
-  submissions.sort((a, b) => {
-    const aDate = a.submittedAt ?? ""
-    const bDate = b.submittedAt ?? ""
-    return aDate.localeCompare(bDate)
-  })
-
-  return { success: true, error: null, data: submissions }
 }
 
 export async function markShortTextActivityAction(input: z.infer<typeof MarkShortTextInputSchema>) {
   const payload = MarkShortTextInputSchema.parse(input)
-  const supabase = await createSupabaseServerClient()
 
-  const { data: activityRow, error: activityError } = await supabase
-    .from("activities")
-    .select("*")
-    .eq("activity_id", payload.activityId)
-    .maybeSingle()
-
-  if (activityError) {
-    console.error("[short-text] Failed to load activity:", activityError)
-    return { success: false, error: activityError.message, updated: 0, failed: [] as ShortTextEvaluationResult[] }
-  }
-
-  if (!activityRow) {
-    return { success: false, error: "Activity not found.", updated: 0, failed: [] as ShortTextEvaluationResult[] }
-  }
-
-  const activity = LessonActivitySchema.parse(activityRow)
-
-  const parsedBody = ShortTextActivityBodySchema.safeParse(activity.body_data)
-  if (!parsedBody.success) {
-    console.error("[short-text] Activity body invalid:", parsedBody.error)
-    return {
-      success: false,
-      error: "Activity is not configured correctly.",
-      updated: 0,
-      failed: [] as ShortTextEvaluationResult[],
-    }
-  }
-
-  const question = parsedBody.data.question ?? ""
-  const modelAnswer = parsedBody.data.modelAnswer ?? ""
-
-  const successCriteriaIds = await fetchActivitySuccessCriteriaIds(supabase, payload.activityId)
-
-  const { data: submissionsResult, error: submissionsError } = await supabase
-    .from("submissions")
-    .select("submission_id, body")
-    .eq("activity_id", payload.activityId)
-
-  if (submissionsError) {
-    console.error("[short-text] Failed to load submissions for marking:", submissionsError)
-    return { success: false, error: submissionsError.message, updated: 0, failed: [] as ShortTextEvaluationResult[] }
-  }
-
-  const parsedSubmissions = submissionsResult ?? []
-
-  if (parsedSubmissions.length === 0) {
-    return { success: true, error: null, updated: 0, failed: [] as ShortTextEvaluationResult[] }
-  }
-
-  const submissionBodies = parsedSubmissions.map((row) => ({
-    submissionId: row.submission_id,
-    parsed: ShortTextSubmissionBodySchema.safeParse(row.body ?? {}),
-  }))
-
-  const validInputs = submissionBodies
-    .filter((entry) => entry.parsed.success)
-    .map((entry) => ({
-      submissionId: entry.submissionId,
-      answer: entry.parsed.success ? entry.parsed.data.answer ?? "" : "",
-      existing: entry.parsed.success ? entry.parsed.data : null,
-    }))
-
-  if (validInputs.length === 0) {
-    return { success: false, error: "No valid submissions to mark.", updated: 0, failed: [] as ShortTextEvaluationResult[] }
-  }
-
-  let evaluationResults: ShortTextEvaluationResult[]
   try {
-    evaluationResults = await scoreShortTextAnswers(
-      question,
-      modelAnswer,
-      validInputs.map((entry) => ({ submissionId: entry.submissionId, answer: entry.answer })),
+    const { rows } = await query(
+      `
+        select activity_id, body_data
+        from activities
+        where activity_id = $1
+        limit 1
+      `,
+      [payload.activityId],
     )
-  } catch (error) {
-    console.error("[short-text] Failed to evaluate submissions:", error)
-    return {
-      success: false,
-      error:
-        error instanceof Error
-          ? error.message
-          : "Failed to evaluate submissions with the AI model.",
-      updated: 0,
-      failed: [] as ShortTextEvaluationResult[],
-    }
-  }
+    const activity = rows[0] ?? null
 
-  const resultsById = new Map(evaluationResults.map((entry) => [entry.submissionId, entry]))
-  const errors: ShortTextEvaluationResult[] = []
-  let updatedCount = 0
-
-  for (const entry of validInputs) {
-    const evaluation = resultsById.get(entry.submissionId)
-    if (!evaluation || typeof evaluation.score !== "number") {
-      errors.push(evaluation ?? { submissionId: entry.submissionId, score: null, error: "Missing evaluation." })
-      continue
+    if (!activity) {
+      return { success: false, error: "Activity not found." }
     }
 
-    const currentBody = entry.existing ?? {
-      answer: entry.answer,
-      ai_model_score: null,
-      ai_model_feedback: null,
-      teacher_override_score: null,
-      is_correct: false,
+    const parsedActivity = LessonActivitySchema.safeParse(activity)
+    if (!parsedActivity.success) {
+      return { success: false, error: "Invalid activity data." }
     }
 
-    const teacherOverride = typeof currentBody.teacher_override_score === "number" ? currentBody.teacher_override_score : null
-    const aiScore = evaluation.score
-
-    const isCorrect = computeIsCorrect(teacherOverride ?? aiScore)
-    const effectiveScore =
-      typeof teacherOverride === "number" && Number.isFinite(teacherOverride) ? teacherOverride : aiScore ?? 0
-
-    const successCriteriaScores = normaliseSuccessCriteriaScores({
-      successCriteriaIds,
-      fillValue: effectiveScore ?? 0,
-    })
-
-    const submissionBody = ShortTextSubmissionBodySchema.parse({
-      answer: currentBody.answer ?? entry.answer,
-      ai_model_score: aiScore,
-      ai_model_feedback: currentBody.ai_model_feedback ?? null,
-      teacher_override_score: teacherOverride,
-      is_correct: isCorrect,
-      success_criteria_scores: successCriteriaScores,
-    })
-
-    const { error } = await supabase
-      .from("submissions")
-      .update({ body: submissionBody })
-      .eq("submission_id", entry.submissionId)
+    const { data, error } = await markShortTextActivityHelper(parsedActivity.data)
 
     if (error) {
-      console.error("[short-text] Failed to update submission with AI score:", error)
-      errors.push({ submissionId: entry.submissionId, score: null, error: error.message })
-      continue
+      return { success: false, error, data: null as Submission | null }
     }
 
-    updatedCount += 1
+    revalidatePath(`/lessons/${payload.lessonId ?? ""}`)
+    return { success: true, error: null, data }
+  } catch (error) {
+    console.error("[short-text] Failed to mark short text activity:", error)
+    const message = error instanceof Error ? error.message : "Unable to mark activity."
+    return { success: false, error: message, data: null as Submission | null }
   }
-
-  if (payload.lessonId) {
-    revalidatePath(`/lessons/${payload.lessonId}`)
-  }
-
-  return { success: errors.length === 0, error: errors.length > 0 ? "Some submissions could not be updated." : null, updated: updatedCount, failed: errors }
 }
 
 export async function overrideShortTextSubmissionScoreAction(
   input: z.infer<typeof OverrideShortTextScoreSchema>,
 ) {
   const payload = OverrideShortTextScoreSchema.parse(input)
-  const supabase = await createSupabaseServerClient()
 
-  const { data: submissionRow, error: submissionError } = await supabase
-    .from("submissions")
-    .select("*")
-    .eq("submission_id", payload.submissionId)
-    .eq("activity_id", payload.activityId)
-    .maybeSingle()
+  try {
+    const { rows: submissionRows } = await query(
+      `
+        select submission_id, activity_id, user_id, submitted_at, body
+        from submissions
+        where submission_id = $1
+        limit 1
+      `,
+      [payload.submissionId],
+    )
+    const submissionRow = submissionRows[0] ?? null
 
-  if (submissionError) {
-    console.error("[short-text] Failed to load submission for override:", submissionError)
-    return { success: false, error: submissionError.message, data: null as Submission | null }
+    if (!submissionRow) {
+      return { success: false, error: "Submission not found." }
+    }
+
+    const parsedSubmission = ShortTextSubmissionBodySchema.safeParse(submissionRow.body)
+    if (!parsedSubmission.success) {
+      return { success: false, error: "Invalid submission payload.", data: null }
+    }
+
+    const successCriteriaIds = await fetchActivitySuccessCriteriaIds(payload.activityId)
+    const normalizedScores = normaliseSuccessCriteriaScores({
+      successCriteriaIds,
+      existingScores: parsedSubmission.data.success_criteria_scores,
+      fillValue: payload.overrideScore,
+    })
+
+    const updatedBody = ShortTextSubmissionBodySchema.parse({
+      ...parsedSubmission.data,
+      teacher_override_score: payload.overrideScore,
+      success_criteria_scores: normalizedScores,
+      is_correct: payload.overrideScore !== null ? payload.overrideScore >= SHORT_TEXT_CORRECTNESS_THRESHOLD : false,
+    })
+
+    const { rows } = await query(
+      `
+        update submissions
+        set body = $1
+        where submission_id = $2
+        returning *
+      `,
+      [updatedBody, payload.submissionId],
+    )
+
+    const savedRow = rows[0] ?? null
+    if (!savedRow) {
+      return { success: false, error: "Unable to update submission.", data: null }
+    }
+
+    revalidatePath(`/lessons/${payload.lessonId ?? ""}`)
+
+    return {
+      success: true,
+      error: null,
+      data: SubmissionSchema.parse(savedRow),
+    }
+  } catch (error) {
+    console.error("[short-text] Failed to override submission score:", error)
+    const message = error instanceof Error ? error.message : "Unable to update submission."
+    return { success: false, error: message, data: null }
   }
-
-  if (!submissionRow) {
-    return { success: false, error: "Submission not found.", data: null as Submission | null }
-  }
-
-  const parsedSubmission = SubmissionSchema.safeParse(submissionRow)
-  if (!parsedSubmission.success) {
-    console.error("[short-text] Invalid submission row for override:", parsedSubmission.error)
-    return { success: false, error: "Invalid submission data.", data: null as Submission | null }
-  }
-
-  const currentBody = ShortTextSubmissionBodySchema.safeParse(parsedSubmission.data.body ?? {})
-  if (!currentBody.success) {
-    console.error("[short-text] Invalid submission body for override:", currentBody.error)
-    return { success: false, error: "Submission data is malformed.", data: null as Submission | null }
-  }
-
-  const overrideScore =
-    typeof payload.overrideScore === "number" && Number.isFinite(payload.overrideScore)
-      ? payload.overrideScore
-      : null
-
-  const aiScore =
-    typeof currentBody.data.ai_model_score === "number" && Number.isFinite(currentBody.data.ai_model_score)
-      ? currentBody.data.ai_model_score
-      : null
-
-  const effectiveScore = overrideScore ?? aiScore ?? 0
-  const isCorrect = computeIsCorrect(effectiveScore)
-
-  const successCriteriaIds = await fetchActivitySuccessCriteriaIds(supabase, payload.activityId)
-  const successCriteriaScores = normaliseSuccessCriteriaScores({
-    successCriteriaIds,
-    fillValue: effectiveScore,
-  })
-
-  const submissionBody = ShortTextSubmissionBodySchema.parse({
-    answer: currentBody.data.answer ?? "",
-    ai_model_score: aiScore,
-    ai_model_feedback: currentBody.data.ai_model_feedback ?? null,
-    teacher_override_score: overrideScore,
-    is_correct: isCorrect,
-    success_criteria_scores: successCriteriaScores,
-  })
-
-  const { data, error } = await supabase
-    .from("submissions")
-    .update({ body: submissionBody })
-    .eq("submission_id", payload.submissionId)
-    .select("*")
-    .single()
-
-  if (error) {
-    console.error("[short-text] Failed to apply score override:", error)
-    return { success: false, error: error.message, data: null as Submission | null }
-  }
-
-  if (payload.lessonId) {
-    revalidatePath(`/lessons/${payload.lessonId}`)
-  }
-
-  const parsed = SubmissionSchema.safeParse(data)
-  if (!parsed.success) {
-    console.error("[short-text] Invalid submission returned after override:", parsed.error)
-    return { success: false, error: "Invalid submission data.", data: null as Submission | null }
-  }
-
-  return { success: true, error: null, data: parsed.data }
 }
 
-function computeIsCorrect(score: number | null): boolean {
-  if (typeof score !== "number" || Number.isNaN(score)) {
-    return false
+async function markShortTextActivityHelper(activity: LessonActivity) {
+  const parsedActivityBody = ShortTextActivityBodySchema.safeParse(activity.body_data)
+
+  if (!parsedActivityBody.success) {
+    return {
+      success: false as const,
+      error: "Invalid activity body.",
+      data: null as Submission | null,
+    }
   }
-  return score >= SHORT_TEXT_CORRECTNESS_THRESHOLD
+
+  const successCriteriaIds = await fetchActivitySuccessCriteriaIds(activity.activity_id)
+
+  let submission: Submission | null = null
+  try {
+    const { rows } = await query(
+      `
+        select submission_id, activity_id, user_id, submitted_at, body
+        from submissions
+        where activity_id = $1
+        order by submitted_at desc
+        limit 1
+      `,
+      [activity.activity_id],
+    )
+    const row = rows[0] ?? null
+    submission =
+      row && typeof row.submission_id === "string"
+        ? (row as Submission)
+        : null
+  } catch (error) {
+    console.error("[short-text] Failed to load submission for scoring:", error)
+    return { success: false as const, error: "Unable to load submission.", data: null }
+  }
+
+  if (!submission) {
+    return {
+      success: false as const,
+      error: "No submission to score.",
+      data: null,
+    }
+  }
+
+  const parsedSubmission = ShortTextSubmissionBodySchema.safeParse(submission.body)
+  if (!parsedSubmission.success) {
+    return {
+      success: false as const,
+      error: "Invalid submission payload.",
+      data: null,
+    }
+  }
+
+  let scored: ShortTextEvaluationResult[] = []
+  try {
+    scored = await scoreShortTextAnswers(
+      parsedActivityBody.data.question,
+      parsedActivityBody.data.modelAnswer,
+      [
+        {
+          submissionId: submission.submission_id,
+          answer: parsedSubmission.data.answer,
+        },
+      ],
+    )
+  } catch (error) {
+    console.error("[short-text] Failed to score short text answers:", error)
+    return { success: false as const, error: "Unable to score submission.", data: null }
+  }
+
+  const scoredResult = scored[0]
+  const normalizedScores = normaliseSuccessCriteriaScores({
+    successCriteriaIds,
+    existingScores: parsedSubmission.data.success_criteria_scores,
+    fillValue: scoredResult.score,
+  })
+
+  const updatedBody = ShortTextSubmissionBodySchema.parse({
+    ...parsedSubmission.data,
+    ai_model_score: scoredResult.score,
+    ai_model_feedback: null,
+    is_correct: (scoredResult.score ?? 0) >= SHORT_TEXT_CORRECTNESS_THRESHOLD,
+    success_criteria_scores: normalizedScores,
+  })
+
+  try {
+    const { rows } = await query(
+      `
+        update submissions
+        set body = $1
+        where submission_id = $2
+        returning *
+      `,
+      [updatedBody, submission.submission_id],
+    )
+
+    const savedRow = rows[0] ?? null
+
+    return {
+      success: true as const,
+      error: null,
+      data: savedRow ? SubmissionSchema.parse(savedRow) : null,
+    }
+  } catch (error) {
+    console.error("[short-text] Failed to persist scored submission:", error)
+    return { success: false as const, error: "Unable to save scored submission.", data: null }
+  }
 }

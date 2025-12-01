@@ -71,8 +71,6 @@ export {
   readAssignmentsForGroupAction,
   updateAssignmentAction,
   deleteAssignmentAction,
-  batchCreateAssignmentsAction,
-  batchDeleteAssignmentsAction,
 } from "./server-actions/assignments"
 export { readAssignmentsBootstrapAction } from "./server-actions/assignments-bootstrap"
 

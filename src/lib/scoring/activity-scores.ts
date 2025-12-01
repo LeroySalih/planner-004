@@ -3,7 +3,7 @@ import {
   McqSubmissionBodySchema,
   ShortTextSubmissionBodySchema,
 } from "@/types"
-import { normaliseSuccessCriteriaScores } from "@/lib/scoring/success-criteria"
+import { normaliseSuccessCriteriaScores } from "@/lib/scoring/client-success-criteria"
 
 export const TEACHER_OVERRIDE_PLACEHOLDER = "__teacher_override__"
 

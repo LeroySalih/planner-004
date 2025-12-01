@@ -2,7 +2,7 @@ import { Group, GroupSchema } from "./types";
 import { z} from "zod";
 import { revalidatePath } from "next/cache";
 
-import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { query } from "@/lib/db"
 
 
 const ReturnValueSchema = z.object({
@@ -16,17 +16,18 @@ export const updateGroup = async (prev: {data: Group | null, error: string | nul
 
     let data =null, error=null;
     try{
-        const supabase = await createSupabaseServerClient()
+        const { rows } = await query(
+          `
+            insert into groups (group_id, subject, join_code, active)
+            values ($1, $2, $3, coalesce($4, true))
+            on conflict (group_id)
+            do update set subject = excluded.subject, join_code = excluded.join_code, active = excluded.active
+            returning *
+          `,
+          [group.group_id, group.subject, group.join_code ?? null, group.active],
+        )
 
-        const result = await supabase
-                .from("groups")
-                .upsert(group)
-                .select()
-                .single();
-
-        if(result.error) throw new Error(result.error.message);
-
-        data = result.data;
+        data = rows?.[0] ?? null;
 
     }
     catch(err){

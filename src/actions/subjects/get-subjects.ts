@@ -2,7 +2,7 @@
 
 // --file: src/actions/subjects/get-subjects.ts
 
-import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { query } from "@/lib/db"
 import { SubjectsSchema } from "./types";
 
 import {z} from "zod";
@@ -18,15 +18,8 @@ export async function getSubjects() {
 
     try {
 
-        const supabase = await createSupabaseServerClient()
-
-        const result = await supabase
-                .from("subjects")
-                .select("*")
-
-        if (result.error) throw new Error(result.error.message);
-
-        data = result.data;
+        const { rows } = await query("select * from subjects")
+        data = rows ?? [];
 
     } catch (err) { 
         console.error("Error fetching subjects:", err);
