@@ -12,30 +12,40 @@ import { Label } from "@/components/ui/label"
 type SigninState = {
   success: boolean
   error: string | null
+  destination: string | null
 }
 
 export function SigninForm() {
   const router = useRouter()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
-  const [state, setState] = useState<SigninState>({ success: false, error: null })
+  const [state, setState] = useState<SigninState>({ success: false, error: null, destination: null })
   const [isPending, startTransition] = useTransition()
 
   useEffect(() => {
-    if (state.success) {
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("auth-state-changed", { detail: { status: "signed-in" } }))
-      }
-      router.replace("/")
-      router.refresh()
+    if (!state.success || !state.destination) return
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("auth-state-changed", { detail: { status: "signed-in" } }))
     }
-  }, [state.success, router])
+
+    router.replace(state.destination)
+  }, [state, router])
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     startTransition(async () => {
       const result = await signinAction({ email, password })
-      setState({ success: result.success, error: result.error })
+
+      const destination = result.success
+        ? result.isTeacher
+          ? "/assignments"
+          : result.userId
+            ? `/pupil-lessons/${encodeURIComponent(result.userId)}`
+            : "/pupil-lessons"
+        : null
+
+      setState({ success: result.success, error: result.error, destination })
     })
   }
 
