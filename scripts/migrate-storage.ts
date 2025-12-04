@@ -101,32 +101,56 @@ async function migrateBucket(bucketName: string) {
     console.warn(`[migrate-storage] No file objects detected in bucket ${bucketName}`)
   }
   const emailCache = new Map<string, string | null>()
+  let imported = 0
+  let skipped = 0
+  let failed = 0
 
   for (const object of objects) {
-    const { data, error } = await bucket.download(object.path)
-    if (error || !data) {
-      console.warn("[migrate-storage] Skipping download due to error", { bucket: bucketName, path: object.path, error })
-      continue
-    }
+    console.log(`[migrate-storage] Processing ${bucketName}/${object.path}`)
+    try {
+      const { data, error } = await bucket.download(object.path)
+      if (error || !data) {
+        console.warn("[migrate-storage] Skipping download due to error", {
+          bucket: bucketName,
+          path: object.path,
+          error,
+        })
+        skipped += 1
+        continue
+      }
 
-    const mappedPath = await transformPath(object.path, emailCache)
-    const buffer = Buffer.from(await data.arrayBuffer())
-    const { error: uploadError } = await storage.upload(mappedPath, buffer, {
-      contentType: object.contentType ?? "application/octet-stream",
-      originalPath: `${bucketName}/${object.path}`,
-    })
-
-    if (uploadError) {
-      console.error("[migrate-storage] Failed to import file", {
-        bucket: bucketName,
-        sourcePath: object.path,
-        targetPath: mappedPath,
-        error: uploadError,
+      const mappedPath = await transformPath(object.path, emailCache)
+      const buffer = Buffer.from(await data.arrayBuffer())
+      const { error: uploadError } = await storage.upload(mappedPath, buffer, {
+        contentType: object.contentType ?? "application/octet-stream",
+        originalPath: `${bucketName}/${object.path}`,
       })
-    } else {
-      console.log(`[migrate-storage] Imported ${bucketName}/${object.path} -> ${mappedPath}`)
+
+      if (uploadError) {
+        failed += 1
+        console.error("[migrate-storage] Failed to import file", {
+          bucket: bucketName,
+          sourcePath: object.path,
+          targetPath: mappedPath,
+          error: uploadError,
+        })
+      } else {
+        imported += 1
+        console.log(`[migrate-storage] Imported ${bucketName}/${object.path} -> ${mappedPath}`)
+      }
+    } catch (error) {
+      failed += 1
+      console.error("[migrate-storage] Unexpected failure importing file", {
+        bucket: bucketName,
+        path: object.path,
+        error,
+      })
     }
   }
+
+  console.log(
+    `[migrate-storage] Bucket ${bucketName} summary: found=${objects.length}, imported=${imported}, skipped=${skipped}, failed=${failed}`,
+  )
 }
 
 async function main() {
@@ -139,6 +163,20 @@ async function main() {
   if (missing.length > 0) {
     console.error("[migrate-storage] Missing required environment variables:", missing.join(", "))
     console.error("[migrate-storage] Aborting migration until environment is configured.")
+    process.exit(1)
+  }
+
+  // Ensure stored_files table exists before attempting inserts
+  try {
+    const { rows } = await query<{ exists: boolean }>(
+      `select exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'stored_files') as exists`,
+    )
+    if (!rows?.[0]?.exists) {
+      console.error("[migrate-storage] Table public.stored_files does not exist. Run the migration first.")
+      process.exit(1)
+    }
+  } catch (error) {
+    console.error("[migrate-storage] Unable to verify stored_files table", error)
     process.exit(1)
   }
 
