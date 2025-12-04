@@ -86,6 +86,16 @@ function isStorageNotFoundError(error: { message?: string } | null): boolean {
 
 const pupilStorageKeyCache = new Map<string, string>()
 
+function normaliseTimestamp(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value
+  }
+  if (value instanceof Date) {
+    return value.toISOString()
+  }
+  return undefined
+}
+
 async function resolvePupilStorageKey(pupilId: string) {
   if (pupilStorageKeyCache.has(pupilId)) {
     return pupilStorageKeyCache.get(pupilId) as string
@@ -324,9 +334,9 @@ export async function listPupilActivitySubmissionsAction(
           if (match) {
             matchedPath = `${directory}/${match.name}`
             metadata = {
-              created_at: match.created_at ?? undefined,
-              updated_at: match.updated_at ?? undefined,
-              last_accessed_at: match.last_accessed_at ?? undefined,
+              created_at: normaliseTimestamp(match.created_at),
+              updated_at: normaliseTimestamp(match.updated_at),
+              last_accessed_at: normaliseTimestamp(match.last_accessed_at),
               size: match.metadata?.size ?? undefined,
             }
             break
