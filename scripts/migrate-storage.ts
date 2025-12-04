@@ -74,15 +74,18 @@ async function listAllObjects(bucketName: string) {
 
     for (const entry of data ?? []) {
       const entryPath = prefix ? `${prefix}/${entry.name}` : entry.name
-      if (!entry.metadata) {
+      const isFile = Boolean((entry as any).id) || Boolean(entry.metadata)
+      if (!isFile) {
         queue.push(entryPath)
-      } else {
-        results.push({
-          path: entryPath,
-          size: entry.metadata?.size,
-          contentType: (entry.metadata as any)?.mimetype ?? (entry.metadata as any)?.contentType ?? null,
-        })
+        continue
       }
+
+      results.push({
+        path: entryPath,
+        size: entry.metadata?.size,
+        contentType: (entry.metadata as any)?.mimetype ?? (entry.metadata as any)?.contentType ?? null,
+      })
+      console.log(`[migrate-storage] Found file candidate ${bucketName}/${entryPath} (size=${entry.metadata?.size ?? "?"})`)
     }
   }
 
@@ -94,6 +97,9 @@ async function migrateBucket(bucketName: string) {
   const storage = createLocalStorageClient(bucketName)
   const bucket = supabase.storage.from(bucketName)
   const objects = await listAllObjects(bucketName)
+  if (objects.length === 0) {
+    console.warn(`[migrate-storage] No file objects detected in bucket ${bucketName}`)
+  }
   const emailCache = new Map<string, string | null>()
 
   for (const object of objects) {
