@@ -70,6 +70,7 @@ async function listAllObjects(bucketName: string) {
       console.error(`[migrate-storage] Failed to list ${bucketName}/${prefix}`, error)
       continue
     }
+    console.log(`[migrate-storage] Listed prefix ${bucketName}/${prefix || "(root)"} with ${(data ?? []).length} entries`)
 
     for (const entry of data ?? []) {
       const entryPath = prefix ? `${prefix}/${entry.name}` : entry.name
@@ -116,6 +117,8 @@ async function migrateBucket(bucketName: string) {
         targetPath: mappedPath,
         error: uploadError,
       })
+    } else {
+      console.log(`[migrate-storage] Imported ${bucketName}/${object.path} -> ${mappedPath}`)
     }
   }
 }
