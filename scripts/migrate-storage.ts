@@ -4,9 +4,11 @@
  */
 import { Buffer } from "node:buffer"
 
-import { createSupabaseServiceClient } from "@/lib/supabase/server"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 import { query } from "@/lib/db"
+import dotenv from "dotenv"
+
+dotenv.config({ path: ".env" })
 
 type StorageObject = {
   path: string
@@ -16,6 +18,11 @@ type StorageObject = {
 
 const BUCKETS = ["lessons", "units"]
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+async function getSupabaseServiceClient() {
+  const module = await import("@/lib/supabase/server")
+  return module.createSupabaseServiceClient()
+}
 
 async function resolveEmail(userId: string, cache: Map<string, string | null>) {
   if (cache.has(userId)) {
@@ -50,7 +57,7 @@ async function transformPath(path: string, emailCache: Map<string, string | null
 }
 
 async function listAllObjects(bucketName: string) {
-  const supabase = await createSupabaseServiceClient()
+  const supabase = await getSupabaseServiceClient()
   const bucket = supabase.storage.from(bucketName)
   const queue = [""]
   const results: StorageObject[] = []
@@ -82,7 +89,7 @@ async function listAllObjects(bucketName: string) {
 }
 
 async function migrateBucket(bucketName: string) {
-  const supabase = await createSupabaseServiceClient()
+  const supabase = await getSupabaseServiceClient()
   const storage = createLocalStorageClient(bucketName)
   const bucket = supabase.storage.from(bucketName)
   const objects = await listAllObjects(bucketName)
