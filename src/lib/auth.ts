@@ -38,16 +38,22 @@ async function setSessionCookie(sessionId: string, token: string, expiresAt: Dat
 }
 
 async function clearSessionCookie() {
-  const cookieStore = await cookies()
-  cookieStore.set({
-    name: SESSION_COOKIE,
-    value: "",
-    httpOnly: true,
-    sameSite: "lax",
-    secure: true,
-    path: "/",
-    maxAge: 0,
-  })
+  // In RSC contexts (e.g. route handlers reading auth), cookie mutations are disallowed.
+  // Swallow the write if Next.js rejects it; we still return the readable cookie state above.
+  try {
+    const cookieStore = await cookies()
+    cookieStore.set({
+      name: SESSION_COOKIE,
+      value: "",
+      httpOnly: true,
+      sameSite: "lax",
+      secure: true,
+      path: "/",
+      maxAge: 0,
+    })
+  } catch {
+    // Best-effort clear; ignore when cookies cannot be mutated in this context.
+  }
 }
 
 function parseSessionCookie(raw: string | undefined | null) {

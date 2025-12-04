@@ -28,6 +28,7 @@ const AuthResultSchema = z.object({
   success: z.boolean(),
   error: z.string().nullable(),
   userId: z.string().nullable(),
+  isTeacher: z.boolean().nullable(),
 })
 
 type AuthResult = z.infer<typeof AuthResultSchema>
@@ -81,6 +82,7 @@ export async function signupAction(input: unknown): Promise<AuthResult> {
       success: false,
       error: firstError?.message ?? "Invalid signup payload.",
       userId: null,
+      isTeacher: null,
     })
   }
 
@@ -117,19 +119,21 @@ export async function signupAction(input: unknown): Promise<AuthResult> {
         )
       } catch (error) {
         if (isSchemaMissingError(error)) {
-          return AuthResultSchema.parse({
-            success: false,
-            error: "Auth schema not upgraded. Please run migrations/2025-11-29-auth.sql.",
-            userId: null,
-          })
-        }
-        console.error("[auth] Failed to create profile for signup", { email, error })
         return AuthResultSchema.parse({
           success: false,
-          error: "Unable to create your account.",
+          error: "Auth schema not upgraded. Please run migrations/2025-11-29-auth.sql.",
           userId: null,
+          isTeacher: null,
         })
       }
+      console.error("[auth] Failed to create profile for signup", { email, error })
+      return AuthResultSchema.parse({
+        success: false,
+        error: "Unable to create your account.",
+        userId: null,
+        isTeacher: null,
+      })
+    }
 
       await createSession(userId)
 
@@ -137,6 +141,7 @@ export async function signupAction(input: unknown): Promise<AuthResult> {
         success: true,
         error: null,
         userId,
+        isTeacher: false,
       })
     },
   )
@@ -150,6 +155,7 @@ export async function signinAction(input: unknown): Promise<AuthResult> {
       success: false,
       error: firstError?.message ?? "Invalid sign-in payload.",
       userId: null,
+      isTeacher: null,
     })
   }
 
@@ -174,6 +180,7 @@ export async function signinAction(input: unknown): Promise<AuthResult> {
           success: false,
           error: message,
           userId: null,
+          isTeacher: null,
         })
       }
 
@@ -182,6 +189,7 @@ export async function signinAction(input: unknown): Promise<AuthResult> {
           success: false,
           error: "Invalid email or password.",
           userId: null,
+          isTeacher: null,
         })
       }
 
@@ -191,6 +199,7 @@ export async function signinAction(input: unknown): Promise<AuthResult> {
           success: false,
           error: "Invalid email or password.",
           userId: null,
+          isTeacher: null,
         })
       }
 
@@ -200,6 +209,7 @@ export async function signinAction(input: unknown): Promise<AuthResult> {
         success: true,
         error: null,
         userId: profile.user_id,
+        isTeacher: Boolean(profile.is_teacher),
       })
     },
   )

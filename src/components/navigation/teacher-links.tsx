@@ -114,7 +114,7 @@ export function TeacherNavLinks({ onNavigate }: TeacherNavLinksProps) {
           className="text-muted-foreground transition-colors hover:text-primary"
           onClick={onNavigate}
         >
-          My Lessons
+          My Units
         </Link>
         <Link
           href={`/reports/${encodeURIComponent(state.userId)}`}
