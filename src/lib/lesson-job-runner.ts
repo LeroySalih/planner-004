@@ -2,15 +2,12 @@
 
 import { randomUUID } from "node:crypto"
 
-import type { SupabaseClient } from "@supabase/supabase-js"
-
 import { LessonJobResponseSchema } from "@/types"
 import { fetchLessonDetailPayload } from "@/lib/lesson-snapshots"
-import { publishLessonMutationEventWithClient } from "@/lib/lesson-realtime-server"
 import { createSupabaseServiceClient } from "@/lib/supabase/server"
+import { emitLessonEvent } from "@/lib/sse/topics"
 
 type SnapshotEventOptions = {
-  supabase: SupabaseClient
   jobId: string
   lessonId: string
   unitId?: string
@@ -29,7 +26,7 @@ export async function enqueueLessonMutationJob({
   unitId?: string
   type: string
   message?: string | null
-  executor: (params: { supabase: SupabaseClient; jobId: string }) => Promise<void>
+  executor: (params: { supabase: Awaited<ReturnType<typeof createSupabaseServiceClient>>; jobId: string }) => Promise<void>
 }) {
   const supabase = await createSupabaseServiceClient()
   const jobId = randomUUID()
@@ -62,18 +59,17 @@ async function runLessonMutationExecutor({
   message,
   executor,
 }: {
-  supabase: SupabaseClient
+  supabase: Awaited<ReturnType<typeof createSupabaseServiceClient>>
   jobId: string
   lessonId: string
   unitId?: string
   type: string
   message?: string | null
-  executor: (params: { supabase: SupabaseClient; jobId: string }) => Promise<void>
+  executor: (params: { supabase: Awaited<ReturnType<typeof createSupabaseServiceClient>>; jobId: string }) => Promise<void>
 }) {
   try {
     await executor({ supabase, jobId })
     await publishLessonSnapshotEvent({
-      supabase,
       jobId,
       lessonId,
       unitId,
@@ -81,7 +77,7 @@ async function runLessonMutationExecutor({
       fallbackMessage: message,
     })
   } catch (error) {
-    await publishLessonMutationEventWithClient(supabase, {
+    await emitLessonEvent("lesson.mutation", {
       job_id: jobId,
       lesson_id: lessonId,
       unit_id: unitId,
@@ -93,7 +89,6 @@ async function runLessonMutationExecutor({
 }
 
 export async function publishLessonSnapshotEvent({
-  supabase,
   jobId,
   lessonId,
   unitId,
@@ -102,7 +97,7 @@ export async function publishLessonSnapshotEvent({
 }: SnapshotEventOptions) {
   const { data: snapshot, error } = await fetchLessonDetailPayload(lessonId)
 
-  await publishLessonMutationEventWithClient(supabase, {
+  await emitLessonEvent("lesson.mutation", {
     job_id: jobId,
     lesson_id: lessonId,
     unit_id: unitId,

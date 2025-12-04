@@ -11,7 +11,6 @@ import {
   ASSIGNMENT_FEEDBACK_VISIBILITY_EVENT,
   buildAssignmentResultsChannelName,
 } from "@/lib/results-channel"
-import { supabaseBrowserClient } from "@/lib/supabase-browser"
 
 interface PupilFeedbackActivityProps {
   lessonId: string
@@ -47,78 +46,39 @@ export function PupilFeedbackActivity({
       return
     }
 
-    const groupIds = normalizedAssignmentIds
-      .map((id) => id.split("__")[0])
-      .filter((value) => value && value.trim().length > 0)
-    if (groupIds.length === 0) {
-      return
-    }
+    const source = new EventSource("/sse?topics=assignments")
 
-    let cancelled = false
-    const resolveVisibility = async () => {
-      try {
-        const { data, error } = await supabaseBrowserClient
-          .from("lesson_assignments")
-          .select("feedback_visible")
-          .in("group_id", groupIds)
-          .eq("lesson_id", lessonId)
-
-        if (cancelled) return
-        if (error) {
-          console.error("[pupil-feedback] Failed to resolve feedback visibility", error)
-          return
-        }
-        const anyVisible = (data ?? []).some((row) => Boolean(row?.feedback_visible))
-        setIsVisible(anyVisible)
-      } catch (error) {
-        if (!cancelled) {
-          console.error("[pupil-feedback] Failed to resolve feedback visibility", error)
-        }
+    source.onmessage = (event) => {
+      const envelope = JSON.parse(event.data) as { topic?: string; type?: string; payload?: unknown }
+      if (envelope.topic !== "assignments" || !envelope.payload) return
+      const payload =
+        typeof envelope.payload === "object" && envelope.payload && "payload" in envelope.payload
+          ? (envelope.payload as { payload?: unknown }).payload
+          : envelope.payload
+      const nextVisible =
+        (payload as { feedbackVisible?: boolean })?.feedbackVisible ??
+        (payload as { payload?: { feedbackVisible?: boolean } })?.payload?.feedbackVisible
+      if (typeof nextVisible !== "boolean") {
+        return
       }
+      const assignmentId =
+        typeof (payload as { assignmentId?: string }).assignmentId === "string"
+          ? (payload as { assignmentId: string }).assignmentId
+          : null
+      if (assignmentId && !normalizedAssignmentIds.includes(assignmentId)) {
+        return
+      }
+      setIsVisible(nextVisible)
     }
 
-    resolveVisibility()
+    source.onerror = () => {
+      // allow browser to retry
+    }
 
     return () => {
-      cancelled = true
+      source.close()
     }
   }, [lessonId, normalizedAssignmentIds])
-
-  useEffect(() => {
-    if (normalizedAssignmentIds.length === 0) {
-      return
-    }
-
-    const channels = normalizedAssignmentIds.map((assignmentId) => {
-      const channel = supabaseBrowserClient.channel(buildAssignmentResultsChannelName(assignmentId), {
-        config: { broadcast: { ack: true } },
-      })
-
-      channel.on(
-        "broadcast",
-        { event: ASSIGNMENT_FEEDBACK_VISIBILITY_EVENT },
-        (event: { payload?: { feedbackVisible?: boolean } } | { feedbackVisible?: boolean }) => {
-          const payload = "payload" in event ? event.payload : event
-          const nextVisible =
-            (payload as { feedbackVisible?: boolean })?.feedbackVisible ??
-            (payload as { payload?: { feedbackVisible?: boolean } })?.payload?.feedbackVisible
-
-          if (typeof nextVisible !== "boolean") {
-            return
-          }
-          setIsVisible(nextVisible)
-        },
-      )
-      channel.subscribe()
-      return channel
-    })
-
-    return () => {
-      channels.forEach((channel) => {
-        supabaseBrowserClient.removeChannel(channel)
-      })
-    }
-  }, [normalizedAssignmentIds])
 
   if (!isVisible) {
     return (

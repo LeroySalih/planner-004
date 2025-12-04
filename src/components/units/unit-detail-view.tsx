@@ -16,11 +16,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { LessonsPanel } from "@/components/units/lessons-panel"
 import { UnitEditSidebar } from "@/components/units/unit-edit-sidebar"
 import { UnitFilesPanel } from "@/components/units/unit-files-panel"
-import { supabaseBrowserClient } from "@/lib/supabase-browser"
-
-const UNIT_CHANNEL_NAME = "unit_updates"
 const UNIT_UPDATE_EVENT = "unit:update"
 const UNIT_DEACTIVATE_EVENT = "unit:deactivate"
+const UNIT_SSE_URL = "/sse?topics=units"
 
 const levelStyleMap: Record<number, string> = {
   1: "bg-emerald-100 text-emerald-900",
@@ -63,66 +61,65 @@ export function UnitDetailView({
   }, [unit])
 
   useEffect(() => {
-    const channel = supabaseBrowserClient.channel(UNIT_CHANNEL_NAME)
+    const source = new EventSource(UNIT_SSE_URL)
 
-    const handleEvent = (event: { payload: unknown }) => {
-      const parsed = UnitJobPayloadSchema.safeParse(event.payload)
+    const handleEvent = (payload: unknown) => {
+      const parsed = UnitJobPayloadSchema.safeParse(payload)
       if (!parsed.success) {
         console.warn("[units] received invalid unit job payload", parsed.error)
         return
       }
 
-      const payload: UnitJobPayload = parsed.data
-      if (payload.unit_id !== unit.unit_id) {
+      const data: UnitJobPayload = parsed.data
+      if (data.unit_id !== unit.unit_id) {
         return
       }
 
-      console.info("[units] realtime payload", payload)
+      console.info("[units] sse payload", data)
 
-      const snapshot = pendingJobsRef.current.get(payload.job_id)
+      const snapshot = pendingJobsRef.current.get(data.job_id)
       const clearSnapshot = () => {
-        pendingJobsRef.current.delete(payload.job_id)
+        pendingJobsRef.current.delete(data.job_id)
       }
 
-      if (payload.status === "completed") {
-        if (payload.operation === "update") {
-          if (payload.unit) {
-            setCurrentUnit(payload.unit)
+      if (data.status === "completed") {
+        if (data.operation === "update") {
+          if (data.unit) {
+            setCurrentUnit(data.unit)
           } else if (snapshot) {
             setCurrentUnit(snapshot)
           }
-          toast.success(payload.message ?? "Unit updated successfully.")
-        } else if (payload.operation === "deactivate") {
+          toast.success(data.message ?? "Unit updated successfully.")
+        } else if (data.operation === "deactivate") {
           setCurrentUnit((prev) => ({ ...prev, active: false }))
-          toast.success(payload.message ?? "Unit deactivated successfully.")
+          toast.success(data.message ?? "Unit deactivated successfully.")
         }
         clearSnapshot()
         return
       }
 
-      if (payload.status === "error") {
+      if (data.status === "error") {
         if (snapshot) {
           setCurrentUnit(snapshot)
         }
-        toast.error(payload.message ?? "Unit update failed.")
+        toast.error(data.message ?? "Unit update failed.")
         clearSnapshot()
       }
     }
 
-    channel.on("broadcast", { event: UNIT_UPDATE_EVENT }, handleEvent)
-    channel.on("broadcast", { event: UNIT_DEACTIVATE_EVENT }, handleEvent)
+    source.onmessage = (event) => {
+      const envelope = JSON.parse(event.data) as { topic?: string; type?: string; payload?: unknown }
+      if (envelope.topic !== "units" || !envelope.payload) return
+      handleEvent(envelope.payload)
+    }
 
-    const subscribeResult = channel.subscribe()
-    if (subscribeResult instanceof Promise) {
-      subscribeResult.catch((error) => {
-        console.error("[units] realtime subscription error", error)
-        toast.error("Live unit updates are unavailable right now.")
-      })
+    source.onerror = () => {
+      // rely on browser retry
     }
 
     return () => {
       pendingJobsRef.current.clear()
-      void supabaseBrowserClient.removeChannel(channel)
+      source.close()
     }
   }, [unit.unit_id])
 

@@ -3,13 +3,13 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
 import { ShortTextSubmissionBodySchema } from "@/types"
-import { createSupabaseServiceClient } from "@/lib/supabase/server"
 import { clampScore, fetchActivitySuccessCriteriaIds, normaliseSuccessCriteriaScores } from "@/lib/scoring/success-criteria"
 import {
   type AssignmentResultsRealtimePayload,
-  publishAssignmentResultsEventsWithClient,
-} from "@/lib/results-realtime-server"
+  publishAssignmentResultsEvents,
+} from "@/lib/results-sse"
 import { insertPupilActivityFeedbackEntry } from "@/lib/feedback/pupil-activity-feedback"
+import { query } from "@/lib/db"
 
 export const dynamic = "force-dynamic"
 
@@ -119,16 +119,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: "Invalid group assignment identifier." }, { status: 400 })
   }
 
-  const supabase = createSupabaseServiceClient()
-
-  const { data: activityRow, error: activityError } = await supabase
-    .from("activities")
-    .select("activity_id, type, lesson_id")
-    .eq("activity_id", parsed.data.activity_id)
-    .maybeSingle()
-
-  if (activityError) {
-    console.error("[ai-mark-webhook] Failed to load activity", activityError)
+  let activityRow: { activity_id: string; type: string | null; lesson_id: string | null } | null = null
+  try {
+    const { rows } = await query<{ activity_id: string; type: string | null; lesson_id: string | null }>(
+      `
+        select activity_id, type, lesson_id
+        from activities
+        where activity_id = $1
+        limit 1
+      `,
+      [parsed.data.activity_id],
+    )
+    activityRow = rows?.[0] ?? null
+  } catch (error) {
+    console.error("[ai-mark-webhook] Failed to load activity", error)
     return NextResponse.json({ success: false, error: "Unable to load activity." }, { status: 500 })
   }
 
@@ -148,16 +152,27 @@ export async function POST(request: Request) {
   }
 
   const successCriteriaIds = await fetchActivitySuccessCriteriaIds(parsed.data.activity_id)
-  const pupilIds = parsed.data.results.map((entry) => entry.pupilid)
+  const pupilIds = parsed.data.results
+    .map((entry) => resolveResultPupilId(entry))
+    .filter((value): value is string => typeof value === "string" && value.length > 0)
 
-  const { data: submissionRows, error: submissionsError } = await supabase
-    .from("submissions")
-    .select("submission_id, user_id, body, submitted_at")
-    .eq("activity_id", parsed.data.activity_id)
-    .in("user_id", pupilIds)
+  let submissionRows:
+    | { submission_id: string; user_id?: string | null; body: unknown; submitted_at?: string | null }[]
+    | null = null
 
-  if (submissionsError) {
-    console.error("[ai-mark-webhook] Failed to load submissions", submissionsError)
+  try {
+    const { rows } = await query<{ submission_id: string; user_id: string | null; body: unknown; submitted_at: string | null }>(
+      `
+        select submission_id, user_id, body, submitted_at
+        from submissions
+        where activity_id = $1
+          and user_id = any($2::uuid[])
+      `,
+      [parsed.data.activity_id, pupilIds],
+    )
+    submissionRows = rows ?? []
+  } catch (error) {
+    console.error("[ai-mark-webhook] Failed to load submissions", error)
     return NextResponse.json({ success: false, error: "Unable to load submissions." }, { status: 500 })
   }
 
@@ -188,7 +203,6 @@ export async function POST(request: Request) {
     try {
       if (existingSubmission) {
         const updated = await applyAiMarkToSubmission({
-          supabase,
           submission: existingSubmission,
           result,
           activityId: parsed.data.activity_id,
@@ -206,7 +220,6 @@ export async function POST(request: Request) {
         }
       } else {
         const created = await createAiMarkedSubmission({
-          supabase,
           activityId: parsed.data.activity_id,
           pupilId: resultPupilId,
           result,
@@ -238,11 +251,7 @@ export async function POST(request: Request) {
 
   if (realtimeEvents.length > 0) {
     try {
-      await publishAssignmentResultsEventsWithClient(
-        supabase,
-        parsed.data.group_assignment_id,
-        dedupeRealtimeEvents(realtimeEvents),
-      )
+      await publishAssignmentResultsEvents(parsed.data.group_assignment_id, dedupeRealtimeEvents(realtimeEvents))
     } catch (error) {
       console.error("[ai-mark-webhook] Failed to publish realtime events", error)
     }
@@ -287,7 +296,6 @@ function computeIsCorrect(score: number | null): boolean {
 }
 
 async function applyAiMarkToSubmission({
-  supabase,
   submission,
   result,
   activityId,
@@ -295,7 +303,6 @@ async function applyAiMarkToSubmission({
   answerFallback,
   pupilId,
 }: {
-  supabase: ReturnType<typeof createSupabaseServiceClient>
   submission: { submission_id: string; user_id?: string | null; body: unknown; submitted_at?: string | null }
   result: ResultEntry
   activityId: string
@@ -332,14 +339,14 @@ async function applyAiMarkToSubmission({
     }),
   })
 
-  const { error } = await supabase
-    .from("submissions")
-    .update({ body: nextBody })
-    .eq("submission_id", submission.submission_id)
-
-  if (error) {
-    throw error
-  }
+  await query(
+    `
+      update submissions
+      set body = $1
+      where submission_id = $2
+    `,
+    [nextBody, submission.submission_id],
+  )
 
   await insertPupilActivityFeedbackEntry({
     activityId,
@@ -365,14 +372,12 @@ async function applyAiMarkToSubmission({
 }
 
 async function createAiMarkedSubmission({
-  supabase,
   activityId,
   pupilId,
   result,
   successCriteriaIds,
   answer,
 }: {
-  supabase: ReturnType<typeof createSupabaseServiceClient>
   activityId: string
   pupilId: string
   result: ResultEntry
@@ -395,20 +400,20 @@ async function createAiMarkedSubmission({
     success_criteria_scores: successCriteriaScores,
   })
 
-  const { data: insertedRow, error } = await supabase
-    .from("submissions")
-    .insert({
-      activity_id: activityId,
-      user_id: pupilId,
-      submitted_at: new Date().toISOString(),
-      body: submissionBody,
-    })
-    .select("submission_id")
-    .single()
+  const { rows } = await query<{ submission_id: string }>(
+    `
+      insert into submissions (
+        activity_id,
+        user_id,
+        submitted_at,
+        body
+      ) values ($1, $2, $3, $4)
+      returning submission_id
+    `,
+    [activityId, pupilId, new Date().toISOString(), submissionBody],
+  )
 
-  if (error) {
-    throw error
-  }
+  const insertedRow = rows?.[0] ?? null
 
   await insertPupilActivityFeedbackEntry({
     activityId,

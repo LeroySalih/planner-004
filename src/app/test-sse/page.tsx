@@ -1,12 +1,20 @@
 import { TestSseClient } from "@/components/test-sse/test-sse-client"
-import { getCurrentCounter } from "@/lib/sse-hub"
+import { requireTeacherProfile } from "@/lib/auth"
+import { getTopicCounter } from "@/lib/sse/hub"
+import { fetchLatestSseEvent } from "@/lib/sse/persistence"
+import type { SseTopic } from "@/lib/sse/types"
 
 import { incrementCounterAction, type TestSseActionState } from "./actions"
 
 export const dynamic = "force-dynamic"
 
 export default async function TestSsePage() {
-  const currentCounter = getCurrentCounter()
+  await requireTeacherProfile({ refreshSessionCookie: true })
+  const topic: SseTopic = "test-sse"
+  const latest = await fetchLatestSseEvent(topic)
+  const persistedCounter =
+    latest && typeof latest.payload?.value === "number" ? (latest.payload.value as number) : null
+  const currentCounter = persistedCounter ?? getTopicCounter(topic)
   const initialState: TestSseActionState = { status: "idle", counter: currentCounter }
 
   return (
@@ -24,7 +32,7 @@ export default async function TestSsePage() {
       <TestSseClient
         action={incrementCounterAction}
         initialState={initialState}
-        streamPath="/test-sse/stream"
+        streamPath="/sse?topics=test-sse"
       />
     </div>
   )

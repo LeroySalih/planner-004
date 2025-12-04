@@ -1,10 +1,18 @@
 import { TestSseObserver } from "@/components/test-sse/test-sse-observer"
-import { getCurrentCounter } from "@/lib/sse-hub"
+import { requireTeacherProfile } from "@/lib/auth"
+import { getTopicCounter } from "@/lib/sse/hub"
+import { fetchLatestSseEvent } from "@/lib/sse/persistence"
+import type { SseTopic } from "@/lib/sse/types"
 
 export const dynamic = "force-dynamic"
 
 export default async function TestSseObserverPage() {
-  const currentCounter = getCurrentCounter()
+  await requireTeacherProfile({ refreshSessionCookie: true })
+  const topic: SseTopic = "test-sse"
+  const latest = await fetchLatestSseEvent(topic)
+  const persistedCounter =
+    latest && typeof latest.payload?.value === "number" ? (latest.payload.value as number) : null
+  const currentCounter = persistedCounter ?? getTopicCounter(topic)
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6 px-6 py-10">
@@ -18,7 +26,7 @@ export default async function TestSseObserverPage() {
           </p>
         </div>
       </div>
-      <TestSseObserver initialCounter={currentCounter} streamPath="/test-sse/stream" />
+      <TestSseObserver initialCounter={currentCounter} streamPath="/sse?topics=test-sse" />
     </div>
   )
 }

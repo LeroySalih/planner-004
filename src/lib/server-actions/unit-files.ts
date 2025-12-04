@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
 import { requireTeacherProfile } from "@/lib/auth"
-import { createSupabaseServerClient, createSupabaseServiceClient } from "@/lib/supabase/server"
+import { createLocalStorageClient } from "@/lib/storage/local-storage"
 import { withTelemetry } from "@/lib/telemetry"
 
 const UNIT_FILES_BUCKET = "units"
@@ -27,22 +27,6 @@ function buildFilePath(unitId: string, fileName: string) {
   return `${unitId}/${fileName}`
 }
 
-function buildVersionedName(name: string) {
-  const dotIndex = name.lastIndexOf(".")
-  const now = new Date()
-  const pad = (value: number) => value.toString().padStart(2, "0")
-  const timestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(
-    now.getHours(),
-  )}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`
-
-  if (dotIndex === -1) {
-    return `${name}_${timestamp}`
-  }
-  const base = name.slice(0, dotIndex)
-  const extension = name.slice(dotIndex)
-  return `${base}_${timestamp}${extension}`
-}
-
 export async function listUnitFilesAction(
   unitId: string,
   options?: { authEndTime?: number | null; routeTag?: string },
@@ -61,13 +45,8 @@ export async function listUnitFilesAction(
     async () => {
       console.log("[v0] Server action started for listing unit files:", { unitId })
 
-      const supabase = process.env.SUPABASE_SERVICE_ROLE_KEY
-        ? createSupabaseServiceClient()
-        : await createSupabaseServerClient()
-
-      const { data, error } = await supabase.storage
-        .from(UNIT_FILES_BUCKET)
-        .list(unitId, { limit: 100 })
+      const storage = createLocalStorageClient(UNIT_FILES_BUCKET)
+      const { data, error } = await storage.list(unitId, { limit: 100 })
 
       if (error) {
         console.error("[v0] Failed to list unit files:", error)
@@ -110,43 +89,22 @@ export async function uploadUnitFileAction(formData: FormData) {
     return { success: false, error: "No file provided" }
   }
 
+  if (file.size > 5 * 1024 * 1024) {
+    return { success: false, error: "File exceeds 5MB limit" }
+  }
+
   const fileName = file.name
-  const supabase = process.env.SUPABASE_SERVICE_ROLE_KEY
-    ? createSupabaseServiceClient()
-    : await createSupabaseServerClient()
-  const bucket = supabase.storage.from(UNIT_FILES_BUCKET)
+  const storage = createLocalStorageClient(UNIT_FILES_BUCKET)
   const fullPath = buildFilePath(unitId, fileName)
-
-  const { data: existingFiles, error: listError } = await bucket.list(unitId, {
-    search: fileName,
-  })
-
-  if (listError) {
-    console.error("[v0] Failed to check existing unit files:", listError)
-    return { success: false, error: listError.message }
-  }
-
-  const alreadyExists = (existingFiles ?? []).some((item) => item.name === fileName)
-
-  if (alreadyExists) {
-    const versionedName = buildVersionedName(fileName)
-    const { error: moveError } = await bucket.move(fullPath, buildFilePath(unitId, versionedName))
-
-    if (moveError) {
-      console.error("[v0] Failed to version existing unit file:", moveError)
-      return { success: false, error: moveError.message }
-    }
-  }
-
   const arrayBuffer = await file.arrayBuffer()
-  const { error: uploadError } = await bucket.upload(fullPath, arrayBuffer, {
-    upsert: true,
+  const { error } = await storage.upload(fullPath, arrayBuffer, {
     contentType: file.type || "application/octet-stream",
+    originalPath: fullPath,
   })
 
-  if (uploadError) {
-    console.error("[v0] Failed to upload unit file:", uploadError)
-    return { success: false, error: uploadError.message }
+  if (error) {
+    console.error("[v0] Failed to upload unit file:", error)
+    return { success: false, error: error.message }
   }
 
   revalidatePath(`/units/${unitId}`)
@@ -156,11 +114,8 @@ export async function uploadUnitFileAction(formData: FormData) {
 export async function deleteUnitFileAction(unitId: string, fileName: string) {
   await requireTeacherProfile()
 
-  const supabase = process.env.SUPABASE_SERVICE_ROLE_KEY
-    ? createSupabaseServiceClient()
-    : await createSupabaseServerClient()
-  const bucket = supabase.storage.from(UNIT_FILES_BUCKET)
-  const { error } = await bucket.remove([buildFilePath(unitId, fileName)])
+  const storage = createLocalStorageClient(UNIT_FILES_BUCKET)
+  const { error } = await storage.remove([buildFilePath(unitId, fileName)])
 
   if (error) {
     console.error("[v0] Failed to delete unit file:", error)
@@ -174,14 +129,11 @@ export async function deleteUnitFileAction(unitId: string, fileName: string) {
 export async function getUnitFileDownloadUrlAction(unitId: string, fileName: string) {
   await requireTeacherProfile()
 
-  const supabase = process.env.SUPABASE_SERVICE_ROLE_KEY
-    ? createSupabaseServiceClient()
-    : await createSupabaseServerClient()
-  const bucket = supabase.storage.from(UNIT_FILES_BUCKET)
-  const { data, error } = await bucket.createSignedUrl(buildFilePath(unitId, fileName), 60 * 10)
+  const storage = createLocalStorageClient(UNIT_FILES_BUCKET)
+  const { data, error } = await storage.createSignedUrl(buildFilePath(unitId, fileName))
 
   if (error) {
-    console.error("[v0] Failed to create signed URL for unit file:", error)
+    console.error("[v0] Failed to create download URL for unit file:", error)
     return { success: false, error: error.message }
   }
 

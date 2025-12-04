@@ -9,7 +9,7 @@ import { z } from "zod"
 import { UnitSchema, UnitsSchema, UnitJobPayloadSchema, UnitMutationStateSchema } from "@/types"
 import { requireTeacherProfile, type AuthenticatedProfile } from "@/lib/auth"
 import { query, withDbClient } from "@/lib/db"
-import { createSupabaseServiceClient } from "@/lib/supabase/server"
+import { emitUnitEvent } from "@/lib/sse/topics"
 import { withTelemetry } from "@/lib/telemetry"
 
 const UnitsReturnValue = z.object({
@@ -23,10 +23,8 @@ const UnitReturnValue = z.object({
 })
 
 const UNIT_ROUTE_TAG = "/units/[unitId]"
-const UNIT_CHANNEL_NAME = "unit_updates"
 const UNIT_UPDATE_EVENT = "unit:update"
 const UNIT_DEACTIVATE_EVENT = "unit:deactivate"
-const UNIT_CHANNEL_BROADCAST = { config: { broadcast: { ack: true } } }
 
 const UnitUpdateFormSchema = z.object({
   unitId: z.string(),
@@ -40,69 +38,17 @@ const UnitDeactivateFormSchema = z.object({
   unitId: z.string(),
 })
 
-type SupabaseClient = Awaited<ReturnType<typeof createSupabaseServiceClient>>
-
 async function revalidateUnitPaths(unitId: string) {
   void unitId
 }
 
-async function publishUnitJobEvent(
-  supabase: SupabaseClient,
-  event: string,
-  payloadInput: z.input<typeof UnitJobPayloadSchema>,
-) {
+async function publishUnitJobEvent(event: string, payloadInput: z.input<typeof UnitJobPayloadSchema>) {
   const payload = UnitJobPayloadSchema.parse(payloadInput)
-  const channel = supabase.channel(UNIT_CHANNEL_NAME, UNIT_CHANNEL_BROADCAST)
-
-  try {
-    await new Promise<void>((resolve, reject) => {
-      let settled = false
-      const result = channel.subscribe((status) => {
-        if (settled) return
-        if (status === "SUBSCRIBED") {
-          settled = true
-          resolve()
-        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-          settled = true
-          reject(new Error(`Realtime channel subscription failed with status: ${status}`))
-        }
-      })
-
-      if (result instanceof Promise) {
-        result.catch((error) => {
-          if (!settled) {
-            settled = true
-            reject(error)
-          }
-        })
-      }
-    })
-
-    const sendResult = await channel.send({
-      type: "broadcast",
-      event,
-      payload,
-    })
-
-    if (sendResult !== "ok") {
-      const status =
-        typeof sendResult === "string"
-          ? sendResult
-          : (sendResult as { status?: string })?.status ?? "ok"
-
-      if (status !== "ok") {
-        throw new Error(`Realtime channel send failed with status: ${status}`)
-      }
-    }
-
-    console.info("[units] published unit job event", { event, jobId: payload.job_id, unitId: payload.unit_id })
-  } finally {
-    await supabase.removeChannel(channel)
-  }
+  await emitUnitEvent(event, payload)
+  console.info("[units] published unit job event", { event, jobId: payload.job_id, unitId: payload.unit_id })
 }
 
 type UnitUpdateJobArgs = {
-  supabase: SupabaseClient
   jobId: string
   unitId: string
   updates: {
@@ -113,7 +59,7 @@ type UnitUpdateJobArgs = {
   }
 }
 
-async function runUnitUpdateJob({ supabase, jobId, unitId, updates }: UnitUpdateJobArgs) {
+async function runUnitUpdateJob({ jobId, unitId, updates }: UnitUpdateJobArgs) {
   try {
     let updatedUnit: Record<string, unknown> | null = null
     await withDbClient(async (client) => {
@@ -141,7 +87,7 @@ async function runUnitUpdateJob({ supabase, jobId, unitId, updates }: UnitUpdate
     })
 
     await revalidateUnitPaths(unitId)
-    await publishUnitJobEvent(supabase, UNIT_UPDATE_EVENT, {
+    await publishUnitJobEvent(UNIT_UPDATE_EVENT, {
       job_id: jobId,
       unit_id: unitId,
       status: "completed",
@@ -157,7 +103,7 @@ async function runUnitUpdateJob({ supabase, jobId, unitId, updates }: UnitUpdate
     console.error("[units] async update job failed", { unitId, jobId, error })
 
     try {
-      await publishUnitJobEvent(supabase, UNIT_UPDATE_EVENT, {
+      await publishUnitJobEvent(UNIT_UPDATE_EVENT, {
         job_id: jobId,
         unit_id: unitId,
         status: "error",
@@ -172,17 +118,16 @@ async function runUnitUpdateJob({ supabase, jobId, unitId, updates }: UnitUpdate
 }
 
 type UnitDeactivateJobArgs = {
-  supabase: SupabaseClient
   jobId: string
   unitId: string
 }
 
-async function runUnitDeactivateJob({ supabase, jobId, unitId }: UnitDeactivateJobArgs) {
+async function runUnitDeactivateJob({ jobId, unitId }: UnitDeactivateJobArgs) {
   try {
     await query("update units set active = false where unit_id = $1", [unitId])
 
     await revalidateUnitPaths(unitId)
-    await publishUnitJobEvent(supabase, UNIT_DEACTIVATE_EVENT, {
+    await publishUnitJobEvent(UNIT_DEACTIVATE_EVENT, {
       job_id: jobId,
       unit_id: unitId,
       status: "completed",
@@ -198,7 +143,7 @@ async function runUnitDeactivateJob({ supabase, jobId, unitId }: UnitDeactivateJ
     console.error("[units] async deactivate job failed", { unitId, jobId, error })
 
     try {
-      await publishUnitJobEvent(supabase, UNIT_DEACTIVATE_EVENT, {
+      await publishUnitJobEvent(UNIT_DEACTIVATE_EVENT, {
         job_id: jobId,
         unit_id: unitId,
         status: "error",
@@ -533,12 +478,10 @@ export async function triggerUnitUpdateJobAction(
         parsedYear = numericYear
       }
 
-      const supabase = await createSupabaseServiceClient()
       const jobId = randomUUID()
 
       queueMicrotask(() => {
         void runUnitUpdateJob({
-          supabase,
           jobId,
           unitId: trimmedUnitId,
           updates: {
@@ -608,12 +551,10 @@ export async function triggerUnitDeactivateJobAction(
         })
       }
 
-      const supabase = await createSupabaseServiceClient()
       const jobId = randomUUID()
 
       queueMicrotask(() => {
         void runUnitDeactivateJob({
-          supabase,
           jobId,
           unitId: trimmedUnitId,
         })

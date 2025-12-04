@@ -14,7 +14,7 @@ type TestSseObserverProps = {
   streamPath?: string
 }
 
-const STREAM_PATH = "/test-sse/stream"
+const STREAM_PATH = "/sse?topics=test-sse"
 
 export function TestSseObserver({
   initialCounter,
@@ -47,10 +47,15 @@ export function TestSseObserver({
 
     eventSource.onmessage = (event) => {
       try {
-        const payload = JSON.parse(event.data) as { type?: string; value?: unknown }
-        if (payload.type === "counter" && typeof payload.value === "number") {
-          setCounter(payload.value)
-          setLastMessage(`Received counter ${payload.value}`)
+        const envelope = JSON.parse(event.data) as {
+          topic?: string
+          type?: string
+          payload?: { value?: unknown }
+        }
+        const value = envelope?.payload?.value
+        if (typeof value === "number") {
+          setCounter(value)
+          setLastMessage(`Received ${envelope.type ?? "update"}: ${value}`)
         }
       } catch (error) {
         console.warn("[test-sse-2] failed to parse event payload", error)

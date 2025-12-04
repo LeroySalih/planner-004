@@ -16,7 +16,7 @@ import {
   ShortTextSubmissionBodySchema,
 } from "@/types"
 import { query } from "@/lib/db"
-import { createSupabaseServiceClient } from "@/lib/supabase/server"
+import { createLocalStorageClient } from "@/lib/storage/local-storage"
 import { requireTeacherProfile } from "@/lib/auth"
 import {
   computeAverageSuccessCriteriaScore,
@@ -31,7 +31,7 @@ import {
 } from "@/lib/scoring/activity-scores"
 import { schedulePupilReportRecalc } from "@/lib/report-cache-jobs"
 import { withTelemetry } from "@/lib/telemetry"
-import { publishAssignmentFeedbackVisibilityUpdate } from "@/lib/results-realtime-server"
+import { publishAssignmentFeedbackVisibilityUpdate } from "@/lib/results-sse"
 import {
   fetchPupilActivityFeedbackMap,
   insertPupilActivityFeedbackEntry,
@@ -655,7 +655,6 @@ export async function readAssignmentResultsAction(
 
     const resolvedLessonId = typeof lessonRow?.lesson_id === "string" ? lessonRow.lesson_id : null
     if (resolvedLessonId) {
-      const supabase = await createSupabaseServiceClient()
       const uploadPresenceChecks: Array<{ key: string; activityId: string; pupilId: string }> = []
       for (const pupil of pupils) {
         for (const activity of activities) {
@@ -676,7 +675,8 @@ export async function readAssignmentResultsAction(
       }
 
       if (uploadPresenceChecks.length > 0) {
-        const pendingUploads = await detectPendingUploadSubmissions(supabase, resolvedLessonId, uploadPresenceChecks)
+        const storage = createLocalStorageClient(LESSON_FILES_BUCKET)
+        const pendingUploads = await detectPendingUploadSubmissions(storage, resolvedLessonId, uploadPresenceChecks)
         for (const [cellKey, entry] of pendingUploads.entries()) {
           if (!entry?.hasUploads) {
             continue
@@ -971,7 +971,8 @@ export async function updateAssignmentFeedbackVisibilityAction(
         })
       }
 
-      await publishAssignmentFeedbackVisibilityUpdate(parsed.data.assignmentId, {
+      await publishAssignmentFeedbackVisibilityUpdate({
+        assignmentId: parsed.data.assignmentId,
         feedbackVisible: updatedVisible,
       })
 
@@ -995,8 +996,41 @@ type UploadPresenceEntry = {
   submittedAt: string | null
 }
 
+async function resolvePupilStorageKeys(pupilIds: string[]) {
+  const map = new Map<string, string>()
+  if (pupilIds.length === 0) {
+    return map
+  }
+
+  try {
+    const { rows } = await query<{ user_id: string; email: string | null }>(
+      `
+        select user_id, email
+        from profiles
+        where user_id = any($1::text[])
+      `,
+      [pupilIds],
+    )
+
+    for (const row of rows ?? []) {
+      const email = row.email?.trim()
+      map.set(row.user_id, email && email.length > 0 ? email : row.user_id)
+    }
+  } catch (error) {
+    console.error("[assignment-results] Failed to resolve pupil emails for storage paths", error, { pupilIds })
+  }
+
+  for (const pupilId of pupilIds) {
+    if (!map.has(pupilId)) {
+      map.set(pupilId, pupilId)
+    }
+  }
+
+  return map
+}
+
 async function detectPendingUploadSubmissions(
-  supabase: Awaited<ReturnType<typeof createSupabaseServiceClient>>,
+  storage: ReturnType<typeof createLocalStorageClient>,
   lessonId: string,
   checks: UploadPresenceCheck[],
 ) {
@@ -1005,17 +1039,20 @@ async function detectPendingUploadSubmissions(
     return results
   }
 
-  const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
+  const pupilIds = Array.from(new Set(checks.map((item) => item.pupilId)))
+  const pupilStorageKeys = await resolvePupilStorageKeys(pupilIds)
+
   for (const check of checks) {
+    const pupilKey = pupilStorageKeys.get(check.pupilId) ?? check.pupilId
     let hasUploads = false
     let submittedAt: string | null = null
     const directories = [
-      buildSubmissionDirectoryPath(lessonId, check.activityId, check.pupilId),
-      buildLegacySubmissionDirectoryPath(lessonId, check.activityId, check.pupilId),
+      buildSubmissionDirectoryPath(lessonId, check.activityId, pupilKey),
+      buildLegacySubmissionDirectoryPath(lessonId, check.activityId, pupilKey),
     ]
 
     for (const directory of directories) {
-      const { data, error } = await bucket.list(directory, { limit: 1 })
+      const { data, error } = await storage.list(directory, { limit: 1 })
       if (error) {
         if (isStorageNotFoundError(error)) {
           continue

@@ -1,12 +1,16 @@
 "use server"
 
+import { performance } from "node:perf_hooks"
+
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { Client } from "pg"
 
 import { SubmissionStatusSchema } from "@/types"
-import { createSupabaseServiceClient } from "@/lib/supabase/server"
+import { query } from "@/lib/db"
 import { requireAuthenticatedProfile } from "@/lib/auth"
+import { emitSubmissionEvent, emitUploadEvent } from "@/lib/sse/topics"
+import { createLocalStorageClient } from "@/lib/storage/local-storage"
 import { withTelemetry } from "@/lib/telemetry"
 
 const LESSON_FILES_BUCKET = "lessons"
@@ -80,12 +84,40 @@ function isStorageNotFoundError(error: { message?: string } | null): boolean {
   return normalized.includes("not found") || normalized.includes("object not found")
 }
 
+const pupilStorageKeyCache = new Map<string, string>()
+
+async function resolvePupilStorageKey(pupilId: string) {
+  if (pupilStorageKeyCache.has(pupilId)) {
+    return pupilStorageKeyCache.get(pupilId) as string
+  }
+
+  try {
+    const { rows } = await query<{ email: string | null }>(
+      `
+        select email
+        from profiles
+        where user_id = $1
+        limit 1
+      `,
+      [pupilId],
+    )
+
+    const email = rows?.[0]?.email?.trim()
+    const resolved = email && email.length > 0 ? email : pupilId
+    pupilStorageKeyCache.set(pupilId, resolved)
+    return resolved
+  } catch (error) {
+    console.error("[lesson-activity-files] Failed to resolve pupil email for storage path", error, { pupilId })
+    pupilStorageKeyCache.set(pupilId, pupilId)
+    return pupilId
+  }
+}
+
 export async function listActivityFilesAction(lessonId: string, activityId: string) {
   const directory = buildDirectory(lessonId, activityId)
-  const supabase = await createSupabaseServiceClient()
-  const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
+  const storage = createLocalStorageClient(LESSON_FILES_BUCKET)
 
-  const { data, error } = await bucket.list(directory, { limit: 100 })
+  const { data, error } = await storage.list(directory, { limit: 100 })
 
   if (error) {
     if (error.message?.toLowerCase().includes("not found")) {
@@ -116,6 +148,10 @@ export async function listActivityFilesAction(lessonId: string, activityId: stri
 }
 
 export async function uploadActivityFileAction(formData: FormData) {
+  const authStart = performance.now()
+  const profile = await requireAuthenticatedProfile({ refreshSessionCookie: true })
+  const authEnd = performance.now()
+
   const unitId = formData.get("unitId")
   const lessonId = formData.get("lessonId")
   const activityId = formData.get("activityId")
@@ -137,25 +173,47 @@ export async function uploadActivityFileAction(formData: FormData) {
     return { success: false, error: "No file provided" }
   }
 
-  const supabase = await createSupabaseServiceClient()
-  const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
-  const fileName = file.name
-  const fullPath = buildFilePath(lessonId, activityId, fileName)
-
-  const arrayBuffer = await file.arrayBuffer()
-  const { error: uploadError } = await bucket.upload(fullPath, arrayBuffer, {
-    upsert: true,
-    contentType: file.type || "application/octet-stream",
-  })
-
-  if (uploadError) {
-    console.error("[v0] Failed to upload activity file:", uploadError)
-    return { success: false, error: uploadError.message }
+  if (file.size > 5 * 1024 * 1024) {
+    return { success: false, error: "File exceeds 5MB limit" }
   }
 
-  revalidatePath(`/units/${unitId}`)
-  revalidatePath(`/lessons/${lessonId}`)
-  return { success: true }
+  return withTelemetry(
+    {
+      routeTag: "/lessons:activity-files",
+      functionName: "uploadActivityFileAction",
+      params: { unitId, lessonId, activityId, fileName: file.name },
+      authEndTime: authEnd,
+    },
+    async () => {
+      const storage = createLocalStorageClient(LESSON_FILES_BUCKET)
+      const fileName = file.name
+      const fullPath = buildFilePath(lessonId, activityId, fileName)
+
+      const arrayBuffer = await file.arrayBuffer()
+      const { error } = await storage.upload(fullPath, arrayBuffer, {
+        contentType: file.type || "application/octet-stream",
+        uploadedBy: profile.userId,
+        originalPath: fullPath,
+      })
+
+      if (error) {
+        console.error("[v0] Failed to upload activity file:", error)
+        return { success: false, error: error.message }
+      }
+
+      await emitUploadEvent("upload.activity.file_added", {
+        unitId,
+        lessonId,
+        activityId,
+        fileName,
+        submittedBy: profile.userId,
+      })
+
+      revalidatePath(`/units/${unitId}`)
+      revalidatePath(`/lessons/${lessonId}`)
+      return { success: true }
+    },
+  )
 }
 
 export async function deleteActivityFileAction(
@@ -164,9 +222,8 @@ export async function deleteActivityFileAction(
   activityId: string,
   fileName: string,
 ) {
-  const supabase = await createSupabaseServiceClient()
-  const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
-  const { error } = await bucket.remove([buildFilePath(lessonId, activityId, fileName)])
+  const storage = createLocalStorageClient(LESSON_FILES_BUCKET)
+  const { error } = await storage.remove([buildFilePath(lessonId, activityId, fileName)])
 
   if (error) {
     console.error("[v0] Failed to delete activity file:", error)
@@ -183,12 +240,8 @@ export async function getActivityFileDownloadUrlAction(
   activityId: string,
   fileName: string,
 ) {
-  const supabase = await createSupabaseServiceClient()
-  const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
-  const { data, error } = await bucket.createSignedUrl(
-    buildFilePath(lessonId, activityId, fileName),
-    60 * 10,
-  )
+  const storage = createLocalStorageClient(LESSON_FILES_BUCKET)
+  const { data, error } = await storage.createSignedUrl(buildFilePath(lessonId, activityId, fileName))
 
   if (error) {
     const message = error.message ?? ""
@@ -196,7 +249,7 @@ export async function getActivityFileDownloadUrlAction(
     if (normalized.includes("not found") || normalized.includes("object not found")) {
       return { success: false, error: "NOT_FOUND" }
     }
-    console.error("[v0] Failed to create signed URL for activity file:", error)
+    console.error("[v0] Failed to create download URL for activity file:", error)
     return { success: false, error: message }
   }
 
@@ -213,8 +266,7 @@ export async function listPupilActivitySubmissionsAction(
   return withTelemetry(
     { routeTag, functionName: "listPupilActivitySubmissionsAction", params: { lessonId, activityId, pupilId } },
     async () => {
-      const supabase = await createSupabaseServiceClient()
-      const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
+      const storage = createLocalStorageClient(LESSON_FILES_BUCKET)
       const client = createPgClient()
 
       try {
@@ -246,9 +298,10 @@ export async function listPupilActivitySubmissionsAction(
           return ActivityFilesReturnValue.parse({ data: [], error: null })
         }
 
+        const pupilStorageKey = await resolvePupilStorageKey(pupilId)
         const directories = [
-          buildSubmissionDirectory(lessonId, activityId, pupilId),
-          buildLegacySubmissionDirectory(lessonId, activityId, pupilId),
+          buildSubmissionDirectory(lessonId, activityId, pupilStorageKey),
+          buildLegacySubmissionDirectory(lessonId, activityId, pupilStorageKey),
         ].filter((value, index, array) => array.indexOf(value) === index)
 
         let matchedPath: string | null = null
@@ -256,7 +309,7 @@ export async function listPupilActivitySubmissionsAction(
         let lastError: { message?: string } | null = null
 
         for (const directory of directories) {
-          const { data, error } = await bucket.list(directory, { limit: 100 })
+          const { data, error } = await storage.list(directory, { limit: 100 })
 
           if (error) {
             if (isStorageNotFoundError(error)) {
@@ -280,7 +333,7 @@ export async function listPupilActivitySubmissionsAction(
           }
         }
 
-        const resolvedPath = matchedPath ?? buildSubmissionPath(lessonId, activityId, pupilId, fileName)
+        const resolvedPath = matchedPath ?? buildSubmissionPath(lessonId, activityId, pupilStorageKey, fileName)
 
         if (!matchedPath && lastError && isStorageNotFoundError(lastError)) {
           return ActivityFilesReturnValue.parse({
@@ -346,6 +399,10 @@ export async function uploadPupilActivitySubmissionAction(formData: FormData) {
         return { success: false, error: "No file provided" }
       }
 
+      if (file.size > 5 * 1024 * 1024) {
+        return { success: false, error: "File exceeds 5MB limit" }
+      }
+
       const profile = await requireAuthenticatedProfile()
 
       if (profile.userId !== pupilId) {
@@ -353,16 +410,17 @@ export async function uploadPupilActivitySubmissionAction(formData: FormData) {
       }
 
       const userId = profile.userId
-      const supabase = await createSupabaseServiceClient()
-      const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
+      const storage = createLocalStorageClient(LESSON_FILES_BUCKET)
+      const pupilStorageKey = profile.email?.trim() ?? (await resolvePupilStorageKey(userId))
 
       const fileName = file.name
-      const path = buildSubmissionPath(lessonId, activityId, userId, fileName)
+      const path = buildSubmissionPath(lessonId, activityId, pupilStorageKey, fileName)
 
       const arrayBuffer = await file.arrayBuffer()
-      const { error: uploadError } = await bucket.upload(path, arrayBuffer, {
-        upsert: true,
+      const { error: uploadError } = await storage.upload(path, arrayBuffer, {
         contentType: file.type || "application/octet-stream",
+        uploadedBy: userId,
+        originalPath: path,
       })
 
       if (uploadError) {
@@ -371,6 +429,7 @@ export async function uploadPupilActivitySubmissionAction(formData: FormData) {
       }
 
       const submittedAt = new Date().toISOString()
+      let submissionId: string | null = null
       const client = createPgClient()
 
       try {
@@ -386,12 +445,13 @@ export async function uploadPupilActivitySubmissionAction(formData: FormData) {
           })
 
           if (!submissionResult.success) {
-            await bucket.remove([path])
+            await storage.remove([path])
             return { success: false, error: "Unable to record submission." }
           }
+          submissionId = submissionResult.submissionId ?? null
         } catch (error) {
           console.error("[v0] Failed to upsert upload submission record:", error)
-          await bucket.remove([path])
+          await storage.remove([path])
           return { success: false, error: "Unable to record submission." }
         }
       } finally {
@@ -408,6 +468,15 @@ export async function uploadPupilActivitySubmissionAction(formData: FormData) {
         lessonId,
         fileName,
         submittedAt,
+      })
+
+      await emitSubmissionEvent("submission.uploaded", {
+        submissionId,
+        activityId,
+        pupilId: userId,
+        submittedAt,
+        fileName,
+        submissionStatus: "inprogress",
       })
 
       revalidatePath(`/pupil-lessons/${encodeURIComponent(userId)}/lessons/${encodeURIComponent(lessonId)}`)
@@ -427,18 +496,18 @@ export async function deletePupilActivitySubmissionAction(
   return withTelemetry(
     { routeTag, functionName: "deletePupilActivitySubmissionAction", params: { lessonId, activityId, pupilId } },
     async () => {
-      const supabase = await createSupabaseServiceClient()
-      const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
+      const storage = createLocalStorageClient(LESSON_FILES_BUCKET)
+      const pupilStorageKey = await resolvePupilStorageKey(pupilId)
       const paths = [
-        buildSubmissionPath(lessonId, activityId, pupilId, fileName),
-        buildLegacySubmissionPath(lessonId, activityId, pupilId, fileName),
+        buildSubmissionPath(lessonId, activityId, pupilStorageKey, fileName),
+        buildLegacySubmissionPath(lessonId, activityId, pupilStorageKey, fileName),
       ].filter((value, index, array) => array.indexOf(value) === index)
 
       let deleted = false
       let lastError: { message?: string } | null = null
 
       for (const path of paths) {
-        const { error } = await bucket.remove([path])
+        const { error } = await storage.remove([path])
         if (!error) {
           deleted = true
           continue
@@ -458,9 +527,11 @@ export async function deletePupilActivitySubmissionAction(
       }
 
       const client = createPgClient()
+      let submissionId: string | null = null
       try {
         await client.connect()
         const cleanupResult = await cleanupUploadSubmissionRecord({ client, activityId, pupilId })
+        submissionId = cleanupResult.submissionId ?? null
         if (!cleanupResult.success) {
           return { success: false, error: "Unable to update submission." }
         }
@@ -471,6 +542,15 @@ export async function deletePupilActivitySubmissionAction(
           // ignore close errors
         }
       }
+
+      await emitSubmissionEvent("submission.deleted", {
+        submissionId,
+        activityId,
+        pupilId,
+        fileName,
+        submittedAt: new Date().toISOString(),
+        submissionStatus: "missing",
+      })
 
       revalidatePath(`/pupil-lessons/${encodeURIComponent(pupilId)}/lessons/${encodeURIComponent(lessonId)}`)
       return { success: true }
@@ -484,17 +564,17 @@ export async function getPupilActivitySubmissionUrlAction(
   pupilId: string,
   fileName: string,
 ) {
-  const supabase = await createSupabaseServiceClient()
-  const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
+  const storage = createLocalStorageClient(LESSON_FILES_BUCKET)
+  const pupilStorageKey = await resolvePupilStorageKey(pupilId)
   const paths = [
-    buildSubmissionPath(lessonId, activityId, pupilId, fileName),
-    buildLegacySubmissionPath(lessonId, activityId, pupilId, fileName),
+    buildSubmissionPath(lessonId, activityId, pupilStorageKey, fileName),
+    buildLegacySubmissionPath(lessonId, activityId, pupilStorageKey, fileName),
   ].filter((value, index, array) => array.indexOf(value) === index)
 
   let lastError: { message?: string } | null = null
 
   for (const path of paths) {
-    const { data, error } = await bucket.createSignedUrl(path, 60 * 10)
+    const { data, error } = await storage.createSignedUrl(path)
     if (!error) {
       return { success: true, url: data?.signedUrl ?? null }
     }
@@ -628,18 +708,19 @@ async function upsertUploadSubmissionRecord({
       `,
       [payload, submittedAt, existing.submission_id],
     )
-    return { success: true }
+    return { success: true, submissionId: existing.submission_id }
   }
 
-  await client.query(
+  const { rows } = await client.query(
     `
       insert into submissions (activity_id, user_id, body, submitted_at, submission_status)
       values ($1, $2, $3, $4, 'inprogress')
+      returning submission_id
     `,
     [activityId, pupilId, payload, submittedAt],
   )
 
-  return { success: true }
+  return { success: true, submissionId: rows[0]?.submission_id ?? null }
 }
 
 type UploadSubmissionCleanupParams = {
@@ -667,7 +748,7 @@ async function cleanupUploadSubmissionRecord({
   const data = rows[0]
 
   if (!data) {
-    return { success: true }
+    return { success: true, submissionId: null }
   }
 
   const record =
@@ -692,10 +773,10 @@ async function cleanupUploadSubmissionRecord({
         data.submission_id,
       ],
     )
-    return { success: true }
+    return { success: true, submissionId: data.submission_id ?? null }
   }
 
   await client.query("delete from submissions where submission_id = $1", [data.submission_id])
 
-  return { success: true }
+  return { success: true, submissionId: data.submission_id ?? null }
 }

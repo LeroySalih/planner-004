@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
-import { createSupabaseServerClient } from "@/lib/supabase/server"
+import { createLocalStorageClient } from "@/lib/storage/local-storage"
 import { withTelemetry } from "@/lib/telemetry"
 
 const LESSON_FILES_BUCKET = "lessons"
@@ -26,22 +26,6 @@ function buildFilePath(lessonId: string, fileName: string) {
   return `${lessonId}/${fileName}`
 }
 
-function buildVersionedName(name: string) {
-  const dotIndex = name.lastIndexOf(".")
-  const now = new Date()
-  const pad = (value: number) => value.toString().padStart(2, "0")
-  const timestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(
-    now.getHours(),
-  )}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`
-
-  if (dotIndex === -1) {
-    return `${name}_${timestamp}`
-  }
-  const base = name.slice(0, dotIndex)
-  const extension = name.slice(dotIndex)
-  return `${base}_${timestamp}${extension}`
-}
-
 export async function listLessonFilesAction(
   lessonId: string,
   options?: { authEndTime?: number | null; routeTag?: string },
@@ -56,11 +40,8 @@ export async function listLessonFilesAction(
       authEndTime: options?.authEndTime ?? null,
     },
     async () => {
-      const supabase = await createSupabaseServerClient()
-
-      const { data, error } = await supabase.storage
-        .from(LESSON_FILES_BUCKET)
-        .list(lessonId, { limit: 100 })
+      const storage = createLocalStorageClient(LESSON_FILES_BUCKET)
+      const { data, error } = await storage.list(lessonId, { limit: 100 })
 
       if (error) {
         console.error("[v0] Failed to list lesson files:", error)
@@ -106,41 +87,22 @@ export async function uploadLessonFileAction(formData: FormData) {
     return { success: false, error: "No file provided" }
   }
 
+  if (file.size > 5 * 1024 * 1024) {
+    return { success: false, error: "File exceeds 5MB limit" }
+  }
+
   const fileName = file.name
-  const supabase = await createSupabaseServerClient()
-  const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
+  const storage = createLocalStorageClient(LESSON_FILES_BUCKET)
   const fullPath = buildFilePath(lessonId, fileName)
-
-  const { data: existingFiles, error: listError } = await bucket.list(lessonId, {
-    search: fileName,
-  })
-
-  if (listError) {
-    console.error("[v0] Failed to check existing lesson files:", listError)
-    return { success: false, error: listError.message }
-  }
-
-  const alreadyExists = (existingFiles ?? []).some((item) => item.name === fileName)
-
-  if (alreadyExists) {
-    const versionedName = buildVersionedName(fileName)
-    const { error: moveError } = await bucket.move(fullPath, buildFilePath(lessonId, versionedName))
-
-    if (moveError) {
-      console.error("[v0] Failed to version existing lesson file:", moveError)
-      return { success: false, error: moveError.message }
-    }
-  }
-
   const arrayBuffer = await file.arrayBuffer()
-  const { error: uploadError } = await bucket.upload(fullPath, arrayBuffer, {
-    upsert: true,
+  const { error } = await storage.upload(fullPath, arrayBuffer, {
     contentType: file.type || "application/octet-stream",
+    originalPath: fullPath,
   })
 
-  if (uploadError) {
-    console.error("[v0] Failed to upload lesson file:", uploadError)
-    return { success: false, error: uploadError.message }
+  if (error) {
+    console.error("[v0] Failed to upload lesson file:", error)
+    return { success: false, error: error.message }
   }
 
   revalidatePath(`/units/${unitId}`)
@@ -150,9 +112,8 @@ export async function uploadLessonFileAction(formData: FormData) {
 }
 
 export async function deleteLessonFileAction(unitId: string, lessonId: string, fileName: string) {
-  const supabase = await createSupabaseServerClient()
-  const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
-  const { error } = await bucket.remove([buildFilePath(lessonId, fileName)])
+  const storage = createLocalStorageClient(LESSON_FILES_BUCKET)
+  const { error } = await storage.remove([buildFilePath(lessonId, fileName)])
 
   if (error) {
     console.error("[v0] Failed to delete lesson file:", error)
@@ -166,12 +127,11 @@ export async function deleteLessonFileAction(unitId: string, lessonId: string, f
 }
 
 export async function getLessonFileDownloadUrlAction(lessonId: string, fileName: string) {
-  const supabase = await createSupabaseServerClient()
-  const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
-  const { data, error } = await bucket.createSignedUrl(buildFilePath(lessonId, fileName), 60 * 10)
+  const storage = createLocalStorageClient(LESSON_FILES_BUCKET)
+  const { data, error } = await storage.createSignedUrl(buildFilePath(lessonId, fileName))
 
   if (error) {
-    console.error("[v0] Failed to create signed URL for lesson file:", error)
+    console.error("[v0] Failed to create download URL for lesson file:", error)
     return { success: false, error: error.message }
   }
 

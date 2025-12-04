@@ -41,8 +41,6 @@ import {
   buildAssignmentResultsChannelName,
 } from "@/lib/results-channel"
 import { extractScoreFromSubmission, selectLatestSubmission } from "@/lib/scoring/activity-scores"
-import { supabaseBrowserClient } from "@/lib/supabase-browser"
-
 type CellStatus = AssignmentResultCell["status"]
 
 type CellSelection = {
@@ -140,6 +138,7 @@ const OVERRIDE_ACTION_INITIAL_STATE: OverrideActionState = { status: "idle" }
 const RESET_ACTION_INITIAL_STATE: ResetActionState = { status: "idle" }
 const RESULTS_REALTIME_ENABLED =
   (process.env.NEXT_PUBLIC_RESULTS_REALTIME_ENABLED ?? "true").toLowerCase() === "true"
+const SSE_RESULTS_URL = "/sse?topics=submissions,assignments"
 
 function formatPercent(score: number | null): string {
   if (typeof score !== "number" || Number.isNaN(score)) {
@@ -1295,79 +1294,6 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     [applyFeedbackVisibilityUpdate, feedbackVisible],
   )
 
-  const channelRef = useRef<ReturnType<typeof supabaseBrowserClient.channel> | null>(null)
-
-  useEffect(() => {
-    if (!RESULTS_REALTIME_ENABLED) {
-      return
-    }
-    const channelName = assignmentChannelName
-    if (channelRef.current) {
-      const bindingContainer = channelRef.current as unknown as {
-        bindings?: Array<{ type?: string; filter?: string }>
-      }
-      const existingFilter = bindingContainer?.bindings?.find(
-        (binding) => binding?.type === "postgres_changes",
-      )
-      if (existingFilter?.filter === realtimeFilter) {
-        return
-      }
-      supabaseBrowserClient.removeChannel(channelRef.current)
-      channelRef.current = null
-    }
-    console.info("[assignment-results] Subscribing to realtime channel", {
-      channelName,
-      filter: realtimeFilter,
-    })
-    const channel = supabaseBrowserClient.channel(channelName, { config: { broadcast: { ack: true } } })
-    if (realtimeFilter) {
-      channel.on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "submissions", filter: realtimeFilter },
-        handleRealtimeSubmission,
-      )
-    }
-    ;(channel as unknown as {
-      on: (
-        event: "broadcast",
-        filter: { event: string },
-        cb: (payload: { payload?: AssignmentResultsRealtimePayload } | AssignmentResultsRealtimePayload) => void,
-      ) => void
-    }).on("broadcast", { event: ASSIGNMENT_RESULTS_UPDATE_EVENT }, handleRealtimeBroadcast)
-    ;(channel as unknown as {
-      on: (
-        event: "broadcast",
-        filter: { event: string },
-        cb: (payload: { payload?: { feedbackVisible?: boolean } } | { feedbackVisible?: boolean }) => void,
-      ) => void
-    }).on("broadcast", { event: ASSIGNMENT_FEEDBACK_VISIBILITY_EVENT }, handleFeedbackVisibilityBroadcast)
-    channel.subscribe((status) => {
-      if (status === "CHANNEL_ERROR") {
-        console.error("[assignment-results] Realtime channel error", { channelName, status })
-        supabaseBrowserClient.removeChannel(channel)
-        if (channelRef.current === channel) {
-          channelRef.current = null
-        }
-      }
-      if (status === "TIMED_OUT") {
-        console.warn("[assignment-results] Realtime channel timed out", { channelName, status })
-      }
-    })
-    channelRef.current = channel
-    return () => {
-      if (channelRef.current === channel) {
-        supabaseBrowserClient.removeChannel(channel)
-        channelRef.current = null
-      }
-    }
-  }, [
-    handleRealtimeSubmission,
-    handleRealtimeBroadcast,
-    handleFeedbackVisibilityBroadcast,
-    realtimeFilter,
-    assignmentChannelName,
-  ])
-
   const handleFeedbackToggle = useCallback(
     (nextVisible: boolean) => {
       if (!matrix.assignmentId) {
@@ -1399,6 +1325,105 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     },
     [applyFeedbackVisibilityUpdate, matrix.assignmentId, startFeedbackToggleTransition],
   )
+
+  useEffect(() => {
+    if (!RESULTS_REALTIME_ENABLED) {
+      return
+    }
+
+    const source = new EventSource(`${SSE_RESULTS_URL}`)
+
+    source.onmessage = (event) => {
+      try {
+        const envelope = JSON.parse(event.data) as {
+          topic?: string
+          type?: string
+          payload?: Record<string, unknown>
+        }
+        if (envelope.topic === "submissions" && envelope.payload) {
+          const payload = envelope.payload
+          const activityId = typeof payload.activityId === "string" ? payload.activityId : null
+          const pupilId = typeof payload.pupilId === "string" ? payload.pupilId : null
+          if (!activityId || !pupilId) {
+            return
+          }
+          const submissionId =
+            typeof payload.submissionId === "string"
+              ? payload.submissionId
+              : typeof payload.submission_id === "string"
+                ? payload.submission_id
+                : null
+          const submittedAt =
+            typeof payload.submittedAt === "string"
+              ? payload.submittedAt
+              : typeof payload.submitted_at === "string"
+                ? payload.submitted_at
+                : new Date().toISOString()
+          const body =
+            typeof payload.body === "object" && payload.body
+              ? (payload.body as Record<string, unknown>)
+              : {
+                  upload_submission: true,
+                  upload_file_name:
+                    typeof payload.fileName === "string"
+                      ? payload.fileName
+                      : typeof payload.upload_file_name === "string"
+                        ? payload.upload_file_name
+                        : null,
+                  upload_updated_at: submittedAt,
+                }
+
+          const record: SubmissionRow = {
+            submission_id: submissionId,
+            activity_id: activityId,
+            user_id: pupilId,
+            submitted_at: submittedAt,
+            body,
+          }
+
+          const eventType =
+            envelope.type?.includes("deleted") || envelope.type === "submission.deleted"
+              ? "DELETE"
+              : envelope.type?.includes("uploaded")
+                ? "INSERT"
+                : "UPDATE"
+
+          handleRealtimeSubmission({
+            eventType,
+            schema: "public",
+            table: "submissions",
+            commit_timestamp: new Date().toISOString(),
+            new: eventType === "DELETE" ? null : (record as SubmissionRow),
+            old: eventType === "DELETE" ? (record as SubmissionRow) : null,
+            errors: null,
+          } as unknown as RealtimePostgresChangesPayload<SubmissionRow>)
+        } else if (envelope.topic === "assignments") {
+          if (envelope.type === "assignment.feedback.visibility" && envelope.payload) {
+            const targetAssignmentId =
+              typeof (envelope.payload as { assignmentId?: string }).assignmentId === "string"
+                ? (envelope.payload as { assignmentId: string }).assignmentId
+                : null
+            if (targetAssignmentId && targetAssignmentId !== matrix.assignmentId) {
+              return
+            }
+            handleFeedbackVisibilityBroadcast(envelope.payload)
+          } else if (envelope.type?.includes("results") && envelope.payload) {
+            handleRealtimeBroadcast(envelope.payload as AssignmentResultsRealtimePayload)
+          }
+        }
+      } catch (error) {
+        console.warn("[assignment-results] Failed to process SSE submission event", error)
+      }
+    }
+
+    source.onerror = (error) => {
+      console.warn("[assignment-results] SSE connection error", error)
+    }
+
+    return () => {
+      source.close()
+    }
+  }, [handleRealtimeSubmission])
 
   const handleOverrideSubmit = () => {
     if (!selection) return
