@@ -4,7 +4,6 @@ import type { ReactNode } from "react"
 import { useEffect, useMemo, useState } from "react"
 
 import { ASSIGNMENT_FEEDBACK_VISIBILITY_EVENT, buildAssignmentResultsChannelName } from "@/lib/results-channel"
-import { supabaseBrowserClient } from "@/lib/supabase-browser"
 
 type FeedbackVisibilityProps = {
   assignmentIds: string[]
@@ -35,63 +34,32 @@ export function useFeedbackVisibility({ assignmentIds, lessonId, initialVisible 
       return
     }
 
-    let cancelled = false
+    const source = new EventSource("/sse?topics=assignments")
 
-    const groupIds = channels
-      .map((id) => id.split("__")[0])
-      .filter((value) => typeof value === "string" && value.trim().length > 0)
-
-    const fetchVisibility = async () => {
-      try {
-        const { data, error } = await supabaseBrowserClient
-          .from("lesson_assignments")
-          .select("group_id, feedback_visible")
-          .eq("lesson_id", lessonId)
-          .in("group_id", groupIds)
-
-        if (cancelled) return
-        if (error) {
-          setEvents((prev) => [...prev, `initial-error:${error.message}`].slice(-10))
-          return
-        }
-
-        const anyVisible = (data ?? []).some((row) => Boolean(row?.feedback_visible))
-        setCurrentVisible(anyVisible)
-        setEvents((prev) => [...prev, `initial-visible:${anyVisible}`].slice(-10))
-      } catch (error) {
-        if (!cancelled) {
-          setEvents((prev) => [...prev, `initial-error:${String(error)}`].slice(-10))
-        }
+    source.onmessage = (event) => {
+      const envelope = JSON.parse(event.data) as { topic?: string; type?: string; payload?: unknown }
+      if (envelope.topic !== "assignments" || !envelope.payload) return
+      const payload =
+        typeof envelope.payload === "object" && envelope.payload && "payload" in envelope.payload
+          ? (envelope.payload as { payload?: unknown }).payload
+          : envelope.payload
+      const nextVisible =
+        (payload as { feedbackVisible?: boolean })?.feedbackVisible ??
+        (payload as { payload?: { feedbackVisible?: boolean } })?.payload?.feedbackVisible
+      if (typeof nextVisible !== "boolean") {
+        return
       }
+      const targetAssignmentId =
+        typeof (payload as { assignmentId?: string }).assignmentId === "string"
+          ? (payload as { assignmentId: string }).assignmentId
+          : null
+      if (targetAssignmentId && !channels.includes(targetAssignmentId)) return
+      setCurrentVisible(nextVisible)
+      setEvents((prev) => [...prev, `${targetAssignmentId ?? "unknown"}:${nextVisible ? "on" : "off"}`].slice(-10))
     }
 
-    fetchVisibility()
-
-    const supabaseChannels = channels.map((assignmentId) => {
-      const channel = supabaseBrowserClient.channel(buildAssignmentResultsChannelName(assignmentId), {
-        config: { broadcast: { ack: true } },
-      })
-      channel.on(
-        "broadcast",
-        { event: ASSIGNMENT_FEEDBACK_VISIBILITY_EVENT },
-        (payload: { payload?: { feedbackVisible?: boolean } } | { feedbackVisible?: boolean }) => {
-          const nextVisible =
-            (payload as { feedbackVisible?: boolean })?.feedbackVisible ??
-            (payload as { payload?: { feedbackVisible?: boolean } })?.payload?.feedbackVisible
-          if (typeof nextVisible !== "boolean") {
-            return
-          }
-          setCurrentVisible(nextVisible)
-          setEvents((prev) => [...prev, `${assignmentId}:${nextVisible ? "on" : "off"}`].slice(-10))
-        },
-      )
-      channel.subscribe()
-      return channel
-    })
-
     return () => {
-      cancelled = true
-      supabaseChannels.forEach((channel) => supabaseBrowserClient.removeChannel(channel))
+      source.close()
     }
   }, [channels, lessonId])
 

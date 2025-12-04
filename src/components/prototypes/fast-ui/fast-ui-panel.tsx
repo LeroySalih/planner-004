@@ -7,12 +7,12 @@ import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { FAST_UI_INITIAL_STATE, FAST_UI_MAX_COUNTER } from "@/lib/prototypes/fast-ui"
-import { supabaseBrowserClient } from "@/lib/supabase-browser"
 import { FastUiRealtimePayloadSchema, type FastUiActionState } from "@/types"
 
 const CHANNEL_NAME = "fast_ui_updates"
 const SUCCESS_EVENT = "fast_ui:completed"
 const ERROR_EVENT = "fast_ui:error"
+const FAST_UI_SSE_URL = "/sse?topics=fast-ui"
 
 type FastUiPanelProps = {
   action: (prevState: FastUiActionState, formData: FormData) => Promise<FastUiActionState>
@@ -94,100 +94,93 @@ export function FastUiPanel({ action, initialState = FAST_UI_INITIAL_STATE }: Fa
   }, [actionState])
 
   useEffect(() => {
-    const channel = supabaseBrowserClient.channel(CHANNEL_NAME)
+    const source = new EventSource(FAST_UI_SSE_URL)
 
-    channel.on("broadcast", { event: SUCCESS_EVENT }, (event) => {
-      const parsed = FastUiRealtimePayloadSchema.safeParse(event.payload)
+    const handleSuccess = (payload: unknown) => {
+      const parsed = FastUiRealtimePayloadSchema.safeParse(payload)
       if (!parsed.success) {
         console.warn("[fast-ui] received invalid success payload", parsed.error)
         return
       }
 
-      const payload = parsed.data
-      const timeoutId = jobTimeoutsRef.current.get(payload.job_id)
+      const data = parsed.data
+      const timeoutId = jobTimeoutsRef.current.get(data.job_id)
       if (timeoutId) {
         window.clearTimeout(timeoutId)
-        jobTimeoutsRef.current.delete(payload.job_id)
+        jobTimeoutsRef.current.delete(data.job_id)
       }
 
-      const nextValue = Math.max(confirmedCounterRef.current, payload.counter_value)
+      const nextValue = Math.max(confirmedCounterRef.current, data.counter_value)
       confirmedCounterRef.current = nextValue
       setCounter(nextValue)
       setJobs((prev) => {
         const nextJob: JobStatus = {
-          jobId: payload.job_id,
+          jobId: data.job_id,
           status: "completed",
-          message: payload.message ?? "Completed",
+          message: data.message ?? "Completed",
         }
 
-        if (!prev.some((job) => job.jobId === payload.job_id)) {
+        if (!prev.some((job) => job.jobId === data.job_id)) {
           return [...prev, nextJob]
         }
 
-        return prev.map((job) => (job.jobId === payload.job_id ? nextJob : job))
+        return prev.map((job) => (job.jobId === data.job_id ? nextJob : job))
       })
-      setStatusMessage(
-        `Job ${payload.job_id.slice(0, 8)} completed. Counter synced to ${payload.counter_value}.`,
-      )
+      setStatusMessage(`Job ${data.job_id.slice(0, 8)} completed. Counter synced to ${data.counter_value}.`)
       if (nextValue >= FAST_UI_MAX_COUNTER) {
         setStatusMessage("Counter limit reached. No further updates will be accepted.")
       }
-      if (!toastLedgerRef.current.has(payload.job_id)) {
-        toastLedgerRef.current.add(payload.job_id)
+      if (!toastLedgerRef.current.has(data.job_id)) {
+        toastLedgerRef.current.add(data.job_id)
         toast.success("Counter updated", { description: `Counter is now ${nextValue}.` })
       }
-    })
+    }
 
-    channel.on("broadcast", { event: ERROR_EVENT }, (event) => {
-      const parsed = FastUiRealtimePayloadSchema.safeParse(event.payload)
+    const handleError = (payload: unknown) => {
+      const parsed = FastUiRealtimePayloadSchema.safeParse(payload)
       if (!parsed.success) {
         console.warn("[fast-ui] received invalid error payload", parsed.error)
         return
       }
 
-      const payload = parsed.data
-      const timeoutId = jobTimeoutsRef.current.get(payload.job_id)
+      const data = parsed.data
+      const timeoutId = jobTimeoutsRef.current.get(data.job_id)
       if (timeoutId) {
         window.clearTimeout(timeoutId)
-        jobTimeoutsRef.current.delete(payload.job_id)
+        jobTimeoutsRef.current.delete(data.job_id)
       }
 
       setCounter(confirmedCounterRef.current)
       setJobs((prev) => {
         const nextJob: JobStatus = {
-          jobId: payload.job_id,
+          jobId: data.job_id,
           status: "error",
-          message: payload.message ?? "Failed",
+          message: data.message ?? "Failed",
         }
 
-        if (!prev.some((job) => job.jobId === payload.job_id)) {
+        if (!prev.some((job) => job.jobId === data.job_id)) {
           return [...prev, nextJob]
         }
 
-        return prev.map((job) => (job.jobId === payload.job_id ? nextJob : job))
+        return prev.map((job) => (job.jobId === data.job_id ? nextJob : job))
       })
-      setStatusMessage(
-        `Job ${payload.job_id.slice(0, 8)} failed. Counter remains at ${payload.counter_value}.`,
-      )
-      if (!toastLedgerRef.current.has(payload.job_id)) {
-        toastLedgerRef.current.add(payload.job_id)
+      setStatusMessage(`Job ${data.job_id.slice(0, 8)} failed. Counter remains at ${data.counter_value}.`)
+      if (!toastLedgerRef.current.has(data.job_id)) {
+        toastLedgerRef.current.add(data.job_id)
         toast.error("Update failed", {
-          description: payload.message ?? "The operation did not complete successfully.",
+          description: data.message ?? "The operation did not complete successfully.",
         })
       }
-    })
+    }
 
-    const subscription = channel.subscribe((status) => {
-      if (status === "SUBSCRIBED") {
-        setStatusMessage("Connected to realtime channel. Trigger an update to begin.")
+    source.onmessage = (event) => {
+      const envelope = JSON.parse(event.data) as { topic?: string; type?: string; payload?: unknown }
+      if (envelope.topic !== "fast-ui" || !envelope.payload) return
+      if (envelope.type === SUCCESS_EVENT) {
+        handleSuccess(envelope.payload)
+      } else if (envelope.type === ERROR_EVENT) {
+        handleError(envelope.payload)
       }
-    })
-
-    if (subscription instanceof Promise) {
-      subscription.catch((error) => {
-        console.error("[fast-ui] failed to subscribe to realtime channel", error)
-        setStatusMessage("Failed to connect to realtime updates.")
-      })
     }
 
     return () => {
@@ -196,7 +189,7 @@ export function FastUiPanel({ action, initialState = FAST_UI_INITIAL_STATE }: Fa
       })
       jobTimeoutsRef.current.clear()
       toastLedgerRef.current.clear()
-      void supabaseBrowserClient.removeChannel(channel)
+      source.close()
     }
   }, [])
 

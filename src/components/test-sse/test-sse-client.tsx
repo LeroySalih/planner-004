@@ -22,7 +22,7 @@ type TestSseClientProps = {
 
 type ConnectionState = "connecting" | "open" | "error"
 
-const STREAM_PATH = "/test-sse/stream"
+const STREAM_PATH = "/sse?topics=test-sse"
 
 export function TestSseClient({
   action,
@@ -59,10 +59,15 @@ export function TestSseClient({
 
     eventSource.onmessage = (event) => {
       try {
-        const payload = JSON.parse(event.data) as { type?: string; value?: unknown }
-        if (payload.type === "counter" && typeof payload.value === "number") {
-          setCounter(payload.value)
-          setLastMessage(`Received counter ${payload.value}`)
+        const envelope = JSON.parse(event.data) as {
+          topic?: string
+          type?: string
+          payload?: { value?: unknown }
+        }
+        const value = envelope?.payload?.value
+        if (typeof value === "number") {
+          setCounter(value)
+          setLastMessage(`Received ${envelope.type ?? "update"}: ${value}`)
         }
       } catch (error) {
         console.warn("[test-sse] failed to parse event payload", error)

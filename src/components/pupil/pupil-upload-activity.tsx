@@ -89,22 +89,28 @@ export function PupilUploadActivity({
   const uploadDisabled = !canUpload || isPending || currentVisible
 
   const refreshSubmissions = useCallback(async () => {
-    const result = await listPupilActivitySubmissionsAction(lessonId, activity.activity_id, pupilId)
-    if (result.error) {
-      toast.error("Unable to refresh uploads", {
-        description: result.error,
+    try {
+      const result = await listPupilActivitySubmissionsAction(lessonId, activity.activity_id, pupilId)
+      if (result.error) {
+        toast.error("Unable to refresh uploads", {
+          description: result.error,
+        })
+        return false
+      }
+      const files = normalizeFiles(result.data ?? [])
+      setSubmissions((prev) => {
+        const next = files.length === 0 && prev.length > 0 ? prev : files
+        if (next !== prev) {
+          onSubmissionsChange?.(next)
+        }
+        return next
       })
+      return true
+    } catch (error) {
+      console.error("[pupil-upload] Failed to refresh submissions", error)
+      toast.error("Unable to refresh uploads", { description: "Network error, please try again." })
       return false
     }
-    const files = normalizeFiles(result.data ?? [])
-    setSubmissions((prev) => {
-      const next = files.length === 0 && prev.length > 0 ? prev : files
-      if (next !== prev) {
-        onSubmissionsChange?.(next)
-      }
-      return next
-    })
-    return true
   }, [activity.activity_id, lessonId, normalizeFiles, onSubmissionsChange, pupilId])
 
   useEffect(() => {
@@ -132,27 +138,36 @@ export function PupilUploadActivity({
         formData.append("pupilId", pupilId)
         formData.append("file", file)
 
-        const existing = submissions[0]
-        if (existing) {
-          const { success, error } = await deletePupilActivitySubmissionAction(
-            lessonId,
-            activity.activity_id,
-            pupilId,
-            existing.name,
-          )
-          if (!success) {
-            toast.error("Unable to replace previous file", {
-              description: error ?? "Please try again later.",
+        try {
+          const existing = submissions[0]
+          if (existing) {
+            const { success, error } = await deletePupilActivitySubmissionAction(
+              lessonId,
+              activity.activity_id,
+              pupilId,
+              existing.name,
+            )
+            if (!success) {
+              toast.error("Unable to replace previous file", {
+                description: error ?? "Please try again later.",
+              })
+              setSelectedFileName(null)
+              return
+            }
+          }
+
+          const result = await uploadPupilActivitySubmissionAction(formData)
+          if (!result.success) {
+            toast.error(`Upload failed for ${file.name}`, {
+              description: result.error ?? "Please try again later.",
             })
             setSelectedFileName(null)
             return
           }
-        }
-
-        const result = await uploadPupilActivitySubmissionAction(formData)
-        if (!result.success) {
+        } catch (error) {
+          console.error("[pupil-upload] Upload failed", error)
           toast.error(`Upload failed for ${file.name}`, {
-            description: result.error ?? "Please try again later.",
+            description: "Network error, please try again later.",
           })
           setSelectedFileName(null)
           return
@@ -195,19 +210,24 @@ export function PupilUploadActivity({
   const handleDownloadSubmission = useCallback(
     async (fileName: string) => {
       startTransition(async () => {
-        const result = await getPupilActivitySubmissionUrlAction(
-          lessonId,
-          activity.activity_id,
-          pupilId,
-          fileName,
-        )
-        if (!result.success || !result.url) {
-          toast.error("Unable to download upload", {
-            description: result.error ?? "Please try again later.",
-          })
-          return
+        try {
+          const result = await getPupilActivitySubmissionUrlAction(
+            lessonId,
+            activity.activity_id,
+            pupilId,
+            fileName,
+          )
+          if (!result.success || !result.url) {
+            toast.error("Unable to download upload", {
+              description: result.error ?? "Please try again later.",
+            })
+            return
+          }
+          window.open(result.url, "_blank")
+        } catch (error) {
+          console.error("[pupil-upload] Download failed", error)
+          toast.error("Unable to download upload", { description: "Network error, please try again." })
         }
-        window.open(result.url, "_blank")
       })
     },
     [activity.activity_id, lessonId, pupilId],
@@ -216,16 +236,22 @@ export function PupilUploadActivity({
   const handleDeleteSubmission = useCallback(
     async (fileName: string) => {
       startTransition(async () => {
-        const result = await deletePupilActivitySubmissionAction(
-          lessonId,
-          activity.activity_id,
-          pupilId,
-          fileName,
-        )
-        if (!result.success) {
-          toast.error("Unable to delete file", {
-            description: result.error ?? "Please try again later.",
-          })
+        try {
+          const result = await deletePupilActivitySubmissionAction(
+            lessonId,
+            activity.activity_id,
+            pupilId,
+            fileName,
+          )
+          if (!result.success) {
+            toast.error("Unable to delete file", {
+              description: result.error ?? "Please try again later.",
+            })
+            return
+          }
+        } catch (error) {
+          console.error("[pupil-upload] Delete failed", error)
+          toast.error("Unable to delete file", { description: "Network error, please try again." })
           return
         }
         toast.success("Upload removed")

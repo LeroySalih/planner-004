@@ -22,7 +22,6 @@ import {
   type LessonObjectiveFormState,
   type LessonSuccessCriterionFormState,
 } from "@/lib/lesson-form-state"
-import { createSupabaseServiceClient } from "@/lib/supabase/server"
 import { type NormalizedSuccessCriterion } from "./learning-objectives"
 import { isScorableActivityType } from "@/dino.config"
 import { requireTeacherProfile } from "@/lib/auth"
@@ -32,6 +31,7 @@ import { enqueueLessonMutationJob } from "@/lib/lesson-job-runner"
 import { LessonDetailPayloadSchema } from "@/lib/lesson-snapshot-schema"
 import { Client } from "pg"
 import { query, withDbClient } from "@/lib/db"
+import { emitLessonEvent } from "@/lib/sse/topics"
 
 const LessonsReturnValue = z.object({
   data: LessonsWithObjectivesSchema.nullable(),
@@ -100,77 +100,24 @@ function createPgClient() {
 }
 
 const LESSON_ROUTE_TAG = "/units/[unitId]"
-const LESSON_CHANNEL_CONFIG = { config: { broadcast: { ack: true } } }
-
-type LessonSupabaseClient = Awaited<ReturnType<typeof createSupabaseServiceClient>>
-
-async function publishLessonJobEvent(
-  supabase: LessonSupabaseClient,
-  payloadInput: z.input<typeof LessonJobPayloadSchema>,
-) {
+async function publishLessonJobEvent(payloadInput: z.input<typeof LessonJobPayloadSchema>) {
   const payload = LessonJobPayloadSchema.parse(payloadInput)
-  const channel = supabase.channel(LESSON_CHANNEL_NAME, LESSON_CHANNEL_CONFIG)
-
-  try {
-    await new Promise<void>((resolve, reject) => {
-      let settled = false
-      const subscribeResult = channel.subscribe((status) => {
-        if (settled) return
-        if (status === "SUBSCRIBED") {
-          settled = true
-          resolve()
-        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-          settled = true
-          reject(new Error(`Realtime channel subscription failed with status: ${status}`))
-        }
-      })
-
-      if (subscribeResult instanceof Promise) {
-        subscribeResult.catch((error) => {
-          if (!settled) {
-            settled = true
-            reject(error)
-          }
-        })
-      }
-    })
-
-    const sendResult = await channel.send({
-      type: "broadcast",
-      event: LESSON_CREATED_EVENT,
-      payload,
-    })
-
-    if (sendResult !== "ok") {
-      const status =
-        typeof sendResult === "string"
-          ? sendResult
-          : (sendResult as { status?: string })?.status ?? "ok"
-
-      if (status !== "ok") {
-        throw new Error(`Realtime channel send failed with status: ${status}`)
-      }
-    }
-
-    console.info("[lessons] published lesson job event", {
-      event: LESSON_CREATED_EVENT,
-      jobId: payload.job_id,
-      unitId: payload.unit_id,
-      lessonId: payload.lesson_id,
-    })
-  } finally {
-    await supabase.removeChannel(channel)
-  }
+  await emitLessonEvent(LESSON_CREATED_EVENT, payload)
+  console.info("[lessons] published lesson job event", {
+    event: LESSON_CREATED_EVENT,
+    jobId: payload.job_id,
+    unitId: payload.unit_id,
+    lessonId: payload.lesson_id,
+  })
 }
 
 type LessonCreateJobArgs = {
-  supabase: LessonSupabaseClient
   jobId: string
   unitId: string
   title: string
 }
 
-async function runLessonCreateJob({ supabase, jobId, unitId, title }: LessonCreateJobArgs) {
+async function runLessonCreateJob({ jobId, unitId, title }: LessonCreateJobArgs) {
   try {
     let lessonId: string | null = null
     let orderValue = 0
@@ -203,7 +150,7 @@ async function runLessonCreateJob({ supabase, jobId, unitId, title }: LessonCrea
       throw new Error("Unable to create lesson.")
     }
 
-    await publishLessonJobEvent(supabase, {
+    await publishLessonJobEvent({
       job_id: jobId,
       unit_id: unitId,
       lesson_id: lessonId,
@@ -229,7 +176,7 @@ async function runLessonCreateJob({ supabase, jobId, unitId, title }: LessonCrea
     console.error("[lessons] async create lesson job failed", { unitId, jobId, error })
 
     try {
-      await publishLessonJobEvent(supabase, {
+      await publishLessonJobEvent({
         job_id: jobId,
         unit_id: unitId,
         lesson_id: null,
@@ -473,12 +420,10 @@ export async function triggerLessonCreateJobAction(
         })
       }
 
-      const supabase = await createSupabaseServiceClient()
       const jobId = randomUUID()
 
       queueMicrotask(() => {
         void runLessonCreateJob({
-          supabase,
           jobId,
           unitId,
           title,

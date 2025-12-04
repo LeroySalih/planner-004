@@ -15,7 +15,6 @@ import type {
   LessonWithObjectives,
   Unit,
 } from "@/types"
-import { supabaseBrowserClient } from "@/lib/supabase-browser"
 import {
   LESSON_CHANNEL_NAME,
   LESSON_MUTATION_EVENT,
@@ -102,32 +101,26 @@ export function LessonDetailClient({
   const isActive = currentLesson.active !== false
 
   useEffect(() => {
-    const channel = supabaseBrowserClient.channel(LESSON_CHANNEL_NAME)
+    const source = new EventSource("/sse?topics=lessons")
 
-    channel.on("broadcast", { event: LESSON_MUTATION_EVENT }, (event) => {
-      const parsed = LessonMutationEventSchema.safeParse(event.payload)
-      if (!parsed.success) {
-        return
-      }
+    source.onmessage = (event) => {
+      const envelope = JSON.parse(event.data) as { topic?: string; type?: string; payload?: unknown }
+      if (envelope.topic !== "lessons" || !envelope.payload) return
+      const parsed = LessonMutationEventSchema.safeParse(envelope.payload)
+      if (!parsed.success) return
       const payload = parsed.data
-      if (payload.lesson_id !== lesson.lesson_id) {
-        return
-      }
-
+      if (payload.lesson_id !== lesson.lesson_id) return
       if (payload.status === "error") {
         toast.error(payload.message ?? "Lesson update failed")
         return
       }
-
       if (payload.status !== "completed") {
         return
       }
-
       const detail = LessonDetailPayloadSchema.safeParse(payload.data)
       if (!detail.success) {
         return
       }
-
       const snapshot = detail.data
       if (snapshot.lesson) {
         setCurrentLesson(snapshot.lesson)
@@ -138,27 +131,13 @@ export function LessonDetailClient({
       setLessonActivitiesState(snapshot.lessonActivities ?? [])
       setLessonFilesState(snapshot.lessonFiles ?? [])
       setUnitLessonsState(snapshot.unitLessons ?? [])
-
       if (payload.message) {
         toast.success(payload.message)
       }
-    })
-
-    const subscribeResult = channel.subscribe((status) => {
-      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-        toast.error("Real-time lesson updates are unavailable right now.")
-      }
-    })
-
-    if (subscribeResult instanceof Promise) {
-      subscribeResult.catch((error) => {
-        console.error("[lessons] realtime subscription error", error)
-        toast.error("Real-time lesson updates failed to subscribe.")
-      })
     }
 
     return () => {
-      void supabaseBrowserClient.removeChannel(channel)
+      source.close()
     }
   }, [lesson.lesson_id])
 

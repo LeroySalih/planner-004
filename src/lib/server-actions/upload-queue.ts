@@ -14,7 +14,7 @@ import {
 } from "@/types"
 import { requireTeacherProfile } from "@/lib/auth"
 import { withTelemetry } from "@/lib/telemetry"
-import { createSupabaseServiceClient } from "@/lib/supabase/server"
+import { createLocalStorageClient } from "@/lib/storage/local-storage"
 
 const QueueActivitySchema = z.object({
   activity_id: z.string(),
@@ -393,8 +393,7 @@ export async function getQueueFileDownloadUrlAction(input: {
       }
 
       try {
-        const supabase = await createSupabaseServiceClient()
-        const bucket = supabase.storage.from("lessons")
+        const storage = createLocalStorageClient("lessons")
         const path = `lessons/${lessonId}/activities/${activityId}/${pupilId}/${fileName}`
         const legacyPath = `${lessonId}/activities/${activityId}/${pupilId}/${fileName}`
 
@@ -402,7 +401,7 @@ export async function getQueueFileDownloadUrlAction(input: {
         let lastError: { message?: string } | null = null
 
         for (const candidate of candidates) {
-          const { data, error } = await bucket.createSignedUrl(candidate, 60 * 10)
+          const { data, error } = await storage.createSignedUrl(candidate)
           if (!error && data?.signedUrl) {
             return { success: true, url: data.signedUrl }
           }

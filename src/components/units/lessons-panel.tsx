@@ -12,7 +12,6 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { LessonSidebar } from "@/components/units/lesson-sidebar"
-import { supabaseBrowserClient } from "@/lib/supabase-browser"
 import { toast } from "sonner"
 
 interface LessonsPanelProps {
@@ -24,7 +23,7 @@ interface LessonsPanelProps {
 
 const LESSON_CHANNEL_NAME = "lesson_updates"
 const LESSON_CREATED_EVENT = "lesson:created"
-
+const LESSON_SSE_URL = "/sse?topics=lessons"
 
 export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObjectives }: LessonsPanelProps) {
   const [lessons, setLessons] = useState(() =>
@@ -149,10 +148,12 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
   }
 
   useEffect(() => {
-    const channel = supabaseBrowserClient.channel(LESSON_CHANNEL_NAME)
+    const source = new EventSource(LESSON_SSE_URL)
 
-    channel.on("broadcast", { event: LESSON_CREATED_EVENT }, (event) => {
-      const parsed = LessonJobPayloadSchema.safeParse(event.payload)
+    source.onmessage = (event) => {
+      const envelope = JSON.parse(event.data) as { topic?: string; type?: string; payload?: unknown }
+      if (envelope.topic !== "lessons" || !envelope.payload) return
+      const parsed = LessonJobPayloadSchema.safeParse(envelope.payload)
       if (!parsed.success) {
         console.warn("[lessons] received invalid lesson job payload", parsed.error)
         return
@@ -180,19 +181,15 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
       } else if (payload.status === "error") {
         toast.error(payload.message ?? "Failed to create lesson.")
       }
-    })
+    }
 
-    const subscribeResult = channel.subscribe()
-    if (subscribeResult instanceof Promise) {
-      subscribeResult.catch((error) => {
-        console.error("[lessons] realtime subscription error", error)
-        toast.error("Live lesson updates are unavailable right now.")
-      })
+    source.onerror = () => {
+      // rely on browser retry
     }
 
     return () => {
       pendingLessonJobsRef.current.clear()
-      void supabaseBrowserClient.removeChannel(channel)
+      source.close()
     }
   }, [unitId, upsertLesson])
 

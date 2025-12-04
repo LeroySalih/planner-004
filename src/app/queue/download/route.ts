@@ -4,8 +4,8 @@ import { PassThrough, Readable } from "node:stream"
 import { z } from "zod"
 
 import { readQueueItemsAction } from "@/lib/server-updates"
-import { createSupabaseServiceClient } from "@/lib/supabase/server"
 import { requireTeacherProfile } from "@/lib/auth"
+import { createLocalStorageClient } from "@/lib/storage/local-storage"
 
 const LESSON_FILES_BUCKET = "lessons"
 
@@ -27,9 +27,17 @@ const DownloadItemSchema = z.object({
   fileName: z.string().min(1),
 })
 
+async function streamToBuffer(readable: NodeJS.ReadableStream): Promise<Buffer> {
+  const chunks: Buffer[] = []
+  for await (const chunk of readable) {
+    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk)
+  }
+  return Buffer.concat(chunks)
+}
+
 async function appendFilesToArchive(
   items: Array<{ lessonId: string; activityId: string; pupilId: string; fileName: string; folderName?: string }>,
-  bucket: ReturnType<ReturnType<typeof createSupabaseServiceClient>["storage"]["from"]>,
+  storage: ReturnType<typeof createLocalStorageClient>,
   archive: archiver.Archiver,
 ) {
   for (const item of items) {
@@ -38,26 +46,26 @@ async function appendFilesToArchive(
     let lastError: { message?: string } | null = null
 
     for (const path of paths) {
-      const { data, error } = await bucket.download(path)
+      const { stream, error } = await storage.getFileStream(path)
 
-      if (error) {
-        const normalized = error.message?.toLowerCase() ?? ""
+      if (error || !stream) {
+        const normalized = error?.message?.toLowerCase() ?? ""
         if (normalized.includes("not found") || normalized.includes("object not found")) {
           lastError = error
           continue
         }
-        console.error("[queue] Failed to download file for archive:", error, { path })
-        lastError = error
+        if (error) {
+          console.error("[queue] Failed to download file for archive:", error, { path })
+          lastError = error
+        }
         break
       }
 
-      if (data) {
-        const buffer = Buffer.from(await data.arrayBuffer())
-        const folderName = sanitizeFolderName(item.folderName ?? item.pupilId)
-        archive.append(buffer, { name: `${folderName}/${item.fileName}` })
-        appended = true
-        break
-      }
+      const buffer = await streamToBuffer(stream)
+      const folderName = sanitizeFolderName(item.folderName ?? item.pupilId)
+      archive.append(buffer, { name: `${folderName}/${item.fileName}` })
+      appended = true
+      break
     }
 
     if (!appended && lastError) {
@@ -94,8 +102,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "No files to download." }, { status: 400 })
   }
 
-  const supabase = await createSupabaseServiceClient()
-  const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
+  const storage = createLocalStorageClient(LESSON_FILES_BUCKET)
 
   const archive = archiver("zip", { zlib: { level: 9 } })
   const stream = new PassThrough()
@@ -109,7 +116,7 @@ export async function GET(request: Request) {
       fileName: item.fileName as string,
       folderName: item.pupilName ?? item.pupilId,
     })),
-    bucket,
+    storage,
     archive,
   )
 
@@ -149,14 +156,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid download request." }, { status: 400 })
   }
 
-  const supabase = await createSupabaseServiceClient()
-  const bucket = supabase.storage.from(LESSON_FILES_BUCKET)
+  const storage = createLocalStorageClient(LESSON_FILES_BUCKET)
 
   const archive = archiver("zip", { zlib: { level: 9 } })
   const stream = new PassThrough()
   archive.pipe(stream)
 
-  await appendFilesToArchive(parsed.data.items, bucket, archive)
+  await appendFilesToArchive(parsed.data.items, storage, archive)
 
   void archive.finalize()
 
