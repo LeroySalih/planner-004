@@ -56,11 +56,15 @@ async function transformPath(path: string, emailCache: Map<string, string | null
   return mapped.join("/")
 }
 
-async function listAllObjects(bucketName: string) {
+async function migrateBucket(bucketName: string) {
   const supabase = await getSupabaseServiceClient()
+  const storage = createLocalStorageClient(bucketName)
   const bucket = supabase.storage.from(bucketName)
+  const emailCache = new Map<string, string | null>()
+  let imported = 0
+  let skipped = 0
+  let failed = 0
   const queue = [""]
-  const results: StorageObject[] = []
 
   while (queue.length > 0) {
     const prefix = queue.pop() ?? ""
@@ -80,76 +84,56 @@ async function listAllObjects(bucketName: string) {
         continue
       }
 
-      results.push({
-        path: entryPath,
-        size: entry.metadata?.size,
-        contentType: (entry.metadata as any)?.mimetype ?? (entry.metadata as any)?.contentType ?? null,
-      })
-      console.log(`[migrate-storage] Found file candidate ${bucketName}/${entryPath} (size=${entry.metadata?.size ?? "?"})`)
-    }
-  }
+      console.log(
+        `[migrate-storage] Processing ${bucketName}/${entryPath} (size=${entry.metadata?.size ?? "?"})`,
+      )
 
-  return results
-}
+      try {
+        const { data: fileData, error: downloadError } = await bucket.download(entryPath)
+        if (downloadError || !fileData) {
+          console.warn("[migrate-storage] Skipping download due to error", {
+            bucket: bucketName,
+            path: entryPath,
+            error: downloadError,
+          })
+          skipped += 1
+          continue
+        }
 
-async function migrateBucket(bucketName: string) {
-  const supabase = await getSupabaseServiceClient()
-  const storage = createLocalStorageClient(bucketName)
-  const bucket = supabase.storage.from(bucketName)
-  const objects = await listAllObjects(bucketName)
-  if (objects.length === 0) {
-    console.warn(`[migrate-storage] No file objects detected in bucket ${bucketName}`)
-  }
-  const emailCache = new Map<string, string | null>()
-  let imported = 0
-  let skipped = 0
-  let failed = 0
-
-  for (const object of objects) {
-    console.log(`[migrate-storage] Processing ${bucketName}/${object.path}`)
-    try {
-      const { data, error } = await bucket.download(object.path)
-      if (error || !data) {
-        console.warn("[migrate-storage] Skipping download due to error", {
-          bucket: bucketName,
-          path: object.path,
-          error,
+        const mappedPath = await transformPath(entryPath, emailCache)
+        const buffer = Buffer.from(await fileData.arrayBuffer())
+        console.log(`[migrate-storage] Downloaded ${entryPath} (${buffer.byteLength} bytes)`)
+        const { error: uploadError } = await storage.upload(mappedPath, buffer, {
+          contentType:
+            (entry.metadata as any)?.mimetype ?? (entry.metadata as any)?.contentType ?? "application/octet-stream",
+          originalPath: `${bucketName}/${entryPath}`,
         })
-        skipped += 1
-        continue
-      }
 
-      const mappedPath = await transformPath(object.path, emailCache)
-      const buffer = Buffer.from(await data.arrayBuffer())
-      const { error: uploadError } = await storage.upload(mappedPath, buffer, {
-        contentType: object.contentType ?? "application/octet-stream",
-        originalPath: `${bucketName}/${object.path}`,
-      })
-
-      if (uploadError) {
+        if (uploadError) {
+          failed += 1
+          console.error("[migrate-storage] Failed to import file", {
+            bucket: bucketName,
+            sourcePath: entryPath,
+            targetPath: mappedPath,
+            error: uploadError,
+          })
+        } else {
+          imported += 1
+          console.log(`[migrate-storage] Imported ${bucketName}/${entryPath} -> ${mappedPath}`)
+        }
+      } catch (err) {
         failed += 1
-        console.error("[migrate-storage] Failed to import file", {
+        console.error("[migrate-storage] Unexpected failure importing file", {
           bucket: bucketName,
-          sourcePath: object.path,
-          targetPath: mappedPath,
-          error: uploadError,
+          path: entryPath,
+          error: err,
         })
-      } else {
-        imported += 1
-        console.log(`[migrate-storage] Imported ${bucketName}/${object.path} -> ${mappedPath}`)
       }
-    } catch (error) {
-      failed += 1
-      console.error("[migrate-storage] Unexpected failure importing file", {
-        bucket: bucketName,
-        path: object.path,
-        error,
-      })
     }
   }
 
   console.log(
-    `[migrate-storage] Bucket ${bucketName} summary: found=${objects.length}, imported=${imported}, skipped=${skipped}, failed=${failed}`,
+    `[migrate-storage] Bucket ${bucketName} summary: imported=${imported}, skipped=${skipped}, failed=${failed}`,
   )
 }
 

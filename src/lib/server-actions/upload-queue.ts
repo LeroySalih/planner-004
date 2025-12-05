@@ -50,6 +50,7 @@ const QueueAllItemsResultSchema = z.object({
 type QueueFiltersResult = z.infer<typeof QueueFiltersResultSchema>
 type QueueItemsResult = z.infer<typeof QueueItemsResultSchema>
 type QueueAllItemsResult = z.infer<typeof QueueAllItemsResultSchema>
+type StorageUpload = { fileName: string | null; updatedAt: string | null; size?: number }
 
 function resolvePgConnectionString() {
   return process.env.POSTSQL_URL ?? process.env.SUPABASE_DB_URL ?? process.env.DATABASE_URL ?? null
@@ -74,6 +75,166 @@ function formatPupilName(firstName?: string | null, lastName?: string | null) {
   if (first) return first
   if (last) return last
   return null
+}
+
+function normalizeTimestamp(value?: string | Date | null) {
+  if (value instanceof Date) return value.toISOString()
+  if (typeof value === "string" && value.trim().length > 0) return value
+  return null
+}
+
+function latestTimestamp(a?: string | null, b?: string | null) {
+  const parsedA = a ? Date.parse(a) : Number.NaN
+  const parsedB = b ? Date.parse(b) : Number.NaN
+
+  if (!Number.isNaN(parsedA) && !Number.isNaN(parsedB)) return parsedA >= parsedB ? a : b
+  if (!Number.isNaN(parsedA)) return a ?? null
+  if (!Number.isNaN(parsedB)) return b ?? null
+  return a ?? b ?? null
+}
+
+async function fetchLatestStorageUploadsForActivity(client: Client, lessonId: string, activityId: string, pupilIds: string[]) {
+  if (pupilIds.length === 0) return new Map<string, StorageUpload>()
+
+  const { rows } = await client.query(
+    `
+      with candidate_paths as (
+        select
+          (case
+            when sf.scope_path like 'lessons/%' then sf.scope_path
+            else concat('lessons/', sf.scope_path)
+          end) || '/' || sf.file_name as full_path,
+          sf.size_bytes,
+          coalesce(sf.updated_at, sf.created_at) as updated_at
+        from stored_files sf
+        where sf.bucket = 'lessons'
+      ),
+      parsed as (
+        select
+          matches[1] as lesson_id,
+          matches[2] as activity_id,
+          matches[3] as pupil_id,
+          matches[4] as file_name,
+          size_bytes,
+          updated_at
+        from candidate_paths
+        cross join lateral regexp_matches(full_path, '^lessons/([^/]+)/activities/([^/]+)/([^/]+)/(.+)$') as matches
+        where matches is not null
+          and matches[1] = $1
+          and matches[2] = $2
+          and matches[3] = any($3::text[])
+      ),
+      ranked as (
+        select
+          lesson_id,
+          activity_id,
+          pupil_id,
+          file_name,
+          size_bytes,
+          updated_at,
+          row_number() over (partition by pupil_id order by updated_at desc nulls last) as row_id
+        from parsed
+      )
+      select lesson_id, activity_id, pupil_id, file_name, size_bytes, updated_at
+      from ranked
+      where row_id = 1
+    `,
+    [lessonId, activityId, pupilIds],
+  )
+
+  return new Map(
+    rows.map((row) => {
+      const sizeValue =
+        typeof row.size_bytes === "number"
+          ? row.size_bytes
+          : Number.isFinite(Number(row.size_bytes))
+            ? Number(row.size_bytes)
+            : undefined
+      return [
+        row.pupil_id as string,
+        {
+          fileName: row.file_name ?? null,
+          updatedAt: normalizeTimestamp(row.updated_at),
+          size: typeof sizeValue === "number" && Number.isFinite(sizeValue) ? sizeValue : undefined,
+        },
+      ]
+    }),
+  )
+}
+
+async function fetchLatestStorageUploads(
+  client: Client,
+  lessonIds: string[],
+  activityIds: string[],
+  pupilIds: string[],
+) {
+  if (activityIds.length === 0 || pupilIds.length === 0) return new Map<string, StorageUpload>()
+
+  const { rows } = await client.query(
+    `
+      with candidate_paths as (
+        select
+          (case
+            when sf.scope_path like 'lessons/%' then sf.scope_path
+            else concat('lessons/', sf.scope_path)
+          end) || '/' || sf.file_name as full_path,
+          sf.size_bytes,
+          coalesce(sf.updated_at, sf.created_at) as updated_at
+        from stored_files sf
+        where sf.bucket = 'lessons'
+      ),
+      parsed as (
+        select
+          matches[1] as lesson_id,
+          matches[2] as activity_id,
+          matches[3] as pupil_id,
+          matches[4] as file_name,
+          size_bytes,
+          updated_at
+        from candidate_paths
+        cross join lateral regexp_matches(full_path, '^lessons/([^/]+)/activities/([^/]+)/([^/]+)/(.+)$') as matches
+        where matches is not null
+          and matches[2] = any($1::text[])
+          and (coalesce(array_length($2::text[], 1), 0) = 0 or matches[1] = any($2::text[]))
+          and matches[3] = any($3::text[])
+      ),
+      ranked as (
+        select
+          lesson_id,
+          activity_id,
+          pupil_id,
+          file_name,
+          size_bytes,
+          updated_at,
+          row_number() over (partition by lesson_id, activity_id, pupil_id order by updated_at desc nulls last) as row_id
+        from parsed
+      )
+      select lesson_id, activity_id, pupil_id, file_name, size_bytes, updated_at
+      from ranked
+      where row_id = 1
+    `,
+    [activityIds, lessonIds, pupilIds],
+  )
+
+  return new Map(
+    rows.map((row) => {
+      const sizeValue =
+        typeof row.size_bytes === "number"
+          ? row.size_bytes
+          : Number.isFinite(Number(row.size_bytes))
+            ? Number(row.size_bytes)
+            : undefined
+      const key = `${row.lesson_id ?? ""}::${row.activity_id ?? ""}::${row.pupil_id ?? ""}`
+      return [
+        key,
+        {
+          fileName: row.file_name ?? null,
+          updatedAt: normalizeTimestamp(row.updated_at),
+          size: typeof sizeValue === "number" && Number.isFinite(sizeValue) ? sizeValue : undefined,
+        },
+      ]
+    }),
+  )
 }
 
 export async function readQueueFiltersAction(input?: { unitId?: string | null; lessonId?: string | null }): Promise<QueueFiltersResult> {
@@ -226,10 +387,14 @@ export async function readQueueItemsAction(input: {
           ]),
         )
 
+        const storageUploads = await fetchLatestStorageUploadsForActivity(client, lessonId, activityId, pupilIds)
+
         const queueItems = members.map((member) => {
           const submission = submissionByUser.get(member.user_id)
+          const storageUpload = storageUploads.get(member.user_id)
           const status = submission?.submission_status ?? "inprogress"
-          const fileName = submission?.file_name || null
+          const fileName = storageUpload?.fileName ?? submission?.file_name ?? null
+          const submittedAt = latestTimestamp(submission?.submitted_at ?? null, storageUpload?.updatedAt ?? null)
 
           return {
             submissionId: submission?.submission_id ?? null,
@@ -243,7 +408,8 @@ export async function readQueueItemsAction(input: {
               ? `lessons/${lessonId}/activities/${activityId}/${member.user_id}/${fileName}`
               : null,
             status,
-            submittedAt: submission?.submitted_at ?? null,
+            submittedAt,
+            size: storageUpload?.size,
           }
         })
 
@@ -308,7 +474,7 @@ export async function readQueueAllItemsAction(): Promise<QueueAllItemsResult> {
           `,
         )
 
-        const pupilIds = rows.map((row) => row.user_id)
+        const pupilIds = Array.from(new Set(rows.map((row) => row.user_id)))
         let profileMap = new Map<string, { first_name?: string | null; last_name?: string | null }>()
 
         if (pupilIds.length > 0) {
@@ -319,15 +485,25 @@ export async function readQueueAllItemsAction(): Promise<QueueAllItemsResult> {
           profileMap = new Map(profileRows.map((row) => [row.user_id, row]))
         }
 
+        const lessonIds = Array.from(
+          new Set(rows.map((row) => row.lesson_id).filter((value): value is string => typeof value === "string" && value.length > 0)),
+        )
+        const activityIds = Array.from(
+          new Set(rows.map((row) => row.activity_id).filter((value): value is string => typeof value === "string" && value.length > 0)),
+        )
+
+        const storageUploads = await fetchLatestStorageUploads(client, lessonIds, activityIds, pupilIds)
+
         const queueItems = rows.map((row) => {
           const profile = profileMap.get(row.user_id) ?? {}
+          const storageKey = `${row.lesson_id ?? ""}::${row.activity_id ?? ""}::${row.user_id ?? ""}`
+          const storageUpload = storageUploads.get(storageKey)
           const status = SubmissionStatusSchema.safeParse(row.submission_status)
-          const submittedAt =
-            typeof row.submitted_at === "string"
-              ? row.submitted_at
-              : row.submitted_at instanceof Date
-                ? row.submitted_at.toISOString()
-                : null
+          const submittedAt = latestTimestamp(
+            normalizeTimestamp(row.submitted_at as string | Date | null),
+            storageUpload?.updatedAt ?? null,
+          )
+          const fileName = storageUpload?.fileName ?? (row.file_name || null)
 
           return {
             submissionId: row.submission_id ?? null,
@@ -336,10 +512,10 @@ export async function readQueueAllItemsAction(): Promise<QueueAllItemsResult> {
             lessonId: row.lesson_id ?? null,
             groupId: row.group_id ?? null,
             pupilName: formatPupilName(profile.first_name, profile.last_name),
-            fileName: row.file_name || null,
+            fileName,
             filePath:
-              row.file_name && row.lesson_id && row.activity_id
-                ? `lessons/${row.lesson_id}/activities/${row.activity_id}/${row.user_id}/${row.file_name}`
+              fileName && row.lesson_id && row.activity_id
+                ? `lessons/${row.lesson_id}/activities/${row.activity_id}/${row.user_id}/${fileName}`
                 : null,
             status: status.success ? status.data : "inprogress",
             submittedAt,
@@ -347,6 +523,7 @@ export async function readQueueAllItemsAction(): Promise<QueueAllItemsResult> {
             unitTitle: row.unit_title ?? null,
             activityTitle: row.activity_title ?? null,
             groupName: row.group_subject ?? row.group_id ?? null,
+            size: storageUpload?.size,
           }
         })
 
