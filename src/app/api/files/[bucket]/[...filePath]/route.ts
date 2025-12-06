@@ -31,14 +31,31 @@ export async function GET(
 
   const headers = new Headers()
   const typedMetadata = metadata as { content_type?: string; size_bytes?: number; file_name?: string }
-  headers.set("Content-Type", typedMetadata.content_type || "application/octet-stream")
+  const fileName = typedMetadata.file_name ?? decodedSegments[decodedSegments.length - 1]
+
+  const inferContentType = () => {
+    const name = fileName.toLowerCase()
+    if (name.endsWith(".webm")) return "audio/webm"
+    if (name.endsWith(".mp3")) return "audio/mpeg"
+    if (name.endsWith(".wav")) return "audio/wav"
+    if (name.endsWith(".ogg")) return "audio/ogg"
+    if (name.endsWith(".m4a")) return "audio/mp4"
+    if (name.endsWith(".mp4")) return "video/mp4"
+    if (name.endsWith(".mov")) return "video/quicktime"
+    if (name.endsWith(".png")) return "image/png"
+    if (name.endsWith(".jpg") || name.endsWith(".jpeg")) return "image/jpeg"
+    if (name.endsWith(".gif")) return "image/gif"
+    if (name.endsWith(".webp")) return "image/webp"
+    return "application/octet-stream"
+  }
+
+  const contentType = typedMetadata.content_type || inferContentType()
+  headers.set("Content-Type", contentType)
   if (typeof typedMetadata.size_bytes === "number") {
     headers.set("Content-Length", String(typedMetadata.size_bytes))
   }
-  headers.set(
-    "Content-Disposition",
-    `attachment; filename="${typedMetadata.file_name ?? decodedSegments[decodedSegments.length - 1]}"`,
-  )
+  const shouldInline = contentType.startsWith("audio/") || contentType.startsWith("video/") || contentType.startsWith("image/")
+  headers.set("Content-Disposition", `${shouldInline ? "inline" : "attachment"}; filename="${fileName}"`)
 
   return new Response(stream as any, { headers })
 }

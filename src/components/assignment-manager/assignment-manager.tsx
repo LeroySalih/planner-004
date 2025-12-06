@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Search, X } from "lucide-react"
-import { createWildcardRegExp } from "@/lib/utils"
+import { createWildcardRegExp, normalizeAssignmentWeek, normalizeDateOnly } from "@/lib/utils"
 import type {
   Assignment,
   AssignmentChangeEvent,
@@ -60,12 +60,40 @@ export function AssignmentManager({
     lessonAssignments: initialLessonAssignments,
     lessonScoreSummaries: initialLessonScoreSummaries,
     onChange }: AssignmentManagerProps) {
+
+  const normalizeAssignmentDates = (assignment: Assignment): Assignment => {
+    const snapped = normalizeAssignmentWeek(assignment.start_date, assignment.end_date)
+    return {
+      ...assignment,
+      start_date: snapped?.start ?? normalizeDateOnly(assignment.start_date) ?? assignment.start_date,
+      end_date: snapped?.end ?? normalizeDateOnly(assignment.end_date) ?? assignment.end_date,
+    }
+  }
+
+  const normalizeAssignments = (entries: Assignments | null | undefined) =>
+    (entries ?? []).map((entry) => normalizeAssignmentDates(entry))
+
+  const normalizeLessonAssignments = (entries: LessonAssignments | null | undefined) =>
+    (entries ?? []).map((entry) => ({
+      ...entry,
+      start_date: normalizeDateOnly(entry.start_date) ?? entry.start_date,
+    }))
+
+  const formatDateInputValue = (value: Date) => {
+    const year = value.getFullYear()
+    const month = String(value.getMonth() + 1).padStart(2, "0")
+    const day = String(value.getDate()).padStart(2, "0")
+    return `${year}-${month}-${day}`
+  }
+
   const [groups, setGroups] = useState<Groups>(initialGroups ?? [])
   const subjects = initialSubjects ?? []
   const units = useMemo(() => initialUnits ?? [], [initialUnits])
   const lessons = useMemo(() => initialLessons ?? [], [initialLessons])
-  const [assignments, setAssignments] = useState<Assignments>(initialAssignments ?? [])
-  const [lessonAssignments, setLessonAssignments] = useState<LessonAssignments>(initialLessonAssignments ?? [])
+  const [assignments, setAssignments] = useState<Assignments>(normalizeAssignments(initialAssignments))
+  const [lessonAssignments, setLessonAssignments] = useState<LessonAssignments>(
+    normalizeLessonAssignments(initialLessonAssignments),
+  )
   const lessonScoreSummaries = useMemo(
     () => initialLessonScoreSummaries ?? [],
     [initialLessonScoreSummaries],
@@ -90,9 +118,10 @@ export function AssignmentManager({
           prev.map((entry) => [lessonAssignmentKey(entry.group_id, entry.lesson_id), entry] as const),
         )
         const key = lessonAssignmentKey(groupId, lessonId)
+        const normalizedDate = normalizeDateOnly(startDate) ?? startDate
 
-        if (startDate) {
-          map.set(key, { group_id: groupId, lesson_id: lessonId, start_date: startDate })
+        if (normalizedDate) {
+          map.set(key, { group_id: groupId, lesson_id: lessonId, start_date: normalizedDate })
         } else {
           map.delete(key)
         }
@@ -104,6 +133,15 @@ export function AssignmentManager({
   )
 
   const [searchFilter, setSearchFilter] = useState<string>("")
+
+  const debugPayload = useMemo(
+    () => ({
+      assignments,
+      lessonAssignments,
+      lessonScoreSummaries,
+    }),
+    [assignments, lessonAssignments, lessonScoreSummaries],
+  )
 
   const sidebarGroupId = selectedAssignment?.group_id ?? newAssignmentData?.groupId
   const sidebarGroupSubject = useMemo(() => {
@@ -150,26 +188,40 @@ export function AssignmentManager({
     a.group_id === b.group_id && a.unit_id === b.unit_id && a.start_date === b.start_date
 
   const addAssignment = (newAssignment: Assignment) => {
+    const snappedDates = normalizeAssignmentWeek(newAssignment.start_date, newAssignment.end_date)
+    const normalizedAssignment = normalizeAssignmentDates({
+      ...newAssignment,
+      start_date: snappedDates?.start ?? newAssignment.start_date,
+      end_date: snappedDates?.end ?? newAssignment.end_date,
+    })
     const previousAssignments = assignments.map((assignment) => ({ ...assignment }))
 
-    setAssignments((prev: Assignments) => [...prev, newAssignment])
-    onChange?.(newAssignment, "create")
+    setAssignments((prev: Assignments) => [...prev, normalizedAssignment])
+    onChange?.(normalizedAssignment, "create")
 
     startTransition(async () => {
       try {
         const result = await createAssignmentAction(
-          newAssignment.group_id,
-          newAssignment.unit_id,
-          newAssignment.start_date,
-          newAssignment.end_date,
+          normalizedAssignment.group_id,
+          normalizedAssignment.unit_id,
+          normalizedAssignment.start_date,
+          normalizedAssignment.end_date,
         )
 
         if (result.error || !result.data) {
-          throw new Error(result.error ?? "Unknown error")
+          setAssignments(previousAssignments)
+          toast.error("Assignment creation failed", {
+            description: result.error ?? "We couldn't save the assignment. Please try again.",
+          })
+          return
         }
 
+        const savedAssignment = normalizeAssignmentDates(result.data)
+
         setAssignments((prev: Assignments) =>
-          prev.map((assignment) => (isSameAssignment(assignment, newAssignment) ? result.data! : assignment)),
+          prev.map((assignment) =>
+            isSameAssignment(assignment, normalizedAssignment) ? savedAssignment : assignment,
+          ),
         )
 
         toast.success("Assignment saved to the database.")
@@ -184,21 +236,27 @@ export function AssignmentManager({
   }
 
   const updateAssignment = (index: number, updatedAssignment: Assignment, originalAssignment: Assignment) => {
+    const snappedDates = normalizeAssignmentWeek(updatedAssignment.start_date, updatedAssignment.end_date)
+    const normalizedUpdate = normalizeAssignmentDates({
+      ...updatedAssignment,
+      start_date: snappedDates?.start ?? updatedAssignment.start_date,
+      end_date: snappedDates?.end ?? updatedAssignment.end_date,
+    })
     const previousAssignments = assignments.map((assignment) => ({ ...assignment }))
 
     setAssignments((prev: Assignments) =>
-      prev.map((assignment: Assignment, i: number) => (i === index ? updatedAssignment : assignment)),
+      prev.map((assignment: Assignment, i: number) => (i === index ? normalizedUpdate : assignment)),
     )
 
-    onChange?.(updatedAssignment, "edit")
+    onChange?.(normalizedUpdate, "edit")
 
     startTransition(async () => {
       try {
         const result = await updateAssignmentAction(
-          updatedAssignment.group_id,
-          updatedAssignment.unit_id,
-          updatedAssignment.start_date,
-          updatedAssignment.end_date,
+          normalizedUpdate.group_id,
+          normalizedUpdate.unit_id,
+          normalizedUpdate.start_date,
+          normalizedUpdate.end_date,
           {
             originalUnitId: originalAssignment.unit_id,
             originalStartDate: originalAssignment.start_date,
@@ -209,8 +267,10 @@ export function AssignmentManager({
           throw new Error(result.error ?? "Unknown error")
         }
 
+        const savedAssignment = normalizeAssignmentDates(result.data)
+
         setAssignments((prev: Assignments) =>
-          prev.map((assignment: Assignment, i: number) => (i === index ? result.data! : assignment)),
+          prev.map((assignment: Assignment, i: number) => (i === index ? savedAssignment : assignment)),
         )
 
         toast.success("Assignment updated in the database.")
@@ -259,16 +319,17 @@ export function AssignmentManager({
   }
 
   const upsertLessonAssignment = (groupId: string, lessonId: string, startDate: string) => {
+    const normalizedStartDate = normalizeDateOnly(startDate) ?? startDate
     const previousLessonAssignments = lessonAssignments.map((entry) => ({ ...entry }))
     const key = lessonAssignmentKey(groupId, lessonId)
 
-    updateLessonAssignmentState(groupId, lessonId, startDate)
+    updateLessonAssignmentState(groupId, lessonId, normalizedStartDate)
 
     setPendingLessonAssignmentKeys((prev) => ({ ...prev, [key]: true }))
 
     startTransition(async () => {
       try {
-        const result = await upsertLessonAssignmentAction(groupId, lessonId, startDate)
+        const result = await upsertLessonAssignmentAction(groupId, lessonId, normalizedStartDate)
 
         if (result.error || !result.data) {
           throw new Error(result.error ?? "Unknown error")
@@ -344,7 +405,7 @@ export function AssignmentManager({
     setSelectedAssignment(null)
     setNewAssignmentData({
       groupId,
-      startDate: weekStart.toISOString().split("T")[0],
+      startDate: formatDateInputValue(weekStart),
     })
     setSelectedGroupIds([groupId])
     setIsSidebarOpen(true)
@@ -355,12 +416,21 @@ export function AssignmentManager({
       return
     }
 
-    if (!startDate) {
+    const normalizedDate = normalizeDateOnly(startDate)
+
+    if (!normalizedDate) {
       deleteLessonAssignment(sidebarGroupId, lessonId)
       return
     }
 
-    upsertLessonAssignment(sidebarGroupId, lessonId, startDate)
+    upsertLessonAssignment(sidebarGroupId, lessonId, normalizedDate)
+    setLessonAssignments((prev) => {
+      const next = prev.filter(
+        (entry) => !(entry.group_id === sidebarGroupId && entry.lesson_id === lessonId),
+      )
+      next.push({ group_id: sidebarGroupId, lesson_id: lessonId, start_date: normalizedDate })
+      return next
+    })
   }
 
   const handleSidebarSave = (updatedAssignment: Assignment) => {
@@ -614,7 +684,17 @@ export function AssignmentManager({
           onGroupTitleClick={handleGroupTitleClick}
         />
 
-      <AssignmentSidebar
+        <section className="rounded-lg border border-dashed border-border/70 bg-slate-950/60 p-4 text-xs font-mono text-slate-100 shadow-inner">
+          <div className="mb-2 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-slate-300">
+            <span>Debug payload</span>
+            <span className="text-[10px] text-slate-500">auto-refreshes</span>
+          </div>
+          <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap text-xs leading-snug">
+            {JSON.stringify(debugPayload, null, 2)}
+          </pre>
+        </section>
+
+        <AssignmentSidebar
         isOpen={isSidebarOpen}
         onClose={closeSidebar}
         assignment={selectedAssignment}
@@ -632,7 +712,7 @@ export function AssignmentManager({
         pendingLessonAssignmentKeys={pendingLessonAssignmentKeys}
       />
 
-      <GroupSidebar
+        <GroupSidebar
         isOpen={isGroupSidebarOpen}
         onClose={closeGroupSidebar}
         subjects={subjects}
@@ -642,7 +722,7 @@ export function AssignmentManager({
         onDeactivate={removeGroup}
       />
 
-      <AssignmentGroupSelectorSidebar
+        <AssignmentGroupSelectorSidebar
         isOpen={isGroupSelectorOpen}
         groups={groups}
         selectedGroupIds={selectedGroupIds}

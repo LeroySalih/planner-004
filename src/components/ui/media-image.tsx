@@ -16,6 +16,7 @@ type MediaImageProps = Omit<ImageProps, "alt" | "src"> & {
 }
 
 const dataLikePrefixes = ["data:", "blob:"]
+const apiLikePrefixes = ["/api/files", "/files/"]
 
 export function MediaImage({
   src,
@@ -25,7 +26,10 @@ export function MediaImage({
   fallbackAlt,
   ...rest
 }: MediaImageProps) {
-  const shouldFallback = useImgFallback || dataLikePrefixes.some((prefix) => src.startsWith(prefix))
+  const shouldFallback =
+    useImgFallback ||
+    dataLikePrefixes.some((prefix) => src.startsWith(prefix)) ||
+    apiLikePrefixes.some((prefix) => src.startsWith(prefix))
 
   if (shouldFallback) {
     return (

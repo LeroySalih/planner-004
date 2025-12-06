@@ -13,9 +13,16 @@ import { GroupsList } from "./groups-list"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 interface GroupsPageClientProps {
   groups: Group[]
@@ -296,20 +303,34 @@ function CreateGroupsSidebar({
 
             <div className="space-y-2">
               <Label htmlFor="group-subject">Subject</Label>
-              <Input
-                id="group-subject"
-                value={subject}
-                onChange={(event) => setSubject(event.target.value)}
-                placeholder="e.g. Mathematics"
-                disabled={isPending}
-                list="group-subject-options"
-              />
               {existingSubjects.length > 0 ? (
-                <datalist id="group-subject-options">
-                  {existingSubjects.map((option) => (
-                    <option key={option} value={option} />
-                  ))}
-                </datalist>
+                <Select
+                  value={subject}
+                  onValueChange={(value) => setSubject(value)}
+                  disabled={isPending}
+                >
+                  <SelectTrigger id="group-subject">
+                    <SelectValue placeholder="Select subject" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {existingSubjects.map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {option}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  id="group-subject"
+                  value={subject}
+                  onChange={(event) => setSubject(event.target.value)}
+                  placeholder="e.g. Mathematics"
+                  disabled={isPending}
+                />
+              )}
+              {existingSubjects.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No existing subjects yet. Type one to get started.</p>
               ) : null}
             </div>
 

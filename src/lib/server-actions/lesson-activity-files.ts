@@ -142,9 +142,9 @@ export async function listActivityFilesAction(lessonId: string, activityId: stri
       ActivityFileSchema.parse({
         name: file.name,
         path: buildFilePath(lessonId, activityId, file.name),
-        created_at: file.created_at ?? undefined,
-        updated_at: file.updated_at ?? undefined,
-        last_accessed_at: file.last_accessed_at ?? undefined,
+        created_at: normaliseTimestamp(file.created_at),
+        updated_at: normaliseTimestamp(file.updated_at),
+        last_accessed_at: normaliseTimestamp(file.last_accessed_at),
         size: file.metadata?.size ?? undefined,
       }),
     )

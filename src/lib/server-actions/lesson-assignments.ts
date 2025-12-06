@@ -5,6 +5,7 @@ import { z } from "zod"
 
 import { LessonAssignmentSchema, LessonAssignmentsSchema } from "@/types"
 import { query } from "@/lib/db"
+import { normalizeDateOnly } from "@/lib/utils"
 
 const LessonAssignmentReturnValue = z.object({
   data: LessonAssignmentSchema.nullable(),
@@ -29,7 +30,9 @@ export async function readLessonAssignmentsAction() {
     }>("select * from lesson_assignments")
     const normalized = (rows ?? []).map((row) => ({
       ...row,
-      start_date: row.start_date instanceof Date ? row.start_date.toISOString() : row.start_date,
+      start_date:
+        normalizeDateOnly(row.start_date) ??
+        (row.start_date instanceof Date ? row.start_date.toISOString().slice(0, 10) : (row.start_date ?? "")),
     }))
     console.log("[v0] Server action completed for reading lesson assignments")
     return LessonAssignmentsReturnValue.parse({ data: normalized ?? [], error: null })
@@ -41,10 +44,12 @@ export async function readLessonAssignmentsAction() {
 }
 
 export async function upsertLessonAssignmentAction(groupId: string, lessonId: string, startDate: string) {
+  const normalizedStartDate = normalizeDateOnly(startDate) ?? startDate
+
   console.log("[v0] Server action started for upserting lesson assignment:", {
     groupId,
     lessonId,
-    startDate,
+    startDate: normalizedStartDate,
   })
 
   let resultData: Record<string, unknown> | null = null
@@ -68,7 +73,7 @@ export async function upsertLessonAssignmentAction(groupId: string, lessonId: st
           where group_id = $2 and lesson_id = $3
           returning *
         `,
-        [startDate, groupId, lessonId],
+        [normalizedStartDate, groupId, lessonId],
       )
       resultData = rows[0] ?? null
     } else {
@@ -78,7 +83,7 @@ export async function upsertLessonAssignmentAction(groupId: string, lessonId: st
           values ($1, $2, $3)
           returning *
         `,
-        [groupId, lessonId, startDate],
+        [groupId, lessonId, normalizedStartDate],
       )
       resultData = rows[0] ?? null
     }
@@ -91,11 +96,22 @@ export async function upsertLessonAssignmentAction(groupId: string, lessonId: st
   console.log("[v0] Server action completed for upserting lesson assignment:", {
     groupId,
     lessonId,
-    startDate,
+    startDate: normalizedStartDate,
   })
 
   revalidatePath("/assignments")
-  return LessonAssignmentReturnValue.parse({ data: resultData, error: null })
+  const normalized =
+    resultData && typeof resultData === "object"
+      ? {
+          ...resultData,
+          start_date:
+            normalizeDateOnly(resultData["start_date"] as string | Date | null | undefined) ??
+            (resultData["start_date"] instanceof Date
+              ? (resultData["start_date"] as Date).toISOString().slice(0, 10)
+              : (resultData["start_date"] as string | null | undefined) ?? ""),
+        }
+      : resultData
+  return LessonAssignmentReturnValue.parse({ data: normalized, error: null })
 }
 
 export async function deleteLessonAssignmentAction(groupId: string, lessonId: string) {
