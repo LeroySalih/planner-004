@@ -33,6 +33,10 @@ const AuthResultSchema = z.object({
 
 type AuthResult = z.infer<typeof AuthResultSchema>
 
+function logSigninFailure(context: { email: string; reason: string }) {
+  console.error("[auth] sign-in failed", context)
+}
+
 function isSchemaMissingError(error: unknown) {
   if (!error || typeof error !== "object") return false
   const message = "message" in error && typeof (error as { message?: string }).message === "string"
@@ -150,6 +154,11 @@ export async function signupAction(input: unknown): Promise<AuthResult> {
 export async function signinAction(input: unknown): Promise<AuthResult> {
   const parsed = SigninInputSchema.safeParse(input)
   if (!parsed.success) {
+    const rawEmail =
+      typeof (input as { email?: unknown })?.email === "string"
+        ? (input as { email: string }).email
+        : "unknown"
+    logSigninFailure({ email: rawEmail, reason: "invalid-payload" })
     const [firstError] = parsed.error.issues
     return AuthResultSchema.parse({
       success: false,
@@ -176,6 +185,7 @@ export async function signinAction(input: unknown): Promise<AuthResult> {
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Unable to look up your account right now."
+        logSigninFailure({ email, reason: "lookup-error" })
         return AuthResultSchema.parse({
           success: false,
           error: message,
@@ -185,6 +195,7 @@ export async function signinAction(input: unknown): Promise<AuthResult> {
       }
 
       if (!profile?.user_id || !profile.password_hash) {
+        logSigninFailure({ email, reason: "profile-not-found" })
         return AuthResultSchema.parse({
           success: false,
           error: "Invalid email or password.",
@@ -195,6 +206,7 @@ export async function signinAction(input: unknown): Promise<AuthResult> {
 
       const matches = await verifyPassword(password, profile.password_hash)
       if (!matches) {
+        logSigninFailure({ email, reason: "invalid-password" })
         return AuthResultSchema.parse({
           success: false,
           error: "Invalid email or password.",
