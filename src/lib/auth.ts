@@ -185,6 +185,38 @@ async function loadSessionProfile(refreshSessionCookie = false): Promise<Authent
   return profile
 }
 
+export async function getProfileFromSessionCookie(
+  rawSessionCookie: string | undefined | null,
+): Promise<AuthenticatedProfile | null> {
+  const parsed = parseSessionCookie(rawSessionCookie ?? null)
+  if (!parsed) {
+    return null
+  }
+
+  const { rows } = await query<SessionRow>(
+    "select session_id, user_id, token_hash, expires_at from auth_sessions where session_id = $1 limit 1",
+    [parsed.sessionId],
+  )
+
+  const session = rows[0]
+  if (!session) {
+    return null
+  }
+
+  const expiresAt = new Date(session.expires_at)
+  const now = Date.now()
+  if (Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() <= now) {
+    return null
+  }
+
+  const matches = await bcrypt.compare(parsed.token, session.token_hash)
+  if (!matches) {
+    return null
+  }
+
+  return readProfile(session.user_id)
+}
+
 export async function endSession() {
   const cookieStore = await cookies()
   const parsed = parseSessionCookie(cookieStore.get(SESSION_COOKIE)?.value ?? null)

@@ -116,6 +116,20 @@ export type Profile = z.infer<typeof ProfileSchema>;
 export type Profiles = z.infer<typeof ProfilesSchema>;
 export type CurrentProfile = z.infer<typeof CurrentProfileSchema>;
 
+export const PupilSignInHistorySchema = z.object({
+    pupil_sign_in_history_id: z.string(),
+    pupil_id: z.string(),
+    url: z.string().min(1),
+    signed_in_at: z
+        .union([z.string(), z.date()])
+        .transform((value) => (value instanceof Date ? value.toISOString() : value)),
+});
+
+export const PupilSignInHistoriesSchema = z.array(PupilSignInHistorySchema);
+
+export type PupilSignInHistory = z.infer<typeof PupilSignInHistorySchema>;
+export type PupilSignInHistories = z.infer<typeof PupilSignInHistoriesSchema>;
+
 export const SubmissionStatusSchema = z.enum(["inprogress", "submitted", "completed", "rejected"]);
 export type SubmissionStatus = z.infer<typeof SubmissionStatusSchema>;
 

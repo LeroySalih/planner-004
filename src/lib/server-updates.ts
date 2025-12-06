@@ -198,6 +198,7 @@ export {
   type PupilLessonsSummaryBootstrap,
   type PupilLessonsDetailBootstrap,
 } from "./server-actions/pupil-lessons"
+
 export { readPupilUnitsBootstrapAction } from "./server-actions/pupil-units"
 
 export {
