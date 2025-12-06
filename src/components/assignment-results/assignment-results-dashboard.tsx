@@ -3,7 +3,6 @@
 import { useActionState, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { ChevronDown, Download, RefreshCw } from "lucide-react"
-import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js"
 import {
   AssignmentResultActivity,
   AssignmentResultActivitySummary,
@@ -123,6 +122,16 @@ type SubmissionRow = {
   user_id: string | null
   submitted_at: string | null
   body: unknown
+}
+
+type RealtimeChangesPayload<T> = {
+  eventType: string
+  schema: string
+  table: string
+  commit_timestamp: string
+  new: T | null
+  old: T | null
+  errors: unknown
 }
 
 type AssignmentResultsRealtimePayload = {
@@ -1032,7 +1041,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
   }
 
   const handleRealtimeSubmission = useCallback(
-    (payload: RealtimePostgresChangesPayload<SubmissionRow>) => {
+    (payload: RealtimeChangesPayload<SubmissionRow>) => {
       const normalizedNew = normalizeRow(payload.new)
       const normalizedOld = normalizeRow(payload.old)
       const eventActivityId = normalizedNew?.activity_id ?? normalizedOld?.activity_id ?? null
@@ -1396,7 +1405,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
             new: eventType === "DELETE" ? null : (record as SubmissionRow),
             old: eventType === "DELETE" ? (record as SubmissionRow) : null,
             errors: null,
-          } as unknown as RealtimePostgresChangesPayload<SubmissionRow>)
+          } as RealtimeChangesPayload<SubmissionRow>)
         } else if (envelope.topic === "assignments") {
           if (envelope.type === "assignment.feedback.visibility" && envelope.payload) {
             const targetAssignmentId =

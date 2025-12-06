@@ -4,7 +4,6 @@ import { randomUUID } from "node:crypto"
 
 import { LessonJobResponseSchema } from "@/types"
 import { fetchLessonDetailPayload } from "@/lib/lesson-snapshots"
-import { createSupabaseServiceClient } from "@/lib/supabase/server"
 import { emitLessonEvent } from "@/lib/sse/topics"
 
 type SnapshotEventOptions = {
@@ -26,14 +25,12 @@ export async function enqueueLessonMutationJob({
   unitId?: string
   type: string
   message?: string | null
-  executor: (params: { supabase: Awaited<ReturnType<typeof createSupabaseServiceClient>>; jobId: string }) => Promise<void>
+  executor: (params: { jobId: string }) => Promise<void>
 }) {
-  const supabase = await createSupabaseServiceClient()
   const jobId = randomUUID()
 
   queueMicrotask(() => {
     void runLessonMutationExecutor({
-      supabase,
       jobId,
       lessonId,
       unitId,
@@ -51,7 +48,6 @@ export async function enqueueLessonMutationJob({
 }
 
 async function runLessonMutationExecutor({
-  supabase,
   jobId,
   lessonId,
   unitId,
@@ -59,16 +55,15 @@ async function runLessonMutationExecutor({
   message,
   executor,
 }: {
-  supabase: Awaited<ReturnType<typeof createSupabaseServiceClient>>
   jobId: string
   lessonId: string
   unitId?: string
   type: string
   message?: string | null
-  executor: (params: { supabase: Awaited<ReturnType<typeof createSupabaseServiceClient>>; jobId: string }) => Promise<void>
+  executor: (params: { jobId: string }) => Promise<void>
 }) {
   try {
-    await executor({ supabase, jobId })
+    await executor({ jobId })
     await publishLessonSnapshotEvent({
       jobId,
       lessonId,
