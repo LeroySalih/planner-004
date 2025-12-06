@@ -1729,6 +1729,19 @@ CREATE TABLE IF NOT EXISTS "public"."profiles" (
 ALTER TABLE "public"."profiles" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."pupil_sign_in_history" (
+    "pupil_sign_in_history_id" "text" DEFAULT "gen_random_uuid"() NOT NULL,
+    "pupil_id" "text" NOT NULL,
+    "url" "text" NOT NULL,
+    "signed_in_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    CONSTRAINT "pupil_sign_in_history_pupil_id_fkey" FOREIGN KEY ("pupil_id")
+        REFERENCES "public"."profiles" ("user_id")
+);
+
+
+ALTER TABLE "public"."pupil_sign_in_history" OWNER TO "postgres";
+
+
 CREATE TABLE IF NOT EXISTS "public"."report_pupil_cache" (
     "pupil_id" "text" NOT NULL,
     "dataset" "jsonb" NOT NULL,
@@ -3609,7 +3622,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "anon";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "authenticated";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "service_role";
-
 
 
 
