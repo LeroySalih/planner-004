@@ -116,7 +116,7 @@ export async function saveShortTextAnswerAction(input: z.infer<typeof ShortTextA
         console.error("[short-text] Invalid submission payload after update:", parsed.error)
         return { success: false, error: "Invalid submission data.", data: null as Submission | null }
       }
-      revalidatePath(`/lessons/${payload.activityId}`)
+      deferRevalidate(`/lessons/${payload.activityId}`)
       return { success: true, error: null, data: parsed.data }
     }
 
@@ -135,7 +135,7 @@ export async function saveShortTextAnswerAction(input: z.infer<typeof ShortTextA
       return { success: false, error: "Invalid submission data.", data: null as Submission | null }
     }
 
-    revalidatePath(`/lessons/${payload.activityId}`)
+    deferRevalidate(`/lessons/${payload.activityId}`)
     return { success: true, error: null, data: parsed.data }
   } catch (error) {
     console.error("[short-text] Failed to save submission:", error)
@@ -204,7 +204,7 @@ export async function markShortTextActivityAction(input: z.infer<typeof MarkShor
       return { success: false, error, data: null as Submission | null }
     }
 
-    revalidatePath(`/lessons/${payload.lessonId ?? ""}`)
+    deferRevalidate(`/lessons/${payload.lessonId ?? ""}`)
     return { success: true, error: null, data }
   } catch (error) {
     console.error("[short-text] Failed to mark short text activity:", error)
@@ -268,7 +268,7 @@ export async function overrideShortTextSubmissionScoreAction(
       return { success: false, error: "Unable to update submission.", data: null }
     }
 
-    revalidatePath(`/lessons/${payload.lessonId ?? ""}`)
+    deferRevalidate(`/lessons/${payload.lessonId ?? ""}`)
 
     return {
       success: true,
@@ -388,4 +388,10 @@ async function markShortTextActivityHelper(activity: LessonActivity) {
     console.error("[short-text] Failed to persist scored submission:", error)
     return { success: false as const, error: "Unable to save scored submission.", data: null }
   }
+}
+const deferRevalidate = (path: string) => {
+  if (path.includes("/lessons/")) {
+    return
+  }
+  queueMicrotask(() => revalidatePath(path))
 }

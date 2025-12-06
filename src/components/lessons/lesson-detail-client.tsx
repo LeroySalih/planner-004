@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, lazy, useEffect, useMemo, useState } from "react"
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { LinkIcon, List, Target, Upload } from "lucide-react"
@@ -100,25 +100,60 @@ export function LessonDetailClient({
 
   const isActive = currentLesson.active !== false
 
+  const pageLoadTimeRef = useRef<number>(Date.now())
+
   useEffect(() => {
     const source = new EventSource("/sse?topics=lessons")
 
     source.onmessage = (event) => {
-      const envelope = JSON.parse(event.data) as { topic?: string; type?: string; payload?: unknown }
-      if (envelope.topic !== "lessons" || !envelope.payload) return
-      const parsed = LessonMutationEventSchema.safeParse(envelope.payload)
-      if (!parsed.success) return
-      const payload = parsed.data
-      if (payload.lesson_id !== lesson.lesson_id) return
-      if (payload.status === "error") {
-        toast.error(payload.message ?? "Lesson update failed")
+      const raw = event.data
+      let envelope: { topic?: string; type?: string; payload?: unknown; createdAt?: string } | null = null
+      try {
+        envelope = JSON.parse(raw)
+      } catch (parseError) {
+        console.error("[lessons:sse] Failed to parse message", { raw, parseError })
         return
       }
-      if (payload.status !== "completed") {
+
+      if (envelope?.topic !== "lessons" || !envelope.payload) return
+      const payloadRaw = envelope.payload as Record<string, unknown>
+      const lessonId =
+        (payloadRaw.lesson_id as string | undefined) ?? (payloadRaw.lessonId as string | undefined) ?? null
+      const status =
+        typeof payloadRaw.status === "string" && ["queued", "completed", "error"].includes(payloadRaw.status)
+          ? (payloadRaw.status as "queued" | "completed" | "error")
+          : "completed"
+      const message = typeof payloadRaw.message === "string" ? payloadRaw.message : null
+      const data = payloadRaw.data
+      const createdAtMs = envelope.createdAt ? new Date(envelope.createdAt).getTime() : Date.now()
+
+      // Ignore stale events that were emitted before this page load (prevents old errors from resurfacing).
+      if (createdAtMs < pageLoadTimeRef.current) {
         return
       }
-      const detail = LessonDetailPayloadSchema.safeParse(payload.data)
+
+      if (lessonId !== lesson.lesson_id) return
+      if (status === "error") {
+        console.error("[lessons:sse] Lesson update error", {
+          lessonId: lesson.lesson_id,
+          message,
+          payload: payloadRaw,
+          raw,
+        })
+        toast.error(message ?? "Lesson update failed")
+        return
+      }
+      if (status !== "completed") {
+        return
+      }
+      const detail = LessonDetailPayloadSchema.safeParse(data)
       if (!detail.success) {
+        console.error("[lessons:sse] Lesson detail payload parse failed", {
+          lessonId: lesson.lesson_id,
+          payload: data,
+          issues: detail.error.issues,
+          raw,
+        })
         return
       }
       const snapshot = detail.data
@@ -131,8 +166,8 @@ export function LessonDetailClient({
       setLessonActivitiesState(snapshot.lessonActivities ?? [])
       setLessonFilesState(snapshot.lessonFiles ?? [])
       setUnitLessonsState(snapshot.unitLessons ?? [])
-      if (payload.message) {
-        toast.success(payload.message)
+      if (message) {
+        toast.success(message)
       }
     }
 

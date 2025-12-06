@@ -48,6 +48,11 @@ export function LessonHeaderSidebar({ lesson, isOpen, onClose, onUpdated }: Less
       toast.success(state.message ?? "Lesson updated.")
       onClose()
     } else if (state.status === "error" && state.message) {
+      console.error("[lessons] Header update error", {
+        lessonId: lesson.lesson_id,
+        message: state.message,
+        state,
+      })
       toast.error(state.message)
     }
   }, [state, onClose, onUpdated])

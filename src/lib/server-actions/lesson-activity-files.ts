@@ -220,7 +220,6 @@ export async function uploadActivityFileAction(formData: FormData) {
       })
 
       revalidatePath(`/units/${unitId}`)
-      revalidatePath(`/lessons/${lessonId}`)
       return { success: true }
     },
   )
@@ -241,7 +240,6 @@ export async function deleteActivityFileAction(
   }
 
   revalidatePath(`/units/${unitId}`)
-  revalidatePath(`/lessons/${lessonId}`)
   return { success: true }
 }
 
@@ -489,7 +487,7 @@ export async function uploadPupilActivitySubmissionAction(formData: FormData) {
         submissionStatus: "inprogress",
       })
 
-      revalidatePath(`/pupil-lessons/${encodeURIComponent(userId)}/lessons/${encodeURIComponent(lessonId)}`)
+      deferRevalidate(`/pupil-lessons/${encodeURIComponent(userId)}/lessons/${encodeURIComponent(lessonId)}`)
       return { success: true }
     },
   )
@@ -562,7 +560,7 @@ export async function deletePupilActivitySubmissionAction(
         submissionStatus: "missing",
       })
 
-      revalidatePath(`/pupil-lessons/${encodeURIComponent(pupilId)}/lessons/${encodeURIComponent(lessonId)}`)
+      deferRevalidate(`/pupil-lessons/${encodeURIComponent(pupilId)}/lessons/${encodeURIComponent(lessonId)}`)
       return { success: true }
     },
   )
@@ -789,4 +787,10 @@ async function cleanupUploadSubmissionRecord({
   await client.query("delete from submissions where submission_id = $1", [data.submission_id])
 
   return { success: true, submissionId: data.submission_id ?? null }
+}
+const deferRevalidate = (path: string) => {
+  if (path.includes("/lessons/")) {
+    return
+  }
+  queueMicrotask(() => revalidatePath(path))
 }

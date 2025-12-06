@@ -101,6 +101,9 @@ export function LessonFilesManager({ unitId, lessonId, initialFiles }: LessonFil
             })
           } else {
             successCount += 1
+            if (Array.isArray(result.files)) {
+              setFiles(result.files)
+            }
           }
         } finally {
           setUploadProgress((prev) => {
@@ -147,7 +150,11 @@ export function LessonFilesManager({ unitId, lessonId, initialFiles }: LessonFil
         return
       }
       toast.success("File deleted")
-      await refreshFiles()
+      if (Array.isArray(result.files)) {
+        setFiles(result.files)
+      } else {
+        await refreshFiles()
+      }
     })
   }
 

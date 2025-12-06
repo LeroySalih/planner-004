@@ -64,7 +64,6 @@ export async function createLessonLinkAction(
     }
 
     revalidatePath(`/units/${unitId}`)
-    revalidatePath(`/lessons/${lessonId}`)
     return { success: true, data }
   } catch (error) {
     console.error("[v0] Failed to create lesson link:", error)
@@ -102,7 +101,6 @@ export async function updateLessonLinkAction(
     }
 
     revalidatePath(`/units/${unitId}`)
-    revalidatePath(`/lessons/${lessonId}`)
     return { success: true, data }
   } catch (error) {
     console.error("[v0] Failed to update lesson link:", error)
@@ -120,7 +118,6 @@ export async function deleteLessonLinkAction(unitId: string, lessonId: string, l
     }
 
     revalidatePath(`/units/${unitId}`)
-    revalidatePath(`/lessons/${lessonId}`)
     return { success: true }
   } catch (error) {
     console.error("[v0] Failed to delete lesson link:", error)
