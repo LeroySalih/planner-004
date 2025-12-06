@@ -19,6 +19,7 @@ import { PupilUploadActivity } from "@/components/pupil/pupil-upload-activity"
 import { PupilMcqActivity } from "@/components/pupil/pupil-mcq-activity"
 import { PupilFeedbackActivity } from "@/components/pupil/pupil-feedback-activity"
 import { PupilShortTextActivity } from "@/components/pupil/pupil-short-text-activity"
+import { MediaImage } from "@/components/ui/media-image"
 import { LegacyMcqSubmissionBodySchema, McqSubmissionBodySchema, ShortTextSubmissionBodySchema } from "@/types"
 import { ActivityProgressPanel } from "./activity-progress-panel"
 import { extractScoreFromSubmission } from "@/lib/scoring/activity-scores"
@@ -595,12 +596,13 @@ export default async function PupilLessonFriendlyPage({
                         {isDisplayImage ? (
                           resolvedImageUrl ? (
                             <figure className="mt-3 space-y-2">
-                              <div className="overflow-hidden rounded-lg border border-border bg-background">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
+                              <div className="relative aspect-[4/3] w-full overflow-hidden rounded-lg border border-border bg-background max-h-[420px]">
+                                <MediaImage
                                   src={resolvedImageUrl}
                                   alt={activity.title || "Lesson activity image"}
-                                  className="max-h-[420px] w-full object-contain"
+                                  fill
+                                  sizes="100vw"
+                                  className="object-contain"
                                   loading="lazy"
                                 />
                               </div>

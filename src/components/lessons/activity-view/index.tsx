@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { Switch } from "@/components/ui/switch"
+import { MediaImage } from "@/components/ui/media-image"
 import { cn } from "@/lib/utils"
 import {
   getActivityFileUrlValue,
@@ -478,11 +479,12 @@ function DisplayImageShortView({
           .filter(Boolean)
           .join(" ")}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
+        <MediaImage
           src={state.url}
           alt={activity.title || "Activity image"}
-          className="h-full w-full object-cover"
+          fill
+          sizes="(max-width: 640px) 50vw, 160px"
+          className="object-cover"
           loading="lazy"
           onError={() => {
             console.log("[lesson-activities] Failed to load thumbnail image:", state.url)
@@ -1034,12 +1036,13 @@ function ActivityEditView({ activity, resolvedImageUrl }: LessonActivityEditView
     const url = resolvedImageUrl ?? body.imageUrl ?? null
     if (url) {
       return (
-        <div className="mt-2 overflow-hidden rounded-md border border-border">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
+        <div className="relative mt-2 aspect-[4/3] w-full overflow-hidden rounded-md border border-border max-h-48">
+          <MediaImage
             src={url}
             alt={activity.title || "Activity image"}
-            className="h-auto w-full max-h-48 object-cover"
+            fill
+            sizes="100vw"
+            className="object-cover"
           />
         </div>
       )

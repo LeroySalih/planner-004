@@ -10,6 +10,7 @@
     "test": "npx playwright test",
     "record-test": "sh -c 'npx playwright codegen http://localhost:3000 --output tests/$1/$2.spec.ts' --",
     "db:prod2dev": "bash ./bin/prod2dev.sh",
+    "db:clean": "bash ./scripts/db_clean.sh",
     "pm2:restart": "pm2 stop dino.mr-salih.org || true && pm2 delete dino.mr-salih.org || true",
     "pm2:start": "pm2 start npm --name dino.mr-salih.org -- run start"
   },

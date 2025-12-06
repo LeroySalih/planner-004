@@ -43,6 +43,7 @@ import {
   type VoiceBody,
 } from "@/components/lessons/activity-view/utils"
 import { LessonActivityView } from "@/components/lessons/activity-view"
+import { MediaImage } from "@/components/ui/media-image"
 import { isScorableActivityType, SCORABLE_ACTIVITY_TYPES } from "@/dino.config"
 
 interface ActivityFileInfo {
@@ -1034,13 +1035,16 @@ export function LessonActivitiesManager({
                                 rel="noopener noreferrer"
                                 className="inline-flex shrink-0"
                               >
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  src={imageThumbnail}
-                                  alt="Activity image thumbnail"
-                                  className="h-auto w-[100px] rounded-md border border-border object-cover"
-                                  loading="lazy"
-                                />
+                                <div className="relative h-[60px] w-[100px] overflow-hidden rounded-md border border-border">
+                                  <MediaImage
+                                    src={imageThumbnail}
+                                    alt="Activity image thumbnail"
+                                    fill
+                                    sizes="120px"
+                                    className="object-cover"
+                                    loading="lazy"
+                                  />
+                                </div>
                               </a>
                             ) : hasImageError ? (
                               <div className="flex h-[60px] w-[100px] shrink-0 items-center justify-center rounded-md border border-destructive bg-destructive/10 text-[11px] text-destructive">
@@ -1059,13 +1063,16 @@ export function LessonActivitiesManager({
                               rel="noopener noreferrer"
                               className="inline-flex shrink-0"
                             >
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src={videoThumbnail}
-                                alt="YouTube video thumbnail"
-                                className="h-auto w-[100px] rounded-md border border-border object-cover"
-                                loading="lazy"
-                              />
+                              <div className="relative h-[60px] w-[100px] overflow-hidden rounded-md border border-border">
+                                <MediaImage
+                                  src={videoThumbnail}
+                                  alt="YouTube video thumbnail"
+                                  fill
+                                  sizes="120px"
+                                  className="object-cover"
+                                  loading="lazy"
+                                />
+                              </div>
                             </a>
                           ) : null}
                           <div className="space-y-1">
@@ -2757,13 +2764,16 @@ function LessonActivityEditorSheet({
                 return (
                   <div className="rounded-md border border-border bg-muted/40 p-3">
                     <p className="mb-2 text-xs font-medium text-muted-foreground">Preview</p>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={previewUrl}
-                      alt="YouTube video thumbnail"
-                      className="h-auto w-[100px] rounded-sm object-cover"
-                      loading="lazy"
-                    />
+                    <div className="relative h-[60px] w-[100px] overflow-hidden rounded-sm">
+                      <MediaImage
+                        src={previewUrl}
+                        alt="YouTube video thumbnail"
+                        fill
+                        sizes="120px"
+                        className="object-cover"
+                        loading="lazy"
+                      />
+                    </div>
                   </div>
                 )
               })()}
@@ -2819,13 +2829,16 @@ function LessonActivityEditorSheet({
               ) : imagePreviewUrl ? (
                 <div className="space-y-2">
                   <p className="text-xs font-medium text-muted-foreground">Preview</p>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={imagePreviewUrl}
-                    alt="Activity image preview"
-                    className="h-auto max-h-48 w-full max-w-xs rounded-md border border-border object-contain"
-                    loading="lazy"
-                  />
+                  <div className="relative aspect-[4/3] w-full max-w-xs overflow-hidden rounded-md border border-border">
+                    <MediaImage
+                      src={imagePreviewUrl}
+                      alt="Activity image preview"
+                      fill
+                      sizes="(max-width: 640px) 80vw, 320px"
+                      className="object-contain"
+                      loading="lazy"
+                    />
+                  </div>
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">No image selected.</p>

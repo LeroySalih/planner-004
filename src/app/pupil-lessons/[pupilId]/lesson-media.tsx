@@ -5,6 +5,7 @@ import { Download, Loader2, Maximize2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { MediaImage } from "@/components/ui/media-image"
 import { cn } from "@/lib/utils"
 import { getActivityFileDownloadUrlAction, getLessonFileDownloadUrlAction } from "@/lib/server-updates"
 import type { PupilUnitLessonFile, PupilUnitLessonMediaImage } from "@/lib/pupil-units-data"
@@ -146,8 +147,13 @@ export function LessonMedia({ lessonId, lessonTitle, images, files }: LessonMedi
                     </div>
                   ) : url ? (
                     <>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={url} alt={image.title ?? lessonTitle} className="h-full w-full object-cover" />
+                      <MediaImage
+                        src={url}
+                        alt={image.title ?? lessonTitle}
+                        fill
+                        sizes="(max-width: 768px) 50vw, 200px"
+                        className="object-cover"
+                      />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
                       <div className="absolute bottom-1 right-1 rounded-full bg-background/80 p-1 text-foreground shadow">
                         <Maximize2 className="h-4 w-4" />

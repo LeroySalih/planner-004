@@ -15,6 +15,9 @@ const useDev = !!process.env.PW_USE_DEV;
  * See https://playwright.dev/docs/test-configuration.
  */
 export default defineConfig({
+  globalSetup: './global-setup',
+  globalTeardown: './global-teardown',
+
   testDir: './tests',
   /* Run tests in files in parallel */
   fullyParallel: true,
@@ -31,11 +34,16 @@ export default defineConfig({
   ],
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
+    screenshot: 'only-on-failure',
+
     /* Base URL to use in actions like `await page.goto('/')`. */
     baseURL: 'http://localhost:3000',
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
+
+    storageState: 'storageState.json',
+  
   },
 
   /* Configure projects for major browsers */
@@ -77,14 +85,4 @@ export default defineConfig({
     //   use: { ...devices['Desktop Chrome'], channel: 'chrome' },
     // },
   ],
-
-  /* Run your local dev server before starting the tests */
-  webServer: {
-    command: useDev
-      ? 'npm run dev -- -p 3000'
-      : 'npm run build && npm run start -- -p 3000',
-    url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI || useDev,
-    timeout: 180_000,
-  },
 });
