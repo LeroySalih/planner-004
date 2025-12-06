@@ -694,8 +694,6 @@ async function applyLessonSuccessCriteriaUpdate(payload: z.infer<typeof LessonSu
     }
   })
 
-  revalidatePath(`/lessons/${payload.lessonId}`)
-  revalidatePath(`/units/${payload.unitId}`)
 }
 
 const LessonObjectiveCreateInputSchema = z.object({
@@ -938,9 +936,10 @@ export async function createLessonLearningObjectiveAction(input: {
     success_criteria: createdCriterion ? [createdCriterion] : [],
   }
 
-  revalidatePath(`/lessons/${payload.lessonId}`)
   if (assessmentObjectiveRecord.curriculum_id) {
-    revalidatePath(`/curriculum/${assessmentObjectiveRecord.curriculum_id}`)
+    queueMicrotask(() => {
+      revalidatePath(`/curriculum/${assessmentObjectiveRecord.curriculum_id}`)
+    })
   }
 
   return LessonObjectiveMutationResultSchema.parse({
@@ -1142,7 +1141,9 @@ export async function createLessonSuccessCriterionAction(input: {
         units: [],
       }
 
-      revalidatePath(`/lessons/${payload.lessonId}`)
+      queueMicrotask(() => {
+        deferRevalidate(`/lessons/${payload.lessonId}`)
+      })
 
       const learningObjectiveRecord = learningObjective as
         | { assessment_objective?: { curriculum_id?: string | null } | null }
@@ -1868,7 +1869,6 @@ export async function updateLessonHeaderMutation(
         })
       }
 
-      revalidatePath(`/lessons/${payload.lessonId}`)
       return LessonUpdateReturnValue.parse({ data: refreshed.data.lesson, error: null })
     },
   )
@@ -2028,4 +2028,7 @@ export async function readLessonReferenceDataAction(
       return loadLessonReferencePayload(lessonId)
     },
   )
+}
+const deferRevalidate = (path: string) => {
+  queueMicrotask(() => revalidatePath(path))
 }

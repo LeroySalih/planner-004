@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { MoreVertical, X } from "lucide-react"
 import type { Unit, Assignment, Lesson, LessonAssignment } from "@/types"
-import { truncateText } from "@/lib/utils"
+import { normalizeAssignmentWeek, normalizeDateOnly, truncateText } from "@/lib/utils"
 
 interface AssignmentSidebarProps {
   isOpen: boolean
@@ -48,10 +48,14 @@ export function AssignmentSidebar({
   pendingLessonAssignmentKeys,
 }: AssignmentSidebarProps) {
   const [editedAssignment, setEditedAssignment] = useState<Assignment | null>(null)
+  const [lessonDateDrafts, setLessonDateDrafts] = useState<Record<string, string>>({})
+  const lastDraftGroupIdRef = useRef<string | null>(null)
 
   const matchingUnits = useMemo(() => {
     if (!groupSubject) return units
-    return units.filter((unit) => unit.subject === groupSubject)
+    const filtered = units.filter((unit) => unit.subject === groupSubject)
+    // Fallback to all units so the selector is never disabled even if subjects don't line up.
+    return filtered.length > 0 ? filtered : units
   }, [units, groupSubject])
 
   const selectedUnit = useMemo(() => {
@@ -69,8 +73,16 @@ export function AssignmentSidebar({
   const assignmentDateOptions = useMemo(() => {
     if (!editedAssignment) return []
 
-    const start = new Date(editedAssignment.start_date)
-    const end = new Date(editedAssignment.end_date)
+    const snapped = normalizeAssignmentWeek(editedAssignment.start_date, editedAssignment.end_date)
+    const startValue = snapped?.start ?? normalizeDateOnly(editedAssignment.start_date)
+    const endValue = snapped?.end ?? normalizeDateOnly(editedAssignment.end_date)
+
+    if (!startValue || !endValue) {
+      return []
+    }
+
+    const start = new Date(`${startValue}T00:00:00Z`)
+    const end = new Date(`${endValue}T00:00:00Z`)
 
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
       return []
@@ -80,21 +92,18 @@ export function AssignmentSidebar({
     const cursor = new Date(start)
 
     // advance to the first Sunday on/after the start date
-    const daysUntilSunday = (7 - cursor.getDay()) % 7
-    cursor.setDate(cursor.getDate() + daysUntilSunday)
+    const daysUntilSunday = (7 - cursor.getUTCDay()) % 7
+    cursor.setUTCDate(cursor.getUTCDate() + daysUntilSunday)
 
     while (cursor.getTime() <= end.getTime()) {
-      const iso = cursor.toISOString().split("T")[0]
-      options.push({
-        value: iso,
-        label: cursor.toLocaleDateString("en-US", {
-          weekday: "short",
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-        }),
-      })
-      cursor.setDate(cursor.getDate() + 7)
+      const iso = normalizeDateOnly(cursor)
+      if (iso) {
+        options.push({
+          value: iso,
+          label: iso,
+        })
+      }
+      cursor.setUTCDate(cursor.getUTCDate() + 7)
     }
 
     return options
@@ -103,9 +112,12 @@ export function AssignmentSidebar({
   const lessonAssignmentsByLessonId = useMemo(() => {
     if (!editedAssignment) return new Map<string, LessonAssignment>()
 
-    const relevantAssignments = lessonAssignments.filter(
-      (entry) => entry.group_id === editedAssignment.group_id,
-    )
+    const relevantAssignments = lessonAssignments
+      .filter((entry) => entry.group_id === editedAssignment.group_id)
+      .map((entry) => ({
+        ...entry,
+        start_date: normalizeDateOnly(entry.start_date) ?? entry.start_date,
+      }))
 
     return new Map<string, LessonAssignment>(
       relevantAssignments.map((entry) => [entry.lesson_id, entry] as const),
@@ -125,7 +137,9 @@ export function AssignmentSidebar({
         return
       }
 
-      const startingLessonDate = lessonAssignmentsByLessonId.get(startingLesson.lesson_id)?.start_date
+      const startingLessonDate =
+        lessonDateDrafts[startingLesson.lesson_id] ??
+        lessonAssignmentsByLessonId.get(startingLesson.lesson_id)?.start_date
       if (!startingLessonDate) {
         return
       }
@@ -165,6 +179,7 @@ export function AssignmentSidebar({
       onLessonDateChange,
       pendingLessonAssignmentKeys,
       unitLessons,
+      lessonDateDrafts,
     ],
   )
 
@@ -179,7 +194,9 @@ export function AssignmentSidebar({
         return
       }
 
-      const startingLessonDate = lessonAssignmentsByLessonId.get(startingLesson.lesson_id)?.start_date
+      const startingLessonDate =
+        lessonDateDrafts[startingLesson.lesson_id] ??
+        lessonAssignmentsByLessonId.get(startingLesson.lesson_id)?.start_date
       if (!startingLessonDate) {
         return
       }
@@ -216,6 +233,7 @@ export function AssignmentSidebar({
       assignmentDateOptions,
       activeGroupId,
       lessonAssignmentsByLessonId,
+      lessonDateDrafts,
       onLessonDateChange,
       pendingLessonAssignmentKeys,
       unitLessons,
@@ -223,19 +241,65 @@ export function AssignmentSidebar({
   )
 
   useEffect(() => {
+    if (!editedAssignment) {
+      setLessonDateDrafts({})
+      lastDraftGroupIdRef.current = null
+      return
+    }
+
+    const groupId = editedAssignment.group_id
+    const currentGroupDates = lessonAssignments.reduce<Record<string, string>>((acc, entry) => {
+      if (entry.group_id !== groupId) {
+        return acc
+      }
+
+      const normalized = normalizeDateOnly(entry.start_date)
+      if (normalized) {
+        acc[entry.lesson_id] = normalized
+      }
+
+      return acc
+    }, {})
+
+    setLessonDateDrafts((prev) => {
+      const next = { ...prev }
+
+      Object.keys(next).forEach((lessonId) => {
+        if (!(lessonId in currentGroupDates)) {
+          delete next[lessonId]
+        }
+      })
+
+      Object.entries(currentGroupDates).forEach(([lessonId, date]) => {
+        next[lessonId] = date
+      })
+
+      lastDraftGroupIdRef.current = groupId
+
+      return next
+    })
+  }, [editedAssignment, lessonAssignments])
+
+  useEffect(() => {
     if (assignment) {
       // Edit mode
-      setEditedAssignment({ ...assignment })
+      setEditedAssignment({
+        ...assignment,
+        start_date: normalizeDateOnly(assignment.start_date) ?? assignment.start_date,
+        end_date: normalizeDateOnly(assignment.end_date) ?? assignment.end_date,
+      })
     } else if (newAssignmentData) {
       // Create mode
-      const endDate = new Date(newAssignmentData.startDate)
-      endDate.setDate(endDate.getDate() + 6) // Default to 1 week duration
+      const normalizedStart = normalizeDateOnly(newAssignmentData.startDate) ?? newAssignmentData.startDate
+      const endDate = new Date(`${normalizedStart}T00:00:00Z`)
+      endDate.setUTCDate(endDate.getUTCDate() + 6) // Default to 1 week duration
+      const snapped = normalizeAssignmentWeek(normalizedStart, endDate)
 
       setEditedAssignment({
         group_id: newAssignmentData.groupId,
         unit_id: matchingUnits.length > 0 ? matchingUnits[0].unit_id : "",
-        start_date: newAssignmentData.startDate,
-        end_date: endDate.toISOString().split("T")[0],
+        start_date: snapped?.start ?? normalizedStart,
+        end_date: snapped?.end ?? normalizeDateOnly(endDate) ?? endDate.toISOString().slice(0, 10),
         active: true,
       })
     }
@@ -261,6 +325,11 @@ export function AssignmentSidebar({
 
   if (!isOpen || !editedAssignment) {
     return null
+  }
+
+  const handleDateInputChange = (field: "start_date" | "end_date", rawValue: string) => {
+    const normalized = normalizeDateOnly(rawValue) ?? ""
+    setEditedAssignment((prev) => (prev ? { ...prev, [field]: normalized } : prev))
   }
 
   const isCreateMode = !assignment && newAssignmentData
@@ -320,7 +389,7 @@ export function AssignmentSidebar({
                   <Select
                     value={editedAssignment.unit_id}
                     onValueChange={(value) => setEditedAssignment((prev) => (prev ? { ...prev, unit_id: value } : null))}
-                    disabled={matchingUnits.length === 0}
+                    disabled={units.length === 0}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select a unit" />
@@ -352,22 +421,24 @@ export function AssignmentSidebar({
                       <span className="text-xs uppercase tracking-wide text-muted-foreground">Start Date</span>
                       <Input
                         id="start-date"
-                        type="date"
-                        value={editedAssignment.start_date}
-                        onChange={(e) =>
-                          setEditedAssignment((prev) => (prev ? { ...prev, start_date: e.target.value } : null))
-                        }
+                        type="text"
+                        inputMode="numeric"
+                        pattern="\\d{4}-\\d{2}-\\d{2}"
+                        placeholder="yyyy-mm-dd"
+                        value={normalizeDateOnly(editedAssignment.start_date) ?? ""}
+                        onChange={(e) => handleDateInputChange("start_date", e.target.value)}
                       />
                     </div>
                     <div className="flex-1 space-y-1">
                       <span className="text-xs uppercase tracking-wide text-muted-foreground">End Date</span>
                       <Input
                         id="end-date"
-                        type="date"
-                        value={editedAssignment.end_date}
-                        onChange={(e) =>
-                          setEditedAssignment((prev) => (prev ? { ...prev, end_date: e.target.value } : null))
-                        }
+                        type="text"
+                        inputMode="numeric"
+                        pattern="\\d{4}-\\d{2}-\\d{2}"
+                        placeholder="yyyy-mm-dd"
+                        value={normalizeDateOnly(editedAssignment.end_date) ?? ""}
+                        onChange={(e) => handleDateInputChange("end_date", e.target.value)}
                       />
                     </div>
                   </div>
@@ -408,10 +479,16 @@ export function AssignmentSidebar({
                       </div>
                     )}
                     {unitLessons.map((lesson, lessonIndex) => {
-                      const assignedDate = lessonAssignmentsByLessonId.get(lesson.lesson_id)?.start_date ?? ""
+                      const assignedDateRaw = lessonAssignmentsByLessonId.get(lesson.lesson_id)?.start_date ?? ""
+                      const assignedDate = normalizeDateOnly(assignedDateRaw) ?? ""
+                      const selectedLessonDate = lessonDateDrafts[lesson.lesson_id] ?? assignedDate
                       const assignedDateIndex = assignmentDateOptions.findIndex(
-                        (option) => option.value === assignedDate,
+                        (option) => option.value === selectedLessonDate,
                       )
+                      const selectOptions =
+                        assignedDateIndex === -1 && selectedLessonDate
+                          ? [{ value: selectedLessonDate, label: selectedLessonDate }, ...assignmentDateOptions]
+                          : assignmentDateOptions
                       const assignmentKey = `${editedAssignment.group_id}__${lesson.lesson_id}`
                       const isPending = Boolean(pendingLessonAssignmentKeys?.[assignmentKey])
                       const validAssignedDate = assignedDateIndex !== -1
@@ -420,11 +497,8 @@ export function AssignmentSidebar({
                         assignmentDateOptions.length > 0 &&
                         validAssignedDate &&
                         !isPending
-                      const canPlanBackward =
-                        canPlanFromHere &&
-                        lessonIndex > 0 &&
-                        assignedDateIndex > 0
-                      const canClear = Boolean(onLessonDateChange) && Boolean(assignedDate) && !isPending
+                      const canPlanBackward = canPlanFromHere && lessonIndex > 0 && assignedDateIndex > 0
+                      const canClear = Boolean(onLessonDateChange) && Boolean(selectedLessonDate) && !isPending
 
                       return (
                         <div
@@ -441,12 +515,17 @@ export function AssignmentSidebar({
                           </div>
                           <div className="flex items-center gap-2">
                             <Select
-                              value={validAssignedDate ? assignedDate : undefined}
+                              value={selectedLessonDate || undefined}
                               onValueChange={(value) => {
-                                if (value === assignedDate) {
+                                const normalizedValue = normalizeDateOnly(value)
+                                if (!normalizedValue || normalizedValue === selectedLessonDate) {
                                   return
                                 }
-                                onLessonDateChange?.(lesson.lesson_id, value)
+                                setLessonDateDrafts((prev) => ({
+                                  ...prev,
+                                  [lesson.lesson_id]: normalizedValue,
+                                }))
+                                onLessonDateChange?.(lesson.lesson_id, normalizedValue)
                               }}
                               disabled={!onLessonDateChange || isPending || assignmentDateOptions.length === 0}
                             >
@@ -454,7 +533,7 @@ export function AssignmentSidebar({
                                 <SelectValue placeholder={assignmentDateOptions.length ? "Select a date" : "No dates"} />
                               </SelectTrigger>
                               <SelectContent>
-                                {assignmentDateOptions.map((option) => (
+                                {selectOptions.map((option) => (
                                   <SelectItem key={option.value} value={option.value}>
                                     {option.label}
                                   </SelectItem>
@@ -475,6 +554,11 @@ export function AssignmentSidebar({
                                     if (!canClear) {
                                       return
                                     }
+                                    setLessonDateDrafts((prev) => {
+                                      const next = { ...prev }
+                                      delete next[lesson.lesson_id]
+                                      return next
+                                    })
                                     onLessonDateChange?.(lesson.lesson_id, null)
                                   }}
                                 >

@@ -337,7 +337,12 @@ export function createLocalStorageClient(bucket: string) {
       try {
         const { scopePath: rawScope, fileName } = parseFullPath(fullPath)
         const scopePath = normalizeScope(bucket, rawScope)
-        const urlPath = [bucket, scopePath, fileName].filter(Boolean).map(encodeURIComponent).join("/")
+        const parts = [
+          bucket,
+          ...scopePath.split("/").filter(Boolean),
+          fileName,
+        ].map(encodeURIComponent)
+        const urlPath = parts.join("/")
         return { data: { signedUrl: `/api/files/${urlPath}` }, error: null as StorageError | null }
       } catch (error) {
         return { data: null, error: { message: "Invalid path" } }

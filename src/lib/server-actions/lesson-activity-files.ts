@@ -142,9 +142,9 @@ export async function listActivityFilesAction(lessonId: string, activityId: stri
       ActivityFileSchema.parse({
         name: file.name,
         path: buildFilePath(lessonId, activityId, file.name),
-        created_at: file.created_at ?? undefined,
-        updated_at: file.updated_at ?? undefined,
-        last_accessed_at: file.last_accessed_at ?? undefined,
+        created_at: normaliseTimestamp(file.created_at),
+        updated_at: normaliseTimestamp(file.updated_at),
+        last_accessed_at: normaliseTimestamp(file.last_accessed_at),
         size: file.metadata?.size ?? undefined,
       }),
     )
@@ -220,7 +220,6 @@ export async function uploadActivityFileAction(formData: FormData) {
       })
 
       revalidatePath(`/units/${unitId}`)
-      revalidatePath(`/lessons/${lessonId}`)
       return { success: true }
     },
   )
@@ -241,7 +240,6 @@ export async function deleteActivityFileAction(
   }
 
   revalidatePath(`/units/${unitId}`)
-  revalidatePath(`/lessons/${lessonId}`)
   return { success: true }
 }
 
@@ -489,7 +487,7 @@ export async function uploadPupilActivitySubmissionAction(formData: FormData) {
         submissionStatus: "inprogress",
       })
 
-      revalidatePath(`/pupil-lessons/${encodeURIComponent(userId)}/lessons/${encodeURIComponent(lessonId)}`)
+      deferRevalidate(`/pupil-lessons/${encodeURIComponent(userId)}/lessons/${encodeURIComponent(lessonId)}`)
       return { success: true }
     },
   )
@@ -562,7 +560,7 @@ export async function deletePupilActivitySubmissionAction(
         submissionStatus: "missing",
       })
 
-      revalidatePath(`/pupil-lessons/${encodeURIComponent(pupilId)}/lessons/${encodeURIComponent(lessonId)}`)
+      deferRevalidate(`/pupil-lessons/${encodeURIComponent(pupilId)}/lessons/${encodeURIComponent(lessonId)}`)
       return { success: true }
     },
   )
@@ -789,4 +787,10 @@ async function cleanupUploadSubmissionRecord({
   await client.query("delete from submissions where submission_id = $1", [data.submission_id])
 
   return { success: true, submissionId: data.submission_id ?? null }
+}
+const deferRevalidate = (path: string) => {
+  if (path.includes("/lessons/")) {
+    return
+  }
+  queueMicrotask(() => revalidatePath(path))
 }

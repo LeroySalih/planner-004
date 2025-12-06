@@ -16,6 +16,7 @@ import {
   triggerUnitDeactivateJobAction,
   triggerUnitUpdateJobAction,
 } from "@/lib/server-updates"
+import { createUnitAction } from "@/lib/server-actions/units"
 
 interface UnitEditSidebarProps {
   unit: Unit
@@ -34,7 +35,9 @@ export function UnitEditSidebar({
   onOptimisticUpdate,
   onJobQueued,
 }: UnitEditSidebarProps) {
+  const isCreateMode = !unit.unit_id
   const [formState, setFormState] = useState({
+    unitId: unit.unit_id ?? "",
     title: unit.title ?? "",
     subject: unit.subject,
     description: unit.description ?? "",
@@ -74,6 +77,7 @@ export function UnitEditSidebar({
   useEffect(() => {
     if (!isOpen) return
     setFormState({
+      unitId: unit.unit_id ?? "",
       title: unit.title ?? "",
       subject: unit.subject,
       description: unit.description ?? "",
@@ -141,7 +145,10 @@ export function UnitEditSidebar({
 
   const isPending = updatePending || deactivatePending || pendingTransition
   const isSaveDisabled =
-    isPending || formState.title.trim().length === 0 || formState.subject.trim().length === 0
+    isPending ||
+    formState.title.trim().length === 0 ||
+    formState.subject.trim().length === 0 ||
+    (isCreateMode && formState.unitId.trim().length === 0)
 
   const handleSave = () => {
     if (updatePending) return
@@ -153,11 +160,45 @@ export function UnitEditSidebar({
       return
     }
 
+    const trimmedUnitId = formState.unitId.trim()
+    const trimmedTitle = formState.title.trim()
+    const trimmedSubject = formState.subject.trim()
+    const sanitizedDescription = formState.description.trim() || null
+
+    if (isCreateMode && trimmedUnitId.length === 0) {
+      toast.error("Unit ID is required")
+      return
+    }
+
+    if (isCreateMode) {
+      startTransition(() => {
+        void (async () => {
+          const result = await createUnitAction(
+            trimmedUnitId,
+            trimmedTitle,
+            trimmedSubject,
+            sanitizedDescription,
+            parsedYear,
+          )
+
+          if (result.error || !result.data) {
+            toast.error(result.error ?? "Unable to create unit.")
+            return
+          }
+
+          toast.success("Unit created")
+          onOptimisticUpdateRef.current?.(result.data)
+          onCloseRef.current()
+        })()
+      })
+      return
+    }
+
     const optimisticUnit: Unit = {
       ...unit,
-      title: formState.title.trim(),
-      subject: formState.subject,
-      description: formState.description.trim() || null,
+      title: trimmedTitle,
+      subject: trimmedSubject,
+      description: sanitizedDescription,
       year: parsedYear,
     }
 
@@ -202,12 +243,27 @@ export function UnitEditSidebar({
       <div className="relative ml-auto w-full max-w-md border-l bg-background shadow-xl">
         <Card className="h-full rounded-none border-0">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-            <CardTitle className="text-xl font-semibold">Edit Unit</CardTitle>
+            <CardTitle className="text-xl font-semibold">{isCreateMode ? "Create Unit" : "Edit Unit"}</CardTitle>
             <Button variant="ghost" size="icon" onClick={onClose} disabled={isPending}>
               <X className="h-4 w-4" />
             </Button>
           </CardHeader>
           <CardContent className="space-y-6">
+            <div className="space-y-2">
+              <Label htmlFor="unit-id">Unit ID</Label>
+              <Input
+                id="unit-id"
+                value={formState.unitId}
+                onChange={(event) => setFormState((prev) => ({ ...prev, unitId: event.target.value }))}
+                placeholder="e.g. 1001-CORE-1"
+                disabled={isPending || !isCreateMode}
+                readOnly={!isCreateMode}
+              />
+              {!isCreateMode ? (
+                <p className="text-xs text-muted-foreground">Unit ID cannot be changed for existing units.</p>
+              ) : null}
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="unit-title">Title</Label>
               <Input
@@ -272,22 +328,28 @@ export function UnitEditSidebar({
             <div className="space-y-2">
               <Label>Status</Label>
               <div className="rounded-lg border border-dashed bg-muted/30 p-3 text-sm text-muted-foreground">
-                {unit.active ? "This unit is currently active." : "This unit is currently inactive."}
+                {isCreateMode
+                  ? "New units are created as active."
+                  : unit.active
+                    ? "This unit is currently active."
+                    : "This unit is currently inactive."}
               </div>
             </div>
 
             <div className="flex flex-col gap-3 pt-2">
               <Button onClick={handleSave} disabled={isSaveDisabled}>
-                Save Changes
+                {isCreateMode ? "Create Unit" : "Save Changes"}
               </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                onClick={handleDeactivate}
-                disabled={isPending || unit.active === false}
-              >
-                Mark as Inactive
-              </Button>
+              {isCreateMode ? null : (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={handleDeactivate}
+                  disabled={isPending || unit.active === false}
+                >
+                  Mark as Inactive
+                </Button>
+              )}
               <Button variant="outline" className="bg-transparent" onClick={onClose} disabled={isPending}>
                 Cancel
               </Button>

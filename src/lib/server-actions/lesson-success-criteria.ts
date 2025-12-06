@@ -145,7 +145,6 @@ export async function linkLessonSuccessCriterionAction(input: z.infer<typeof mut
       [payload.lessonId, payload.successCriteriaId],
     )
 
-  revalidatePath(`/lessons/${payload.lessonId}`)
   return { success: true, error: null }
   } catch (error) {
     console.error("[lesson-success-criteria] Failed to link success criterion:", error)
@@ -168,7 +167,6 @@ export async function unlinkLessonSuccessCriterionAction(input: z.infer<typeof m
       [payload.lessonId, payload.successCriteriaId],
     )
 
-  revalidatePath(`/lessons/${payload.lessonId}`)
   return { success: true, error: null }
   } catch (error) {
     console.error("[lesson-success-criteria] Failed to unlink success criterion:", error)

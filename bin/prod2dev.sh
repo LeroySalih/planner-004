@@ -3,6 +3,7 @@ set -euo pipefail
 
 # Optionally set this here, or export it before running the script
 # export PGPASSWORD="your-super-secret-and-long-postgres-password"
+source ../postgres/.env
 
 : "${PGPASSWORD:?PGPASSWORD must be set}"
 export PROD_DATABASE_URL="postgresql://postgres.local:${PGPASSWORD}@157.245.98.25:5432/postgres"

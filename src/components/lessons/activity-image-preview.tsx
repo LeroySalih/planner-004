@@ -6,6 +6,7 @@ import type { MouseEvent } from "react"
 import { ZoomIn, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { MediaImage } from "@/components/ui/media-image"
 import { cn } from "@/lib/utils"
 
 interface ActivityImagePreviewProps {
@@ -59,20 +60,27 @@ export function ActivityImagePreview({
 
   const standardImage = useMemo(
     () => (
-      <div className={cn("relative w-full overflow-hidden rounded-lg border border-border", className)}>
+      <div
+        className={cn(
+          "relative w-full overflow-hidden rounded-lg border border-border",
+          objectFit === "contain" ? "aspect-[4/3]" : "aspect-video",
+          className,
+        )}
+      >
         <button
           type="button"
           onClick={() => setIsOpen(true)}
           className="group block w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           <span className="sr-only">Expand image</span>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
+          <MediaImage
             src={imageUrl}
             alt={alt}
+            fill
+            sizes="(max-width: 768px) 100vw, 480px"
             className={cn(
-              "h-auto w-full object-cover transition",
-              objectFit === "contain" && "object-contain",
+              "transition",
+              objectFit === "contain" ? "object-contain" : "object-cover",
               imageClassName,
             )}
             loading="lazy"

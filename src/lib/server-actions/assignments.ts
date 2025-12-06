@@ -7,6 +7,7 @@ import type { Assignment } from "@/types"
 import { AssignmentSchema, AssignmentsSchema } from "@/types"
 import { query } from "@/lib/db"
 import { withTelemetry } from "@/lib/telemetry"
+import { normalizeAssignmentWeek, normalizeDateOnly } from "@/lib/utils"
 
 const AssignmentReturnValue = z.object({
   data: AssignmentSchema.nullable(),
@@ -22,10 +23,20 @@ type RawAssignmentRow = {
 }
 
 function normalizeAssignmentRow(row: RawAssignmentRow) {
+  const snapped = normalizeAssignmentWeek(row.start_date, row.end_date)
+  const normalizedStart = snapped?.start ?? normalizeDateOnly(row.start_date)
+  const normalizedEnd = snapped?.end ?? normalizeDateOnly(row.end_date)
+
   return {
     ...row,
-    start_date: row.start_date instanceof Date ? row.start_date.toISOString() : row.start_date,
-    end_date: row.end_date instanceof Date ? row.end_date.toISOString() : row.end_date,
+    start_date:
+      normalizedStart ??
+      (row.start_date instanceof Date
+        ? row.start_date.toISOString().slice(0, 10)
+        : (row.start_date ?? "")),
+    end_date:
+      normalizedEnd ??
+      (row.end_date instanceof Date ? row.end_date.toISOString().slice(0, 10) : (row.end_date ?? "")),
   }
 }
 
@@ -42,13 +53,22 @@ export async function createAssignmentAction(
   startDate: string,
   endDate: string,
 ) {
-  console.log("[v0] Server action started for assignment creation:", { groupId, unitId, startDate, endDate })
+  const snapped = normalizeAssignmentWeek(startDate, endDate)
+  const normalizedStartDate = snapped?.start ?? normalizeDateOnly(startDate) ?? startDate
+  const normalizedEndDate = snapped?.end ?? normalizeDateOnly(endDate) ?? endDate
+
+  console.log("[v0] Server action started for assignment creation:", {
+    groupId,
+    unitId,
+    startDate: normalizedStartDate,
+    endDate: normalizedEndDate,
+  })
 
   const payload = {
     group_id: groupId,
     unit_id: unitId,
-    start_date: startDate,
-    end_date: endDate,
+    start_date: normalizedStartDate,
+    end_date: normalizedEndDate,
     active: true,
   }
 
@@ -60,16 +80,16 @@ export async function createAssignmentAction(
         where group_id = $4 and unit_id = $1 and start_date = $2 and active = false
         returning *
       `,
-      [unitId, startDate, endDate, groupId],
+      [payload.unit_id, payload.start_date, payload.end_date, payload.group_id],
     )
 
     if (reactivatedRows && reactivatedRows.length > 0) {
-      const assignment = reactivatedRows[0]
+      const assignment = normalizeAssignmentRow(reactivatedRows[0] as RawAssignmentRow)
       console.log("[v0] Server action completed by reactivating assignment:", {
         groupId,
         unitId,
-        startDate,
-        endDate,
+        startDate: payload.start_date,
+        endDate: payload.end_date,
       })
 
       revalidatePath("/")
@@ -82,12 +102,17 @@ export async function createAssignmentAction(
         values ($1, $2, $3, $4, true)
         returning *
       `,
-      [groupId, unitId, startDate, endDate],
+      [payload.group_id, payload.unit_id, payload.start_date, payload.end_date],
     )
 
-    const data = rows[0] ?? null
+    const data = rows[0] ? normalizeAssignmentRow(rows[0] as RawAssignmentRow) : null
 
-    console.log("[v0] Server action completed for assignment creation:", { groupId, unitId, startDate, endDate })
+    console.log("[v0] Server action completed for assignment creation:", {
+      groupId,
+      unitId,
+      startDate: payload.start_date,
+      endDate: payload.end_date,
+    })
 
     revalidatePath("/")
     return AssignmentReturnValue.parse({ data, error: null })
@@ -106,7 +131,13 @@ export async function createAssignmentAction(
 }
 
 export async function readAssignmentAction(groupId: string, unitId: string, startDate: string) {
-  console.log("[v0] Server action started for reading assignment:", { groupId, unitId, startDate })
+  const normalizedStartDate = normalizeAssignmentWeek(startDate, null)?.start ?? normalizeDateOnly(startDate) ?? startDate
+
+  console.log("[v0] Server action started for reading assignment:", {
+    groupId,
+    unitId,
+    startDate: normalizedStartDate,
+  })
 
   try {
     const { rows } = await query(
@@ -116,12 +147,16 @@ export async function readAssignmentAction(groupId: string, unitId: string, star
         where group_id = $1 and unit_id = $2 and start_date = $3 and active = true
         limit 1
       `,
-      [groupId, unitId, startDate],
+      [groupId, unitId, normalizedStartDate],
     )
 
-    const data = rows[0] ?? null
+    const data = rows[0] ? normalizeAssignmentRow(rows[0] as RawAssignmentRow) : null
 
-    console.log("[v0] Server action completed for reading assignment:", { groupId, unitId, startDate })
+    console.log("[v0] Server action completed for reading assignment:", {
+      groupId,
+      unitId,
+      startDate: normalizedStartDate,
+    })
 
     revalidatePath("/")
     return AssignmentReturnValue.parse({ data, error: null })
@@ -191,7 +226,13 @@ export async function readAssignmentsForGroupAction(
 }
 
 export async function deleteAssignmentAction(groupId: string, unitId: string, startDate: string) {
-  console.log("[v0] Server action started for deleting assignment:", { groupId, unitId, startDate })
+  const normalizedStartDate = normalizeAssignmentWeek(startDate, null)?.start ?? normalizeDateOnly(startDate) ?? startDate
+
+  console.log("[v0] Server action started for deleting assignment:", {
+    groupId,
+    unitId,
+    startDate: normalizedStartDate,
+  })
 
   try {
     const { rowCount } = await query(
@@ -199,7 +240,7 @@ export async function deleteAssignmentAction(groupId: string, unitId: string, st
         delete from assignments
         where group_id = $1 and unit_id = $2 and start_date = $3
       `,
-      [groupId, unitId, startDate],
+      [groupId, unitId, normalizedStartDate],
     )
 
     if (rowCount === 0) {
@@ -211,7 +252,11 @@ export async function deleteAssignmentAction(groupId: string, unitId: string, st
     return { success: false, error: message }
   }
 
-  console.log("[v0] Server action completed for deleting assignment:", { groupId, unitId, startDate })
+  console.log("[v0] Server action completed for deleting assignment:", {
+    groupId,
+    unitId,
+    startDate: normalizedStartDate,
+  })
 
   revalidatePath("/")
   return { success: true }
@@ -224,12 +269,20 @@ export async function updateAssignmentAction(
   endDate: string,
   options: { originalUnitId: string; originalStartDate: string },
 ) {
+  const snapped = normalizeAssignmentWeek(startDate, endDate)
+  const normalizedStartDate = snapped?.start ?? normalizeDateOnly(startDate) ?? startDate
+  const normalizedEndDate = snapped?.end ?? normalizeDateOnly(endDate) ?? endDate
+  const normalizedOriginalStart =
+    normalizeAssignmentWeek(options.originalStartDate, null)?.start ??
+    normalizeDateOnly(options.originalStartDate) ??
+    options.originalStartDate
+
   console.log("[v0] Server action started for updating assignment:", {
     groupId,
     unitId,
-    startDate,
-    endDate,
-    options,
+    startDate: normalizedStartDate,
+    endDate: normalizedEndDate,
+    options: { ...options, originalStartDate: normalizedOriginalStart },
   })
 
   try {
@@ -245,7 +298,7 @@ export async function updateAssignmentAction(
           and start_date = $6
         returning *
       `,
-      [unitId, startDate, endDate, groupId, options.originalUnitId, options.originalStartDate],
+      [unitId, normalizedStartDate, normalizedEndDate, groupId, options.originalUnitId, normalizedOriginalStart],
     )
 
     const data = rows?.[0] ? normalizeAssignmentRow(rows[0] as RawAssignmentRow) : null
@@ -256,8 +309,8 @@ export async function updateAssignmentAction(
     console.log("[v0] Server action completed for updating assignment:", {
       groupId,
       unitId,
-      startDate,
-      endDate,
+      startDate: normalizedStartDate,
+      endDate: normalizedEndDate,
     })
 
     revalidatePath("/")

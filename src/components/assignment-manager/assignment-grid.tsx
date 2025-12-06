@@ -5,6 +5,7 @@ import { useMemo } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { Group, Unit, Assignment, Lesson, LessonAssignment, LessonAssignmentScoreSummary } from "@/types"
+import { normalizeDateOnly } from "@/lib/utils"
 
 
 interface AssignmentGridProps {
@@ -34,6 +35,19 @@ interface GroupRow {
   tracks: TrackCell[][]
 }
 
+const toDayNumber = (value: string | Date | null | undefined) => {
+  const normalized = normalizeDateOnly(value)
+  if (!normalized) {
+    return null
+  }
+
+  const [year, month, day] = normalized.split("-").map(Number)
+  if (![year, month, day].every((part) => Number.isFinite(part))) {
+    return null
+  }
+
+  return Date.UTC(year, month - 1, day)
+}
 const POSITIVE_SEGMENT_COLOR = "#bbf7d0"
 const NEGATIVE_SEGMENT_COLOR = "#fecaca"
 const UNMARKED_SEGMENT_COLOR = "#e5e7eb"
@@ -62,34 +76,77 @@ export function AssignmentGrid({
     return map
   }, [lessonScoreSummaries])
 
+  const normalizedLessonAssignments = useMemo(
+    () =>
+      lessonAssignments.map((entry) => ({
+        ...entry,
+        start_date: normalizeDateOnly(entry.start_date) ?? entry.start_date,
+      })),
+    [lessonAssignments],
+  )
+
   const { weekStarts, gridData } = useMemo(() => {
-    const startDate = new Date("2025-09-07")
-    const endDate = new Date("2026-09-07")
+    const dayMs = 24 * 60 * 60 * 1000
+
+    const assignmentDayRanges = assignments
+      .map((a) => {
+        const start = toDayNumber(a.start_date)
+        const end = toDayNumber(a.end_date)
+        if (start === null || end === null) return null
+        return { start, end }
+      })
+      .filter((range): range is { start: number; end: number } => range !== null)
+
+    const minStartDay = assignmentDayRanges.reduce<number | null>(
+      (acc, range) => (acc === null || range.start < acc ? range.start : acc),
+      null,
+    )
+    const maxEndDay = assignmentDayRanges.reduce<number | null>(
+      (acc, range) => (acc === null || range.end > acc ? range.end : acc),
+      null,
+    )
+
+    const today = new Date()
+    const todayDay = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())
+    const startDay = minStartDay ?? todayDay
+    const endDay = Math.max(maxEndDay ?? startDay + 52 * 7 * dayMs, startDay + 12 * 7 * dayMs)
+
+    const startDateUtc = new Date(startDay)
+    const current = new Date(
+      Date.UTC(startDateUtc.getUTCFullYear(), startDateUtc.getUTCMonth(), startDateUtc.getUTCDate()),
+    )
+    current.setUTCHours(0, 0, 0, 0)
+    // Set to start of week (Sunday, UTC)
+    current.setUTCDate(current.getUTCDate() - current.getUTCDay())
+    current.setUTCHours(0, 0, 0, 0)
 
     const weekStarts: Date[] = []
-    const current = new Date(startDate)
-    // Set to start of week (Sunday)
-    current.setDate(current.getDate() - current.getDay())
 
-    while (current <= endDate) {
+    while (current.getTime() <= endDay) {
       weekStarts.push(new Date(current))
-      current.setDate(current.getDate() + 7)
+      current.setUTCDate(current.getUTCDate() + 7)
+      current.setUTCHours(0, 0, 0, 0)
     }
 
     const gridData: GroupRow[] = groups.map((group) => {
       const groupAssignments = assignments
         .filter((a) => a.group_id === group.group_id)
         .map((a) => {
-          const unit = units.find((u) => u.unit_id === a.unit_id)
-          if (!unit) {
-            return null
-          }
+          const unit =
+            units.find((u) => u.unit_id === a.unit_id) ??
+            ({
+              unit_id: a.unit_id,
+              title: a.unit_id,
+              description: null,
+              subject: "Unknown",
+              year: null,
+              active: true,
+            } as Unit)
           return {
             ...a,
             unit,
           }
         })
-        .filter((assignment): assignment is Assignment & { unit: Unit } => assignment !== null)
         .sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime())
 
       if (groupAssignments.length === 0) {
@@ -109,13 +166,16 @@ export function AssignmentGrid({
 
       const tracks: TrackCell[][] = []
 
-      const datesOverlap = (start1: Date, end1: Date, start2: Date, end2: Date) => {
+      const datesOverlapDays = (start1: number, end1: number, start2: number, end2: number) => {
         return start1 <= end2 && end1 >= start2
       }
 
       groupAssignments.forEach((assignment) => {
-        const assignmentStart = new Date(assignment.start_date)
-        const assignmentEnd = new Date(assignment.end_date)
+        const assignmentStartDay = toDayNumber(assignment.start_date)
+        const assignmentEndDay = toDayNumber(assignment.end_date)
+        if (assignmentStartDay === null || assignmentEndDay === null) {
+          return
+        }
 
         let trackIndex = 0
         let foundTrack = false
@@ -127,9 +187,12 @@ export function AssignmentGrid({
           } else {
             const hasOverlap = tracks[trackIndex].some((cell) => {
               if (!cell.assignment) return false
-              const cellStart = new Date(cell.assignment.start_date)
-              const cellEnd = new Date(cell.assignment.end_date)
-              return datesOverlap(assignmentStart, assignmentEnd, cellStart, cellEnd)
+              const cellStartDay =
+                toDayNumber(cell.assignment.start_date) ?? toDayNumber(new Date(cell.assignment.start_date))
+              const cellEndDay =
+                toDayNumber(cell.assignment.end_date) ?? toDayNumber(new Date(cell.assignment.end_date))
+              if (cellStartDay === null || cellEndDay === null) return false
+              return datesOverlapDays(assignmentStartDay, assignmentEndDay, cellStartDay, cellEndDay)
             })
 
             if (!hasOverlap) {
@@ -143,21 +206,20 @@ export function AssignmentGrid({
         const assignmentCells: TrackCell[] = []
 
         for (let i = 0; i < weekStarts.length; i++) {
-          const weekStart = weekStarts[i]
-          const weekEnd = new Date(weekStart)
-          weekEnd.setDate(weekEnd.getDate() + 6)
+          const weekStartDate = weekStarts[i]
+          const weekStartDay = toDayNumber(weekStartDate)!
+          const weekEndDay = weekStartDay + 6 * 24 * 60 * 60 * 1000
 
-          if (datesOverlap(assignmentStart, assignmentEnd, weekStart, weekEnd)) {
+          if (datesOverlapDays(assignmentStartDay, assignmentEndDay, weekStartDay, weekEndDay)) {
             const isStart = assignmentCells.length === 0
 
             if (isStart) {
               let colSpan = 1
               for (let j = i + 1; j < weekStarts.length; j++) {
-                const nextWeekStart = weekStarts[j]
-                const nextWeekEnd = new Date(nextWeekStart)
-                nextWeekEnd.setDate(nextWeekEnd.getDate() + 6)
+                const nextWeekStartDay = toDayNumber(weekStarts[j])!
+                const nextWeekEndDay = nextWeekStartDay + 6 * 24 * 60 * 60 * 1000
 
-                if (datesOverlap(assignmentStart, assignmentEnd, nextWeekStart, nextWeekEnd)) {
+                if (datesOverlapDays(assignmentStartDay, assignmentEndDay, nextWeekStartDay, nextWeekEndDay)) {
                   colSpan++
                 } else {
                   break
@@ -166,7 +228,7 @@ export function AssignmentGrid({
 
               assignmentCells.push({
                 groupId: group.group_id,
-                weekStart,
+                weekStart: weekStartDate, // use the same instance used in weekStarts for accurate matching
                 assignment,
                 colSpan,
                 isStart: true,
@@ -235,7 +297,10 @@ export function AssignmentGrid({
   const weekStartIndexLookup = useMemo(() => {
     const map = new Map<number, number>()
     weekStarts.forEach((weekStart, index) => {
-      map.set(weekStart.getTime(), index)
+      const dayNumber = toDayNumber(weekStart)
+      if (dayNumber !== null) {
+        map.set(dayNumber, index)
+      }
     })
     return map
   }, [weekStarts])
@@ -259,7 +324,7 @@ export function AssignmentGrid({
   const lessonAssignmentsByGroup = useMemo(() => {
     const map = new Map<string, Map<string, LessonAssignment>>()
 
-    lessonAssignments.forEach((lessonAssignment) => {
+    normalizedLessonAssignments.forEach((lessonAssignment) => {
       if (!map.has(lessonAssignment.group_id)) {
         map.set(lessonAssignment.group_id, new Map())
       }
@@ -268,26 +333,14 @@ export function AssignmentGrid({
     })
 
     return map
-  }, [lessonAssignments])
+  }, [normalizedLessonAssignments])
 
   const formatWeekStart = (date: Date) => {
-    return date.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    })
+    return normalizeDateOnly(date) ?? date.toISOString().slice(0, 10)
   }
 
   const formatShortDate = (dateString: string) => {
-    const parsed = new Date(dateString)
-    if (Number.isNaN(parsed.getTime())) {
-      return dateString
-    }
-
-    return parsed.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-    })
+    return normalizeDateOnly(dateString) ?? dateString
   }
 
   const getLessonsByWeekForCell = (cell: TrackCell) => {
@@ -309,8 +362,11 @@ export function AssignmentGrid({
       return []
     }
 
-    const assignmentStart = new Date(assignment.start_date)
-    const assignmentEnd = new Date(assignment.end_date)
+    const assignmentStartDay = toDayNumber(assignment.start_date)
+    const assignmentEndDay = toDayNumber(assignment.end_date)
+    if (assignmentStartDay === null || assignmentEndDay === null) {
+      return []
+    }
 
     const scheduledLessons = unitLessons
       .map((lesson) => {
@@ -319,27 +375,32 @@ export function AssignmentGrid({
           return null
         }
 
-        const lessonDate = new Date(lessonAssignment.start_date)
-        if (Number.isNaN(lessonDate.getTime())) {
+        const lessonDay = toDayNumber(lessonAssignment.start_date)
+        if (lessonDay === null) {
           return null
         }
 
-        if (lessonDate < assignmentStart || lessonDate > assignmentEnd) {
+        if (lessonDay < assignmentStartDay || lessonDay > assignmentEndDay) {
           return null
         }
 
-        return { lesson, assignment: lessonAssignment, date: lessonDate }
+        return { lesson, assignment: lessonAssignment, day: lessonDay }
       })
       .filter(
-        (entry): entry is { lesson: Lesson; assignment: LessonAssignment; date: Date } => entry !== null,
+        (entry): entry is { lesson: Lesson; assignment: LessonAssignment; day: number } => entry !== null,
       )
-      .sort((a, b) => a.date.getTime() - b.date.getTime())
+      .sort((a, b) => a.day - b.day)
 
     if (scheduledLessons.length === 0) {
       return []
     }
 
-    const startIndex = weekStartIndexLookup.get(cell.weekStart.getTime())
+    const cellWeekStartDay = toDayNumber(cell.weekStart)
+    if (cellWeekStartDay === null) {
+      return []
+    }
+
+    const startIndex = weekStartIndexLookup.get(cellWeekStartDay)
 
     if (startIndex === undefined) {
       return []
@@ -347,21 +408,21 @@ export function AssignmentGrid({
 
     const lessonsByWeek: {
       weekIndex: number
-      lessons: { lesson: Lesson; assignment: LessonAssignment; date: Date }[]
+      lessons: { lesson: Lesson; assignment: LessonAssignment; day: number }[]
     }[] = []
 
     for (let offset = 0; offset < cell.colSpan; offset++) {
       const weekIndex = startIndex + offset
-      const weekStart = weekStarts[weekIndex]
+      const rawWeekStart = weekStarts[weekIndex]
 
-      if (!weekStart) {
+      if (!rawWeekStart) {
         continue
       }
 
-      const weekEnd = new Date(weekStart)
-      weekEnd.setDate(weekEnd.getDate() + 6)
+      const weekStartDay = toDayNumber(rawWeekStart)!
+      const weekEndDay = weekStartDay + 6 * 24 * 60 * 60 * 1000
 
-      const lessonsForWeek = scheduledLessons.filter(({ date }) => date >= weekStart && date <= weekEnd)
+      const lessonsForWeek = scheduledLessons.filter(({ day }) => day >= weekStartDay && day <= weekEndDay)
       lessonsByWeek.push({ weekIndex, lessons: lessonsForWeek })
     }
 
@@ -481,6 +542,10 @@ export function AssignmentGrid({
                                     >
                                       {cell.assignment.unit.title}
                                     </button>
+                                    <p className="text-xs text-muted-foreground">
+                                      {formatShortDate(cell.assignment.start_date)} –{" "}
+                                      {formatShortDate(cell.assignment.end_date)}
+                                    </p>
                                   </div>
                                 </div>
                                 {hasScheduledLessons && (

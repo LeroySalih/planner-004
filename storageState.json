@@ -1,0 +1,15 @@
+{
+  "cookies": [
+    {
+      "name": "planner_session",
+      "value": "d42305dc-2c1b-4913-854a-82b3ee313a82.urtLUrqSjXYSc_a6z7w1SQB-VpcaQNpRawHEKNKL8Lc",
+      "domain": "localhost",
+      "path": "/",
+      "expires": 1767547952.143223,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": []
+}

@@ -22,6 +22,12 @@ const LessonFilesReturnValue = z.object({
   error: z.string().nullable(),
 })
 
+const LessonFileUploadResult = z.object({
+  success: z.boolean(),
+  error: z.string().nullable(),
+  files: z.array(LessonFileSchema).nullable().optional(),
+})
+
 function buildFilePath(lessonId: string, fileName: string) {
   return `${lessonId}/${fileName}`
 }
@@ -48,14 +54,20 @@ export async function listLessonFilesAction(
         return LessonFilesReturnValue.parse({ data: null, error: error.message })
       }
 
+      const toIsoOrUndefined = (value: unknown) => {
+        if (typeof value === "string") return value
+        if (value instanceof Date) return value.toISOString()
+        return undefined
+      }
+
       const normalized = (data ?? [])
         .map((file) =>
           LessonFileSchema.parse({
             name: file.name,
             path: buildFilePath(lessonId, file.name),
-            created_at: file.created_at ?? undefined,
-            updated_at: file.updated_at ?? undefined,
-            last_accessed_at: file.last_accessed_at ?? undefined,
+            created_at: toIsoOrUndefined(file.created_at),
+            updated_at: toIsoOrUndefined(file.updated_at),
+            last_accessed_at: toIsoOrUndefined(file.last_accessed_at),
             size: file.metadata?.size ?? undefined,
           }),
         )
@@ -105,10 +117,32 @@ export async function uploadLessonFileAction(formData: FormData) {
     return { success: false, error: error.message }
   }
 
-  revalidatePath(`/units/${unitId}`)
-  revalidatePath(`/lessons`)
-  revalidatePath(`/lessons/${lessonId}`)
-  return { success: true }
+  let latestFiles: Array<z.infer<typeof LessonFileSchema>> | null = null
+  try {
+    const { data: freshList, error: listError } = await storage.list(lessonId, { limit: 100 })
+    if (!listError) {
+      const toIsoOrUndefined = (value: unknown) => {
+        if (typeof value === "string") return value
+        if (value instanceof Date) return value.toISOString()
+        return undefined
+      }
+      latestFiles =
+        freshList?.map((item) =>
+          LessonFileSchema.parse({
+            name: item.name,
+            path: buildFilePath(lessonId, item.name),
+            created_at: toIsoOrUndefined(item.created_at),
+            updated_at: toIsoOrUndefined(item.updated_at),
+            last_accessed_at: toIsoOrUndefined(item.last_accessed_at),
+            size: item.metadata?.size ?? undefined,
+          }),
+        ) ?? null
+    }
+  } catch (listError) {
+    console.warn("[lessons] Unable to refresh lesson files after upload", listError)
+  }
+
+  return LessonFileUploadResult.parse({ success: true, error: null, files: latestFiles })
 }
 
 export async function deleteLessonFileAction(unitId: string, lessonId: string, fileName: string) {
@@ -120,10 +154,32 @@ export async function deleteLessonFileAction(unitId: string, lessonId: string, f
     return { success: false, error: error.message }
   }
 
-  revalidatePath(`/units/${unitId}`)
-  revalidatePath(`/lessons`)
-  revalidatePath(`/lessons/${lessonId}`)
-  return { success: true }
+  let latestFiles: Array<z.infer<typeof LessonFileSchema>> | null = null
+  try {
+    const { data: freshList, error: listError } = await storage.list(lessonId, { limit: 100 })
+    if (!listError) {
+      const toIsoOrUndefined = (value: unknown) => {
+        if (typeof value === "string") return value
+        if (value instanceof Date) return value.toISOString()
+        return undefined
+      }
+      latestFiles =
+        freshList?.map((item) =>
+          LessonFileSchema.parse({
+            name: item.name,
+            path: buildFilePath(lessonId, item.name),
+            created_at: toIsoOrUndefined(item.created_at),
+            updated_at: toIsoOrUndefined(item.updated_at),
+            last_accessed_at: toIsoOrUndefined(item.last_accessed_at),
+            size: item.metadata?.size ?? undefined,
+          }),
+        ) ?? null
+    }
+  } catch (listError) {
+    console.warn("[lessons] Unable to refresh lesson files after deletion", listError)
+  }
+
+  return LessonFileUploadResult.parse({ success: true, error: null, files: latestFiles })
 }
 
 export async function getLessonFileDownloadUrlAction(lessonId: string, fileName: string) {

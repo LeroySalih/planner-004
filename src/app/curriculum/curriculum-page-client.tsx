@@ -280,7 +280,11 @@ export function CurriculumPageClient({
       {!hasItems && !error ? (
         <div className="mt-8 rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">
           {items.length === 0
-            ? "No curricula found yet. Once curricula are created they will appear here."
+            ? (
+              <span data-testid="no curriculum loaded">
+                No curricula found yet. Once curricula are created they will appear here.
+              </span>
+            )
             : "No active curricula right now. Enable \"Show inactive curricula\" to review archived entries."}
         </div>
       ) : null}
@@ -294,6 +298,7 @@ export function CurriculumPageClient({
                   <Link
                     href={`/curriculum/${curriculum.curriculum_id}`}
                     className="inline-flex items-center underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    data-testid={curriculum.title}
                   >
                     {curriculum.title}
                   </Link>
