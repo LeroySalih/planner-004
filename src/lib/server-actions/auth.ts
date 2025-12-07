@@ -216,6 +216,7 @@ export async function signinAction(input: unknown): Promise<AuthResult> {
       }
 
       await createSession(profile.user_id)
+      console.info("[auth] sign-in success", { email, userId: profile.user_id, isTeacher: Boolean(profile.is_teacher) })
 
       return AuthResultSchema.parse({
         success: true,
