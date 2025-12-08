@@ -112,7 +112,7 @@ type ChartTooltipPayloadItem = {
   payload?: Record<string, unknown>
 }
 
-type ChartTooltipContentProps = React.ComponentProps<typeof RechartsPrimitive.Tooltip> &
+type ChartTooltipContentProps = Partial<RechartsPrimitive.TooltipProps<number, string>> &
   React.ComponentProps<'div'> & {
     hideLabel?: boolean
     hideIndicator?: boolean
