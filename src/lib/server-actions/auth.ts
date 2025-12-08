@@ -220,7 +220,7 @@ export async function signinAction(input: unknown): Promise<AuthResult> {
       await createSession(profile.user_id)
       console.info("[auth] sign-in success", { email, userId: profile.user_id, isTeacher: Boolean(profile.is_teacher) })
       if (!profile.is_teacher) {
-        const headerList = headers()
+        const headerList = await headers()
         const url = headerList.get("referer") ?? "/signin"
         await logPupilSignIn({ pupilId: profile.user_id, url })
       }

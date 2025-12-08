@@ -3,6 +3,7 @@ import { Pool, type PoolClient, type QueryResult } from "pg"
 let pool: Pool | null = null
 const MAX_CONNECT_RETRIES = 5
 const CONNECT_RETRY_DELAY_MS = 200
+const DB_LOG_PREFIX = "[db]"
 
 function resolveConnectionString() {
   return process.env.POSTSQL_URL ?? process.env.SUPABASE_DB_URL ?? process.env.DATABASE_URL ?? null
@@ -16,10 +17,15 @@ function getPool() {
     throw new Error("Database connection is not configured (POSTSQL_URL or SUPABASE_DB_URL missing).")
   }
 
-  pool = new Pool({
-    connectionString,
-    ssl: connectionString.includes("localhost") ? false : { rejectUnauthorized: false },
-  })
+  try {
+    pool = new Pool({
+      connectionString,
+      ssl: connectionString.includes("localhost") ? false : { rejectUnauthorized: false },
+    })
+  } catch (error) {
+    console.error(`${DB_LOG_PREFIX} failed to create pool`, error)
+    throw error
+  }
   pool.on("error", (error) => {
     console.error("[db] idle client error:", error)
   })
@@ -55,6 +61,10 @@ async function getClientWithRetry(): Promise<PoolClient> {
       const retryable = isRetryableError(error)
       const hasAttemptsLeft = attempt < MAX_CONNECT_RETRIES - 1
       if (!retryable || !hasAttemptsLeft) {
+        console.error(
+          `${DB_LOG_PREFIX} failed to obtain client after ${attempt + 1} attempt(s)`,
+          error,
+        )
         throw error
       }
       resetPool()
