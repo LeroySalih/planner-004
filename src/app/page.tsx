@@ -3,6 +3,15 @@ import Image from "next/image"
 import { query } from "@/lib/db"
 import { withTelemetry } from "@/lib/telemetry"
 
+const REQUIRED_ENV_VARS = [
+  "DATABASE_URL",
+  "SUPABASE_DB_URL",
+  "POSTSQL_URL",
+  "PUBLIC_SUPABASE_URL",
+  "SUPABASE_ANON_KEY",
+  "SUPABASE_SERVICE_ROLE_KEY",
+]
+
 async function fetchUnitsCount() {
   try {
     return await withTelemetry(
@@ -19,9 +28,19 @@ async function fetchUnitsCount() {
   }
 }
 
+function readEnvStatus() {
+  const seen = REQUIRED_ENV_VARS.map((name) => ({
+    name,
+    hasValue: Boolean(process.env[name]?.trim()),
+  }))
+  const present = seen.filter((entry) => entry.hasValue).length
+  return { seen, present, total: seen.length }
+}
+
 const Home = async () => {
   const unitsCount = await fetchUnitsCount()
   const status = unitsCount === null ? "Unable to reach database" : "Connection successful"
+  const envStatus = readEnvStatus()
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4 py-10 sm:px-8">
@@ -50,6 +69,31 @@ const Home = async () => {
         {unitsCount !== null && (
           <p className="mt-3 text-sm text-muted-foreground">Units table row count: {unitsCount}</p>
         )}
+      </div>
+
+      <div className="mt-4 w-full max-w-md rounded-lg border border-border bg-card p-6 text-card-foreground shadow-sm">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-muted-foreground">Environment readiness</p>
+            <p className="text-base font-semibold">
+              {envStatus.present}/{envStatus.total} required vars set
+            </p>
+          </div>
+          <span
+            className={`h-3 w-3 rounded-full ${
+              envStatus.present === envStatus.total ? "bg-emerald-500" : "bg-amber-500"
+            }`}
+            aria-hidden
+          />
+        </div>
+        <ul className="mt-3 space-y-1 text-sm text-muted-foreground">
+          {envStatus.seen.map((entry) => (
+            <li key={entry.name} className="flex items-center justify-between">
+              <span className="font-mono text-xs sm:text-sm">{entry.name}</span>
+              <span className={`ml-3 h-2.5 w-2.5 rounded-full ${entry.hasValue ? "bg-emerald-500" : "bg-destructive"}`} />
+            </li>
+          ))}
+        </ul>
       </div>
     </div>
   )
