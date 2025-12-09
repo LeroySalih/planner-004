@@ -6,7 +6,7 @@ const CONNECT_RETRY_DELAY_MS = 200
 const DB_LOG_PREFIX = "[db]"
 
 function resolveConnectionString() {
-  return process.env.POSTSQL_URL ?? process.env.SUPABASE_DB_URL ?? process.env.DATABASE_URL ?? null
+  return process.env.DATABASE_URL ?? null
 }
 
 function getPool() {

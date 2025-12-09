@@ -3,14 +3,7 @@ import Image from "next/image"
 import { query } from "@/lib/db"
 import { withTelemetry } from "@/lib/telemetry"
 
-const REQUIRED_ENV_VARS = [
-  "DATABASE_URL",
-  "SUPABASE_DB_URL",
-  "POSTSQL_URL",
-  "PUBLIC_SUPABASE_URL",
-  "SUPABASE_ANON_KEY",
-  "SUPABASE_SERVICE_ROLE_KEY",
-]
+const REQUIRED_ENV_VARS = ["DATABASE_URL"]
 
 async function fetchUnitsCount() {
   try {
@@ -24,7 +17,7 @@ async function fetchUnitsCount() {
     )
   } catch (error) {
     console.error("[home] failed to fetch units count", error)
-    return null
+    return error instanceof Error ? error.message : String(error)
   }
 }
 
@@ -39,7 +32,7 @@ function readEnvStatus() {
 
 const Home = async () => {
   const unitsCount = await fetchUnitsCount()
-  const status = unitsCount === null ? "Unable to reach database" : "Connection successful"
+  const status = typeof unitsCount === "string" ? "Unable to reach database" : "Connection successful"
   const envStatus = readEnvStatus()
 
   return (
@@ -66,9 +59,11 @@ const Home = async () => {
             aria-hidden
           />
         </div>
-        {unitsCount !== null && (
+        {typeof unitsCount === "string" ? (
+          <p className="mt-3 text-sm text-destructive">Error: {unitsCount}</p>
+        ) : unitsCount !== null ? (
           <p className="mt-3 text-sm text-muted-foreground">Units table row count: {unitsCount}</p>
-        )}
+        ) : null}
       </div>
 
       <div className="mt-4 w-full max-w-md rounded-lg border border-border bg-card p-6 text-card-foreground shadow-sm">
