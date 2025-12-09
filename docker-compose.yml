@@ -12,7 +12,7 @@ services:
 
     # Load environment variables for production
     env_file:
-      - .env
+      - .env.build
 
     environment:
       NODE_ENV: production
