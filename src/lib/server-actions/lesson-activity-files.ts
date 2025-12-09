@@ -784,7 +784,20 @@ async function cleanupUploadSubmissionRecord({
     return { success: true, submissionId: data.submission_id ?? null }
   }
 
-  await client.query("delete from submissions where submission_id = $1", [data.submission_id])
+  // Instead of deleting (which triggers realtime DELETE), reset the upload flags.
+  await client.query(
+    `
+      update submissions
+      set body = jsonb_set(
+        jsonb_set(body::jsonb, '{upload_submission}', 'false'::jsonb, true),
+        '{upload_file_name}', 'null'::jsonb,
+        true
+      ),
+      submission_status = 'inprogress'
+      where submission_id = $1
+    `,
+    [data.submission_id],
+  )
 
   return { success: true, submissionId: data.submission_id ?? null }
 }
