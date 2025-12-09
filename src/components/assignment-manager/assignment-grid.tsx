@@ -55,6 +55,7 @@ const LESSON_TITLE_COLOR = "#0f172a"
 const LESSON_DETAIL_COLOR = "#334155"
 const GROUP_COLUMN_WIDTH = "12rem"
 const WEEK_COLUMN_WIDTH = "8rem"
+const GRID_FIXED_START_DAY = Date.UTC(2025, 8, 14) // 14 Sept 2025 UTC
 
 export function AssignmentGrid({
   groups,
@@ -108,7 +109,7 @@ export function AssignmentGrid({
 
     const today = new Date()
     const todayDay = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())
-    const startDay = minStartDay ?? todayDay
+    const startDay = GRID_FIXED_START_DAY || minStartDay || todayDay
     const endDay = Math.max(maxEndDay ?? startDay + 52 * 7 * dayMs, startDay + 12 * 7 * dayMs)
 
     const startDateUtc = new Date(startDay)
