@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   web:
     build:
@@ -17,6 +19,9 @@ services:
     environment:
       NODE_ENV: production
       #DATABASE_URL: ${DATABASE_URL}
+
+    volumes:
+      - ./files:/app/files
 
     # Attach to the shared external network with Postgres
     networks:
