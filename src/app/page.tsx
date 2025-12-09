@@ -3,6 +3,8 @@ import Image from "next/image"
 import { query } from "@/lib/db"
 import { withTelemetry } from "@/lib/telemetry"
 
+export const dynamic = "force-dynamic"
+
 const REQUIRED_ENV_VARS = ["DATABASE_URL"]
 
 async function fetchUnitsCount() {
