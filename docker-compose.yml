@@ -16,7 +16,7 @@ services:
 
     environment:
       NODE_ENV: production
-      DATABASE_URL: ${DATABASE_URL}
+      #DATABASE_URL: ${DATABASE_URL}
 
     # Attach to the shared external network with Postgres
     networks:
