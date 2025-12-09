@@ -9,6 +9,31 @@ function resolveConnectionString() {
   return process.env.DATABASE_URL ?? null
 }
 
+function resolveSslConfig(connectionString: string) {
+  try {
+    const url = new URL(connectionString)
+    const sslMode = (url.searchParams.get("sslmode") ?? "").toLowerCase()
+    const host = url.hostname.toLowerCase()
+
+    // Local Docker/compose hosts typically have no SSL enabled.
+    if (host === "db" || host === "localhost" || host === "127.0.0.1") {
+      return false
+    }
+
+    if (sslMode === "disable") {
+      return false
+    }
+    if (sslMode === "require" || sslMode === "verify-ca" || sslMode === "verify-full") {
+      return { rejectUnauthorized: false }
+    }
+  } catch {
+    // Fall through to heuristic below.
+  }
+
+  // Default to no SSL unless explicitly required.
+  return false
+}
+
 function getPool() {
   if (pool) return pool
 
@@ -20,7 +45,7 @@ function getPool() {
   try {
     pool = new Pool({
       connectionString,
-      ssl: connectionString.includes("localhost") ? false : { rejectUnauthorized: false },
+      ssl: resolveSslConfig(connectionString),
     })
   } catch (error) {
     console.error(`${DB_LOG_PREFIX} failed to create pool`, error)
