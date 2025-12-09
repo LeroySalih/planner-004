@@ -23,6 +23,13 @@ const UnitFilesReturnValue = z.object({
   error: z.string().nullable(),
 })
 
+const toIsoString = (value: unknown) => {
+  if (!value) return undefined
+  if (typeof value === "string") return value
+  if (value instanceof Date) return value.toISOString()
+  return undefined
+}
+
 function buildFilePath(unitId: string, fileName: string) {
   return `${unitId}/${fileName}`
 }
@@ -58,9 +65,9 @@ export async function listUnitFilesAction(
           UnitFileSchema.parse({
             name: file.name,
             path: buildFilePath(unitId, file.name),
-            created_at: file.created_at ?? undefined,
-            updated_at: file.updated_at ?? undefined,
-            last_accessed_at: file.last_accessed_at ?? undefined,
+            created_at: toIsoString(file.created_at),
+            updated_at: toIsoString(file.updated_at),
+            last_accessed_at: toIsoString(file.last_accessed_at),
             size: file.metadata?.size ?? undefined,
           }),
         )
