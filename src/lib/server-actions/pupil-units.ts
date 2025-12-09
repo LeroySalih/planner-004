@@ -298,21 +298,19 @@ export async function readPupilUnitsBootstrapAction(pupilId: string, options?: T
                 updated_at: string | Date | null
               }>(
                 `
-                  with lesson_file_objects as (
-                    select
-                      split_part(obj.name, '/', 1) as lesson_id,
-                      regexp_replace(obj.name, '^[^/]+/', '') as name,
-                      obj.name as path,
-                      obj.metadata ->> 'mimetype' as mime_type,
-                      nullif((obj.metadata ->> 'size')::bigint, 0) as size,
-                      obj.updated_at
-                    from storage.objects obj
-                    where obj.bucket_id = 'lessons'
-                      and split_part(obj.name, '/', 1) = any($1::text[])
-                      and regexp_replace(obj.name, '^[^/]+/', '') <> ''
-                      and obj.name not like split_part(obj.name, '/', 1) || '/activities/%'
-                  )
-                  select * from lesson_file_objects
+                  select
+                    scope_path as lesson_id,
+                    file_name as name,
+                    scope_path || '/' || file_name as path,
+                    content_type as mime_type,
+                    size_bytes as size,
+                    updated_at
+                  from stored_files
+                  where bucket = 'lessons'
+                    and scope_path = any($1::text[])
+                    and file_name is not null
+                    and file_name <> ''
+                    and file_name not like 'activities/%'
                 `,
                 [lessonIds],
               ),
