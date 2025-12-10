@@ -1,7 +1,7 @@
 const { Pool } = require("pg")
 
 function resolveConnectionString() {
-  return process.env.POSTSQL_URL ?? process.env.SUPABASE_DB_URL ?? process.env.DATABASE_URL ?? null
+  return process.env.DATABASE_URL ?? null
 }
 
 function getPoolOptions(connectionString) {
@@ -14,7 +14,7 @@ function getPoolOptions(connectionString) {
 async function main() {
   const connectionString = resolveConnectionString()
   if (!connectionString) {
-    console.error("No database URL provided (POSTSQL_URL, SUPABASE_DB_URL, or DATABASE_URL)")
+    console.error("No database URL provided (DATABASE_URL)")
     process.exitCode = 1
     return
   }
