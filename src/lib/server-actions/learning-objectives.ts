@@ -40,13 +40,13 @@ export type LearningObjectiveWithCriteria = z.infer<typeof LearningObjectiveWith
 export type SuccessCriteriaInput = z.infer<typeof SuccessCriteriaInputSchema>
 
 function resolvePgConnectionString() {
-  return process.env.POSTSQL_URL ?? process.env.SUPABASE_DB_URL ?? process.env.DATABASE_URL ?? null
+  return process.env.DATABASE_URL ?? null
 }
 
 function createPgClient() {
   const connectionString = resolvePgConnectionString()
   if (!connectionString) {
-    throw new Error("Database connection is not configured (POSTSQL_URL or SUPABASE_DB_URL missing).")
+    throw new Error("Database connection is not configured (DATABASE_URL missing).")
   }
 
   return new Client({
