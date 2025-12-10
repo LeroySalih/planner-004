@@ -12,10 +12,10 @@ if [[ -f "$ENV_FILE" ]]; then
   set +a
 fi
 
-DB_URL="${POSTSQL_URL:-${DATABASE_URL:-}}"
+DB_URL="${DATABASE_URL:-}"
 
 if [[ -z "$DB_URL" ]]; then
-  echo "[db:clean] POSTSQL_URL (or fallback DATABASE_URL) is not set (checked .env). Export it before running." >&2
+  echo "[db:clean] DATABASE_URL is not set (checked .env). Export it before running." >&2
   exit 1
 fi
 
