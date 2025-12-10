@@ -37,7 +37,7 @@ export async function readSubjectsAction(options?: {
       let error: string | null = null
 
       const connectionString =
-        process.env.POSTSQL_URL ?? process.env.SUPABASE_DB_URL ?? process.env.DATABASE_URL ?? null
+        process.env.DATABASE_URL ?? null
 
       if (!connectionString) {
         console.error("[v0] readSubjectsAction missing database connection string")

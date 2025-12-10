@@ -39,7 +39,7 @@ function getPool() {
 
   const connectionString = resolveConnectionString()
   if (!connectionString) {
-    throw new Error("Database connection is not configured (POSTSQL_URL or SUPABASE_DB_URL missing).")
+    throw new Error("Database connection is not configured (DATABASE_URL missing).")
   }
 
   try {
