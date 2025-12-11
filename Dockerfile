@@ -1,37 +1,20 @@
-# ---------- Builder stage ----------
-FROM node:20-alpine AS builder
+FROM node:20-alpine
 
+# Set working directory inside the container
 WORKDIR /app
 
-# Install deps based on lockfile
+# Copy package files and install dependencies
 COPY package*.json ./
-RUN npm ci -f
+RUN npm install
 
-# Copy the app source
+# Copy the rest of the app source
 COPY . .
 
-# Build Next.js app
+# Build the Next.js app
 RUN npm run build
 
-# ---------- Runtime stage ----------
-FROM node:20-alpine AS runner
-
-WORKDIR /app
-ENV NODE_ENV=production
-
-# Only copy package files needed at runtime
-COPY package*.json ./
-
-# Install production dependencies only
-RUN npm ci --omit=dev -f
-
-# Copy built app and public assets from builder
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/public ./public
-
-
-# Next.js listens on 3000 by default
+# Next.js listens on port 3000 by default
 EXPOSE 3000
 
-# Start Next.js in production mode
+# Start the app in production mode
 CMD ["npm", "run", "start"]
