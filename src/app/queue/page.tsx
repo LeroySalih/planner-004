@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic"
+
 import { QueueList } from "@/components/queue/queue-list"
 import { readQueueAllItemsAction } from "@/lib/server-updates"
 
