@@ -720,6 +720,13 @@ export function LessonSidebar({
       setActivityUploading((prev) => ({ ...prev, [activityId]: true }))
 
       try {
+        console.log("[lesson-sidebar] Uploading voice recording", {
+          activityId,
+          file: file.name,
+          size: file.size,
+          durationMs,
+        })
+
         const formData = new FormData()
         formData.append("unitId", unitId)
         formData.append("lessonId", lesson.lesson_id)
@@ -858,23 +865,41 @@ export function LessonSidebar({
       return
     }
 
+    console.log("[lesson-sidebar] Uploading activity files", {
+      activityId,
+      count: filesArray.length,
+      names: filesArray.map((f) => f.name),
+    })
+
     setActivityUploading((prev) => ({ ...prev, [activityId]: true }))
 
     startTransition(async () => {
-      for (const file of filesArray) {
-        const formData = new FormData()
-        formData.append("unitId", unitId)
-        formData.append("lessonId", lesson.lesson_id)
-        formData.append("activityId", activityId)
-        formData.append("file", file)
+      try {
+        for (const file of filesArray) {
+          const formData = new FormData()
+          formData.append("unitId", unitId)
+          formData.append("lessonId", lesson.lesson_id)
+          formData.append("activityId", activityId)
+          formData.append("file", file)
 
-        const result = await uploadActivityFileAction(formData)
-        if (!result.success) {
-          toast.error("Failed to upload file", {
-            description: result.error ?? "Please try again later.",
-          })
-          break
+          const result = await uploadActivityFileAction(formData)
+          if (!result.success) {
+            console.error("[lesson-sidebar] Activity file upload failed", {
+              activityId,
+              file: file.name,
+              error: result.error,
+            })
+            toast.error("Failed to upload file", {
+              description: result.error ?? "Please try again later.",
+            })
+            break
+          }
         }
+      } catch (error) {
+        console.error("[lesson-sidebar] Unexpected error uploading activity files", { activityId, error })
+        toast.error("Upload failed", {
+          description: error instanceof Error ? error.message : "Please try again later.",
+        })
       }
 
       await refreshActivityFiles(activityId)

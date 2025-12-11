@@ -69,7 +69,8 @@ export function getActivityFileUrlValue(activity: LessonActivity): string {
   if (typeof activity.body_data !== "object" || activity.body_data === null) {
     return ""
   }
-  const fileUrl = (activity.body_data as Record<string, unknown>).fileUrl
+  const record = activity.body_data as Record<string, unknown>
+  const fileUrl = record.fileUrl ?? record.file_url
   return typeof fileUrl === "string" ? fileUrl : ""
 }
 
@@ -99,19 +100,23 @@ export function getImageBody(activity: LessonActivity): ImageBody {
   }
 
   const body = activity.body_data as Record<string, unknown>
-  const rawImageFile = typeof body.imageFile === "string" ? body.imageFile : null
-  const rawImageUrl = typeof body.imageUrl === "string" ? body.imageUrl : null
-  const rawFileUrl = typeof body.fileUrl === "string" ? body.fileUrl : null
+  const rawImageFile = typeof body.imageFile === "string" ? body.imageFile : body.image_file
+  const rawImageUrl = typeof body.imageUrl === "string" ? body.imageUrl : body.image_url
+  const rawFileUrl = typeof body.fileUrl === "string" ? body.fileUrl : body.file_url
 
-  let imageFile = rawImageFile
-  let imageUrl = rawImageUrl
+  const normalizedImageFile = typeof rawImageFile === "string" ? rawImageFile : null
+  const normalizedImageUrl = typeof rawImageUrl === "string" ? rawImageUrl : null
+  const normalizedFileUrl = typeof rawFileUrl === "string" ? rawFileUrl : null
 
-  if (!imageFile && rawFileUrl && !isAbsoluteUrl(rawFileUrl)) {
-    imageFile = rawFileUrl
+  let imageFile = normalizedImageFile
+  let imageUrl = normalizedImageUrl
+
+  if (!imageFile && normalizedFileUrl && !isAbsoluteUrl(normalizedFileUrl)) {
+    imageFile = normalizedFileUrl
   }
 
-  if (!imageUrl && rawFileUrl && isAbsoluteUrl(rawFileUrl)) {
-    imageUrl = rawFileUrl
+  if (!imageUrl && normalizedFileUrl && isAbsoluteUrl(normalizedFileUrl)) {
+    imageUrl = normalizedFileUrl
   }
 
   return {

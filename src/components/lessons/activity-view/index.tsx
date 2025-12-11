@@ -5,6 +5,7 @@ import type { LessonActivity } from "@/types"
 import { ActivityImagePreview } from "@/components/lessons/activity-image-preview"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
@@ -77,6 +78,7 @@ export interface LessonActivityShortViewProps extends LessonActivityViewBaseProp
   onSummativeChange?: (nextValue: boolean) => void
   summativeUpdating?: boolean
   summativeDisabled?: boolean
+  onImageClick?: (url: string, title: string | null) => void
 }
 
 export interface LessonActivityPresentViewProps extends LessonActivityViewBaseProps {
@@ -167,6 +169,7 @@ function ActivityShortView({
   onSummativeChange,
   summativeUpdating = false,
   summativeDisabled = false,
+  onImageClick,
 }: LessonActivityShortViewProps) {
   const hasSuccessCriteria = Array.isArray(activity.success_criteria) && activity.success_criteria.length > 0
   const isSummative = activity.is_summative ?? false
@@ -175,6 +178,16 @@ function ActivityShortView({
   const disableSummativeToggle = summativeUpdating || (summativeDisabled && !isSummative)
 
   const summativeSection = (() => {
+    if (summativeDisabled) {
+      return isSummative && !canToggleSummative ? (
+        <div key="summative" className="flex items-center gap-2">
+          <Badge variant="secondary" className="bg-primary/10 text-primary">
+            Assessment
+          </Badge>
+        </div>
+      ) : null
+    }
+
     if (canToggleSummative) {
       return (
         <div key="summative" className="flex items-center gap-2">
@@ -189,10 +202,6 @@ function ActivityShortView({
           </Label>
           {summativeUpdating ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-          ) : summativeDisabled ? (
-            <Badge variant="secondary" className="bg-muted/80 text-muted-foreground">
-              Not available for this activity type
-            </Badge>
           ) : null}
         </div>
       )
@@ -303,11 +312,19 @@ function ActivityShortView({
             }
           }}
           className="inline-flex cursor-pointer items-center break-all text-sm font-medium text-primary underline-offset-2 hover:underline"
+          aria-disabled={!url}
         >
           Watch video
         </span>
       )
     }
+  } else if (activity.type === "voice") {
+    const body = getVoiceBody(activity)
+    content = body.audioFile ? (
+      <p className="text-sm text-muted-foreground">Voice recording attached.</p>
+    ) : (
+      <p className="text-sm text-muted-foreground">No recording uploaded yet.</p>
+    )
   } else if (activity.type === "display-image") {
     content = (
       <DisplayImageShortView
@@ -315,14 +332,8 @@ function ActivityShortView({
         lessonId={lessonId ?? null}
         resolvedImageUrl={resolvedImageUrl ?? null}
         showImageBorder={showImageBorder}
+        onImageClick={onImageClick}
       />
-    )
-  } else if (activity.type === "voice") {
-    const body = getVoiceBody(activity)
-    content = body.audioFile ? (
-      <p className="text-sm text-muted-foreground">Voice recording attached.</p>
-    ) : (
-      <p className="text-sm text-muted-foreground">No recording uploaded yet.</p>
     )
   }
 
@@ -353,16 +364,19 @@ function DisplayImageShortView({
   lessonId,
   resolvedImageUrl,
   showImageBorder,
+  onImageClick,
 }: {
   activity: LessonActivity
   lessonId: string | null
   resolvedImageUrl: string | null
   showImageBorder: boolean
+  onImageClick?: (url: string, title: string | null) => void
 }) {
   const [state, setState] = useState<{ url: string | null; loading: boolean }>({
     url: null,
     loading: true,
   })
+  const [isModalOpen, setIsModalOpen] = useState(false)
 
   const normalizedLessonId = useMemo(() => {
     const fromProp = lessonId?.trim()
@@ -471,26 +485,65 @@ function DisplayImageShortView({
 
   if (state.url) {
     return (
-      <div
-        className={[
-          "relative h-24 w-32 overflow-hidden rounded-md bg-muted/30",
-          showImageBorder ? "border border-border" : "",
-        ]
-          .filter(Boolean)
-          .join(" ")}
-      >
-        <MediaImage
-          src={state.url}
-          alt={activity.title || "Activity image"}
-          fill
-          sizes="(max-width: 640px) 50vw, 160px"
-          className="object-cover"
-          loading="lazy"
-          onError={() => {
-            console.log("[lesson-activities] Failed to load thumbnail image:", state.url)
+      <>
+        <div
+          role="button"
+          tabIndex={0}
+          className={[
+            "relative h-24 w-32 overflow-hidden rounded-md bg-muted/30 transition",
+            showImageBorder ? "border border-border" : "",
+            "hover:ring-2 hover:ring-primary hover:ring-offset-2 focus:outline-hidden focus:ring-2 focus:ring-primary focus:ring-offset-2",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          onClick={() => {
+            if (onImageClick) {
+              onImageClick(state.url!, activity.title ?? null)
+              return
+            }
+            setIsModalOpen(true)
           }}
-        />
-      </div>
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault()
+              if (onImageClick) {
+                onImageClick(state.url!, activity.title ?? null)
+                return
+              }
+              setIsModalOpen(true)
+            }
+          }}
+          aria-disabled={!state.url}
+        >
+          <MediaImage
+            src={state.url}
+            alt={activity.title || "Activity image"}
+            fill
+            sizes="(max-width: 640px) 50vw, 160px"
+            className="object-cover"
+            loading="lazy"
+            onError={() => {
+              console.log("[lesson-activities] Failed to load thumbnail image:", state.url)
+            }}
+          />
+        </div>
+        {!onImageClick ? (
+          <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+            <DialogContent className="w-[90vw] max-w-[75vw]">
+              <DialogTitle>{activity.title || "Activity image"}</DialogTitle>
+              <div className="relative aspect-[4/3] w-full overflow-hidden rounded-md bg-muted">
+                <MediaImage
+                  src={state.url}
+                  alt={activity.title || "Activity image"}
+                  fill
+                  sizes="100vw"
+                  className="object-contain"
+                />
+              </div>
+            </DialogContent>
+          </Dialog>
+        ) : null}
+      </>
     )
   }
 
@@ -1036,22 +1089,36 @@ function ActivityEditView({ activity, resolvedImageUrl }: LessonActivityEditView
     const url = resolvedImageUrl ?? body.imageUrl ?? null
     if (url) {
       return (
-        <div className="relative mt-2 aspect-[4/3] w-full overflow-hidden rounded-md border border-border max-h-48">
-          <MediaImage
-            src={url}
-            alt={activity.title || "Activity image"}
-            fill
-            sizes="100vw"
-            className="object-cover"
-          />
+        <div className="space-y-3">
+          <div className="relative mt-2 aspect-[4/3] w-full overflow-hidden rounded-md border border-border max-h-48">
+            <MediaImage
+              src={url}
+              alt={activity.title || "Activity image"}
+              fill
+              sizes="100vw"
+              className="object-cover"
+            />
+          </div>
         </div>
       )
     }
     if (body.imageFile) {
       const attemptedUrl = resolvedImageUrl ?? body.imageUrl ?? body.imageFile
-      return <p className="break-all text-sm text-muted-foreground">{attemptedUrl}</p>
+      return (
+        <div className="space-y-3">
+          <p className="break-all text-sm text-muted-foreground">{attemptedUrl}</p>
+        </div>
+      )
     }
-    return <p className="text-sm text-muted-foreground">No image selected.</p>
+    console.error("[activities] No image found for display-image activity", {
+      activityId: activity.activity_id,
+      lessonId: activity.lesson_id,
+    })
+    return (
+      <div className="space-y-3">
+        <p className="text-sm text-muted-foreground">No image selected.</p>
+      </div>
+    )
   }
 
   if (activity.type === "voice") {
@@ -1355,7 +1422,12 @@ function DisplayImagePresent({
     let cancelled = false
     const body = getImageBody(activity)
     const record = (activity.body_data ?? {}) as Record<string, unknown>
-    const rawFileUrl = typeof record.fileUrl === "string" ? record.fileUrl : null
+    const rawFileUrl =
+      typeof record.fileUrl === "string"
+        ? record.fileUrl
+        : typeof record.file_url === "string"
+          ? record.file_url
+          : null
 
     const directUrl =
       (body.imageUrl && isAbsoluteUrl(body.imageUrl) ? body.imageUrl : null) ||
@@ -1373,6 +1445,10 @@ function DisplayImagePresent({
     const finalFileName = candidateFile ?? fallbackFile
 
     if (!finalFileName) {
+      console.error("[lesson-presentation] Missing image reference for display-image activity", {
+        activityId: activity.activity_id,
+        lessonId: activity.lesson_id,
+      })
       setState({ url: null, loading: false, error: null })
       return
     }
@@ -1434,14 +1510,16 @@ function DisplayImagePresent({
   }
 
   return (
-    <div className="flex h-full min-h-[240px] w-full items-center justify-center">
-      <ActivityImagePreview
-        imageUrl={url}
-        alt={activity.title ? `${activity.title} image` : "Activity image"}
-        objectFit="contain"
-        className="flex max-h-[60vh] w-full max-w-3xl items-center justify-center bg-muted/10 p-4"
-        imageClassName="max-h-[60vh]"
-      />
+    <div className="space-y-3">
+      <div className="flex h-full min-h-[240px] w-full items-center justify-center">
+        <ActivityImagePreview
+          imageUrl={url}
+          alt={activity.title ? `${activity.title} image` : "Activity image"}
+          objectFit="contain"
+          className="flex max-h-[60vh] w-full max-w-3xl items-center justify-center bg-muted/10 p-4"
+          imageClassName="max-h-[60vh]"
+        />
+      </div>
     </div>
   )
 }
