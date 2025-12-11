@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
@@ -124,6 +125,11 @@ export function LessonActivitiesManager({
   >({})
   const [homeworkPending, setHomeworkPending] = useState<Record<string, boolean>>({})
   const [summativePending, setSummativePending] = useState<Record<string, boolean>>({})
+  const [imageModal, setImageModal] = useState<{ open: boolean; url: string | null; title: string }>({
+    open: false,
+    url: null,
+    title: "",
+  })
   const [assignedGroups, setAssignedGroups] = useState<AssignedGroupInfo[]>([])
   const [assignedGroupsLoading, setAssignedGroupsLoading] = useState(false)
   const voiceAudioRef = useRef<HTMLAudioElement | null>(null)
@@ -291,9 +297,15 @@ export function LessonActivitiesManager({
           continue
         }
 
+        const existing = prev[activity.activity_id]
         const body = getImageBody(activity)
         const raw = (activity.body_data ?? {}) as Record<string, unknown>
-        const rawFileUrl = typeof raw.fileUrl === "string" ? raw.fileUrl : null
+        const rawFileUrl =
+          typeof raw.fileUrl === "string"
+            ? raw.fileUrl
+            : typeof raw.file_url === "string"
+              ? raw.file_url
+              : null
 
         const directUrl = body.imageUrl && isAbsoluteUrl(body.imageUrl) ? body.imageUrl : null
         const fallbackDirect =
@@ -310,7 +322,6 @@ export function LessonActivitiesManager({
         }
 
         if (finalFileName) {
-          const existing = prev[activity.activity_id]
           if (!existing || (!existing.url && !existing.loading && !existing.error)) {
             pendingFetches.push({ activity, fileName: finalFileName })
             next[activity.activity_id] = {
@@ -320,6 +331,13 @@ export function LessonActivitiesManager({
             }
           }
           continue
+        }
+
+        if (!existing || (!existing.url && !existing.loading && !existing.error)) {
+          console.error("[activities] Missing image reference for display-image activity", {
+            activityId: activity.activity_id,
+            lessonId: activity.lesson_id,
+          })
         }
 
         next[activity.activity_id] = { url: null, loading: false, error: false }
@@ -717,6 +735,11 @@ export function LessonActivitiesManager({
     [lessonId, router, startTransition, unitId],
   )
 
+  const openImageModal = useCallback((url: string | null, title: string) => {
+    if (!url) return
+    setImageModal({ open: true, url, title })
+  }, [])
+
   const isBusy = isPending
 
   const handleDragStart = (activityId: string) => (event: DragEvent<HTMLButtonElement>) => {
@@ -956,14 +979,20 @@ export function LessonActivitiesManager({
                 const fileStatus = fileDownloadState[activity.activity_id]
                 const isDisplayImage = activity.type === "display-image"
                 const imageBody = isDisplayImage ? getImageBody(activity) : null
-                const imageState = isDisplayImage ? imagePreviewState[activity.activity_id] : null
-                const imageThumbnail = isDisplayImage ? imageState?.url ?? imageBody?.imageUrl ?? null : null
-                const hasImageError = isDisplayImage ? imageState?.error ?? false : false
+                const imageThumbnail = isDisplayImage
+                  ? imagePreviewState[activity.activity_id]?.url ?? imageBody?.imageUrl ?? null
+                  : null
                 const isHomework = activity.is_homework ?? false
                 const homeworkUpdating = homeworkPending[activity.activity_id] ?? false
                 const summativeUpdating = summativePending[activity.activity_id] ?? false
                 const summativeDisabled = !isScorableActivityType(activity.type)
                 const switchId = `activity-homework-${activity.activity_id}`
+                const preview = renderActivityPreview(activity, imageThumbnail, {
+                  onSummativeChange: (checked) => toggleSummative(activity, checked),
+                  summativeUpdating,
+                  summativeDisabled,
+                  onImageClick: (url, title) => openImageModal(url, title ?? activity.title ?? "Activity image"),
+                })
                 return (
                   <li
                     key={activity.activity_id}
@@ -1027,35 +1056,6 @@ export function LessonActivitiesManager({
                               <span className="text-xs">Download</span>
                             </Button>
                           ) : null}
-                          {isDisplayImage ? (
-                            imageThumbnail ? (
-                              <a
-                                href={imageThumbnail}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex shrink-0"
-                              >
-                                <div className="relative h-[60px] w-[100px] overflow-hidden rounded-md border border-border">
-                                  <MediaImage
-                                    src={imageThumbnail}
-                                    alt="Activity image thumbnail"
-                                    fill
-                                    sizes="120px"
-                                    className="object-cover"
-                                    loading="lazy"
-                                  />
-                                </div>
-                              </a>
-                            ) : hasImageError ? (
-                              <div className="flex h-[60px] w-[100px] shrink-0 items-center justify-center rounded-md border border-destructive bg-destructive/10 text-[11px] text-destructive">
-                                Failed to load
-                              </div>
-                            ) : (
-                              <div className="flex h-[60px] w-[100px] shrink-0 items-center justify-center rounded-md border border-dashed border-border text-[11px] text-muted-foreground">
-                                No image
-                              </div>
-                            )
-                          ) : null}
                           {videoThumbnail ? (
                             <a
                               href={videoUrl}
@@ -1075,57 +1075,56 @@ export function LessonActivitiesManager({
                               </div>
                             </a>
                           ) : null}
-                          <div className="space-y-1">
-                            <p className="font-medium text-foreground">{activity.title}</p>
-                            <Badge variant="secondary" className="capitalize">
-                          {label}
-                        </Badge>
-                        <div className="flex items-center gap-2">
-                          <Switch
-                            id={switchId}
-                            checked={isHomework}
-                            disabled={isBusy || homeworkUpdating}
-                            onCheckedChange={(checked) => toggleHomework(activity, checked)}
-                          />
-                          <Label
-                            htmlFor={switchId}
-                            className="text-xs font-medium text-muted-foreground"
-                          >
-                            Homework
-                          </Label>
-                          {homeworkUpdating ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                          ) : null}
+                          <div className="flex flex-1 flex-col gap-2">
+                            <div className="flex w-full flex-wrap items-start justify-between gap-3">
+                              <div className="flex min-w-[200px] flex-1 flex-col gap-2 md:max-w-[33%] md:basis-1/3 md:flex-none">
+                                <p className="font-medium text-foreground">{activity.title}</p>
+                                <Badge variant="secondary" className="w-fit capitalize text-[10px] leading-3 px-1.5 py-0.5">
+                                  {label}
+                                </Badge>
+                              </div>
+                              {isDisplayImage ? <div className="shrink-0">{preview}</div> : null}
+                              <div className="flex items-center gap-2 ml-auto">
+                                <Switch
+                                  id={switchId}
+                                  checked={isHomework}
+                                  disabled={isBusy || homeworkUpdating}
+                                  onCheckedChange={(checked) => toggleHomework(activity, checked)}
+                                />
+                                <Label
+                                  htmlFor={switchId}
+                                  className="text-xs font-medium text-muted-foreground"
+                                >
+                                  Homework
+                                </Label>
+                                {homeworkUpdating ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                                ) : null}
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  onClick={() => openEditor(activity.activity_id)}
+                                  disabled={isBusy}
+                                  aria-label="Edit activity"
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  onClick={() => handleDeleteActivity(activity.activity_id)}
+                                  disabled={isBusy}
+                                  aria-label="Delete activity"
+                                >
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </div>
+                            </div>
+                            {!isDisplayImage ? preview : null}
+                          </div>
                         </div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            onClick={() => openEditor(activity.activity_id)}
-                            disabled={isBusy}
-                            aria-label="Edit activity"
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            onClick={() => handleDeleteActivity(activity.activity_id)}
-                            disabled={isBusy}
-                            aria-label="Delete activity"
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                    {renderActivityPreview(activity, imageThumbnail, {
-                      onSummativeChange: (checked) => toggleSummative(activity, checked),
-                      summativeUpdating,
-                      summativeDisabled,
-                    })}
                   </div>
                 </li>
               )
@@ -1162,11 +1161,39 @@ export function LessonActivitiesManager({
         isPending={isPending}
         onSubmit={handleEditorSubmit}
         unitId={unitId}
-        lessonId={lessonId}
-        assignedGroups={assignedGroups}
-        assignedGroupsLoading={assignedGroupsLoading}
-        availableSuccessCriteria={availableSuccessCriteria}
-      />
+      lessonId={lessonId}
+      assignedGroups={assignedGroups}
+      assignedGroupsLoading={assignedGroupsLoading}
+      availableSuccessCriteria={availableSuccessCriteria}
+    />
+
+      <Dialog
+        open={imageModal.open}
+        onOpenChange={(open) =>
+          setImageModal((prev) => ({
+            ...prev,
+            open,
+            ...(open ? {} : { url: null, title: "" }),
+          }))
+        }
+      >
+        <DialogContent className="w-[90vw] max-w-[75vw]">
+          <DialogTitle>{imageModal.title || "Activity image"}</DialogTitle>
+          {imageModal.url ? (
+            <div className="relative aspect-[4/3] w-full overflow-hidden rounded-md bg-muted">
+              <MediaImage
+                src={imageModal.url}
+                alt={imageModal.title || "Activity image"}
+                fill
+                sizes="100vw"
+                className="object-contain"
+              />
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Image not available.</p>
+          )}
+        </DialogContent>
+      </Dialog>
 
     </>
   )
@@ -1285,6 +1312,7 @@ function renderActivityPreview(
     onSummativeChange?: (nextValue: boolean) => void
     summativeUpdating?: boolean
     summativeDisabled?: boolean
+    onImageClick?: (url: string, title: string | null) => void
   },
 ) {
   return (
@@ -1296,6 +1324,7 @@ function renderActivityPreview(
       onSummativeChange={options?.onSummativeChange}
       summativeUpdating={options?.summativeUpdating}
       summativeDisabled={options?.summativeDisabled}
+      onImageClick={options?.onImageClick}
     />
   )
 }
@@ -1584,7 +1613,9 @@ function LessonActivityEditorSheet({
           ? nextBody.imageFile
           : typeof rawBody.fileUrl === "string" && rawBody.fileUrl.trim().length > 0
             ? (rawBody.fileUrl as string)
-            : null
+            : typeof rawBody.file_url === "string" && rawBody.file_url.trim().length > 0
+              ? (rawBody.file_url as string)
+              : null
 
       const candidateExternalUrl =
         typeof nextBody.imageUrl === "string" && nextBody.imageUrl.trim().length > 0
@@ -1833,12 +1864,32 @@ function LessonActivityEditorSheet({
       pendingImageObjectUrlRef.current = null
     }
 
-    const objectUrl = URL.createObjectURL(file)
-    pendingImageObjectUrlRef.current = objectUrl
     setPendingImageFile(file)
-    setImagePreviewUrl(objectUrl)
-    setIsImageLoading(false)
     setShouldDeleteExistingImage(false)
+    setIsImageLoading(true)
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : null
+      if (result) {
+        setImagePreviewUrl(result)
+      } else {
+        toast.error("Could not preview image", {
+          description: "Please try another image file.",
+        })
+        setImagePreviewUrl(null)
+      }
+      setIsImageLoading(false)
+    }
+    reader.onerror = () => {
+      toast.error("Could not read image", {
+        description: "Please try another image file.",
+      })
+      setIsImageLoading(false)
+      setImagePreviewUrl(null)
+    }
+    reader.readAsDataURL(file)
+
     setImageBody((prev) => {
       const next: ImageBody = {
         ...(prev ?? { imageFile: null, imageUrl: null }),
@@ -1913,7 +1964,9 @@ function LessonActivityEditorSheet({
         (original?.imageFile && original.imageFile.trim().length > 0) ||
           (original?.imageUrl && original.imageUrl.trim().length > 0) ||
           (typeof (original as Record<string, unknown>)?.fileUrl === "string" &&
-            ((original as Record<string, unknown>).fileUrl as string).trim().length > 0),
+            ((original as Record<string, unknown>).fileUrl as string).trim().length > 0) ||
+          (typeof (original as Record<string, unknown>)?.file_url === "string" &&
+            ((original as Record<string, unknown>).file_url as string).trim().length > 0),
       )
       setShouldDeleteExistingImage(hadOriginal)
     }
