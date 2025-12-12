@@ -224,7 +224,7 @@ function ActivityShortView({
 
   let content: ReactNode = null
 
-  if (activity.type === "text") {
+  if (activity.type === "text" || activity.type === "text-question") {
     const text = getActivityTextValue(activity)
     const markup = getRichTextMarkup(text)
     if (markup) {

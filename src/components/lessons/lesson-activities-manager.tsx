@@ -1482,7 +1482,7 @@ function buildBodyData(
   options: { text?: string; videoUrl?: string; fallback?: unknown },
 ): unknown {
   const { text = "", videoUrl = "", fallback = null } = options
-  if (type === "text") {
+  if (type === "text" || type === "text-question") {
     return { text }
   }
   if (type === "show-video") {
@@ -2361,7 +2361,7 @@ function LessonActivityEditorSheet({
   useEffect(() => {
     setRawBodyError(null)
     if (isCreateMode) {
-      if (type === "text" || type === "upload-file") {
+      if (type === "text" || type === "text-question" || type === "upload-file") {
         setVideoUrl("")
         setText("")
         setRawBody("")
@@ -2433,11 +2433,10 @@ function LessonActivityEditorSheet({
       return
     }
 
-    if (type === "text") {
+    if (type === "text" || type === "text-question") {
       setVideoUrl("")
-      if (activity) {
-        setRawBody(activity.body_data ? JSON.stringify(activity.body_data, null, 2) : "")
-      }
+      setText(activity ? extractText(activity) : "")
+      setRawBody("")
       return
     }
     if (type === "show-video") {
@@ -3020,7 +3019,7 @@ function LessonActivityEditorSheet({
             )}
           </div>
 
-          {type === "text" || type === "upload-file" ? (
+          {type === "text" || type === "text-question" || type === "upload-file" ? (
             <div className="space-y-2">
               <Label>
                 {type === "upload-file" ? "Instructions for pupils" : "Instructions"}
@@ -3474,6 +3473,7 @@ function LessonActivityEditorSheet({
           ) : null}
 
           {type !== "text" &&
+          type !== "text-question" &&
           type !== "show-video" &&
           type !== "voice" &&
           type !== "file-download" &&
