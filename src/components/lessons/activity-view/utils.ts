@@ -4,6 +4,7 @@ import type {
   FeedbackActivityBody,
   FeedbackActivityGroupSettings,
   LessonActivity,
+  LongTextActivityBody,
   ShortTextActivityBody,
 } from "@/types"
 
@@ -37,6 +38,7 @@ export interface McqBody {
 }
 
 export type ShortTextBody = ShortTextActivityBody
+export type LongTextBody = LongTextActivityBody
 
 const FEEDBACK_GROUP_DEFAULTS: FeedbackActivityGroupSettings = {
   isEnabled: false,
@@ -199,6 +201,25 @@ export function getShortTextBody(activity: LessonActivity): ShortTextBody {
     question,
     modelAnswer,
   } as ShortTextBody
+}
+
+export function getLongTextBody(activity: LessonActivity): LongTextBody {
+  if (!activity.body_data || typeof activity.body_data !== "object") {
+    return { question: "" }
+  }
+
+  const record = activity.body_data as Record<string, unknown>
+  const question =
+    typeof record.question === "string"
+      ? record.question
+      : typeof record.text === "string"
+        ? record.text
+        : ""
+
+  return {
+    ...(record as Record<string, unknown>),
+    question,
+  } as LongTextBody
 }
 
 export type { FeedbackActivityBody, FeedbackActivityGroupSettings } from "@/types"

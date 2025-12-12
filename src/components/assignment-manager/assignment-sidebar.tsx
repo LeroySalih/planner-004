@@ -12,6 +12,26 @@ import { MoreVertical, X } from "lucide-react"
 import type { Unit, Assignment, Lesson, LessonAssignment } from "@/types"
 import { normalizeAssignmentWeek, normalizeDateOnly, truncateText } from "@/lib/utils"
 
+function buildWeekdayOptions(weekday: number, count = 52) {
+  const options: { value: string; label: string }[] = []
+  const cursor = new Date()
+  cursor.setUTCHours(0, 0, 0, 0)
+
+  while (cursor.getUTCDay() !== weekday) {
+    cursor.setUTCDate(cursor.getUTCDate() + 1)
+  }
+
+  for (let index = 0; index < count; index += 1) {
+    const iso = normalizeDateOnly(cursor)
+    if (iso) {
+      options.push({ value: iso, label: iso })
+    }
+    cursor.setUTCDate(cursor.getUTCDate() + 7)
+  }
+
+  return options
+}
+
 interface AssignmentSidebarProps {
   isOpen: boolean
   onClose: () => void
@@ -323,13 +343,31 @@ export function AssignmentSidebar({
     onClose()
   }
 
-  if (!isOpen || !editedAssignment) {
-    return null
+  const sundayOptions = useMemo(() => {
+    const filtered = assignmentDateOptions.filter((option) => {
+      const date = new Date(`${option.value}T00:00:00Z`)
+      return date.getUTCDay() === 0
+    })
+    if (filtered.length > 0) return filtered
+    return buildWeekdayOptions(0)
+  }, [assignmentDateOptions])
+
+  const saturdayOptions = useMemo(() => {
+    const filtered = assignmentDateOptions.filter((option) => {
+      const date = new Date(`${option.value}T00:00:00Z`)
+      return date.getUTCDay() === 6
+    })
+    if (filtered.length > 0) return filtered
+    return buildWeekdayOptions(6)
+  }, [assignmentDateOptions])
+
+  const handleDateSelect = (field: "start_date" | "end_date", value: string) => {
+    const normalized = normalizeDateOnly(value) ?? ""
+    setEditedAssignment((prev) => (prev ? { ...prev, [field]: normalized } : prev))
   }
 
-  const handleDateInputChange = (field: "start_date" | "end_date", rawValue: string) => {
-    const normalized = normalizeDateOnly(rawValue) ?? ""
-    setEditedAssignment((prev) => (prev ? { ...prev, [field]: normalized } : prev))
+  if (!isOpen || !editedAssignment) {
+    return null
   }
 
   const isCreateMode = !assignment && newAssignmentData
@@ -419,27 +457,41 @@ export function AssignmentSidebar({
                   <div className="flex gap-3">
                     <div className="flex-1 space-y-1">
                       <span className="text-xs uppercase tracking-wide text-muted-foreground">Start Date</span>
-                      <Input
-                        id="start-date"
-                        type="text"
-                        inputMode="numeric"
-                        pattern="\\d{4}-\\d{2}-\\d{2}"
-                        placeholder="yyyy-mm-dd"
+                      <Select
                         value={normalizeDateOnly(editedAssignment.start_date) ?? ""}
-                        onChange={(e) => handleDateInputChange("start_date", e.target.value)}
-                      />
+                        onValueChange={(value) => handleDateSelect("start_date", value)}
+                        disabled={sundayOptions.length === 0}
+                      >
+                        <SelectTrigger id="start-date">
+                          <SelectValue placeholder="Select a Sunday" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {sundayOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div className="flex-1 space-y-1">
                       <span className="text-xs uppercase tracking-wide text-muted-foreground">End Date</span>
-                      <Input
-                        id="end-date"
-                        type="text"
-                        inputMode="numeric"
-                        pattern="\\d{4}-\\d{2}-\\d{2}"
-                        placeholder="yyyy-mm-dd"
+                      <Select
                         value={normalizeDateOnly(editedAssignment.end_date) ?? ""}
-                        onChange={(e) => handleDateInputChange("end_date", e.target.value)}
-                      />
+                        onValueChange={(value) => handleDateSelect("end_date", value)}
+                        disabled={saturdayOptions.length === 0}
+                      >
+                        <SelectTrigger id="end-date">
+                          <SelectValue placeholder="Select a Saturday" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {saturdayOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
                   <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">

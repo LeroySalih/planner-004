@@ -484,6 +484,25 @@ export const ShortTextSubmissionBodySchema = z
 export type ShortTextActivityBody = z.infer<typeof ShortTextActivityBodySchema>;
 export type ShortTextSubmissionBody = z.infer<typeof ShortTextSubmissionBodySchema>;
 
+export const LongTextActivityBodySchema = z
+    .object({
+        question: z.string().min(1),
+    })
+    .passthrough();
+
+export const LongTextSubmissionBodySchema = z
+    .object({
+        answer: z.string().default(""),
+        teacher_feedback: z.string().nullable().optional(),
+        success_criteria_scores: z
+            .record(z.string(), z.number().min(0).max(1).nullable())
+            .default({}),
+    })
+    .passthrough();
+
+export type LongTextActivityBody = z.infer<typeof LongTextActivityBodySchema>;
+export type LongTextSubmissionBody = z.infer<typeof LongTextSubmissionBodySchema>;
+
 export const FeedbackSourceSchema = z.enum(["teacher", "auto", "ai"]);
 export type FeedbackSource = z.infer<typeof FeedbackSourceSchema>;
 

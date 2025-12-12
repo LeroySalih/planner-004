@@ -19,8 +19,14 @@ import { PupilUploadActivity } from "@/components/pupil/pupil-upload-activity"
 import { PupilMcqActivity } from "@/components/pupil/pupil-mcq-activity"
 import { PupilFeedbackActivity } from "@/components/pupil/pupil-feedback-activity"
 import { PupilShortTextActivity } from "@/components/pupil/pupil-short-text-activity"
+import { PupilLongTextActivity } from "@/components/pupil/pupil-long-text-activity"
 import { MediaImage } from "@/components/ui/media-image"
-import { LegacyMcqSubmissionBodySchema, McqSubmissionBodySchema, ShortTextSubmissionBodySchema } from "@/types"
+import {
+  LegacyMcqSubmissionBodySchema,
+  LongTextSubmissionBodySchema,
+  McqSubmissionBodySchema,
+  ShortTextSubmissionBodySchema,
+} from "@/types"
 import { ActivityProgressPanel } from "./activity-progress-panel"
 import { extractScoreFromSubmission } from "@/lib/scoring/activity-scores"
 import { fetchPupilActivityFeedbackMap, selectLatestFeedbackEntry } from "@/lib/feedback/pupil-activity-feedback"
@@ -78,6 +84,22 @@ function getShortTextBodyServer(activity: { body_data: unknown }) {
   const modelAnswer = typeof record.modelAnswer === "string" ? record.modelAnswer : ""
 
   return { question, modelAnswer }
+}
+
+function getLongTextBodyServer(activity: { body_data: unknown }) {
+  if (!activity.body_data || typeof activity.body_data !== "object") {
+    return { question: "" }
+  }
+
+  const record = activity.body_data as Record<string, unknown>
+  const question =
+    typeof record.question === "string"
+      ? record.question
+      : typeof record.text === "string"
+        ? record.text
+        : ""
+
+  return { question }
 }
 
 function formatDateLabel(value: string | null | undefined) {
@@ -353,6 +375,9 @@ export default async function PupilLessonFriendlyPage({
   const mcqSelectionMap = new Map(mcqSubmissionEntries.map((entry) => [entry.activityId, entry.optionId]))
 
   const shortTextActivities = activities.filter((activity) => activity.type === "short-text-question")
+  const longTextActivities = activities.filter(
+    (activity) => activity.type === "long-text-question" || activity.type === "text-question",
+  )
 
   const shortTextSubmissionEntries = await Promise.all(
     shortTextActivities.map(async (activity) => {
@@ -389,6 +414,40 @@ export default async function PupilLessonFriendlyPage({
   )
 
   const shortTextAnswerMap = new Map(shortTextSubmissionEntries.map((entry) => [entry.activityId, entry.answer ?? ""]))
+  const longTextSubmissionEntries = await Promise.all(
+    longTextActivities.map(async (activity) => {
+      const longTextBody = getLongTextBodyServer(activity)
+      const questionText = longTextBody.question?.trim() || null
+      activityModelAnswerMap.set(activity.activity_id, null)
+
+      const result = await getLatestSubmissionForActivityAction(activity.activity_id, pupilId)
+      if (result.error || !result.data) {
+        return { activityId: activity.activity_id, answer: "" }
+      }
+
+      const parsedBody = LongTextSubmissionBodySchema.safeParse(result.data.body)
+      if (parsedBody.success) {
+        const extraction = extractScoreFromSubmission(activity.type ?? "", result.data.body, [], {
+          question: questionText,
+          correctAnswer: null,
+          optionTextMap: undefined,
+        })
+        const latestFeedback = latestFeedbackByActivity.get(activity.activity_id)
+        activityFeedbackMap.set(
+          activity.activity_id,
+          latestFeedback ?? extraction.feedback ?? extraction.autoFeedback ?? null,
+        )
+        return {
+          activityId: activity.activity_id,
+          answer: parsedBody.data.answer ?? "",
+        }
+      }
+
+      return { activityId: activity.activity_id, answer: "" }
+    }),
+  )
+
+  const longTextAnswerMap = new Map(longTextSubmissionEntries.map((entry) => [entry.activityId, entry.answer ?? ""]))
 
   const isPupilViewer = !profile.isTeacher && profile.userId === pupilId
 
@@ -424,7 +483,13 @@ export default async function PupilLessonFriendlyPage({
   const formatScoreLabel = (score: number | null | undefined) =>
     typeof score === "number" && Number.isFinite(score) ? `${Math.round(score * 100)}%` : "No score yet"
 
-  const inputActivityTypes = new Set(["multiple-choice-question", "short-text-question", "upload-file"])
+  const inputActivityTypes = new Set([
+    "multiple-choice-question",
+    "short-text-question",
+    "long-text-question",
+    "text-question",
+    "upload-file",
+  ])
 
   return (
     <main className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-6 py-10">
@@ -538,6 +603,18 @@ export default async function PupilLessonFriendlyPage({
                         canAnswer={isPupilViewer}
                         stepNumber={index + 1}
                         initialAnswer={shortTextAnswerMap.get(activity.activity_id) ?? ""}
+                        feedbackAssignmentIds={assignmentIds}
+                        feedbackLessonId={lesson.lesson_id}
+                        feedbackInitiallyVisible={initialFeedbackVisible}
+                      />
+                    ) : activity.type === "long-text-question" || activity.type === "text-question" ? (
+                      <PupilLongTextActivity
+                        lessonId={lesson.lesson_id}
+                        activity={activity}
+                        pupilId={pupilId}
+                        canAnswer={isPupilViewer}
+                        stepNumber={index + 1}
+                        initialAnswer={longTextAnswerMap.get(activity.activity_id) ?? ""}
                         feedbackAssignmentIds={assignmentIds}
                         feedbackLessonId={lesson.lesson_id}
                         feedbackInitiallyVisible={initialFeedbackVisible}

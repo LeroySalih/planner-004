@@ -69,6 +69,7 @@ interface LessonActivitySuccessCriterionOption {
 
 const ACTIVITY_TYPES = [
   { value: "text", label: "Text" },
+  { value: "long-text-question", label: "Long text question" },
   { value: "file-download", label: "File download" },
   { value: "upload-file", label: "Upload file" },
   { value: "display-image", label: "Display image" },
@@ -440,9 +441,10 @@ useEffect(() => {
   const uploadPendingFilesForNewActivity = useCallback(
     async (activityId: string, files: File[]) => {
       const items = files.filter((file) => file.size > 0)
-      if (items.length === 0) return { success: true }
+      if (items.length === 0) return { success: true, uploadedNames: [] as string[] }
 
       let hadError = false
+      const uploadedNames: string[] = []
       for (const file of items) {
         const formData = new FormData()
         formData.append("unitId", unitId)
@@ -456,14 +458,16 @@ useEffect(() => {
           toast.error(`Failed to upload ${file.name}`, {
             description: result.error ?? "Please try again later.",
           })
+          break
         }
+        uploadedNames.push(file.name)
       }
 
       if (!hadError) {
         toast.success("Files uploaded")
       }
 
-      return { success: !hadError }
+      return { success: !hadError, uploadedNames }
     },
     [lessonId, unitId],
   )
@@ -551,7 +555,20 @@ useEffect(() => {
             [createdActivity.activity_id]: { url: null, loading: false, error: false },
           }))
           if (pendingUploadFiles.length > 0) {
-            await uploadPendingFilesForNewActivity(createdActivity.activity_id, pendingUploadFiles)
+            const uploadResult = await uploadPendingFilesForNewActivity(
+              createdActivity.activity_id,
+              pendingUploadFiles,
+            )
+            if (!uploadResult.success) {
+              for (const name of uploadResult.uploadedNames) {
+                await deleteActivityFileAction(unitId, lessonId, createdActivity.activity_id, name)
+              }
+              await deleteLessonActivityAction(unitId, lessonId, createdActivity.activity_id)
+              toast.error("Files failed to upload", {
+                description: "Activity was removed because the files could not be uploaded. Please try again.",
+              })
+              return
+            }
           }
           toast.success("Activity created")
           closeEditor()
@@ -575,7 +592,17 @@ useEffect(() => {
 
         setActivities((prev) => sortActivities([...prev, result.data!]))
         if (pendingUploadFiles.length > 0 && result.data?.activity_id) {
-          await uploadPendingFilesForNewActivity(result.data.activity_id, pendingUploadFiles)
+          const uploadResult = await uploadPendingFilesForNewActivity(result.data.activity_id, pendingUploadFiles)
+          if (!uploadResult.success) {
+            for (const name of uploadResult.uploadedNames) {
+              await deleteActivityFileAction(unitId, lessonId, result.data.activity_id, name)
+            }
+            await deleteLessonActivityAction(unitId, lessonId, result.data.activity_id)
+            toast.error("Files failed to upload", {
+              description: "Activity was removed because the files could not be uploaded. Please try again.",
+            })
+            return
+          }
         }
         toast.success("Activity created")
         closeEditor()
@@ -1431,8 +1458,12 @@ function extractText(activity: LessonActivity): string {
   if (!activity.body_data || typeof activity.body_data !== "object") {
     return ""
   }
-  const value = (activity.body_data as Record<string, unknown>).text
-  return typeof value === "string" ? value : ""
+  const record = activity.body_data as Record<string, unknown>
+  const direct = record.text
+  if (typeof direct === "string") return direct
+  const question = record.question
+  if (typeof question === "string") return question
+  return ""
 }
 
 function extractUploadInstructions(activity: LessonActivity): string {
@@ -1458,6 +1489,12 @@ function buildBodyData(
   const { text = "", videoUrl = "", fallback = null } = options
   if (type === "text") {
     return { text }
+  }
+  if (type === "text-question") {
+    return { question: text, text }
+  }
+  if (type === "long-text-question") {
+    return { question: text }
   }
   if (type === "show-video") {
     return { fileUrl: videoUrl }
@@ -2335,7 +2372,7 @@ function LessonActivityEditorSheet({
   useEffect(() => {
     setRawBodyError(null)
     if (isCreateMode) {
-      if (type === "text" || type === "upload-file") {
+      if (type === "text" || type === "text-question" || type === "long-text-question" || type === "upload-file") {
         setVideoUrl("")
         setText("")
         setRawBody("")
@@ -2407,11 +2444,10 @@ function LessonActivityEditorSheet({
       return
     }
 
-    if (type === "text") {
+    if (type === "text" || type === "text-question" || type === "long-text-question") {
       setVideoUrl("")
-      if (activity) {
-        setRawBody(activity.body_data ? JSON.stringify(activity.body_data, null, 2) : "")
-      }
+      setText(activity ? extractText(activity) : "")
+      setRawBody("")
       return
     }
     if (type === "show-video") {
@@ -2891,6 +2927,11 @@ function LessonActivityEditorSheet({
       .map((option) => option.successCriteriaId)
       .filter((id) => selectedSuccessCriteriaIds.includes(id))
 
+    const submissionPayload: { pendingUploadFiles?: File[] } = {}
+    if (type === "upload-file" && pendingUploadFiles.length > 0) {
+      submissionPayload.pendingUploadFiles = [...pendingUploadFiles]
+    }
+
     onSubmit({
       mode: isCreateMode ? "create" : "edit",
       activityId: activity?.activity_id,
@@ -2899,6 +2940,7 @@ function LessonActivityEditorSheet({
       bodyData,
       imageSubmission,
       successCriteriaIds: sanitizedSuccessCriteriaIds,
+      ...submissionPayload,
     })
   }
 
@@ -2988,7 +3030,7 @@ function LessonActivityEditorSheet({
             )}
           </div>
 
-          {type === "text" || type === "upload-file" ? (
+          {type === "text" || type === "text-question" || type === "long-text-question" || type === "upload-file" ? (
             <div className="space-y-2">
               <Label>
                 {type === "upload-file" ? "Instructions for pupils" : "Instructions"}
@@ -3442,6 +3484,8 @@ function LessonActivityEditorSheet({
           ) : null}
 
           {type !== "text" &&
+          type !== "text-question" &&
+          type !== "long-text-question" &&
           type !== "show-video" &&
           type !== "voice" &&
           type !== "file-download" &&

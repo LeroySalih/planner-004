@@ -155,6 +155,7 @@ export {
   markShortTextActivityAction,
   overrideShortTextSubmissionScoreAction,
 } from "./server-actions/short-text"
+export { saveLongTextAnswerAction } from "./server-actions/long-text"
 
 export {
   readQueueFiltersAction,

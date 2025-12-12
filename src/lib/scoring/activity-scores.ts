@@ -1,6 +1,7 @@
 import {
   LegacyMcqSubmissionBodySchema,
   McqSubmissionBodySchema,
+  LongTextSubmissionBodySchema,
   ShortTextSubmissionBodySchema,
 } from "@/types"
 import { normaliseSuccessCriteriaScores } from "@/lib/scoring/client-success-criteria"
@@ -124,7 +125,15 @@ export function extractScoreFromSubmission(
 
   if (activityType === "short-text-question") {
     const parsed = ShortTextSubmissionBodySchema.safeParse(submissionBody)
+    const record = (submissionBody && typeof submissionBody === "object"
+      ? (submissionBody as Record<string, unknown>)
+      : {}) as Record<string, unknown>
     if (parsed.success) {
+      const candidateAnswer =
+        parsed.data.answer?.trim() ||
+        (typeof record.text === "string" ? record.text.trim() : "") ||
+        (typeof record.response === "string" ? record.response.trim() : "")
+      const pupilAnswer = candidateAnswer.length > 0 ? candidateAnswer : null
       const auto =
         typeof parsed.data.ai_model_score === "number" && Number.isFinite(parsed.data.ai_model_score)
           ? parsed.data.ai_model_score
@@ -168,7 +177,7 @@ export function extractScoreFromSubmission(
         autoFeedback,
         question: metadata.question,
         correctAnswer: metadata.correctAnswer,
-        pupilAnswer: parsed.data.answer?.trim() ?? null,
+        pupilAnswer,
       }
     }
 
@@ -176,6 +185,51 @@ export function extractScoreFromSubmission(
       successCriteriaIds,
       fillValue: 0,
     })
+
+    return {
+      autoScore: null,
+      overrideScore: null,
+      effectiveScore: null,
+      autoSuccessCriteriaScores: fallbackScores,
+      overrideSuccessCriteriaScores: null,
+      successCriteriaScores: fallbackScores,
+      feedback: null,
+      autoFeedback: null,
+      question: metadata.question,
+      correctAnswer: metadata.correctAnswer,
+      pupilAnswer: null,
+    }
+  }
+
+  if (activityType === "long-text-question" || activityType === "text-question") {
+    const parsed = LongTextSubmissionBodySchema.safeParse(submissionBody)
+    const fallbackScores = normaliseSuccessCriteriaScores({
+      successCriteriaIds,
+      fillValue: null,
+    })
+
+    if (parsed.success) {
+      return {
+        autoScore: null,
+        overrideScore: null,
+        effectiveScore: null,
+        autoSuccessCriteriaScores: fallbackScores,
+        overrideSuccessCriteriaScores: null,
+        successCriteriaScores: normaliseSuccessCriteriaScores({
+          successCriteriaIds,
+          existingScores: parsed.data.success_criteria_scores,
+          fillValue: null,
+        }),
+        feedback:
+          typeof parsed.data.teacher_feedback === "string" && parsed.data.teacher_feedback.trim().length > 0
+            ? parsed.data.teacher_feedback.trim()
+            : null,
+        autoFeedback: null,
+        question: metadata.question,
+        correctAnswer: metadata.correctAnswer,
+        pupilAnswer: parsed.data.answer?.trim() ?? null,
+      }
+    }
 
     return {
       autoScore: null,
@@ -237,7 +291,11 @@ export function extractScoreFromSubmission(
           })
         : null
     const pupilAnswer =
-      typeof record.answer === "string" && record.answer.trim().length > 0 ? record.answer.trim() : null
+      typeof record.answer === "string" && record.answer.trim().length > 0
+        ? record.answer.trim()
+        : typeof record.text === "string" && record.text.trim().length > 0
+          ? record.text.trim()
+          : null
 
     return {
       autoScore: auto,

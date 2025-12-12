@@ -34,6 +34,7 @@ import {
   computeAverageSuccessCriteriaScore,
   normaliseSuccessCriteriaScores,
 } from "@/lib/scoring/client-success-criteria"
+import { getRichTextMarkup } from "@/components/lessons/activity-view/utils"
 import {
   ASSIGNMENT_FEEDBACK_VISIBILITY_EVENT,
   ASSIGNMENT_RESULTS_UPDATE_EVENT,
@@ -2266,13 +2267,51 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                     </div>
                     <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
                       <p className="text-xs font-semibold uppercase tracking-wide text-primary">Pupil response</p>
-                      <p className="text-sm text-foreground">
-                        {selection.activity.type === "upload-file"
-                          ? selectedUploadState?.files.length
+                      {selection.activity.type === "upload-file" ? (
+                        <p className="text-sm text-foreground">
+                          {selectedUploadState?.files.length
                             ? "Learner submitted file uploads listed below."
-                            : "No upload has been submitted yet."
-                          : selection.cell.pupilAnswer ?? "No response has been recorded yet."}
-                      </p>
+                            : "No upload has been submitted yet."}
+                        </p>
+                      ) : selection.cell.pupilAnswer ? (
+                        (() => {
+                          const markup = getRichTextMarkup(selection.cell.pupilAnswer ?? "")
+                          if (markup) {
+                            return (
+                              <div
+                                className="prose prose-sm max-w-none text-foreground"
+                                dangerouslySetInnerHTML={{ __html: markup }}
+                              />
+                            )
+                          }
+                          return (
+                            <p className="text-sm text-foreground whitespace-pre-wrap">
+                              {selection.cell.pupilAnswer}
+                            </p>
+                          )
+                        })()
+                      ) : (
+                        <p className="text-sm text-foreground">No response has been recorded yet.</p>
+                      )}
+                      <div className="mt-3 rounded-md border border-dashed border-border bg-muted/30 p-3">
+                        <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Debug (selection JSON)
+                        </p>
+                        <pre className="max-h-40 overflow-auto rounded bg-background p-2 text-xs text-muted-foreground">
+                          {JSON.stringify(
+                            {
+                              activityType: selection.activity.type,
+                              submissionId: selection.cell.submissionId,
+                              pupilAnswer: selection.cell.pupilAnswer,
+                              status: selection.cell.status,
+                              question: selection.cell.question,
+                              correctAnswer: selection.cell.correctAnswer,
+                            },
+                            null,
+                            2,
+                          )}
+                        </pre>
+                      </div>
                     </div>
                     {selection.cell.correctAnswer ? (
                       <div className="rounded-md border border-emerald-300/70 bg-emerald-100/40 p-3">
