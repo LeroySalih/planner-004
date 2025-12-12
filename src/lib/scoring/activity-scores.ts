@@ -1,6 +1,7 @@
 import {
   LegacyMcqSubmissionBodySchema,
   McqSubmissionBodySchema,
+  LongTextSubmissionBodySchema,
   ShortTextSubmissionBodySchema,
 } from "@/types"
 import { normaliseSuccessCriteriaScores } from "@/lib/scoring/client-success-criteria"
@@ -176,6 +177,51 @@ export function extractScoreFromSubmission(
       successCriteriaIds,
       fillValue: 0,
     })
+
+    return {
+      autoScore: null,
+      overrideScore: null,
+      effectiveScore: null,
+      autoSuccessCriteriaScores: fallbackScores,
+      overrideSuccessCriteriaScores: null,
+      successCriteriaScores: fallbackScores,
+      feedback: null,
+      autoFeedback: null,
+      question: metadata.question,
+      correctAnswer: metadata.correctAnswer,
+      pupilAnswer: null,
+    }
+  }
+
+  if (activityType === "long-text-question") {
+    const parsed = LongTextSubmissionBodySchema.safeParse(submissionBody)
+    const fallbackScores = normaliseSuccessCriteriaScores({
+      successCriteriaIds,
+      fillValue: null,
+    })
+
+    if (parsed.success) {
+      return {
+        autoScore: null,
+        overrideScore: null,
+        effectiveScore: null,
+        autoSuccessCriteriaScores: fallbackScores,
+        overrideSuccessCriteriaScores: null,
+        successCriteriaScores: normaliseSuccessCriteriaScores({
+          successCriteriaIds,
+          existingScores: parsed.data.success_criteria_scores,
+          fillValue: null,
+        }),
+        feedback:
+          typeof parsed.data.teacher_feedback === "string" && parsed.data.teacher_feedback.trim().length > 0
+            ? parsed.data.teacher_feedback.trim()
+            : null,
+        autoFeedback: null,
+        question: metadata.question,
+        correctAnswer: metadata.correctAnswer,
+        pupilAnswer: parsed.data.answer?.trim() ?? null,
+      }
+    }
 
     return {
       autoScore: null,

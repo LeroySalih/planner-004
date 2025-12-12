@@ -69,6 +69,7 @@ interface LessonActivitySuccessCriterionOption {
 
 const ACTIVITY_TYPES = [
   { value: "text", label: "Text" },
+  { value: "long-text-question", label: "Long text question" },
   { value: "file-download", label: "File download" },
   { value: "upload-file", label: "Upload file" },
   { value: "display-image", label: "Display image" },
@@ -1457,8 +1458,12 @@ function extractText(activity: LessonActivity): string {
   if (!activity.body_data || typeof activity.body_data !== "object") {
     return ""
   }
-  const value = (activity.body_data as Record<string, unknown>).text
-  return typeof value === "string" ? value : ""
+  const record = activity.body_data as Record<string, unknown>
+  const direct = record.text
+  if (typeof direct === "string") return direct
+  const question = record.question
+  if (typeof question === "string") return question
+  return ""
 }
 
 function extractUploadInstructions(activity: LessonActivity): string {
@@ -1482,8 +1487,14 @@ function buildBodyData(
   options: { text?: string; videoUrl?: string; fallback?: unknown },
 ): unknown {
   const { text = "", videoUrl = "", fallback = null } = options
-  if (type === "text" || type === "text-question") {
+  if (type === "text") {
     return { text }
+  }
+  if (type === "text-question") {
+    return { question: text, text }
+  }
+  if (type === "long-text-question") {
+    return { question: text }
   }
   if (type === "show-video") {
     return { fileUrl: videoUrl }
@@ -2361,7 +2372,7 @@ function LessonActivityEditorSheet({
   useEffect(() => {
     setRawBodyError(null)
     if (isCreateMode) {
-      if (type === "text" || type === "text-question" || type === "upload-file") {
+      if (type === "text" || type === "text-question" || type === "long-text-question" || type === "upload-file") {
         setVideoUrl("")
         setText("")
         setRawBody("")
@@ -2433,7 +2444,7 @@ function LessonActivityEditorSheet({
       return
     }
 
-    if (type === "text" || type === "text-question") {
+    if (type === "text" || type === "text-question" || type === "long-text-question") {
       setVideoUrl("")
       setText(activity ? extractText(activity) : "")
       setRawBody("")
@@ -3019,7 +3030,7 @@ function LessonActivityEditorSheet({
             )}
           </div>
 
-          {type === "text" || type === "text-question" || type === "upload-file" ? (
+          {type === "text" || type === "text-question" || type === "long-text-question" || type === "upload-file" ? (
             <div className="space-y-2">
               <Label>
                 {type === "upload-file" ? "Instructions for pupils" : "Instructions"}
@@ -3474,6 +3485,7 @@ function LessonActivityEditorSheet({
 
           {type !== "text" &&
           type !== "text-question" &&
+          type !== "long-text-question" &&
           type !== "show-video" &&
           type !== "voice" &&
           type !== "file-download" &&
