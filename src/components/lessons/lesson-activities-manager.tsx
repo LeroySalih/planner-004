@@ -119,7 +119,9 @@ export function LessonActivitiesManager({
   const [voicePreviewState, setVoicePreviewState] = useState<
     Record<string, { url: string | null; loading: boolean }>
   >({})
-  const [fileDownloadState, setFileDownloadState] = useState<Record<string, { loading: boolean }>>({})
+  const [fileDownloadState, setFileDownloadState] = useState<
+    Record<string, { loading: boolean; hasFiles?: boolean }>
+  >({})
   const [imagePreviewState, setImagePreviewState] = useState<
     Record<string, { url: string | null; loading: boolean; error: boolean }>
   >({})
@@ -133,6 +135,12 @@ export function LessonActivitiesManager({
   const [assignedGroups, setAssignedGroups] = useState<AssignedGroupInfo[]>([])
   const [assignedGroupsLoading, setAssignedGroupsLoading] = useState(false)
   const voiceAudioRef = useRef<HTMLAudioElement | null>(null)
+  const handleFilePresenceChange = useCallback((activityId: string, hasFiles: boolean) => {
+    setFileDownloadState((previous) => ({
+      ...previous,
+      [activityId]: { loading: false, hasFiles },
+    }))
+  }, [])
 
   useEffect(() => {
     setActivities(sortActivities(initialActivities))
@@ -219,6 +227,58 @@ export function LessonActivitiesManager({
       return acc
     }, {})
   }, [])
+
+  useEffect(() => {
+    const targets = activities
+      .filter((activity) => activity.type === "upload-file" || activity.type === "file-download")
+      .map((activity) => activity.activity_id)
+      .filter((activityId) => {
+        const status = fileDownloadState[activityId]
+        return !status || (!status.loading && status.hasFiles === undefined)
+      })
+
+    if (targets.length === 0) return
+
+    setFileDownloadState((previous) => {
+      const next = { ...previous }
+      targets.forEach((activityId) => {
+        const current = next[activityId] ?? { loading: false }
+        if (!current.loading && current.hasFiles === undefined) {
+          next[activityId] = { ...current, loading: true }
+        }
+      })
+      return next
+    })
+
+    let cancelled = false
+
+    const fetchFilePresence = async () => {
+      for (const activityId of targets) {
+        try {
+          const result = await listActivityFilesAction(lessonId, activityId)
+          if (cancelled) return
+          const hasFiles = Boolean(result.data?.length)
+          setFileDownloadState((previous) => ({
+            ...previous,
+            [activityId]: { loading: false, hasFiles },
+          }))
+        } catch (error) {
+          if (cancelled) return
+          console.error(`[activities] Failed to check files for activity ${activityId}:`, error)
+          setFileDownloadState((previous) => ({
+            ...previous,
+            [activityId]: { loading: false, hasFiles: false },
+          }))
+        }
+      }
+    }
+
+    void fetchFilePresence()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activities, lessonId]) // exclude fileDownloadState to avoid cancelling in-flight checks
 
   const openEditor = (activityId: string) => {
     setEditorActivityId(activityId)
@@ -351,12 +411,12 @@ export function LessonActivitiesManager({
     })
   }, [activities, fetchImagePreview])
 
-  const editingActivity = useMemo(() => {
-    if (!editorActivityId || editorActivityId === NEW_ACTIVITY_ID) {
-      return null
-    }
-    return activities.find((activity) => activity.activity_id === editorActivityId) ?? null
-  }, [activities, editorActivityId])
+const editingActivity = useMemo(() => {
+  if (!editorActivityId || editorActivityId === NEW_ACTIVITY_ID) {
+    return null
+  }
+  return activities.find((activity) => activity.activity_id === editorActivityId) ?? null
+}, [activities, editorActivityId])
 
   useEffect(() => {
     if (isEditorOpen && editorActivityId && !isCreating && !editingActivity) {
@@ -364,18 +424,49 @@ export function LessonActivitiesManager({
     }
   }, [editorActivityId, editingActivity, isCreating, isEditorOpen])
 
-  useEffect(() => {
-    return () => {
-      if (voiceAudioRef.current) {
-        try {
-          voiceAudioRef.current.pause()
-        } catch (error) {
-          console.warn("[activities] Failed to pause voice preview on unmount", error)
+useEffect(() => {
+  return () => {
+    if (voiceAudioRef.current) {
+      try {
+        voiceAudioRef.current.pause()
+      } catch (error) {
+        console.warn("[activities] Failed to pause voice preview on unmount", error)
+      }
+    }
+    voiceAudioRef.current = null
+  }
+}, [])
+
+  const uploadPendingFilesForNewActivity = useCallback(
+    async (activityId: string, files: File[]) => {
+      const items = files.filter((file) => file.size > 0)
+      if (items.length === 0) return { success: true }
+
+      let hadError = false
+      for (const file of items) {
+        const formData = new FormData()
+        formData.append("unitId", unitId)
+        formData.append("lessonId", lessonId)
+        formData.append("activityId", activityId)
+        formData.append("file", file)
+
+        const result = await uploadActivityFileAction(formData)
+        if (!result.success) {
+          hadError = true
+          toast.error(`Failed to upload ${file.name}`, {
+            description: result.error ?? "Please try again later.",
+          })
         }
       }
-      voiceAudioRef.current = null
-    }
-  }, [])
+
+      if (!hadError) {
+        toast.success("Files uploaded")
+      }
+
+      return { success: !hadError }
+    },
+    [lessonId, unitId],
+  )
 
   const handleEditorSubmit = ({
     mode,
@@ -385,6 +476,7 @@ export function LessonActivitiesManager({
     bodyData,
     imageSubmission,
     successCriteriaIds,
+    pendingUploadFiles = [],
   }: {
     mode: "create" | "edit"
     activityId?: string
@@ -393,6 +485,7 @@ export function LessonActivitiesManager({
     bodyData: unknown
     imageSubmission?: ImageSubmissionPayload
     successCriteriaIds: string[]
+    pendingUploadFiles?: File[]
   }) => {
     startTransition(async () => {
       if (mode === "create") {
@@ -457,6 +550,9 @@ export function LessonActivitiesManager({
             ...prev,
             [createdActivity.activity_id]: { url: null, loading: false, error: false },
           }))
+          if (pendingUploadFiles.length > 0) {
+            await uploadPendingFilesForNewActivity(createdActivity.activity_id, pendingUploadFiles)
+          }
           toast.success("Activity created")
           closeEditor()
           router.refresh()
@@ -478,6 +574,9 @@ export function LessonActivitiesManager({
         }
 
         setActivities((prev) => sortActivities([...prev, result.data!]))
+        if (pendingUploadFiles.length > 0 && result.data?.activity_id) {
+          await uploadPendingFilesForNewActivity(result.data.activity_id, pendingUploadFiles)
+        }
         toast.success("Activity created")
         closeEditor()
         router.refresh()
@@ -671,7 +770,10 @@ export function LessonActivitiesManager({
 
   const handleFileDownload = async (activity: LessonActivity) => {
     const activityId = activity.activity_id
-    setFileDownloadState((prev) => ({ ...prev, [activityId]: { loading: true } }))
+    setFileDownloadState((prev) => ({
+      ...prev,
+      [activityId]: { ...prev[activityId], loading: true },
+    }))
 
     try {
       const filesResult = await listActivityFilesAction(lessonId, activityId)
@@ -684,7 +786,27 @@ export function LessonActivitiesManager({
 
       const files = filesResult.data ?? []
       if (files.length === 0) {
+        setFileDownloadState((prev) => ({
+          ...prev,
+          [activityId]: { loading: false, hasFiles: false },
+        }))
         toast.error("No files uploaded yet")
+        return
+      }
+
+      const hasMultiple = files.length > 1
+      setFileDownloadState((prev) => ({
+        ...prev,
+        [activityId]: { loading: false, hasFiles: true },
+      }))
+
+      if (hasMultiple) {
+        const url = `/api/activity-files/archive?lessonId=${encodeURIComponent(lessonId)}&activityId=${encodeURIComponent(activityId)}`
+        const link = document.createElement("a")
+        link.href = url
+        link.target = "_blank"
+        link.rel = "noopener noreferrer"
+        link.click()
         return
       }
 
@@ -708,7 +830,10 @@ export function LessonActivitiesManager({
         description: error instanceof Error ? error.message : "Please try again later.",
       })
     } finally {
-      setFileDownloadState((prev) => ({ ...prev, [activityId]: { loading: false } }))
+      setFileDownloadState((prev) => ({
+        ...prev,
+        [activityId]: { ...prev[activityId], loading: false },
+      }))
     }
   }
   const submitReorder = useCallback(
@@ -976,8 +1101,12 @@ export function LessonActivitiesManager({
                 const voiceBody = isVoice ? getVoiceBody(activity) : null
                 const voiceStatus = voicePreviewState[activity.activity_id]
                 const isFileResource = activity.type === "file-download" || activity.type === "upload-file"
-                const fileStatus = fileDownloadState[activity.activity_id]
+                const isUploadFile = activity.type === "upload-file"
+                const fileStatus = isFileResource ? fileDownloadState[activity.activity_id] : null
+                const fileHasFiles = fileStatus?.hasFiles ?? false
+                const shouldShowDownloadButton = Boolean(isUploadFile && fileHasFiles)
                 const isDisplayImage = activity.type === "display-image"
+                const isShowVideo = activity.type === "show-video"
                 const imageBody = isDisplayImage ? getImageBody(activity) : null
                 const imageThumbnail = isDisplayImage
                   ? imagePreviewState[activity.activity_id]?.url ?? imageBody?.imageUrl ?? null
@@ -987,12 +1116,60 @@ export function LessonActivitiesManager({
                 const summativeUpdating = summativePending[activity.activity_id] ?? false
                 const summativeDisabled = !isScorableActivityType(activity.type)
                 const switchId = `activity-homework-${activity.activity_id}`
+                const canDownloadFiles = !isFileResource || fileHasFiles
                 const preview = renderActivityPreview(activity, imageThumbnail, {
                   onSummativeChange: (checked) => toggleSummative(activity, checked),
                   summativeUpdating,
                   summativeDisabled,
                   onImageClick: (url, title) => openImageModal(url, title ?? activity.title ?? "Activity image"),
+                  onDownloadFile: canDownloadFiles ? () => handleFileDownload(activity) : undefined,
                 })
+                const inlinePreview = (() => {
+                  if (isDisplayImage) return preview
+                  if (isShowVideo && videoThumbnail) {
+                    return (
+                      <a
+                        href={videoUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex shrink-0"
+                      >
+                        <div className="relative h-[60px] w-[100px] overflow-hidden rounded-md border border-border">
+                          <MediaImage
+                            src={videoThumbnail}
+                            alt="YouTube video thumbnail"
+                            fill
+                            sizes="120px"
+                            className="object-cover"
+                            loading="lazy"
+                          />
+                        </div>
+                      </a>
+                    )
+                  }
+                  if (isVoice) {
+                    return (
+                      <div className="flex items-center">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          className="h-[60px] w-[100px] shrink-0 flex-col gap-1"
+                          disabled={voiceStatus?.loading || !voiceBody?.audioFile}
+                          onClick={() => handleVoicePreview(activity)}
+                        >
+                          {voiceStatus?.loading ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Play className="h-4 w-4" />
+                          )}
+                          <span className="text-xs">Play</span>
+                        </Button>
+                      </div>
+                    )
+                  }
+                  return preview
+                })()
                 return (
                   <li
                     key={activity.activity_id}
@@ -1022,69 +1199,65 @@ export function LessonActivitiesManager({
                       </button>
                       <div className="flex flex-1 flex-wrap items-start justify-between gap-2">
                         <div className="flex flex-1 items-start gap-3">
-                          {isVoice ? (
-                            <Button
-                              type="button"
-                              variant="secondary"
-                              size="sm"
-                              className="h-[60px] w-[100px] shrink-0 flex-col gap-1"
-                              disabled={voiceStatus?.loading || !voiceBody?.audioFile}
-                              onClick={() => handleVoicePreview(activity)}
-                            >
-                              {voiceStatus?.loading ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <Play className="h-4 w-4" />
-                              )}
-                              <span className="text-xs">Play</span>
-                            </Button>
-                          ) : null}
-                          {isFileResource ? (
-                            <Button
-                              type="button"
-                              variant="secondary"
-                              size="sm"
-                              className="h-[60px] w-[100px] shrink-0 flex-col gap-1"
-                              disabled={fileStatus?.loading}
-                              onClick={() => handleFileDownload(activity)}
-                            >
-                              {fileStatus?.loading ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <Download className="h-4 w-4" />
-                              )}
-                              <span className="text-xs">Download</span>
-                            </Button>
-                          ) : null}
-                          {videoThumbnail ? (
-                            <a
-                              href={videoUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex shrink-0"
-                            >
-                              <div className="relative h-[60px] w-[100px] overflow-hidden rounded-md border border-border">
-                                <MediaImage
-                                  src={videoThumbnail}
-                                  alt="YouTube video thumbnail"
-                                  fill
-                                  sizes="120px"
-                                  className="object-cover"
-                                  loading="lazy"
-                                />
-                              </div>
-                            </a>
-                          ) : null}
                           <div className="flex flex-1 flex-col gap-2">
-                            <div className="flex w-full flex-wrap items-start justify-between gap-3">
+                            <div className="flex w-full flex-wrap items-start gap-3">
                               <div className="flex min-w-[200px] flex-1 flex-col gap-2 md:max-w-[33%] md:basis-1/3 md:flex-none">
                                 <p className="font-medium text-foreground">{activity.title}</p>
                                 <Badge variant="secondary" className="w-fit capitalize text-[10px] leading-3 px-1.5 py-0.5">
                                   {label}
                                 </Badge>
                               </div>
-                              {isDisplayImage ? <div className="shrink-0">{preview}</div> : null}
-                              <div className="flex items-center gap-2 ml-auto">
+                              <div className="flex min-w-[200px] flex-1 md:max-w-[33%] md:basis-1/3">
+                                <div className="w-full text-sm text-muted-foreground [&>*]:w-full [&_.prose]:max-w-none [&_p]:m-0">
+                                  {isVoice ? (
+                                    <div className="flex items-center">
+                                      <Button
+                                        type="button"
+                                        variant="secondary"
+                                        size="sm"
+                                        className="h-[60px] w-[100px] shrink-0 flex-col gap-1"
+                                        disabled={voiceStatus?.loading || !voiceBody?.audioFile}
+                                        onClick={() => handleVoicePreview(activity)}
+                                      >
+                                        {voiceStatus?.loading ? (
+                                          <Loader2 className="h-4 w-4 animate-spin" />
+                                        ) : (
+                                          <Play className="h-4 w-4" />
+                                        )}
+                                        <span className="text-xs">Play</span>
+                                      </Button>
+                                    </div>
+                                  ) : isUploadFile ? (
+                                    <div className="space-y-2">
+                                      {inlinePreview}
+                                      {shouldShowDownloadButton ? (
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="secondary"
+                                          className="inline-flex items-center gap-2"
+                                          disabled={fileStatus?.loading}
+                                          onClick={(event) => {
+                                            event.preventDefault()
+                                            event.stopPropagation()
+                                            handleFileDownload(activity)
+                                          }}
+                                        >
+                                          {fileStatus?.loading ? (
+                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                          ) : (
+                                            <Download className="h-4 w-4" />
+                                          )}
+                                          Download files
+                                        </Button>
+                                      ) : null}
+                                    </div>
+                                  ) : (
+                                    inlinePreview
+                                  )}
+                                </div>
+                              </div>
+                              <div className="ml-auto flex items-center gap-2">
                                 <Switch
                                   id={switchId}
                                   checked={isHomework}
@@ -1120,7 +1293,6 @@ export function LessonActivitiesManager({
                                 </Button>
                               </div>
                             </div>
-                            {!isDisplayImage ? preview : null}
                           </div>
                         </div>
                       </div>
@@ -1161,11 +1333,12 @@ export function LessonActivitiesManager({
         isPending={isPending}
         onSubmit={handleEditorSubmit}
         unitId={unitId}
-      lessonId={lessonId}
-      assignedGroups={assignedGroups}
-      assignedGroupsLoading={assignedGroupsLoading}
-      availableSuccessCriteria={availableSuccessCriteria}
-    />
+        lessonId={lessonId}
+        assignedGroups={assignedGroups}
+        assignedGroupsLoading={assignedGroupsLoading}
+        availableSuccessCriteria={availableSuccessCriteria}
+        onFilePresenceChange={handleFilePresenceChange}
+      />
 
       <Dialog
         open={imageModal.open}
@@ -1313,6 +1486,7 @@ function renderActivityPreview(
     summativeUpdating?: boolean
     summativeDisabled?: boolean
     onImageClick?: (url: string, title: string | null) => void
+    onDownloadFile?: () => void
   },
 ) {
   return (
@@ -1325,6 +1499,7 @@ function renderActivityPreview(
       summativeUpdating={options?.summativeUpdating}
       summativeDisabled={options?.summativeDisabled}
       onImageClick={options?.onImageClick}
+      onDownloadFile={options?.onDownloadFile}
     />
   )
 }
@@ -1356,6 +1531,7 @@ interface LessonActivityEditorSheetProps {
   assignedGroups: AssignedGroupInfo[]
   assignedGroupsLoading: boolean
   availableSuccessCriteria: LessonActivitySuccessCriterionOption[]
+  onFilePresenceChange?: (activityId: string, hasFiles: boolean) => void
 }
 
 function LessonActivityEditorSheet({
@@ -1370,6 +1546,7 @@ function LessonActivityEditorSheet({
   assignedGroups,
   assignedGroupsLoading,
   availableSuccessCriteria,
+  onFilePresenceChange,
 }: LessonActivityEditorSheetProps) {
   const isCreateMode = mode === "create"
   const [title, setTitle] = useState("")
@@ -1386,6 +1563,7 @@ function LessonActivityEditorSheet({
   const [playbackUrl, setPlaybackUrl] = useState<string | null>(null)
   const [isPlaybackLoading, setIsPlaybackLoading] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
+  const [pendingUploadFiles, setPendingUploadFiles] = useState<File[]>([])
   const [activityFiles, setActivityFiles] = useState<ActivityFileInfo[]>([])
   const [isFilesLoading, setIsFilesLoading] = useState(false)
   const [isUploadingFiles, setIsUploadingFiles] = useState(false)
@@ -1406,6 +1584,87 @@ function LessonActivityEditorSheet({
     () => validateShortTextBody(normalizedShortTextBody),
     [normalizedShortTextBody],
   )
+
+  useEffect(() => {
+    if (!open) {
+      setPendingUploadFiles([])
+    }
+  }, [open])
+
+  const refreshActivityFiles = useCallback(
+    async (targetActivityId: string) => {
+      setIsFilesLoading(true)
+      try {
+        const result = await listActivityFilesAction(lessonId, targetActivityId)
+        if (result.error) {
+          toast.error("Unable to load files", {
+            description: result.error,
+          })
+          setActivityFiles([])
+          onFilePresenceChange?.(targetActivityId, false)
+          return []
+        }
+
+        const files = result.data ?? []
+        setActivityFiles(files)
+        onFilePresenceChange?.(targetActivityId, files.length > 0)
+        return files
+      } catch (error) {
+        console.error("[activities] Failed to load activity files:", error)
+        toast.error("Unable to load files", {
+          description: error instanceof Error ? error.message : "Please try again later.",
+        })
+        setActivityFiles([])
+        onFilePresenceChange?.(targetActivityId, false)
+        return []
+      } finally {
+        setIsFilesLoading(false)
+      }
+    },
+    [lessonId, onFilePresenceChange],
+  )
+
+  async function uploadFilesForActivity(targetActivityId: string, files: File[]) {
+    const items = files.filter((file) => file.size > 0)
+    if (items.length === 0) return { success: true }
+
+    setIsUploadingFiles(true)
+    let hadError = false
+
+    for (const file of items) {
+      const formData = new FormData()
+      formData.append("unitId", unitId)
+      formData.append("lessonId", lessonId)
+      formData.append("activityId", targetActivityId)
+      formData.append("file", file)
+
+      try {
+        const result = await uploadActivityFileAction(formData)
+        if (!result.success) {
+          hadError = true
+          toast.error(`Failed to upload ${file.name}`, {
+            description: result.error ?? "Please try again later.",
+          })
+        }
+      } catch (error) {
+        hadError = true
+        console.error("[activities] Failed to upload file:", error)
+        toast.error(`Failed to upload ${file.name}`, {
+          description: error instanceof Error ? error.message : "Please try again later.",
+        })
+      }
+    }
+
+    setIsUploadingFiles(false)
+    await refreshActivityFiles(targetActivityId)
+    setIsFileDragActive(false)
+
+    if (!hadError) {
+      toast.success("Files uploaded")
+    }
+
+    return { success: !hadError }
+  }
 
   const mcqOptionSlots = useMemo(() => ensureOptionSlots(mcqBody.options), [mcqBody.options])
   const mcqValidationMessage = useMemo(() => validateMcqBody(mcqBody), [mcqBody])
@@ -1706,76 +1965,23 @@ function LessonActivityEditorSheet({
     [activity],
   )
 
-  const refreshActivityFiles = useCallback(
-    async (targetActivityId: string) => {
-      setIsFilesLoading(true)
-      try {
-        const result = await listActivityFilesAction(lessonId, targetActivityId)
-        if (result.error) {
-          toast.error("Unable to load files", {
-            description: result.error,
-          })
-          setActivityFiles([])
-        } else {
-          setActivityFiles(result.data ?? [])
-        }
-      } catch (error) {
-        console.error("[activities] Failed to load activity files:", error)
-        toast.error("Unable to load files", {
-          description: error instanceof Error ? error.message : "Please try again later.",
-        })
-        setActivityFiles([])
-      } finally {
-        setIsFilesLoading(false)
-      }
-    },
-    [lessonId],
-  )
-
   const handleUploadFiles = useCallback(
     async (files: FileList | File[]) => {
-      if (!activity) return
       const items = Array.from(files).filter((file) => file.size > 0)
       if (items.length === 0) {
         return
       }
 
-      setIsUploadingFiles(true)
-      let hadError = false
-
-      for (const file of items) {
-        const formData = new FormData()
-        formData.append("unitId", unitId)
-        formData.append("lessonId", lessonId)
-        formData.append("activityId", activity.activity_id)
-        formData.append("file", file)
-
-        try {
-          const result = await uploadActivityFileAction(formData)
-          if (!result.success) {
-            hadError = true
-            toast.error(`Failed to upload ${file.name}`, {
-              description: result.error ?? "Please try again later.",
-            })
-          }
-        } catch (error) {
-          hadError = true
-          console.error("[activities] Failed to upload file:", error)
-          toast.error(`Failed to upload ${file.name}`, {
-            description: error instanceof Error ? error.message : "Please try again later.",
-          })
-        }
+      if (!activity) {
+        setPendingUploadFiles((prev) => [...prev, ...items])
+        setIsFileDragActive(false)
+        toast.success("Files queued for upload. They will upload after you create the activity.")
+        return
       }
 
-      setIsUploadingFiles(false)
-      await refreshActivityFiles(activity.activity_id)
-      setIsFileDragActive(false)
-
-      if (!hadError) {
-        toast.success("Files uploaded")
-      }
+      await uploadFilesForActivity(activity.activity_id, items)
     },
-    [activity, lessonId, refreshActivityFiles, unitId],
+    [activity],
   )
 
   const handleDeleteFile = useCallback(
@@ -2023,7 +2229,7 @@ function LessonActivityEditorSheet({
       } else {
         setIsPlaybackLoading(false)
       }
-      if (ensuredType === "file-download") {
+      if (ensuredType === "file-download" || ensuredType === "upload-file") {
         void refreshActivityFiles(activity.activity_id)
       } else {
         setActivityFiles([])
@@ -3151,81 +3357,86 @@ function LessonActivityEditorSheet({
 
           {type === "file-download" || type === "upload-file" ? (
             <div className="space-y-3 rounded-md border border-border p-4">
-              {isCreateMode || !activity ? (
-                <p className="text-sm text-muted-foreground">
-                  Save the activity before uploading files.
+              <div
+                onDragOver={handleFileDragOver}
+                onDragEnter={handleFileDragOver}
+                onDragLeave={handleFileDragLeave}
+                onDrop={handleFileDrop}
+                className={[
+                  "flex h-28 flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed border-muted-foreground/40 p-4 text-center transition",
+                  isFileDragActive ? "border-primary bg-primary/5" : "",
+                  isUploadingFiles || isFilesLoading ? "opacity-60" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+              >
+                <p className="text-sm font-medium">Drag and drop files here</p>
+                <p className="text-xs text-muted-foreground">
+                  Files will be available for pupils to download when viewing this activity.
                 </p>
-              ) : (
-                <>
-                  <div
-                    onDragOver={handleFileDragOver}
-                    onDragEnter={handleFileDragOver}
-                    onDragLeave={handleFileDragLeave}
-                    onDrop={handleFileDrop}
-                    className={[
-                      "flex h-28 flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed border-muted-foreground/40 p-4 text-center transition",
-                      isFileDragActive ? "border-primary bg-primary/5" : "",
-                      isUploadingFiles || isFilesLoading ? "opacity-60" : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                  >
-                    <p className="text-sm font-medium">Drag and drop files here</p>
-                    <p className="text-xs text-muted-foreground">
-                      Files will be available for pupils to download when viewing this activity.
-                    </p>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={isUploadingFiles}
-                      className="mt-2"
-                    >
-                      Browse files
-                    </Button>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      multiple
-                      className="hidden"
-                      onChange={handleFileInputChange}
-                    />
-                  </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploadingFiles}
+                  className="mt-2"
+                >
+                  Browse files
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={handleFileInputChange}
+                />
+              </div>
 
-                  {isFilesLoading ? (
-                    <p className="text-sm text-muted-foreground">Loading files…</p>
-                  ) : activityFiles.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No files uploaded yet.</p>
-                  ) : (
-                    <ul className="space-y-2">
-                      {activityFiles.map((file) => {
-                        const sizeLabel = formatFileSize(file.size)
-                        return (
-                          <li
-                            key={file.path}
-                            className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm"
-                          >
-                            <div className="flex flex-col">
-                              <span className="font-medium">{file.name}</span>
-                              {sizeLabel ? <span className="text-xs text-muted-foreground">{sizeLabel}</span> : null}
-                            </div>
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="ghost"
-                              onClick={() => handleDeleteFile(file.name)}
-                              disabled={isUploadingFiles}
-                              aria-label={`Remove ${file.name}`}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </li>
-                        )
-                      })}
-                    </ul>
-                  )}
-                </>
+              {pendingUploadFiles.length > 0 ? (
+                <div className="space-y-1 rounded-md border border-dashed border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+                  <p className="font-medium text-foreground">Queued files (will upload when saved)</p>
+                  <ul className="list-disc pl-4">
+                    {pendingUploadFiles.map((file, index) => (
+                      <li key={`${file.name}-${index}`}>
+                        {file.name} {typeof file.size === "number" ? `(${formatFileSize(file.size)})` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {isFilesLoading ? (
+                <p className="text-sm text-muted-foreground">Loading files…</p>
+              ) : activityFiles.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No files uploaded yet.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {activityFiles.map((file) => {
+                    const sizeLabel = formatFileSize(file.size)
+                    return (
+                      <li
+                        key={file.path}
+                        className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm"
+                      >
+                        <div className="flex flex-col">
+                          <span className="font-medium">{file.name}</span>
+                          {sizeLabel ? <span className="text-xs text-muted-foreground">{sizeLabel}</span> : null}
+                        </div>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => handleDeleteFile(file.name)}
+                          disabled={isUploadingFiles}
+                          aria-label={`Remove ${file.name}`}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </li>
+                    )
+                  })}
+                </ul>
               )}
             </div>
           ) : null}
