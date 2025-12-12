@@ -31,7 +31,7 @@ import {
   overrideShortTextSubmissionScoreAction,
   readProfileGroupsForCurrentUserAction,
 } from "@/lib/server-updates"
-import { CheckCircle2, Eye, EyeOff, Loader2 } from "lucide-react"
+import { CheckCircle2, Download, Eye, EyeOff, Loader2 } from "lucide-react"
 import type { LessonSubmissionSummary } from "@/types"
 import { addFeedbackRefreshListener, triggerFeedbackRefresh } from "@/lib/feedback-events"
 import { toast } from "sonner"
@@ -79,6 +79,7 @@ export interface LessonActivityShortViewProps extends LessonActivityViewBaseProp
   summativeUpdating?: boolean
   summativeDisabled?: boolean
   onImageClick?: (url: string, title: string | null) => void
+  onDownloadFile?: () => void
 }
 
 export interface LessonActivityPresentViewProps extends LessonActivityViewBaseProps {
@@ -170,6 +171,7 @@ function ActivityShortView({
   summativeUpdating = false,
   summativeDisabled = false,
   onImageClick,
+  onDownloadFile,
 }: LessonActivityShortViewProps) {
   const hasSuccessCriteria = Array.isArray(activity.success_criteria) && activity.success_criteria.length > 0
   const isSummative = activity.is_summative ?? false
@@ -316,6 +318,25 @@ function ActivityShortView({
         >
           Watch video
         </span>
+      )
+    }
+  } else if (activity.type === "file-download") {
+    if (onDownloadFile) {
+      content = (
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          className="inline-flex items-center gap-2"
+          onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            onDownloadFile?.()
+          }}
+        >
+          <Download className="h-4 w-4" />
+          Download
+        </Button>
       )
     }
   } else if (activity.type === "voice") {
