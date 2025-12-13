@@ -16,6 +16,7 @@ import {
   type ShortTextEvaluationResult,
 } from "@/lib/ai/short-text-scoring"
 import { fetchActivitySuccessCriteriaIds, normaliseSuccessCriteriaScores } from "@/lib/scoring/success-criteria"
+import { getActivityLessonId, logActivitySubmissionEvent } from "@/lib/server-actions/activity-submission-events"
 import { query } from "@/lib/db"
 
 const ShortTextAnswerInputSchema = z.object({
@@ -70,6 +71,7 @@ export async function saveShortTextAnswerAction(input: z.infer<typeof ShortTextA
     successCriteriaIds,
     fillValue: 0,
   })
+  const lessonId = await getActivityLessonId(payload.activityId)
 
   let existingId: string | null = null
   try {
@@ -116,6 +118,14 @@ export async function saveShortTextAnswerAction(input: z.infer<typeof ShortTextA
         console.error("[short-text] Invalid submission payload after update:", parsed.error)
         return { success: false, error: "Invalid submission data.", data: null as Submission | null }
       }
+      await logActivitySubmissionEvent({
+        submissionId: parsed.data.submission_id,
+        activityId: payload.activityId,
+        lessonId,
+        pupilId: payload.userId,
+        fileName: null,
+        submittedAt: parsed.data.submitted_at ?? timestamp,
+      })
       deferRevalidate(`/lessons/${payload.activityId}`)
       return { success: true, error: null, data: parsed.data }
     }
@@ -135,6 +145,14 @@ export async function saveShortTextAnswerAction(input: z.infer<typeof ShortTextA
       return { success: false, error: "Invalid submission data.", data: null as Submission | null }
     }
 
+    await logActivitySubmissionEvent({
+      submissionId: parsed.data.submission_id,
+      activityId: payload.activityId,
+      lessonId,
+      pupilId: payload.userId,
+      fileName: null,
+      submittedAt: parsed.data.submitted_at ?? timestamp,
+    })
     deferRevalidate(`/lessons/${payload.activityId}`)
     return { success: true, error: null, data: parsed.data }
   } catch (error) {

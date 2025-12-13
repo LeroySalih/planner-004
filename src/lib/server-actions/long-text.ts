@@ -9,6 +9,7 @@ import {
   type Submission,
 } from "@/types"
 import { fetchActivitySuccessCriteriaIds, normaliseSuccessCriteriaScores } from "@/lib/scoring/success-criteria"
+import { getActivityLessonId, logActivitySubmissionEvent } from "@/lib/server-actions/activity-submission-events"
 import { query } from "@/lib/db"
 
 const LongTextAnswerInputSchema = z.object({
@@ -25,6 +26,7 @@ export async function saveLongTextAnswerAction(input: z.infer<typeof LongTextAns
     successCriteriaIds,
     fillValue: null,
   })
+  const lessonId = await getActivityLessonId(payload.activityId)
 
   let existingId: string | null = null
   try {
@@ -71,6 +73,14 @@ export async function saveLongTextAnswerAction(input: z.infer<typeof LongTextAns
         console.error("[long-text] Invalid submission payload after update:", parsed.error)
         return { success: false, error: "Invalid submission data.", data: null as Submission | null }
       }
+      await logActivitySubmissionEvent({
+        submissionId: parsed.data.submission_id,
+        activityId: payload.activityId,
+        lessonId,
+        pupilId: payload.userId,
+        fileName: null,
+        submittedAt: parsed.data.submitted_at ?? timestamp,
+      })
       revalidatePath(`/lessons/${payload.activityId}`)
       return { success: true, error: null, data: parsed.data }
     }
@@ -90,6 +100,14 @@ export async function saveLongTextAnswerAction(input: z.infer<typeof LongTextAns
       return { success: false, error: "Invalid submission data.", data: null as Submission | null }
     }
 
+    await logActivitySubmissionEvent({
+      submissionId: parsed.data.submission_id,
+      activityId: payload.activityId,
+      lessonId,
+      pupilId: payload.userId,
+      fileName: null,
+      submittedAt: parsed.data.submitted_at ?? timestamp,
+    })
     revalidatePath(`/lessons/${payload.activityId}`)
     return { success: true, error: null, data: parsed.data }
   } catch (error) {

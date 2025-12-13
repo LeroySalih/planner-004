@@ -18,6 +18,7 @@ import {
   fetchActivitySuccessCriteriaIds,
   normaliseSuccessCriteriaScores,
 } from "@/lib/scoring/success-criteria"
+import { getActivityLessonId, logActivitySubmissionEvent } from "@/lib/server-actions/activity-submission-events"
 
 const SubmissionResultSchema = z.object({
   data: SubmissionSchema.nullable(),
@@ -513,10 +514,10 @@ export async function readLessonSubmissionSummariesAction(
 
 export async function upsertMcqSubmissionAction(input: z.infer<typeof McqSubmissionInputSchema>) {
   const payload = McqSubmissionInputSchema.parse(input)
-  let activity: { body_data: unknown } | null = null
+  let activity: { body_data: unknown; lesson_id: string | null } | null = null
   try {
-    const { rows } = await query<{ body_data: unknown }>(
-      "select body_data from activities where activity_id = $1 limit 1",
+    const { rows } = await query<{ body_data: unknown; lesson_id: string | null }>(
+      "select body_data, lesson_id from activities where activity_id = $1 limit 1",
       [payload.activityId],
     )
     activity = rows[0] ?? null
@@ -538,6 +539,7 @@ export async function upsertMcqSubmissionAction(input: z.infer<typeof McqSubmiss
     console.error("[submissions] Invalid MCQ activity body:", parsedActivity.error)
     return { success: false, error: "Question is not configured correctly.", data: null as Submission | null }
   }
+  const lessonId = activity.lesson_id ?? (await getActivityLessonId(payload.activityId))
 
   const mcqBody = parsedActivity.data
   const optionExists = mcqBody.options.some((option) => option.id === payload.optionId)
@@ -601,6 +603,15 @@ export async function upsertMcqSubmissionAction(input: z.infer<typeof McqSubmiss
         return { success: false, error: "Invalid submission data.", data: null as Submission | null }
       }
 
+      await logActivitySubmissionEvent({
+        submissionId: parsed.data.submission_id,
+        activityId: payload.activityId,
+        lessonId,
+        pupilId: payload.userId,
+        fileName: null,
+        submittedAt: parsed.data.submitted_at ?? timestamp,
+      })
+
       console.log("[realtime-debug] MCQ submission stored", {
         type: "update",
         activityId: payload.activityId,
@@ -631,6 +642,15 @@ export async function upsertMcqSubmissionAction(input: z.infer<typeof McqSubmiss
       console.error("[submissions] Failed to parse inserted submission:", parsed.error)
       return { success: false, error: "Invalid submission data.", data: null as Submission | null }
     }
+
+    await logActivitySubmissionEvent({
+      submissionId: parsed.data.submission_id,
+      activityId: payload.activityId,
+      lessonId,
+      pupilId: payload.userId,
+      fileName: null,
+      submittedAt: parsed.data.submitted_at ?? timestamp,
+    })
 
     console.log("[realtime-debug] MCQ submission stored", {
       type: "insert",
