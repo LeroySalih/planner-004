@@ -455,6 +455,18 @@ export async function readAssignmentResultsAction(
           question = normaliseRichText(parsedBody.data.question)
           correctAnswer = normaliseRichText(parsedBody.data.modelAnswer) ?? parsedBody.data.modelAnswer?.trim() ?? null
         }
+      } else if (type === "text-question" || type === "long-text-question") {
+        const textField =
+          typeof activity.body_data === "object" && activity.body_data
+            ? (activity.body_data as Record<string, unknown>)
+            : null
+        const rawQuestion =
+          typeof textField?.question === "string"
+            ? textField.question
+            : typeof textField?.text === "string"
+              ? textField.text
+              : null
+        question = normaliseRichText(rawQuestion)
       } else if (type === "upload-file") {
         question = extractUploadInstructions(activity.body_data)
       }

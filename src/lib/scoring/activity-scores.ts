@@ -134,10 +134,13 @@ export function extractScoreFromSubmission(
         (typeof record.text === "string" ? record.text.trim() : "") ||
         (typeof record.response === "string" ? record.response.trim() : "")
       const pupilAnswer = candidateAnswer.length > 0 ? candidateAnswer : null
+      const hasAnswer = Boolean(pupilAnswer)
       const auto =
         typeof parsed.data.ai_model_score === "number" && Number.isFinite(parsed.data.ai_model_score)
           ? parsed.data.ai_model_score
-          : null
+          : hasAnswer
+            ? 0
+            : null
       const override =
         typeof parsed.data.teacher_override_score === "number" && Number.isFinite(parsed.data.teacher_override_score)
           ? parsed.data.teacher_override_score
@@ -169,7 +172,7 @@ export function extractScoreFromSubmission(
       return {
         autoScore: auto,
         overrideScore: override,
-        effectiveScore: override ?? auto,
+        effectiveScore: override ?? auto ?? (hasAnswer ? 0 : null),
         autoSuccessCriteriaScores: autoScores,
         overrideSuccessCriteriaScores: overrideScores,
         successCriteriaScores,
@@ -181,6 +184,14 @@ export function extractScoreFromSubmission(
       }
     }
 
+    const fallbackAnswer =
+      typeof record.answer === "string" && record.answer.trim().length > 0
+        ? record.answer.trim()
+        : typeof record.text === "string" && record.text.trim().length > 0
+          ? record.text.trim()
+          : typeof record.response === "string" && record.response.trim().length > 0
+            ? record.response.trim()
+            : null
     const fallbackScores = normaliseSuccessCriteriaScores({
       successCriteriaIds,
       fillValue: 0,
@@ -197,7 +208,7 @@ export function extractScoreFromSubmission(
       autoFeedback: null,
       question: metadata.question,
       correctAnswer: metadata.correctAnswer,
-      pupilAnswer: null,
+      pupilAnswer: fallbackAnswer,
     }
   }
 
@@ -205,21 +216,24 @@ export function extractScoreFromSubmission(
     const parsed = LongTextSubmissionBodySchema.safeParse(submissionBody)
     const fallbackScores = normaliseSuccessCriteriaScores({
       successCriteriaIds,
-      fillValue: null,
+      fillValue: 0,
     })
 
     if (parsed.success) {
+      const pupilAnswer = parsed.data.answer?.trim() ?? null
+      const hasAnswer = Boolean(pupilAnswer && pupilAnswer.length > 0)
+      const successCriteriaScores = normaliseSuccessCriteriaScores({
+        successCriteriaIds,
+        existingScores: parsed.data.success_criteria_scores,
+        fillValue: hasAnswer ? 0 : null,
+      })
       return {
-        autoScore: null,
+        autoScore: hasAnswer ? 0 : null,
         overrideScore: null,
-        effectiveScore: null,
+        effectiveScore: hasAnswer ? 0 : null,
         autoSuccessCriteriaScores: fallbackScores,
         overrideSuccessCriteriaScores: null,
-        successCriteriaScores: normaliseSuccessCriteriaScores({
-          successCriteriaIds,
-          existingScores: parsed.data.success_criteria_scores,
-          fillValue: null,
-        }),
+        successCriteriaScores,
         feedback:
           typeof parsed.data.teacher_feedback === "string" && parsed.data.teacher_feedback.trim().length > 0
             ? parsed.data.teacher_feedback.trim()
@@ -227,7 +241,7 @@ export function extractScoreFromSubmission(
         autoFeedback: null,
         question: metadata.question,
         correctAnswer: metadata.correctAnswer,
-        pupilAnswer: parsed.data.answer?.trim() ?? null,
+        pupilAnswer,
       }
     }
 
