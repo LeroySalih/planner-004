@@ -688,70 +688,17 @@ type UploadSubmissionSyncParams = {
   submittedAt: string
 }
 
-async function upsertUploadSubmissionRecord({
-  client,
-  activityId,
-  pupilId,
-  fileName,
-  submittedAt,
-}: UploadSubmissionSyncParams) {
-  const payload = {
-    submission_type: "upload-file",
-    upload_submission: true,
-    upload_file_name: fileName,
-    upload_updated_at: submittedAt,
-    success_criteria_scores: {},
-  }
-
-  const { rows: existingRows } = await client.query(
-    `
-      select submission_id
-      from submissions
-      where activity_id = $1 and user_id = $2
-      order by submitted_at desc
-      limit 1
-    `,
-    [activityId, pupilId],
-  )
-
-  const existing = existingRows[0] ?? null
-
-  if (existing?.submission_id) {
-    await client.query(
-      `
-        update submissions
-        set body = $1, submitted_at = $2, submission_status = 'inprogress'
-        where submission_id = $3
-      `,
-      [payload, submittedAt, existing.submission_id],
-    )
-    return { success: true, submissionId: existing.submission_id }
-  }
-
-  const { rows } = await client.query(
-    `
-      insert into submissions (activity_id, user_id, body, submitted_at, submission_status)
-      values ($1, $2, $3, $4, 'inprogress')
-      returning submission_id
-    `,
-    [activityId, pupilId, payload, submittedAt],
-  )
-
-  return { success: true, submissionId: rows[0]?.submission_id ?? null }
-}
-
-async function logActivitySubmissionEvent({
 type UploadSubmissionCleanupParams = {
   client: Client
   activityId: string
   pupilId: string
 }
 
-async function cleanupUploadSubmissionRecord({
+const cleanupUploadSubmissionRecord = async ({
   client,
   activityId,
   pupilId,
-}: UploadSubmissionCleanupParams) {
+}: UploadSubmissionCleanupParams) => {
   const { rows } = await client.query(
     `
       select submission_id, body
@@ -811,6 +758,59 @@ async function cleanupUploadSubmissionRecord({
 
   return { success: true, submissionId: data.submission_id ?? null }
 }
+
+async function upsertUploadSubmissionRecord({
+  client,
+  activityId,
+  pupilId,
+  fileName,
+  submittedAt,
+}: UploadSubmissionSyncParams) {
+  const payload = {
+    submission_type: "upload-file",
+    upload_submission: true,
+    upload_file_name: fileName,
+    upload_updated_at: submittedAt,
+    success_criteria_scores: {},
+  }
+
+  const { rows: existingRows } = await client.query(
+    `
+      select submission_id
+      from submissions
+      where activity_id = $1 and user_id = $2
+      order by submitted_at desc
+      limit 1
+    `,
+    [activityId, pupilId],
+  )
+
+  const existing = existingRows[0] ?? null
+
+  if (existing?.submission_id) {
+    await client.query(
+      `
+        update submissions
+        set body = $1, submitted_at = $2, submission_status = 'inprogress'
+        where submission_id = $3
+      `,
+      [payload, submittedAt, existing.submission_id],
+    )
+    return { success: true, submissionId: existing.submission_id }
+  }
+
+  const { rows } = await client.query(
+    `
+      insert into submissions (activity_id, user_id, body, submitted_at, submission_status)
+      values ($1, $2, $3, $4, 'inprogress')
+      returning submission_id
+    `,
+    [activityId, pupilId, payload, submittedAt],
+  )
+
+  return { success: true, submissionId: rows[0]?.submission_id ?? null }
+}
+
 const deferRevalidate = (path: string) => {
   if (path.includes("/lessons/")) {
     return
