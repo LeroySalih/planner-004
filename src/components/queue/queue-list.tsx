@@ -28,6 +28,8 @@ type QueueListProps = {
   items: UploadSubmissionFile[]
 }
 
+type StatusFilter = SubmissionStatus | "all"
+
 const statusOptions: Array<{ value: SubmissionStatus; label: string }> = [
   { value: "inprogress", label: "In progress" },
   { value: "submitted", label: "Submitted" },
@@ -49,16 +51,28 @@ export function QueueList({ items }: QueueListProps) {
   const [downloadId, setDownloadId] = useState<string | null>(null)
   const [downloadAllPending, setDownloadAllPending] = useState(false)
   const [filterText, setFilterText] = useState("")
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("completed")
+  const [ownerFilter, setOwnerFilter] = useState<string>("all")
 
   useEffect(() => {
     setQueueItems(items)
   }, [items])
 
+  const ownerOptions = useMemo(() => {
+    const owners = new Map<string, string>()
+    queueItems.forEach((item) => {
+      const label = formatPupilName(item.pupilId, item.pupilName)
+      owners.set(item.pupilId, label)
+    })
+
+    return Array.from(owners.entries()).sort((a, b) =>
+      a[1].localeCompare(b[1], undefined, { sensitivity: "base" }),
+    )
+  }, [queueItems])
+
   const filteredItems = useMemo(() => {
     const query = filterText.trim().toLowerCase()
-    if (!query) return queueItems
-
-    return queueItems.filter((item) => {
+    const matchesQuery = (item: UploadSubmissionFile) => {
       const lessonLabel = item.lessonTitle || item.lessonId || ""
       const activityLabel = item.activityTitle || ""
       const unitLabel = item.unitTitle || ""
@@ -70,13 +84,56 @@ export function QueueList({ items }: QueueListProps) {
         .join(" ")
         .toLowerCase()
 
-      return haystack.includes(query)
+      return !query || haystack.includes(query)
+    }
+
+    return queueItems.filter((item) => {
+      const statusMatch = statusFilter === "all" ? true : item.status === statusFilter
+      const ownerMatch = ownerFilter === "all" ? true : item.pupilId === ownerFilter
+      const queryMatch = matchesQuery(item)
+      return statusMatch && ownerMatch && queryMatch
     })
-  }, [filterText, queueItems])
+  }, [filterText, ownerFilter, queueItems, statusFilter])
+
+  const groupedItems = useMemo(() => {
+    const groups = new Map<string, UploadSubmissionFile[]>()
+
+    filteredItems.forEach((item) => {
+      const label = item.groupId || item.groupName || "Ungrouped"
+      const existing = groups.get(label) ?? []
+      existing.push(item)
+      groups.set(label, existing)
+    })
+
+    const compareFileNames = (a: UploadSubmissionFile, b: UploadSubmissionFile) => {
+      const aName = (a.fileName ?? "").toLowerCase()
+      const bName = (b.fileName ?? "").toLowerCase()
+      if (aName && bName) return aName.localeCompare(bName, undefined, { sensitivity: "base" })
+      if (aName) return -1
+      if (bName) return 1
+      return formatPupilName(a.pupilId, a.pupilName).localeCompare(
+        formatPupilName(b.pupilId, b.pupilName),
+        undefined,
+        { sensitivity: "base" },
+      )
+    }
+
+    return Array.from(groups.entries())
+      .map(([groupLabel, groupItems]) => ({
+        groupLabel,
+        items: [...groupItems].sort(compareFileNames),
+      }))
+      .sort((a, b) => a.groupLabel.localeCompare(b.groupLabel, undefined, { sensitivity: "base" }))
+  }, [filteredItems])
+
+  const flattenedItems = useMemo(
+    () => groupedItems.flatMap((group) => group.items),
+    [groupedItems],
+  )
 
   const hasDownloadableFiles = useMemo(
-    () => filteredItems.some((item) => item.fileName && item.fileName.trim().length > 0),
-    [filteredItems],
+    () => flattenedItems.some((item) => item.fileName && item.fileName.trim().length > 0),
+    [flattenedItems],
   )
 
   const handleStatusChange = (pupilId: string, nextStatus: SubmissionStatus) => {
@@ -211,7 +268,7 @@ export function QueueList({ items }: QueueListProps) {
           type="button"
           variant="secondary"
           size="sm"
-          onClick={() => handleDownloadAll(filteredItems)}
+          onClick={() => handleDownloadAll(flattenedItems)}
           disabled={!hasDownloadableFiles || downloadAllPending}
         >
           <Download className="mr-2 h-4 w-4" />
@@ -219,77 +276,128 @@ export function QueueList({ items }: QueueListProps) {
         </Button>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Input
           type="text"
-          placeholder="Filter by unit, lesson, activity, group, pupil, or file"
+          placeholder="Filter by unit, lesson, activity, group, owner, or file"
           value={filterText}
           onChange={(event) => setFilterText(event.target.value)}
           className="max-w-xl"
         />
+        <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as StatusFilter)}>
+          <SelectTrigger className="w-40">
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All statuses</SelectItem>
+            {statusOptions.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={ownerFilter} onValueChange={setOwnerFilter}>
+          <SelectTrigger className="w-48">
+            <SelectValue placeholder="Owner" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All owners</SelectItem>
+            {ownerOptions.map(([id, label]) => (
+              <SelectItem key={id} value={id}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
-      {filteredItems.length === 0 ? (
+      {flattenedItems.length === 0 ? (
         <p className="text-sm text-muted-foreground">No files found.</p>
       ) : (
         <div className="space-y-2">
-          {filteredItems.map((item, index) => {
-            const statusDisabled = pendingId !== null
-            const displayName = formatPupilName(item.pupilId, item.pupilName)
-            const lessonLabel = item.lessonTitle || item.lessonId || "Lesson"
-            const activityLabel = item.activityTitle || "Upload activity"
-            const unitLabel = item.unitTitle || "Unit"
-            const groupLabel = item.groupId || item.groupName || "Group"
+          {groupedItems.map((group) => {
+            const headerId = `group-${group.groupLabel}`
             return (
-              <div
-                key={
-                  item.submissionId
-                    ? `submission-${item.submissionId}-${index}`
-                    : `activity-${item.activityId}-${item.pupilId}-${item.fileName ?? "nofile"}-${
-                        item.submittedAt ?? "na"
-                      }-${index}`
-                }
-                className="rounded-md border border-border/60 bg-muted/30 px-3 py-2"
-              >
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-5 sm:items-center">
-                  <div className="space-y-1 text-sm">
-                    <p className="font-medium text-foreground">{unitLabel}</p>
-                    <p className="text-muted-foreground">
-                      {lessonLabel} / {activityLabel}
-                    </p>
+              <div key={headerId} className="overflow-hidden rounded-md border border-border/60 bg-muted/30">
+                <div className="flex flex-wrap items-center justify-between border-b border-border/60 px-3 py-2">
+                  <div className="space-y-0.5">
+                    <p className="text-sm font-semibold text-foreground">{group.groupLabel}</p>
+                    <p className="text-xs text-muted-foreground">{group.items.length} file(s)</p>
                   </div>
-                  <p className="text-sm text-foreground">{groupLabel}</p>
-                  <p className="text-sm text-foreground">{displayName}</p>
-                  <button
-                    type="button"
-                    className="text-sm text-left text-foreground truncate underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
-                    title={item.fileName ?? undefined}
-                    onClick={() => handleDownload(item)}
-                    disabled={!item.fileName || downloadId !== null}
-                  >
-                    {item.fileName ? item.fileName : "No file uploaded yet"}
-                  </button>
-                  <div className="flex items-center gap-2">
-                    <Select
-                      value={item.status}
-                      onValueChange={(value) => handleStatusChange(item.pupilId, value as SubmissionStatus)}
-                      disabled={statusDisabled}
-                    >
-                      <SelectTrigger className="w-36">
-                        <SelectValue aria-label={item.status} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {statusOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {pendingId === item.pupilId || downloadId ? (
-                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                    ) : null}
-                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-separate border-spacing-0">
+                    <thead className="bg-muted/40 text-xs font-semibold uppercase text-muted-foreground">
+                      <tr>
+                        <th className="px-3 py-2 text-left">Group</th>
+                        <th className="px-3 py-2 text-left">Unit / Lesson / Activity</th>
+                        <th className="px-3 py-2 text-left">Owner</th>
+                        <th className="px-3 py-2 text-left">File</th>
+                        <th className="px-3 py-2 text-left">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/60">
+                      {group.items.map((item, index) => {
+                        const statusDisabled = pendingId !== null
+                        const displayName = formatPupilName(item.pupilId, item.pupilName)
+                        const lessonLabel = item.lessonTitle || item.lessonId || "Lesson"
+                        const activityLabel = item.activityTitle || "Upload activity"
+                        const unitLabel = item.unitTitle || "Unit"
+                        const rowKey =
+                          item.submissionId ??
+                          `activity-${item.activityId}-${item.pupilId}-${item.fileName ?? "nofile"}-${item.submittedAt ?? "na"}-${index}`
+                        return (
+                          <tr key={rowKey} className="align-middle">
+                            <td className="px-3 py-3 text-sm text-foreground">{group.groupLabel}</td>
+                            <td className="px-3 py-3">
+                              <div className="space-y-1 text-sm">
+                                <p className="font-medium text-foreground">{unitLabel}</p>
+                                <p className="text-muted-foreground">
+                                  {lessonLabel} / {activityLabel}
+                                </p>
+                              </div>
+                            </td>
+                            <td className="px-3 py-3 text-sm text-foreground">{displayName}</td>
+                            <td className="px-3 py-3">
+                              <button
+                                type="button"
+                                className="text-sm text-left text-foreground underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+                                title={item.fileName ?? undefined}
+                                onClick={() => handleDownload(item)}
+                                disabled={!item.fileName || downloadId !== null}
+                              >
+                                {item.fileName ? item.fileName : "No file uploaded yet"}
+                              </button>
+                            </td>
+                            <td className="px-3 py-3">
+                              <div className="flex items-center gap-2">
+                                <Select
+                                  value={item.status}
+                                  onValueChange={(value) => handleStatusChange(item.pupilId, value as SubmissionStatus)}
+                                  disabled={statusDisabled}
+                                >
+                                  <SelectTrigger className="w-36">
+                                    <SelectValue aria-label={item.status} />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {statusOptions.map((option) => (
+                                      <SelectItem key={option.value} value={option.value}>
+                                        {option.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                {pendingId === item.pupilId || downloadId ? (
+                                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                                ) : null}
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             )
