@@ -4,7 +4,7 @@ import { useEffect, useState, useTransition, type FormEvent } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 
-import { signinAction } from "@/lib/server-updates"
+import { issueSigninCsrfTokenAction, signinAction } from "@/lib/server-updates"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -19,8 +19,15 @@ export function SigninForm() {
   const router = useRouter()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [csrfToken, setCsrfToken] = useState<string | null>(null)
   const [state, setState] = useState<SigninState>({ success: false, error: null, destination: null })
   const [isPending, startTransition] = useTransition()
+
+  useEffect(() => {
+    issueSigninCsrfTokenAction()
+      .then(({ token }) => setCsrfToken(token))
+      .catch(() => setState((prev) => ({ ...prev, error: "Unable to load sign-in form." })))
+  }, [])
 
   useEffect(() => {
     if (!state.success || !state.destination) return
@@ -34,8 +41,12 @@ export function SigninForm() {
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (!csrfToken) {
+      setState((prev) => ({ ...prev, error: "Unable to sign you in right now." }))
+      return
+    }
     startTransition(async () => {
-      const result = await signinAction({ email, password })
+      const result = await signinAction({ email, password, csrfToken })
 
       const destination = result.success
         ? result.isTeacher
@@ -51,6 +62,7 @@ export function SigninForm() {
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-6">
+      <input type="hidden" name="csrfToken" value={csrfToken ?? ""} />
       <div className="space-y-2">
         <Label htmlFor="email">Email address</Label>
         <Input
@@ -78,8 +90,8 @@ export function SigninForm() {
 
       {state.error ? <p className="text-sm text-destructive">{state.error}</p> : null}
 
-      <Button type="submit" className="w-full" disabled={isPending}>
-        {isPending ? "Signing in..." : "Sign in"}
+      <Button type="submit" className="w-full" disabled={isPending || !csrfToken}>
+        {isPending ? "Signing in..." : csrfToken ? "Sign in" : "Loading..."}
       </Button>
 
       <p className="text-center text-sm text-muted-foreground">

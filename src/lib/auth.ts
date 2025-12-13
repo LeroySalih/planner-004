@@ -6,7 +6,7 @@ import bcrypt from "bcryptjs"
 import { query } from "@/lib/db"
 
 const SESSION_COOKIE = "planner_session"
-const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 days rolling
+const SESSION_TTL_MS = 60 * 60 * 1000 // 1 hour rolling
 const BCRYPT_COST = 10
 
 export type AuthenticatedProfile = {
@@ -22,6 +22,8 @@ type SessionRow = {
   user_id: string
   token_hash: string
   expires_at: string
+  ip: string | null
+  user_agent: string | null
 }
 
 async function setSessionCookie(sessionId: string, token: string, expiresAt: Date) {
@@ -30,7 +32,7 @@ async function setSessionCookie(sessionId: string, token: string, expiresAt: Dat
     name: SESSION_COOKIE,
     value: `${sessionId}.${token}`,
     httpOnly: true,
-    sameSite: "lax",
+    sameSite: "strict",
     secure: true,
     path: "/",
     expires: expiresAt,
@@ -46,7 +48,7 @@ async function clearSessionCookie() {
       name: SESSION_COOKIE,
       value: "",
       httpOnly: true,
-      sameSite: "lax",
+      sameSite: "strict",
       secure: true,
       path: "/",
       maxAge: 0,
@@ -146,7 +148,12 @@ async function loadSessionProfile(refreshSessionCookie = false): Promise<Authent
 
   const { sessionId, token } = parsed
   const { rows } = await query<SessionRow>(
-    "select session_id, user_id, token_hash, expires_at from auth_sessions where session_id = $1 limit 1",
+    `
+      select session_id, user_id, token_hash, expires_at, ip, user_agent
+      from auth_sessions
+      where session_id = $1
+      limit 1
+    `,
     [sessionId],
   )
 
@@ -165,7 +172,13 @@ async function loadSessionProfile(refreshSessionCookie = false): Promise<Authent
   }
 
   const matches = await bcrypt.compare(token, session.token_hash)
-  if (!matches) {
+  const headerList = await headers()
+  const requestIp = headerList.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null
+  const requestUserAgent = headerList.get("user-agent") ?? null
+  const ipMatches = !session.ip || session.ip === requestIp
+  const userAgentMatches = !session.user_agent || session.user_agent === requestUserAgent
+
+  if (!matches || !ipMatches || !userAgentMatches) {
     await revokeSession(sessionId)
     await clearSessionCookie()
     return null
@@ -194,7 +207,12 @@ export async function getProfileFromSessionCookie(
   }
 
   const { rows } = await query<SessionRow>(
-    "select session_id, user_id, token_hash, expires_at from auth_sessions where session_id = $1 limit 1",
+    `
+      select session_id, user_id, token_hash, expires_at, ip, user_agent
+      from auth_sessions
+      where session_id = $1
+      limit 1
+    `,
     [parsed.sessionId],
   )
 
@@ -210,7 +228,9 @@ export async function getProfileFromSessionCookie(
   }
 
   const matches = await bcrypt.compare(parsed.token, session.token_hash)
-  if (!matches) {
+  const ipMatches = !session.ip
+  const userAgentMatches = !session.user_agent
+  if (!matches || !ipMatches || !userAgentMatches) {
     return null
   }
 

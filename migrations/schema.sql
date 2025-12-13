@@ -1554,8 +1554,6 @@ CREATE TABLE public.assignments (
 
 
 --
--- Name: auth_sessions; Type: TABLE; Schema: public; Owner: -
---
 
 CREATE TABLE public.auth_sessions (
     session_id uuid DEFAULT gen_random_uuid() NOT NULL,
@@ -2114,7 +2112,6 @@ ALTER TABLE ONLY public.auth_sessions
     ADD CONSTRAINT auth_sessions_pkey PRIMARY KEY (session_id);
 
 
---
 -- Name: curricula curricula_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2569,7 +2566,6 @@ ALTER TABLE ONLY public.auth_sessions
     ADD CONSTRAINT auth_sessions_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(user_id) ON DELETE CASCADE;
 
 
---
 -- Name: curricula curricula_subject_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2758,4 +2754,3 @@ ALTER TABLE ONLY public.units
 --
 
 \unrestrict tUmpmKv9LnTpP3T0sEgAGfQ2gnDIykL9NyXFWyeOelp8WbYeFIWSB6SLl7ao8xS
-
