@@ -5,7 +5,7 @@ import { toast } from "sonner"
 import { Download, Loader2 } from "lucide-react"
 
 import type { SubmissionStatus, UploadSubmissionFile } from "@/types"
-import { getQueueFileDownloadUrlAction, updateUploadSubmissionStatusAction } from "@/lib/server-updates"
+import { getQueueFileDownloadUrlAction, readQueueAllItemsAction, updateUploadSubmissionStatusAction } from "@/lib/server-updates"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -58,6 +58,37 @@ export function QueueList({ items }: QueueListProps) {
   useEffect(() => {
     setQueueItems(items)
   }, [items])
+
+  useEffect(() => {
+    const source = new EventSource("/sse?topics=submissions")
+
+    source.onmessage = (event) => {
+      try {
+        const envelope = JSON.parse(event.data) as { topic?: string; type?: string }
+        if (envelope.topic !== "submissions") return
+
+        // Refresh the queue on any submission event to stay in sync.
+        startTransition(async () => {
+          const result = await readQueueAllItemsAction()
+          if (result.data) {
+            setQueueItems(result.data)
+          } else if (result.error) {
+            console.error("[queue] Failed to refresh after submission event:", result.error)
+          }
+        })
+      } catch (error) {
+        console.error("[queue] Failed to parse SSE message", error)
+      }
+    }
+
+    source.onerror = () => {
+      // rely on browser retry; no-op
+    }
+
+    return () => {
+      source.close()
+    }
+  }, [startTransition])
 
   const ownerOptions = useMemo(() => {
     const owners = new Map<string, string>()
