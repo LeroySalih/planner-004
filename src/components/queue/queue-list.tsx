@@ -5,7 +5,7 @@ import { toast } from "sonner"
 import { Download, Loader2 } from "lucide-react"
 
 import type { SubmissionStatus, UploadSubmissionFile } from "@/types"
-import { getQueueFileDownloadUrlAction, updateUploadSubmissionStatusAction } from "@/lib/server-updates"
+import { getQueueFileDownloadUrlAction, readQueueAllItemsAction, updateUploadSubmissionStatusAction } from "@/lib/server-updates"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -53,10 +53,42 @@ export function QueueList({ items }: QueueListProps) {
   const [filterText, setFilterText] = useState("")
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("completed")
   const [ownerFilter, setOwnerFilter] = useState<string>("all")
+  const [lessonActivityFilter, setLessonActivityFilter] = useState("")
 
   useEffect(() => {
     setQueueItems(items)
   }, [items])
+
+  useEffect(() => {
+    const source = new EventSource("/sse?topics=submissions")
+
+    source.onmessage = (event) => {
+      try {
+        const envelope = JSON.parse(event.data) as { topic?: string; type?: string }
+        if (envelope.topic !== "submissions") return
+
+        // Refresh the queue on any submission event to stay in sync.
+        startTransition(async () => {
+          const result = await readQueueAllItemsAction()
+          if (result.data) {
+            setQueueItems(result.data)
+          } else if (result.error) {
+            console.error("[queue] Failed to refresh after submission event:", result.error)
+          }
+        })
+      } catch (error) {
+        console.error("[queue] Failed to parse SSE message", error)
+      }
+    }
+
+    source.onerror = () => {
+      // rely on browser retry; no-op
+    }
+
+    return () => {
+      source.close()
+    }
+  }, [startTransition])
 
   const ownerOptions = useMemo(() => {
     const owners = new Map<string, string>()
@@ -72,6 +104,7 @@ export function QueueList({ items }: QueueListProps) {
 
   const filteredItems = useMemo(() => {
     const query = filterText.trim().toLowerCase()
+    const lessonActivityQuery = lessonActivityFilter.trim().toLowerCase()
     const matchesQuery = (item: UploadSubmissionFile) => {
       const lessonLabel = item.lessonTitle || item.lessonId || ""
       const activityLabel = item.activityTitle || ""
@@ -90,10 +123,15 @@ export function QueueList({ items }: QueueListProps) {
     return queueItems.filter((item) => {
       const statusMatch = statusFilter === "all" ? true : item.status === statusFilter
       const ownerMatch = ownerFilter === "all" ? true : item.pupilId === ownerFilter
+      const lessonActivityMatch =
+        !lessonActivityQuery ||
+        [item.lessonTitle, item.lessonId, item.activityTitle, item.activityId]
+          .filter(Boolean)
+          .some((value) => value?.toLowerCase().includes(lessonActivityQuery))
       const queryMatch = matchesQuery(item)
-      return statusMatch && ownerMatch && queryMatch
+      return statusMatch && ownerMatch && lessonActivityMatch && queryMatch
     })
-  }, [filterText, ownerFilter, queueItems, statusFilter])
+  }, [filterText, lessonActivityFilter, ownerFilter, queueItems, statusFilter])
 
   const groupedItems = useMemo(() => {
     const groups = new Map<string, UploadSubmissionFile[]>()
@@ -310,6 +348,13 @@ export function QueueList({ items }: QueueListProps) {
             ))}
           </SelectContent>
         </Select>
+        <Input
+          type="text"
+          placeholder="Filter by lesson or activity title"
+          value={lessonActivityFilter}
+          onChange={(event) => setLessonActivityFilter(event.target.value)}
+          className="max-w-xs"
+        />
       </div>
 
       {flattenedItems.length === 0 ? (
