@@ -10,6 +10,7 @@ import { SubmissionStatusSchema } from "@/types"
 import { query } from "@/lib/db"
 import { requireAuthenticatedProfile } from "@/lib/auth"
 import { emitSubmissionEvent, emitUploadEvent } from "@/lib/sse/topics"
+import { logActivitySubmissionEvent } from "@/lib/server-actions/activity-submission-events"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 import { withTelemetry } from "@/lib/telemetry"
 
@@ -457,6 +458,14 @@ export async function uploadPupilActivitySubmissionAction(formData: FormData) {
             return { success: false, error: "Unable to record submission." }
           }
           submissionId = submissionResult.submissionId ?? null
+          await logActivitySubmissionEvent({
+            submissionId,
+            activityId,
+            lessonId,
+            pupilId: userId,
+            fileName,
+            submittedAt,
+          })
         } catch (error) {
           console.error("[v0] Failed to upsert upload submission record:", error)
           await storage.remove([path])
@@ -731,6 +740,7 @@ async function upsertUploadSubmissionRecord({
   return { success: true, submissionId: rows[0]?.submission_id ?? null }
 }
 
+async function logActivitySubmissionEvent({
 type UploadSubmissionCleanupParams = {
   client: Client
   activityId: string
