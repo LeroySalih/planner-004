@@ -1,6 +1,7 @@
 export const SCORABLE_ACTIVITY_TYPES = Object.freeze([
   "multiple-choice-question",
   "short-text-question",
+  "text-question",
   "long-text-question",
   "upload-file",
   "feedback",
@@ -8,7 +9,6 @@ export const SCORABLE_ACTIVITY_TYPES = Object.freeze([
 
 export const NON_SCORABLE_ACTIVITY_TYPES = Object.freeze([
   "text",
-  "text-question",
   "display-image",
   "file-download",
   "show-video",
