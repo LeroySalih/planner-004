@@ -77,7 +77,21 @@ export function UserNav() {
     }
 
     window.addEventListener("profile-updated", handleProfileUpdated as EventListener)
-    return () => window.removeEventListener("profile-updated", handleProfileUpdated as EventListener)
+    const handleAuthStateChanged = (event: Event) => {
+      const status = (event as CustomEvent<{ status?: string }>).detail?.status
+      if (status === "signed-in") {
+        void loadProfile()
+      }
+      if (status === "signed-out") {
+        setProfile(null)
+      }
+    }
+    window.addEventListener("auth-state-changed", handleAuthStateChanged as EventListener)
+
+    return () => {
+      window.removeEventListener("profile-updated", handleProfileUpdated as EventListener)
+      window.removeEventListener("auth-state-changed", handleAuthStateChanged as EventListener)
+    }
   }, [loadProfile])
 
   const handleSignOut = useCallback(async () => {
