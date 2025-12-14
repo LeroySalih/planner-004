@@ -2,7 +2,13 @@ import { Suspense } from "react"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 
-import { readGroupAction, removeGroupMemberAction, resetPupilPasswordAction } from "@/lib/server-updates"
+import {
+  clearSigninThrottleForPupilAction,
+  readGroupAction,
+  readPupilSigninLockStatusAction,
+  removeGroupMemberAction,
+  resetPupilPasswordAction,
+} from "@/lib/server-updates"
 import { requireTeacherProfile } from "@/lib/auth"
 
 import type { PupilActionState } from "./pupil-action-state"
@@ -42,9 +48,30 @@ export default async function GroupDetailPage({
         user_id: member.user_id,
         displayName: displayName.length > 0 ? displayName : member.user_id,
         roleLabel: roleLabelMap[member.role.toLowerCase()] ?? member.role,
+        locked: false,
       }
     })
     .sort((a, b) => a.displayName.localeCompare(b.displayName))
+
+  const pupilIds = pupils.map((pupil) => pupil.user_id)
+  let lockedMap = new Map<string, boolean>()
+
+  if (pupilIds.length > 0) {
+    const lockResult = await readPupilSigninLockStatusAction(
+      { userIds: pupilIds },
+      { currentProfile: teacherProfile },
+    )
+    if (lockResult.data) {
+      lockedMap = new Map(lockResult.data.map((item) => [item.userId, item.locked]))
+    } else if (lockResult.error) {
+      console.error("[groups] Unable to load pupil lock status", { groupId, error: lockResult.error })
+    }
+  }
+
+  const pupilsWithLocks: PupilMember[] = pupils.map((pupil) => ({
+    ...pupil,
+    locked: lockedMap.get(pupil.user_id) ?? false,
+  }))
 
   async function handleRemovePupil(_prevState: PupilActionState, formData: FormData): Promise<PupilActionState> {
     "use server"
@@ -125,6 +152,44 @@ export default async function GroupDetailPage({
     }
   }
 
+  async function handleUnlockPupil(_prevState: PupilActionState, formData: FormData): Promise<PupilActionState> {
+    "use server"
+
+    const userId = formData.get("userId")
+    if (typeof userId !== "string" || userId.trim().length === 0) {
+      return {
+        status: "error",
+        message: "Missing pupil identifier.",
+        userId: null,
+        displayName: null,
+      }
+    }
+
+    const rawDisplayName = formData.get("displayName")
+    const displayName =
+      typeof rawDisplayName === "string" && rawDisplayName.trim().length > 0
+        ? rawDisplayName.trim()
+        : userId
+
+    const outcome = await clearSigninThrottleForPupilAction({ userId }, { currentProfile: teacherProfile })
+    if (!outcome.success) {
+      console.error("[groups] Failed to unlock pupil sign-in throttle:", { groupId, userId, error: outcome.error })
+      return {
+        status: "error",
+        message: outcome.error ?? "Unable to unlock pupil.",
+        userId,
+        displayName,
+      }
+    }
+
+    return {
+      status: "success",
+      message: `Unlocked sign-in attempts for ${displayName}.`,
+      userId,
+      displayName,
+    }
+  }
+
   return (
     <Suspense fallback={<div className="mx-auto w-full max-w-6xl px-6 py-10">Loading group…</div>}>
       <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-6 py-10 text-slate-900">
@@ -159,9 +224,10 @@ export default async function GroupDetailPage({
               <p className="mt-3 text-sm text-slate-600">No pupils assigned to this group yet.</p>
             ) : (
               <GroupPupilList
-                pupils={pupils}
+                pupils={pupilsWithLocks}
                 resetPupilPasswordAction={handleResetPupilPassword}
                 removePupilAction={handleRemovePupil}
+                unlockPupilAction={handleUnlockPupil}
               />
             )}
           </div>

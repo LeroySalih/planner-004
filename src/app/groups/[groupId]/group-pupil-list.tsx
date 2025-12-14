@@ -1,8 +1,9 @@
 "use client"
 
 import Link from "next/link"
-import { useActionState, useEffect, useRef } from "react"
+import { useActionState, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
+import { Lock } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 
@@ -12,6 +13,7 @@ export type PupilMember = {
   user_id: string
   displayName: string
   roleLabel: string
+  locked: boolean
 }
 
 type GroupPupilListProps = {
@@ -21,6 +23,10 @@ type GroupPupilListProps = {
     formData: FormData,
   ) => Promise<PupilActionState>
   removePupilAction: (
+    state: PupilActionState,
+    formData: FormData,
+  ) => Promise<PupilActionState>
+  unlockPupilAction: (
     state: PupilActionState,
     formData: FormData,
   ) => Promise<PupilActionState>
@@ -56,6 +62,7 @@ function GroupPupilRow({
   pupil,
   resetPupilPasswordAction,
   removePupilAction,
+  unlockPupilAction,
 }: {
   pupil: PupilMember
   resetPupilPasswordAction: (
@@ -66,25 +73,64 @@ function GroupPupilRow({
     state: PupilActionState,
     formData: FormData,
   ) => Promise<PupilActionState>
+  unlockPupilAction: (
+    state: PupilActionState,
+    formData: FormData,
+  ) => Promise<PupilActionState>
 }) {
   const [resetState, resetFormAction, resetPending] = useActionState(
     resetPupilPasswordAction,
     initialPupilActionState,
   )
   const [removeState, removeFormAction, removePending] = useActionState(removePupilAction, initialPupilActionState)
+  const [unlockState, unlockFormAction, unlockPending] = useActionState(
+    unlockPupilAction,
+    initialPupilActionState,
+  )
+  const [locked, setLocked] = useState(pupil.locked)
 
   useActionToast(resetState)
   useActionToast(removeState)
+  useActionToast(unlockState)
+
+  useEffect(() => {
+    if (unlockState.status === "success") {
+      setLocked(false)
+    }
+  }, [unlockState.status])
+
+  useEffect(() => {
+    setLocked(pupil.locked)
+  }, [pupil.locked])
 
   return (
     <li className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-background px-3 py-2">
       <div className="flex flex-col">
-        <Link
-          href={`/reports/${encodeURIComponent(pupil.user_id)}`}
-          className="font-medium text-slate-900 underline-offset-4 hover:underline"
-        >
-          {pupil.displayName}
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href={`/reports/${encodeURIComponent(pupil.user_id)}`}
+            className="font-medium text-slate-900 underline-offset-4 hover:underline"
+          >
+            {pupil.displayName}
+          </Link>
+          {locked || unlockPending ? (
+            <form action={unlockFormAction} className="flex items-center">
+              <input type="hidden" name="userId" value={pupil.user_id} />
+              <input type="hidden" name="displayName" value={pupil.displayName} />
+              <Button
+                type="submit"
+                variant="ghost"
+                size="icon"
+                className={`h-7 w-7 text-amber-600 ${unlockPending ? "animate-pulse opacity-70" : ""}`}
+                disabled={unlockPending}
+                title="Unlock sign-in"
+              >
+                <Lock className="h-4 w-4" />
+                <span className="sr-only">Unlock sign-in</span>
+              </Button>
+            </form>
+          ) : null}
+        </div>
         {pupil.displayName !== pupil.user_id ? (
           <span className="text-xs text-slate-500">{pupil.user_id}</span>
         ) : null}
@@ -114,6 +160,7 @@ export function GroupPupilList({
   pupils,
   resetPupilPasswordAction,
   removePupilAction,
+  unlockPupilAction,
 }: GroupPupilListProps) {
   return (
     <ul className="mt-3 space-y-2 text-sm">
@@ -123,6 +170,7 @@ export function GroupPupilList({
           pupil={pupil}
           resetPupilPasswordAction={resetPupilPasswordAction}
           removePupilAction={removePupilAction}
+          unlockPupilAction={unlockPupilAction}
         />
       ))}
     </ul>
