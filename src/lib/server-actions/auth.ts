@@ -10,6 +10,7 @@ import {
   endSession,
   getAuthenticatedProfile,
   hashPassword,
+  requireTeacherProfile,
   verifyPassword,
   type AuthenticatedProfile,
 } from "@/lib/auth"
@@ -41,6 +42,25 @@ const SIGNIN_WINDOW_MINUTES = 15
 const SIGNIN_EMAIL_FAILURE_LIMIT = 5
 const SIGNIN_IP_FAILURE_LIMIT = 25
 type SigninThrottleResult = { blocked: boolean; reason: "email-limit" | "ip-limit" | null }
+
+const UnlockPupilInputSchema = z.object({
+  userId: z.string().min(1),
+})
+
+const SigninLockStatusInputSchema = z.object({
+  userIds: z.array(z.string()).default([]),
+})
+
+const SigninLockStatusSchema = z.object({
+  userId: z.string(),
+  locked: z.boolean(),
+  failureCount: z.number(),
+})
+
+const SigninLockStatusResultSchema = z.object({
+  data: z.array(SigninLockStatusSchema).nullable(),
+  error: z.string().nullable(),
+})
 
 type SigninAttemptReason =
   | "invalid-payload"
@@ -447,4 +467,139 @@ export async function signoutAction(): Promise<{ success: boolean }> {
 
 export async function getSessionProfileAction(): Promise<AuthenticatedProfile | null> {
   return getAuthenticatedProfile()
+}
+
+export async function clearSigninThrottleForPupilAction(
+  input: unknown,
+  options?: { currentProfile?: AuthenticatedProfile | null },
+): Promise<{ success: boolean; error: string | null }> {
+  const parsed = UnlockPupilInputSchema.safeParse(input)
+  if (!parsed.success) {
+    return { success: false, error: "Invalid unlock request." }
+  }
+
+  const teacherProfile = options?.currentProfile ?? (await requireTeacherProfile())
+  if (!teacherProfile.isTeacher) {
+    return { success: false, error: "You do not have permission to unlock pupils." }
+  }
+
+  const { userId } = parsed.data
+
+  return withTelemetry(
+    {
+      routeTag: "/auth:unlockPupil",
+      functionName: "clearSigninThrottleForPupilAction",
+      params: { userId },
+      authEndTime: null,
+    },
+    async () => {
+      try {
+        const { rows } = await query<{ email: string | null }>(
+          "select email from profiles where user_id = $1 limit 1",
+          [userId],
+        )
+        const email = rows[0]?.email?.trim().toLowerCase() ?? null
+        if (!email) {
+          return { success: false, error: "Pupil account not found." }
+        }
+
+        await query(
+          `
+            delete from sign_in_attempts
+            where success = false
+              and lower(email) = $1
+              and attempted_at >= now() - ($2::int * interval '1 minute')
+          `,
+          [email, SIGNIN_WINDOW_MINUTES],
+        )
+
+        return { success: true, error: null }
+      } catch (error) {
+        console.error("[auth] Failed to clear sign-in throttle for pupil", { userId, error })
+        return { success: false, error: "Unable to unlock pupil right now." }
+      }
+    },
+  )
+}
+
+export async function readPupilSigninLockStatusAction(
+  input: unknown,
+  options?: { currentProfile?: AuthenticatedProfile | null },
+): Promise<z.infer<typeof SigninLockStatusResultSchema>> {
+  const parsed = SigninLockStatusInputSchema.safeParse(input)
+  if (!parsed.success) {
+    return SigninLockStatusResultSchema.parse({ data: null, error: "Invalid pupil list." })
+  }
+
+  const teacherProfile = options?.currentProfile ?? (await requireTeacherProfile())
+  if (!teacherProfile.isTeacher) {
+    return SigninLockStatusResultSchema.parse({ data: null, error: "You do not have permission to view locks." })
+  }
+
+  const userIds = parsed.data.userIds.filter((id) => id.trim().length > 0)
+  if (userIds.length === 0) {
+    return SigninLockStatusResultSchema.parse({ data: [], error: null })
+  }
+
+  return withTelemetry(
+    {
+      routeTag: "/auth:readPupilLocks",
+      functionName: "readPupilSigninLockStatusAction",
+      params: { count: userIds.length },
+      authEndTime: null,
+    },
+    async () => {
+      try {
+        const { rows: profileRows } = await query<{ user_id: string; email: string | null }>(
+          "select user_id, email from profiles where user_id = any($1::text[])",
+          [userIds],
+        )
+
+        const profileEmailMap = new Map(
+          profileRows
+            .map((row) => [row.user_id, row.email?.trim().toLowerCase() ?? null] as const)
+            .filter(([, email]) => Boolean(email)),
+        )
+        if (profileEmailMap.size === 0) {
+          return SigninLockStatusResultSchema.parse({ data: [], error: null })
+        }
+
+        const emailList = Array.from(new Set(Array.from(profileEmailMap.values()).filter(Boolean))) as string[]
+        if (emailList.length === 0) {
+          return SigninLockStatusResultSchema.parse({ data: [], error: null })
+        }
+
+        const { rows: attemptRows } = await query<{ email: string; failures: number }>(
+          `
+            select lower(email) as email, count(*)::int as failures
+            from sign_in_attempts
+            where success = false
+              and lower(email) = any($1::text[])
+              and attempted_at >= now() - ($2::int * interval '1 minute')
+            group by lower(email)
+          `,
+          [emailList, SIGNIN_WINDOW_MINUTES],
+        )
+
+        const attemptMap = new Map(attemptRows.map((row) => [row.email, row.failures]))
+
+        const data = Array.from(profileEmailMap.entries()).map(([userId, email]) => {
+          const failures = attemptMap.get(email ?? "") ?? 0
+          return {
+            userId,
+            locked: failures >= SIGNIN_EMAIL_FAILURE_LIMIT,
+            failureCount: failures,
+          }
+        })
+
+        return SigninLockStatusResultSchema.parse({ data, error: null })
+      } catch (error) {
+        console.error("[auth] Failed to load pupil sign-in lock status", { userIds, error })
+        return SigninLockStatusResultSchema.parse({
+          data: null,
+          error: "Unable to load lock status.",
+        })
+      }
+    },
+  )
 }

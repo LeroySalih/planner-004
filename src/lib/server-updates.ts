@@ -230,4 +230,6 @@ export {
   signoutAction,
   getSessionProfileAction,
   issueSigninCsrfTokenAction,
+  clearSigninThrottleForPupilAction,
+  readPupilSigninLockStatusAction,
 } from "./server-actions/auth"
