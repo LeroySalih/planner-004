@@ -103,6 +103,8 @@ export function LessonDetailClient({
   const pageLoadTimeRef = useRef<number>(Date.now())
 
   useEffect(() => {
+    // Reset the freshness window whenever we subscribe for a different lesson
+    pageLoadTimeRef.current = Date.now()
     const source = new EventSource("/sse?topics=lessons")
 
     source.onmessage = (event) => {
@@ -167,7 +169,19 @@ export function LessonDetailClient({
       setLessonFilesState(snapshot.lessonFiles ?? [])
       setUnitLessonsState(snapshot.unitLessons ?? [])
       if (message) {
-        toast.success(message)
+        const jobId = (payloadRaw.job_id as string | undefined) ?? (payloadRaw.jobId as string | undefined) ?? "n/a"
+        const eventType = payloadRaw.type ?? "unknown"
+        const description = `event=${eventType} · status=${status} · job=${jobId}`
+        console.debug("[lessons:sse] toast trigger", {
+          lessonId: lesson.lesson_id,
+          status,
+          message,
+          eventType,
+          jobId,
+          payload: payloadRaw,
+          createdAt: envelope.createdAt ?? null,
+        })
+        toast.success(message, { description })
       }
     }
 

@@ -1,5 +1,6 @@
 import Link from "next/link"
 import { format, parseISO } from "date-fns"
+import { Roboto_Condensed } from "next/font/google"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { PupilUnitsDetail, PupilUnitLesson } from "@/lib/pupil-units-data"
@@ -23,6 +24,12 @@ function renderLessonObjectivesInline(lesson: PupilUnitLesson) {
   const titles = lesson.objectives.map((objective) => objective.title).join(", ")
   return <span className="text-xs text-muted-foreground">LO: {titles}</span>
 }
+
+const robotoCondensed = Roboto_Condensed({
+  subsets: ["latin"],
+  weight: ["400", "700"],
+  display: "swap",
+})
 
 export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
   return (
@@ -54,7 +61,11 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
                   <Card key={unit.unitId} className="border border-border/70 shadow-sm">
                     <CardHeader className="space-y-1">
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <CardTitle className="text-lg font-semibold text-foreground">{unit.unitTitle}</CardTitle>
+                        <CardTitle
+                          className={`${robotoCondensed.className} text-2xl font-bold uppercase text-foreground sm:text-3xl`}
+                        >
+                          {unit.unitTitle}
+                        </CardTitle>
                         <p className="text-xs text-muted-foreground sm:text-right">
                           First lesson: {formatDate(unit.firstLessonDate)}
                         </p>

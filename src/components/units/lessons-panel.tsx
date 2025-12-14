@@ -36,15 +36,10 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
   const [draggingLessonId, setDraggingLessonId] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [, startTransition] = useTransition()
+  const pageLoadTimeRef = useRef<number>(Date.now())
 
   const openCreateSidebar = () => {
     setSelectedLesson(null)
-    setIsSidebarOpen(true)
-  }
-
-  const handleLessonClick = (lesson: LessonWithObjectives) => {
-    if (isDragging) return
-    setSelectedLesson(lesson)
     setIsSidebarOpen(true)
   }
 
@@ -148,11 +143,16 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
   }
 
   useEffect(() => {
+    pageLoadTimeRef.current = Date.now()
     const source = new EventSource(LESSON_SSE_URL)
 
     source.onmessage = (event) => {
-      const envelope = JSON.parse(event.data) as { topic?: string; type?: string; payload?: unknown }
+      const envelope = JSON.parse(event.data) as { topic?: string; type?: string; payload?: unknown; createdAt?: string }
       if (envelope.topic !== "lessons" || !envelope.payload) return
+      const createdAtMs = envelope.createdAt ? new Date(envelope.createdAt).getTime() : Date.now()
+      if (createdAtMs < pageLoadTimeRef.current) {
+        return
+      }
       const parsed = LessonJobPayloadSchema.safeParse(envelope.payload)
       if (!parsed.success) {
         console.warn("[lessons] received invalid lesson job payload", parsed.error)
@@ -177,7 +177,18 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
         if (payload.lesson) {
           upsertLesson(payload.lesson)
         }
-        toast.success(payload.message ?? "Lesson created successfully.")
+        const description = `event=${payload.operation ?? envelope.type ?? "unknown"} · status=${payload.status} · job=${payload.job_id ?? "n/a"}`
+        console.debug("[lessons:sse] toast trigger", {
+          unitId,
+          lessonId: payload.lesson_id ?? null,
+          status: payload.status,
+          message: payload.message,
+          eventType: payload.operation ?? envelope.type ?? null,
+          jobId: payload.job_id ?? null,
+          payload: envelope.payload,
+          createdAt: envelope.createdAt ?? null,
+        })
+        toast.success(payload.message ?? "Lesson created successfully.", { description })
       } else if (payload.status === "error") {
         toast.error(payload.message ?? "Failed to create lesson.")
       }
@@ -237,19 +248,12 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
                         )}
                         aria-hidden="true"
                       />
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.preventDefault()
-                          event.stopPropagation()
-                          if (!isPendingLesson) {
-                            handleLessonClick(lesson)
-                          }
-                        }}
-                        className="truncate text-left text-sm font-medium text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      <Link
+                        href={`/lessons/${encodeURIComponent(lesson.lesson_id)}`}
+                        className="truncate text-sm font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       >
                         {lesson.title?.trim().length ? lesson.title : "Untitled lesson"}
-                      </button>
+                      </Link>
                       {isPendingLesson ? (
                         <Badge variant="secondary" className="shrink-0 text-xs">
                           Pending
@@ -270,9 +274,6 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
                             >
                               Show activities
                             </Link>
-                          </Button>
-                          <Button asChild variant="ghost" size="sm">
-                            <Link href={`/lessons/${lesson.lesson_id}`}>Details</Link>
                           </Button>
                         </>
                       )}

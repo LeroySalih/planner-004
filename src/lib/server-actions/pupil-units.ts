@@ -485,6 +485,12 @@ export async function readPupilUnitsBootstrapAction(pupilId: string, options?: T
 
             units.forEach((unit: SubjectUnitsPayload["subjects"][number]["units"][number]) =>
               unit.lessons.sort((a, b) => {
+                const dateA = a.startDate ? Date.parse(a.startDate) : Number.NEGATIVE_INFINITY
+                const dateB = b.startDate ? Date.parse(b.startDate) : Number.NEGATIVE_INFINITY
+                if (!Number.isNaN(dateA) && !Number.isNaN(dateB) && dateA !== dateB) {
+                  return dateB - dateA
+                }
+
                 const orderA = typeof a.lessonOrder === "number" ? a.lessonOrder : Number.POSITIVE_INFINITY
                 const orderB = typeof b.lessonOrder === "number" ? b.lessonOrder : Number.POSITIVE_INFINITY
                 if (orderA !== orderB) return orderA - orderB
