@@ -177,13 +177,14 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
         if (payload.lesson) {
           upsertLesson(payload.lesson)
         }
-        const description = `event=${payload.operation ?? envelope.type ?? "unknown"} · status=${payload.status} · job=${payload.job_id ?? "n/a"}`
+        const eventType = (payload as { operation?: string }).operation ?? envelope.type ?? "unknown"
+        const description = `event=${eventType} · status=${payload.status} · job=${payload.job_id ?? "n/a"}`
         console.debug("[lessons:sse] toast trigger", {
           unitId,
           lessonId: payload.lesson_id ?? null,
           status: payload.status,
           message: payload.message,
-          eventType: payload.operation ?? envelope.type ?? null,
+          eventType,
           jobId: payload.job_id ?? null,
           payload: envelope.payload,
           createdAt: envelope.createdAt ?? null,
