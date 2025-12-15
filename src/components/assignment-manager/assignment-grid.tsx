@@ -110,7 +110,8 @@ export function AssignmentGrid({
     const today = new Date()
     const todayDay = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())
     const startDay = GRID_FIXED_START_DAY || minStartDay || todayDay
-    const endDay = Math.max(maxEndDay ?? startDay + 52 * 7 * dayMs, startDay + 12 * 7 * dayMs)
+    const bufferWeeks = 5 * 7 * dayMs
+    const endDay = Math.max((maxEndDay ?? startDay) + bufferWeeks, startDay + 12 * 7 * dayMs)
 
     const startDateUtc = new Date(startDay)
     const current = new Date(
