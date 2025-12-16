@@ -72,13 +72,21 @@ type SigninAttemptReason =
   | "forbidden-origin"
   | "signup-email-exists"
 
-function logSigninFailure(context: { email: string; reason: string }) {
-  console.error("[auth] sign-in failed", context)
+function logSigninFailure(context: { email: string; reason: string; detail?: Record<string, unknown> }) {
+  console.error("[auth] sign-in failed", {
+    ...context,
+    emailHash: hashEmailForLog(context.email),
+  })
 }
 
 function hashEmailForLog(email: string) {
   // Non-reversible, short identifier to correlate duplicates without storing raw email.
   return createHash("sha256").update(email.toLowerCase()).digest("hex").slice(0, 16)
+}
+
+function shortTokenHash(value: string | null | undefined) {
+  if (!value) return null
+  return createHash("sha256").update(value).digest("hex").slice(0, 8)
 }
 
 function safeHostname(value: string) {
@@ -307,11 +315,14 @@ export async function signinAction(input: unknown): Promise<AuthResult> {
   const email = parsed.data.email.trim().toLowerCase()
   const cookieStore = await cookies()
   const csrfCookie = cookieStore.get(CSRF_COOKIE_NAME)?.value ?? ""
-  const csrfMatches =
-    csrfCookie &&
-    csrfToken &&
-    Buffer.byteLength(csrfCookie) === Buffer.byteLength(csrfToken) &&
-    timingSafeEqual(Buffer.from(csrfCookie), Buffer.from(csrfToken))
+  const csrfCookiePresent = Boolean(csrfCookie)
+  const csrfTokenPresent = Boolean(csrfToken)
+  const csrfCookieLen = csrfCookiePresent ? Buffer.byteLength(csrfCookie) : 0
+  const csrfTokenLen = csrfTokenPresent ? Buffer.byteLength(csrfToken) : 0
+  const csrfLengthMatches = csrfCookieLen > 0 && csrfCookieLen === csrfTokenLen
+  const csrfTimingSafeEqualPassed =
+    csrfLengthMatches && timingSafeEqual(Buffer.from(csrfCookie), Buffer.from(csrfToken))
+  const csrfMatches = csrfCookiePresent && csrfTokenPresent && csrfTimingSafeEqualPassed
 
   const headerList = await headers()
   const origin = headerList.get("origin")
@@ -338,6 +349,25 @@ export async function signinAction(input: unknown): Promise<AuthResult> {
     logSigninFailure({
       email,
       reason: !csrfMatches ? "csrf-mismatch" : "forbidden-origin",
+      detail: {
+        csrfCookiePresent,
+        csrfTokenPresent,
+        csrfCookieLen,
+        csrfTokenLen,
+        csrfLengthMatches,
+        csrfTimingSafeEqualPassed,
+        csrfCookieHash: shortTokenHash(csrfCookie),
+        csrfTokenHash: shortTokenHash(csrfToken),
+        requestHost: host ?? null,
+        originHeader: origin ?? null,
+        refererHeader: referer ?? null,
+        originHost,
+        refererHost,
+        allowedHosts: Array.from(allowedHosts),
+        xForwardedFor: ip,
+        xForwardedProto: headerList.get("x-forwarded-proto"),
+        userAgent: headerList.get("user-agent"),
+      },
     })
     await recordSigninAttempt({
       email,

@@ -1,18 +1,36 @@
+import { createHash } from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
 
 import { getAuthenticatedProfile } from "@/lib/auth"
 import { query } from "@/lib/db"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 
+function shortTokenHash(value: string | null | undefined) {
+  if (!value) return null
+  return createHash("sha256").update(value).digest("hex").slice(0, 8)
+}
+
+function logDownloadAuthFailure(request: NextRequest, detail: Record<string, unknown>) {
+  const headers = request.headers
+  const sessionCookie = request.cookies.get("planner_session")?.value ?? null
+  console.warn("[files] download auth failed", {
+    ...detail,
+    host: headers.get("host"),
+    origin: headers.get("origin"),
+    referer: headers.get("referer"),
+    xForwardedFor: headers.get("x-forwarded-for"),
+    xForwardedProto: headers.get("x-forwarded-proto"),
+    userAgent: headers.get("user-agent"),
+    sessionCookiePresent: Boolean(sessionCookie),
+    sessionCookieLen: sessionCookie ? sessionCookie.length : 0,
+    sessionCookieHash: shortTokenHash(sessionCookie),
+  })
+}
+
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   context: { params: Promise<{ bucket: string; filePath: string[] }> },
 ) {
-  const profile = await getAuthenticatedProfile()
-  if (!profile) {
-    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
-  }
-
   const resolvedParams = await context.params
   const bucket = resolvedParams.bucket
   const filePath = resolvedParams.filePath ?? []
@@ -22,6 +40,11 @@ export async function GET(
 
   const decodedSegments = filePath.map((segment) => decodeURIComponent(segment))
   const fullPath = decodedSegments.join("/")
+  const profile = await getAuthenticatedProfile()
+  if (!profile) {
+    logDownloadAuthFailure(request, { reason: "unauthorized", bucket, fullPath })
+    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+  }
 
   const storage = createLocalStorageClient(bucket)
   let { stream, metadata, error } = await storage.getFileStream(fullPath)
