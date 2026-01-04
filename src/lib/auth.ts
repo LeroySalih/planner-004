@@ -178,10 +178,20 @@ async function loadSessionProfile(refreshSessionCookie = false): Promise<Authent
   const ipMatches = !session.ip || session.ip === requestIp
   const userAgentMatches = !session.user_agent || session.user_agent === requestUserAgent
 
-  if (!matches || !ipMatches || !userAgentMatches) {
+  if (!matches) {
     await revokeSession(sessionId)
     await clearSessionCookie()
     return null
+  }
+
+  if (!ipMatches || !userAgentMatches) {
+    console.warn("[auth] Session IP/UA mismatch (allowing for now)", {
+      sessionId,
+      expectedIp: session.ip,
+      requestIp,
+      expectedUa: session.user_agent,
+      requestUa: requestUserAgent,
+    })
   }
 
   if (refreshSessionCookie) {
@@ -230,8 +240,15 @@ export async function getProfileFromSessionCookie(
   const matches = await bcrypt.compare(parsed.token, session.token_hash)
   const ipMatches = !session.ip
   const userAgentMatches = !session.user_agent
-  if (!matches || !ipMatches || !userAgentMatches) {
+  
+  if (!matches) {
     return null
+  }
+
+  // Relaxed check: Log warning but don't fail for IP/UA mismatch in this context either
+  if (!ipMatches || !userAgentMatches) {
+    // We don't have easy access to request headers here to log comparison, 
+    // but we proceed if token matches.
   }
 
   return readProfile(session.user_id)

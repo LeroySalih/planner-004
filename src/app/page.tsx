@@ -1,11 +1,14 @@
 import Image from "next/image"
+import { headers } from "next/headers"
 
 import { query } from "@/lib/db"
 import { withTelemetry } from "@/lib/telemetry"
+import { CookieChecker } from "@/components/cookie-checker"
 
 export const dynamic = "force-dynamic"
 
 const REQUIRED_ENV_VARS = ["DATABASE_URL"]
+const SESSION_COOKIE = "planner_session"
 
 async function fetchUnitsCount() {
   try {
@@ -32,10 +35,32 @@ function readEnvStatus() {
   return { seen, present, total: seen.length }
 }
 
+async function checkSessionCookie() {
+  const headersList = await headers()
+  const cookieHeader = headersList.get("cookie")
+
+  if (!cookieHeader) {
+    return false
+  }
+
+  const sessionCookie = cookieHeader
+    .split('; ')
+    .find(row => row.startsWith(`${SESSION_COOKIE}=`))
+
+  if (!sessionCookie) {
+    return false
+  }
+
+  const value = sessionCookie.split('=')[1]
+  const [sessionId, token] = value.split('.')
+  return Boolean(sessionId && token)
+}
+
 const Home = async () => {
   const unitsCount = await fetchUnitsCount()
   const status = typeof unitsCount === "string" ? "Unable to reach database" : "Connection successful"
   const envStatus = readEnvStatus()
+  const isSessionCookieReadable = await checkSessionCookie()
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4 py-10 sm:px-8">
@@ -92,8 +117,10 @@ const Home = async () => {
           ))}
         </ul>
       </div>
+      <CookieChecker isSessionCookieReadable={isSessionCookieReadable} />
     </div>
   )
 }
 
 export default Home
+
