@@ -89,6 +89,7 @@ export const ReportsPupilGroupSchema = z.object({
 export const ReportsPupilListingSchema = z.object({
     pupilId: z.string(),
     pupilName: z.string(),
+    pupilEmail: z.string().email().nullable().optional(),
     groups: z.array(ReportsPupilGroupSchema),
 });
 

@@ -331,7 +331,25 @@ export async function listPupilsWithGroupsAction(): Promise<PupilListing[]> {
     return []
   }
 
-  const parsed = ReportsPupilListingsSchema.safeParse(Array.isArray(payload) ? payload : [])
+  const rawData = Array.isArray(payload) ? payload : []
+
+  if (rawData.length > 0) {
+    try {
+      const pupilIds = rawData.map((p: any) => p.pupilId).filter(Boolean)
+      const { rows: emailRows } = await query<{ user_id: string; email: string | null }>(
+        "select user_id, email from profiles where user_id = any($1::text[])",
+        [pupilIds],
+      )
+      const emailMap = new Map(emailRows.map((r) => [r.user_id, r.email]))
+      rawData.forEach((p: any) => {
+        p.pupilEmail = emailMap.get(p.pupilId) ?? null
+      })
+    } catch (enrichError) {
+      console.error("[reports] Failed to enrich pupil emails", enrichError)
+    }
+  }
+
+  const parsed = ReportsPupilListingsSchema.safeParse(rawData)
 
   if (!parsed.success) {
     console.error("[reports] Invalid payload from reports_list_pupils_with_groups", parsed.error)

@@ -2,10 +2,10 @@
 -- PostgreSQL database dump
 --
 
-\restrict tUmpmKv9LnTpP3T0sEgAGfQ2gnDIykL9NyXFWyeOelp8WbYeFIWSB6SLl7ao8xS
+\restrict FPCbMT5WNQhB9wQcwsBLKHoPW1UgE6vy5l1WKRvhyA2SquI8rlWEDYzSAZ7QmwG
 
--- Dumped from database version 17.7 (Debian 17.7-3.pgdg13+1)
--- Dumped by pg_dump version 17.6 (Homebrew)
+-- Dumped from database version 17.7 (Debian 17.7-3.pgdg12+1)
+-- Dumped by pg_dump version 17.7 (Debian 17.7-3.pgdg12+1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -20,11 +20,13 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 --
--- Name: extensions; Type: SCHEMA; Schema: -; Owner: -
+-- Name: extensions; Type: SCHEMA; Schema: -; Owner: postgres
 --
 
 CREATE SCHEMA extensions;
 
+
+ALTER SCHEMA extensions OWNER TO postgres;
 
 --
 -- Name: pgcrypto; Type: EXTENSION; Schema: -; Owner: -
@@ -34,7 +36,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
 
 
 --
--- Name: EXTENSION pgcrypto; Type: COMMENT; Schema: -; Owner: -
+-- Name: EXTENSION pgcrypto; Type: COMMENT; Schema: -; Owner: 
 --
 
 COMMENT ON EXTENSION pgcrypto IS 'cryptographic functions';
@@ -48,14 +50,14 @@ CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA extensions;
 
 
 --
--- Name: EXTENSION vector; Type: COMMENT; Schema: -; Owner: -
+-- Name: EXTENSION vector; Type: COMMENT; Schema: -; Owner: 
 --
 
 COMMENT ON EXTENSION vector IS 'vector data type and ivfflat and hnsw access methods';
 
 
 --
--- Name: assignments_bootstrap(); Type: FUNCTION; Schema: public; Owner: -
+-- Name: assignments_bootstrap(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
 CREATE FUNCTION public.assignments_bootstrap() RETURNS jsonb
@@ -118,8 +120,10 @@ end;
 $$;
 
 
+ALTER FUNCTION public.assignments_bootstrap() OWNER TO postgres;
+
 --
--- Name: clamp_score(numeric); Type: FUNCTION; Schema: public; Owner: -
+-- Name: clamp_score(numeric); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
 CREATE FUNCTION public.clamp_score(score numeric) RETURNS numeric
@@ -134,8 +138,10 @@ CREATE FUNCTION public.clamp_score(score numeric) RETURNS numeric
 $$;
 
 
+ALTER FUNCTION public.clamp_score(score numeric) OWNER TO postgres;
+
 --
--- Name: compute_submission_base_score(json, text); Type: FUNCTION; Schema: public; Owner: -
+-- Name: compute_submission_base_score(json, text); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
 CREATE FUNCTION public.compute_submission_base_score(body json, activity_type text) RETURNS numeric
@@ -145,8 +151,10 @@ CREATE FUNCTION public.compute_submission_base_score(body json, activity_type te
 $$;
 
 
+ALTER FUNCTION public.compute_submission_base_score(body json, activity_type text) OWNER TO postgres;
+
 --
--- Name: compute_submission_base_score(jsonb, text); Type: FUNCTION; Schema: public; Owner: -
+-- Name: compute_submission_base_score(jsonb, text); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
 CREATE FUNCTION public.compute_submission_base_score(body jsonb, activity_type text) RETURNS numeric
@@ -199,8 +207,10 @@ end;
 $$;
 
 
+ALTER FUNCTION public.compute_submission_base_score(body jsonb, activity_type text) OWNER TO postgres;
+
 --
--- Name: get_latest_short_text_submission(text, text); Type: FUNCTION; Schema: public; Owner: -
+-- Name: get_latest_short_text_submission(text, text); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
 CREATE FUNCTION public.get_latest_short_text_submission(p_activity_id text, p_pupil_id text) RETURNS TABLE(submission_id text, activity_id text, lesson_id text, activity_question text, activity_model_answer text, pupil_answer text, submitted_at timestamp with time zone)
@@ -252,8 +262,10 @@ end;
 $$;
 
 
+ALTER FUNCTION public.get_latest_short_text_submission(p_activity_id text, p_pupil_id text) OWNER TO postgres;
+
 --
--- Name: lesson_assignment_score_summaries(jsonb); Type: FUNCTION; Schema: public; Owner: -
+-- Name: lesson_assignment_score_summaries(jsonb); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
 CREATE FUNCTION public.lesson_assignment_score_summaries(pairs jsonb) RETURNS TABLE(group_id text, lesson_id text, activities_average numeric)
@@ -367,13 +379,15 @@ end;
 $$;
 
 
+ALTER FUNCTION public.lesson_assignment_score_summaries(pairs jsonb) OWNER TO postgres;
+
 --
--- Name: lesson_detail_bootstrap(text); Type: FUNCTION; Schema: public; Owner: -
+-- Name: lesson_detail_bootstrap(text); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
 CREATE FUNCTION public.lesson_detail_bootstrap(p_lesson_id text) RETURNS jsonb
     LANGUAGE plpgsql SECURITY DEFINER
-    SET search_path TO 'public', 'storage'
+    SET search_path TO 'public'
     AS $$
 DECLARE
   result jsonb;
@@ -538,25 +552,22 @@ BEGIN
   files_payload AS (
     SELECT COALESCE(jsonb_agg(
       jsonb_build_object(
-        'name', regexp_replace(obj.name, '^[^/]+/', ''),
-        'path', obj.name,
-        'created_at', obj.created_at,
-        'updated_at', obj.updated_at,
-        'last_accessed_at', obj.last_accessed_at,
-        'size', NULLIF((obj.metadata ->> 'size')::bigint, 0)
+        'name', sf.file_name,
+        'path', sf.scope_path || '/' || sf.file_name,
+        'created_at', sf.created_at,
+        'updated_at', sf.updated_at,
+        'last_accessed_at', NULL,
+        'size', sf.size_bytes
       )
-      ORDER BY obj.updated_at DESC NULLS LAST, obj.created_at DESC NULLS LAST, obj.name
+      ORDER BY sf.updated_at DESC NULLS LAST, sf.created_at DESC NULLS LAST, sf.file_name
     ), '[]'::jsonb) AS payload
-    FROM (
-      SELECT o.*
-      FROM storage.objects o
-      JOIN target_lesson tl
-        ON o.bucket_id = 'lessons'
-       AND o.name LIKE tl.lesson_id || '/%'
-       AND regexp_replace(o.name, '^[^/]+/', '') <> ''
-      ORDER BY o.updated_at DESC NULLS LAST, o.created_at DESC NULLS LAST, o.name
-      LIMIT 100
-    ) obj
+    FROM stored_files sf
+    JOIN target_lesson tl
+      ON sf.bucket = 'lessons'
+     AND sf.scope_path = tl.lesson_id
+    WHERE sf.file_name IS NOT NULL
+      AND sf.file_name <> ''
+    LIMIT 100
   )
   SELECT jsonb_build_object(
       'lesson', (SELECT payload FROM lesson_payload),
@@ -582,8 +593,10 @@ END;
 $$;
 
 
+ALTER FUNCTION public.lesson_detail_bootstrap(p_lesson_id text) OWNER TO postgres;
+
 --
--- Name: lesson_reference_bootstrap(text); Type: FUNCTION; Schema: public; Owner: -
+-- Name: lesson_reference_bootstrap(text); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
 CREATE FUNCTION public.lesson_reference_bootstrap(p_lesson_id text) RETURNS jsonb
@@ -646,8 +659,10 @@ END;
 $$;
 
 
+ALTER FUNCTION public.lesson_reference_bootstrap(p_lesson_id text) OWNER TO postgres;
+
 --
--- Name: match_documents(extensions.vector, integer, jsonb); Type: FUNCTION; Schema: public; Owner: -
+-- Name: match_documents(extensions.vector, integer, jsonb); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
 CREATE FUNCTION public.match_documents(query_embedding extensions.vector, match_count integer DEFAULT 10, filter jsonb DEFAULT '{}'::jsonb) RETURNS TABLE(id bigint, content text, metadata jsonb, similarity double precision)
@@ -665,8 +680,10 @@ CREATE FUNCTION public.match_documents(query_embedding extensions.vector, match_
 $$;
 
 
+ALTER FUNCTION public.match_documents(query_embedding extensions.vector, match_count integer, filter jsonb) OWNER TO postgres;
+
 --
--- Name: pupil_lessons_detail_bootstrap(text); Type: FUNCTION; Schema: public; Owner: -
+-- Name: pupil_lessons_detail_bootstrap(text); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
 CREATE FUNCTION public.pupil_lessons_detail_bootstrap(p_target_user_id text) RETURNS jsonb
@@ -843,8 +860,10 @@ end;
 $$;
 
 
+ALTER FUNCTION public.pupil_lessons_detail_bootstrap(p_target_user_id text) OWNER TO postgres;
+
 --
--- Name: pupil_lessons_summary_bootstrap(text); Type: FUNCTION; Schema: public; Owner: -
+-- Name: pupil_lessons_summary_bootstrap(text); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
 CREATE FUNCTION public.pupil_lessons_summary_bootstrap(p_target_user_id text DEFAULT NULL::text) RETURNS jsonb
@@ -928,8 +947,10 @@ end;
 $$;
 
 
+ALTER FUNCTION public.pupil_lessons_summary_bootstrap(p_target_user_id text) OWNER TO postgres;
+
 --
--- Name: reports_get_prepared_report_dataset(text, text); Type: FUNCTION; Schema: public; Owner: -
+-- Name: reports_get_prepared_report_dataset(text, text); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
 CREATE FUNCTION public.reports_get_prepared_report_dataset(p_pupil_id text, p_group_id text DEFAULT NULL::text) RETURNS jsonb
@@ -1233,8 +1254,10 @@ end;
 $$;
 
 
+ALTER FUNCTION public.reports_get_prepared_report_dataset(p_pupil_id text, p_group_id text) OWNER TO postgres;
+
 --
--- Name: reports_list_pupils_with_groups(); Type: FUNCTION; Schema: public; Owner: -
+-- Name: reports_list_pupils_with_groups(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
 CREATE FUNCTION public.reports_list_pupils_with_groups() RETURNS jsonb
@@ -1299,8 +1322,10 @@ end;
 $$;
 
 
+ALTER FUNCTION public.reports_list_pupils_with_groups() OWNER TO postgres;
+
 --
--- Name: reports_recalculate_pupil_cache(text); Type: FUNCTION; Schema: public; Owner: -
+-- Name: reports_recalculate_pupil_cache(text); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
 CREATE FUNCTION public.reports_recalculate_pupil_cache(p_pupil_id text) RETURNS jsonb
@@ -1352,8 +1377,10 @@ end;
 $$;
 
 
+ALTER FUNCTION public.reports_recalculate_pupil_cache(p_pupil_id text) OWNER TO postgres;
+
 --
--- Name: reports_store_pupil_unit_summaries(text, jsonb); Type: FUNCTION; Schema: public; Owner: -
+-- Name: reports_store_pupil_unit_summaries(text, jsonb); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
 CREATE FUNCTION public.reports_store_pupil_unit_summaries(p_pupil_id text, p_units jsonb) RETURNS void
@@ -1415,8 +1442,10 @@ end;
 $_$;
 
 
+ALTER FUNCTION public.reports_store_pupil_unit_summaries(p_pupil_id text, p_units jsonb) OWNER TO postgres;
+
 --
--- Name: safe_numeric(text); Type: FUNCTION; Schema: public; Owner: -
+-- Name: safe_numeric(text); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
 CREATE FUNCTION public.safe_numeric(value text) RETURNS numeric
@@ -1438,8 +1467,10 @@ end;
 $$;
 
 
+ALTER FUNCTION public.safe_numeric(value text) OWNER TO postgres;
+
 --
--- Name: set_learning_objectives_order_by(); Type: FUNCTION; Schema: public; Owner: -
+-- Name: set_learning_objectives_order_by(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
 CREATE FUNCTION public.set_learning_objectives_order_by() RETURNS trigger
@@ -1466,8 +1497,10 @@ END;
 $$;
 
 
+ALTER FUNCTION public.set_learning_objectives_order_by() OWNER TO postgres;
+
 --
--- Name: set_lessons_order_by(); Type: FUNCTION; Schema: public; Owner: -
+-- Name: set_lessons_order_by(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
 CREATE FUNCTION public.set_lessons_order_by() RETURNS trigger
@@ -1494,12 +1527,14 @@ END;
 $$;
 
 
+ALTER FUNCTION public.set_lessons_order_by() OWNER TO postgres;
+
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
 
 --
--- Name: activities; Type: TABLE; Schema: public; Owner: -
+-- Name: activities; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.activities (
@@ -1516,8 +1551,27 @@ CREATE TABLE public.activities (
 );
 
 
+ALTER TABLE public.activities OWNER TO postgres;
+
 --
--- Name: activity_success_criteria; Type: TABLE; Schema: public; Owner: -
+-- Name: activity_submission_events; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.activity_submission_events (
+    activity_submission_event_id text DEFAULT gen_random_uuid() NOT NULL,
+    submission_id text,
+    activity_id text NOT NULL,
+    lesson_id text NOT NULL,
+    pupil_id text NOT NULL,
+    file_name text,
+    submitted_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+ALTER TABLE public.activity_submission_events OWNER TO postgres;
+
+--
+-- Name: activity_success_criteria; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.activity_success_criteria (
@@ -1526,8 +1580,10 @@ CREATE TABLE public.activity_success_criteria (
 );
 
 
+ALTER TABLE public.activity_success_criteria OWNER TO postgres;
+
 --
--- Name: assessment_objectives; Type: TABLE; Schema: public; Owner: -
+-- Name: assessment_objectives; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.assessment_objectives (
@@ -1540,8 +1596,10 @@ CREATE TABLE public.assessment_objectives (
 );
 
 
+ALTER TABLE public.assessment_objectives OWNER TO postgres;
+
 --
--- Name: assignments; Type: TABLE; Schema: public; Owner: -
+-- Name: assignments; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.assignments (
@@ -1553,6 +1611,10 @@ CREATE TABLE public.assignments (
 );
 
 
+ALTER TABLE public.assignments OWNER TO postgres;
+
+--
+-- Name: auth_sessions; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.auth_sessions (
@@ -1567,8 +1629,10 @@ CREATE TABLE public.auth_sessions (
 );
 
 
+ALTER TABLE public.auth_sessions OWNER TO postgres;
+
 --
--- Name: curricula; Type: TABLE; Schema: public; Owner: -
+-- Name: curricula; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.curricula (
@@ -1580,8 +1644,10 @@ CREATE TABLE public.curricula (
 );
 
 
+ALTER TABLE public.curricula OWNER TO postgres;
+
 --
--- Name: documents; Type: TABLE; Schema: public; Owner: -
+-- Name: documents; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.documents (
@@ -1592,8 +1658,10 @@ CREATE TABLE public.documents (
 );
 
 
+ALTER TABLE public.documents OWNER TO postgres;
+
 --
--- Name: documents_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+-- Name: documents_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
 CREATE SEQUENCE public.documents_id_seq
@@ -1604,15 +1672,17 @@ CREATE SEQUENCE public.documents_id_seq
     CACHE 1;
 
 
+ALTER SEQUENCE public.documents_id_seq OWNER TO postgres;
+
 --
--- Name: documents_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+-- Name: documents_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
 --
 
 ALTER SEQUENCE public.documents_id_seq OWNED BY public.documents.id;
 
 
 --
--- Name: feedback; Type: TABLE; Schema: public; Owner: -
+-- Name: feedback; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.feedback (
@@ -1624,8 +1694,10 @@ CREATE TABLE public.feedback (
 );
 
 
+ALTER TABLE public.feedback OWNER TO postgres;
+
 --
--- Name: feedback_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+-- Name: feedback_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
 CREATE SEQUENCE public.feedback_id_seq
@@ -1637,15 +1709,17 @@ CREATE SEQUENCE public.feedback_id_seq
     CACHE 1;
 
 
+ALTER SEQUENCE public.feedback_id_seq OWNER TO postgres;
+
 --
--- Name: feedback_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+-- Name: feedback_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
 --
 
 ALTER SEQUENCE public.feedback_id_seq OWNED BY public.feedback.id;
 
 
 --
--- Name: group_membership; Type: TABLE; Schema: public; Owner: -
+-- Name: group_membership; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.group_membership (
@@ -1655,8 +1729,10 @@ CREATE TABLE public.group_membership (
 );
 
 
+ALTER TABLE public.group_membership OWNER TO postgres;
+
 --
--- Name: groups; Type: TABLE; Schema: public; Owner: -
+-- Name: groups; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.groups (
@@ -1668,8 +1744,10 @@ CREATE TABLE public.groups (
 );
 
 
+ALTER TABLE public.groups OWNER TO postgres;
+
 --
--- Name: learning_objectives; Type: TABLE; Schema: public; Owner: -
+-- Name: learning_objectives; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.learning_objectives (
@@ -1682,8 +1760,10 @@ CREATE TABLE public.learning_objectives (
 );
 
 
+ALTER TABLE public.learning_objectives OWNER TO postgres;
+
 --
--- Name: lesson_assignments; Type: TABLE; Schema: public; Owner: -
+-- Name: lesson_assignments; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.lesson_assignments (
@@ -1694,8 +1774,10 @@ CREATE TABLE public.lesson_assignments (
 );
 
 
+ALTER TABLE public.lesson_assignments OWNER TO postgres;
+
 --
--- Name: lesson_links; Type: TABLE; Schema: public; Owner: -
+-- Name: lesson_links; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.lesson_links (
@@ -1706,8 +1788,10 @@ CREATE TABLE public.lesson_links (
 );
 
 
+ALTER TABLE public.lesson_links OWNER TO postgres;
+
 --
--- Name: lesson_success_criteria; Type: TABLE; Schema: public; Owner: -
+-- Name: lesson_success_criteria; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.lesson_success_criteria (
@@ -1716,8 +1800,10 @@ CREATE TABLE public.lesson_success_criteria (
 );
 
 
+ALTER TABLE public.lesson_success_criteria OWNER TO postgres;
+
 --
--- Name: lessons; Type: TABLE; Schema: public; Owner: -
+-- Name: lessons; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.lessons (
@@ -1729,8 +1815,10 @@ CREATE TABLE public.lessons (
 );
 
 
+ALTER TABLE public.lessons OWNER TO postgres;
+
 --
--- Name: lessons_learning_objective; Type: TABLE; Schema: public; Owner: -
+-- Name: lessons_learning_objective; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.lessons_learning_objective (
@@ -1743,8 +1831,10 @@ CREATE TABLE public.lessons_learning_objective (
 );
 
 
+ALTER TABLE public.lessons_learning_objective OWNER TO postgres;
+
 --
--- Name: n8n_chat_histories; Type: TABLE; Schema: public; Owner: -
+-- Name: n8n_chat_histories; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.n8n_chat_histories (
@@ -1754,8 +1844,10 @@ CREATE TABLE public.n8n_chat_histories (
 );
 
 
+ALTER TABLE public.n8n_chat_histories OWNER TO postgres;
+
 --
--- Name: n8n_chat_histories_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+-- Name: n8n_chat_histories_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
 CREATE SEQUENCE public.n8n_chat_histories_id_seq
@@ -1767,15 +1859,17 @@ CREATE SEQUENCE public.n8n_chat_histories_id_seq
     CACHE 1;
 
 
+ALTER SEQUENCE public.n8n_chat_histories_id_seq OWNER TO postgres;
+
 --
--- Name: n8n_chat_histories_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+-- Name: n8n_chat_histories_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
 --
 
 ALTER SEQUENCE public.n8n_chat_histories_id_seq OWNED BY public.n8n_chat_histories.id;
 
 
 --
--- Name: profiles; Type: TABLE; Schema: public; Owner: -
+-- Name: profiles; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.profiles (
@@ -1788,8 +1882,10 @@ CREATE TABLE public.profiles (
 );
 
 
+ALTER TABLE public.profiles OWNER TO postgres;
+
 --
--- Name: pupil_activity_feedback; Type: TABLE; Schema: public; Owner: -
+-- Name: pupil_activity_feedback; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.pupil_activity_feedback (
@@ -1807,8 +1903,10 @@ CREATE TABLE public.pupil_activity_feedback (
 );
 
 
+ALTER TABLE public.pupil_activity_feedback OWNER TO postgres;
+
 --
--- Name: pupil_sign_in_history; Type: TABLE; Schema: public; Owner: -
+-- Name: pupil_sign_in_history; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.pupil_sign_in_history (
@@ -1819,8 +1917,10 @@ CREATE TABLE public.pupil_sign_in_history (
 );
 
 
+ALTER TABLE public.pupil_sign_in_history OWNER TO postgres;
+
 --
--- Name: report_pupil_cache; Type: TABLE; Schema: public; Owner: -
+-- Name: report_pupil_cache; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.report_pupil_cache (
@@ -1830,22 +1930,24 @@ CREATE TABLE public.report_pupil_cache (
 );
 
 
+ALTER TABLE public.report_pupil_cache OWNER TO postgres;
+
 --
--- Name: TABLE report_pupil_cache; Type: COMMENT; Schema: public; Owner: -
+-- Name: TABLE report_pupil_cache; Type: COMMENT; Schema: public; Owner: postgres
 --
 
 COMMENT ON TABLE public.report_pupil_cache IS 'Precomputed per-pupil report dataset payloads powering /reports views.';
 
 
 --
--- Name: COLUMN report_pupil_cache.dataset; Type: COMMENT; Schema: public; Owner: -
+-- Name: COLUMN report_pupil_cache.dataset; Type: COMMENT; Schema: public; Owner: postgres
 --
 
 COMMENT ON COLUMN public.report_pupil_cache.dataset IS 'Full dataset as returned by reports_get_prepared_report_dataset.';
 
 
 --
--- Name: report_pupil_feedback_cache; Type: TABLE; Schema: public; Owner: -
+-- Name: report_pupil_feedback_cache; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.report_pupil_feedback_cache (
@@ -1857,15 +1959,17 @@ CREATE TABLE public.report_pupil_feedback_cache (
 );
 
 
+ALTER TABLE public.report_pupil_feedback_cache OWNER TO postgres;
+
 --
--- Name: TABLE report_pupil_feedback_cache; Type: COMMENT; Schema: public; Owner: -
+-- Name: TABLE report_pupil_feedback_cache; Type: COMMENT; Schema: public; Owner: postgres
 --
 
 COMMENT ON TABLE public.report_pupil_feedback_cache IS 'Latest feedback/rating snapshot per pupil and success criterion for group-level aggregations.';
 
 
 --
--- Name: report_pupil_unit_summaries; Type: TABLE; Schema: public; Owner: -
+-- Name: report_pupil_unit_summaries; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.report_pupil_unit_summaries (
@@ -1887,8 +1991,10 @@ CREATE TABLE public.report_pupil_unit_summaries (
 );
 
 
+ALTER TABLE public.report_pupil_unit_summaries OWNER TO postgres;
+
 --
--- Name: short_text_feedback_events; Type: TABLE; Schema: public; Owner: -
+-- Name: short_text_feedback_events; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.short_text_feedback_events (
@@ -1909,8 +2015,27 @@ CREATE TABLE public.short_text_feedback_events (
 );
 
 
+ALTER TABLE public.short_text_feedback_events OWNER TO postgres;
+
 --
--- Name: sse_events; Type: TABLE; Schema: public; Owner: -
+-- Name: sign_in_attempts; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.sign_in_attempts (
+    sign_in_attempt_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    email text NOT NULL,
+    ip text,
+    user_id text,
+    success boolean NOT NULL,
+    reason text,
+    attempted_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+ALTER TABLE public.sign_in_attempts OWNER TO postgres;
+
+--
+-- Name: sse_events; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.sse_events (
@@ -1923,8 +2048,10 @@ CREATE TABLE public.sse_events (
 );
 
 
+ALTER TABLE public.sse_events OWNER TO postgres;
+
 --
--- Name: stored_files; Type: TABLE; Schema: public; Owner: -
+-- Name: stored_files; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.stored_files (
@@ -1943,8 +2070,10 @@ CREATE TABLE public.stored_files (
 );
 
 
+ALTER TABLE public.stored_files OWNER TO postgres;
+
 --
--- Name: subjects; Type: TABLE; Schema: public; Owner: -
+-- Name: subjects; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.subjects (
@@ -1953,8 +2082,10 @@ CREATE TABLE public.subjects (
 );
 
 
+ALTER TABLE public.subjects OWNER TO postgres;
+
 --
--- Name: submissions; Type: TABLE; Schema: public; Owner: -
+-- Name: submissions; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.submissions (
@@ -1971,8 +2102,10 @@ CREATE TABLE public.submissions (
 ALTER TABLE ONLY public.submissions REPLICA IDENTITY FULL;
 
 
+ALTER TABLE public.submissions OWNER TO postgres;
+
 --
--- Name: submissions_replication_pk_seq; Type: SEQUENCE; Schema: public; Owner: -
+-- Name: submissions_replication_pk_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
 CREATE SEQUENCE public.submissions_replication_pk_seq
@@ -1983,15 +2116,17 @@ CREATE SEQUENCE public.submissions_replication_pk_seq
     CACHE 1;
 
 
+ALTER SEQUENCE public.submissions_replication_pk_seq OWNER TO postgres;
+
 --
--- Name: submissions_replication_pk_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+-- Name: submissions_replication_pk_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
 --
 
 ALTER SEQUENCE public.submissions_replication_pk_seq OWNED BY public.submissions.replication_pk;
 
 
 --
--- Name: success_criteria; Type: TABLE; Schema: public; Owner: -
+-- Name: success_criteria; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.success_criteria (
@@ -2004,8 +2139,10 @@ CREATE TABLE public.success_criteria (
 );
 
 
+ALTER TABLE public.success_criteria OWNER TO postgres;
+
 --
--- Name: success_criteria_units; Type: TABLE; Schema: public; Owner: -
+-- Name: success_criteria_units; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.success_criteria_units (
@@ -2014,8 +2151,10 @@ CREATE TABLE public.success_criteria_units (
 );
 
 
+ALTER TABLE public.success_criteria_units OWNER TO postgres;
+
 --
--- Name: units; Type: TABLE; Schema: public; Owner: -
+-- Name: units; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.units (
@@ -2028,36 +2167,38 @@ CREATE TABLE public.units (
 );
 
 
+ALTER TABLE public.units OWNER TO postgres;
+
 --
--- Name: documents id; Type: DEFAULT; Schema: public; Owner: -
+-- Name: documents id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.documents ALTER COLUMN id SET DEFAULT nextval('public.documents_id_seq'::regclass);
 
 
 --
--- Name: feedback id; Type: DEFAULT; Schema: public; Owner: -
+-- Name: feedback id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.feedback ALTER COLUMN id SET DEFAULT nextval('public.feedback_id_seq'::regclass);
 
 
 --
--- Name: n8n_chat_histories id; Type: DEFAULT; Schema: public; Owner: -
+-- Name: n8n_chat_histories id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.n8n_chat_histories ALTER COLUMN id SET DEFAULT nextval('public.n8n_chat_histories_id_seq'::regclass);
 
 
 --
--- Name: submissions replication_pk; Type: DEFAULT; Schema: public; Owner: -
+-- Name: submissions replication_pk; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.submissions ALTER COLUMN replication_pk SET DEFAULT nextval('public.submissions_replication_pk_seq'::regclass);
 
 
 --
--- Name: activities activities_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: activities activities_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.activities
@@ -2065,7 +2206,15 @@ ALTER TABLE ONLY public.activities
 
 
 --
--- Name: activity_success_criteria activity_success_criteria_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: activity_submission_events activity_submission_events_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.activity_submission_events
+    ADD CONSTRAINT activity_submission_events_pkey PRIMARY KEY (activity_submission_event_id);
+
+
+--
+-- Name: activity_success_criteria activity_success_criteria_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.activity_success_criteria
@@ -2073,7 +2222,7 @@ ALTER TABLE ONLY public.activity_success_criteria
 
 
 --
--- Name: assessment_objectives assessment_objectives_curriculum_id_code_key; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: assessment_objectives assessment_objectives_curriculum_id_code_key; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.assessment_objectives
@@ -2081,7 +2230,7 @@ ALTER TABLE ONLY public.assessment_objectives
 
 
 --
--- Name: assessment_objectives assessment_objectives_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: assessment_objectives assessment_objectives_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.assessment_objectives
@@ -2089,7 +2238,7 @@ ALTER TABLE ONLY public.assessment_objectives
 
 
 --
--- Name: assessment_objectives assessment_objectives_unit_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: assessment_objectives assessment_objectives_unit_id_key; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.assessment_objectives
@@ -2097,7 +2246,7 @@ ALTER TABLE ONLY public.assessment_objectives
 
 
 --
--- Name: assignments assignments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: assignments assignments_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.assignments
@@ -2105,14 +2254,15 @@ ALTER TABLE ONLY public.assignments
 
 
 --
--- Name: auth_sessions auth_sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: auth_sessions auth_sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.auth_sessions
     ADD CONSTRAINT auth_sessions_pkey PRIMARY KEY (session_id);
 
 
--- Name: curricula curricula_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+-- Name: curricula curricula_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.curricula
@@ -2120,7 +2270,7 @@ ALTER TABLE ONLY public.curricula
 
 
 --
--- Name: documents documents_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: documents documents_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.documents
@@ -2128,7 +2278,7 @@ ALTER TABLE ONLY public.documents
 
 
 --
--- Name: feedback feedback_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: feedback feedback_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.feedback
@@ -2136,7 +2286,7 @@ ALTER TABLE ONLY public.feedback
 
 
 --
--- Name: groups groups_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: groups groups_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.groups
@@ -2144,7 +2294,7 @@ ALTER TABLE ONLY public.groups
 
 
 --
--- Name: learning_objectives learning_objectives_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: learning_objectives learning_objectives_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.learning_objectives
@@ -2152,7 +2302,7 @@ ALTER TABLE ONLY public.learning_objectives
 
 
 --
--- Name: lesson_assignments lesson_assignments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: lesson_assignments lesson_assignments_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.lesson_assignments
@@ -2160,7 +2310,7 @@ ALTER TABLE ONLY public.lesson_assignments
 
 
 --
--- Name: lesson_links lesson_links_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: lesson_links lesson_links_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.lesson_links
@@ -2168,7 +2318,7 @@ ALTER TABLE ONLY public.lesson_links
 
 
 --
--- Name: lesson_success_criteria lesson_success_criteria_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: lesson_success_criteria lesson_success_criteria_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.lesson_success_criteria
@@ -2176,7 +2326,7 @@ ALTER TABLE ONLY public.lesson_success_criteria
 
 
 --
--- Name: lessons_learning_objective lessons_learning_objective_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: lessons_learning_objective lessons_learning_objective_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.lessons_learning_objective
@@ -2184,7 +2334,7 @@ ALTER TABLE ONLY public.lessons_learning_objective
 
 
 --
--- Name: lessons lessons_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: lessons lessons_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.lessons
@@ -2192,7 +2342,7 @@ ALTER TABLE ONLY public.lessons
 
 
 --
--- Name: n8n_chat_histories n8n_chat_histories_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: n8n_chat_histories n8n_chat_histories_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.n8n_chat_histories
@@ -2200,7 +2350,7 @@ ALTER TABLE ONLY public.n8n_chat_histories
 
 
 --
--- Name: profiles profiles_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: profiles profiles_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.profiles
@@ -2208,7 +2358,7 @@ ALTER TABLE ONLY public.profiles
 
 
 --
--- Name: pupil_activity_feedback pupil_activity_feedback_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: pupil_activity_feedback pupil_activity_feedback_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.pupil_activity_feedback
@@ -2216,7 +2366,7 @@ ALTER TABLE ONLY public.pupil_activity_feedback
 
 
 --
--- Name: report_pupil_cache report_pupil_cache_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: report_pupil_cache report_pupil_cache_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.report_pupil_cache
@@ -2224,7 +2374,7 @@ ALTER TABLE ONLY public.report_pupil_cache
 
 
 --
--- Name: report_pupil_feedback_cache report_pupil_feedback_cache_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: report_pupil_feedback_cache report_pupil_feedback_cache_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.report_pupil_feedback_cache
@@ -2232,7 +2382,7 @@ ALTER TABLE ONLY public.report_pupil_feedback_cache
 
 
 --
--- Name: report_pupil_unit_summaries report_pupil_unit_summaries_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: report_pupil_unit_summaries report_pupil_unit_summaries_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.report_pupil_unit_summaries
@@ -2240,7 +2390,7 @@ ALTER TABLE ONLY public.report_pupil_unit_summaries
 
 
 --
--- Name: short_text_feedback_events short_text_feedback_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: short_text_feedback_events short_text_feedback_events_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.short_text_feedback_events
@@ -2248,7 +2398,15 @@ ALTER TABLE ONLY public.short_text_feedback_events
 
 
 --
--- Name: sse_events sse_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: sign_in_attempts sign_in_attempts_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.sign_in_attempts
+    ADD CONSTRAINT sign_in_attempts_pkey PRIMARY KEY (sign_in_attempt_id);
+
+
+--
+-- Name: sse_events sse_events_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.sse_events
@@ -2256,7 +2414,7 @@ ALTER TABLE ONLY public.sse_events
 
 
 --
--- Name: stored_files stored_files_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: stored_files stored_files_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.stored_files
@@ -2264,7 +2422,7 @@ ALTER TABLE ONLY public.stored_files
 
 
 --
--- Name: subjects subjects_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: subjects subjects_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.subjects
@@ -2272,7 +2430,7 @@ ALTER TABLE ONLY public.subjects
 
 
 --
--- Name: submissions submissions_replication_pk_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: submissions submissions_replication_pk_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.submissions
@@ -2280,7 +2438,7 @@ ALTER TABLE ONLY public.submissions
 
 
 --
--- Name: success_criteria success_criteria_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: success_criteria success_criteria_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.success_criteria
@@ -2288,7 +2446,7 @@ ALTER TABLE ONLY public.success_criteria
 
 
 --
--- Name: success_criteria_units success_criteria_units_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: success_criteria_units success_criteria_units_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.success_criteria_units
@@ -2296,7 +2454,7 @@ ALTER TABLE ONLY public.success_criteria_units
 
 
 --
--- Name: units units_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: units units_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.units
@@ -2304,238 +2462,280 @@ ALTER TABLE ONLY public.units
 
 
 --
--- Name: assessment_objectives_curriculum_id_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: assessment_objectives_curriculum_id_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX assessment_objectives_curriculum_id_idx ON public.assessment_objectives USING btree (curriculum_id);
 
 
 --
--- Name: auth_sessions_expires_at_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: auth_sessions_expires_at_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX auth_sessions_expires_at_idx ON public.auth_sessions USING btree (expires_at);
 
 
 --
--- Name: auth_sessions_user_id_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: auth_sessions_user_id_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX auth_sessions_user_id_idx ON public.auth_sessions USING btree (user_id);
 
 
 --
--- Name: documents_embedding_hnsw; Type: INDEX; Schema: public; Owner: -
+-- Name: documents_embedding_hnsw; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX documents_embedding_hnsw ON public.documents USING hnsw (embedding extensions.vector_cosine_ops);
 
 
 --
--- Name: feedback_unique_user_lesson_criterion; Type: INDEX; Schema: public; Owner: -
+-- Name: feedback_unique_user_lesson_criterion; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE UNIQUE INDEX feedback_unique_user_lesson_criterion ON public.feedback USING btree (user_id, lesson_id, success_criteria_id);
 
 
 --
--- Name: idx_activities_lesson_order; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_activities_lesson_order; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_activities_lesson_order ON public.activities USING btree (lesson_id, order_by, activity_id);
 
 
 --
--- Name: idx_activity_success_criteria_success_activity; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_activity_submission_events_activity; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_activity_submission_events_activity ON public.activity_submission_events USING btree (activity_id);
+
+
+--
+-- Name: idx_activity_submission_events_pupil; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_activity_submission_events_pupil ON public.activity_submission_events USING btree (pupil_id);
+
+
+--
+-- Name: idx_activity_submission_events_submitted_at; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_activity_submission_events_submitted_at ON public.activity_submission_events USING btree (submitted_at DESC);
+
+
+--
+-- Name: idx_activity_success_criteria_success_activity; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_activity_success_criteria_success_activity ON public.activity_success_criteria USING btree (success_criteria_id, activity_id);
 
 
 --
--- Name: idx_feedback_lesson_user; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_feedback_lesson_user; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_feedback_lesson_user ON public.feedback USING btree (lesson_id, user_id);
 
 
 --
--- Name: idx_group_membership_group_user; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_group_membership_group_user; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_group_membership_group_user ON public.group_membership USING btree (group_id, user_id);
 
 
 --
--- Name: idx_group_membership_user_group; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_group_membership_user_group; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_group_membership_user_group ON public.group_membership USING btree (user_id, group_id);
 
 
 --
--- Name: idx_groups_join_code_unique; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_groups_join_code_unique; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE UNIQUE INDEX idx_groups_join_code_unique ON public.groups USING btree (join_code) WHERE (join_code IS NOT NULL);
 
 
 --
--- Name: idx_lesson_assignments_lesson_group; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_lesson_assignments_lesson_group; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_lesson_assignments_lesson_group ON public.lesson_assignments USING btree (lesson_id, group_id, start_date);
 
 
 --
--- Name: idx_lesson_links_lesson; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_lesson_links_lesson; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_lesson_links_lesson ON public.lesson_links USING btree (lesson_id, lesson_link_id);
 
 
 --
--- Name: idx_lessons_learning_objective_lesson_order; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_lessons_learning_objective_lesson_order; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_lessons_learning_objective_lesson_order ON public.lessons_learning_objective USING btree (lesson_id, order_by, learning_objective_id);
 
 
 --
--- Name: idx_lessons_unit_order; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_lessons_unit_order; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_lessons_unit_order ON public.lessons USING btree (unit_id, order_by, lesson_id);
 
 
 --
--- Name: idx_report_pupil_feedback_cache_criteria; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_report_pupil_feedback_cache_criteria; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_report_pupil_feedback_cache_criteria ON public.report_pupil_feedback_cache USING btree (success_criteria_id, pupil_id);
 
 
 --
--- Name: idx_report_pupil_unit_summaries_group_ids; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_report_pupil_unit_summaries_group_ids; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_report_pupil_unit_summaries_group_ids ON public.report_pupil_unit_summaries USING gin (related_group_ids);
 
 
 --
--- Name: idx_report_pupil_unit_summaries_pupil_subject; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_report_pupil_unit_summaries_pupil_subject; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_report_pupil_unit_summaries_pupil_subject ON public.report_pupil_unit_summaries USING btree (pupil_id, unit_subject);
 
 
 --
--- Name: idx_report_pupil_unit_summaries_subject; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_report_pupil_unit_summaries_subject; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_report_pupil_unit_summaries_subject ON public.report_pupil_unit_summaries USING btree (unit_subject);
 
 
 --
--- Name: idx_submissions_activity_submitted; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_submissions_activity_submitted; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_submissions_activity_submitted ON public.submissions USING btree (activity_id, submitted_at DESC, submission_id);
 
 
 --
--- Name: idx_submissions_activity_user; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_submissions_activity_user; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_submissions_activity_user ON public.submissions USING btree (activity_id, user_id);
 
 
 --
--- Name: idx_submissions_submission_id_unique; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_submissions_submission_id_unique; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE UNIQUE INDEX idx_submissions_submission_id_unique ON public.submissions USING btree (submission_id);
 
 
 --
--- Name: idx_success_criteria_units_unit; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_success_criteria_units_unit; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_success_criteria_units_unit ON public.success_criteria_units USING btree (unit_id, success_criteria_id);
 
 
 --
--- Name: learning_objectives_assessment_objective_id_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: learning_objectives_assessment_objective_id_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX learning_objectives_assessment_objective_id_idx ON public.learning_objectives USING btree (assessment_objective_id, order_index);
 
 
 --
--- Name: profiles_email_ci_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: profiles_email_ci_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE UNIQUE INDEX profiles_email_ci_idx ON public.profiles USING btree (lower(email)) WHERE (email IS NOT NULL);
 
 
 --
--- Name: short_text_feedback_events_activity_pupil_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: short_text_feedback_events_activity_pupil_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX short_text_feedback_events_activity_pupil_idx ON public.short_text_feedback_events USING btree (activity_id, pupil_id);
 
 
 --
--- Name: short_text_feedback_events_assignment_pupil_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: short_text_feedback_events_assignment_pupil_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX short_text_feedback_events_assignment_pupil_idx ON public.short_text_feedback_events USING btree (assignment_id, pupil_id);
 
 
 --
--- Name: sse_events_created_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: sign_in_attempts_attempted_at_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX sign_in_attempts_attempted_at_idx ON public.sign_in_attempts USING btree (attempted_at DESC);
+
+
+--
+-- Name: sign_in_attempts_email_attempted_at_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX sign_in_attempts_email_attempted_at_idx ON public.sign_in_attempts USING btree (email, attempted_at DESC);
+
+
+--
+-- Name: sign_in_attempts_ip_attempted_at_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX sign_in_attempts_ip_attempted_at_idx ON public.sign_in_attempts USING btree (ip, attempted_at DESC);
+
+
+--
+-- Name: sse_events_created_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX sse_events_created_idx ON public.sse_events USING btree (created_at DESC);
 
 
 --
--- Name: sse_events_topic_created_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: sse_events_topic_created_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX sse_events_topic_created_idx ON public.sse_events USING btree (topic, created_at DESC);
 
 
 --
--- Name: stored_files_bucket_scope_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: stored_files_bucket_scope_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX stored_files_bucket_scope_idx ON public.stored_files USING btree (bucket, scope_path);
 
 
 --
--- Name: stored_files_bucket_scope_name_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: stored_files_bucket_scope_name_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE UNIQUE INDEX stored_files_bucket_scope_name_idx ON public.stored_files USING btree (bucket, scope_path, file_name);
 
 
 --
--- Name: success_criteria_learning_objective_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: success_criteria_learning_objective_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX success_criteria_learning_objective_idx ON public.success_criteria USING btree (learning_objective_id, order_index);
 
 
 --
--- Name: lessons trg_set_lessons_order_by; Type: TRIGGER; Schema: public; Owner: -
+-- Name: lessons trg_set_lessons_order_by; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
 CREATE TRIGGER trg_set_lessons_order_by BEFORE INSERT ON public.lessons FOR EACH ROW EXECUTE FUNCTION public.set_lessons_order_by();
 
 
 --
--- Name: activities activities_lesson_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: activities activities_lesson_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.activities
@@ -2543,7 +2743,7 @@ ALTER TABLE ONLY public.activities
 
 
 --
--- Name: assessment_objectives assessment_objectives_curriculum_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: assessment_objectives assessment_objectives_curriculum_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.assessment_objectives
@@ -2551,7 +2751,7 @@ ALTER TABLE ONLY public.assessment_objectives
 
 
 --
--- Name: assessment_objectives assessment_objectives_unit_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: assessment_objectives assessment_objectives_unit_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.assessment_objectives
@@ -2559,14 +2759,15 @@ ALTER TABLE ONLY public.assessment_objectives
 
 
 --
--- Name: auth_sessions auth_sessions_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: auth_sessions auth_sessions_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.auth_sessions
     ADD CONSTRAINT auth_sessions_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(user_id) ON DELETE CASCADE;
 
 
--- Name: curricula curricula_subject_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+-- Name: curricula curricula_subject_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.curricula
@@ -2574,7 +2775,7 @@ ALTER TABLE ONLY public.curricula
 
 
 --
--- Name: group_membership group_membership_group_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: group_membership group_membership_group_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.group_membership
@@ -2582,7 +2783,7 @@ ALTER TABLE ONLY public.group_membership
 
 
 --
--- Name: learning_objectives learning_objectives_assessment_objective_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: learning_objectives learning_objectives_assessment_objective_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.learning_objectives
@@ -2590,7 +2791,7 @@ ALTER TABLE ONLY public.learning_objectives
 
 
 --
--- Name: lesson_links lesson_links_lesson_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: lesson_links lesson_links_lesson_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.lesson_links
@@ -2598,7 +2799,7 @@ ALTER TABLE ONLY public.lesson_links
 
 
 --
--- Name: lessons_learning_objective lessons_learning_objective_learning_objective_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: lessons_learning_objective lessons_learning_objective_learning_objective_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.lessons_learning_objective
@@ -2606,7 +2807,7 @@ ALTER TABLE ONLY public.lessons_learning_objective
 
 
 --
--- Name: lessons_learning_objective lessons_learning_objective_lesson_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: lessons_learning_objective lessons_learning_objective_lesson_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.lessons_learning_objective
@@ -2614,7 +2815,7 @@ ALTER TABLE ONLY public.lessons_learning_objective
 
 
 --
--- Name: lessons lessons_unit_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: lessons lessons_unit_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.lessons
@@ -2622,7 +2823,7 @@ ALTER TABLE ONLY public.lessons
 
 
 --
--- Name: pupil_activity_feedback pupil_activity_feedback_activity_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: pupil_activity_feedback pupil_activity_feedback_activity_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.pupil_activity_feedback
@@ -2630,7 +2831,7 @@ ALTER TABLE ONLY public.pupil_activity_feedback
 
 
 --
--- Name: pupil_activity_feedback pupil_activity_feedback_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: pupil_activity_feedback pupil_activity_feedback_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.pupil_activity_feedback
@@ -2638,7 +2839,7 @@ ALTER TABLE ONLY public.pupil_activity_feedback
 
 
 --
--- Name: pupil_activity_feedback pupil_activity_feedback_pupil_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: pupil_activity_feedback pupil_activity_feedback_pupil_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.pupil_activity_feedback
@@ -2646,7 +2847,7 @@ ALTER TABLE ONLY public.pupil_activity_feedback
 
 
 --
--- Name: pupil_activity_feedback pupil_activity_feedback_submission_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: pupil_activity_feedback pupil_activity_feedback_submission_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.pupil_activity_feedback
@@ -2654,7 +2855,7 @@ ALTER TABLE ONLY public.pupil_activity_feedback
 
 
 --
--- Name: pupil_sign_in_history pupil_sign_in_history_pupil_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: pupil_sign_in_history pupil_sign_in_history_pupil_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.pupil_sign_in_history
@@ -2662,7 +2863,7 @@ ALTER TABLE ONLY public.pupil_sign_in_history
 
 
 --
--- Name: report_pupil_cache report_pupil_cache_pupil_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: report_pupil_cache report_pupil_cache_pupil_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.report_pupil_cache
@@ -2670,7 +2871,7 @@ ALTER TABLE ONLY public.report_pupil_cache
 
 
 --
--- Name: report_pupil_feedback_cache report_pupil_feedback_cache_pupil_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: report_pupil_feedback_cache report_pupil_feedback_cache_pupil_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.report_pupil_feedback_cache
@@ -2678,7 +2879,7 @@ ALTER TABLE ONLY public.report_pupil_feedback_cache
 
 
 --
--- Name: report_pupil_unit_summaries report_pupil_unit_summaries_pupil_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: report_pupil_unit_summaries report_pupil_unit_summaries_pupil_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.report_pupil_unit_summaries
@@ -2686,7 +2887,7 @@ ALTER TABLE ONLY public.report_pupil_unit_summaries
 
 
 --
--- Name: short_text_feedback_events short_text_feedback_events_activity_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: short_text_feedback_events short_text_feedback_events_activity_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.short_text_feedback_events
@@ -2694,7 +2895,7 @@ ALTER TABLE ONLY public.short_text_feedback_events
 
 
 --
--- Name: short_text_feedback_events short_text_feedback_events_pupil_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: short_text_feedback_events short_text_feedback_events_pupil_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.short_text_feedback_events
@@ -2702,7 +2903,7 @@ ALTER TABLE ONLY public.short_text_feedback_events
 
 
 --
--- Name: short_text_feedback_events short_text_feedback_events_submission_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: short_text_feedback_events short_text_feedback_events_submission_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.short_text_feedback_events
@@ -2710,7 +2911,15 @@ ALTER TABLE ONLY public.short_text_feedback_events
 
 
 --
--- Name: sse_events sse_events_emitted_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: sign_in_attempts sign_in_attempts_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.sign_in_attempts
+    ADD CONSTRAINT sign_in_attempts_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(user_id) ON DELETE SET NULL;
+
+
+--
+-- Name: sse_events sse_events_emitted_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.sse_events
@@ -2718,7 +2927,7 @@ ALTER TABLE ONLY public.sse_events
 
 
 --
--- Name: success_criteria success_criteria_learning_objective_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: success_criteria success_criteria_learning_objective_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.success_criteria
@@ -2726,7 +2935,7 @@ ALTER TABLE ONLY public.success_criteria
 
 
 --
--- Name: success_criteria_units success_criteria_units_success_criteria_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: success_criteria_units success_criteria_units_success_criteria_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.success_criteria_units
@@ -2734,7 +2943,7 @@ ALTER TABLE ONLY public.success_criteria_units
 
 
 --
--- Name: success_criteria_units success_criteria_units_unit_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: success_criteria_units success_criteria_units_unit_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.success_criteria_units
@@ -2742,7 +2951,7 @@ ALTER TABLE ONLY public.success_criteria_units
 
 
 --
--- Name: units units_subject_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: units units_subject_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.units
@@ -2753,4 +2962,5 @@ ALTER TABLE ONLY public.units
 -- PostgreSQL database dump complete
 --
 
-\unrestrict tUmpmKv9LnTpP3T0sEgAGfQ2gnDIykL9NyXFWyeOelp8WbYeFIWSB6SLl7ao8xS
+\unrestrict FPCbMT5WNQhB9wQcwsBLKHoPW1UgE6vy5l1WKRvhyA2SquI8rlWEDYzSAZ7QmwG
+
