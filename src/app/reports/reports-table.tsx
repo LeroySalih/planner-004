@@ -1,14 +1,18 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo, useState, useTransition } from "react"
 import Link from "next/link"
+import { toast } from "sonner"
 
 import { createWildcardRegex } from "@/lib/search"
+import { Switch } from "@/components/ui/switch"
+import { toggleUserTeacherStatusAction } from "@/lib/server-updates"
 
 export type ReportsTablePupil = {
   pupilId: string
   name: string
   email?: string | null
+  isTeacher: boolean
   groups: string[]
 }
 
@@ -48,13 +52,14 @@ export function ReportsTable({ pupils }: { pupils: ReportsTablePupil[] }) {
             <tr>
               <th className="border border-border px-4 py-2 text-left">Pupil</th>
               <th className="border border-border px-4 py-2 text-left">Email</th>
+              <th className="border border-border px-4 py-2 text-left">Is Teacher</th>
               <th className="border border-border px-4 py-2 text-left">Groups</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={3} className="px-4 py-6 text-center text-sm text-muted-foreground">
+                <td colSpan={4} className="px-4 py-6 text-center text-sm text-muted-foreground">
                   No pupils match this filter.
                 </td>
               </tr>
@@ -67,11 +72,10 @@ export function ReportsTable({ pupils }: { pupils: ReportsTablePupil[] }) {
                     </Link>
                   </td>
                   <td className="border border-border px-4 py-2 align-top text-muted-foreground">
-                    {pupil.email ? (
-                      <span className="font-mono text-xs">{pupil.email}</span>
-                    ) : (
-                      "—"
-                    )}
+                    {pupil.email ? <span className="font-mono text-xs">{pupil.email}</span> : "—"}
+                  </td>
+                  <td className="border border-border px-4 py-2 align-top text-muted-foreground">
+                    <TeacherToggle pupil={pupil} />
                   </td>
                   <td className="border border-border px-4 py-2 align-top text-muted-foreground">
                     {pupil.groups.length > 0 ? (
@@ -97,5 +101,32 @@ export function ReportsTable({ pupils }: { pupils: ReportsTablePupil[] }) {
         </table>
       </div>
     </div>
+  )
+}
+
+function TeacherToggle({ pupil }: { pupil: ReportsTablePupil }) {
+  const [isTeacher, setIsTeacher] = useState(pupil.isTeacher)
+  const [isPending, startTransition] = useTransition()
+
+  const handleToggle = (checked: boolean) => {
+    setIsTeacher(checked)
+    startTransition(async () => {
+      const result = await toggleUserTeacherStatusAction(pupil.pupilId)
+      if (result.success) {
+        toast.success(`Teacher status updated for ${pupil.name}`)
+      } else {
+        setIsTeacher(!checked)
+        toast.error(result.error ?? "Failed to update teacher status")
+      }
+    })
+  }
+
+  return (
+    <Switch
+      checked={isTeacher}
+      onCheckedChange={handleToggle}
+      disabled={isPending}
+      aria-label={`Toggle teacher status for ${pupil.name}`}
+    />
   )
 }

@@ -309,3 +309,37 @@ export async function updateProfileDetailAction(
     data: profile,
   })
 }
+
+export async function toggleUserTeacherStatusAction(userId: string): Promise<{ success: boolean; error: string | null }> {
+  const authProfile = await requireAuthenticatedProfile()
+  if (!authProfile.isTeacher) {
+    return { success: false, error: "You do not have permission to change teacher status." }
+  }
+
+  if (authProfile.userId === userId) {
+    return { success: false, error: "You cannot change your own teacher status." }
+  }
+
+  try {
+    const { rows } = await query<{ is_teacher: boolean }>(
+      "select is_teacher from profiles where user_id = $1",
+      [userId],
+    )
+
+    if (rows.length === 0) {
+      return { success: false, error: "User not found." }
+    }
+
+    const currentStatus = Boolean(rows[0].is_teacher)
+    const newStatus = !currentStatus
+
+    await query("update profiles set is_teacher = $1 where user_id = $2", [newStatus, userId])
+
+    revalidatePath("/reports")
+    return { success: true, error: null }
+  } catch (error) {
+    console.error("[profile] Failed to toggle teacher status", error)
+    return { success: false, error: "Failed to update teacher status." }
+  }
+}
+
