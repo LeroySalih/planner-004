@@ -1,22 +1,42 @@
 "use client"
 
-import { useActionState } from "react"
+import { useActionState, useEffect, useRef } from "react"
 import { Loader2 } from "lucide-react"
+import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 
-type JoinGroupActionState = { status: "idle" }
-type LeaveGroupActionState = { status: "idle" }
+export type GroupActionState = {
+  status: "idle" | "success" | "error"
+  message: string
+  timestamp: number
+}
 
-const INITIAL_STATE = { status: "idle" } as const
+const INITIAL_STATE: GroupActionState = { status: "idle", message: "", timestamp: 0 }
 
 type JoinGroupFormProps = {
-  action: (prevState: JoinGroupActionState, formData: FormData) => Promise<JoinGroupActionState>
+  action: (prevState: GroupActionState, formData: FormData) => Promise<GroupActionState>
   roleLabel: string
 }
 
+function useActionToast(state: GroupActionState) {
+  const lastTimestamp = useRef(state.timestamp)
+
+  useEffect(() => {
+    if (state.timestamp === lastTimestamp.current) return
+    lastTimestamp.current = state.timestamp
+
+    if (state.status === "success") {
+      toast.success(state.message)
+    } else if (state.status === "error") {
+      toast.error(state.message)
+    }
+  }, [state])
+}
+
 export function JoinGroupForm({ action, roleLabel }: JoinGroupFormProps) {
-  const [, formAction, pending] = useActionState(action, INITIAL_STATE)
+  const [state, formAction, pending] = useActionState(action, INITIAL_STATE)
+  useActionToast(state)
 
   return (
     <form action={formAction} className="space-y-4 rounded-lg border border-border bg-card p-6 shadow-sm">
@@ -53,12 +73,13 @@ export function JoinGroupForm({ action, roleLabel }: JoinGroupFormProps) {
 }
 
 type LeaveGroupFormProps = {
-  action: (prevState: LeaveGroupActionState, formData: FormData) => Promise<LeaveGroupActionState>
+  action: (prevState: GroupActionState, formData: FormData) => Promise<GroupActionState>
   groupId: string
 }
 
 export function LeaveGroupForm({ action, groupId }: LeaveGroupFormProps) {
-  const [, formAction, pending] = useActionState(action, INITIAL_STATE)
+  const [state, formAction, pending] = useActionState(action, INITIAL_STATE)
+  useActionToast(state)
 
   return (
     <form action={formAction}>

@@ -62,6 +62,7 @@ export const GroupMembershipSchema = z.object({
             first_name: z.string().nullable().optional(),
             last_name: z.string().nullable().optional(),
             is_teacher: z.boolean().default(false).optional(),
+            email: z.string().email().nullable().optional(),
         })
         .optional(),
 });
@@ -88,6 +89,7 @@ export const ReportsPupilGroupSchema = z.object({
 export const ReportsPupilListingSchema = z.object({
     pupilId: z.string(),
     pupilName: z.string(),
+    pupilEmail: z.string().email().nullable().optional(),
     groups: z.array(ReportsPupilGroupSchema),
 });
 

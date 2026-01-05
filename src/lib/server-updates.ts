@@ -6,6 +6,7 @@ export {
   updateGroupAction,
   deleteGroupAction,
   removeGroupMemberAction,
+  updateGroupMemberRoleAction,
   resetPupilPasswordAction,
   readProfileGroupsForCurrentUserAction,
   joinGroupByCodeAction,

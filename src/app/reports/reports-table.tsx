@@ -8,6 +8,7 @@ import { createWildcardRegex } from "@/lib/search"
 export type ReportsTablePupil = {
   pupilId: string
   name: string
+  email?: string | null
   groups: string[]
 }
 
@@ -21,6 +22,7 @@ export function ReportsTable({ pupils }: { pupils: ReportsTablePupil[] }) {
       const regex = createWildcardRegex(trimmed)
       return pupils.filter((pupil) => {
         if (regex.test(pupil.name)) return true
+        if (pupil.email && regex.test(pupil.email)) return true
         return pupil.groups.some((groupId) => regex.test(groupId))
       })
     } catch (error) {
@@ -35,7 +37,7 @@ export function ReportsTable({ pupils }: { pupils: ReportsTablePupil[] }) {
         <input
           value={filter}
           onChange={(event) => setFilter(event.target.value)}
-          placeholder="Filter by group or pupil (use '?' as wildcard)"
+          placeholder="Filter by group, pupil or email (use '?' as wildcard)"
           className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
         />
       </div>
@@ -45,13 +47,14 @@ export function ReportsTable({ pupils }: { pupils: ReportsTablePupil[] }) {
           <thead className="bg-muted text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             <tr>
               <th className="border border-border px-4 py-2 text-left">Pupil</th>
+              <th className="border border-border px-4 py-2 text-left">Email</th>
               <th className="border border-border px-4 py-2 text-left">Groups</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={2} className="px-4 py-6 text-center text-sm text-muted-foreground">
+                <td colSpan={3} className="px-4 py-6 text-center text-sm text-muted-foreground">
                   No pupils match this filter.
                 </td>
               </tr>
@@ -62,6 +65,13 @@ export function ReportsTable({ pupils }: { pupils: ReportsTablePupil[] }) {
                     <Link href={`/reports/${pupil.pupilId}`} className="underline-offset-4 hover:underline">
                       {pupil.name}
                     </Link>
+                  </td>
+                  <td className="border border-border px-4 py-2 align-top text-muted-foreground">
+                    {pupil.email ? (
+                      <span className="font-mono text-xs">{pupil.email}</span>
+                    ) : (
+                      "—"
+                    )}
                   </td>
                   <td className="border border-border px-4 py-2 align-top text-muted-foreground">
                     {pupil.groups.length > 0 ? (

@@ -22,6 +22,7 @@ export default async function ReportsLandingPage() {
   const pupils = pupilListings.map((listing) => ({
     pupilId: listing.pupilId,
     name: listing.pupilName,
+    email: listing.pupilEmail,
     groups: listing.groups.map((group) => group.group_id).sort((a, b) => a.localeCompare(b)),
   }))
 

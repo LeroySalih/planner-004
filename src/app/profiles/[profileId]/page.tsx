@@ -4,6 +4,7 @@ import type { Metadata } from "next"
 import { updateProfilePasswordAction } from "@/lib/server-updates"
 import { ProfileDetailForm } from "@/components/profile/detail"
 import { ProfilePasswordForm } from "@/components/profile/password-form"
+import { ProfileGroups } from "@/components/profile/groups"
 import type { PasswordActionState } from "@/components/profile/password-form-state"
 
 export const metadata: Metadata = {
@@ -101,12 +102,21 @@ export default async function ProfileDetailPage({
         </div>
       </section>
 
+      <section className="rounded-lg border border-border bg-card p-6 shadow-sm">
+        <div className="space-y-2">
+          <h2 className="text-xl font-semibold text-slate-900">Groups</h2>
+          <p className="text-sm text-muted-foreground">
+            Manage your class memberships here.
+          </p>
+        </div>
+        <div className="mt-4">
+          <ProfileGroups />
+        </div>
+      </section>
+
       <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
         <Link href={`/profile/dashboard/${profileId}`} className="underline-offset-4 hover:underline">
           ← Back to dashboard
-        </Link>
-        <Link href="/profiles/groups" className="text-primary underline-offset-4 hover:underline">
-          Manage group memberships
         </Link>
       </div>
     </main>

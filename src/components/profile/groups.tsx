@@ -1,26 +1,13 @@
-import { redirect } from "next/navigation"
+import { revalidatePath } from "next/cache"
 
 import {
   joinGroupByCodeAction,
   leaveGroupAction as leaveGroupMembershipAction,
   readProfileGroupsForCurrentUserAction,
 } from "@/lib/server-actions/groups"
-import { JoinGroupForm, LeaveGroupForm } from "@/components/profile/groups-client"
+import { type GroupActionState, JoinGroupForm, LeaveGroupForm } from "@/components/profile/groups-client"
 
-type FeedbackState =
-  | {
-      variant: "success" | "error"
-      message: string
-    }
-  | null
-
-type ProfileGroupsManagerProps = {
-  feedback: FeedbackState
-}
-
-type GroupActionState = { status: "idle" }
-
-export async function ProfileGroupsManager({ feedback }: ProfileGroupsManagerProps) {
+export async function ProfileGroups() {
   const result = await readProfileGroupsForCurrentUserAction()
 
   if (!result.data) {
@@ -46,23 +33,27 @@ export async function ProfileGroupsManager({ feedback }: ProfileGroupsManagerPro
 
     const joinCode = (formData.get("joinCode") ?? "").toString()
     const joinResult = await joinGroupByCodeAction({ joinCode })
-    const params = new URLSearchParams()
 
     if (joinResult.success) {
-      params.set("status", "success")
-
       const descriptor = joinResult.subject
         ? `${joinResult.subject} (${joinResult.groupId})`
         : joinResult.groupId ?? joinCode.toUpperCase()
 
-      params.set("message", `Joined ${descriptor} successfully.`)
-    } else {
-      params.set("status", "error")
-      params.set("message", joinResult.error ?? "Unable to join that group right now.")
+      revalidatePath(`/profiles/${profile.user_id}`)
+      revalidatePath("/profile/groups") // Also update old page if it exists
+      
+      return {
+        status: "success",
+        message: `Joined ${descriptor} successfully.`,
+        timestamp: Date.now(),
+      }
+    } 
+    
+    return {
+      status: "error",
+      message: joinResult.error ?? "Unable to join that group right now.",
+      timestamp: Date.now(),
     }
-
-    redirect(`/profile/groups?${params.toString()}`)
-    return { status: "idle" }
   }
 
   async function leaveGroup(_: GroupActionState, formData: FormData): Promise<GroupActionState> {
@@ -73,18 +64,22 @@ export async function ProfileGroupsManager({ feedback }: ProfileGroupsManagerPro
       ? await leaveGroupMembershipAction({ groupId })
       : { success: false, error: "Missing group to leave." }
 
-    const params = new URLSearchParams()
-
     if (leaveResult.success) {
-      params.set("status", "success")
-      params.set("message", "Left the group successfully.")
-    } else {
-      params.set("status", "error")
-      params.set("message", leaveResult.error ?? "Unable to leave that group right now.")
+      revalidatePath(`/profiles/${profile.user_id}`)
+      revalidatePath("/profile/groups")
+
+      return {
+        status: "success",
+        message: "Left the group successfully.",
+        timestamp: Date.now(),
+      }
     }
 
-    redirect(`/profile/groups?${params.toString()}`)
-    return { status: "idle" }
+    return {
+      status: "error",
+      message: leaveResult.error ?? "Unable to leave that group right now.",
+      timestamp: Date.now(),
+    }
   }
 
   const sortedMemberships = [...memberships].sort((a, b) => a.group_id.localeCompare(b.group_id))
@@ -92,18 +87,6 @@ export async function ProfileGroupsManager({ feedback }: ProfileGroupsManagerPro
 
   return (
     <div className="flex flex-col gap-6">
-      {feedback && feedback.message ? (
-        <div
-          className={`rounded-lg border px-4 py-3 text-sm ${
-            feedback.variant === "success"
-              ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-700"
-              : "border-destructive/40 bg-destructive/10 text-destructive"
-          }`}
-        >
-          {feedback.message}
-        </div>
-      ) : null}
-
       {result.error ? (
         <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {result.error}

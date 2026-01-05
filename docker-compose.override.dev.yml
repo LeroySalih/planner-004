@@ -1,4 +1,0 @@
-services:
-  studio:
-    ports:
-      - "54323:3000"  # expose Studio on http://<pi-ip>:54323
