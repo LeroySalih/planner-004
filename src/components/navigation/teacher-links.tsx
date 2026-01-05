@@ -96,6 +96,13 @@ export function TeacherNavLinks({ onNavigate }: TeacherNavLinksProps) {
           Reports
         </Link>
         <Link
+          href="/queue"
+          className="text-muted-foreground transition-colors hover:text-primary"
+          onClick={onNavigate}
+        >
+          Queue
+        </Link>
+        <Link
           href="/curriculum"
           className="text-muted-foreground transition-colors hover:text-primary"
           onClick={onNavigate}

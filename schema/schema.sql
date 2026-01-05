@@ -1273,8 +1273,7 @@ begin
       trim(coalesce(p.first_name, '')) as first_name,
       trim(coalesce(p.last_name, '')) as last_name
     from profiles p
-    where coalesce(p.is_teacher, false) = false
-      and p.user_id is not null
+    where p.user_id is not null
   ),
   aggregated as (
     select

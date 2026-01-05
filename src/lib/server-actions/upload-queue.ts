@@ -470,7 +470,7 @@ export async function readQueueAllItemsAction(): Promise<QueueAllItemsResult> {
             left join group_membership gm on gm.user_id = s.user_id
             left join groups g on g.group_id = gm.group_id
             where coalesce(s.body->>'upload_file_name', '') <> ''
-            order by s.submitted_at desc nulls last
+            order by s.submitted_at asc nulls last
           `,
         )
 
@@ -657,7 +657,7 @@ export async function updateUploadSubmissionStatusAction(input: {
               limit 1
             )
             update submissions s
-            set submission_status = $1
+            set submission_status = $1, submitted_at = now()
             from target t
             where s.submission_id = t.submission_id
             returning s.submission_id

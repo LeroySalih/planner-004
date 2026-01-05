@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react"
 import { toast } from "sonner"
 import { Download, Loader2 } from "lucide-react"
+import { format } from "date-fns"
 
 import type { SubmissionStatus, UploadSubmissionFile } from "@/types"
 import { getQueueFileDownloadUrlAction, readQueueAllItemsAction, updateUploadSubmissionStatusAction } from "@/lib/server-updates"
@@ -51,7 +52,7 @@ export function QueueList({ items }: QueueListProps) {
   const [downloadId, setDownloadId] = useState<string | null>(null)
   const [downloadAllPending, setDownloadAllPending] = useState(false)
   const [filterText, setFilterText] = useState("")
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("completed")
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("submitted")
   const [ownerFilter, setOwnerFilter] = useState<string>("all")
   const [lessonActivityFilter, setLessonActivityFilter] = useState("")
 
@@ -143,23 +144,16 @@ export function QueueList({ items }: QueueListProps) {
       groups.set(label, existing)
     })
 
-    const compareFileNames = (a: UploadSubmissionFile, b: UploadSubmissionFile) => {
-      const aName = (a.fileName ?? "").toLowerCase()
-      const bName = (b.fileName ?? "").toLowerCase()
-      if (aName && bName) return aName.localeCompare(bName, undefined, { sensitivity: "base" })
-      if (aName) return -1
-      if (bName) return 1
-      return formatPupilName(a.pupilId, a.pupilName).localeCompare(
-        formatPupilName(b.pupilId, b.pupilName),
-        undefined,
-        { sensitivity: "base" },
-      )
+    const compareSubmittedAt = (a: UploadSubmissionFile, b: UploadSubmissionFile) => {
+      const dateA = a.submittedAt ? new Date(a.submittedAt).getTime() : 0
+      const dateB = b.submittedAt ? new Date(b.submittedAt).getTime() : 0
+      return dateA - dateB
     }
 
     return Array.from(groups.entries())
       .map(([groupLabel, groupItems]) => ({
         groupLabel,
-        items: [...groupItems].sort(compareFileNames),
+        items: [...groupItems].sort(compareSubmittedAt),
       }))
       .sort((a, b) => a.groupLabel.localeCompare(b.groupLabel, undefined, { sensitivity: "base" }))
   }, [filteredItems])
@@ -378,6 +372,7 @@ export function QueueList({ items }: QueueListProps) {
                         <th className="px-3 py-2 text-left">Group</th>
                         <th className="px-3 py-2 text-left">Unit / Lesson / Activity</th>
                         <th className="px-3 py-2 text-left">Owner</th>
+                        <th className="px-3 py-2 text-left">Submitted</th>
                         <th className="px-3 py-2 text-left">File</th>
                         <th className="px-3 py-2 text-left">Status</th>
                       </tr>
@@ -404,6 +399,18 @@ export function QueueList({ items }: QueueListProps) {
                               </div>
                             </td>
                             <td className="px-3 py-3 text-sm text-foreground">{displayName}</td>
+                            <td className="px-3 py-3 text-sm text-foreground tabular-nums">
+                              {item.submittedAt ? (
+                                <div className="flex flex-col">
+                                  <span>{format(new Date(item.submittedAt), "yyyy-MM-dd")}</span>
+                                  <span className="text-xs text-muted-foreground">
+                                    {format(new Date(item.submittedAt), "HH:mm")}
+                                  </span>
+                                </div>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
                             <td className="px-3 py-3">
                               <button
                                 type="button"

@@ -216,6 +216,7 @@ export {
   type UpdateProfileDetailResult,
   updateProfilePasswordAction,
   type UpdateProfilePasswordResult,
+  toggleUserTeacherStatusAction,
 } from "./server-actions/profile"
 
 export { triggerFastUiUpdateAction } from "./server-actions/prototypes/fast-ui"

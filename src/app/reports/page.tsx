@@ -23,6 +23,7 @@ export default async function ReportsLandingPage() {
     pupilId: listing.pupilId,
     name: listing.pupilName,
     email: listing.pupilEmail,
+    isTeacher: listing.isTeacher,
     groups: listing.groups.map((group) => group.group_id).sort((a, b) => a.localeCompare(b)),
   }))
 
