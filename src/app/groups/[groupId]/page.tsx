@@ -8,6 +8,7 @@ import {
   readPupilSigninLockStatusAction,
   removeGroupMemberAction,
   resetPupilPasswordAction,
+  updateGroupMemberRoleAction,
 } from "@/lib/server-updates"
 import { requireTeacherProfile } from "@/lib/auth"
 
@@ -39,7 +40,7 @@ export default async function GroupDetailPage({
 
   const membershipError = result.error
   const pupils: PupilMember[] = group.members
-    .filter((member) => member.role.toLowerCase() === "pupil")
+    .filter((member) => member.role.toLowerCase() === "pupil" || member.role.toLowerCase() === "teacher")
     .map((member) => {
       const first = member.profile?.first_name?.trim() ?? ""
       const last = member.profile?.last_name?.trim() ?? ""
@@ -48,7 +49,9 @@ export default async function GroupDetailPage({
         user_id: member.user_id,
         displayName: displayName.length > 0 ? displayName : member.user_id,
         roleLabel: roleLabelMap[member.role.toLowerCase()] ?? member.role,
+        role: member.role.toLowerCase(),
         locked: false,
+        email: member.profile?.email ?? null,
       }
     })
     .sort((a, b) => a.displayName.localeCompare(b.displayName))
@@ -109,6 +112,15 @@ export default async function GroupDetailPage({
       userId,
       displayName,
     }
+  }
+
+  async function handleUpdateRole(userId: string, role: string) {
+    "use server"
+    // Cast string role to specific union if possible, or assume validation inside action handles it (it does).
+    return await updateGroupMemberRoleAction(
+      { groupId, userId, role: role as "pupil" | "teacher" },
+      { currentProfile: teacherProfile }
+    )
   }
 
   async function handleResetPupilPassword(
@@ -219,15 +231,16 @@ export default async function GroupDetailPage({
 
         <section className="mt-6">
           <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
-            <h2 className="text-lg font-semibold text-slate-900">Pupils</h2>
+            <h2 className="text-lg font-semibold text-slate-900">Members</h2>
             {pupils.length === 0 ? (
-              <p className="mt-3 text-sm text-slate-600">No pupils assigned to this group yet.</p>
+              <p className="mt-3 text-sm text-slate-600">No members assigned to this group yet.</p>
             ) : (
               <GroupPupilList
                 pupils={pupilsWithLocks}
                 resetPupilPasswordAction={handleResetPupilPassword}
                 removePupilAction={handleRemovePupil}
                 unlockPupilAction={handleUnlockPupil}
+                updateRoleAction={handleUpdateRole}
               />
             )}
           </div>

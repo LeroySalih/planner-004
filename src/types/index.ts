@@ -62,6 +62,7 @@ export const GroupMembershipSchema = z.object({
             first_name: z.string().nullable().optional(),
             last_name: z.string().nullable().optional(),
             is_teacher: z.boolean().default(false).optional(),
+            email: z.string().email().nullable().optional(),
         })
         .optional(),
 });

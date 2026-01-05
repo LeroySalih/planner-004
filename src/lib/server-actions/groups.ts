@@ -44,6 +44,18 @@ const RemoveGroupMemberReturnSchema = z.object({
   error: z.string().nullable(),
 })
 
+const UpdateGroupMemberRoleInputSchema = z.object({
+  groupId: z.string().min(1),
+  userId: z.string().min(1),
+  role: z.enum(["pupil", "teacher"]),
+})
+
+const UpdateGroupMemberRoleReturnSchema = z.object({
+  success: z.boolean(),
+  error: z.string().nullable(),
+})
+
+
 const ProfileGroupsDataSchema = z.object({
   profile: ProfileSchema,
   memberships: GroupMembershipsWithGroupSchema,
@@ -198,7 +210,7 @@ export async function readGroupAction(
     if (parsedMembership.length > 0) {
       const memberIds = parsedMembership.map((member) => member.user_id)
       const { rows: profileRows } = await client.query(
-        "select user_id, first_name, last_name, is_teacher from profiles where user_id = any($1::text[])",
+        "select user_id, first_name, last_name, is_teacher, email from profiles where user_id = any($1::text[])",
         [memberIds],
       )
       parsedProfiles = ProfilesSchema.parse(profileRows ?? [])
@@ -753,6 +765,60 @@ export async function leaveGroupAction(input: { groupId: string }): Promise<Leav
   revalidatePath("/profile/groups")
 
   return LeaveGroupReturnSchema.parse({
+    success: true,
+    error: null,
+  })
+}
+
+export async function updateGroupMemberRoleAction(
+  input: { groupId: string; userId: string; role: "pupil" | "teacher" },
+  options?: { currentProfile?: AuthenticatedProfile | null },
+) {
+  const parsed = UpdateGroupMemberRoleInputSchema.safeParse(input)
+  if (!parsed.success) {
+    return UpdateGroupMemberRoleReturnSchema.parse({
+      success: false,
+      error: "Invalid role update payload.",
+    })
+  }
+
+  const { groupId, userId, role } = parsed.data
+
+  const profile = options?.currentProfile ?? (await requireAuthenticatedProfile())
+  if (!profile.isTeacher) {
+    return UpdateGroupMemberRoleReturnSchema.parse({
+      success: false,
+      error: "You do not have permission to update member roles.",
+    })
+  }
+
+  const jobId = crypto.randomUUID()
+  console.log(`[groups] Queuing role update job ${jobId}`, { groupId, userId, role })
+
+  // Fire and forget background job
+  queueMicrotask(async () => {
+    const client = createPgClient()
+    try {
+      await client.connect()
+      const { rowCount } = await client.query(
+        "UPDATE group_membership SET role = $1 WHERE group_id = $2 AND user_id = $3",
+        [role, groupId, userId]
+      )
+      
+      if (rowCount === 0) {
+         console.warn(`[groups] Role update job ${jobId} affected no rows.`)
+      } else {
+         console.log(`[groups] Role update job ${jobId} completed.`)
+         revalidatePath(`/groups/${groupId}`)
+      }
+    } catch (error) {
+      console.error(`[groups] Role update job ${jobId} failed`, error)
+    } finally {
+      try { await client.end() } catch {}
+    }
+  })
+
+  return UpdateGroupMemberRoleReturnSchema.parse({
     success: true,
     error: null,
   })
