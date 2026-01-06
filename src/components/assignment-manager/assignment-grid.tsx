@@ -612,40 +612,33 @@ export function AssignmentGrid({
 
                                           const resultsAssignmentId = `${cell.assignment!.group_id}__${lesson.lesson_id}`
                                           return (
-                                            <Link
+                                            <div
                                               key={lesson.lesson_id}
-                                              href={`/results/assignments/${encodeURIComponent(resultsAssignmentId)}`}
-                                              className="block rounded-md border border-border/70 px-2 py-2 text-xs font-medium shadow-sm transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                                              title={`View assignment results for ${lesson.title} • ${formatShortDate(lessonAssignment.start_date)}`}
+                                              className="block rounded-md border border-border/70 px-2 py-2 text-xs font-medium shadow-sm transition hover:shadow-md"
                                               style={{
                                                 backgroundImage: gradient,
                                                 backgroundColor: UNMARKED_SEGMENT_COLOR,
                                               }}
                                             >
                                               <div className="flex flex-col gap-2">
-                                                <span
-                                                  className="truncate text-xs font-semibold"
+                                                <Link
+                                                  href={`/lessons/${lesson.lesson_id}/activities`}
+                                                  className="truncate text-xs font-semibold hover:underline"
                                                   style={{ color: LESSON_TITLE_COLOR }}
+                                                  title={`View activities for ${lesson.title}`}
                                                 >
                                                   {lesson.title}
-                                                </span>
-                                                {scoreLabel ? (
-                                                  <span
-                                                    className="text-[10px] font-medium"
-                                                    style={{ color: LESSON_DETAIL_COLOR }}
-                                                  >
-                                                    Total score {scoreLabel}
-                                                  </span>
-                                                ) : (
-                                                  <span
-                                                    className="text-[10px] font-medium"
-                                                    style={{ color: LESSON_DETAIL_COLOR }}
-                                                  >
-                                                    No score yet
-                                                  </span>
-                                                )}
+                                                </Link>
+                                                <Link
+                                                  href={`/results/assignments/${encodeURIComponent(resultsAssignmentId)}`}
+                                                  className="text-[10px] font-medium hover:underline"
+                                                  style={{ color: LESSON_DETAIL_COLOR }}
+                                                  title={`View assignment results for ${lesson.title} • ${formatShortDate(lessonAssignment.start_date)}`}
+                                                >
+                                                  {scoreLabel ? `Total score ${scoreLabel}` : "No score yet"}
+                                                </Link>
                                               </div>
-                                            </Link>
+                                            </div>
                                           )
                                         })}
                                       </div>
