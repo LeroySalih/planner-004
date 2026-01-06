@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useMemo } from "react"
+import { useMemo, useRef, useEffect } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { Group, Unit, Assignment, Lesson, LessonAssignment, LessonAssignmentScoreSummary } from "@/types"
@@ -69,6 +69,8 @@ export function AssignmentGrid({
   onAddGroupClick, // Updated prop name
   onGroupTitleClick, // Added onGroupTitleClick prop
 }: AssignmentGridProps) {
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+
   const scoreSummaryMap = useMemo(() => {
     const map = new Map<string, LessonAssignmentScoreSummary>()
     lessonScoreSummaries.forEach((summary) => {
@@ -431,6 +433,39 @@ export function AssignmentGrid({
     return lessonsByWeek
   }
 
+  // Effect to scroll to the current week on mount
+  useEffect(() => {
+    if (scrollContainerRef.current && weekStarts.length > 0) {
+      const today = new Date()
+      const todayTime = today.getTime()
+      
+      // Find the index of the week that contains today, or the first week in the future
+      let currentWeekIndex = weekStarts.findIndex((start) => {
+        const end = new Date(start)
+        end.setDate(end.getDate() + 7)
+        return start.getTime() <= todayTime && todayTime < end.getTime()
+      })
+
+      // If today is past all weeks, scroll to the end
+      if (currentWeekIndex === -1) {
+        if (todayTime > weekStarts[weekStarts.length - 1].getTime()) {
+           currentWeekIndex = weekStarts.length - 1
+        } else {
+           // If today is before all weeks (unlikely given grid logic), index 0
+           currentWeekIndex = 0
+        }
+      }
+
+      if (currentWeekIndex > 0) {
+        // Calculate scroll position: index * 8rem (128px approx)
+        // Using offsetWidth of the first column header would be safer if possible, 
+        // but 128px is consistent with the CSS constant.
+        const scrollAmount = currentWeekIndex * 128 
+        scrollContainerRef.current.scrollLeft = scrollAmount
+      }
+    }
+  }, [weekStarts])
+
   return (
     <>
       <Card className="w-full">
@@ -438,7 +473,7 @@ export function AssignmentGrid({
           <CardTitle className="text-2xl font-bold text-primary">Assignment Schedule</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto" ref={scrollContainerRef}>
             <table className="w-full table-fixed border-collapse">
               <colgroup>
                 <col style={{ width: GROUP_COLUMN_WIDTH }} />
@@ -577,40 +612,33 @@ export function AssignmentGrid({
 
                                           const resultsAssignmentId = `${cell.assignment!.group_id}__${lesson.lesson_id}`
                                           return (
-                                            <Link
+                                            <div
                                               key={lesson.lesson_id}
-                                              href={`/results/assignments/${encodeURIComponent(resultsAssignmentId)}`}
-                                              className="block rounded-md border border-border/70 px-2 py-2 text-xs font-medium shadow-sm transition hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                                              title={`View assignment results for ${lesson.title} • ${formatShortDate(lessonAssignment.start_date)}`}
+                                              className="block rounded-md border border-border/70 px-2 py-2 text-xs font-medium shadow-sm transition hover:shadow-md"
                                               style={{
                                                 backgroundImage: gradient,
                                                 backgroundColor: UNMARKED_SEGMENT_COLOR,
                                               }}
                                             >
                                               <div className="flex flex-col gap-2">
-                                                <span
-                                                  className="truncate text-xs font-semibold"
+                                                <Link
+                                                  href={`/lessons/${lesson.lesson_id}/activities`}
+                                                  className="truncate text-xs font-semibold hover:underline"
                                                   style={{ color: LESSON_TITLE_COLOR }}
+                                                  title={`View activities for ${lesson.title}`}
                                                 >
                                                   {lesson.title}
-                                                </span>
-                                                {scoreLabel ? (
-                                                  <span
-                                                    className="text-[10px] font-medium"
-                                                    style={{ color: LESSON_DETAIL_COLOR }}
-                                                  >
-                                                    Total score {scoreLabel}
-                                                  </span>
-                                                ) : (
-                                                  <span
-                                                    className="text-[10px] font-medium"
-                                                    style={{ color: LESSON_DETAIL_COLOR }}
-                                                  >
-                                                    No score yet
-                                                  </span>
-                                                )}
+                                                </Link>
+                                                <Link
+                                                  href={`/results/assignments/${encodeURIComponent(resultsAssignmentId)}`}
+                                                  className="text-[10px] font-medium hover:underline"
+                                                  style={{ color: LESSON_DETAIL_COLOR }}
+                                                  title={`View assignment results for ${lesson.title} • ${formatShortDate(lessonAssignment.start_date)}`}
+                                                >
+                                                  {scoreLabel ? `Total score ${scoreLabel}` : "No score yet"}
+                                                </Link>
                                               </div>
-                                            </Link>
+                                            </div>
                                           )
                                         })}
                                       </div>

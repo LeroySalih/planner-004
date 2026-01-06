@@ -629,6 +629,12 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
   useEffect(() => {
     optimisticOverridesRef.current = optimisticOverrides
   }, [optimisticOverrides])
+  
+  const selectionRef = useRef(selection)
+  useEffect(() => {
+    selectionRef.current = selection
+  }, [selection])
+
   const handleAiMark = useCallback(() => {
     if (!selectedActivity) {
       toast.error("No activity is selected.")
@@ -980,12 +986,12 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     setActivitySummarySelection(null)
   }
 
-  const applyCellUpdate = (
+  const applyCellUpdate = useCallback((
     updater: (cell: AssignmentResultCell) => AssignmentResultCell | null,
     target?: { rowIndex: number; activityIndex: number },
   ) => {
-    const targetRowIndex = target?.rowIndex ?? selection?.rowIndex
-    const targetActivityIndex = target?.activityIndex ?? selection?.activityIndex
+    const targetRowIndex = target?.rowIndex ?? selectionRef.current?.rowIndex
+    const targetActivityIndex = target?.activityIndex ?? selectionRef.current?.activityIndex
     if (
       typeof targetRowIndex !== "number"
       || typeof targetActivityIndex !== "number"
@@ -1023,7 +1029,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
         overallAverages: recalculated.overallAverages,
       }
     })
-  }
+  }, [])
 
   const normalizeRow = (row: unknown): SubmissionRow | null => {
     if (!row || typeof row !== "object") {
