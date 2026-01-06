@@ -166,17 +166,30 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
 
       const jobId = payload.job_id
 
-      setLessons((prev) => prev.filter((lesson) => lesson.lesson_id !== jobId))
       setPendingLessonIds((prev) => {
         const { [jobId]: _removed, ...rest } = prev
         return rest
       })
       pendingLessonJobsRef.current.delete(jobId)
 
-      if (payload.status === "completed") {
-        if (payload.lesson) {
-          upsertLesson(payload.lesson)
+      setLessons((prev) => {
+        const next = prev.filter((lesson) => lesson.lesson_id !== jobId)
+
+        if (payload.status === "completed" && payload.lesson) {
+          const newLesson = payload.lesson
+          const existingIndex = next.findIndex((item) => item.lesson_id === newLesson.lesson_id)
+          if (existingIndex !== -1) {
+            next[existingIndex] = newLesson
+          } else {
+            next.push(newLesson)
+          }
+          return next.sort((a, b) => (a.order_by ?? 0) - (b.order_by ?? 0))
         }
+
+        return next
+      })
+
+      if (payload.status === "completed") {
         const eventType = (payload as { operation?: string }).operation ?? envelope.type ?? "unknown"
         const description = `event=${eventType} · status=${payload.status} · job=${payload.job_id ?? "n/a"}`
         console.debug("[lessons:sse] toast trigger", {
