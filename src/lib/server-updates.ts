@@ -118,6 +118,7 @@ export {
   deletePupilActivitySubmissionAction,
   getPupilActivitySubmissionUrlAction,
   updatePupilSubmissionStatusAction,
+  updatePupilSubmissionInstructionsAction,
 } from "./server-actions/lesson-activity-files"
 
 export {

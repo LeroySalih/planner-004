@@ -361,7 +361,8 @@ export async function readQueueItemsAction(input: {
                 user_id,
                 submission_status,
                 submitted_at,
-                coalesce(body->>'upload_file_name', '') as file_name
+                coalesce(body->>'upload_file_name', '') as file_name,
+                body->>'instructions' as instructions
               from submissions
               where activity_id = $1 and user_id = any($2::text[])
               order by user_id, submitted_at desc
@@ -383,6 +384,7 @@ export async function readQueueItemsAction(input: {
                   : row.submitted_at instanceof Date
                     ? row.submitted_at.toISOString()
                     : null,
+              instructions: (row as any).instructions ?? null,
             },
           ]),
         )
@@ -410,6 +412,7 @@ export async function readQueueItemsAction(input: {
             status,
             submittedAt,
             size: storageUpload?.size,
+            instructions: submission?.instructions ?? null,
           }
         })
 
@@ -456,6 +459,7 @@ export async function readQueueAllItemsAction(): Promise<QueueAllItemsResult> {
               s.submission_status,
               s.submitted_at,
               coalesce(s.body->>'upload_file_name', '') as file_name,
+              s.body->>'instructions' as instructions,
               a.activity_id,
               a.title as activity_title,
               l.lesson_id,
@@ -524,6 +528,7 @@ export async function readQueueAllItemsAction(): Promise<QueueAllItemsResult> {
             activityTitle: row.activity_title ?? null,
             groupName: row.group_subject ?? row.group_id ?? null,
             size: storageUpload?.size,
+            instructions: row.instructions ?? null,
           }
         })
 

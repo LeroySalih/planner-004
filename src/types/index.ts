@@ -688,6 +688,7 @@ export const UploadSubmissionFileSchema = z.object({
     lessonTitle: z.string().nullable().optional(),
     unitTitle: z.string().nullable().optional(),
     activityTitle: z.string().nullable().optional(),
+    instructions: z.string().nullable().optional(),
 });
 
 export const UploadSubmissionFilesSchema = z.array(UploadSubmissionFileSchema);
