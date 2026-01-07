@@ -12,7 +12,7 @@ import {
   UploadSubmissionFilesSchema,
   type SubmissionStatus,
 } from "@/types"
-import { requireTeacherProfile } from "@/lib/auth"
+import { requireAuthenticatedProfile, requireTeacherProfile } from "@/lib/auth"
 import { withTelemetry } from "@/lib/telemetry"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 
@@ -569,9 +569,9 @@ export async function getQueueFileDownloadUrlAction(input: {
   return withTelemetry(
     { routeTag, functionName: "getQueueFileDownloadUrlAction", params: { lessonId, activityId, pupilId } },
     async () => {
-      const profile = await requireTeacherProfile()
-      if (!profile) {
-        return { success: false, error: "You need to sign in as a teacher." }
+      const profile = await requireAuthenticatedProfile()
+      if (!profile.roles.includes("teacher") && !profile.roles.includes("technician")) {
+        return { success: false, error: "You must be a teacher or technician to download files." }
       }
 
       try {
