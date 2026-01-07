@@ -130,7 +130,7 @@ export function LessonObjectivesSidebar({
 
   const scopedObjectives = useMemo(() => {
     if (!selectedCurriculumId) {
-      return objectives
+      return objectives.filter((obj) => obj.active !== false)
     }
 
     return objectives.filter((objective) => {
@@ -138,7 +138,7 @@ export function LessonObjectivesSidebar({
         objective.assessment_objective_curriculum_id ??
         assessmentObjectivesById.get(objective.assessment_objective_id ?? "")?.curriculum_id ??
         null
-      return curriculumId === selectedCurriculumId
+      return curriculumId === selectedCurriculumId && objective.active !== false
     })
   }, [assessmentObjectivesById, objectives, selectedCurriculumId])
 
@@ -146,7 +146,7 @@ export function LessonObjectivesSidebar({
     const selectedSet = new Set(selectedCriteriaIds)
 
     return scopedObjectives.map((objective) => {
-      const criteria = objective.success_criteria ?? []
+      const criteria = (objective.success_criteria ?? []).filter((c) => c.active !== false)
       const criterionIds = criteria.map((criterion) => criterion.success_criteria_id)
       const selectedCount = criterionIds.filter((id) => selectedSet.has(id)).length
 
@@ -370,9 +370,9 @@ export function LessonObjectivesSidebar({
         return
       }
 
-      const criterionIds = (objective.success_criteria ?? []).map(
-        (criterion) => criterion.success_criteria_id,
-      )
+      const criterionIds = (objective.success_criteria ?? [])
+        .filter((c) => c.active !== false)
+        .map((criterion) => criterion.success_criteria_id)
 
       setSelectedCriteriaIds((prev) => {
         const next = new Set(prev)

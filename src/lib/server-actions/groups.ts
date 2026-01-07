@@ -200,7 +200,7 @@ export async function readGroupAction(
     }
 
     const { rows: membershipRows } = await client.query(
-      "select group_id, user_id, role from group_membership where group_id = $1 order by user_id asc",
+      "select group_id, user_id, 'member' as role from group_membership where group_id = $1 order by user_id asc",
       [groupId],
     )
 
@@ -602,7 +602,7 @@ export async function readProfileGroupsForCurrentUserAction(): Promise<ProfileGr
       `
         select gm.group_id,
                gm.user_id,
-               gm.role,
+               'member' as role,
                g.group_id as group_group_id,
                g.subject as group_subject,
                g.join_code as group_join_code,
@@ -716,12 +716,9 @@ export async function joinGroupByCodeAction(input: { joinCode: string }): Promis
       })
     }
 
-    const role = authProfile.isTeacher ? "teacher" : "pupil"
-
-    await query("insert into group_membership (group_id, user_id, role) values ($1, $2, $3)", [
+    await query("insert into group_membership (group_id, user_id) values ($1, $2)", [
       group.group_id,
       authProfile.userId,
-      role,
     ])
   } catch (insertError) {
     console.error("[profile-groups] Failed to join group", { joinCode, userId: authProfile.userId }, insertError)
@@ -795,50 +792,8 @@ export async function updateGroupMemberRoleAction(
   input: { groupId: string; userId: string; role: "pupil" | "teacher" },
   options?: { currentProfile?: AuthenticatedProfile | null },
 ) {
-  const parsed = UpdateGroupMemberRoleInputSchema.safeParse(input)
-  if (!parsed.success) {
-    return UpdateGroupMemberRoleReturnSchema.parse({
-      success: false,
-      error: "Invalid role update payload.",
-    })
-  }
-
-  const { groupId, userId, role } = parsed.data
-
-  const profile = options?.currentProfile ?? (await requireAuthenticatedProfile())
-  if (!profile.isTeacher) {
-    return UpdateGroupMemberRoleReturnSchema.parse({
-      success: false,
-      error: "You do not have permission to update member roles.",
-    })
-  }
-
-  const jobId = crypto.randomUUID()
-  console.log(`[groups] Queuing role update job ${jobId}`, { groupId, userId, role })
-
-  // Fire and forget background job
-  queueMicrotask(async () => {
-    const client = createPgClient()
-    try {
-      await client.connect()
-      const { rowCount } = await client.query(
-        "UPDATE group_membership SET role = $1 WHERE group_id = $2 AND user_id = $3",
-        [role, groupId, userId]
-      )
-      
-      if (rowCount === 0) {
-         console.warn(`[groups] Role update job ${jobId} affected no rows.`)
-      } else {
-         console.log(`[groups] Role update job ${jobId} completed.`)
-         revalidatePath(`/groups/${groupId}`)
-      }
-    } catch (error) {
-      console.error(`[groups] Role update job ${jobId} failed`, error)
-    } finally {
-      try { await client.end() } catch {}
-    }
-  })
-
+  // Group-level roles are deprecated. This action is now a no-op.
+  console.warn("[groups] updateGroupMemberRoleAction called but roles are now system-wide.")
   return UpdateGroupMemberRoleReturnSchema.parse({
     success: true,
     error: null,

@@ -105,7 +105,8 @@ export const ProfileSchema = z.object({
     email: z.string().email().nullable().optional(),
     first_name: z.string().nullable(),
     last_name: z.string().nullable(),
-    is_teacher: z.boolean().default(false),
+    is_teacher: z.boolean().default(false), // Deprecated
+    roles: z.array(z.string()).default(["pupil"]),
     password_hash: z.string().optional(),
 });
 

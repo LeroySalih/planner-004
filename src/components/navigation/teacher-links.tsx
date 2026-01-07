@@ -8,8 +8,7 @@ import { getSessionProfileAction } from "@/lib/server-updates"
 type NavState =
   | { status: "loading" }
   | { status: "visitor" }
-  | { status: "teacher"; userId: string }
-  | { status: "pupil"; userId: string }
+  | { status: "authenticated"; userId: string; roles: string[] }
 
 type TeacherNavLinksProps = {
   onNavigate?: () => void
@@ -30,11 +29,11 @@ export function TeacherNavLinks({ onNavigate }: TeacherNavLinksProps) {
           return
         }
 
-        setState(
-          session.isTeacher
-            ? { status: "teacher", userId: session.userId }
-            : { status: "pupil", userId: session.userId },
-        )
+        setState({
+          status: "authenticated",
+          userId: session.userId,
+          roles: session.roles,
+        })
       } catch (error) {
         if (cancelled) return
         console.error("Failed to load nav session", error)
@@ -64,72 +63,90 @@ export function TeacherNavLinks({ onNavigate }: TeacherNavLinksProps) {
     return null
   }
 
-  if (state.status === "teacher") {
-    return (
-      <>
-        <Link
-          href="/assignments"
-          className="text-muted-foreground transition-colors hover:text-primary"
-          onClick={onNavigate}
-        >
-          SoW
-        </Link>
-        <Link
-          href="/groups"
-          className="text-muted-foreground transition-colors hover:text-primary"
-          onClick={onNavigate}
-        >
-          Groups
-        </Link>
-        <Link
-          href="/units"
-          className="text-muted-foreground transition-colors hover:text-primary"
-          onClick={onNavigate}
-        >
-          Units
-        </Link>
-        <Link
-          href="/reports"
-          className="text-muted-foreground transition-colors hover:text-primary"
-          onClick={onNavigate}
-        >
-          Reports
-        </Link>
-        <Link
-          href="/queue"
-          className="text-muted-foreground transition-colors hover:text-primary"
-          onClick={onNavigate}
-        >
-          Queue
-        </Link>
-        <Link
-          href="/curriculum"
-          className="text-muted-foreground transition-colors hover:text-primary"
-          onClick={onNavigate}
-        >
-          Curriculum
-        </Link>
-      </>
-    )
-  }
+  if (state.status === "authenticated") {
+    const { roles, userId } = state
+    const isTeacher = roles.includes("teacher")
+    const isPupil = roles.includes("pupil")
+    const isTechnician = roles.includes("technician")
+    const isAdmin = roles.includes("admin")
 
-  if (state.status === "pupil") {
     return (
       <>
-        <Link
-          href={`/pupil-lessons/${encodeURIComponent(state.userId)}`}
-          className="text-muted-foreground transition-colors hover:text-primary"
-          onClick={onNavigate}
-        >
-          My Units
-        </Link>
-        <Link
-          href={`/reports/${encodeURIComponent(state.userId)}`}
-          className="text-muted-foreground transition-colors hover:text-primary"
-          onClick={onNavigate}
-        >
-          Dashboard
-        </Link>
+        {isTeacher && (
+          <>
+            <Link
+              href="/assignments"
+              className="text-muted-foreground transition-colors hover:text-primary"
+              onClick={onNavigate}
+            >
+              SoW
+            </Link>
+            <Link
+              href="/groups"
+              className="text-muted-foreground transition-colors hover:text-primary"
+              onClick={onNavigate}
+            >
+              Groups
+            </Link>
+            <Link
+              href="/units"
+              className="text-muted-foreground transition-colors hover:text-primary"
+              onClick={onNavigate}
+            >
+              Units
+            </Link>
+            <Link
+              href="/reports"
+              className="text-muted-foreground transition-colors hover:text-primary"
+              onClick={onNavigate}
+            >
+              Reports
+            </Link>
+            <Link
+              href="/curriculum"
+              className="text-muted-foreground transition-colors hover:text-primary"
+              onClick={onNavigate}
+            >
+              Curriculum
+            </Link>
+          </>
+        )}
+        {isTechnician && (
+          <Link
+            href="/queue"
+            className="text-muted-foreground transition-colors hover:text-primary"
+            onClick={onNavigate}
+          >
+            Queue
+          </Link>
+        )}
+        {isPupil && (
+          <>
+            <Link
+              href={`/pupil-lessons/${encodeURIComponent(userId)}`}
+              className="text-muted-foreground transition-colors hover:text-primary"
+              onClick={onNavigate}
+            >
+              My Units
+            </Link>
+            <Link
+              href={`/reports/${encodeURIComponent(userId)}`}
+              className="text-muted-foreground transition-colors hover:text-primary"
+              onClick={onNavigate}
+            >
+              Dashboard
+            </Link>
+          </>
+        )}
+        {isAdmin && (
+          <Link
+            href="/admin"
+            className="font-semibold text-primary transition-colors hover:text-primary/80"
+            onClick={onNavigate}
+          >
+            Admin
+          </Link>
+        )}
       </>
     )
   }

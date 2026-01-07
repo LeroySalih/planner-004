@@ -294,7 +294,7 @@ export async function getPreparedReportData(
       try {
         const { rows: membershipRows } = await query(
           `
-            select gm.group_id, gm.user_id, gm.role, g.group_id as group_group_id, g.subject, g.join_code, g.active
+            select gm.group_id, gm.user_id, 'member' as role, g.group_id as group_group_id, g.subject, g.join_code, g.active
             from group_membership gm
             left join groups g on g.group_id = gm.group_id
             where gm.user_id = $1

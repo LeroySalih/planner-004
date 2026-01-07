@@ -936,12 +936,6 @@ export async function createLessonLearningObjectiveAction(input: {
     success_criteria: createdCriterion ? [createdCriterion] : [],
   }
 
-  if (assessmentObjectiveRecord.curriculum_id) {
-    queueMicrotask(() => {
-      revalidatePath(`/curriculum/${assessmentObjectiveRecord.curriculum_id}`)
-    })
-  }
-
   return LessonObjectiveMutationResultSchema.parse({
     data: normalizedObjective,
     error: null,
@@ -1152,10 +1146,6 @@ export async function createLessonSuccessCriterionAction(input: {
       const normalizedAssessmentObjective = rawAssessmentObjective ?? null
       const curriculumId = normalizedAssessmentObjective?.curriculum_id ?? null
 
-      if (curriculumId) {
-        revalidatePath(`/curriculum/${curriculumId}`)
-      }
-
       return LessonSuccessCriterionMutationResultSchema.parse({
         data: normalizedCriterion,
         error: null,
@@ -1233,7 +1223,9 @@ export async function deactivateLessonAction(lessonId: string, unitId: string) {
     return { success: false, error: message }
   }
 
-  revalidatePath(`/units/${unitId}`)
+  queueMicrotask(() => {
+    revalidatePath(`/units/${unitId}`)
+  })
   return { success: true }
 }
 
@@ -1263,7 +1255,9 @@ export async function reorderLessonsAction(
     return { success: false, error: message }
   }
 
-  revalidatePath(`/units/${unitId}`)
+  queueMicrotask(() => {
+    revalidatePath(`/units/${unitId}`)
+  })
   return { success: true }
 }
 

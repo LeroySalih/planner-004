@@ -252,6 +252,12 @@ export async function signupAction(input: unknown): Promise<AuthResult> {
           `,
           [userId, email, passwordHash],
         )
+        
+        // Assign default 'pupil' role
+        await query(
+          "insert into user_roles (user_id, role_id) values ($1, 'pupil')",
+          [userId]
+        )
       } catch (error) {
         if (isSchemaMissingError(error)) {
         return AuthResultSchema.parse({

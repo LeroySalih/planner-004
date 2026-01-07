@@ -158,8 +158,7 @@ export async function readPupilUnitsBootstrapAction(pupilId: string, options?: T
               select gm.group_id, g.subject
               from group_membership gm
               join groups g on g.group_id = gm.group_id
-              where lower(coalesce(gm.role, '')) = 'pupil'
-                and gm.user_id = $1
+              where gm.user_id = $1
                 and coalesce(g.active, true) = true
             `,
             [normalizedPupilId],
@@ -180,8 +179,7 @@ export async function readPupilUnitsBootstrapAction(pupilId: string, options?: T
                 select gm.group_id, g.subject
                 from group_membership gm
                 join groups g on g.group_id = gm.group_id
-                where lower(coalesce(gm.role, '')) = 'pupil'
-                  and gm.user_id = $1
+                where gm.user_id = $1
                   and coalesce(g.active, true) = true
               )
               select
