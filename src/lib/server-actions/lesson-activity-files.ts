@@ -26,6 +26,7 @@ const ActivityFileSchema = z.object({
   submission_id: z.string().nullable().optional(),
   status: SubmissionStatusSchema.default("inprogress"),
   submitted_at: z.string().nullable().optional(),
+  instructions: z.string().nullable().optional(),
 })
 
 const ActivityFilesReturnValue = z.object({
@@ -283,7 +284,7 @@ export async function listPupilActivitySubmissionsAction(
 
         const { rows } = await client.query(
           `
-            select submission_id, submission_status, submitted_at, coalesce(body->>'upload_file_name', '') as file_name
+            select submission_id, submission_status, submitted_at, coalesce(body->>'upload_file_name', '') as file_name, coalesce(body->>'instructions', '') as instructions
             from submissions
             where activity_id = $1 and user_id = $2
             order by submitted_at desc
@@ -294,6 +295,7 @@ export async function listPupilActivitySubmissionsAction(
 
         const row = rows[0]
         const fileName = row?.file_name ?? ""
+        const instructions = row?.instructions || null
         const statusParse = SubmissionStatusSchema.safeParse(row?.submission_status)
         const status = statusParse.success ? statusParse.data : "inprogress"
         const submittedAt =
@@ -360,6 +362,7 @@ export async function listPupilActivitySubmissionsAction(
               submission_id: row?.submission_id ?? null,
               status,
               submitted_at: submittedAt,
+              instructions,
             }),
           ],
           error: null,
@@ -606,6 +609,68 @@ export async function getPupilActivitySubmissionUrlAction(
   }
 
   return { success: false, error: lastError?.message ?? "NOT_FOUND" }
+}
+
+export async function updatePupilSubmissionInstructionsAction(input: {
+  lessonId: string
+  activityId: string
+  pupilId: string
+  instructions: string
+}) {
+  const { lessonId, activityId, pupilId, instructions } = input
+  const routeTag = "/pupil-lessons"
+
+  return withTelemetry(
+    { routeTag, functionName: "updatePupilSubmissionInstructionsAction", params: { lessonId, activityId, pupilId } },
+    async () => {
+      const profile = await requireAuthenticatedProfile()
+
+      if (profile.userId !== pupilId) {
+        return { success: false, error: "You can only update your own submission instructions." }
+      }
+
+      const client = createPgClient()
+      try {
+        await client.connect()
+
+        const { rows } = await client.query(
+          `
+            with target as (
+              select submission_id
+              from submissions
+              where activity_id = $2 and user_id = $3
+              order by submitted_at desc
+              limit 1
+            )
+            update submissions s
+            set body = jsonb_set(body::jsonb, '{instructions}', to_jsonb($1::text), true), submitted_at = now()
+            from target t
+            where s.submission_id = t.submission_id
+            returning s.submission_id
+          `,
+          [instructions, activityId, profile.userId],
+        )
+
+        if (rows.length === 0) {
+          return { success: false, error: "No submission to update yet." }
+        }
+
+        revalidatePath(
+          `/pupil-lessons/${encodeURIComponent(pupilId)}/lessons/${encodeURIComponent(lessonId)}`,
+        )
+        return { success: true }
+      } catch (error) {
+        console.error("[pupil-lessons] Failed to update submission instructions:", error)
+        return { success: false, error: "Unable to update instructions right now." }
+      } finally {
+        try {
+          await client.end()
+        } catch {
+          // ignore close errors
+        }
+      }
+    },
+  )
 }
 
 export async function updatePupilSubmissionStatusAction(input: {

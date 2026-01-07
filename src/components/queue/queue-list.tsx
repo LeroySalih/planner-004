@@ -9,6 +9,7 @@ import type { SubmissionStatus, UploadSubmissionFile } from "@/types"
 import { getQueueFileDownloadUrlAction, readQueueAllItemsAction, updateUploadSubmissionStatusAction } from "@/lib/server-updates"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
 import {
   Select,
   SelectContent,
@@ -372,6 +373,7 @@ export function QueueList({ items }: QueueListProps) {
                         <th className="px-3 py-2 text-left">Group</th>
                         <th className="px-3 py-2 text-left">Unit / Lesson / Activity</th>
                         <th className="px-3 py-2 text-left">Owner</th>
+                        <th className="px-3 py-2 text-left">Instructions</th>
                         <th className="px-3 py-2 text-left">Submitted</th>
                         <th className="px-3 py-2 text-left">File</th>
                         <th className="px-3 py-2 text-left">Status</th>
@@ -399,6 +401,15 @@ export function QueueList({ items }: QueueListProps) {
                               </div>
                             </td>
                             <td className="px-3 py-3 text-sm text-foreground">{displayName}</td>
+                            <td className="px-3 py-3 text-sm text-foreground">
+                              {item.instructions ? (
+                                <Badge variant="outline" className="font-normal">
+                                  {item.instructions}
+                                </Badge>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
                             <td className="px-3 py-3 text-sm text-foreground tabular-nums">
                               {item.submittedAt ? (
                                 <div className="flex flex-col">

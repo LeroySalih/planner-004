@@ -11,6 +11,7 @@ import {
   deletePupilActivitySubmissionAction,
   getPupilActivitySubmissionUrlAction,
   updatePupilSubmissionStatusAction,
+  updatePupilSubmissionInstructionsAction,
 } from "@/lib/server-updates"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -30,6 +31,7 @@ export interface ActivityFileInfo {
   status: SubmissionStatus
   submissionId?: string | null
   submittedAt?: string | null
+  instructions?: string | null
 }
 
 interface PupilUploadActivityProps {
@@ -66,6 +68,7 @@ export function PupilUploadActivity({
         status: file.status ?? "inprogress",
         submissionId: file.submissionId ?? null,
         submittedAt: file.submittedAt ?? null,
+        instructions: file.instructions ?? null,
       })),
     [],
   )
@@ -296,6 +299,38 @@ export function PupilUploadActivity({
     [activity.activity_id, canUpload, lessonId, pupilId, refreshSubmissions],
   )
 
+  const handleInstructionChange = useCallback(
+    (file: ActivityFileInfo, instruction: string) => {
+      if (!canUpload) return
+      startTransition(async () => {
+        try {
+          const result = await updatePupilSubmissionInstructionsAction({
+            lessonId,
+            activityId: activity.activity_id,
+            pupilId,
+            instructions: instruction,
+          })
+
+          if (!result.success) {
+            toast.error("Unable to update instructions", {
+              description: result.error ?? "Please try again later.",
+            })
+            return
+          }
+
+          toast.success("Instructions updated")
+          await refreshSubmissions()
+        } catch (error) {
+          console.error("[pupil-lessons] Failed to update instructions", error)
+          toast.error("Unable to update instructions", {
+            description: "Please try again later.",
+          })
+        }
+      })
+    },
+    [activity.activity_id, canUpload, lessonId, pupilId, refreshSubmissions],
+  )
+
   const handleDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
     if (!canUpload || uploadDisabled) return
     event.preventDefault()
@@ -433,6 +468,24 @@ export function PupilUploadActivity({
                       <span className="truncate pr-4 font-medium" title={file.name}>
                         {file.name}
                       </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Instructions</span>
+                        <Select
+                          value={file.instructions || ""}
+                          onValueChange={(value) => handleInstructionChange(file, value)}
+                          disabled={statusDisabled}
+                        >
+                          <SelectTrigger className="w-40">
+                            <SelectValue placeholder="Select..." aria-label="Instructions" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="3D print">3D print</SelectItem>
+                            <SelectItem value="Laser with 3mm">Laser with 3mm</SelectItem>
+                            <SelectItem value="Laser with 5mm">Laser with 5mm</SelectItem>
+                            <SelectItem value="Other">Other</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
                       <div className="flex items-center gap-2">
                         <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Status</span>
                         <Select
