@@ -12,7 +12,8 @@ const BCRYPT_COST = 10
 export type AuthenticatedProfile = {
   userId: string
   email: string | null
-  isTeacher: boolean
+  isTeacher: boolean // Deprecated: use hasRole(profile, 'teacher')
+  roles: string[]
   firstName?: string | null
   lastName?: string | null
 }
@@ -24,6 +25,27 @@ type SessionRow = {
   expires_at: string
   ip: string | null
   user_agent: string | null
+}
+
+export function hasRole(profile: AuthenticatedProfile | null, role: string): boolean {
+  if (!profile) return false
+  return profile.roles.includes(role)
+}
+
+export async function requireRole(role: string, options?: { refreshSessionCookie?: boolean }): Promise<AuthenticatedProfile> {
+  const profile = await getAuthenticatedProfile({ refreshSessionCookie: options?.refreshSessionCookie })
+
+  if (!profile) {
+    redirect("/signin")
+  }
+
+  if (!hasRole(profile, role)) {
+    // If user is logged in but doesn't have the required role, redirect to a safe default
+    // or arguably an "unauthorized" page. For now, profiles dashboard is a safe bet.
+    redirect("/profiles")
+  }
+
+  return profile
 }
 
 async function setSessionCookie(sessionId: string, token: string, expiresAt: Date) {
@@ -113,14 +135,24 @@ export async function createSession(userId: string) {
 }
 
 async function readProfile(userId: string): Promise<AuthenticatedProfile | null> {
+  // Fetch profile and roles in one go
   const { rows } = await query<{
     user_id: string
     email: string | null
     is_teacher: boolean | null
     first_name: string | null
     last_name: string | null
+    roles: string[] | null
   }>(
-    "select user_id, email, is_teacher, first_name, last_name from profiles where user_id = $1 limit 1",
+    `
+      select p.user_id, p.email, p.is_teacher, p.first_name, p.last_name,
+             array_agg(ur.role_id) filter (where ur.role_id is not null) as roles
+      from profiles p
+      left join user_roles ur on ur.user_id = p.user_id
+      where p.user_id = $1
+      group by p.user_id
+      limit 1
+    `,
     [userId],
   )
 
@@ -129,10 +161,25 @@ async function readProfile(userId: string): Promise<AuthenticatedProfile | null>
     return null
   }
 
+  const roles = row.roles ?? []
+  
+  // Backward compatibility: If no roles in DB but is_teacher is set, treat as teacher.
+  // Although migration should have fixed this, it's a safe fallback.
+  const isTeacherFlag = Boolean(row.is_teacher)
+  if (isTeacherFlag && !roles.includes("teacher")) {
+    roles.push("teacher")
+  }
+  
+  // Default to 'pupil' if no roles found (safe default)
+  if (roles.length === 0) {
+    roles.push("pupil")
+  }
+
   return {
     userId: row.user_id,
     email: row.email ?? null,
-    isTeacher: Boolean(row.is_teacher),
+    isTeacher: roles.includes("teacher"), // Computed from roles now
+    roles: roles,
     firstName: row.first_name ?? null,
     lastName: row.last_name ?? null,
   }
@@ -270,17 +317,7 @@ export async function getAuthenticatedProfile(options?: { refreshSessionCookie?:
 }
 
 export async function requireTeacherProfile(options?: { refreshSessionCookie?: boolean }): Promise<AuthenticatedProfile> {
-  const profile = await getAuthenticatedProfile({ refreshSessionCookie: options?.refreshSessionCookie })
-
-  if (!profile) {
-    redirect("/signin")
-  }
-
-  if (!profile.isTeacher) {
-    redirect("/profiles")
-  }
-
-  return profile
+  return requireRole('teacher', options)
 }
 
 export async function requireAuthenticatedProfile(options?: { refreshSessionCookie?: boolean }): Promise<AuthenticatedProfile> {

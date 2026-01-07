@@ -217,7 +217,9 @@ export async function createLessonActivityAction(
     success_criteria: (hydratedActivity as Record<string, unknown>)?.success_criteria ?? [],
   }
 
-  revalidatePath(`/units/${unitId}`)
+  queueMicrotask(() => {
+    revalidatePath(`/units/${unitId}`)
+  })
 
   return {
     success: true,
@@ -402,8 +404,10 @@ export async function updateLessonActivityAction(
     success_criteria: [],
   }
 
-  revalidatePath(`/units/${unitId}`)
-  deferRevalidate(`/lessons/${lessonId}`)
+  queueMicrotask(() => {
+    revalidatePath(`/units/${unitId}`)
+    revalidatePath(`/lessons/${lessonId}`)
+  })
 
   return { success: true, data: LessonActivitySchema.parse(hydratedActivity) }
 }
@@ -457,7 +461,9 @@ export async function reorderLessonActivitiesAction(
     message: "Activity reorder queued.",
     executor: async () => {
       await applyLessonActivitiesReorder(lessonId, payload)
-      revalidatePath(`/units/${unitId}`)
+      queueMicrotask(() => {
+        revalidatePath(`/units/${unitId}`)
+      })
     },
   })
 }
@@ -491,7 +497,9 @@ export async function deleteLessonActivityAction(unitId: string, lessonId: strin
     return { success: false, error: message }
   }
 
-  revalidatePath(`/units/${unitId}`)
+  queueMicrotask(() => {
+    revalidatePath(`/units/${unitId}`)
+  })
 
   return { success: true }
 }

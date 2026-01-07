@@ -334,10 +334,10 @@ export async function readQueueItemsAction(input: {
 
         const { rows: members } = await client.query(
           `
-            select gm.user_id, gm.role, p.first_name, p.last_name
+            select gm.user_id, p.first_name, p.last_name
             from group_membership gm
             left join profiles p on p.user_id = gm.user_id
-            where gm.group_id = $1 and coalesce(gm.role, '') <> 'teacher'
+            where gm.group_id = $1
             order by coalesce(p.last_name, ''), coalesce(p.first_name, ''), gm.user_id
           `,
           [groupId],

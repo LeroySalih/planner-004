@@ -343,3 +343,42 @@ export async function toggleUserTeacherStatusAction(userId: string): Promise<{ s
   }
 }
 
+export async function readAllProfilesAction() {
+  const profile = await requireAuthenticatedProfile()
+  // Manual check until I update imports
+  if (!profile.roles.includes("admin")) {
+    return { data: [], error: "Unauthorized" }
+  }
+
+  try {
+    const { rows } = await query<{
+      user_id: string
+      email: string | null
+      first_name: string | null
+      last_name: string | null
+      is_teacher: boolean | null
+      roles: string[] | null
+    }>(`
+      select p.user_id, p.email, p.first_name, p.last_name, p.is_teacher,
+             array_agg(ur.role_id) filter (where ur.role_id is not null) as roles
+      from profiles p
+      left join user_roles ur on ur.user_id = p.user_id
+      group by p.user_id
+      order by p.last_name, p.first_name
+    `)
+
+    const profiles = rows.map((row) => ({
+      userId: row.user_id,
+      email: row.email,
+      firstName: row.first_name,
+      lastName: row.last_name,
+      roles: row.roles ?? (row.is_teacher ? ["teacher"] : ["pupil"]),
+    }))
+
+    return { data: profiles, error: null }
+  } catch (error) {
+    console.error("[profile] Failed to read all profiles", error)
+    return { data: [], error: "Failed to load profiles" }
+  }
+}
+
