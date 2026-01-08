@@ -254,7 +254,12 @@ export async function readAssignmentResultsAction(
         let membershipRows: Array<{ user_id: string; role: string | null }> = []
         try {
           const { rows } = await query(
-            "select user_id, role from group_membership where group_id = $1",
+            `
+              select gm.user_id, ur.role_id as role
+              from group_membership gm
+              left join user_roles ur on ur.user_id = gm.user_id
+              where gm.group_id = $1
+            `,
             [groupId],
           )
           membershipRows = (rows ?? [])

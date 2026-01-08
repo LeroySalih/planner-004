@@ -281,7 +281,6 @@ export async function readPupilUnitsBootstrapAction(pupilId: string, options?: T
                   where act.lesson_id = any($1::text[])
                     and lower(coalesce(act.type, '')) = 'display-image'
                     and coalesce(act.active, true) = true
-                    and coalesce(act.is_homework, false) = false
                 `,
                 [lessonIds],
               ),

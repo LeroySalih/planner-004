@@ -69,9 +69,10 @@ export async function readLessonFeedbackSummariesAction(
     try {
       const { rows } = await query(
         `
-          select group_id, user_id, role
-          from group_membership
-          where group_id = any($1::text[])
+          select gm.group_id, gm.user_id, ur.role_id as role
+          from group_membership gm
+          left join user_roles ur on ur.user_id = gm.user_id
+          where gm.group_id = any($1::text[])
         `,
         [chunk],
       )
