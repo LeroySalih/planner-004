@@ -20,6 +20,11 @@ services:
 
     volumes:
       - ./files:/app/files
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
     # Attach to the shared external network with Postgres
     networks:

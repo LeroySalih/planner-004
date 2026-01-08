@@ -82,14 +82,6 @@ const DetailSuccessCriterionUnitSchema = z.object({
   unit_id: z.string(),
 })
 
-const DetailHomeworkActivitySchema = z.object({
-  activity_id: z.string(),
-  lesson_id: z.string(),
-  title: z.string().nullable().optional(),
-  type: z.string().nullable().optional(),
-  order_by: z.number().nullable().optional(),
-})
-
 const DetailProfileSchema = z
   .object({
     user_id: z.string(),
@@ -107,7 +99,6 @@ const PupilLessonsDetailBootstrapSchema = z.object({
   learningObjectives: z.array(DetailLearningObjectiveSchema),
   successCriteria: z.array(DetailSuccessCriterionSchema),
   successCriteriaUnits: z.array(DetailSuccessCriterionUnitSchema),
-  homeworkActivities: z.array(DetailHomeworkActivitySchema),
 })
 
 const PupilLessonsDetailBootstrapReturnSchema = z.object({
@@ -226,7 +217,6 @@ export async function readPupilLessonsDetailBootstrapAction(
           learning_objectives: PupilLessonsDetailBootstrap["learningObjectives"]
           success_criteria: PupilLessonsDetailBootstrap["successCriteria"]
           success_criteria_units: PupilLessonsDetailBootstrap["successCriteriaUnits"]
-          homework_activities: PupilLessonsDetailBootstrap["homeworkActivities"]
         }>(
           `
             select *
@@ -275,10 +265,6 @@ export async function readPupilLessonsDetailBootstrapAction(
             ? ((payload as { success_criteria_units: unknown[] }).success_criteria_units as unknown[])
             : (payloadRecord as Record<string, unknown> & { successCriteriaUnits?: unknown[] }).successCriteriaUnits ??
               []
-        const homeworkActivities =
-          Array.isArray((payloadRecord as any)?.homework_activities)
-            ? ((payload as { homework_activities: unknown[] }).homework_activities as unknown[])
-            : (payloadRecord as Record<string, unknown> & { homeworkActivities?: unknown[] }).homeworkActivities ?? []
 
         const normalized = {
           pupilProfile:
@@ -291,7 +277,6 @@ export async function readPupilLessonsDetailBootstrapAction(
           learningObjectives,
           successCriteria,
           successCriteriaUnits,
-          homeworkActivities,
         }
 
         const parsed = PupilLessonsDetailBootstrapSchema.safeParse(normalized)

@@ -36,22 +36,6 @@ export type PupilLessonsSummary = {
   sections: PupilLessonSection[]
 }
 
-export type PupilHomeworkItem = {
-  activityId: string
-  activityTitle: string
-  lessonId: string
-  lessonTitle: string
-  unitId: string
-  subject: string | null
-  groupId: string
-  date: string | null
-}
-
-export type PupilHomeworkSection = {
-  date: string | null
-  items: PupilHomeworkItem[]
-}
-
 export type PupilLessonSuccessCriterion = {
   id: string
   description: string
@@ -75,7 +59,6 @@ export type PupilLessonWeekSubject = {
     unitTitle: string
     date: string
     groupId: string
-    hasHomework: boolean
     objectives: PupilLessonObjective[]
     feedbackVisible: boolean
     assignmentId: string
@@ -109,7 +92,6 @@ export type PupilSubjectUnitsEntry = {
 export type PupilLessonsDetail = {
   summary: PupilLessonsSummary | null
   assignments: PupilLessonAssignment[]
-  homework: PupilHomeworkSection[]
   weeks: PupilLessonWeek[]
   units: PupilSubjectUnitsEntry[]
 }
@@ -506,7 +488,6 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
       learningObjectives: [],
       successCriteria: [],
       successCriteriaUnits: [],
-      homeworkActivities: [],
     }
 
   const summaryDataset = normalizeSummaryDatasetFromDetail(detailData)
@@ -532,67 +513,6 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
     unitTitleMap.set(unit.unit_id, unit.title?.trim() || unit.unit_id)
     unitSubjectMap.set(unit.unit_id, unit.subject ?? null)
   })
-
-  const lessonHomeworkActivitiesMap = new Map<
-    string,
-    PupilLessonsDetailBootstrap["homeworkActivities"][number][]
-  >()
-  detailData.homeworkActivities.forEach((activity) => {
-    if (!activity.lesson_id) {
-      return
-    }
-    const list = lessonHomeworkActivitiesMap.get(activity.lesson_id) ?? []
-    list.push(activity)
-    lessonHomeworkActivitiesMap.set(activity.lesson_id, list)
-  })
-
-  const homeworkEntries: PupilHomeworkItem[] = assignments.flatMap((assignment) => {
-    if (!assignment.lessonId) {
-      return []
-    }
-    const activities = lessonHomeworkActivitiesMap.get(assignment.lessonId) ?? []
-    if (activities.length === 0) {
-      return []
-    }
-
-    return activities.map((activity) => ({
-      activityId: activity.activity_id,
-      activityTitle: activity.title?.trim() || "Untitled activity",
-      lessonId: assignment.lessonId,
-      lessonTitle: assignment.lessonTitle,
-      unitId: assignment.unitId,
-      subject: assignment.subject,
-      groupId: assignment.groupId,
-      date: assignment.date,
-    }))
-  })
-
-  const homeworkByDate = new Map<string | null, PupilHomeworkItem[]>()
-  homeworkEntries.forEach((entry) => {
-    const list = homeworkByDate.get(entry.date) ?? []
-    list.push(entry)
-    homeworkByDate.set(entry.date, list)
-  })
-
-  const homeworkSections: PupilHomeworkSection[] = Array.from(homeworkByDate.entries())
-    .map(([date, items]) => ({
-      date,
-      items: items.sort((a, b) => a.lessonTitle.localeCompare(b.lessonTitle)),
-    }))
-    .sort((a, b) => {
-      const dateA = parseDate(a.date)
-      const dateB = parseDate(b.date)
-      if (dateA && dateB) {
-        return compareDesc(dateA, dateB)
-      }
-      if (dateA) {
-        return -1
-      }
-      if (dateB) {
-        return 1
-      }
-      return 0
-    })
 
   const successCriteriaByObjective = new Map<
     string,
@@ -796,7 +716,6 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
 
     if (assignment.lessonId && assignment.date) {
       const lessonDate = parseDate(assignment.date)
-      const homeworkActivities = lessonHomeworkActivitiesMap.get(assignment.lessonId) ?? []
       const lessonObjectives = buildLessonObjectivesForLesson({
         lessonId: assignment.lessonId,
         links: lessonObjectiveLinksMap.get(assignment.lessonId) ?? [],
@@ -810,7 +729,6 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
         unitTitle: unitTitleMap.get(assignment.unitId) ?? assignment.unitId,
         date: lessonDate ? lessonDate.toISOString() : assignment.date,
         groupId: assignment.groupId,
-        hasHomework: homeworkActivities.length > 0,
         objectives: lessonObjectives,
         feedbackVisible: assignment.feedbackVisible ?? false,
         assignmentId: assignment.assignmentId,
@@ -871,7 +789,6 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
   return {
     summary,
     assignments,
-    homework: homeworkSections,
     weeks,
     units,
   }

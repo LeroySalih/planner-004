@@ -100,7 +100,6 @@ export function AssignmentManager({
   )
   const [, startTransition] = useTransition()
   //const { toast: showToast } = useToast()
-  const [isEditing] = useState(false)
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null)
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isGroupSidebarOpen, setIsGroupSidebarOpen] = useState(false)
@@ -133,15 +132,6 @@ export function AssignmentManager({
   )
 
   const [searchFilter, setSearchFilter] = useState<string>("")
-
-  const debugPayload = useMemo(
-    () => ({
-      assignments,
-      lessonAssignments,
-      lessonScoreSummaries,
-    }),
-    [assignments, lessonAssignments, lessonScoreSummaries],
-  )
 
   const sidebarGroupId = selectedAssignment?.group_id ?? newAssignmentData?.groupId
   const sidebarGroupSubject = useMemo(() => {
@@ -684,16 +674,6 @@ export function AssignmentManager({
           onGroupTitleClick={handleGroupTitleClick}
         />
 
-        <section className="rounded-lg border border-dashed border-border/70 bg-slate-950/60 p-4 text-xs font-mono text-slate-100 shadow-inner">
-          <div className="mb-2 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-slate-300">
-            <span>Debug payload</span>
-            <span className="text-[10px] text-slate-500">auto-refreshes</span>
-          </div>
-          <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap text-xs leading-snug">
-            {JSON.stringify(debugPayload, null, 2)}
-          </pre>
-        </section>
-
         <AssignmentSidebar
         isOpen={isSidebarOpen}
         onClose={closeSidebar}
@@ -740,37 +720,6 @@ export function AssignmentManager({
           setIsGroupSelectorOpen(false)
         }}
       />
-
-      {isEditing && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Data Editor (Debug)</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div>
-                <h4 className="font-medium mb-2">Current Assignments:</h4>
-                <div className="space-y-2 max-h-60 overflow-y-auto">
-                  {assignments.map((assignment, index) => (
-                    <div key={index} className="flex items-center justify-between p-2 border rounded">
-                      <div className="text-sm">
-                        <span className="font-medium">{assignment.group_id}</span> →
-                        <span className="ml-1">{units.find((u) => u.unit_id === assignment.unit_id)?.title}</span>
-                        <span className="ml-2 text-muted-foreground">
-                          ({assignment.start_date} to {assignment.end_date})
-                        </span>
-                      </div>
-                      <Button size="sm" variant="destructive" onClick={() => deleteAssignment(index)}>
-                        Delete
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   )
 }
