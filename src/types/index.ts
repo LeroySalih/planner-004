@@ -658,7 +658,6 @@ export const LessonActivitySchema = z.object({
     title: z.string().nullish().transform((value) => value ?? ""),
     type: z.string().nullish().transform((value) => value ?? ""),
     body_data: z.unknown().nullish().transform((value) => value ?? null),
-    is_homework: z.boolean().nullish().transform((value) => value ?? false),
     is_summative: z.boolean().nullish().transform((value) => value ?? false),
     notes: z.string().nullish().transform((value) => value ?? ""),
     order_by: z.number().nullish().transform((value) => (typeof value === "number" ? value : null)),

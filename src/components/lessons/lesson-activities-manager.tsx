@@ -126,7 +126,6 @@ export function LessonActivitiesManager({
   const [imagePreviewState, setImagePreviewState] = useState<
     Record<string, { url: string | null; loading: boolean; error: boolean }>
   >({})
-  const [homeworkPending, setHomeworkPending] = useState<Record<string, boolean>>({})
   const [summativePending, setSummativePending] = useState<Record<string, boolean>>({})
   const [imageModal, setImageModal] = useState<{ open: boolean; url: string | null; title: string }>({
     open: false,
@@ -146,7 +145,6 @@ export function LessonActivitiesManager({
   useEffect(() => {
     setActivities(sortActivities(initialActivities))
     setImagePreviewState({})
-    setHomeworkPending({})
     setSummativePending({})
   }, [initialActivities])
 
@@ -942,62 +940,6 @@ useEffect(() => {
     setDragOverId(null)
   }
 
-  const toggleHomework = useCallback(
-    (activity: LessonActivity, nextValue: boolean) => {
-      const activityId = activity.activity_id
-      const previousValue = activity.is_homework ?? false
-
-      setHomeworkPending((prev) => ({ ...prev, [activityId]: true }))
-      setActivities((prev) =>
-        prev.map((item) =>
-          item.activity_id === activityId ? { ...item, is_homework: nextValue } : item,
-        ),
-      )
-
-      startTransition(async () => {
-        try {
-          const result = await updateLessonActivityAction(unitId, lessonId, activityId, {
-            isHomework: nextValue,
-          })
-
-          if (!result.success || !result.data) {
-            setActivities((prev) =>
-              prev.map((item) =>
-                item.activity_id === activityId ? { ...item, is_homework: previousValue } : item,
-              ),
-            )
-            toast.error("Unable to update homework status", {
-              description: result.error ?? "Please try again later.",
-            })
-            return
-          }
-
-          setActivities((prev) =>
-            prev.map((item) => (item.activity_id === activityId ? result.data! : item)),
-          )
-          router.refresh()
-        } catch (error) {
-          console.error("[activities] Failed to update homework flag", error)
-          setActivities((prev) =>
-            prev.map((item) =>
-              item.activity_id === activityId ? { ...item, is_homework: previousValue } : item,
-            ),
-          )
-          toast.error("Unable to update homework status", {
-            description: error instanceof Error ? error.message : "Please try again later.",
-          })
-        } finally {
-          setHomeworkPending((prev) => {
-            const next = { ...prev }
-            delete next[activityId]
-            return next
-          })
-        }
-      })
-    },
-    [lessonId, router, startTransition, unitId],
-  )
-
   const toggleSummative = useCallback(
     (activity: LessonActivity, nextValue: boolean) => {
       const activityType = activity.type ?? ""
@@ -1138,11 +1080,8 @@ useEffect(() => {
                 const imageThumbnail = isDisplayImage
                   ? imagePreviewState[activity.activity_id]?.url ?? imageBody?.imageUrl ?? null
                   : null
-                const isHomework = activity.is_homework ?? false
-                const homeworkUpdating = homeworkPending[activity.activity_id] ?? false
                 const summativeUpdating = summativePending[activity.activity_id] ?? false
                 const summativeDisabled = !isScorableActivityType(activity.type)
-                const switchId = `activity-homework-${activity.activity_id}`
                 const canDownloadFiles = !isFileResource || fileHasFiles
                 const preview = renderActivityPreview(activity, imageThumbnail, {
                   onSummativeChange: (checked) => toggleSummative(activity, checked),
@@ -1285,21 +1224,6 @@ useEffect(() => {
                                 </div>
                               </div>
                               <div className="ml-auto flex items-center gap-2">
-                                <Switch
-                                  id={switchId}
-                                  checked={isHomework}
-                                  disabled={isBusy || homeworkUpdating}
-                                  onCheckedChange={(checked) => toggleHomework(activity, checked)}
-                                />
-                                <Label
-                                  htmlFor={switchId}
-                                  className="text-xs font-medium text-muted-foreground"
-                                >
-                                  Homework
-                                </Label>
-                                {homeworkUpdating ? (
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                                ) : null}
                                 <Button
                                   size="icon"
                                   variant="ghost"

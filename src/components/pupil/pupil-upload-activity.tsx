@@ -363,11 +363,6 @@ export function PupilUploadActivity({
             </span>
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-base font-semibold text-foreground">{activity.title}</h3>
-              {activity.is_homework ? (
-                <Badge variant="destructive" className="uppercase tracking-wide">
-                  Homework
-                </Badge>
-              ) : null}
             </div>
           </div>
           <span className="text-xs font-medium uppercase tracking-wide text-primary">Upload file</span>

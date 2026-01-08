@@ -657,11 +657,6 @@ export default async function PupilLessonFriendlyPage({
                               ) : (
                                 <span className="font-medium text-foreground">{activity.title}</span>
                               )}
-                              {activity.is_homework ? (
-                                <Badge variant="destructive" className="uppercase tracking-wide">
-                                  Homework
-                                </Badge>
-                              ) : null}
                             </div>
                             <span className="text-xs text-muted-foreground">{formatActivityType(activity.type)}</span>
                             {titleLink ? (

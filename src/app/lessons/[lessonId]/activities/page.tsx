@@ -157,11 +157,6 @@ export default async function LessonActivitiesOverviewPage({
                           <div className="flex flex-wrap items-baseline gap-3">
                             <span className="text-4xl font-extrabold text-primary">{stepNumber}</span>
                             <span className="text-xl font-semibold text-foreground">{displayTitle}</span>
-                            {activity.is_homework ? (
-                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
-                                Homework
-                              </span>
-                            ) : null}
                           </div>
 
                           <LessonActivityView

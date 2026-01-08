@@ -136,14 +136,6 @@ export function PupilLessonsDetailClient({ detail, pupilId }: PupilLessonsDetail
                                       {lesson.lessonTitle}
                                     </Link>
                                   </CardTitle>
-                                  {lesson.hasHomework ? (
-                                    <Badge
-                                      variant="secondary"
-                                      className="bg-red-100 text-red-700 dark:bg-red-500/10 dark:text-red-300"
-                                    >
-                                      Homework set
-                                    </Badge>
-                                  ) : null}
                                 </div>
                                 <p className="text-xs text-muted-foreground sm:text-sm">
                                   {formatLessonDate(lesson.date)} • Class {lesson.groupId} • Unit {lesson.unitTitle}

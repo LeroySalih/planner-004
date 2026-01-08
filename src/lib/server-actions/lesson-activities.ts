@@ -26,7 +26,6 @@ const CreateActivityInputSchema = z.object({
   title: z.string().min(1),
   type: z.string().min(1),
   bodyData: z.unknown().nullable().optional(),
-  isHomework: z.boolean().optional(),
   isSummative: z.boolean().optional(),
   successCriteriaIds: z.array(z.string().min(1)).optional(),
 })
@@ -35,7 +34,6 @@ const UpdateActivityInputSchema = z.object({
   title: z.string().min(1).optional(),
   type: z.string().min(1).optional(),
   bodyData: z.unknown().nullable().optional(),
-  isHomework: z.boolean().optional(),
   isSummative: z.boolean().optional(),
   successCriteriaIds: z.array(z.string().min(1)).optional(),
 })
@@ -156,9 +154,9 @@ export async function createLessonActivityAction(
       const { rows } = await client.query(
         `
           insert into activities (
-            lesson_id, title, type, body_data, is_homework, is_summative, order_by, active
+            lesson_id, title, type, body_data, is_summative, order_by, active
           )
-          values ($1, $2, $3, $4, $5, $6, $7, true)
+          values ($1, $2, $3, $4, $5, $6, true)
           returning *
         `,
         [
@@ -166,7 +164,6 @@ export async function createLessonActivityAction(
           payload.title,
           payload.type,
           normalizedBody.bodyData,
-          payload.isHomework ?? false,
           isSummativeAllowed ? isSummativeRequested : false,
           nextOrder,
         ],
@@ -298,9 +295,6 @@ export async function updateLessonActivityAction(
   }
   if (payload.bodyData !== undefined || payload.type !== undefined) {
     updates.body_data = normalizedBody.bodyData
-  }
-  if (payload.isHomework !== undefined) {
-    updates.is_homework = payload.isHomework ?? false
   }
   if (!isSummativeAllowed) {
     updates.is_summative = false
