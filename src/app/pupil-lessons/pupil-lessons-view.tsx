@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react"
 import Link from "next/link"
 import { format } from "date-fns"
+import { ChevronDown } from "lucide-react"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { createWildcardRegex } from "@/lib/search"
@@ -100,38 +101,87 @@ export function PupilLessonsView({
   lessonLinkFactory = defaultLessonLink,
 }: PupilLessonsViewProps) {
   const [filter, setFilter] = useState("")
+  const [selectedSubject, setSelectedSubject] = useState("All Subjects")
+
+  const subjects = useMemo(() => {
+    const subjectSet = new Set<string>()
+    pupils.forEach((pupil) => {
+      pupil.sections.forEach((section) => {
+        section.groups.forEach((group) => {
+          if (group.subject) {
+            subjectSet.add(group.subject)
+          }
+        })
+      })
+    })
+    return ["All Subjects", ...Array.from(subjectSet).sort()]
+  }, [pupils])
 
   const filtered = useMemo(() => {
+    let result = pupils
+
+    if (selectedSubject !== "All Subjects") {
+      result = result
+        .map((pupil) => ({
+          ...pupil,
+          sections: pupil.sections
+            .map((section) => ({
+              ...section,
+              groups: section.groups.filter((group) => group.subject === selectedSubject),
+            }))
+            .filter((section) => section.groups.length > 0),
+        }))
+        .filter((pupil) => pupil.sections.length > 0)
+    }
+
     if (!showFilter) {
-      return pupils
+      return result
     }
 
     const trimmed = filter.trim()
-    if (!trimmed) return pupils
+    if (!trimmed) return result
 
     try {
       const regex = createWildcardRegex(trimmed)
-      return pupils.filter((pupil) => regex.test(pupil.name) || pupil.groups.some((groupId) => regex.test(groupId)))
+      return result.filter((pupil) => regex.test(pupil.name) || pupil.groups.some((groupId) => regex.test(groupId)))
     } catch (error) {
       console.error("[pupil-lessons] Invalid filter", error)
       return []
     }
-  }, [filter, pupils, showFilter])
+  }, [filter, pupils, showFilter, selectedSubject])
 
   return (
     <div className="space-y-6">
       {showFilter ? (
-        <div className="flex flex-col gap-3">
-          <label className="text-sm font-medium text-foreground" htmlFor="pupil-lessons-filter">
-            Filter by pupil name or group
-          </label>
-          <input
-            id="pupil-lessons-filter"
-            value={filter}
-            onChange={(event) => setFilter(event.target.value)}
-            placeholder="Type a pupil or group (use '?' as wildcard)"
-            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-          />
+        <div className="space-y-6">
+          <div className="relative flex w-fit items-center">
+            <select
+              id="subject-select"
+              value={selectedSubject}
+              onChange={(event) => setSelectedSubject(event.target.value)}
+              className="cursor-pointer appearance-none bg-transparent pr-8 text-2xl font-semibold text-foreground focus:outline-none sm:text-3xl"
+            >
+              {subjects.map((subject) => (
+                <option key={subject} value={subject}>
+                  {subject}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-0 top-1/2 h-6 w-6 -translate-y-1/2 text-muted-foreground" />
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <label className="text-sm font-medium text-foreground" htmlFor="pupil-lessons-filter">
+              Filter by pupil name or group
+            </label>
+            <input
+              id="pupil-lessons-filter"
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+              placeholder="Type a pupil or group (use '?' as wildcard)"
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+            />
+          </div>
         </div>
       ) : null}
 

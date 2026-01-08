@@ -40,16 +40,19 @@ export default async function GroupDetailPage({
 
   const membershipError = result.error
   const pupils: PupilMember[] = group.members
-    .filter((member) => member.role.toLowerCase() === "pupil" || member.role.toLowerCase() === "teacher")
     .map((member) => {
       const first = member.profile?.first_name?.trim() ?? ""
       const last = member.profile?.last_name?.trim() ?? ""
       const displayName = `${first} ${last}`.trim()
+      
+      // Derive effective role from system profile
+      const effectiveRole = member.profile?.is_teacher ? "teacher" : "pupil"
+      
       return {
         user_id: member.user_id,
         displayName: displayName.length > 0 ? displayName : member.user_id,
-        roleLabel: roleLabelMap[member.role.toLowerCase()] ?? member.role,
-        role: member.role.toLowerCase(),
+        roleLabel: roleLabelMap[effectiveRole] ?? (effectiveRole.charAt(0).toUpperCase() + effectiveRole.slice(1)),
+        role: effectiveRole,
         locked: false,
         email: member.profile?.email ?? null,
       }

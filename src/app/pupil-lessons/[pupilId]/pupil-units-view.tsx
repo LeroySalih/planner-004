@@ -1,6 +1,10 @@
+"use client"
+
+import { useState, useMemo } from "react"
 import Link from "next/link"
 import { format, parseISO } from "date-fns"
 import { Roboto_Condensed } from "next/font/google"
+import { ChevronDown } from "lucide-react"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { PupilUnitsDetail, PupilUnitLesson } from "@/lib/pupil-units-data"
@@ -32,6 +36,23 @@ const robotoCondensed = Roboto_Condensed({
 })
 
 export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
+  const [selectedSubject, setSelectedSubject] = useState("All Subjects")
+
+  const subjects = useMemo(() => {
+    const subjectList = detail.subjects
+      .map((s) => s.subject ?? "Subject not set")
+      .filter((s, i, arr) => arr.indexOf(s) === i)
+      .sort()
+    return ["All Subjects", ...subjectList]
+  }, [detail])
+
+  const filteredSubjects = useMemo(() => {
+    if (selectedSubject === "All Subjects") {
+      return detail.subjects
+    }
+    return detail.subjects.filter((s) => (s.subject ?? "Subject not set") === selectedSubject)
+  }, [detail, selectedSubject])
+
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-8 sm:px-6 sm:py-10">
       <header className="rounded-2xl bg-gradient-to-r from-sky-600 to-indigo-600 px-6 py-6 text-white shadow-lg sm:px-8">
@@ -43,82 +64,125 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
         </div>
       </header>
 
-      <div className="space-y-8 sm:space-y-10">
-        {detail.subjects.map((subjectEntry) => (
-          <section
-            key={subjectEntry.subject ?? "subject-not-set"}
-            className="space-y-4 p-4 sm:p-6"
+      <div className="flex flex-col gap-8 sm:gap-10">
+        <div className="relative flex w-fit items-center">
+          <select
+            id="subject-select"
+            value={selectedSubject}
+            onChange={(event) => setSelectedSubject(event.target.value)}
+            className="cursor-pointer appearance-none bg-transparent pr-8 text-2xl font-semibold text-foreground focus:outline-none sm:text-3xl"
           >
-            <h2 className="text-2xl font-semibold text-foreground sm:text-3xl">
-              {subjectEntry.subject || "Subject not set"}
-            </h2>
+            {subjects.map((subject) => (
+              <option key={subject} value={subject}>
+                {subject}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-0 top-1/2 h-6 w-6 -translate-y-1/2 text-muted-foreground" />
+        </div>
 
-            {subjectEntry.units.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No units assigned for this subject yet.</p>
-            ) : (
-              <div className="space-y-5">
-                {subjectEntry.units.map((unit) => (
-                  <Card key={unit.unitId} className="border border-border/70 shadow-sm">
-                    <CardHeader className="space-y-1">
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <CardTitle
-                          className={`${robotoCondensed.className} text-2xl font-bold uppercase text-foreground sm:text-3xl`}
-                        >
-                          {unit.unitTitle}
-                        </CardTitle>
-                        <p className="text-xs text-muted-foreground sm:text-right">
-                          First lesson: {formatDate(unit.firstLessonDate)}
-                        </p>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="relative space-y-4 border-l border-border/60 pl-4">
-                        {unit.lessons.map((lesson) => (
-                          <div key={lesson.lessonId} className="relative p-2 sm:p-3">
-                            <span
-                              aria-hidden
-                              className="absolute -left-2.5 top-5 h-3 w-3 rounded-full border-2 border-background bg-primary"
-                            />
+        <div className="grid grid-cols-1 gap-8 md:grid-cols-[250px_1fr]">
+          <aside className="hidden h-fit space-y-6 md:block">
+            {filteredSubjects.map((subjectEntry) => (
+              <div key={subjectEntry.subject ?? "sidebar-subject-not-set"} className="space-y-3">
+                {filteredSubjects.length > 1 ? (
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    {subjectEntry.subject || "Subject not set"}
+                  </h3>
+                ) : null}
+                <ul className="space-y-2">
+                  {subjectEntry.units.map((unit) => (
+                    <li key={unit.unitId}>
+                      <Link
+                        href={`#unit-${unit.unitId}`}
+                        className="block truncate text-sm text-muted-foreground transition-colors hover:text-foreground hover:underline"
+                        title={unit.unitTitle}
+                      >
+                        {unit.unitTitle}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </aside>
+
+          <div className="h-[calc(100vh-16rem)] space-y-10 overflow-y-auto pr-4 pb-10">
+            {filteredSubjects.map((subjectEntry) => (
+              <section
+                key={subjectEntry.subject ?? "subject-not-set"}
+                className="space-y-8"
+              >
+                {subjectEntry.units.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No units assigned for this subject yet.</p>
+                ) : (
+                  <div className="space-y-8">
+                    {subjectEntry.units.map((unit) => (
+                      <div id={`unit-${unit.unitId}`} key={unit.unitId} className="scroll-mt-6">
+                        <Card className="border border-border/70 shadow-sm">
+                          <CardHeader className="space-y-1">
                             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                              <div className="flex flex-wrap items-center gap-3">
-                                {lesson.isEnrolled ? (
-                                  <Link
-                                    href={`/pupil-lessons/${encodeURIComponent(detail.pupilId)}/lessons/${encodeURIComponent(lesson.lessonId)}`}
-                                    className="text-base font-semibold text-foreground underline-offset-4 hover:text-primary hover:underline sm:text-lg"
-                                  >
-                                    {lesson.lessonTitle}
-                                  </Link>
-                                ) : (
-                                  <span className="text-base font-semibold text-foreground sm:text-lg">
-                                    {lesson.lessonTitle}
-                                  </span>
-                                )}
-                                <span className="text-muted-foreground">•</span>
-                                {renderLessonObjectivesInline(lesson)}
-                              </div>
-                              <p className="text-xs text-muted-foreground sm:text-sm sm:ml-auto sm:text-right">
-                                Start date: {formatDate(lesson.startDate)}
+                              <CardTitle
+                                className={`${robotoCondensed.className} text-2xl font-bold uppercase text-foreground sm:text-3xl`}
+                              >
+                                {unit.unitTitle}
+                              </CardTitle>
+                              <p className="text-xs text-muted-foreground sm:text-right">
+                                First lesson: {formatDate(unit.firstLessonDate)}
                               </p>
                             </div>
+                          </CardHeader>
+                          <CardContent className="space-y-4">
+                            <div className="relative space-y-4 border-l border-border/60 pl-4">
+                              {unit.lessons.map((lesson) => (
+                                <div key={lesson.lessonId} className="relative p-2 sm:p-3">
+                                  <span
+                                    aria-hidden
+                                    className="absolute -left-2.5 top-5 h-3 w-3 rounded-full border-2 border-background bg-primary"
+                                  />
+                                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                    <div className="flex flex-wrap items-center gap-3">
+                                      {lesson.isEnrolled ? (
+                                        <Link
+                                          href={`/pupil-lessons/${encodeURIComponent(detail.pupilId)}/lessons/${encodeURIComponent(lesson.lessonId)}`}
+                                          className="text-base font-semibold text-foreground underline-offset-4 hover:text-primary hover:underline sm:text-lg"
+                                        >
+                                          {lesson.lessonTitle}
+                                        </Link>
+                                      ) : (
+                                        <span className="text-base font-semibold text-foreground sm:text-lg">
+                                          {lesson.lessonTitle}
+                                        </span>
+                                      )}
+                                      <span className="text-muted-foreground">•</span>
+                                      {renderLessonObjectivesInline(lesson)}
+                                    </div>
+                                    <p className="text-xs text-muted-foreground sm:text-sm sm:ml-auto sm:text-right">
+                                      Start date: {formatDate(lesson.startDate)}
+                                    </p>
+                                  </div>
 
-                            <div className="mt-3 space-y-3">
-                              <LessonMedia
-                                lessonId={lesson.lessonId}
-                                lessonTitle={lesson.lessonTitle}
-                                images={lesson.displayImages}
-                                files={lesson.files}
-                              />
+                                  <div className="mt-3 space-y-3">
+                                    <LessonMedia
+                                      lessonId={lesson.lessonId}
+                                      lessonTitle={lesson.lessonTitle}
+                                      images={lesson.displayImages}
+                                      files={lesson.files}
+                                    />
+                                  </div>
+                                </div>
+                              ))}
                             </div>
-                          </div>
-                        ))}
+                          </CardContent>
+                        </Card>
                       </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            )}
-          </section>
-        ))}
+                    ))}
+                  </div>
+                )}
+              </section>
+            ))}
+          </div>
+        </div>
       </div>
     </main>
   )
