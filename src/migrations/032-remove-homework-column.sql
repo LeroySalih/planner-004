@@ -1,4 +1,5 @@
 -- Update pupil_lessons_detail_bootstrap to remove homework references
+DROP FUNCTION IF EXISTS public.pupil_lessons_detail_bootstrap(text);
 CREATE OR REPLACE FUNCTION public.pupil_lessons_detail_bootstrap(p_target_user_id text) RETURNS jsonb
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
@@ -156,6 +157,7 @@ end;
 $$;
 
 -- Update reports_get_prepared_report_dataset to remove is_homework reference
+DROP FUNCTION IF EXISTS public.reports_get_prepared_report_dataset(text, text);
 CREATE OR REPLACE FUNCTION public.reports_get_prepared_report_dataset(p_pupil_id text, p_group_id text) RETURNS jsonb
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
