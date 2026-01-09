@@ -516,9 +516,18 @@ export const PupilActivityFeedbackRowSchema = z.object({
     pupil_id: z.string(),
     submission_id: z.string().nullable(),
     source: FeedbackSourceSchema,
-    score: z.number().min(0).max(1).nullable(),
+    score: z
+        .union([z.number(), z.string(), z.null()])
+        .transform((val) => {
+            if (val === null) return null;
+            if (typeof val === "string") return parseFloat(val);
+            return val;
+        })
+        .pipe(z.number().min(0).max(1).nullable()),
     feedback_text: z.string().nullable(),
-    created_at: z.string(),
+    created_at: z
+        .union([z.string(), z.date()])
+        .transform((val) => (val instanceof Date ? val.toISOString() : val)),
     created_by: z.string().nullable().optional(),
 });
 
