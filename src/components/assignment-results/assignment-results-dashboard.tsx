@@ -2,7 +2,7 @@
 
 import { useActionState, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
-import { ChevronDown, Download, RefreshCw } from "lucide-react"
+import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Download, Eye, RefreshCw, X } from "lucide-react"
 import {
   AssignmentResultActivity,
   AssignmentResultActivitySummary,
@@ -409,6 +409,10 @@ function resolvePupilLabels(pupil: AssignmentResultRow["pupil"]) {
   return { primaryLabel, secondaryLabel }
 }
 
+function isImageFile(filename: string): boolean {
+  return /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(filename)
+}
+
 export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResultMatrix }) {
   const [matrixState, setMatrixState] = useState<MatrixWithState>({ ...matrix, rows: matrix.rows })
   const [feedbackVisible, setFeedbackVisible] = useState<boolean>(matrix.assignment?.feedbackVisible ?? false)
@@ -417,7 +421,8 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
   const [criterionDrafts, setCriterionDrafts] = useState<Record<string, string>>({})
   const [feedbackDraft, setFeedbackDraft] = useState<string>("")
   const [uploadFiles, setUploadFiles] = useState<Record<string, UploadFileState>>({})
-  const [realtimeDebug, setRealtimeDebug] = useState<string[]>([])
+  const [viewingFile, setViewingFile] = useState<{ name: string; url: string | null } | null>(null)
+  const [imageViewMode, setImageViewMode] = useState(false)
   const [optimisticOverrides, setOptimisticOverrides] = useState<
     Record<
       string,
@@ -1068,14 +1073,6 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
           payload,
         })
       }
-      setRealtimeDebug((previous) => {
-        const entry = `${new Date().toLocaleTimeString()} • ${payload.eventType} activity=${
-          normalizedNew?.activity_id ?? normalizedOld?.activity_id ?? "unknown"
-        } pupil=${normalizedNew?.user_id ?? normalizedOld?.user_id ?? "unknown"} submission=${
-          normalizedNew?.submission_id ?? normalizedOld?.submission_id ?? "—"
-        }`
-        return [entry, ...previous].slice(0, 5)
-      })
       const record = payload.eventType === "DELETE" ? payload.old : payload.new
       if (!record) {
         return
@@ -1302,10 +1299,6 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
         return
       }
       applyFeedbackVisibilityUpdate(nextVisible)
-      setRealtimeDebug((entries) => {
-        const next = [...entries, `feedback:${nextVisible ? "on" : "off"}`]
-        return next.slice(-8)
-      })
     },
     [applyFeedbackVisibilityUpdate, feedbackVisible],
   )
@@ -1332,10 +1325,6 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
         }
         const resolvedVisibility = result.feedbackVisible ?? nextVisible
         applyFeedbackVisibilityUpdate(resolvedVisibility)
-        setRealtimeDebug((entries) => {
-          const next = [...entries, `feedback:${resolvedVisibility ? "on" : "off"} (local)`]
-          return next.slice(-8)
-        })
         toast.success(resolvedVisibility ? "Feedback is now visible to pupils." : "Feedback hidden from pupils.")
       })
     },
@@ -1441,7 +1430,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     }
   }, [handleRealtimeSubmission])
 
-  const handleOverrideSubmit = () => {
+  const handleOverrideSubmit = (overrides?: Record<string, string>, feedbackOverride?: string) => {
     if (!selection) return
 
     const criteria = selection.activity.successCriteria
@@ -1450,10 +1439,13 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       return
     }
 
+    const currentCriterionDrafts = overrides ?? criterionDrafts
+    const currentFeedbackDraft = feedbackOverride ?? feedbackDraft
+
     const parsedCriterionScores: Record<string, number> = {}
 
     for (const criterion of criteria) {
-      const percent = toPercentNumber(criterionDrafts[criterion.successCriteriaId])
+      const percent = toPercentNumber(currentCriterionDrafts[criterion.successCriteriaId])
       if (percent === null) {
         toast.error("Enter a percentage between 0 and 100 for each success criterion.")
         return
@@ -1471,7 +1463,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     })
 
     const parsedAverage = computeAverageSuccessCriteriaScore(successCriteriaScores) ?? 0
-    const feedback = feedbackDraft.trim()
+    const feedback = currentFeedbackDraft.trim()
     const submittedAt = new Date().toISOString()
     const optimisticToken = `${Date.now()}-${Math.random().toString(16).slice(2)}`
 
@@ -1798,9 +1790,436 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     })
   }
 
+  const handlePrevPupil = useCallback(() => {
+    if (!selection) return
+    const prevRowIndex = selection.rowIndex - 1
+    if (prevRowIndex >= 0) {
+      handleCellSelect(prevRowIndex, selection.activityIndex)
+      setViewingFile(null)
+    }
+  }, [selection, handleCellSelect])
+
+  const handleNextPupil = useCallback(() => {
+    if (!selection) return
+    const nextRowIndex = selection.rowIndex + 1
+    if (nextRowIndex < groupedRows.length) {
+      handleCellSelect(nextRowIndex, selection.activityIndex)
+      setViewingFile(null)
+    }
+  }, [selection, groupedRows.length, handleCellSelect])
+
+  const canPrev = selection ? selection.rowIndex > 0 : false
+  const canNext = selection ? selection.rowIndex < groupedRows.length - 1 : false
+
+  if (viewingFile && selection) {
+    return (
+      <div className="flex items-start gap-6">
+        <div className="flex h-[calc(100vh-2rem)] flex-1 min-w-0 flex-col gap-4 overflow-hidden rounded-lg border border-border bg-card p-4">
+          <div className="flex items-center justify-between border-b border-border/60 pb-4">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setViewingFile(null)
+                setImageViewMode(false)
+              }}
+              className="gap-2"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back to table
+            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="icon" onClick={handlePrevPupil} disabled={!canPrev}>
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="text-sm font-medium">{selection.row.pupil.displayName}</span>
+              <Button variant="outline" size="icon" onClick={handleNextPupil} disabled={!canNext}>
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          <div className="flex flex-1 items-center justify-center overflow-auto bg-muted/10">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={viewingFile.url ?? ""}
+              alt={viewingFile.name}
+              className="max-h-full max-w-full object-contain"
+            />
+          </div>
+        </div>
+
+        {selection && (
+          <aside className="sticky top-4 flex h-[calc(100vh-2rem)] w-[400px] shrink-0 flex-col gap-4 overflow-hidden rounded-lg border border-border bg-card p-6 shadow-sm">
+            <div className="flex items-start justify-between gap-2">
+              <div className="space-y-1">
+                <h3 className="font-semibold text-foreground">
+                  {selection.activity.title} • {resolvePupilLabels(selection.row.pupil).primaryLabel}
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  {describeStatus(selection.cell.status)} · Submitted{" "}
+                  {selection.cell.submittedAt
+                    ? new Date(selection.cell.submittedAt).toLocaleString()
+                    : "N/A"}
+                </p>
+              </div>
+              <Button variant="ghost" size="icon" className="-mt-1 -mr-2" onClick={closeSheet}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <div className="flex items-baseline justify-between">
+              <span className="text-3xl font-semibold text-foreground">
+                {formatPercent(selection.cell.score ?? null)}
+              </span>
+              <Badge variant={selection.cell.status === "override" ? "default" : "secondary"}>
+                {selection.cell.status === "override" ? "Override" : "Auto"}
+              </Badge>
+            </div>
+
+            <div className="flex flex-1 flex-col overflow-hidden">
+              <div className="flex-1 space-y-6 overflow-y-auto pr-1">
+                {/* Context Section */}
+                <div className="space-y-4">
+                  <div className="rounded-md border border-border/60 bg-muted/40 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Question
+                    </p>
+                    <p className="text-sm text-foreground">
+                      {selection.cell.question ?? "No question text available."}
+                    </p>
+                  </div>
+
+                  {selection.cell.correctAnswer ? (
+                    <div className="rounded-md border border-emerald-300/70 bg-emerald-100/40 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                        Correct answer
+                      </p>
+                      <p className="text-sm text-emerald-900">{selection.cell.correctAnswer}</p>
+                    </div>
+                  ) : null}
+
+                  <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-primary">Pupil response</p>
+                    {selection.activity.type === "upload-file" ? (
+                      <p className="text-sm text-foreground">
+                        {selectedUploadState?.files.length
+                          ? "Learner submitted file uploads listed below."
+                          : "No upload has been submitted yet."}
+                      </p>
+                    ) : selection.cell.pupilAnswer ? (
+                      (() => {
+                        const markup = getRichTextMarkup(selection.cell.pupilAnswer ?? "")
+                        if (markup) {
+                          return (
+                            <div
+                              className="prose prose-sm max-w-none text-foreground"
+                              dangerouslySetInnerHTML={{ __html: markup }}
+                            />
+                          )
+                        }
+                        return (
+                          <p className="text-sm text-foreground whitespace-pre-wrap">
+                            {selection.cell.pupilAnswer}
+                          </p>
+                        )
+                      })()
+                    ) : (
+                      <p className="text-sm text-foreground">No response has been recorded yet.</p>
+                    )}
+                  </div>
+
+                  {selection.activity.type === "upload-file" ? (
+                    <div className="rounded-md border border-border/60 bg-muted/40 p-3">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Uploaded files
+                        </p>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7"
+                          onClick={handleUploadRefresh}
+                          disabled={!matrixState.lesson?.lessonId || selectedUploadState?.status === "loading"}
+                          aria-label="Refresh uploads"
+                        >
+                          <RefreshCw
+                            className={cn(
+                              "h-3.5 w-3.5",
+                              selectedUploadState?.status === "loading" ? "animate-spin" : "",
+                            )}
+                          />
+                        </Button>
+                      </div>
+                      {selectedUploadState?.status === "loading" ? (
+                        <p className="text-xs text-muted-foreground">Loading uploads…</p>
+                      ) : selectedUploadState?.status === "error" ? (
+                        <p className="text-xs text-destructive">
+                          {selectedUploadState.error ?? "Unable to load uploads."}
+                        </p>
+                      ) : selectedUploadState?.files.length ? (
+                        <ul className="space-y-2">
+                          {selectedUploadState.files.map((file) => (
+                            <li
+                              key={file.name}
+                              className="rounded-md border border-border/70 bg-background p-2 text-sm"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex flex-col">
+                                  <span className="font-medium text-foreground">{file.name}</span>
+                                  {file.updatedAt ? (
+                                    <span className="text-[11px] text-muted-foreground">
+                                      Updated {new Date(file.updatedAt).toLocaleString()}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                {file.size ? (
+                                  <span className="text-xs text-muted-foreground">{formatFileSize(file.size)}</span>
+                                ) : null}
+                              </div>
+                              {file.url ? (
+                                <div className="mt-1 flex items-center gap-3">
+                                  {isImageFile(file.name) ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setViewingFile({ name: file.name, url: file.url })
+                                        setImageViewMode(true)
+                                      }}
+                                      className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                                    >
+                                      <Eye className="h-3 w-3" />
+                                      View
+                                    </button>
+                                  ) : null}
+                                  <a
+                                    href={file.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                                  >
+                                    <Download className="h-3 w-3" />
+                                    Download
+                                  </a>
+                                </div>
+                              ) : (
+                                <span className="mt-1 text-xs text-muted-foreground">
+                                  {file.error ?? "Download link unavailable."}
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">No uploads yet.</p>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+
+                <Tabs defaultValue="override" className="flex flex-1 flex-col gap-4 overflow-hidden pt-4 border-t border-border/60">
+                  <TabsList className="w-full">
+                    <TabsTrigger value="override">Override</TabsTrigger>
+                    <TabsTrigger value="auto">Automatic score</TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="override" className="flex-1 overflow-hidden">
+                    <div className="flex h-full flex-col">
+                      <div className="flex-1 space-y-3 overflow-y-auto pr-1">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-medium text-foreground">Marking</p>
+                          <span className="text-xs text-muted-foreground">
+                            Average: {draftAverage !== null ? formatPercent(draftAverage) : "—"}
+                          </span>
+                        </div>
+                        {selection.activity.successCriteria.length > 0 ? (
+                          <div className="space-y-3">
+                            {selection.activity.successCriteria.map((criterion) => {
+                              const criterionId = criterion.successCriteriaId
+                              const label =
+                                criterion.title?.trim() && criterion.title.trim().length > 0
+                                  ? criterion.title.trim()
+                                  : criterion.description?.trim() && criterion.description.trim().length > 0
+                                    ? criterion.description.trim()
+                                    : criterionId
+                              const draftValueRaw = criterionDrafts[criterionId]
+                              const percentDraft =
+                                typeof draftValueRaw === "string" ? draftValueRaw : "0"
+                              const trimmed = percentDraft.trim()
+                              const numericDraft =
+                                trimmed.length === 0 ? 0 : Number.parseFloat(trimmed)
+                              const isNumericDraftValid = !Number.isNaN(numericDraft)
+                              return (
+                                <div key={criterionId} className="space-y-2">
+                                  <p className="text-xs font-semibold text-muted-foreground">{label}</p>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    {[
+                                      { label: "0", percent: 0 },
+                                      { label: "Partial", percent: 50 },
+                                      { label: "Full", percent: 100 },
+                                    ].map((option) => {
+                                      const isActive =
+                                        isNumericDraftValid &&
+                                        Math.abs(numericDraft - option.percent) < 0.0001
+                                      return (
+                                        <Button
+                                          key={option.label}
+                                          type="button"
+                                          size="sm"
+                                          variant={isActive ? "default" : "outline"}
+                                          aria-pressed={isActive}
+                                          className="h-8 px-2 text-xs"
+                                          onClick={() => {
+                                            const val = formatPercentValue(option.percent)
+                                            const nextDrafts = { ...criterionDrafts, [criterionId]: val }
+                                            setCriterionDrafts(nextDrafts)
+                                            handleOverrideSubmit(nextDrafts)
+                                          }}
+                                        >
+                                          {option.label}
+                                        </Button>
+                                      )
+                                    })}
+                                    <Input
+                                      type="number"
+                                      inputMode="decimal"
+                                      min="0"
+                                      max="100"
+                                      step="0.1"
+                                      value={percentDraft}
+                                      onChange={(event) =>
+                                        handleCriterionInputChange(criterionId, event.target.value)
+                                      }
+                                      onBlur={() => {
+                                        handleCriterionInputBlur(criterionId)
+                                        handleOverrideSubmit()
+                                      }}
+                                      placeholder="Exact percent (0-100)"
+                                      aria-label={`Exact percent for ${label}`}
+                                      className="h-8 w-24"
+                                    />
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">
+                            No success criteria linked to this activity.
+                          </p>
+                        )}
+
+                        <div className="grid gap-2">
+                          <label className="text-sm font-medium text-foreground" htmlFor="override-feedback">
+                            Teacher feedback
+                          </label>
+                          <Textarea
+                            id="override-feedback"
+                            value={feedbackDraft}
+                            placeholder="Optional feedback for the pupil"
+                            onChange={(event) => setFeedbackDraft(event.target.value)}
+                            onBlur={() => handleOverrideSubmit()}
+                            rows={4}
+                          />
+                        </div>
+
+                        {!selection.cell.submissionId ? (
+                          <div className="rounded-md border border-dashed border-amber-500/40 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                            No learner submission has been recorded yet. Saving an override will create a submission on behalf
+                            of the pupil so you can capture scores and feedback.
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div className="sticky bottom-0 left-0 right-0 mt-4 flex flex-col gap-2 bg-background pt-2">
+                        <Button
+                          variant="outline"
+                          onClick={handleReset}
+                          disabled={
+                            resetPending
+                            || resetUITransitionPending
+                            || !selection.cell.submissionId
+                          }
+                        >
+                          {resetPending || resetUITransitionPending ? "Resetting…" : "Reset to auto score"}
+                        </Button>
+                      </div>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="auto" className="flex-1 overflow-hidden">
+                    <div className="flex h-full flex-col gap-3 overflow-y-auto pr-1">
+                      <div className="rounded-md border border-border/60 bg-muted/40 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Automatic score
+                        </p>
+                        <div className="mt-1 flex items-baseline justify-between">
+                          <span className="text-lg font-semibold text-foreground">
+                            {formatPercent(selection.cell.autoScore ?? selection.cell.score ?? null)}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {selection.cell.status === "override" ? "Override applied" : "Auto"}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          {selection.cell.status === "override"
+                            ? "This score has been overridden. The stored automatic values are shown below for reference."
+                            : "This score was calculated automatically from the success criteria inputs."}
+                        </p>
+                      </div>
+                      {selection.activity.successCriteria.length > 0 ? (
+                        <div className="space-y-1 rounded-md border border-border/50 bg-muted/40 p-2">
+                          {selection.activity.successCriteria.map((criterion) => {
+                            const label =
+                              criterion.title?.trim() && criterion.title.trim().length > 0
+                                ? criterion.title.trim()
+                                : criterion.description?.trim() && criterion.description.trim().length > 0
+                                  ? criterion.description.trim()
+                                  : criterion.successCriteriaId
+                            const autoValues =
+                              selection.cell.autoSuccessCriteriaScores ?? selection.cell.successCriteriaScores
+                            const value = autoValues[criterion.successCriteriaId]
+                            return (
+                              <div
+                                key={criterion.successCriteriaId}
+                                className="flex items-center justify-between text-xs"
+                              >
+                                <span className="text-muted-foreground">{label}</span>
+                                <span className="font-semibold text-foreground">
+                                  {formatPercent(typeof value === "number" ? value : null)}
+                                </span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          No success criteria linked to this activity.
+                        </p>
+                      )}
+                      <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                          Automatic feedback
+                        </p>
+                        <p className="text-sm text-foreground">
+                          {selection.cell.autoFeedback?.trim()
+                            ? selection.cell.autoFeedback
+                            : "No automatic feedback available."}
+                        </p>
+                      </div>
+                    </div>
+                  </TabsContent>
+                </Tabs>
+              </div>
+            </div>
+          </aside>
+        )}
+      </div>
+    )
+  }
+
   return (
-    <>
-      <div className="space-y-6">
+    <div className="flex items-start gap-6">
+      <div className="flex-1 min-w-0 space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Assignment results</h1>
@@ -1819,17 +2238,6 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
             ) : null}
           </div>
         </div>
-
-        {realtimeDebug.length > 0 ? (
-          <div className="rounded-md border border-dashed border-primary/40 bg-primary/5 p-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-primary">Realtime debug feed</p>
-            <ul className="mt-2 space-y-1 text-xs font-mono text-primary/80">
-              {realtimeDebug.map((entry, idx) => (
-                <li key={`${entry}-${idx}`}>{entry}</li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
 
         <div className="grid gap-3 md:grid-cols-3">
           <details className="group rounded-lg border border-border bg-card text-sm">
@@ -2231,21 +2639,24 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
           ) : null}
         </SheetContent>
       </Sheet>
-      <Sheet open={selection !== null} onOpenChange={(open) => !open && closeSheet()}>
-        <SheetContent side="right" className="h-full w-full sm:max-w-md p-6">
-          {selection ? (
-            <div className="flex h-full flex-col gap-4">
-              <SheetHeader className="p-0">
-                <SheetTitle>
-                  {selection.activity.title} • {resolvePupilLabels(selection.row.pupil).primaryLabel}
-                </SheetTitle>
-                <SheetDescription>
-                  {describeStatus(selection.cell.status)} · Submitted{" "}
-                  {selection.cell.submittedAt
-                    ? new Date(selection.cell.submittedAt).toLocaleString()
-                    : "N/A"}
-                </SheetDescription>
-              </SheetHeader>
+      {selection && (
+        <aside className="sticky top-4 flex h-[calc(100vh-2rem)] w-[400px] shrink-0 flex-col gap-4 overflow-hidden rounded-lg border border-border bg-card p-6 shadow-sm">
+              <div className="flex items-start justify-between gap-2">
+                <div className="space-y-1">
+                  <h3 className="font-semibold text-foreground">
+                    {selection.activity.title} • {resolvePupilLabels(selection.row.pupil).primaryLabel}
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    {describeStatus(selection.cell.status)} · Submitted{" "}
+                    {selection.cell.submittedAt
+                      ? new Date(selection.cell.submittedAt).toLocaleString()
+                      : "N/A"}
+                  </p>
+                </div>
+                <Button variant="ghost" size="icon" className="-mt-1 -mr-2" onClick={closeSheet}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
 
               <div className="flex items-baseline justify-between">
                 <span className="text-3xl font-semibold text-foreground">
@@ -2256,21 +2667,26 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                 </Badge>
               </div>
 
-              <Tabs defaultValue="details" className="flex h-full flex-col gap-4">
-                <TabsList className="w-full">
-                  <TabsTrigger value="details">Question</TabsTrigger>
-                  <TabsTrigger value="auto">Automatic score</TabsTrigger>
-                  <TabsTrigger value="override">Override</TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="details" className="flex-1 overflow-hidden">
-                  <div className="flex h-full flex-col gap-3 overflow-y-auto pr-1">
+              <div className="flex flex-1 flex-col overflow-hidden">
+                <div className="flex-1 space-y-6 overflow-y-auto pr-1">
+                  {/* Context Section */}
+                  <div className="space-y-4">
                     <div className="rounded-md border border-border/60 bg-muted/40 p-3">
                       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Question</p>
                       <p className="text-sm text-foreground">
                         {selection.cell.question ?? "No question text available."}
                       </p>
                     </div>
+
+                    {selection.cell.correctAnswer ? (
+                      <div className="rounded-md border border-emerald-300/70 bg-emerald-100/40 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                          Correct answer
+                        </p>
+                        <p className="text-sm text-emerald-900">{selection.cell.correctAnswer}</p>
+                      </div>
+                    ) : null}
+
                     <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
                       <p className="text-xs font-semibold uppercase tracking-wide text-primary">Pupil response</p>
                       {selection.activity.type === "upload-file" ? (
@@ -2299,34 +2715,8 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                       ) : (
                         <p className="text-sm text-foreground">No response has been recorded yet.</p>
                       )}
-                      <div className="mt-3 rounded-md border border-dashed border-border bg-muted/30 p-3">
-                        <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Debug (selection JSON)
-                        </p>
-                        <pre className="max-h-40 overflow-auto rounded bg-background p-2 text-xs text-muted-foreground">
-                          {JSON.stringify(
-                            {
-                              activityType: selection.activity.type,
-                              submissionId: selection.cell.submissionId,
-                              pupilAnswer: selection.cell.pupilAnswer,
-                              status: selection.cell.status,
-                              question: selection.cell.question,
-                              correctAnswer: selection.cell.correctAnswer,
-                            },
-                            null,
-                            2,
-                          )}
-                        </pre>
-                      </div>
                     </div>
-                    {selection.cell.correctAnswer ? (
-                      <div className="rounded-md border border-emerald-300/70 bg-emerald-100/40 p-3">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-                          Correct answer
-                        </p>
-                        <p className="text-sm text-emerald-900">{selection.cell.correctAnswer}</p>
-                      </div>
-                    ) : null}
+
                     {selection.activity.type === "upload-file" ? (
                       <div className="rounded-md border border-border/60 bg-muted/40 p-3">
                         <div className="mb-2 flex items-center justify-between gap-2">
@@ -2377,15 +2767,30 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                                   ) : null}
                                 </div>
                                 {file.url ? (
-                                  <a
-                                    href={file.url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-                                  >
-                                    <Download className="h-3 w-3" />
-                                    Download
-                                  </a>
+                                  <div className="mt-1 flex items-center gap-3">
+                                    {isImageFile(file.name) ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setViewingFile({ name: file.name, url: file.url })
+                                          setImageViewMode(true)
+                                        }}
+                                        className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                                      >
+                                        <Eye className="h-3 w-3" />
+                                        View
+                                      </button>
+                                    ) : null}
+                                    <a
+                                      href={file.url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                                    >
+                                      <Download className="h-3 w-3" />
+                                      Download
+                                    </a>
+                                  </div>
                                 ) : (
                                   <span className="mt-1 text-xs text-muted-foreground">
                                     {file.error ?? "Download link unavailable."}
@@ -2400,206 +2805,203 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                       </div>
                     ) : null}
                   </div>
-                </TabsContent>
 
-                <TabsContent value="auto" className="flex-1 overflow-hidden">
-                  <div className="flex h-full flex-col gap-3 overflow-y-auto pr-1">
-                    <div className="rounded-md border border-border/60 bg-muted/40 p-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        Automatic score
-                      </p>
-                      <div className="mt-1 flex items-baseline justify-between">
-                        <span className="text-lg font-semibold text-foreground">
-                          {formatPercent(selection.cell.autoScore ?? selection.cell.score ?? null)}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {selection.cell.status === "override" ? "Override applied" : "Auto"}
-                        </span>
-                      </div>
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        {selection.cell.status === "override"
-                          ? "This score has been overridden. The stored automatic values are shown below for reference."
-                          : "This score was calculated automatically from the success criteria inputs."}
-                      </p>
-                    </div>
-                    {selection.activity.successCriteria.length > 0 ? (
-                      <div className="space-y-1 rounded-md border border-border/50 bg-muted/40 p-2">
-                        {selection.activity.successCriteria.map((criterion) => {
-                          const label =
-                            criterion.title?.trim() && criterion.title.trim().length > 0
-                              ? criterion.title.trim()
-                              : criterion.description?.trim() && criterion.description.trim().length > 0
-                                ? criterion.description.trim()
-                                : criterion.successCriteriaId
-                          const autoValues =
-                            selection.cell.autoSuccessCriteriaScores ?? selection.cell.successCriteriaScores
-                          const value = autoValues[criterion.successCriteriaId]
-                          return (
-                            <div
-                              key={criterion.successCriteriaId}
-                              className="flex items-center justify-between text-xs"
-                            >
-                              <span className="text-muted-foreground">{label}</span>
-                              <span className="font-semibold text-foreground">
-                                {formatPercent(typeof value === "number" ? value : null)}
-                              </span>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">
-                        No success criteria linked to this activity.
-                      </p>
-                    )}
-                    <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-primary">
-                        Automatic feedback
-                      </p>
-                      <p className="text-sm text-foreground">
-                        {selection.cell.autoFeedback?.trim()
-                          ? selection.cell.autoFeedback
-                          : "No automatic feedback available."}
-                      </p>
-                    </div>
-                  </div>
-                </TabsContent>
+                  <Tabs defaultValue="override" className="flex flex-1 flex-col gap-4 overflow-hidden pt-4 border-t border-border/60">
+                    <TabsList className="w-full">
+                      <TabsTrigger value="override">Override</TabsTrigger>
+                      <TabsTrigger value="auto">Automatic score</TabsTrigger>
+                    </TabsList>
 
-                <TabsContent value="override" className="flex-1 overflow-hidden">
-                  <div className="flex h-full flex-col">
-                    <div className="flex-1 space-y-3 overflow-y-auto pr-1">
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm font-medium text-foreground">Override per success criterion</p>
-                        <span className="text-xs text-muted-foreground">
-                          Average: {draftAverage !== null ? formatPercent(draftAverage) : "—"}
-                        </span>
-                      </div>
-                      {selection.activity.successCriteria.length > 0 ? (
-                        <div className="space-y-3">
-                          {selection.activity.successCriteria.map((criterion) => {
-                            const criterionId = criterion.successCriteriaId
-                            const label =
-                              criterion.title?.trim() && criterion.title.trim().length > 0
-                                ? criterion.title.trim()
-                                : criterion.description?.trim() && criterion.description.trim().length > 0
-                                  ? criterion.description.trim()
-                                  : criterionId
-                            const draftValueRaw = criterionDrafts[criterionId]
-                            const percentDraft =
-                              typeof draftValueRaw === "string" ? draftValueRaw : "0"
-                            const trimmed = percentDraft.trim()
-                            const numericDraft =
-                              trimmed.length === 0 ? 0 : Number.parseFloat(trimmed)
-                            const isNumericDraftValid = !Number.isNaN(numericDraft)
-                            return (
-                              <div key={criterionId} className="space-y-2">
-                                <p className="text-xs font-semibold text-muted-foreground">{label}</p>
-                                <div className="flex flex-wrap items-center gap-2">
-                                  {[
-                                    { label: "0", percent: 0 },
-                                    { label: "Partial", percent: 50 },
-                                    { label: "Full", percent: 100 },
-                                  ].map((option) => {
-                                    const isActive =
-                                      isNumericDraftValid &&
-                                      Math.abs(numericDraft - option.percent) < 0.0001
-                                    return (
-                                      <Button
-                                        key={option.label}
-                                        type="button"
-                                        size="sm"
-                                        variant={isActive ? "default" : "outline"}
-                                        aria-pressed={isActive}
-                                        className="h-8 px-2 text-xs"
-                                        onClick={() => {
-                                          setCriterionDrafts((previous) => ({
-                                            ...previous,
-                                            [criterionId]: formatPercentValue(option.percent),
-                                          }))
+                    <TabsContent value="override" className="flex-1 overflow-hidden">
+                      <div className="flex h-full flex-col">
+                        <div className="flex-1 space-y-3 overflow-y-auto pr-1">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-medium text-foreground">Marking</p>
+                            <span className="text-xs text-muted-foreground">
+                              Average: {draftAverage !== null ? formatPercent(draftAverage) : "—"}
+                            </span>
+                          </div>
+                          {selection.activity.successCriteria.length > 0 ? (
+                            <div className="space-y-3">
+                              {selection.activity.successCriteria.map((criterion) => {
+                                const criterionId = criterion.successCriteriaId
+                                const label =
+                                  criterion.title?.trim() && criterion.title.trim().length > 0
+                                    ? criterion.title.trim()
+                                    : criterion.description?.trim() && criterion.description.trim().length > 0
+                                      ? criterion.description.trim()
+                                      : criterionId
+                                const draftValueRaw = criterionDrafts[criterionId]
+                                const percentDraft =
+                                  typeof draftValueRaw === "string" ? draftValueRaw : "0"
+                                const trimmed = percentDraft.trim()
+                                const numericDraft =
+                                  trimmed.length === 0 ? 0 : Number.parseFloat(trimmed)
+                                const isNumericDraftValid = !Number.isNaN(numericDraft)
+                                return (
+                                  <div key={criterionId} className="space-y-2">
+                                    <p className="text-xs font-semibold text-muted-foreground">{label}</p>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      {[
+                                        { label: "0", percent: 0 },
+                                        { label: "Partial", percent: 50 },
+                                        { label: "Full", percent: 100 },
+                                      ].map((option) => {
+                                        const isActive =
+                                          isNumericDraftValid &&
+                                          Math.abs(numericDraft - option.percent) < 0.0001
+                                        return (
+                                          <Button
+                                            key={option.label}
+                                            type="button"
+                                            size="sm"
+                                            variant={isActive ? "default" : "outline"}
+                                            aria-pressed={isActive}
+                                            className="h-8 px-2 text-xs"
+                                            onClick={() => {
+                                              const val = formatPercentValue(option.percent)
+                                              const nextDrafts = { ...criterionDrafts, [criterionId]: val }
+                                              setCriterionDrafts(nextDrafts)
+                                              handleOverrideSubmit(nextDrafts)
+                                            }}
+                                          >
+                                            {option.label}
+                                          </Button>
+                                        )
+                                      })}
+                                      <Input
+                                        type="number"
+                                        inputMode="decimal"
+                                        min="0"
+                                        max="100"
+                                        step="0.1"
+                                        value={percentDraft}
+                                        onChange={(event) =>
+                                          handleCriterionInputChange(criterionId, event.target.value)
+                                        }
+                                        onBlur={() => {
+                                          handleCriterionInputBlur(criterionId)
+                                          handleOverrideSubmit()
                                         }}
-                                      >
-                                        {option.label}
-                                      </Button>
-                                    )
-                                  })}
-                                  <Input
-                                    type="number"
-                                    inputMode="decimal"
-                                    min="0"
-                                    max="100"
-                                    step="0.1"
-                                    value={percentDraft}
-                                    onChange={(event) =>
-                                      handleCriterionInputChange(criterionId, event.target.value)
-                                    }
-                                    onBlur={() => handleCriterionInputBlur(criterionId)}
-                                    placeholder="Exact percent (0-100)"
-                                    aria-label={`Exact percent for ${label}`}
-                                    className="h-8 w-24"
-                                  />
-                                </div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-muted-foreground">
-                          No success criteria linked to this activity.
-                        </p>
-                      )}
+                                        placeholder="Exact percent (0-100)"
+                                        aria-label={`Exact percent for ${label}`}
+                                        className="h-8 w-24"
+                                      />
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">
+                              No success criteria linked to this activity.
+                            </p>
+                          )}
 
-                      <div className="grid gap-2">
-                        <label className="text-sm font-medium text-foreground" htmlFor="override-feedback">
-                          Teacher feedback
-                        </label>
-                        <Textarea
-                          id="override-feedback"
-                          value={feedbackDraft}
-                          placeholder="Optional feedback for the pupil"
-                          onChange={(event) => setFeedbackDraft(event.target.value)}
-                          rows={4}
-                        />
+                          <div className="grid gap-2">
+                            <label className="text-sm font-medium text-foreground" htmlFor="override-feedback">
+                              Teacher feedback
+                            </label>
+                            <Textarea
+                              id="override-feedback"
+                              value={feedbackDraft}
+                              placeholder="Optional feedback for the pupil"
+                              onChange={(event) => setFeedbackDraft(event.target.value)}
+                              onBlur={() => handleOverrideSubmit()}
+                              rows={4}
+                            />
+                          </div>
+
+                          {!selection.cell.submissionId ? (
+                            <div className="rounded-md border border-dashed border-amber-500/40 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                              No learner submission has been recorded yet. Saving an override will create a submission on behalf
+                              of the pupil so you can capture scores and feedback.
+                            </div>
+                          ) : null}
+                        </div>
+
+                        <div className="sticky bottom-0 left-0 right-0 mt-4 flex flex-col gap-2 bg-background pt-2">
+                          <Button
+                            variant="outline"
+                            onClick={handleReset}
+                            disabled={
+                              resetPending
+                              || resetUITransitionPending
+                              || !selection.cell.submissionId
+                            }
+                          >
+                            {resetPending || resetUITransitionPending ? "Resetting…" : "Reset to auto score"}
+                          </Button>
+                        </div>
                       </div>
+                    </TabsContent>
 
-                      {!selection.cell.submissionId ? (
-                        <div className="rounded-md border border-dashed border-amber-500/40 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                          No learner submission has been recorded yet. Saving an override will create a submission on behalf
-                          of the pupil so you can capture scores and feedback.
+                    <TabsContent value="auto" className="flex-1 overflow-hidden">
+                      <div className="flex h-full flex-col gap-3 overflow-y-auto pr-1">
+                        <div className="rounded-md border border-border/60 bg-muted/40 p-3">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            Automatic score
+                          </p>
+                          <div className="mt-1 flex items-baseline justify-between">
+                            <span className="text-lg font-semibold text-foreground">
+                              {formatPercent(selection.cell.autoScore ?? selection.cell.score ?? null)}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {selection.cell.status === "override" ? "Override applied" : "Auto"}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            {selection.cell.status === "override"
+                              ? "This score has been overridden. The stored automatic values are shown below for reference."
+                              : "This score was calculated automatically from the success criteria inputs."}
+                          </p>
                         </div>
-                      ) : null}
-                    </div>
-
-                    <div className="sticky bottom-0 left-0 right-0 mt-4 flex flex-col gap-2 border-t border-border/60 bg-background p-4">
-                      <Button
-                        onClick={handleOverrideSubmit}
-                        disabled={
-                          overridePending
-                          || overrideUITransitionPending
-                          || draftAverage === null
-                          || selection.activity.successCriteria.length === 0
-                        }
-                      >
-                        {overridePending || overrideUITransitionPending ? "Saving…" : "Save override"}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        onClick={handleReset}
-                        disabled={
-                          resetPending
-                          || resetUITransitionPending
-                          || !selection.cell.submissionId
-                        }
-                      >
-                        {resetPending || resetUITransitionPending ? "Resetting…" : "Reset to auto score"}
-                      </Button>
-                    </div>
-                  </div>
-                </TabsContent>
-              </Tabs>
-            </div>
-          ) : null}
-        </SheetContent>
-      </Sheet>
-    </>
+                        {selection.activity.successCriteria.length > 0 ? (
+                          <div className="space-y-1 rounded-md border border-border/50 bg-muted/40 p-2">
+                            {selection.activity.successCriteria.map((criterion) => {
+                              const label =
+                                criterion.title?.trim() && criterion.title.trim().length > 0
+                                  ? criterion.title.trim()
+                                  : criterion.description?.trim() && criterion.description.trim().length > 0
+                                    ? criterion.description.trim()
+                                    : criterion.successCriteriaId
+                              const autoValues =
+                                selection.cell.autoSuccessCriteriaScores ?? selection.cell.successCriteriaScores
+                              const value = autoValues[criterion.successCriteriaId]
+                              return (
+                                <div
+                                  key={criterion.successCriteriaId}
+                                  className="flex items-center justify-between text-xs"
+                                >
+                                  <span className="text-muted-foreground">{label}</span>
+                                  <span className="font-semibold text-foreground">
+                                    {formatPercent(typeof value === "number" ? value : null)}
+                                  </span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">
+                            No success criteria linked to this activity.
+                          </p>
+                        )}
+                        <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                            Automatic feedback
+                          </p>
+                          <p className="text-sm text-foreground">
+                            {selection.cell.autoFeedback?.trim()
+                              ? selection.cell.autoFeedback
+                              : "No automatic feedback available."}
+                          </p>
+                        </div>
+                      </div>
+                    </TabsContent>
+                  </Tabs>
+                              </div>
+                            </div>
+                      </aside>    )}
+    </div>
   )
 }
