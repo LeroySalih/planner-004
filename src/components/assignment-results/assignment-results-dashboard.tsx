@@ -2,7 +2,7 @@
 
 import { useActionState, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Download, Eye, RefreshCw, X } from "lucide-react"
+import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Download, Eye, RefreshCw, RotateCcw, RotateCw, X, ZoomIn, ZoomOut } from "lucide-react"
 import {
   AssignmentResultActivity,
   AssignmentResultActivitySummary,
@@ -422,6 +422,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
   const [feedbackDraft, setFeedbackDraft] = useState<string>("")
   const [uploadFiles, setUploadFiles] = useState<Record<string, UploadFileState>>({})
   const [viewingFile, setViewingFile] = useState<{ name: string; url: string | null } | null>(null)
+  const [imageTransform, setImageTransform] = useState<{ rotate: number; scale: number }>({ rotate: 0, scale: 1 })
   const [imageViewMode, setImageViewMode] = useState(false)
   const [optimisticOverrides, setOptimisticOverrides] = useState<
     Record<
@@ -1796,6 +1797,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     if (prevRowIndex >= 0) {
       handleCellSelect(prevRowIndex, selection.activityIndex)
       setViewingFile(null)
+      setImageTransform({ rotate: 0, scale: 1 })
     }
   }, [selection, handleCellSelect])
 
@@ -1805,11 +1807,18 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     if (nextRowIndex < groupedRows.length) {
       handleCellSelect(nextRowIndex, selection.activityIndex)
       setViewingFile(null)
+      setImageTransform({ rotate: 0, scale: 1 })
     }
   }, [selection, groupedRows.length, handleCellSelect])
 
   const canPrev = selection ? selection.rowIndex > 0 : false
   const canNext = selection ? selection.rowIndex < groupedRows.length - 1 : false
+
+  const handleRotateLeft = () => setImageTransform((prev) => ({ ...prev, rotate: prev.rotate - 90 }))
+  const handleRotateRight = () => setImageTransform((prev) => ({ ...prev, rotate: prev.rotate + 90 }))
+  const handleZoomIn = () => setImageTransform((prev) => ({ ...prev, scale: Math.min(prev.scale + 0.25, 5) }))
+  const handleZoomOut = () => setImageTransform((prev) => ({ ...prev, scale: Math.max(prev.scale - 0.25, 0.25) }))
+  const handleResetTransform = () => setImageTransform({ rotate: 0, scale: 1 })
 
   if (viewingFile && selection) {
     return (
@@ -1836,13 +1845,33 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
+            <div className="flex items-center gap-1 border-l border-border/60 pl-2">
+              <Button variant="ghost" size="icon" onClick={handleRotateLeft} title="Rotate Left">
+                <RotateCcw className="h-4 w-4" />
+              </Button>
+              <Button variant="ghost" size="icon" onClick={handleRotateRight} title="Rotate Right">
+                <RotateCw className="h-4 w-4" />
+              </Button>
+              <Button variant="ghost" size="icon" onClick={handleZoomOut} title="Zoom Out">
+                <ZoomOut className="h-4 w-4" />
+              </Button>
+              <Button variant="ghost" size="icon" onClick={handleZoomIn} title="Zoom In">
+                <ZoomIn className="h-4 w-4" />
+              </Button>
+              <Button variant="ghost" size="sm" onClick={handleResetTransform} className="text-xs">
+                Reset
+              </Button>
+            </div>
           </div>
           <div className="flex flex-1 items-center justify-center overflow-auto bg-muted/10">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={viewingFile.url ?? ""}
               alt={viewingFile.name}
-              className="max-h-full max-w-full object-contain"
+              className="max-h-full max-w-full object-contain transition-transform duration-200"
+              style={{
+                transform: `rotate(${imageTransform.rotate}deg) scale(${imageTransform.scale})`,
+              }}
             />
           </div>
         </div>
@@ -2773,6 +2802,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                                         type="button"
                                         onClick={() => {
                                           setViewingFile({ name: file.name, url: file.url })
+                                          setImageTransform({ rotate: 0, scale: 1 })
                                           setImageViewMode(true)
                                         }}
                                         className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
