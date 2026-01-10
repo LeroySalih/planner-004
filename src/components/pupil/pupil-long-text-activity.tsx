@@ -38,11 +38,7 @@ export function PupilLongTextActivity({
 }: PupilLongTextActivityProps) {
   const longTextBody = useMemo(() => getLongTextBody(activity), [activity])
   const questionMarkup = getRichTextMarkup(longTextBody.question)
-  const { currentVisible } = useFeedbackVisibility({
-    assignmentIds: feedbackAssignmentIds,
-    lessonId: feedbackLessonId ?? lessonId,
-    initialVisible: feedbackInitiallyVisible,
-  })
+  const { currentVisible } = useFeedbackVisibility()
   const canAnswerEffective = canAnswer
 
   const [answer, setAnswer] = useState(initialAnswer ?? "")

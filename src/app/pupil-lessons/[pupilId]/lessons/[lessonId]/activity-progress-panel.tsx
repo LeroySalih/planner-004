@@ -24,9 +24,8 @@ export function ActivityProgressPanel({
   scoreLabel,
   feedbackText,
   modelAnswer,
-  lockedMessage = "Your score, feedback, and the model answer will appear once your teacher makes them visible.",
 }: ActivityProgressPanelProps) {
-  const { currentVisible } = useFeedbackVisibility({ assignmentIds, lessonId, initialVisible })
+  const { currentVisible } = useFeedbackVisibility()
 
   if (!show) {
     return null

@@ -81,11 +81,7 @@ export function PupilUploadActivity({
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null)
   const [isDragActive, setIsDragActive] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
-  const { currentVisible } = useFeedbackVisibility({
-    assignmentIds: feedbackAssignmentIds ?? [],
-    lessonId: feedbackLessonId ?? lessonId,
-    initialVisible: feedbackInitiallyVisible ?? false,
-  })
+  const { currentVisible } = useFeedbackVisibility()
 
   const hasInstructions = instructions.trim().length > 0
 

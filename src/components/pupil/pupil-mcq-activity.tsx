@@ -64,11 +64,7 @@ export function PupilMcqActivity({
     error: null,
   })
   const [isPending, startTransition] = useTransition()
-  const { currentVisible } = useFeedbackVisibility({
-    assignmentIds: feedbackAssignmentIds,
-    lessonId: feedbackLessonId ?? lessonId,
-    initialVisible: feedbackInitiallyVisible,
-  })
+  const { currentVisible } = useFeedbackVisibility()
   const canAnswerEffective = canAnswer
 
   useEffect(() => {
