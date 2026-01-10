@@ -64,21 +64,19 @@ export function PupilMcqActivity({
     error: null,
   })
   const [isPending, startTransition] = useTransition()
-  const { currentVisible } = useFeedbackVisibility({
-    assignmentIds: feedbackAssignmentIds,
-    lessonId: feedbackLessonId ?? lessonId,
-    initialVisible: feedbackInitiallyVisible,
-  })
-  const canAnswerEffective = canAnswer && !currentVisible
+  const { currentVisible } = useFeedbackVisibility()
+  const canAnswerEffective = canAnswer
 
   useEffect(() => {
+    console.log(`[PupilMcqActivity] Mount/Update: ${activity.activity_id}`, { initialSelection })
     const nextInitial = initialSelection && optionMap.has(initialSelection) ? initialSelection : null
     setSelection(nextInitial)
     setLastSaved(nextInitial)
     setFeedback(nextInitial ? { type: "success", message: "Answer saved" } : null)
-  }, [initialSelection, optionMap])
+  }, [initialSelection, optionMap, activity.activity_id])
 
   useEffect(() => {
+    console.log(`[PupilMcqActivity] Image load effect: ${activity.activity_id}`)
     let cancelled = false
 
     const directUrl =

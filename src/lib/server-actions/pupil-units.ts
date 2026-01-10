@@ -384,7 +384,7 @@ export async function readPupilUnitsBootstrapAction(pupilId: string, options?: T
               unitId: string
               unitTitle: string
               firstLessonDate: string | null
-              lessons: SubjectUnitsPayload["subjects"][number]["units"][number]["lessons"]
+              lessonsMap: Map<string, SubjectUnitsPayload["subjects"][number]["units"][number]["lessons"][number]>
             }
           >
         >()
@@ -398,65 +398,67 @@ export async function readPupilUnitsBootstrapAction(pupilId: string, options?: T
               unitId: assignment.unit_id,
               unitTitle: assignment.unit_title,
               firstLessonDate: assignment.start_date,
-              lessons: [],
-            } satisfies SubjectUnitsPayload["subjects"][number]["units"][number])
+              lessonsMap: new Map(),
+            })
 
-          const objectivesForLesson = (objectivesByLesson.get(assignment.lesson_id) ?? []).sort((a, b) => {
-            const orderA = typeof a.order_index === "number" ? a.order_index : Number.POSITIVE_INFINITY
-            const orderB = typeof b.order_index === "number" ? b.order_index : Number.POSITIVE_INFINITY
-            if (orderA !== orderB) return orderA - orderB
-            return a.title.localeCompare(b.title)
-          })
+          if (!unitEntry.lessonsMap.has(assignment.lesson_id)) {
+            const objectivesForLesson = (objectivesByLesson.get(assignment.lesson_id) ?? []).sort((a, b) => {
+              const orderA = typeof a.order_index === "number" ? a.order_index : Number.POSITIVE_INFINITY
+              const orderB = typeof b.order_index === "number" ? b.order_index : Number.POSITIVE_INFINITY
+              if (orderA !== orderB) return orderA - orderB
+              return a.title.localeCompare(b.title)
+            })
 
-          const imagesForLesson = (imagesByLesson.get(assignment.lesson_id) ?? []).sort((a, b) => {
-            const orderA = typeof a.order_by === "number" ? a.order_by : Number.POSITIVE_INFINITY
-            const orderB = typeof b.order_by === "number" ? b.order_by : Number.POSITIVE_INFINITY
-            if (orderA !== orderB) return orderA - orderB
-            return (a.title ?? "").localeCompare(b.title ?? "")
-          })
+            const imagesForLesson = (imagesByLesson.get(assignment.lesson_id) ?? []).sort((a, b) => {
+              const orderA = typeof a.order_by === "number" ? a.order_by : Number.POSITIVE_INFINITY
+              const orderB = typeof b.order_by === "number" ? b.order_by : Number.POSITIVE_INFINITY
+              if (orderA !== orderB) return orderA - orderB
+              return (a.title ?? "").localeCompare(b.title ?? "")
+            })
 
-          const filesForLesson = (filesByLesson.get(assignment.lesson_id) ?? []).sort((a, b) => {
-            const dateA = a.updated_at ? Date.parse(a.updated_at) : 0
-            const dateB = b.updated_at ? Date.parse(b.updated_at) : 0
-            if (dateA !== dateB) return dateB - dateA
-            return a.name.localeCompare(b.name)
-          })
+            const filesForLesson = (filesByLesson.get(assignment.lesson_id) ?? []).sort((a, b) => {
+              const dateA = a.updated_at ? Date.parse(a.updated_at) : 0
+              const dateB = b.updated_at ? Date.parse(b.updated_at) : 0
+              if (dateA !== dateB) return dateB - dateA
+              return a.name.localeCompare(b.name)
+            })
+
+            unitEntry.lessonsMap.set(assignment.lesson_id, {
+              lessonId: assignment.lesson_id,
+              lessonTitle: assignment.lesson_title,
+              lessonOrder: assignment.lesson_order,
+              startDate: assignment.start_date,
+              groupId: assignment.group_id,
+              subject: assignment.subject,
+              feedbackVisible: assignment.feedback_visible,
+              isEnrolled: true,
+              objectives: objectivesForLesson.map((objective) => ({
+                id: objective.objective_id,
+                title: objective.title,
+                orderIndex: objective.order_index,
+              })),
+              displayImages: imagesForLesson.map((image) => ({
+                activityId: image.activity_id,
+                title: image.title,
+                orderBy: image.order_by,
+                imageFile: image.image_file,
+                imageUrl: image.image_url,
+                fileUrl: image.file_url,
+              })),
+              files: filesForLesson.map((file) => ({
+                name: file.name,
+                path: file.path,
+                mimeType: file.mime_type,
+                size: file.size,
+                updatedAt: file.updated_at,
+              })),
+            })
+          }
 
           unitEntry.firstLessonDate =
             unitEntry.firstLessonDate && assignment.start_date
               ? [unitEntry.firstLessonDate, assignment.start_date].sort()[0]
               : unitEntry.firstLessonDate ?? assignment.start_date
-
-          unitEntry.lessons.push({
-            lessonId: assignment.lesson_id,
-            lessonTitle: assignment.lesson_title,
-            lessonOrder: assignment.lesson_order,
-            startDate: assignment.start_date,
-            groupId: assignment.group_id,
-            subject: assignment.subject,
-            feedbackVisible: assignment.feedback_visible,
-            isEnrolled: true,
-            objectives: objectivesForLesson.map((objective) => ({
-              id: objective.objective_id,
-              title: objective.title,
-              orderIndex: objective.order_index,
-            })),
-            displayImages: imagesForLesson.map((image) => ({
-              activityId: image.activity_id,
-              title: image.title,
-              orderBy: image.order_by,
-              imageFile: image.image_file,
-              imageUrl: image.image_url,
-              fileUrl: image.file_url,
-            })),
-            files: filesForLesson.map((file) => ({
-              name: file.name,
-              path: file.path,
-              mimeType: file.mime_type,
-              size: file.size,
-              updatedAt: file.updated_at,
-            })),
-          })
 
           subjectUnits.set(assignment.unit_id, unitEntry)
           unitsBySubject.set(subjectKey, subjectUnits)
@@ -471,7 +473,12 @@ export async function readPupilUnitsBootstrapAction(pupilId: string, options?: T
         )
           .map((subject) => {
             const unitMap = unitsBySubject.get(subject) ?? new Map()
-            const units = Array.from(unitMap.values()).sort((a, b) => {
+            const units = Array.from(unitMap.values()).map(u => ({
+              unitId: u.unitId,
+              unitTitle: u.unitTitle,
+              firstLessonDate: u.firstLessonDate,
+              lessons: Array.from(u.lessonsMap.values())
+            })).sort((a, b) => {
               if (a.firstLessonDate && b.firstLessonDate && a.firstLessonDate !== b.firstLessonDate) {
                 return new Date(a.firstLessonDate).getTime() - new Date(b.firstLessonDate).getTime()
               }
@@ -480,7 +487,7 @@ export async function readPupilUnitsBootstrapAction(pupilId: string, options?: T
               return a.unitTitle.localeCompare(b.unitTitle)
             })
 
-            units.forEach((unit: SubjectUnitsPayload["subjects"][number]["units"][number]) =>
+            units.forEach((unit) =>
               unit.lessons.sort((a, b) => {
                 const dateA = a.startDate ? Date.parse(a.startDate) : Number.NEGATIVE_INFINITY
                 const dateB = b.startDate ? Date.parse(b.startDate) : Number.NEGATIVE_INFINITY

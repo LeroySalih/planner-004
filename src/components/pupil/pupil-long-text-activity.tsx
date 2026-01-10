@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { toast } from "sonner"
 
 import type { LessonActivity } from "@/types"
@@ -38,12 +38,8 @@ export function PupilLongTextActivity({
 }: PupilLongTextActivityProps) {
   const longTextBody = useMemo(() => getLongTextBody(activity), [activity])
   const questionMarkup = getRichTextMarkup(longTextBody.question)
-  const { currentVisible } = useFeedbackVisibility({
-    assignmentIds: feedbackAssignmentIds,
-    lessonId: feedbackLessonId ?? lessonId,
-    initialVisible: feedbackInitiallyVisible,
-  })
-  const canAnswerEffective = canAnswer && !currentVisible
+  const { currentVisible } = useFeedbackVisibility()
+  const canAnswerEffective = canAnswer
 
   const [answer, setAnswer] = useState(initialAnswer ?? "")
   const [lastSaved, setLastSaved] = useState(initialAnswer ?? "")
@@ -51,16 +47,18 @@ export function PupilLongTextActivity({
     initialAnswer ? { type: "success", message: "Answer saved" } : null,
   )
   const [isPending, startTransition] = useTransition()
+  const isSavingRef = useRef(false)
 
   useEffect(() => {
+    console.log(`[PupilLongTextActivity] Mount/Update: ${activity.activity_id}`, { initialAnswer })
     const nextAnswer = initialAnswer ?? ""
     setAnswer(nextAnswer)
     setLastSaved(nextAnswer)
     setFeedback(nextAnswer ? { type: "success", message: "Answer saved" } : null)
-  }, [initialAnswer])
+  }, [initialAnswer, activity.activity_id])
 
   const handleSave = useCallback(() => {
-    if (!canAnswerEffective) {
+    if (!canAnswerEffective || isSavingRef.current) {
       return
     }
 
@@ -73,28 +71,33 @@ export function PupilLongTextActivity({
     }
 
     setFeedback(null)
+    isSavingRef.current = true
 
     startTransition(async () => {
-      const result = await saveLongTextAnswerAction({
-        activityId: activity.activity_id,
-        userId: pupilId,
-        answer,
-      })
+      try {
+        const result = await saveLongTextAnswerAction({
+          activityId: activity.activity_id,
+          userId: pupilId,
+          answer,
+        })
 
-      if (!result.success) {
-        toast.error("Unable to save your answer", {
-          description: result.error ?? "Please try again in a moment.",
-        })
-        setFeedback({
-          type: "error",
-          message: result.error ?? "Unable to save your answer. Please try again.",
-        })
-        return
+        if (!result.success) {
+          toast.error("Unable to save your answer", {
+            description: result.error ?? "Please try again in a moment.",
+          })
+          setFeedback({
+            type: "error",
+            message: result.error ?? "Unable to save your answer. Please try again.",
+          })
+          return
+        }
+
+        setLastSaved(answer)
+        setFeedback({ type: "success", message: "Answer saved" })
+        triggerFeedbackRefresh(lessonId)
+      } finally {
+        isSavingRef.current = false
       }
-
-      setLastSaved(answer)
-      setFeedback({ type: "success", message: "Answer saved" })
-      triggerFeedbackRefresh(lessonId)
     })
   }, [activity.activity_id, answer, canAnswerEffective, lastSaved, lessonId, pupilId, startTransition])
 

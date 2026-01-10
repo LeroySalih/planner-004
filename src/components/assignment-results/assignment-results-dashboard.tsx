@@ -2,7 +2,7 @@
 
 import { useActionState, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Download, Eye, RefreshCw, RotateCcw, RotateCw, X, ZoomIn, ZoomOut } from "lucide-react"
+import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Download, Eye, Flag, RefreshCw, RotateCcw, RotateCw, X, ZoomIn, ZoomOut } from "lucide-react"
 import {
   AssignmentResultActivity,
   AssignmentResultActivitySummary,
@@ -28,6 +28,7 @@ import {
   requestAiMarkAction,
   resetAssignmentScoreAction,
   updateAssignmentFeedbackVisibilityAction,
+  triggerManualAiMarkingAction,
 } from "@/lib/server-updates"
 import { resolveScoreTone } from "@/lib/results/colors"
 import {
@@ -123,6 +124,7 @@ type SubmissionRow = {
   user_id: string | null
   submitted_at: string | null
   body: unknown
+  is_flagged: boolean | null
 }
 
 type RealtimeChangesPayload<T> = {
@@ -695,7 +697,81 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
         toast.error("Unable to send AI mark request.")
       }
     })
-  }, [selectedActivity, activities, groupedRows])
+  }, [selectedActivity, activities, groupedRows, matrixState.assignmentId, startAiMarkTransition])
+
+  const handleManualAiMark = useCallback(() => {
+    if (!selection) {
+      toast.error("No selection to mark.")
+      return
+    }
+
+    if (!selection.cell.submissionId) {
+      toast.error("No submission available to mark.")
+      return
+    }
+
+    startAiMarkTransition(async () => {
+      try {
+        const result = await triggerManualAiMarkingAction({
+          activityId: selection.activity.activityId,
+          pupilId: selection.row.pupil.userId,
+          submissionId: selection.cell.submissionId!,
+          assignmentId: matrixState.assignmentId,
+        })
+
+        if (result.success) {
+          toast.success("AI marking requested.")
+        } else {
+          toast.error("Failed to request AI marking.")
+        }
+      } catch (error) {
+        console.error("[assignment-results] Manual AI marking trigger failed", error)
+        toast.error("An error occurred while requesting AI marking.")
+      }
+    })
+  }, [selection, matrixState.assignmentId, startAiMarkTransition])
+
+  const handleColumnAiMark = useCallback((activityIndex: number) => {
+    const activity = activities[activityIndex]
+    if (!activity) return
+
+    const submissionsToMark = groupedRows
+      .map((row) => {
+        const cell = row.cells[activityIndex]
+        if (cell && cell.submissionId) {
+          return {
+            pupilId: row.pupil.userId,
+            submissionId: cell.submissionId,
+          }
+        }
+        return null
+      })
+      .filter((entry): entry is { pupilId: string; submissionId: string } => entry !== null)
+
+    if (submissionsToMark.length === 0) {
+      toast.info("No submissions found in this column to mark.")
+      return
+    }
+
+    startAiMarkTransition(async () => {
+      try {
+        const requests = submissionsToMark.map((s) =>
+          triggerManualAiMarkingAction({
+            activityId: activity.activityId,
+            pupilId: s.pupilId,
+            submissionId: s.submissionId,
+            assignmentId: matrixState.assignmentId,
+          }),
+        )
+
+        await Promise.all(requests)
+        toast.success(`AI marking requested for ${submissionsToMark.length} submissions.`)
+      } catch (error) {
+        console.error("[assignment-results] Column AI marking failed", error)
+        toast.error("Failed to request AI marking for the column.")
+      }
+    })
+  }, [activities, groupedRows, matrixState.assignmentId, startAiMarkTransition])
 
   const handleClearAiMarks = useCallback(() => {
     if (!selectedActivity) {
@@ -1197,6 +1273,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
             overrideSuccessCriteriaScores: extracted.overrideSuccessCriteriaScores ?? undefined,
             pupilAnswer: extracted.pupilAnswer ?? cell.pupilAnswer,
             needsMarking: status === "missing" ? Boolean(record.submission_id) : false,
+            isFlagged: Boolean(record.is_flagged),
           }
           return updatedCell
         },
@@ -1278,6 +1355,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
             score: hasOverride ? cell.overrideScore ?? nextAutoScore ?? fallbackScore : nextAutoScore ?? fallbackScore,
             status: hasOverride ? cell.status : nextAutoScore === null ? "missing" : "auto",
             needsMarking: false,
+            isFlagged: typeof rawPayload.isFlagged === "boolean" ? rawPayload.isFlagged : cell.isFlagged,
           }
         },
         { rowIndex, activityIndex },
@@ -2178,9 +2256,20 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                   <TabsContent value="auto" className="flex-1 overflow-hidden">
                     <div className="flex h-full flex-col gap-3 overflow-y-auto pr-1">
                       <div className="rounded-md border border-border/60 bg-muted/40 p-3">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Automatic score
-                        </p>
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            Automatic score
+                          </p>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-[10px] font-bold uppercase tracking-wider"
+                            onClick={handleManualAiMark}
+                            disabled={aiMarkPending || !selection.cell.submissionId}
+                          >
+                            {aiMarkPending ? "Marking..." : "Mark with AI"}
+                          </Button>
+                        </div>
                         <div className="mt-1 flex items-baseline justify-between">
                           <span className="text-lg font-semibold text-foreground">
                             {formatPercent(selection.cell.autoScore ?? selection.cell.score ?? null)}
@@ -2429,57 +2518,71 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                   >
                     Average
                   </th>
-                  {activities.map((activity) => (
+                  {activities.map((activity, activityIndex) => (
                     <th
                       key={activity.activityId}
                       scope="col"
-                      className="sticky top-0 z-20 min-w-40 bg-card px-3 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground shadow-sm"
+                      className="sticky top-0 z-20 min-w-40 bg-card px-3 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground shadow-sm group/th"
                     >
-                      <button
-                        type="button"
-                        onClick={() => handleActivitySummaryOpen(activity.activityId)}
-                        className="group flex w-full flex-col gap-2 rounded-md border border-transparent px-2 py-1 text-left text-muted-foreground transition hover:border-border hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                        aria-label={`View ${activity.title} statistics`}
-                      >
-                        <div>
-                          <span className="block truncate text-sm font-semibold text-foreground">{activity.title}</span>
-                          <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">
-                            {activity.type.replace(/-/g, " ")}
-                          </span>
-                        </div>
-                        {activity.successCriteria.length > 0 ? (
-                          <div className="flex flex-wrap gap-1">
-                            {activity.successCriteria.map((criterion) => {
-                              const label =
-                                criterion.title?.trim() && criterion.title.trim().length > 0
-                                  ? criterion.title.trim()
-                                  : criterion.description?.trim() && criterion.description.trim().length > 0
-                                    ? criterion.description.trim()
-                                    : criterion.successCriteriaId
-                              return (
-                                <span
-                                  key={criterion.successCriteriaId}
-                                  className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground transition group-hover:bg-muted/80"
-                                >
-                                  {label}
-                                </span>
-                              )
-                            })}
+                      <div className="flex flex-col gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleActivitySummaryOpen(activity.activityId)}
+                          className="group flex w-full flex-col gap-2 rounded-md border border-transparent px-2 py-1 text-left text-muted-foreground transition hover:border-border hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                          aria-label={`View ${activity.title} statistics`}
+                        >
+                          <div>
+                            <span className="block truncate text-sm font-semibold text-foreground">{activity.title}</span>
+                            <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">
+                              {activity.type.replace(/-/g, " ")}
+                            </span>
                           </div>
-                        ) : (
-                          <span className="text-[10px] text-muted-foreground">No linked success criteria</span>
-                        )}
-                        <div className="flex flex-col text-xs text-muted-foreground">
-                          <span className="font-semibold text-foreground">
-                            Activities {formatPercent(activitySummariesById[activity.activityId]?.activitiesAverage ?? null)}
-                          </span>
-                          <span>
-                            {activity.isSummative
-                              ? `Assessment ${formatPercent(activitySummariesById[activity.activityId]?.assessmentAverage ?? null)}`
-                              : "Not marked as assessment"}
-                          </span>
-                        </div>
-                      </button>
+                          {activity.successCriteria.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {activity.successCriteria.map((criterion) => {
+                                const label =
+                                  criterion.title?.trim() && criterion.title.trim().length > 0
+                                    ? criterion.title.trim()
+                                    : criterion.description?.trim() && criterion.description.trim().length > 0
+                                      ? criterion.description.trim()
+                                      : criterion.successCriteriaId
+                                return (
+                                  <span
+                                    key={criterion.successCriteriaId}
+                                    className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground transition group-hover:bg-muted/80"
+                                  >
+                                    {label}
+                                  </span>
+                                )
+                              })}
+                            </div>
+                          ) : (
+                            <span className="text-[10px] text-muted-foreground">No linked success criteria</span>
+                          )}
+                          <div className="flex flex-col text-xs text-muted-foreground">
+                            <span className="font-semibold text-foreground">
+                              Activities {formatPercent(activitySummariesById[activity.activityId]?.activitiesAverage ?? null)}
+                            </span>
+                            <span>
+                              {activity.isSummative
+                                ? `Assessment ${formatPercent(activitySummariesById[activity.activityId]?.assessmentAverage ?? null)}`
+                                : "Not marked as assessment"}
+                            </span>
+                          </div>
+                        </button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 w-full text-[10px] font-bold uppercase tracking-wider opacity-0 group-hover/th:opacity-100 transition-opacity"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleColumnAiMark(activityIndex)
+                          }}
+                          disabled={aiMarkPending}
+                        >
+                          {aiMarkPending ? "Marking..." : "Mark All"}
+                        </Button>
+                      </div>
                     </th>
                   ))}
                 </tr>
@@ -2529,6 +2632,9 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                                 onClick={() => handleCellSelect(rowIndex, activityIndex)}
                               >
                                 {formatPercent(cell.score ?? null)}
+                                {cell.isFlagged ? (
+                                  <Flag className="ml-1.5 h-3.5 w-3.5 fill-destructive text-destructive" />
+                                ) : null}
                               </button>
                             </td>
                           )
@@ -2969,9 +3075,20 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                     <TabsContent value="auto" className="flex-1 overflow-hidden">
                       <div className="flex h-full flex-col gap-3 overflow-y-auto pr-1">
                         <div className="rounded-md border border-border/60 bg-muted/40 p-3">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                            Automatic score
-                          </p>
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                              Automatic score
+                            </p>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-[10px] font-bold uppercase tracking-wider"
+                              onClick={handleManualAiMark}
+                              disabled={aiMarkPending || !selection.cell.submissionId}
+                            >
+                              {aiMarkPending ? "Marking..." : "Mark with AI"}
+                            </Button>
+                          </div>
                           <div className="mt-1 flex items-baseline justify-between">
                             <span className="text-lg font-semibold text-foreground">
                               {formatPercent(selection.cell.autoScore ?? selection.cell.score ?? null)}

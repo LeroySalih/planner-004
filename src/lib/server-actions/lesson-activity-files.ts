@@ -10,7 +10,7 @@ import { SubmissionStatusSchema } from "@/types"
 import { query } from "@/lib/db"
 import { requireAuthenticatedProfile } from "@/lib/auth"
 import { emitSubmissionEvent, emitUploadEvent } from "@/lib/sse/topics"
-import { logActivitySubmissionEvent } from "@/lib/server-actions/activity-submission-events"
+import { logActivitySubmissionEvent } from "@/lib/activity-logging"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 import { withTelemetry } from "@/lib/telemetry"
 
@@ -856,7 +856,7 @@ async function upsertUploadSubmissionRecord({
     await client.query(
       `
         update submissions
-        set body = $1, submitted_at = $2, submission_status = 'inprogress'
+        set body = $1, submitted_at = $2, submission_status = 'inprogress', is_flagged = false
         where submission_id = $3
       `,
       [payload, submittedAt, existing.submission_id],

@@ -1,16 +1,22 @@
 "use client"
 
-import { useState } from "react"
-import { invokeDigitalOceanAgent } from "./actions"
+import { useMemo, useState } from "react"
+import { invokeAiMarking } from "./actions"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
-import { Loader2, Terminal, AlertCircle, CheckCircle2 } from "lucide-react"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Loader2, Terminal, AlertCircle } from "lucide-react"
 
 export default function AgentTestPage() {
-  const [input, setInput] = useState("")
+  const [question, setQuestion] = useState("Describe a metal that is a good choice or making car bodies")
+  const [modelAnswer, setModelAnswer] = useState("Aluminium is a good choice as it is maleable, and there can be beaten in the shapes needed for car bodies")
+  const [pupilAnswer, setPupilAnswer] = useState("Aluminium is maleable so it can be beaten to make a car")
+  
   const [isLoading, setIsLoading] = useState(false)
   const [status, setStatus] = useState<"idle" | "success" | "error">("idle")
   const [result, setResult] = useState<any>(null)
@@ -18,8 +24,6 @@ export default function AgentTestPage() {
   const [error, setError] = useState<string | null>(null)
 
   const handleSubmit = async () => {
-    if (!input.trim()) return
-
     setIsLoading(true)
     setStatus("idle")
     setError(null)
@@ -27,7 +31,11 @@ export default function AgentTestPage() {
     setDebugData(null)
 
     try {
-      const response = await invokeDigitalOceanAgent(input)
+      const response = await invokeAiMarking({
+        question,
+        model_answer: modelAnswer,
+        pupil_answer: pupilAnswer
+      })
       setDebugData(response.debug)
 
       if (response.success) {
@@ -45,50 +53,39 @@ export default function AgentTestPage() {
     }
   }
 
-  const extractAuthor = (data: any): string | null => {
-    try {
-      if (!data || !data.choices || !data.choices[0] || !data.choices[0].message) {
-        return null
-      }
-      const content = data.choices[0].message.content
-      // Try to parse the content as JSON first
+  const parsedResult = useMemo(() => {
+    if (!result) return null;
+
+    // Check if result has the structure { body: { result: "..." } }
+    if (result.body && typeof result.body.result === 'string') {
       try {
-        const parsed = JSON.parse(content)
-        if (parsed.author) return parsed.author
-      } catch {
-        // If not valid JSON, check if it looks like a JSON object in the string
-        const authorMatch = content.match(/"author"\s*:\s*"([^"]+)"/)
-        if (authorMatch && authorMatch[1]) {
-            return authorMatch[1]
-        }
+        return JSON.parse(result.body.result);
+      } catch (e) {
+        console.error("Failed to parse nested result string", e);
       }
-      return null
-    } catch (e) {
-      return null
     }
-  }
 
-  const extractReasoning = (data: any): string | null => {
-    try {
-      if (!data || !data.choices || !data.choices[0] || !data.choices[0].message) {
-        return null
+    // Check if result has the structure { result: "..." }
+    if (typeof result.result === 'string') {
+      try {
+        return JSON.parse(result.result);
+      } catch (e) {
+        console.error("Failed to parse result string", e);
       }
-      return data.choices[0].message.reasoning_content || null
-    } catch (e) {
-      return null
     }
-  }
 
-  const authorName = extractAuthor(result)
-  const reasoningContent = extractReasoning(result)
+    return result;
+  }, [result]);
+
+  const isFormValid = question.trim() && modelAnswer.trim() && pupilAnswer.trim()
 
   return (
-    <div className="container mx-auto max-w-4xl py-10 space-y-8">
+    <div className="container mx-auto max-w-6xl py-10 space-y-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Digital Ocean Agent Test</h1>
+          <h1 className="text-3xl font-bold tracking-tight">AI Marking Test</h1>
           <p className="text-muted-foreground mt-2">
-            Test interactions with your configured Digital Ocean GenAI Agent.
+            Test the AI marking function with question, model answer, and pupil response.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -106,54 +103,54 @@ export default function AgentTestPage() {
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
+        {/* Left Column: Inputs */}
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Input</CardTitle>
-              <CardDescription>Enter the prompt or data to send to the agent.</CardDescription>
+              <CardTitle>Input Data</CardTitle>
+              <CardDescription>Provide the context for marking.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <Textarea
-                placeholder="Ask the agent something..."
-                className="min-h-[200px] font-mono text-sm"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-              />
+              <div className="space-y-2">
+                <Label htmlFor="question">Question</Label>
+                <Input
+                  id="question"
+                  placeholder="Enter the question..."
+                  value={question}
+                  onChange={(e) => setQuestion(e.target.value)}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="modelAnswer">Model Answer</Label>
+                <Textarea
+                  id="modelAnswer"
+                  placeholder="Enter the ideal model answer..."
+                  className="min-h-[100px] text-sm"
+                  value={modelAnswer}
+                  onChange={(e) => setModelAnswer(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="pupilAnswer">Pupil Answer</Label>
+                <Textarea
+                  id="pupilAnswer"
+                  placeholder="Enter the pupil's response..."
+                  className="min-h-[100px] text-sm"
+                  value={pupilAnswer}
+                  onChange={(e) => setPupilAnswer(e.target.value)}
+                />
+              </div>
+
               <Button 
                 onClick={handleSubmit} 
-                disabled={isLoading || !input.trim()} 
+                disabled={isLoading || !isFormValid} 
                 className="w-full"
               >
                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {isLoading ? "Sending..." : "Submit to Agent"}
+                {isLoading ? "Marking..." : "Submit for Marking"}
               </Button>
-              
-              {(authorName || reasoningContent) && (
-                <div className="mt-4 space-y-4">
-                  {authorName && (
-                    <div className="p-4 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm transition-all animate-in fade-in slide-in-from-top-1">
-                        <span className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
-                            Detected Author
-                        </span>
-                        <span className="text-lg font-medium text-slate-900 dark:text-slate-100">
-                            {authorName}
-                        </span>
-                    </div>
-                  )}
-                  
-                  {reasoningContent && (
-                    <div className="p-4 rounded-md bg-amber-50/50 dark:bg-amber-900/10 border border-amber-200/50 dark:border-amber-800/50 shadow-sm transition-all animate-in fade-in slide-in-from-top-2">
-                        <span className="block text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                            <Terminal className="h-3 w-3" />
-                            Reasoning Content
-                        </span>
-                        <div className="text-xs leading-relaxed text-amber-900/80 dark:text-amber-200/80 italic font-serif">
-                            {reasoningContent}
-                        </div>
-                    </div>
-                  )}
-                </div>
-              )}
             </CardContent>
           </Card>
 
@@ -166,27 +163,111 @@ export default function AgentTestPage() {
           )}
         </div>
 
+        {/* Right Column: Output Tabs */}
         <div className="space-y-6">
           <Card className="h-full flex flex-col">
-            <CardHeader>
-              <CardTitle>Response</CardTitle>
-              <CardDescription>The data returned by the agent.</CardDescription>
+            <CardHeader className="pb-3">
+              <CardTitle>Output</CardTitle>
+              <CardDescription>Review the marking results and raw response.</CardDescription>
             </CardHeader>
-            <CardContent className="flex-1 min-h-[300px] bg-slate-50 dark:bg-slate-900 rounded-md mx-6 mb-6 p-4 overflow-auto border">
-                {result ? (
-                    <pre className="text-xs font-mono whitespace-pre-wrap text-slate-700 dark:text-slate-300">
-                        {typeof result === 'string' ? result : JSON.stringify(result, null, 2)}
-                    </pre>
-                ) : (
-                    <div className="h-full flex items-center justify-center text-muted-foreground text-sm italic">
-                        No response data yet.
+            <CardContent className="flex-1 p-0">
+              <Tabs defaultValue="result" className="h-full flex flex-col">
+                <div className="px-6 border-b">
+                  <TabsList className="w-full justify-start rounded-none h-12 bg-transparent p-0">
+                    <TabsTrigger 
+                      value="result" 
+                      className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent h-12 px-4"
+                    >
+                      Result
+                    </TabsTrigger>
+                    <TabsTrigger 
+                      value="response"
+                      className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent h-12 px-4"
+                    >
+                      Raw Response
+                    </TabsTrigger>
+                  </TabsList>
+                </div>
+                
+                <div className="flex-1 p-6">
+                  <TabsContent value="result" className="m-0 focus-visible:ring-0">
+                    {parsedResult ? (
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-4 p-4 rounded-lg bg-slate-50 border">
+                          <div className="space-y-1">
+                            <span className="text-xs font-semibold uppercase text-muted-foreground">Score</span>
+                            <div className="text-3xl font-bold">
+                              {typeof parsedResult.score === 'number' ? `${(parsedResult.score * 100).toFixed(0)}%` : 'N/A'}
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {parsedResult.feedback && (
+                          <div className="space-y-2">
+                            <span className="text-xs font-semibold uppercase text-muted-foreground">Feedback</span>
+                            <div className="p-4 rounded-lg bg-blue-50/50 border border-blue-100 text-blue-900 text-sm leading-relaxed italic">
+                              {parsedResult.feedback}
+                            </div>
+                          </div>
+                        )}
+
+                        {parsedResult.reasoning && (
+                          <div className="space-y-2">
+                            <span className="text-xs font-semibold uppercase text-muted-foreground">Reasoning</span>
+                            <div className="p-4 rounded-lg bg-slate-50 border border-slate-100 text-slate-700 text-xs leading-relaxed">
+                              {parsedResult.reasoning}
+                            </div>
+                          </div>
+                        )}
+
+                        {parsedResult.results && Array.isArray(parsedResult.results) && parsedResult.results[0] && (
+                           <div className="mt-4 p-4 border rounded-lg bg-amber-50/30">
+                              <p className="text-xs font-bold text-amber-800 uppercase mb-2">Detailed Results (First Pupil)</p>
+                              <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                  <span className="text-[10px] text-muted-foreground uppercase">Score</span>
+                                  <p className="font-semibold">{parsedResult.results[0].score}</p>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] text-muted-foreground uppercase">Pupil ID</span>
+                                  <p className="font-mono text-[10px] truncate">{parsedResult.results[0].pupilid}</p>
+                                </div>
+                              </div>
+                              <div className="mt-2">
+                                <span className="text-[10px] text-muted-foreground uppercase">Feedback</span>
+                                <p className="text-xs italic mt-1">{parsedResult.results[0].feedback}</p>
+                              </div>
+                           </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="h-full flex flex-col items-center justify-center text-muted-foreground text-sm italic py-20">
+                        No result yet.
+                      </div>
+                    )}
+                  </TabsContent>
+                  
+                  <TabsContent value="response" className="m-0 focus-visible:ring-0">
+                    <div className="bg-slate-950 rounded-md p-4 overflow-auto border max-h-[500px]">
+                      {result ? (
+                        <pre className="text-xs font-mono whitespace-pre-wrap text-slate-300">
+                          {JSON.stringify(result, null, 2)}
+                        </pre>
+                      ) : (
+                        <div className="flex items-center justify-center text-slate-500 text-sm italic py-20">
+                          No response data yet.
+                        </div>
+                      )}
                     </div>
-                )}
+                  </TabsContent>
+                </div>
+              </Tabs>
             </CardContent>
           </Card>
         </div>
       </div>
 
+      {/* Debug Console at bottom */}
       <Card className="border-dashed">
         <CardHeader className="pb-3">
             <div className="flex items-center gap-2">
@@ -208,17 +289,17 @@ export default function AgentTestPage() {
                         <span>{debugData.duration || '0ms'}</span>
                     </div>
                     <div className="space-y-1">
-                        <span className="text-muted-foreground block">Endpoint Configured</span>
-                        <span>{debugData.endpointConfigured ? 'Yes' : 'No'}</span>
+                        <span className="text-muted-foreground block">Endpoint</span>
+                        <span className="truncate block" title={debugData.url}>{debugData.url || 'N/A'}</span>
                     </div>
                     <div className="space-y-1">
-                        <span className="text-muted-foreground block">Key Configured</span>
-                        <span>{debugData.accessKeyConfigured ? 'Yes' : 'No'}</span>
+                        <span className="text-muted-foreground block">Payload</span>
+                        <span>{debugData.input ? 'Present' : 'None'}</span>
                     </div>
                     {debugData.responseBody && (
                         <div className="col-span-full mt-2 pt-2 border-t">
-                            <span className="text-muted-foreground block mb-1">Raw Error Body</span>
-                            <pre className="bg-muted p-2 rounded overflow-x-auto">
+                            <span className="text-muted-foreground block mb-1">Response Body (Truncated)</span>
+                            <pre className="bg-muted p-2 rounded overflow-x-auto max-h-40">
                                 {typeof debugData.responseBody === 'object' 
                                     ? JSON.stringify(debugData.responseBody, null, 2) 
                                     : debugData.responseBody}

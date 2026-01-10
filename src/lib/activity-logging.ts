@@ -1,5 +1,3 @@
-"use server"
-
 import { query } from "@/lib/db"
 
 type LogActivitySubmissionEventInput = {
