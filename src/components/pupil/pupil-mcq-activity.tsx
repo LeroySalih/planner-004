@@ -69,7 +69,7 @@ export function PupilMcqActivity({
     lessonId: feedbackLessonId ?? lessonId,
     initialVisible: feedbackInitiallyVisible,
   })
-  const canAnswerEffective = canAnswer && !currentVisible
+  const canAnswerEffective = canAnswer
 
   useEffect(() => {
     const nextInitial = initialSelection && optionMap.has(initialSelection) ? initialSelection : null

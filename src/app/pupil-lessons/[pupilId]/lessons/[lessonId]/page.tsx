@@ -388,7 +388,7 @@ export default async function PupilLessonFriendlyPage({
 
       const result = await getLatestSubmissionForActivityAction(activity.activity_id, pupilId)
       if (result.error || !result.data) {
-        return { activityId: activity.activity_id, answer: "" }
+        return { activityId: activity.activity_id, answer: "", submissionId: null, isFlagged: false }
       }
 
       const parsedBody = ShortTextSubmissionBodySchema.safeParse(result.data.body)
@@ -398,22 +398,24 @@ export default async function PupilLessonFriendlyPage({
           correctAnswer: modelAnswer,
           optionTextMap: undefined,
         })
-      const latestFeedback = latestFeedbackByActivity.get(activity.activity_id)
-      activityFeedbackMap.set(
-        activity.activity_id,
-        latestFeedback ?? extraction.feedback ?? extraction.autoFeedback ?? null,
-      )
+        const latestFeedback = latestFeedbackByActivity.get(activity.activity_id)
+        activityFeedbackMap.set(
+          activity.activity_id,
+          latestFeedback ?? extraction.feedback ?? extraction.autoFeedback ?? null,
+        )
         return {
           activityId: activity.activity_id,
           answer: parsedBody.data.answer ?? "",
+          submissionId: result.data.submission_id,
+          isFlagged: result.data.is_flagged ?? false,
         }
       }
 
-      return { activityId: activity.activity_id, answer: "" }
+      return { activityId: activity.activity_id, answer: "", submissionId: result.data.submission_id, isFlagged: result.data.is_flagged ?? false }
     }),
   )
 
-  const shortTextAnswerMap = new Map(shortTextSubmissionEntries.map((entry) => [entry.activityId, entry.answer ?? ""]))
+  const shortTextDataMap = new Map(shortTextSubmissionEntries.map((entry) => [entry.activityId, entry]))
   const longTextSubmissionEntries = await Promise.all(
     longTextActivities.map(async (activity) => {
       const longTextBody = getLongTextBodyServer(activity)
@@ -449,7 +451,7 @@ export default async function PupilLessonFriendlyPage({
 
   const longTextAnswerMap = new Map(longTextSubmissionEntries.map((entry) => [entry.activityId, entry.answer ?? ""]))
 
-  const isPupilViewer = !profile.isTeacher && profile.userId === pupilId
+  const isPupilViewer = profile.userId === pupilId
 
   const assignments = summary
     ? summary.sections.flatMap((section) =>
@@ -602,7 +604,9 @@ export default async function PupilLessonFriendlyPage({
                         pupilId={pupilId}
                         canAnswer={isPupilViewer}
                         stepNumber={index + 1}
-                        initialAnswer={shortTextAnswerMap.get(activity.activity_id) ?? ""}
+                        initialAnswer={shortTextDataMap.get(activity.activity_id)?.answer ?? ""}
+                        initialSubmissionId={shortTextDataMap.get(activity.activity_id)?.submissionId ?? null}
+                        initialIsFlagged={shortTextDataMap.get(activity.activity_id)?.isFlagged ?? false}
                         feedbackAssignmentIds={assignmentIds}
                         feedbackLessonId={lesson.lesson_id}
                         feedbackInitiallyVisible={initialFeedbackVisible}

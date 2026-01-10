@@ -89,7 +89,7 @@ export function PupilUploadActivity({
 
   const hasInstructions = instructions.trim().length > 0
 
-  const uploadDisabled = !canUpload || isPending || currentVisible
+  const uploadDisabled = !canUpload || isPending
 
   const refreshSubmissions = useCallback(async () => {
     try {

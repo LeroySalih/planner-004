@@ -1,69 +1,37 @@
 "use server"
 
-interface AgentResponse {
+interface AiMarkingResponse {
   success: boolean
   data?: any
   error?: string
   debug?: any
 }
 
-export async function invokeDigitalOceanAgent(input: string): Promise<AgentResponse> {
-  const endpoint = process.env.DIGITAL_OCEAN_ENDPOINT
-  const accessKey = process.env.DIGITAL_OCEAN_ACCESS_KEY
+export async function invokeAiMarking(params: {
+  question: string
+  model_answer: string
+  pupil_answer: string
+}): Promise<AiMarkingResponse> {
+  const url = "https://faas-tor1-70ca848e.doserverless.co/api/v1/namespaces/fn-08d42cfc-a8ba-4642-bf39-feb2c2eeb514/actions/ai-marking/short-text?blocking=true&result=true"
+  const auth = "Basic NzMxMzQ0YzctZWUyOC00NzFhLWEwOGQtZDczY2YzN2QxNGEzOlJ5bEVObFRsaEdBZHRPQ0pZWjlhTzdWeGw3NG1EMFcyRU5nNG1rVUJ4WlBPSFhYNGxYT0JVNFNWRnhuRG53VEE="
 
-  const debugInfo = {
-    endpointConfigured: !!endpoint,
-    accessKeyConfigured: !!accessKey,
-    inputLength: input.length,
-  }
-
-  if (!endpoint || !accessKey) {
-    return {
-      success: false,
-      error: "Missing Configuration: DIGITAL_OCEAN_ENDPOINT or DIGITAL_OCEAN_ACCESS_KEY is not set.",
-      debug: debugInfo
-    }
+  const debugInfo: any = {
+    url,
+    input: params,
   }
 
   try {
-    // Digital Ocean GenAI Agent invocation expects:
-    // POST <base_url>/api/v1/chat/completions
-    // Header: Authorization: Bearer <key>
-    // Body: { "messages": [{ "role": "user", "content": "..." }] }
-    
-    let targetUrl = endpoint.trim()
-    // Remove potential trailing slash
-    targetUrl = targetUrl.replace(/\/$/, "")
-    
-    // Check if the endpoint already has the full path or just the base URL
-    if (!targetUrl.endsWith("/api/v1/chat/completions")) {
-       // If it ends with /api/v1/chat (previous attempt), replace it
-       if (targetUrl.endsWith("/api/v1/chat")) {
-           targetUrl = targetUrl.replace(/\/api\/v1\/chat$/, "/api/v1/chat/completions")
-       } else {
-           // Otherwise append the full path
-           targetUrl = targetUrl + "/api/v1/chat/completions"
-       }
-    }
-    
-    console.log("[DigitalOcean Agent] Invoking:", targetUrl)
+    console.log("[AI Marking] Invoking FaaS:", url)
 
     const startTime = Date.now()
     
-    const response = await fetch(targetUrl, {
+    const response = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${accessKey}`
+        "Authorization": auth
       },
-      body: JSON.stringify({
-        messages: [
-            {
-                role: "user",
-                content: input
-            }
-        ]
-      }),
+      body: JSON.stringify(params),
       signal: AbortSignal.timeout(30000) 
     })
 
@@ -83,7 +51,6 @@ export async function invokeDigitalOceanAgent(input: string): Promise<AgentRespo
         error: `API Error: ${response.status} ${response.statusText}`,
         debug: {
           ...debugInfo,
-          targetUrl,
           duration: `${duration}ms`,
           status: response.status,
           responseBody: responseData
@@ -96,7 +63,6 @@ export async function invokeDigitalOceanAgent(input: string): Promise<AgentRespo
       data: responseData,
       debug: {
         ...debugInfo,
-        targetUrl,
         duration: `${duration}ms`,
         status: response.status,
       }

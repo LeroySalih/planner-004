@@ -559,6 +559,8 @@ export async function upsertMcqSubmissionAction(input: z.infer<typeof McqSubmiss
     answer_chosen: payload.optionId,
     is_correct: isCorrect,
     success_criteria_scores: successCriteriaScores,
+    teacher_override_score: null,
+    teacher_feedback: null,
   })
 
   let existingSubmissionId: string | null = null
@@ -590,7 +592,7 @@ export async function upsertMcqSubmissionAction(input: z.infer<typeof McqSubmiss
       const { rows } = await query(
         `
           update submissions
-          set body = $1, submitted_at = $2
+          set body = $1, submitted_at = $2, is_flagged = false
           where submission_id = $3
           returning *
         `,

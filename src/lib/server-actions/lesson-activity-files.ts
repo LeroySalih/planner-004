@@ -856,7 +856,7 @@ async function upsertUploadSubmissionRecord({
     await client.query(
       `
         update submissions
-        set body = $1, submitted_at = $2, submission_status = 'inprogress'
+        set body = $1, submitted_at = $2, submission_status = 'inprogress', is_flagged = false
         where submission_id = $3
       `,
       [payload, submittedAt, existing.submission_id],

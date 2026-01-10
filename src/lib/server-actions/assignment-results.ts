@@ -511,7 +511,7 @@ export async function readAssignmentResultsAction(
       try {
         const { rows } = await query(
           `
-            select submission_id, activity_id, user_id, submitted_at, body
+            select submission_id, activity_id, user_id, submitted_at, body, is_flagged
             from submissions
             where activity_id = any($1::text[])
               and user_id = any($2::text[])
@@ -526,6 +526,7 @@ export async function readAssignmentResultsAction(
           submitted_at:
             typeof row?.submitted_at === "string" || row?.submitted_at instanceof Date ? row.submitted_at : null,
           body: row?.body ?? null,
+          is_flagged: Boolean(row?.is_flagged),
         }))
       } catch (submissionsError) {
         console.error("[assignment-results] Failed to load submissions:", submissionsError)
@@ -666,6 +667,7 @@ export async function readAssignmentResultsAction(
           correctAnswer: extracted.correctAnswer ?? metadata.correctAnswer,
           pupilAnswer: extracted.pupilAnswer ?? null,
           needsMarking: Boolean(submission.submission_id) && status === "missing",
+          isFlagged: (submission as any).is_flagged ?? false,
         }),
       )
     }

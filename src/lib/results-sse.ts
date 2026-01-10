@@ -8,6 +8,7 @@ export type AssignmentResultsRealtimePayload = {
   aiScore: number | null
   aiFeedback: string | null
   successCriteriaScores: Record<string, number>
+  isFlagged?: boolean
 }
 
 export type AssignmentFeedbackVisibilityPayload = {

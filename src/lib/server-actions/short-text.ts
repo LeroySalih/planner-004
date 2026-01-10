@@ -18,11 +18,13 @@ import {
 import { fetchActivitySuccessCriteriaIds, normaliseSuccessCriteriaScores } from "@/lib/scoring/success-criteria"
 import { getActivityLessonId, logActivitySubmissionEvent } from "@/lib/server-actions/activity-submission-events"
 import { query } from "@/lib/db"
+import { runAiMarkingFlow } from "@/lib/ai/ai-marking-service"
 
 const ShortTextAnswerInputSchema = z.object({
   activityId: z.string().min(1),
   userId: z.string().min(1),
   answer: z.string().optional(),
+  assignmentId: z.string().optional(),
 })
 
 const ShortTextSubmissionsQuerySchema = z.object({
@@ -36,6 +38,13 @@ const ShortTextSubmissionsQuerySchema = z.object({
 const MarkShortTextInputSchema = z.object({
   activityId: z.string().min(1),
   lessonId: z.string().optional(),
+})
+
+const ManualAiMarkingInputSchema = z.object({
+  activityId: z.string().min(1),
+  pupilId: z.string().min(1),
+  submissionId: z.string().min(1),
+  assignmentId: z.string().min(1),
 })
 
 const OverrideShortTextScoreSchema = z.object({
@@ -102,12 +111,14 @@ export async function saveShortTextAnswerAction(input: z.infer<typeof ShortTextA
 
   const timestamp = new Date().toISOString()
 
+  let savedSubmission: Submission | null = null
+
   try {
     if (existingId) {
       const { rows } = await query(
         `
           update submissions
-          set body = $1, submitted_at = $2
+          set body = $1, submitted_at = $2, is_flagged = false
           where submission_id = $3
           returning *
         `,
@@ -118,48 +129,59 @@ export async function saveShortTextAnswerAction(input: z.infer<typeof ShortTextA
         console.error("[short-text] Invalid submission payload after update:", parsed.error)
         return { success: false, error: "Invalid submission data.", data: null as Submission | null }
       }
+      savedSubmission = parsed.data
+    } else {
+      const { rows } = await query(
+        `
+          insert into submissions (activity_id, user_id, body, submitted_at)
+          values ($1, $2, $3, $4)
+          returning *
+        `,
+        [payload.activityId, payload.userId, submissionBody, timestamp],
+      )
+
+      const parsed = SubmissionSchema.safeParse(rows[0])
+      if (!parsed.success) {
+        console.error("[short-text] Invalid submission payload after insert:", parsed.error)
+        return { success: false, error: "Invalid submission data.", data: null as Submission | null }
+      }
+      savedSubmission = parsed.data
+    }
+
+    if (savedSubmission) {
       await logActivitySubmissionEvent({
-        submissionId: parsed.data.submission_id,
+        submissionId: savedSubmission.submission_id,
         activityId: payload.activityId,
         lessonId,
         pupilId: payload.userId,
         fileName: null,
-        submittedAt: parsed.data.submitted_at ?? timestamp,
+        submittedAt: savedSubmission.submitted_at ?? timestamp,
       })
+
       deferRevalidate(`/lessons/${payload.activityId}`)
-      return { success: true, error: null, data: parsed.data }
+      return { success: true, error: null, data: savedSubmission }
     }
 
-    const { rows } = await query(
-      `
-        insert into submissions (activity_id, user_id, body, submitted_at)
-        values ($1, $2, $3, $4)
-        returning *
-      `,
-      [payload.activityId, payload.userId, submissionBody, timestamp],
-    )
-
-    const parsed = SubmissionSchema.safeParse(rows[0])
-    if (!parsed.success) {
-      console.error("[short-text] Invalid submission payload after insert:", parsed.error)
-      return { success: false, error: "Invalid submission data.", data: null as Submission | null }
-    }
-
-    await logActivitySubmissionEvent({
-      submissionId: parsed.data.submission_id,
-      activityId: payload.activityId,
-      lessonId,
-      pupilId: payload.userId,
-      fileName: null,
-      submittedAt: parsed.data.submitted_at ?? timestamp,
-    })
-    deferRevalidate(`/lessons/${payload.activityId}`)
-    return { success: true, error: null, data: parsed.data }
+    return { success: false, error: "Unable to save submission.", data: null }
   } catch (error) {
     console.error("[short-text] Failed to save submission:", error)
     const message = error instanceof Error ? error.message : "Unable to save submission."
     return { success: false, error: message, data: null as Submission | null }
   }
+}
+
+export async function triggerManualAiMarkingAction(input: z.infer<typeof ManualAiMarkingInputSchema>) {
+  const payload = ManualAiMarkingInputSchema.parse(input)
+  
+  // We trigger it but don't await so the UI stays responsive
+  void runAiMarkingFlow({
+    assignmentId: payload.assignmentId,
+    activityId: payload.activityId,
+    pupilId: payload.pupilId,
+    submissionId: payload.submissionId,
+  })
+
+  return { success: true }
 }
 
 export async function listShortTextSubmissionsAction(activityId: string) {
@@ -297,6 +319,32 @@ export async function overrideShortTextSubmissionScoreAction(
     console.error("[short-text] Failed to override submission score:", error)
     const message = error instanceof Error ? error.message : "Unable to update submission."
     return { success: false, error: message, data: null }
+  }
+}
+
+const ToggleSubmissionFlagInputSchema = z.object({
+  submissionId: z.string().min(1),
+  isFlagged: z.boolean(),
+  path: z.string().optional(),
+})
+
+export async function toggleSubmissionFlagAction(input: z.infer<typeof ToggleSubmissionFlagInputSchema>) {
+  const payload = ToggleSubmissionFlagInputSchema.parse(input)
+
+  try {
+    await query(
+      "update submissions set is_flagged = $1 where submission_id = $2",
+      [payload.isFlagged, payload.submissionId],
+    )
+
+    if (payload.path) {
+      revalidatePath(payload.path)
+    }
+
+    return { success: true, error: null }
+  } catch (error) {
+    console.error("[short-text] Failed to toggle submission flag:", error)
+    return { success: false, error: "Unable to update flag." }
   }
 }
 

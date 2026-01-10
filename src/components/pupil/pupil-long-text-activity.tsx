@@ -43,7 +43,7 @@ export function PupilLongTextActivity({
     lessonId: feedbackLessonId ?? lessonId,
     initialVisible: feedbackInitiallyVisible,
   })
-  const canAnswerEffective = canAnswer && !currentVisible
+  const canAnswerEffective = canAnswer
 
   const [answer, setAnswer] = useState(initialAnswer ?? "")
   const [lastSaved, setLastSaved] = useState(initialAnswer ?? "")

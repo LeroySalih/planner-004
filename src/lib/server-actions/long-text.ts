@@ -53,6 +53,7 @@ export async function saveLongTextAnswerAction(input: z.infer<typeof LongTextAns
   const submissionBody = LongTextSubmissionBodySchema.parse({
     answer: (payload.answer ?? "").trim(),
     success_criteria_scores: initialScores,
+    teacher_feedback: null,
   })
 
   const timestamp = new Date().toISOString()
@@ -62,7 +63,7 @@ export async function saveLongTextAnswerAction(input: z.infer<typeof LongTextAns
       const { rows } = await query(
         `
           update submissions
-          set body = $1, submitted_at = $2
+          set body = $1, submitted_at = $2, is_flagged = false
           where submission_id = $3
           returning *
         `,

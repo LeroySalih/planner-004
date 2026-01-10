@@ -43,11 +43,11 @@ export function ActivityProgressPanel({
             Your progress
           </Badge>
           <span className="text-xs text-muted-foreground">
-            {currentVisible ? "Feedback released" : "Waiting for your teacher to release feedback"}
+            {currentVisible ? "Feedback released" : "Feedback not yet released"}
           </span>
         </div>
         <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-          {currentVisible ? scoreLabel : "Locked"}
+          {currentVisible ? scoreLabel : "In progress"}
         </span>
       </div>
 
@@ -65,7 +65,7 @@ export function ActivityProgressPanel({
           </div>
         </dl>
       ) : (
-        <p className="mt-3 text-xs text-muted-foreground">{lockedMessage}</p>
+        <p className="mt-3 text-xs text-muted-foreground">Your teacher will release the score and feedback after marking. You can continue to refine your answer until then.</p>
       )}
     </div>
   )

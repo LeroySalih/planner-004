@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react"
 import { toast } from "sonner"
+import { Flag, Loader2 } from "lucide-react"
 
 import type { LessonActivity } from "@/types"
 import { Button } from "@/components/ui/button"
@@ -10,7 +11,7 @@ import {
   getRichTextMarkup,
   getShortTextBody,
 } from "@/components/lessons/activity-view/utils"
-import { saveShortTextAnswerAction } from "@/lib/server-updates"
+import { saveShortTextAnswerAction, toggleSubmissionFlagAction } from "@/lib/server-updates"
 import { triggerFeedbackRefresh } from "@/lib/feedback-events"
 import { useFeedbackVisibility } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/feedback-visibility-debug"
 
@@ -21,6 +22,8 @@ interface PupilShortTextActivityProps {
   canAnswer: boolean
   stepNumber: number
   initialAnswer: string | null
+  initialSubmissionId?: string | null
+  initialIsFlagged?: boolean
   feedbackAssignmentIds?: string[]
   feedbackLessonId?: string
   feedbackInitiallyVisible?: boolean
@@ -35,6 +38,8 @@ export function PupilShortTextActivity({
   canAnswer,
   stepNumber,
   initialAnswer,
+  initialSubmissionId,
+  initialIsFlagged,
   feedbackAssignmentIds = [],
   feedbackLessonId,
   feedbackInitiallyVisible = false,
@@ -46,21 +51,26 @@ export function PupilShortTextActivity({
     lessonId: feedbackLessonId ?? lessonId,
     initialVisible: feedbackInitiallyVisible,
   })
-  const canAnswerEffective = canAnswer && !currentVisible
+  const canAnswerEffective = canAnswer
 
   const [answer, setAnswer] = useState(initialAnswer ?? "")
   const [lastSaved, setLastSaved] = useState(initialAnswer ?? "")
+  const [submissionId, setSubmissionId] = useState(initialSubmissionId ?? null)
+  const [isFlagged, setIsFlagged] = useState(initialIsFlagged ?? false)
   const [feedback, setFeedback] = useState<FeedbackState>(
     initialAnswer ? { type: "success", message: "Answer saved" } : null,
   )
   const [isPending, startTransition] = useTransition()
+  const [flagPending, startFlagTransition] = useTransition()
 
   useEffect(() => {
     const nextAnswer = initialAnswer ?? ""
     setAnswer(nextAnswer)
     setLastSaved(nextAnswer)
+    setSubmissionId(initialSubmissionId ?? null)
+    setIsFlagged(initialIsFlagged ?? false)
     setFeedback(nextAnswer ? { type: "success", message: "Answer saved" } : null)
-  }, [initialAnswer])
+  }, [initialAnswer, initialSubmissionId, initialIsFlagged])
 
   const handleSave = useCallback(() => {
     if (!canAnswerEffective) {
@@ -78,10 +88,15 @@ export function PupilShortTextActivity({
     setFeedback(null)
 
     startTransition(async () => {
+      const assignmentId = feedbackAssignmentIds && feedbackAssignmentIds.length > 0
+        ? feedbackAssignmentIds[0]
+        : undefined
+
       const result = await saveShortTextAnswerAction({
         activityId: activity.activity_id,
         userId: pupilId,
         answer: answer,
+        assignmentId,
       })
 
       if (!result.success) {
@@ -95,11 +110,15 @@ export function PupilShortTextActivity({
         return
       }
 
+      if (result.data) {
+        setSubmissionId(result.data.submission_id)
+      }
+
       setLastSaved(answer)
       setFeedback({ type: "success", message: "Answer saved" })
       triggerFeedbackRefresh(lessonId)
     })
-  }, [activity.activity_id, answer, canAnswerEffective, lastSaved, lessonId, pupilId, startTransition])
+  }, [activity.activity_id, answer, canAnswerEffective, lastSaved, lessonId, pupilId, startTransition, feedbackAssignmentIds])
 
   const handleBlur = useCallback(() => {
     if (!isPending) {
@@ -107,15 +126,42 @@ export function PupilShortTextActivity({
     }
   }, [handleSave, isPending])
 
+  const handleToggleFlag = useCallback(() => {
+    if (!submissionId) return
+
+    const nextFlag = !isFlagged
+    setIsFlagged(nextFlag)
+
+    startFlagTransition(async () => {
+      const result = await toggleSubmissionFlagAction({
+        submissionId,
+        isFlagged: nextFlag,
+      })
+
+      if (!result.success) {
+        setIsFlagged(!nextFlag)
+        toast.error("Unable to update flag status.")
+      }
+    })
+  }, [submissionId, isFlagged])
+
   const helperMessage = useMemo(() => {
     if (!canAnswerEffective) {
       return "You can view this question, but answers can only be edited by pupils."
+    }
+    if (isPending) {
+      return (
+        <span className="flex items-center gap-1.5">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          Saving...
+        </span>
+      )
     }
     if (!feedback) {
       return "Your teacher will mark this after the lesson. Keep your answer short and precise."
     }
     return feedback.type === "success" ? feedback.message : feedback.message
-  }, [canAnswerEffective, feedback])
+  }, [canAnswerEffective, feedback, isPending])
 
   return (
     <div className="space-y-4 rounded-md border border-border bg-card p-4 shadow-sm">
@@ -171,6 +217,26 @@ export function PupilShortTextActivity({
           </Button>
           <p className="text-xs text-muted-foreground">
             You can edit your answer until your teacher marks the work.
+          </p>
+        </div>
+      ) : null}
+
+      {currentVisible && submissionId ? (
+        <div className="mt-4 flex flex-col gap-2 border-t border-border pt-4 sm:flex-row sm:items-center">
+          <Button
+            variant={isFlagged ? "destructive" : "outline"}
+            size="sm"
+            onClick={handleToggleFlag}
+            disabled={flagPending}
+            className="gap-2 self-start sm:self-auto"
+          >
+            <Flag className="h-4 w-4" />
+            {isFlagged ? "Unflag for review" : "Flag for review"}
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            {isFlagged
+              ? "You have flagged this answer for your teacher to review."
+              : "Flag this answer if you want your teacher to check it again."}
           </p>
         </div>
       ) : null}
