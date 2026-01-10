@@ -16,7 +16,8 @@ import {
   type ShortTextEvaluationResult,
 } from "@/lib/ai/short-text-scoring"
 import { fetchActivitySuccessCriteriaIds, normaliseSuccessCriteriaScores } from "@/lib/scoring/success-criteria"
-import { getActivityLessonId, logActivitySubmissionEvent } from "@/lib/server-actions/activity-submission-events"
+import { getActivityLessonId, logActivitySubmissionEvent } from "@/lib/activity-logging"
+import { emitSubmissionEvent } from "@/lib/sse/topics"
 import { query } from "@/lib/db"
 import { runAiMarkingFlow } from "@/lib/ai/ai-marking-service"
 
@@ -149,13 +150,23 @@ export async function saveShortTextAnswerAction(input: z.infer<typeof ShortTextA
     }
 
     if (savedSubmission) {
-      await logActivitySubmissionEvent({
+      // Fire-and-forget logging to avoid blocking the user
+      void logActivitySubmissionEvent({
         submissionId: savedSubmission.submission_id,
         activityId: payload.activityId,
         lessonId,
         pupilId: payload.userId,
         fileName: null,
         submittedAt: savedSubmission.submitted_at ?? timestamp,
+      })
+
+      // Notify listeners of the update
+      void emitSubmissionEvent("submission.updated", {
+        submissionId: savedSubmission.submission_id,
+        activityId: payload.activityId,
+        pupilId: payload.userId,
+        submittedAt: savedSubmission.submitted_at ?? timestamp,
+        submissionStatus: "inprogress",
       })
 
       deferRevalidate(`/lessons/${payload.activityId}`)

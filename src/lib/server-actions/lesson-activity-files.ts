@@ -10,7 +10,7 @@ import { SubmissionStatusSchema } from "@/types"
 import { query } from "@/lib/db"
 import { requireAuthenticatedProfile } from "@/lib/auth"
 import { emitSubmissionEvent, emitUploadEvent } from "@/lib/sse/topics"
-import { logActivitySubmissionEvent } from "@/lib/server-actions/activity-submission-events"
+import { logActivitySubmissionEvent } from "@/lib/activity-logging"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 import { withTelemetry } from "@/lib/telemetry"
 

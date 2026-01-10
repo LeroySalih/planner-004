@@ -30,6 +30,7 @@ import {
 import { ActivityProgressPanel } from "./activity-progress-panel"
 import { extractScoreFromSubmission } from "@/lib/scoring/activity-scores"
 import { fetchPupilActivityFeedbackMap, selectLatestFeedbackEntry } from "@/lib/feedback/pupil-activity-feedback"
+import { FeedbackVisibilityProvider } from "./feedback-visibility-debug"
 
 type McqOption = { id: string; text: string }
 
@@ -494,276 +495,282 @@ export default async function PupilLessonFriendlyPage({
   ])
 
   return (
-    <main className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-6 py-10">
-      <header className="rounded-2xl bg-gradient-to-r from-sky-600 to-indigo-600 px-8 py-6 text-white shadow-lg">
-        <div className="flex flex-col gap-3">
-          <div>
-            <Link
-              href={`/pupil-lessons/${encodeURIComponent(pupilId)}`}
-              className="inline-flex items-center gap-1 text-sm underline-offset-4 hover:underline"
-            >
-              <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back to My Lessons
-            </Link>
+    <FeedbackVisibilityProvider 
+      assignmentIds={assignmentIds} 
+      lessonId={lesson.lesson_id} 
+      initialVisible={initialFeedbackVisible}
+    >
+      <main className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-6 py-10">
+        <header className="rounded-2xl bg-gradient-to-r from-sky-600 to-indigo-600 px-8 py-6 text-white shadow-lg">
+          <div className="flex flex-col gap-3">
+            <div>
+              <Link
+                href={`/pupil-lessons/${encodeURIComponent(pupilId)}`}
+                className="inline-flex items-center gap-1 text-sm underline-offset-4 hover:underline"
+              >
+                <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back to My Lessons
+              </Link>
+            </div>
+            <h1 className="text-3xl font-semibold text-white">{lesson.title}</h1>
+            <p className="text-sm text-slate-100">Unit: {lesson.unit_id}</p>
+            {summary ? (
+              <p className="text-sm text-slate-100">Hello {summary.name}, here&apos;s everything you need for this lesson.</p>
+            ) : (
+              <p className="text-sm text-slate-100">Here&apos;s everything you need for this lesson.</p>
+            )}
           </div>
-          <h1 className="text-3xl font-semibold text-white">{lesson.title}</h1>
-          <p className="text-sm text-slate-100">Unit: {lesson.unit_id}</p>
-          {summary ? (
-            <p className="text-sm text-slate-100">Hello {summary.name}, here&apos;s everything you need for this lesson.</p>
-          ) : (
-            <p className="text-sm text-slate-100">Here&apos;s everything you need for this lesson.</p>
-          )}
-        </div>
-      </header>
+        </header>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg font-semibold text-foreground">Lesson Overview</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4 text-sm text-muted-foreground">
-          {assignments.length > 0 ? (
-            <ul className="space-y-2">
-              {assignments.map((assignment, index) => (
-                <li key={`${assignment.groupId}-${assignment.date}-${index}`} className="rounded-md bg-muted/40 px-3 py-2">
-                  <div className="font-medium text-foreground">Group: {assignment.groupId}</div>
-                  {assignment.subject ? <div>Subject: {assignment.subject}</div> : null}
-                  <div>Starts: {formatDateLabel(assignment.date)}</div>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p>This lesson isn’t currently linked to your assignments, but you can still review its resources below.</p>
-          )}
-        </CardContent>
-      </Card>
-
-      {lesson.lesson_objectives && lesson.lesson_objectives.length > 0 ? (
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg font-semibold text-foreground">Learning Objectives</CardTitle>
+            <CardTitle className="text-lg font-semibold text-foreground">Lesson Overview</CardTitle>
           </CardHeader>
-          <CardContent>
-            <ul className="list-disc space-y-2 pl-5 text-sm text-muted-foreground">
-              {lesson.lesson_objectives.map((objective) => (
-                <li key={objective.learning_objective_id}>
-                  {objective.learning_objective?.title ?? objective.learning_objective_id}
-                </li>
-              ))}
-            </ul>
+          <CardContent className="space-y-4 text-sm text-muted-foreground">
+            {assignments.length > 0 ? (
+              <ul className="space-y-2">
+                {assignments.map((assignment, index) => (
+                  <li key={`${assignment.groupId}-${assignment.date}-${index}`} className="rounded-md bg-muted/40 px-3 py-2">
+                    <div className="font-medium text-foreground">Group: {assignment.groupId}</div>
+                    {assignment.subject ? <div>Subject: {assignment.subject}</div> : null}
+                    <div>Starts: {formatDateLabel(assignment.date)}</div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>This lesson isn’t currently linked to your assignments, but you can still review its resources below.</p>
+            )}
           </CardContent>
         </Card>
-      ) : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg font-semibold text-foreground">Lesson Activities</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {activities.length === 0 ? (
-            <p className="text-sm text-muted-foreground">There aren&apos;t any activities attached yet.</p>
-          ) : (
-            <ol className="space-y-3 text-sm">
-              {activities.map((activity, index) => {
-                const linkUrl = extractActivityLink(activity)
-                const audioUrl = extractAudioUrl(activity)
-                const isDisplayImage = activity.type === "display-image"
-                const resolvedImageUrl = isDisplayImage
-                  ? displayImageUrlMap.get(activity.activity_id) ?? (looksLikeImageUrl(linkUrl) ? linkUrl : null)
-                  : null
-                const titleLink = !isDisplayImage || !resolvedImageUrl ? linkUrl : null
-                const icon = selectActivityIcon(activity.type, Boolean(audioUrl), titleLink)
-                const feedbackText =
-                  activity.type === "feedback"
-                    ? "Your teacher has shared feedback in this activity."
-                    : activityFeedbackMap.get(activity.activity_id)
-                const modelAnswer = activityModelAnswerMap.get(activity.activity_id)
-                const rawScore = activityScoreMap.get(activity.activity_id)
-                const showProgress = inputActivityTypes.has(activity.type ?? "")
+        {lesson.lesson_objectives && lesson.lesson_objectives.length > 0 ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg font-semibold text-foreground">Learning Objectives</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ul className="list-disc space-y-2 pl-5 text-sm text-muted-foreground">
+                {lesson.lesson_objectives.map((objective) => (
+                  <li key={objective.learning_objective_id}>
+                    {objective.learning_objective?.title ?? objective.learning_objective_id}
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        ) : null}
 
-                return (
-                  <li
-                    key={activity.activity_id}
-                    className="rounded-md border border-border/60 bg-muted/40 px-3 py-3"
-                  >
-                    {activity.type === "upload-file" ? (
-                      <PupilUploadActivity
-                        lessonId={lesson.lesson_id}
-                        activity={activity}
-                        pupilId={pupilId}
-                        instructions={extractUploadInstructions(activity)}
-                        initialSubmissions={submissionMap.get(activity.activity_id) ?? []}
-                        canUpload={isPupilViewer}
-                        stepNumber={index + 1}
-                        feedbackAssignmentIds={assignmentIds}
-                        feedbackLessonId={lesson.lesson_id}
-                        feedbackInitiallyVisible={initialFeedbackVisible}
-                      />
-                    ) : activity.type === "short-text-question" ? (
-                      <PupilShortTextActivity
-                        lessonId={lesson.lesson_id}
-                        activity={activity}
-                        pupilId={pupilId}
-                        canAnswer={isPupilViewer}
-                        stepNumber={index + 1}
-                        initialAnswer={shortTextDataMap.get(activity.activity_id)?.answer ?? ""}
-                        initialSubmissionId={shortTextDataMap.get(activity.activity_id)?.submissionId ?? null}
-                        initialIsFlagged={shortTextDataMap.get(activity.activity_id)?.isFlagged ?? false}
-                        feedbackAssignmentIds={assignmentIds}
-                        feedbackLessonId={lesson.lesson_id}
-                        feedbackInitiallyVisible={initialFeedbackVisible}
-                      />
-                    ) : activity.type === "long-text-question" || activity.type === "text-question" ? (
-                      <PupilLongTextActivity
-                        lessonId={lesson.lesson_id}
-                        activity={activity}
-                        pupilId={pupilId}
-                        canAnswer={isPupilViewer}
-                        stepNumber={index + 1}
-                        initialAnswer={longTextAnswerMap.get(activity.activity_id) ?? ""}
-                        feedbackAssignmentIds={assignmentIds}
-                        feedbackLessonId={lesson.lesson_id}
-                        feedbackInitiallyVisible={initialFeedbackVisible}
-                      />
-                    ) : activity.type === "multiple-choice-question" ? (
-                      <PupilMcqActivity
-                        lessonId={lesson.lesson_id}
-                        activity={activity}
-                        pupilId={pupilId}
-                        canAnswer={isPupilViewer}
-                        stepNumber={index + 1}
-                        initialSelection={mcqSelectionMap.get(activity.activity_id) ?? null}
-                        feedbackAssignmentIds={assignmentIds}
-                        feedbackLessonId={lesson.lesson_id}
-                        feedbackInitiallyVisible={initialFeedbackVisible}
-                      />
-                    ) : activity.type === "feedback" ? (
-                      <PupilFeedbackActivity
-                        activity={activity}
-                        lessonId={lesson.lesson_id}
-                        assignmentIds={assignmentIds}
-                        initialVisible={initialFeedbackVisible}
-                      />
-                    ) : (
-                      <>
-                        <div className="flex items-start gap-2">
-                          <span className="text-xs font-semibold text-muted-foreground">{index + 1}.</span>
-                          <div className="flex flex-col gap-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              {icon}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg font-semibold text-foreground">Lesson Activities</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {activities.length === 0 ? (
+              <p className="text-sm text-muted-foreground">There aren&apos;t any activities attached yet.</p>
+            ) : (
+              <ol className="space-y-3 text-sm">
+                {activities.map((activity, index) => {
+                  const linkUrl = extractActivityLink(activity)
+                  const audioUrl = extractAudioUrl(activity)
+                  const isDisplayImage = activity.type === "display-image"
+                  const resolvedImageUrl = isDisplayImage
+                    ? displayImageUrlMap.get(activity.activity_id) ?? (looksLikeImageUrl(linkUrl) ? linkUrl : null)
+                    : null
+                  const titleLink = !isDisplayImage || !resolvedImageUrl ? linkUrl : null
+                  const icon = selectActivityIcon(activity.type, Boolean(audioUrl), titleLink)
+                  const feedbackText =
+                    activity.type === "feedback"
+                      ? "Your teacher has shared feedback in this activity."
+                      : activityFeedbackMap.get(activity.activity_id)
+                  const modelAnswer = activityModelAnswerMap.get(activity.activity_id)
+                  const rawScore = activityScoreMap.get(activity.activity_id)
+                  const showProgress = inputActivityTypes.has(activity.type ?? "")
+
+                  return (
+                    <li
+                      key={activity.activity_id}
+                      className="rounded-md border border-border/60 bg-muted/40 px-3 py-3"
+                    >
+                      {activity.type === "upload-file" ? (
+                        <PupilUploadActivity
+                          lessonId={lesson.lesson_id}
+                          activity={activity}
+                          pupilId={pupilId}
+                          instructions={extractUploadInstructions(activity)}
+                          initialSubmissions={submissionMap.get(activity.activity_id) ?? []}
+                          canUpload={isPupilViewer}
+                          stepNumber={index + 1}
+                          feedbackAssignmentIds={assignmentIds}
+                          feedbackLessonId={lesson.lesson_id}
+                          feedbackInitiallyVisible={initialFeedbackVisible}
+                        />
+                      ) : activity.type === "short-text-question" ? (
+                        <PupilShortTextActivity
+                          lessonId={lesson.lesson_id}
+                          activity={activity}
+                          pupilId={pupilId}
+                          canAnswer={isPupilViewer}
+                          stepNumber={index + 1}
+                          initialAnswer={shortTextDataMap.get(activity.activity_id)?.answer ?? ""}
+                          initialSubmissionId={shortTextDataMap.get(activity.activity_id)?.submissionId ?? null}
+                          initialIsFlagged={shortTextDataMap.get(activity.activity_id)?.isFlagged ?? false}
+                          feedbackAssignmentIds={assignmentIds}
+                          feedbackLessonId={lesson.lesson_id}
+                          feedbackInitiallyVisible={initialFeedbackVisible}
+                        />
+                      ) : activity.type === "long-text-question" || activity.type === "text-question" ? (
+                        <PupilLongTextActivity
+                          lessonId={lesson.lesson_id}
+                          activity={activity}
+                          pupilId={pupilId}
+                          canAnswer={isPupilViewer}
+                          stepNumber={index + 1}
+                          initialAnswer={longTextAnswerMap.get(activity.activity_id) ?? ""}
+                          feedbackAssignmentIds={assignmentIds}
+                          feedbackLessonId={lesson.lesson_id}
+                          feedbackInitiallyVisible={initialFeedbackVisible}
+                        />
+                      ) : activity.type === "multiple-choice-question" ? (
+                        <PupilMcqActivity
+                          lessonId={lesson.lesson_id}
+                          activity={activity}
+                          pupilId={pupilId}
+                          canAnswer={isPupilViewer}
+                          stepNumber={index + 1}
+                          initialSelection={mcqSelectionMap.get(activity.activity_id) ?? null}
+                          feedbackAssignmentIds={assignmentIds}
+                          feedbackLessonId={lesson.lesson_id}
+                          feedbackInitiallyVisible={initialFeedbackVisible}
+                        />
+                      ) : activity.type === "feedback" ? (
+                        <PupilFeedbackActivity
+                          activity={activity}
+                          lessonId={lesson.lesson_id}
+                          assignmentIds={assignmentIds}
+                          initialVisible={initialFeedbackVisible}
+                        />
+                      ) : (
+                        <>
+                          <div className="flex items-start gap-2">
+                            <span className="text-xs font-semibold text-muted-foreground">{index + 1}.</span>
+                            <div className="flex flex-col gap-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                {icon}
+                                {titleLink ? (
+                                  <Link
+                                    href={titleLink}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="font-medium text-primary underline-offset-4 hover:underline"
+                                  >
+                                    {activity.title}
+                                  </Link>
+                                ) : (
+                                  <span className="font-medium text-foreground">{activity.title}</span>
+                                )}
+                              </div>
+                              <span className="text-xs text-muted-foreground">{formatActivityType(activity.type)}</span>
                               {titleLink ? (
-                                <Link
-                                  href={titleLink}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="font-medium text-primary underline-offset-4 hover:underline"
-                                >
-                                  {activity.title}
-                                </Link>
-                              ) : (
-                                <span className="font-medium text-foreground">{activity.title}</span>
-                              )}
+                                <span className="break-all text-xs text-muted-foreground">{titleLink}</span>
+                              ) : null}
                             </div>
-                            <span className="text-xs text-muted-foreground">{formatActivityType(activity.type)}</span>
-                            {titleLink ? (
-                              <span className="break-all text-xs text-muted-foreground">{titleLink}</span>
-                            ) : null}
                           </div>
-                        </div>
 
-                        {isDisplayImage ? (
-                          resolvedImageUrl ? (
-                            <figure className="mt-3 space-y-2">
-                              <div className="relative aspect-[4/3] w-full overflow-hidden rounded-lg border border-border bg-background max-h-[420px]">
-                                <MediaImage
-                                  src={resolvedImageUrl}
-                                  alt={activity.title || "Lesson activity image"}
-                                  fill
-                                  sizes="100vw"
-                                  className="object-contain"
-                                  loading="lazy"
-                                />
-                              </div>
-                              <div className="flex justify-end">
-                                <Link
-                                  href={resolvedImageUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-xs font-medium text-primary underline-offset-4 hover:underline"
-                                >
-                                  Open full image
-                                </Link>
-                              </div>
-                            </figure>
-                          ) : (
-                            <p className="mt-3 text-xs text-muted-foreground">
-                              This image isn&apos;t available yet. Please let your teacher know.
-                            </p>
-                          )
-                    ) : audioUrl && activity.type !== "show-video" ? (
-                      <audio className="mt-3 w-full" controls preload="none" src={audioUrl}>
-                        Your browser does not support the audio element.
-                      </audio>
-                    ) : null}
-                  </>
-                )}
+                          {isDisplayImage ? (
+                            resolvedImageUrl ? (
+                              <figure className="mt-3 space-y-2">
+                                <div className="relative aspect-[4/3] w-full overflow-hidden rounded-lg border border-border bg-background max-h-[420px]">
+                                  <MediaImage
+                                    src={resolvedImageUrl}
+                                    alt={activity.title || "Lesson activity image"}
+                                    fill
+                                    sizes="100vw"
+                                    className="object-contain"
+                                    loading="lazy"
+                                  />
+                                </div>
+                                <div className="flex justify-end">
+                                  <Link
+                                    href={resolvedImageUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-xs font-medium text-primary underline-offset-4 hover:underline"
+                                  >
+                                    Open full image
+                                  </Link>
+                                </div>
+                              </figure>
+                            ) : (
+                              <p className="mt-3 text-xs text-muted-foreground">
+                                This image isn&apos;t available yet. Please let your teacher know.
+                              </p>
+                            )
+                      ) : audioUrl && activity.type !== "show-video" ? (
+                        <audio className="mt-3 w-full" controls preload="none" src={audioUrl}>
+                          Your browser does not support the audio element.
+                        </audio>
+                      ) : null}
+                    </>
+                  )}
 
-                <ActivityProgressPanel
-                  assignmentIds={assignmentIds}
-                  lessonId={lesson.lesson_id}
-                  initialVisible={initialFeedbackVisible}
-                  show={showProgress}
-                  scoreLabel={formatScoreLabel(rawScore)}
-                  feedbackText={feedbackText}
-                  modelAnswer={modelAnswer}
-                />
-              </li>
-            )
-          })}
-            </ol>
-          )}
-        </CardContent>
-      </Card>
-
-      {(lesson.lesson_links?.length ?? 0) > 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg font-semibold text-foreground">Helpful Links</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm text-muted-foreground">
-            <ul className="space-y-2">
-              {lesson.lesson_links!.map((link) => (
-                <li key={link.lesson_link_id} className="rounded-md bg-muted/40 px-3 py-2">
-                  <Link
-                    href={link.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="font-medium text-primary underline-offset-4 hover:underline"
-                  >
-                    {link.description?.trim() || link.url}
-                  </Link>
+                  <ActivityProgressPanel
+                    assignmentIds={assignmentIds}
+                    lessonId={lesson.lesson_id}
+                    initialVisible={initialFeedbackVisible}
+                    show={showProgress}
+                    scoreLabel={formatScoreLabel(rawScore)}
+                    feedbackText={feedbackText}
+                    modelAnswer={modelAnswer}
+                  />
                 </li>
-              ))}
-            </ul>
+              )
+            })}
+              </ol>
+            )}
           </CardContent>
         </Card>
-      ) : null}
 
-      {lessonFiles.length > 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg font-semibold text-foreground">Resources</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm text-muted-foreground">
-            <p>Ask your teacher for the latest copy of these resources:</p>
-            <ul className="space-y-1">
-              {lessonFiles.map((file) => (
-                <li key={file.path} className="rounded-md bg-muted/30 px-3 py-2">
-                  {file.name}
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      ) : null}
-    </main>
+        {(lesson.lesson_links?.length ?? 0) > 0 ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg font-semibold text-foreground">Helpful Links</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm text-muted-foreground">
+              <ul className="space-y-2">
+                {lesson.lesson_links!.map((link) => (
+                  <li key={link.lesson_link_id} className="rounded-md bg-muted/40 px-3 py-2">
+                    <Link
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-primary underline-offset-4 hover:underline"
+                    >
+                      {link.description?.trim() || link.url}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {lessonFiles.length > 0 ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg font-semibold text-foreground">Resources</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm text-muted-foreground">
+              <p>Ask your teacher for the latest copy of these resources:</p>
+              <ul className="space-y-1">
+                {lessonFiles.map((file) => (
+                  <li key={file.path} className="rounded-md bg-muted/30 px-3 py-2">
+                    {file.name}
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        ) : null}
+      </main>
+    </FeedbackVisibilityProvider>
   )
 }

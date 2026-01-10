@@ -1,15 +1,7 @@
 "use client"
 
 import type { ReactNode } from "react"
-import { useEffect, useMemo, useState } from "react"
-
-import { ASSIGNMENT_FEEDBACK_VISIBILITY_EVENT, buildAssignmentResultsChannelName } from "@/lib/results-channel"
-
-type FeedbackVisibilityProps = {
-  assignmentIds: string[]
-  lessonId: string
-  initialVisible: boolean
-}
+import { createContext, useContext, useEffect, useMemo, useState } from "react"
 
 type VisibilityState = {
   channels: string[]
@@ -17,7 +9,19 @@ type VisibilityState = {
   currentVisible: boolean
 }
 
-export function useFeedbackVisibility({ assignmentIds, lessonId, initialVisible }: FeedbackVisibilityProps) {
+const FeedbackVisibilityContext = createContext<VisibilityState | null>(null)
+
+export function FeedbackVisibilityProvider({
+  assignmentIds,
+  lessonId,
+  initialVisible,
+  children,
+}: {
+  assignmentIds: string[]
+  lessonId: string
+  initialVisible: boolean
+  children: ReactNode
+}) {
   const channels = useMemo(
     () => Array.from(new Set(assignmentIds.filter((id) => typeof id === "string" && id.trim().length > 0))),
     [assignmentIds],
@@ -31,10 +35,20 @@ export function useFeedbackVisibility({ assignmentIds, lessonId, initialVisible 
 
   useEffect(() => {
     if (channels.length === 0) {
+      console.log("[FeedbackVisibilityProvider] No channels to subscribe to.")
       return
     }
 
+    console.log("[FeedbackVisibilityProvider] Connecting SSE...", channels)
     const source = new EventSource("/sse?topics=assignments")
+
+    source.onopen = () => {
+      console.log("[FeedbackVisibilityProvider] SSE Connected")
+    }
+
+    source.onerror = (err) => {
+      console.error("[FeedbackVisibilityProvider] SSE Error", err)
+    }
 
     source.onmessage = (event) => {
       const envelope = JSON.parse(event.data) as { topic?: string; type?: string; payload?: unknown }
@@ -46,61 +60,61 @@ export function useFeedbackVisibility({ assignmentIds, lessonId, initialVisible 
       const nextVisible =
         (payload as { feedbackVisible?: boolean })?.feedbackVisible ??
         (payload as { payload?: { feedbackVisible?: boolean } })?.payload?.feedbackVisible
-      if (typeof nextVisible !== "boolean") {
-        return
-      }
+      
+      if (typeof nextVisible !== "boolean") return
+
       const targetAssignmentId =
         typeof (payload as { assignmentId?: string }).assignmentId === "string"
           ? (payload as { assignmentId: string }).assignmentId
           : null
+
       if (targetAssignmentId && !channels.includes(targetAssignmentId)) return
+
+      console.log(`[FeedbackVisibilityProvider] Visibility changed for ${targetAssignmentId}: ${nextVisible}`)
       setCurrentVisible(nextVisible)
       setEvents((prev) => [...prev, `${targetAssignmentId ?? "unknown"}:${nextVisible ? "on" : "off"}`].slice(-10))
     }
 
     return () => {
+      console.log("[FeedbackVisibilityProvider] Closing SSE")
       source.close()
     }
   }, [channels, lessonId])
 
-  return { channels, events, currentVisible } satisfies VisibilityState
+  const value = useMemo(() => ({ channels, events, currentVisible }), [channels, events, currentVisible])
+
+  return (
+    <FeedbackVisibilityContext.Provider value={value}>
+      {children}
+    </FeedbackVisibilityContext.Provider>
+  )
 }
 
-function FeedbackVisibilityPanelView({ channels, events, currentVisible }: VisibilityState) {
-  if (channels.length === 0) {
-    return null
+export function useFeedbackVisibility() {
+  const context = useContext(FeedbackVisibilityContext)
+  if (!context) {
+    throw new Error("useFeedbackVisibility must be used within a FeedbackVisibilityProvider")
   }
+  return context
+}
 
+export function FeedbackVisibilityDebugPanel() {
+  const state = useFeedbackVisibility()
   return (
     <div className="rounded-lg border border-dashed border-primary/40 bg-primary/5 p-3 text-xs text-primary">
       <div className="flex items-center justify-between gap-3">
         <p className="font-semibold text-primary">Feedback visibility debug</p>
         <span className="rounded-full border border-primary/30 px-2 py-0.5 text-[11px] font-semibold">
-          visible: {currentVisible ? "yes" : "no"}
+          visible: {state.currentVisible ? "yes" : "no"}
         </span>
       </div>
-      <p className="mt-1 text-[11px] text-primary/80">Assignments: {channels.join(", ")}</p>
+      <p className="mt-1 text-[11px] text-primary/80">Assignments: {state.channels.join(", ")}</p>
       <ul className="mt-2 space-y-1 text-[11px] text-primary/80">
-        {events.length === 0 ? <li>No events yet.</li> : null}
-        {events.map((entry, index) => (
+        {state.events.length === 0 ? <li>No events yet.</li> : null}
+        {state.events.map((entry, index) => (
           <li key={`${entry}-${index}`}>{entry}</li>
         ))}
       </ul>
     </div>
   )
-}
-
-export function FeedbackVisibilityDebugPanel(props: FeedbackVisibilityProps) {
-  const state = useFeedbackVisibility(props)
-  return <FeedbackVisibilityPanelView {...state} />
-}
-
-export function FeedbackVisibilityBadge({
-  assignmentIds,
-  lessonId,
-  initialVisible,
-  children,
-}: FeedbackVisibilityProps & { children?: (visible: boolean) => ReactNode }) {
-  const state = useFeedbackVisibility({ assignmentIds, lessonId, initialVisible })
-  return <>{children ? children(state.currentVisible) : null}</>
 }

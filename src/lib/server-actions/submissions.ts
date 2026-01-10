@@ -18,7 +18,7 @@ import {
   fetchActivitySuccessCriteriaIds,
   normaliseSuccessCriteriaScores,
 } from "@/lib/scoring/success-criteria"
-import { getActivityLessonId, logActivitySubmissionEvent } from "@/lib/server-actions/activity-submission-events"
+import { getActivityLessonId, logActivitySubmissionEvent } from "@/lib/activity-logging"
 
 const SubmissionResultSchema = z.object({
   data: SubmissionSchema.nullable(),

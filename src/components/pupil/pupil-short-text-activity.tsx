@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { toast } from "sonner"
 import { Flag, Loader2 } from "lucide-react"
 
@@ -46,11 +46,7 @@ export function PupilShortTextActivity({
 }: PupilShortTextActivityProps) {
   const shortTextBody = useMemo(() => getShortTextBody(activity), [activity])
   const questionMarkup = getRichTextMarkup(shortTextBody.question)
-  const { currentVisible } = useFeedbackVisibility({
-    assignmentIds: feedbackAssignmentIds,
-    lessonId: feedbackLessonId ?? lessonId,
-    initialVisible: feedbackInitiallyVisible,
-  })
+  const { currentVisible } = useFeedbackVisibility()
   const canAnswerEffective = canAnswer
 
   const [answer, setAnswer] = useState(initialAnswer ?? "")
@@ -62,18 +58,24 @@ export function PupilShortTextActivity({
   )
   const [isPending, startTransition] = useTransition()
   const [flagPending, startFlagTransition] = useTransition()
+  const isSavingRef = useRef(false)
 
   useEffect(() => {
+    console.log(`[PupilShortTextActivity] Mount/Update: ${activity.activity_id}`, { initialAnswer, initialSubmissionId, initialIsFlagged })
     const nextAnswer = initialAnswer ?? ""
     setAnswer(nextAnswer)
     setLastSaved(nextAnswer)
     setSubmissionId(initialSubmissionId ?? null)
     setIsFlagged(initialIsFlagged ?? false)
     setFeedback(nextAnswer ? { type: "success", message: "Answer saved" } : null)
-  }, [initialAnswer, initialSubmissionId, initialIsFlagged])
+  }, [initialAnswer, initialSubmissionId, initialIsFlagged, activity.activity_id])
+
+  useEffect(() => {
+    console.log(`[PupilShortTextActivity] Feedback visibility changed: ${currentVisible}`)
+  }, [currentVisible])
 
   const handleSave = useCallback(() => {
-    if (!canAnswerEffective) {
+    if (!canAnswerEffective || isSavingRef.current) {
       return
     }
 
@@ -86,42 +88,47 @@ export function PupilShortTextActivity({
     }
 
     setFeedback(null)
+    isSavingRef.current = true
 
     startTransition(async () => {
-      const assignmentId = feedbackAssignmentIds && feedbackAssignmentIds.length > 0
-        ? feedbackAssignmentIds[0]
-        : undefined
+      try {
+        const assignmentId = feedbackAssignmentIds && feedbackAssignmentIds.length > 0
+          ? feedbackAssignmentIds[0]
+          : undefined
 
-      const result = await saveShortTextAnswerAction({
-        activityId: activity.activity_id,
-        userId: pupilId,
-        answer: answer,
-        assignmentId,
-      })
-
-      if (!result.success) {
-        toast.error("Unable to save your answer", {
-          description: result.error ?? "Please try again in a moment.",
+        const result = await saveShortTextAnswerAction({
+          activityId: activity.activity_id,
+          userId: pupilId,
+          answer: answer,
+          assignmentId,
         })
-        setFeedback({
-          type: "error",
-          message: result.error ?? "Unable to save your answer. Please try again.",
-        })
-        return
-      }
 
-      if (result.data) {
-        setSubmissionId(result.data.submission_id)
-      }
+        if (!result.success) {
+          toast.error("Unable to save your answer", {
+            description: result.error ?? "Please try again in a moment.",
+          })
+          setFeedback({
+            type: "error",
+            message: result.error ?? "Unable to save your answer. Please try again.",
+          })
+          return
+        }
 
-      setLastSaved(answer)
-      setFeedback({ type: "success", message: "Answer saved" })
-      triggerFeedbackRefresh(lessonId)
+        if (result.data) {
+          setSubmissionId(result.data.submission_id)
+        }
+
+        setLastSaved(answer)
+        setFeedback({ type: "success", message: "Answer saved" })
+        triggerFeedbackRefresh(lessonId)
+      } finally {
+        isSavingRef.current = false
+      }
     })
   }, [activity.activity_id, answer, canAnswerEffective, lastSaved, lessonId, pupilId, startTransition, feedbackAssignmentIds])
 
   const handleBlur = useCallback(() => {
-    if (!isPending) {
+    if (!isPending && !isSavingRef.current) {
       handleSave()
     }
   }, [handleSave, isPending])

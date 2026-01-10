@@ -72,13 +72,15 @@ export function PupilMcqActivity({
   const canAnswerEffective = canAnswer
 
   useEffect(() => {
+    console.log(`[PupilMcqActivity] Mount/Update: ${activity.activity_id}`, { initialSelection })
     const nextInitial = initialSelection && optionMap.has(initialSelection) ? initialSelection : null
     setSelection(nextInitial)
     setLastSaved(nextInitial)
     setFeedback(nextInitial ? { type: "success", message: "Answer saved" } : null)
-  }, [initialSelection, optionMap])
+  }, [initialSelection, optionMap, activity.activity_id])
 
   useEffect(() => {
+    console.log(`[PupilMcqActivity] Image load effect: ${activity.activity_id}`)
     let cancelled = false
 
     const directUrl =
