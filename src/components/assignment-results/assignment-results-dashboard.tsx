@@ -2001,24 +2001,22 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
 
         {selection && (
           <aside className="sticky top-4 flex h-[calc(100vh-2rem)] w-[400px] shrink-0 flex-col gap-4 overflow-hidden rounded-lg border border-border bg-card p-6 shadow-sm">
-            {selection.cell.isFlagged && (
-              <div className="flex">
-                <Badge
-                  variant="destructive"
-                  className={cn(
-                    "mb-1 cursor-pointer hover:bg-destructive/90 transition-colors gap-1.5 py-1 px-3",
-                    flagPending && "opacity-50 pointer-events-none"
-                  )}
-                  onClick={handleClearFlag}
-                >
-                  <Flag className="h-3.5 w-3.5 fill-current" />
-                  Flagged for review
-                  <span className="ml-1 text-[10px] opacity-80">(Click to resolve)</span>
-                </Badge>
-              </div>
-            )}
             <div className="flex items-start justify-between gap-2">
               <div className="space-y-1">
+                {selection.cell.isFlagged && (
+                  <Badge
+                    variant="destructive"
+                    className={cn(
+                      "mb-2 cursor-pointer hover:bg-destructive/90 transition-colors gap-1.5 py-1 px-3 w-fit",
+                      flagPending && "opacity-50 pointer-events-none"
+                    )}
+                    onClick={handleClearFlag}
+                  >
+                    <Flag className="h-3.5 w-3.5 fill-current" />
+                    Flagged for review
+                    <span className="ml-1 text-[10px] opacity-80">(Click to resolve)</span>
+                  </Badge>
+                )}
                 <h3 className="font-semibold text-foreground">
                   {selection.activity.title} • {resolvePupilLabels(selection.row.pupil).primaryLabel}
                 </h3>
@@ -2837,24 +2835,22 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       </Sheet>
       {selection && (
         <aside className="sticky top-4 flex h-[calc(100vh-2rem)] w-[400px] shrink-0 flex-col gap-4 overflow-hidden rounded-lg border border-border bg-card p-6 shadow-sm">
-              {selection.cell.isFlagged && (
-                <div className="flex">
-                  <Badge
-                    variant="destructive"
-                    className={cn(
-                      "mb-1 cursor-pointer hover:bg-destructive/90 transition-colors gap-1.5 py-1 px-3",
-                      flagPending && "opacity-50 pointer-events-none"
-                    )}
-                    onClick={handleClearFlag}
-                  >
-                    <Flag className="h-3.5 w-3.5 fill-current" />
-                    Flagged for review
-                    <span className="ml-1 text-[10px] opacity-80">(Click to resolve)</span>
-                  </Badge>
-                </div>
-              )}
               <div className="flex items-start justify-between gap-2">
                 <div className="space-y-1">
+                  {selection.cell.isFlagged && (
+                    <Badge
+                      variant="destructive"
+                      className={cn(
+                        "mb-2 cursor-pointer hover:bg-destructive/90 transition-colors gap-1.5 py-1 px-3 w-fit",
+                        flagPending && "opacity-50 pointer-events-none"
+                      )}
+                      onClick={handleClearFlag}
+                    >
+                      <Flag className="h-3.5 w-3.5 fill-current" />
+                      Flagged for review
+                      <span className="ml-1 text-[10px] opacity-80">(Click to resolve)</span>
+                    </Badge>
+                  )}
                   <h3 className="font-semibold text-foreground">
                     {selection.activity.title} • {resolvePupilLabels(selection.row.pupil).primaryLabel}
                   </h3>
