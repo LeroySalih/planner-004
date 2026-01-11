@@ -9,6 +9,10 @@ import {
   type Submission,
 } from "@/types"
 import { getActivityLessonId, logActivitySubmissionEvent } from "@/lib/activity-logging"
+import {
+  fetchActivitySuccessCriteriaIds,
+  normaliseSuccessCriteriaScores,
+} from "@/lib/scoring/success-criteria"
 import { emitSubmissionEvent } from "@/lib/sse/topics"
 import { query } from "@/lib/db"
 
