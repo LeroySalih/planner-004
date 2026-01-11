@@ -27,8 +27,8 @@ export async function invokeDoAiMarking(params: AiMarkingParams): Promise<AiMark
       "Authorization": auth,
     },
     body: JSON.stringify(params),
-    // 30 second timeout for AI marking
-    signal: AbortSignal.timeout(30000),
+    // 60 second timeout for AI marking
+    signal: AbortSignal.timeout(60000),
   });
 
   if (!response.ok) {

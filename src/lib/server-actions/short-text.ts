@@ -167,6 +167,7 @@ export async function saveShortTextAnswerAction(input: z.infer<typeof ShortTextA
         pupilId: payload.userId,
         submittedAt: savedSubmission.submitted_at ?? timestamp,
         submissionStatus: "inprogress",
+        isFlagged: false,
       })
 
       deferRevalidate(`/lessons/${payload.activityId}`)
@@ -343,10 +344,27 @@ export async function toggleSubmissionFlagAction(input: z.infer<typeof ToggleSub
   const payload = ToggleSubmissionFlagInputSchema.parse(input)
 
   try {
-    await query(
-      "update submissions set is_flagged = $1 where submission_id = $2",
+    const { rows } = await query(
+      `
+        update submissions 
+        set is_flagged = $1 
+        where submission_id = $2
+        returning activity_id, user_id, submitted_at
+      `,
       [payload.isFlagged, payload.submissionId],
     )
+
+    const updated = rows[0]
+    if (updated) {
+      void emitSubmissionEvent("submission.updated", {
+        submissionId: payload.submissionId,
+        activityId: updated.activity_id,
+        pupilId: updated.user_id,
+        submittedAt:
+          updated.submitted_at instanceof Date ? updated.submitted_at.toISOString() : updated.submitted_at,
+        isFlagged: payload.isFlagged,
+      })
+    }
 
     if (payload.path) {
       revalidatePath(payload.path)
