@@ -19,6 +19,7 @@ import {
   normaliseSuccessCriteriaScores,
 } from "@/lib/scoring/success-criteria"
 import { getActivityLessonId, logActivitySubmissionEvent } from "@/lib/activity-logging"
+import { emitSubmissionEvent } from "@/lib/sse/topics"
 
 const SubmissionResultSchema = z.object({
   data: SubmissionSchema.nullable(),
@@ -614,6 +615,15 @@ export async function upsertMcqSubmissionAction(input: z.infer<typeof McqSubmiss
         submittedAt: parsed.data.submitted_at ?? timestamp,
       })
 
+      void emitSubmissionEvent("submission.updated", {
+        submissionId: parsed.data.submission_id,
+        activityId: payload.activityId,
+        pupilId: payload.userId,
+        submittedAt: parsed.data.submitted_at ?? timestamp,
+        submissionStatus: "inprogress",
+        isFlagged: false,
+      })
+
       console.log("[realtime-debug] MCQ submission stored", {
         type: "update",
         activityId: payload.activityId,
@@ -652,6 +662,15 @@ export async function upsertMcqSubmissionAction(input: z.infer<typeof McqSubmiss
       pupilId: payload.userId,
       fileName: null,
       submittedAt: parsed.data.submitted_at ?? timestamp,
+    })
+
+    void emitSubmissionEvent("submission.updated", {
+      submissionId: parsed.data.submission_id,
+      activityId: payload.activityId,
+      pupilId: payload.userId,
+      submittedAt: parsed.data.submitted_at ?? timestamp,
+      submissionStatus: "inprogress",
+      isFlagged: false,
     })
 
     console.log("[realtime-debug] MCQ submission stored", {

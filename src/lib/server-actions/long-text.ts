@@ -94,6 +94,7 @@ export async function saveLongTextAnswerAction(input: z.infer<typeof LongTextAns
         pupilId: payload.userId,
         submittedAt: parsed.data.submitted_at ?? timestamp,
         submissionStatus: "inprogress",
+        isFlagged: false,
       })
 
       deferRevalidate(`/lessons/${payload.activityId}`)
@@ -130,6 +131,7 @@ export async function saveLongTextAnswerAction(input: z.infer<typeof LongTextAns
       pupilId: payload.userId,
       submittedAt: parsed.data.submitted_at ?? timestamp,
       submissionStatus: "inprogress",
+      isFlagged: false,
     })
 
     deferRevalidate(`/lessons/${payload.activityId}`)

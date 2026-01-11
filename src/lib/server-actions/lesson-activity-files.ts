@@ -497,6 +497,7 @@ export async function uploadPupilActivitySubmissionAction(formData: FormData) {
         submittedAt,
         fileName,
         submissionStatus: "inprogress",
+        isFlagged: false,
       })
 
       deferRevalidate(`/pupil-lessons/${encodeURIComponent(userId)}/lessons/${encodeURIComponent(lessonId)}`)
