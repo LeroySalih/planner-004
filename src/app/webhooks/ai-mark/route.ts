@@ -214,7 +214,9 @@ export async function POST(request: Request) {
     const existingSubmission = submissionsByPupil.get(resultPupilId) ?? null
     await logQueueEvent('info', `Processing result for pupil ${resultPupilId}`, { 
       hasExistingSubmission: !!existingSubmission,
-      submissionId: existingSubmission?.submission_id 
+      submissionId: existingSubmission?.submission_id,
+      receivedScore: result.score,
+      receivedFeedback: result.feedback
     });
 
     try {
