@@ -29,6 +29,7 @@ import {
   resetAssignmentScoreAction,
   updateAssignmentFeedbackVisibilityAction,
   triggerManualAiMarkingAction,
+  toggleSubmissionFlagAction,
 } from "@/lib/server-updates"
 import { resolveScoreTone } from "@/lib/results/colors"
 import {
@@ -477,6 +478,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
   const [aiMarkPending, startAiMarkTransition] = useTransition()
   const [clearAiPending, startClearAiTransition] = useTransition()
   const [feedbackTogglePending, startFeedbackToggleTransition] = useTransition()
+  const [flagPending, startFlagTransition] = useTransition()
   const router = useRouter()
   const matrixStateRef = useRef(matrixState)
   const buildOverrideKey = useCallback((rowIndex: number, activityIndex: number) => `${rowIndex}:${activityIndex}`, [])
@@ -1113,6 +1115,40 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       }
     })
   }, [])
+
+  const handleClearFlag = useCallback(() => {
+    if (!selection) {
+      toast.error("No selection to update.")
+      return
+    }
+
+    if (!selection.cell.submissionId) {
+      toast.error("No submission available to update.")
+      return
+    }
+
+    startFlagTransition(async () => {
+      try {
+        // Optimistic update
+        applyCellUpdate((cell) => ({ ...cell, isFlagged: false }))
+        setSelection((prev) => (prev ? { ...prev, cell: { ...prev.cell, isFlagged: false } } : null))
+
+        const result = await toggleSubmissionFlagAction({
+          submissionId: selection.cell.submissionId!,
+          isFlagged: false,
+        })
+
+        if (result.success) {
+          toast.success("Flag cleared.")
+        } else {
+          toast.error("Failed to clear flag.")
+        }
+      } catch (error) {
+        console.error("[assignment-results] Failed to clear flag", error)
+        toast.error("An error occurred while clearing the flag.")
+      }
+    })
+  }, [selection, applyCellUpdate, startFlagTransition])
 
   const normalizeRow = (row: unknown): SubmissionRow | null => {
     if (!row || typeof row !== "object") {
@@ -1965,6 +2001,22 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
 
         {selection && (
           <aside className="sticky top-4 flex h-[calc(100vh-2rem)] w-[400px] shrink-0 flex-col gap-4 overflow-hidden rounded-lg border border-border bg-card p-6 shadow-sm">
+            {selection.cell.isFlagged && (
+              <div className="flex">
+                <Badge
+                  variant="destructive"
+                  className={cn(
+                    "mb-1 cursor-pointer hover:bg-destructive/90 transition-colors gap-1.5 py-1 px-3",
+                    flagPending && "opacity-50 pointer-events-none"
+                  )}
+                  onClick={handleClearFlag}
+                >
+                  <Flag className="h-3.5 w-3.5 fill-current" />
+                  Flagged for review
+                  <span className="ml-1 text-[10px] opacity-80">(Click to resolve)</span>
+                </Badge>
+              </div>
+            )}
             <div className="flex items-start justify-between gap-2">
               <div className="space-y-1">
                 <h3 className="font-semibold text-foreground">
@@ -2642,7 +2694,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                               >
                                 {formatPercent(cell.score ?? null)}
                                 {cell.isFlagged ? (
-                                  <Flag className="ml-1.5 h-3.5 w-3.5 fill-destructive text-destructive" />
+                                  <Flag className="ml-1.5 h-3.5 w-3.5 fill-current" />
                                 ) : null}
                               </button>
                             </td>
@@ -2785,6 +2837,22 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       </Sheet>
       {selection && (
         <aside className="sticky top-4 flex h-[calc(100vh-2rem)] w-[400px] shrink-0 flex-col gap-4 overflow-hidden rounded-lg border border-border bg-card p-6 shadow-sm">
+              {selection.cell.isFlagged && (
+                <div className="flex">
+                  <Badge
+                    variant="destructive"
+                    className={cn(
+                      "mb-1 cursor-pointer hover:bg-destructive/90 transition-colors gap-1.5 py-1 px-3",
+                      flagPending && "opacity-50 pointer-events-none"
+                    )}
+                    onClick={handleClearFlag}
+                  >
+                    <Flag className="h-3.5 w-3.5 fill-current" />
+                    Flagged for review
+                    <span className="ml-1 text-[10px] opacity-80">(Click to resolve)</span>
+                  </Badge>
+                </div>
+              )}
               <div className="flex items-start justify-between gap-2">
                 <div className="space-y-1">
                   <h3 className="font-semibold text-foreground">
