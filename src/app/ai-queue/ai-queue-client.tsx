@@ -11,9 +11,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { readAiMarkingQueueAction, retryQueueItemAction } from "@/lib/server-actions/ai-queue"
+import { readAiMarkingQueueAction, retryQueueItemAction, processQueueAction } from "@/lib/server-actions/ai-queue"
 import { toast } from "sonner"
-import { RefreshCw, RotateCcw } from "lucide-react"
+import { RefreshCw, RotateCcw, Play } from "lucide-react"
 
 export default function AiQueuePage() {
   const [data, setData] = useState<any[]>([])
@@ -52,6 +52,18 @@ export default function AiQueuePage() {
     })
   }
 
+  const handleProcessQueue = () => {
+    startTransition(async () => {
+      const result = await processQueueAction()
+      if (result.success) {
+        toast.success("Queue processing triggered")
+        setTimeout(loadData, 1000)
+      } else {
+        toast.error("Failed to trigger queue processing")
+      }
+    })
+  }
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "pending":
@@ -74,10 +86,16 @@ export default function AiQueuePage() {
           <h1 className="text-2xl font-semibold tracking-tight">AI Marking Queue</h1>
           <p className="text-sm text-muted-foreground">Monitor and manage background AI marking tasks.</p>
         </div>
-        <Button variant="outline" size="sm" onClick={loadData} disabled={isLoading}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
-          Refresh
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="default" size="sm" onClick={handleProcessQueue} disabled={isLoading || isPending || stats.pending === 0}>
+            <Play className="h-4 w-4 mr-2" />
+            Process Queue
+          </Button>
+          <Button variant="outline" size="sm" onClick={loadData} disabled={isLoading}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-4 gap-4">

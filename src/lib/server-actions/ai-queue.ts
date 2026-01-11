@@ -58,3 +58,13 @@ export async function retryQueueItemAction(queueId: string) {
     return { success: false, error: "Failed to retry item." };
   }
 }
+
+export async function processQueueAction() {
+  try {
+    void triggerQueueProcessor();
+    return { success: true };
+  } catch (error) {
+    console.error("[ai-queue] Failed to trigger processor:", error);
+    return { success: false };
+  }
+}
