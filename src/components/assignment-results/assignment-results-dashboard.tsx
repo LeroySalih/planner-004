@@ -1262,6 +1262,17 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
           if (!selectLatestSubmission(cell, submittedAt)) {
             return cell
           }
+
+          if (!record.body) {
+            updatedCell = {
+              ...cell,
+              submissionId: record.submission_id ?? cell.submissionId,
+              submittedAt: submittedAt ?? cell.submittedAt,
+              isFlagged: typeof record.is_flagged === "boolean" ? record.is_flagged : cell.isFlagged,
+            }
+            return updatedCell
+          }
+
           const metadata = {
             question: cell.question ?? null,
             correctAnswer: cell.correctAnswer ?? null,
@@ -1280,37 +1291,37 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
           updatedCell = {
             ...cell,
             submissionId: record.submission_id ?? cell.submissionId,
-            score: finalScore,
-            autoScore: extracted.autoScore ?? finalScore,
-            overrideScore: extracted.overrideScore,
-            status,
-            submittedAt,
-            feedback: extracted.feedback,
+            score: finalScore ?? cell.score,
+            autoScore: extracted.autoScore ?? finalScore ?? cell.autoScore,
+            overrideScore: extracted.overrideScore ?? cell.overrideScore,
+            status: status !== "missing" ? status : cell.status,
+            submittedAt: submittedAt ?? cell.submittedAt,
+            feedback: extracted.feedback ?? cell.feedback,
             feedbackSource:
               extracted.feedback && extracted.feedback.trim().length > 0
                 ? status === "override"
                   ? "teacher"
-                  : cell.feedbackSource ?? null
-                : cell.feedbackSource ?? null,
+                  : cell.feedbackSource ?? "teacher"
+                : cell.feedbackSource,
             feedbackUpdatedAt:
-              extracted.feedback && extracted.feedback.trim().length > 0 ? submittedAt : cell.feedbackUpdatedAt ?? null,
-            autoFeedback: extracted.autoFeedback ?? null,
+              extracted.feedback && extracted.feedback.trim().length > 0 ? submittedAt : cell.feedbackUpdatedAt,
+            autoFeedback: extracted.autoFeedback ?? cell.autoFeedback,
             autoFeedbackSource:
               extracted.autoFeedback && extracted.autoFeedback.trim().length > 0
                 ? activityType === "short-text-question"
                   ? "ai"
                   : cell.autoFeedbackSource ?? "auto"
-                : cell.autoFeedbackSource ?? null,
+                : cell.autoFeedbackSource,
             autoFeedbackUpdatedAt:
               extracted.autoFeedback && extracted.autoFeedback.trim().length > 0
                 ? submittedAt
-                : cell.autoFeedbackUpdatedAt ?? null,
+                : cell.autoFeedbackUpdatedAt,
             successCriteriaScores: extracted.successCriteriaScores,
             autoSuccessCriteriaScores: extracted.autoSuccessCriteriaScores,
-            overrideSuccessCriteriaScores: extracted.overrideSuccessCriteriaScores ?? undefined,
+            overrideSuccessCriteriaScores: extracted.overrideSuccessCriteriaScores ?? cell.overrideSuccessCriteriaScores,
             pupilAnswer: extracted.pupilAnswer ?? cell.pupilAnswer,
             needsMarking: status === "missing" ? Boolean(record.submission_id) : false,
-            isFlagged: Boolean(record.is_flagged),
+            isFlagged: typeof record.is_flagged === "boolean" ? record.is_flagged : cell.isFlagged,
           }
           return updatedCell
         },
@@ -1483,16 +1494,18 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
           const body =
             typeof payload.body === "object" && payload.body
               ? (payload.body as Record<string, unknown>)
-              : {
-                  upload_submission: true,
-                  upload_file_name:
-                    typeof payload.fileName === "string"
-                      ? payload.fileName
-                      : typeof payload.upload_file_name === "string"
-                        ? payload.upload_file_name
-                        : null,
-                  upload_updated_at: submittedAt,
-                }
+              : (envelope.type?.includes("uploaded") || typeof payload.fileName === "string")
+                ? {
+                    upload_submission: true,
+                    upload_file_name:
+                      typeof payload.fileName === "string"
+                        ? payload.fileName
+                        : typeof payload.upload_file_name === "string"
+                          ? payload.upload_file_name
+                          : null,
+                    upload_updated_at: submittedAt,
+                  }
+                : null
 
           const isFlagged =
             typeof payload.isFlagged === "boolean"
