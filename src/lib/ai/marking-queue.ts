@@ -168,6 +168,7 @@ export async function triggerQueueProcessor(baseUrl?: string) {
   }
 
   const url = `${effectiveBaseUrl}/api/marking/process-queue`;
+  console.log(`[marking-queue] Triggering processor at: ${url}`);
   
   // Fire and forget
   void fetch(url, {

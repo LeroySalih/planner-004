@@ -2,7 +2,7 @@
 
 import { query } from "@/lib/db";
 import { revalidatePath } from "next/cache";
-import { triggerQueueProcessor } from "@/lib/ai/marking-queue";
+import { triggerQueueProcessor, processNextQueueItem, logQueueEvent } from "@/lib/ai/marking-queue";
 
 export async function readAiMarkingQueueAction() {
   try {
@@ -61,10 +61,22 @@ export async function retryQueueItemAction(queueId: string) {
 
 export async function processQueueAction() {
   try {
-    void triggerQueueProcessor();
+    await logQueueEvent('info', 'Manual process trigger received');
+    // Process one item immediately in this request to guarantee some activity
+    const result = await processNextQueueItem();
+    await logQueueEvent('info', `Manual trigger result: ${JSON.stringify(result)}`);
+    
+    // If there's more, trigger the background processor
+    if (result.remaining > 0) {
+      void triggerQueueProcessor();
+    }
+    
+    revalidatePath("/ai-queue");
     return { success: true };
   } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
     console.error("[ai-queue] Failed to trigger processor:", error);
+    await logQueueEvent('error', 'Manual process trigger failed', { error: msg });
     return { success: false };
   }
 }
