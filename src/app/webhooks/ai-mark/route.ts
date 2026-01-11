@@ -88,6 +88,8 @@ export async function POST(request: Request) {
     console.warn("[ai-mark-webhook] Unauthorized webhook attempt: missing or mismatched mark-service-key header.")
     await logQueueEvent('warn', 'Unauthorized webhook attempt', { 
       receivedHeader: inboundServiceKey ? 'Present (mismatched)' : 'Missing',
+      expectedLength: expectedServiceKey.trim().length,
+      receivedLength: inboundServiceKey ? inboundServiceKey.trim().length : 0,
       headers: headerMap 
     });
     return NextResponse.json(
