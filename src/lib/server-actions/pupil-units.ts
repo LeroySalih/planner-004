@@ -110,6 +110,7 @@ type LessonObjective = z.infer<typeof LessonObjectiveSchema>
 type DisplayImage = z.infer<typeof DisplayImageSchema>
 type LessonFile = z.infer<typeof LessonFileSchema>
 type SubjectUnitsPayload = z.infer<typeof SubjectUnitsSchema>
+type LessonPayload = SubjectUnitsPayload["subjects"][number]["units"][number]["lessons"][number]
 
 type LessonObjectiveRow = {
   lesson_id: string
@@ -488,7 +489,7 @@ export async function readPupilUnitsBootstrapAction(pupilId: string, options?: T
             })
 
             units.forEach((unit) =>
-              unit.lessons.sort((a, b) => {
+              (unit.lessons as LessonPayload[]).sort((a: LessonPayload, b: LessonPayload) => {
                 const dateA = a.startDate ? Date.parse(a.startDate) : Number.NEGATIVE_INFINITY
                 const dateB = b.startDate ? Date.parse(b.startDate) : Number.NEGATIVE_INFINITY
                 if (!Number.isNaN(dateA) && !Number.isNaN(dateB) && dateA !== dateB) {

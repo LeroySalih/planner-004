@@ -144,6 +144,7 @@ type AssignmentResultsRealtimePayload = {
   aiScore: number | null
   aiFeedback: string | null
   successCriteriaScores: Record<string, number>
+  isFlagged?: boolean
 }
 
 const OVERRIDE_ACTION_INITIAL_STATE: OverrideActionState = { status: "idle" }
@@ -1457,12 +1458,20 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                   upload_updated_at: submittedAt,
                 }
 
+          const isFlagged =
+            typeof payload.isFlagged === "boolean"
+              ? payload.isFlagged
+              : typeof payload.is_flagged === "boolean"
+                ? payload.is_flagged
+                : null
+
           const record: SubmissionRow = {
             submission_id: submissionId,
             activity_id: activityId,
             user_id: pupilId,
             submitted_at: submittedAt,
             body,
+            is_flagged: isFlagged,
           }
 
           const eventType =
