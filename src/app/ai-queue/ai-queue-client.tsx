@@ -12,7 +12,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { readAiMarkingQueueAction, retryQueueItemAction, processQueueAction, readAiMarkingLogsAction, clearAiMarkingQueueAction } from "@/lib/server-actions/ai-queue"
+import { readAiMarkingQueueAction, retryQueueItemAction, processQueueAction, readAiMarkingLogsAction, clearAiMarkingQueueAction, clearAiMarkingLogsAction } from "@/lib/server-actions/ai-queue"
 import { toast } from "sonner"
 import { RefreshCw, RotateCcw, Play, MessageSquare, Activity, Trash2 } from "lucide-react"
 
@@ -91,6 +91,22 @@ export default function AiQueuePage() {
     })
   }
 
+  const handleClearLogs = () => {
+    if (!confirm("Are you sure you want to clear all process logs?")) {
+      return
+    }
+
+    startTransition(async () => {
+      const result = await clearAiMarkingLogsAction()
+      if (result.success) {
+        toast.success("Logs cleared")
+        loadData()
+      } else {
+        toast.error("Failed to clear logs")
+      }
+    })
+  }
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "pending":
@@ -127,6 +143,10 @@ export default function AiQueuePage() {
           <p className="text-sm text-muted-foreground">Monitor and manage background AI marking tasks and logs.</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleClearLogs} disabled={isLoading || isPending || logs.length === 0}>
+            <Trash2 className="h-4 w-4 mr-2" />
+            Clear Logs
+          </Button>
           <Button variant="destructive" size="sm" onClick={handleClearQueue} disabled={isLoading || isPending || data.length === 0}>
             <Trash2 className="h-4 w-4 mr-2" />
             Clear Queue
@@ -255,8 +275,12 @@ export default function AiQueuePage() {
                     <TableRow key={log.log_id}>
                       <TableCell>{getLogLevelBadge(log.level)}</TableCell>
                       <TableCell className="font-medium">{log.message}</TableCell>
-                      <TableCell className="text-xs font-mono max-w-[400px] truncate">
-                        {log.metadata ? JSON.stringify(log.metadata) : "—"}
+                      <TableCell className="text-xs font-mono max-w-[400px]">
+                        {log.metadata ? (
+                          <pre className="bg-muted p-2 rounded overflow-auto max-h-40 text-[10px]">
+                            {JSON.stringify(log.metadata, null, 2)}
+                          </pre>
+                        ) : "—"}
                       </TableCell>
                       <TableCell className="text-right text-xs text-muted-foreground whitespace-nowrap">
                         {new Date(log.created_at).toLocaleString()}

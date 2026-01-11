@@ -104,3 +104,14 @@ export async function clearAiMarkingQueueAction() {
     return { success: false, error: "Failed to clear queue." };
   }
 }
+
+export async function clearAiMarkingLogsAction() {
+  try {
+    await query(`DELETE FROM ai_marking_logs`);
+    revalidatePath("/ai-queue");
+    return { success: true };
+  } catch (error) {
+    console.error("[ai-queue] Failed to clear logs:", error);
+    return { success: false, error: "Failed to clear logs." };
+  }
+}

@@ -91,19 +91,24 @@ export async function processNextQueueItem() {
 
       // 3. Trigger DO function (Fire and Forget if it supports webhook)
       // We pass the webhook info to DO
-      await logQueueEvent('info', `Triggering DO function for submission ${item.submission_id}`);
-      await invokeDoAiMarking({
+      const doParams = {
         question: parsedActivity.question,
         model_answer: parsedActivity.modelAnswer,
         pupil_answer: parsedSubmission.answer || "",
-        // Custom params for the DO function to know where to send results
-        // @ts-ignore - adding extra params for the upgraded DO function
         webhook_url: callbackUrl,
         group_assignment_id: item.assignment_id,
         activity_id: context.activity_id,
         pupil_id: context.pupil_id,
         submission_id: item.submission_id
-      });
+      };
+
+      await logQueueEvent(
+        'info', 
+        `Triggering DO function for submission ${item.submission_id}`, 
+        doParams
+      );
+
+      await invokeDoAiMarking(doParams);
 
       // Note: We don't mark as 'completed' here. 
       // The webhook callback will do that.
