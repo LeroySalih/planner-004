@@ -724,9 +724,9 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
         })
 
         if (result.success) {
-          toast.success("AI marking requested.")
+          toast.success("AI marking queued.")
         } else {
-          toast.error("Failed to request AI marking.")
+          toast.error("Failed to queue AI marking.")
         }
       } catch (error) {
         console.error("[assignment-results] Manual AI marking trigger failed", error)
