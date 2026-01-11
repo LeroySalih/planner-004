@@ -177,7 +177,7 @@ export async function POST(request: Request) {
         select submission_id, user_id, body, submitted_at
         from submissions
         where activity_id = $1
-          and user_id = any($2::uuid[])
+          and user_id = any($2::text[])
       `,
       [parsed.data.activity_id, pupilIds],
     )
