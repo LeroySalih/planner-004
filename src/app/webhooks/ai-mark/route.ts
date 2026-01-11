@@ -207,10 +207,16 @@ export async function POST(request: Request) {
   for (const result of parsed.data.results) {
     const resultPupilId = resolveResultPupilId(result)
     if (!resultPupilId) {
+      await logQueueEvent('warn', 'Webhook result missing pupil ID', { result });
       summary.skipped += 1
       continue
     }
     const existingSubmission = submissionsByPupil.get(resultPupilId) ?? null
+    await logQueueEvent('info', `Processing result for pupil ${resultPupilId}`, { 
+      hasExistingSubmission: !!existingSubmission,
+      submissionId: existingSubmission?.submission_id 
+    });
+
     try {
       if (existingSubmission) {
         const updated = await applyAiMarkToSubmission({
@@ -230,6 +236,7 @@ export async function POST(request: Request) {
           await resolveQueueItem(existingSubmission.submission_id)
           await logQueueEvent('info', `Resolved queue item for submission ${existingSubmission.submission_id}`);
         } else {
+          await logQueueEvent('warn', `applyAiMarkToSubmission returned updated:false for ${existingSubmission.submission_id}`);
           summary.skipped += 1
         }
       } else {
@@ -251,6 +258,7 @@ export async function POST(request: Request) {
             }
           }
         } else {
+          await logQueueEvent('warn', `createAiMarkedSubmission returned created:false for pupil ${resultPupilId}`);
           summary.skipped += 1
         }
       }
