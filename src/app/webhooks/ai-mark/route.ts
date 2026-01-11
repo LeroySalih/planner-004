@@ -63,9 +63,16 @@ type ResultEntry = z.infer<typeof ResultEntrySchema>
 type ResultPupil = string
 
 export async function POST(request: Request) {
+  // Capture all headers for debugging
+  const headerMap: Record<string, string> = {};
+  request.headers.forEach((value, key) => {
+    headerMap[key] = key.toLowerCase().includes('key') || key.toLowerCase().includes('auth') ? '[REDACTED]' : value;
+  });
+
   const expectedServiceKey = process.env.MARK_SERVICE_KEY ?? process.env.AI_MARK_SERVICE_KEY
   if (!expectedServiceKey || expectedServiceKey.trim().length === 0) {
     console.error("[ai-mark-webhook] MARK_SERVICE_KEY is not configured")
+    await logQueueEvent('error', 'Webhook failed: MARK_SERVICE_KEY not configured on server', { headers: headerMap });
     return NextResponse.json(
       {
         success: false,
@@ -78,18 +85,17 @@ export async function POST(request: Request) {
 
   const inboundServiceKey = request.headers.get("mark-service-key") ?? request.headers.get("Mark-Service-Key")
   if (!inboundServiceKey || inboundServiceKey.trim() !== expectedServiceKey.trim()) {
-    console.warn("[ai-mark-webhook] Unauthorized webhook attempt: missing or mismatched mark-service-key header.", {
-      inboundServiceKey,
-      expectedServiceKey,
-    })
+    console.warn("[ai-mark-webhook] Unauthorized webhook attempt: missing or mismatched mark-service-key header.")
+    await logQueueEvent('warn', 'Unauthorized webhook attempt', { 
+      receivedHeader: inboundServiceKey ? 'Present (mismatched)' : 'Missing',
+      headers: headerMap 
+    });
     return NextResponse.json(
       {
         success: false,
         error: "Unauthorized",
         details: {
           header: "mark-service-key",
-          received: inboundServiceKey ?? null,
-          expected: expectedServiceKey,
           message: !inboundServiceKey ? "Header missing" : "Header present but does not match MARK_SERVICE_KEY.",
         },
       },
