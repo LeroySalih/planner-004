@@ -10,7 +10,7 @@ import {
 } from "@/lib/results-sse"
 import { insertPupilActivityFeedbackEntry } from "@/lib/feedback/pupil-activity-feedback"
 import { query } from "@/lib/db"
-import { resolveQueueItem } from "@/lib/ai/marking-queue"
+import { resolveQueueItem, logQueueEvent } from "@/lib/ai/marking-queue"
 
 export const dynamic = "force-dynamic"
 
@@ -100,6 +100,7 @@ export async function POST(request: Request) {
   let json: unknown
   try {
     json = await request.json()
+    await logQueueEvent('info', 'Webhook received payload', { resultCount: (json as any)?.results?.length });
   } catch (error) {
     console.error("[ai-mark-webhook] Failed to parse payload", error)
     return NextResponse.json({ success: false, error: "Invalid JSON payload." }, { status: 400 })
@@ -108,6 +109,7 @@ export async function POST(request: Request) {
   const parsed = PayloadSchema.safeParse(json)
   if (!parsed.success) {
     console.error("[ai-mark-webhook] Payload validation failed", parsed.error)
+    await logQueueEvent('error', 'Webhook payload validation failed', { error: parsed.error });
     return NextResponse.json({ success: false, error: "Invalid payload." }, { status: 400 })
   }
 
@@ -218,6 +220,7 @@ export async function POST(request: Request) {
           }
           // Resolve from queue
           await resolveQueueItem(existingSubmission.submission_id)
+          await logQueueEvent('info', `Resolved queue item for submission ${existingSubmission.submission_id}`);
         } else {
           summary.skipped += 1
         }
@@ -236,6 +239,7 @@ export async function POST(request: Request) {
             // Resolve from queue if we have a submissionId
             if (created.payload.submissionId) {
               await resolveQueueItem(created.payload.submissionId)
+              await logQueueEvent('info', `Resolved queue item for new submission ${created.payload.submissionId}`);
             }
           }
         } else {
@@ -248,6 +252,7 @@ export async function POST(request: Request) {
         pupilId: resultPupilId ?? "(unknown)",
         error,
       })
+      await logQueueEvent('error', `Failed to apply AI mark for pupil ${resultPupilId}`, { error: String(error) });
     }
   }
 
