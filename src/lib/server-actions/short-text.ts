@@ -18,6 +18,7 @@ import {
 import { fetchActivitySuccessCriteriaIds, normaliseSuccessCriteriaScores } from "@/lib/scoring/success-criteria"
 import { getActivityLessonId, logActivitySubmissionEvent } from "@/lib/activity-logging"
 import { emitSubmissionEvent } from "@/lib/sse/topics"
+import { enqueueMarkingTasks, triggerQueueProcessor } from "@/lib/ai/marking-queue"
 import { query } from "@/lib/db"
 import { runAiMarkingFlow } from "@/lib/ai/ai-marking-service"
 
@@ -46,6 +47,13 @@ const ManualAiMarkingInputSchema = z.object({
   pupilId: z.string().min(1),
   submissionId: z.string().min(1),
   assignmentId: z.string().min(1),
+})
+
+const BulkAiMarkingInputSchema = z.object({
+  assignmentId: z.string().min(1),
+  submissions: z.array(z.object({
+    submissionId: z.string().min(1),
+  })),
 })
 
 const OverrideShortTextScoreSchema = z.object({
@@ -185,13 +193,17 @@ export async function saveShortTextAnswerAction(input: z.infer<typeof ShortTextA
 export async function triggerManualAiMarkingAction(input: z.infer<typeof ManualAiMarkingInputSchema>) {
   const payload = ManualAiMarkingInputSchema.parse(input)
   
-  // We trigger it but don't await so the UI stays responsive
-  void runAiMarkingFlow({
-    assignmentId: payload.assignmentId,
-    activityId: payload.activityId,
-    pupilId: payload.pupilId,
-    submissionId: payload.submissionId,
-  })
+  await enqueueMarkingTasks(payload.assignmentId, [{ submissionId: payload.submissionId }]);
+  void triggerQueueProcessor();
+
+  return { success: true }
+}
+
+export async function triggerBulkAiMarkingAction(input: z.infer<typeof BulkAiMarkingInputSchema>) {
+  const payload = BulkAiMarkingInputSchema.parse(input)
+  
+  await enqueueMarkingTasks(payload.assignmentId, payload.submissions);
+  void triggerQueueProcessor();
 
   return { success: true }
 }

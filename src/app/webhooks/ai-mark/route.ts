@@ -10,6 +10,7 @@ import {
 } from "@/lib/results-sse"
 import { insertPupilActivityFeedbackEntry } from "@/lib/feedback/pupil-activity-feedback"
 import { query } from "@/lib/db"
+import { resolveQueueItem } from "@/lib/ai/marking-queue"
 
 export const dynamic = "force-dynamic"
 
@@ -215,6 +216,8 @@ export async function POST(request: Request) {
           if (updated.payload) {
             realtimeEvents.push(updated.payload)
           }
+          // Resolve from queue
+          await resolveQueueItem(existingSubmission.submission_id)
         } else {
           summary.skipped += 1
         }
@@ -230,6 +233,10 @@ export async function POST(request: Request) {
           summary.created += 1
           if (created.payload) {
             realtimeEvents.push(created.payload)
+            // Resolve from queue if we have a submissionId
+            if (created.payload.submissionId) {
+              await resolveQueueItem(created.payload.submissionId)
+            }
           }
         } else {
           summary.skipped += 1
