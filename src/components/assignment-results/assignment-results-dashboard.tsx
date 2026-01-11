@@ -29,6 +29,7 @@ import {
   resetAssignmentScoreAction,
   updateAssignmentFeedbackVisibilityAction,
   triggerManualAiMarkingAction,
+  triggerBulkAiMarkingAction,
   toggleSubmissionFlagAction,
 } from "@/lib/server-updates"
 import { resolveScoreTone } from "@/lib/results/colors"
@@ -723,9 +724,9 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
         })
 
         if (result.success) {
-          toast.success("AI marking requested.")
+          toast.success("AI marking queued.")
         } else {
-          toast.error("Failed to request AI marking.")
+          toast.error("Failed to queue AI marking.")
         }
       } catch (error) {
         console.error("[assignment-results] Manual AI marking trigger failed", error)
@@ -758,17 +759,18 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
 
     startAiMarkTransition(async () => {
       try {
-        const requests = submissionsToMark.map((s) =>
-          triggerManualAiMarkingAction({
-            activityId: activity.activityId,
-            pupilId: s.pupilId,
+        const result = await triggerBulkAiMarkingAction({
+          assignmentId: matrixState.assignmentId,
+          submissions: submissionsToMark.map((s) => ({
             submissionId: s.submissionId,
-            assignmentId: matrixState.assignmentId,
-          }),
-        )
+          })),
+        })
 
-        await Promise.all(requests)
-        toast.success(`AI marking requested for ${submissionsToMark.length} submissions.`)
+        if (result.success) {
+          toast.success(`AI marking queued for ${submissionsToMark.length} submissions.`)
+        } else {
+          toast.error("Failed to queue AI marking.")
+        }
       } catch (error) {
         console.error("[assignment-results] Column AI marking failed", error)
         toast.error("Failed to request AI marking for the column.")

@@ -4,6 +4,12 @@ export interface AiMarkingParams {
   question: string;
   model_answer: string;
   pupil_answer: string;
+  // Optional callback and context for async processing
+  webhook_url?: string;
+  group_assignment_id?: string;
+  activity_id?: string;
+  pupil_id?: string;
+  submission_id?: string;
 }
 
 export interface AiMarkingResult {
@@ -34,6 +40,11 @@ export async function invokeDoAiMarking(params: AiMarkingParams): Promise<AiMark
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(`AI Marking FaaS request failed (${response.status}): ${errorText}`);
+  }
+
+  // If we are using a webhook, we don't expect an immediate result
+  if (params.webhook_url) {
+    return { score: 0, feedback: "Awaiting webhook callback..." };
   }
 
   const data = await response.json();

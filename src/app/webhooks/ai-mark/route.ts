@@ -10,6 +10,7 @@ import {
 } from "@/lib/results-sse"
 import { insertPupilActivityFeedbackEntry } from "@/lib/feedback/pupil-activity-feedback"
 import { query } from "@/lib/db"
+import { resolveQueueItem, logQueueEvent } from "@/lib/ai/marking-queue"
 
 export const dynamic = "force-dynamic"
 
@@ -62,9 +63,16 @@ type ResultEntry = z.infer<typeof ResultEntrySchema>
 type ResultPupil = string
 
 export async function POST(request: Request) {
+  // Capture all headers for debugging
+  const headerMap: Record<string, string> = {};
+  request.headers.forEach((value, key) => {
+    headerMap[key] = key.toLowerCase().includes('key') || key.toLowerCase().includes('auth') ? '[REDACTED]' : value;
+  });
+
   const expectedServiceKey = process.env.MARK_SERVICE_KEY ?? process.env.AI_MARK_SERVICE_KEY
   if (!expectedServiceKey || expectedServiceKey.trim().length === 0) {
     console.error("[ai-mark-webhook] MARK_SERVICE_KEY is not configured")
+    await logQueueEvent('error', 'Webhook failed: MARK_SERVICE_KEY not configured on server', { headers: headerMap });
     return NextResponse.json(
       {
         success: false,
@@ -77,18 +85,19 @@ export async function POST(request: Request) {
 
   const inboundServiceKey = request.headers.get("mark-service-key") ?? request.headers.get("Mark-Service-Key")
   if (!inboundServiceKey || inboundServiceKey.trim() !== expectedServiceKey.trim()) {
-    console.warn("[ai-mark-webhook] Unauthorized webhook attempt: missing or mismatched mark-service-key header.", {
-      inboundServiceKey,
-      expectedServiceKey,
-    })
+    console.warn("[ai-mark-webhook] Unauthorized webhook attempt: missing or mismatched mark-service-key header.")
+    await logQueueEvent('warn', 'Unauthorized webhook attempt', { 
+      receivedHeader: inboundServiceKey ? 'Present (mismatched)' : 'Missing',
+      expectedLength: expectedServiceKey.trim().length,
+      receivedLength: inboundServiceKey ? inboundServiceKey.trim().length : 0,
+      headers: headerMap 
+    });
     return NextResponse.json(
       {
         success: false,
         error: "Unauthorized",
         details: {
           header: "mark-service-key",
-          received: inboundServiceKey ?? null,
-          expected: expectedServiceKey,
           message: !inboundServiceKey ? "Header missing" : "Header present but does not match MARK_SERVICE_KEY.",
         },
       },
@@ -99,6 +108,7 @@ export async function POST(request: Request) {
   let json: unknown
   try {
     json = await request.json()
+    await logQueueEvent('info', 'Webhook received payload', { resultCount: (json as any)?.results?.length });
   } catch (error) {
     console.error("[ai-mark-webhook] Failed to parse payload", error)
     return NextResponse.json({ success: false, error: "Invalid JSON payload." }, { status: 400 })
@@ -107,6 +117,7 @@ export async function POST(request: Request) {
   const parsed = PayloadSchema.safeParse(json)
   if (!parsed.success) {
     console.error("[ai-mark-webhook] Payload validation failed", parsed.error)
+    await logQueueEvent('error', 'Webhook payload validation failed', { error: parsed.error });
     return NextResponse.json({ success: false, error: "Invalid payload." }, { status: 400 })
   }
 
@@ -166,7 +177,7 @@ export async function POST(request: Request) {
         select submission_id, user_id, body, submitted_at
         from submissions
         where activity_id = $1
-          and user_id = any($2::uuid[])
+          and user_id = any($2::text[])
       `,
       [parsed.data.activity_id, pupilIds],
     )
@@ -196,10 +207,18 @@ export async function POST(request: Request) {
   for (const result of parsed.data.results) {
     const resultPupilId = resolveResultPupilId(result)
     if (!resultPupilId) {
+      await logQueueEvent('warn', 'Webhook result missing pupil ID', { result });
       summary.skipped += 1
       continue
     }
     const existingSubmission = submissionsByPupil.get(resultPupilId) ?? null
+    await logQueueEvent('info', `Processing result for pupil ${resultPupilId}`, { 
+      hasExistingSubmission: !!existingSubmission,
+      submissionId: existingSubmission?.submission_id,
+      receivedScore: result.score,
+      receivedFeedback: result.feedback
+    });
+
     try {
       if (existingSubmission) {
         const updated = await applyAiMarkToSubmission({
@@ -215,7 +234,11 @@ export async function POST(request: Request) {
           if (updated.payload) {
             realtimeEvents.push(updated.payload)
           }
+          // Resolve from queue
+          await resolveQueueItem(existingSubmission.submission_id)
+          await logQueueEvent('info', `Resolved queue item for submission ${existingSubmission.submission_id}`);
         } else {
+          await logQueueEvent('warn', `applyAiMarkToSubmission returned updated:false for ${existingSubmission.submission_id}`);
           summary.skipped += 1
         }
       } else {
@@ -230,8 +253,14 @@ export async function POST(request: Request) {
           summary.created += 1
           if (created.payload) {
             realtimeEvents.push(created.payload)
+            // Resolve from queue if we have a submissionId
+            if (created.payload.submissionId) {
+              await resolveQueueItem(created.payload.submissionId)
+              await logQueueEvent('info', `Resolved queue item for new submission ${created.payload.submissionId}`);
+            }
           }
         } else {
+          await logQueueEvent('warn', `createAiMarkedSubmission returned created:false for pupil ${resultPupilId}`);
           summary.skipped += 1
         }
       }
@@ -241,6 +270,7 @@ export async function POST(request: Request) {
         pupilId: resultPupilId ?? "(unknown)",
         error,
       })
+      await logQueueEvent('error', `Failed to apply AI mark for pupil ${resultPupilId}`, { error: String(error) });
     }
   }
 

@@ -157,6 +157,7 @@ export {
   markShortTextActivityAction,
   overrideShortTextSubmissionScoreAction,
   triggerManualAiMarkingAction,
+  triggerBulkAiMarkingAction,
   toggleSubmissionFlagAction,
 } from "./server-actions/short-text"
 export { saveLongTextAnswerAction } from "./server-actions/long-text"
