@@ -63,10 +63,10 @@ type ResultEntry = z.infer<typeof ResultEntrySchema>
 type ResultPupil = string
 
 export async function POST(request: Request) {
-  // Capture all headers for debugging (Removed redaction for debugging)
+  // Capture all headers for debugging
   const headerMap: Record<string, string> = {};
   request.headers.forEach((value, key) => {
-    headerMap[key] = value;
+    headerMap[key] = key.toLowerCase().includes('key') || key.toLowerCase().includes('auth') ? '[REDACTED]' : value;
   });
 
   const expectedServiceKey = process.env.MARK_SERVICE_KEY ?? process.env.AI_MARK_SERVICE_KEY
@@ -88,8 +88,6 @@ export async function POST(request: Request) {
     console.warn("[ai-mark-webhook] Unauthorized webhook attempt: missing or mismatched mark-service-key header.")
     await logQueueEvent('warn', 'Unauthorized webhook attempt', { 
       receivedHeader: inboundServiceKey ? 'Present (mismatched)' : 'Missing',
-      expectedKey: expectedServiceKey,
-      receivedKey: inboundServiceKey,
       expectedLength: expectedServiceKey.trim().length,
       receivedLength: inboundServiceKey ? inboundServiceKey.trim().length : 0,
       headers: headerMap 
