@@ -349,7 +349,7 @@ export async function toggleSubmissionFlagAction(input: z.infer<typeof ToggleSub
         update submissions 
         set is_flagged = $1 
         where submission_id = $2
-        returning activity_id, user_id, submitted_at
+        returning activity_id, user_id, submitted_at, body
       `,
       [payload.isFlagged, payload.submissionId],
     )
@@ -362,6 +362,7 @@ export async function toggleSubmissionFlagAction(input: z.infer<typeof ToggleSub
         pupilId: updated.user_id,
         submittedAt:
           updated.submitted_at instanceof Date ? updated.submitted_at.toISOString() : updated.submitted_at,
+        body: updated.body,
         isFlagged: payload.isFlagged,
       })
     }

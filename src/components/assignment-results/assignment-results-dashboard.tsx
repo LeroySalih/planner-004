@@ -1262,6 +1262,17 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
           if (!selectLatestSubmission(cell, submittedAt)) {
             return cell
           }
+
+          if (!record.body) {
+            updatedCell = {
+              ...cell,
+              submissionId: record.submission_id ?? cell.submissionId,
+              submittedAt: submittedAt ?? cell.submittedAt,
+              isFlagged: typeof record.is_flagged === "boolean" ? record.is_flagged : cell.isFlagged,
+            }
+            return updatedCell
+          }
+
           const metadata = {
             question: cell.question ?? null,
             correctAnswer: cell.correctAnswer ?? null,
@@ -1280,37 +1291,37 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
           updatedCell = {
             ...cell,
             submissionId: record.submission_id ?? cell.submissionId,
-            score: finalScore,
-            autoScore: extracted.autoScore ?? finalScore,
-            overrideScore: extracted.overrideScore,
-            status,
-            submittedAt,
-            feedback: extracted.feedback,
+            score: finalScore ?? cell.score,
+            autoScore: extracted.autoScore ?? finalScore ?? cell.autoScore,
+            overrideScore: extracted.overrideScore ?? cell.overrideScore,
+            status: status !== "missing" ? status : cell.status,
+            submittedAt: submittedAt ?? cell.submittedAt,
+            feedback: extracted.feedback ?? cell.feedback,
             feedbackSource:
               extracted.feedback && extracted.feedback.trim().length > 0
                 ? status === "override"
                   ? "teacher"
-                  : cell.feedbackSource ?? null
-                : cell.feedbackSource ?? null,
+                  : cell.feedbackSource ?? "teacher"
+                : cell.feedbackSource,
             feedbackUpdatedAt:
-              extracted.feedback && extracted.feedback.trim().length > 0 ? submittedAt : cell.feedbackUpdatedAt ?? null,
-            autoFeedback: extracted.autoFeedback ?? null,
+              extracted.feedback && extracted.feedback.trim().length > 0 ? submittedAt : cell.feedbackUpdatedAt,
+            autoFeedback: extracted.autoFeedback ?? cell.autoFeedback,
             autoFeedbackSource:
               extracted.autoFeedback && extracted.autoFeedback.trim().length > 0
                 ? activityType === "short-text-question"
                   ? "ai"
                   : cell.autoFeedbackSource ?? "auto"
-                : cell.autoFeedbackSource ?? null,
+                : cell.autoFeedbackSource,
             autoFeedbackUpdatedAt:
               extracted.autoFeedback && extracted.autoFeedback.trim().length > 0
                 ? submittedAt
-                : cell.autoFeedbackUpdatedAt ?? null,
+                : cell.autoFeedbackUpdatedAt,
             successCriteriaScores: extracted.successCriteriaScores,
             autoSuccessCriteriaScores: extracted.autoSuccessCriteriaScores,
-            overrideSuccessCriteriaScores: extracted.overrideSuccessCriteriaScores ?? undefined,
+            overrideSuccessCriteriaScores: extracted.overrideSuccessCriteriaScores ?? cell.overrideSuccessCriteriaScores,
             pupilAnswer: extracted.pupilAnswer ?? cell.pupilAnswer,
             needsMarking: status === "missing" ? Boolean(record.submission_id) : false,
-            isFlagged: Boolean(record.is_flagged),
+            isFlagged: typeof record.is_flagged === "boolean" ? record.is_flagged : cell.isFlagged,
           }
           return updatedCell
         },
@@ -1483,16 +1494,18 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
           const body =
             typeof payload.body === "object" && payload.body
               ? (payload.body as Record<string, unknown>)
-              : {
-                  upload_submission: true,
-                  upload_file_name:
-                    typeof payload.fileName === "string"
-                      ? payload.fileName
-                      : typeof payload.upload_file_name === "string"
-                        ? payload.upload_file_name
-                        : null,
-                  upload_updated_at: submittedAt,
-                }
+              : (envelope.type?.includes("uploaded") || typeof payload.fileName === "string")
+                ? {
+                    upload_submission: true,
+                    upload_file_name:
+                      typeof payload.fileName === "string"
+                        ? payload.fileName
+                        : typeof payload.upload_file_name === "string"
+                          ? payload.upload_file_name
+                          : null,
+                    upload_updated_at: submittedAt,
+                  }
+                : null
 
           const isFlagged =
             typeof payload.isFlagged === "boolean"
@@ -2001,22 +2014,6 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
 
         {selection && (
           <aside className="sticky top-4 flex h-[calc(100vh-2rem)] w-[400px] shrink-0 flex-col gap-4 overflow-hidden rounded-lg border border-border bg-card p-6 shadow-sm">
-            {selection.cell.isFlagged && (
-              <div className="flex">
-                <Badge
-                  variant="destructive"
-                  className={cn(
-                    "mb-1 cursor-pointer hover:bg-destructive/90 transition-colors gap-1.5 py-1 px-3",
-                    flagPending && "opacity-50 pointer-events-none"
-                  )}
-                  onClick={handleClearFlag}
-                >
-                  <Flag className="h-3.5 w-3.5 fill-current" />
-                  Flagged for review
-                  <span className="ml-1 text-[10px] opacity-80">(Click to resolve)</span>
-                </Badge>
-              </div>
-            )}
             <div className="flex items-start justify-between gap-2">
               <div className="space-y-1">
                 <h3 className="font-semibold text-foreground">
@@ -2038,9 +2035,24 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
               <span className="text-3xl font-semibold text-foreground">
                 {formatPercent(selection.cell.score ?? null)}
               </span>
-              <Badge variant={selection.cell.status === "override" ? "default" : "secondary"}>
-                {selection.cell.status === "override" ? "Override" : "Auto"}
-              </Badge>
+              <div className="flex items-center gap-2">
+                {selection.cell.isFlagged && (
+                  <Badge
+                    variant="destructive"
+                    className={cn(
+                      "h-6 w-6 p-0 flex items-center justify-center cursor-pointer hover:bg-destructive/90 transition-colors",
+                      flagPending && "opacity-50 pointer-events-none"
+                    )}
+                    onClick={handleClearFlag}
+                    title="Clear flag"
+                  >
+                    <Flag className="h-3.5 w-3.5 fill-current" />
+                  </Badge>
+                )}
+                <Badge variant={selection.cell.status === "override" ? "default" : "secondary"}>
+                  {selection.cell.status === "override" ? "Override" : "Auto"}
+                </Badge>
+              </div>
             </div>
 
             <div className="flex flex-1 flex-col overflow-hidden">
@@ -2837,22 +2849,6 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       </Sheet>
       {selection && (
         <aside className="sticky top-4 flex h-[calc(100vh-2rem)] w-[400px] shrink-0 flex-col gap-4 overflow-hidden rounded-lg border border-border bg-card p-6 shadow-sm">
-              {selection.cell.isFlagged && (
-                <div className="flex">
-                  <Badge
-                    variant="destructive"
-                    className={cn(
-                      "mb-1 cursor-pointer hover:bg-destructive/90 transition-colors gap-1.5 py-1 px-3",
-                      flagPending && "opacity-50 pointer-events-none"
-                    )}
-                    onClick={handleClearFlag}
-                  >
-                    <Flag className="h-3.5 w-3.5 fill-current" />
-                    Flagged for review
-                    <span className="ml-1 text-[10px] opacity-80">(Click to resolve)</span>
-                  </Badge>
-                </div>
-              )}
               <div className="flex items-start justify-between gap-2">
                 <div className="space-y-1">
                   <h3 className="font-semibold text-foreground">
@@ -2874,9 +2870,24 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                 <span className="text-3xl font-semibold text-foreground">
                   {formatPercent(selection.cell.score ?? null)}
                 </span>
-                <Badge variant={selection.cell.status === "override" ? "default" : "secondary"}>
-                  {selection.cell.status === "override" ? "Override" : "Auto"}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  {selection.cell.isFlagged && (
+                    <Badge
+                      variant="destructive"
+                      className={cn(
+                        "h-6 w-6 p-0 flex items-center justify-center cursor-pointer hover:bg-destructive/90 transition-colors",
+                        flagPending && "opacity-50 pointer-events-none"
+                      )}
+                      onClick={handleClearFlag}
+                      title="Clear flag"
+                    >
+                      <Flag className="h-3.5 w-3.5 fill-current" />
+                    </Badge>
+                  )}
+                  <Badge variant={selection.cell.status === "override" ? "default" : "secondary"}>
+                    {selection.cell.status === "override" ? "Override" : "Auto"}
+                  </Badge>
+                </div>
               </div>
 
               <div className="flex flex-1 flex-col overflow-hidden">
