@@ -12,9 +12,9 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { readAiMarkingQueueAction, retryQueueItemAction, processQueueAction, readAiMarkingLogsAction } from "@/lib/server-actions/ai-queue"
+import { readAiMarkingQueueAction, retryQueueItemAction, processQueueAction, readAiMarkingLogsAction, clearAiMarkingQueueAction } from "@/lib/server-actions/ai-queue"
 import { toast } from "sonner"
-import { RefreshCw, RotateCcw, Play, MessageSquare, Activity } from "lucide-react"
+import { RefreshCw, RotateCcw, Play, MessageSquare, Activity, Trash2 } from "lucide-react"
 
 export default function AiQueuePage() {
   const [data, setData] = useState<any[]>([])
@@ -75,6 +75,22 @@ export default function AiQueuePage() {
     })
   }
 
+  const handleClearQueue = () => {
+    if (!confirm("Are you sure you want to clear the entire queue? This will remove all history and pending tasks.")) {
+      return
+    }
+
+    startTransition(async () => {
+      const result = await clearAiMarkingQueueAction()
+      if (result.success) {
+        toast.success("Queue cleared")
+        loadData()
+      } else {
+        toast.error("Failed to clear queue")
+      }
+    })
+  }
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "pending":
@@ -111,6 +127,10 @@ export default function AiQueuePage() {
           <p className="text-sm text-muted-foreground">Monitor and manage background AI marking tasks and logs.</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="destructive" size="sm" onClick={handleClearQueue} disabled={isLoading || isPending || data.length === 0}>
+            <Trash2 className="h-4 w-4 mr-2" />
+            Clear Queue
+          </Button>
           <Button variant="default" size="sm" onClick={handleProcessQueue} disabled={isLoading || isPending || stats.pending === 0}>
             <Play className="h-4 w-4 mr-2" />
             Process Queue
