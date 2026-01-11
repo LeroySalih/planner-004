@@ -282,8 +282,8 @@ export default function AiQueuePage() {
                           </pre>
                         ) : "—"}
                       </TableCell>
-                      <TableCell className="text-right text-xs text-muted-foreground whitespace-nowrap">
-                        {new Date(log.created_at).toLocaleString()}
+                      <TableCell className="text-right text-xs font-mono text-muted-foreground whitespace-nowrap">
+                        {new Date(log.created_at).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}.{new Date(log.created_at).getMilliseconds().toString().padStart(3, '0')}
                       </TableCell>
                     </TableRow>
                   ))
