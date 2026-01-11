@@ -2,11 +2,20 @@ import { query, withDbClient } from "@/lib/db";
 import { ShortTextSubmissionBodySchema, ShortTextActivityBodySchema } from "@/types";
 import { invokeDoAiMarking } from "./do-ai-marking";
 
+export async function logQueueEvent(level: 'info' | 'warn' | 'error', message: string, metadata: any = {}) {
+  await query(
+    `INSERT INTO ai_marking_logs (level, message, metadata) VALUES ($1, $2, $3)`,
+    [level, message, JSON.stringify(metadata)]
+  );
+}
+
 export async function enqueueMarkingTasks(
   assignmentId: string,
   tasks: Array<{ submissionId: string }>
 ) {
   if (tasks.length === 0) return;
+
+  await logQueueEvent('info', `Enqueueing ${tasks.length} tasks for assignment ${assignmentId}`);
 
   // Build bulk insert
   // We use ON CONFLICT DO NOTHING because of the unique index on submission_id for active tasks
@@ -53,6 +62,8 @@ export async function processNextQueueItem() {
       return { processed: false, remaining: 0 };
     }
 
+    await logQueueEvent('info', `Claimed item ${item.queue_id} for submission ${item.submission_id} (Attempt ${item.attempts})`);
+
     try {
       // 2. Fetch context for DO function
       const { rows: contextRows } = await client.query(
@@ -80,6 +91,7 @@ export async function processNextQueueItem() {
 
       // 3. Trigger DO function (Fire and Forget if it supports webhook)
       // We pass the webhook info to DO
+      await logQueueEvent('info', `Triggering DO function for submission ${item.submission_id}`);
       await invokeDoAiMarking({
         question: parsedActivity.question,
         model_answer: parsedActivity.modelAnswer,
@@ -97,9 +109,9 @@ export async function processNextQueueItem() {
       // The webhook callback will do that.
       
     } catch (error) {
-      console.error(`[marking-queue] Failed to process item ${item.queue_id}:`, error);
-      
       const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[marking-queue] Failed to process item ${item.queue_id}:`, error);
+      await logQueueEvent('error', `Failed to process item ${item.queue_id}`, { error: errorMessage });
       
       await client.query(
         `
@@ -118,7 +130,12 @@ export async function processNextQueueItem() {
       "SELECT count(*) FROM ai_marking_queue WHERE status = 'pending' AND attempts < 3"
     )).rows[0];
 
-    return { processed: true, remaining: parseInt(count, 10) };
+    const remainingCount = parseInt(count, 10);
+    if (remainingCount === 0) {
+      await logQueueEvent('info', 'Queue processing complete (no remaining pending items)');
+    }
+
+    return { processed: true, remaining: remainingCount };
   });
 }
 

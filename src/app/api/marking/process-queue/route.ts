@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { processNextQueueItem, pruneCompletedQueueItems, recoverStuckItems } from "@/lib/ai/marking-queue";
+import { processNextQueueItem, pruneCompletedQueueItems, recoverStuckItems, logQueueEvent } from "@/lib/ai/marking-queue";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +12,8 @@ export async function POST(request: Request) {
   }
 
   try {
+    await logQueueEvent('info', 'Queue processor triggered');
+
     // 1. Recover any stuck items (housekeeping)
     await recoverStuckItems();
 
@@ -26,6 +28,8 @@ export async function POST(request: Request) {
       const baseUrl = process.env.AI_MARKING_CALLBACK_URL 
         ? new URL(process.env.AI_MARKING_CALLBACK_URL).origin 
         : new URL(request.url).origin;
+
+      await logQueueEvent('info', `Self-chaining: ${remaining} items remaining`);
 
       // Trigger next item in background
       void fetch(`${baseUrl}/api/marking/process-queue`, {
@@ -43,6 +47,8 @@ export async function POST(request: Request) {
     });
 
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    await logQueueEvent('error', 'Queue processor API failed', { error: errorMessage });
     console.error("[api/marking/process-queue] Error:", error);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }

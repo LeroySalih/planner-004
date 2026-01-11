@@ -68,3 +68,15 @@ export async function processQueueAction() {
     return { success: false };
   }
 }
+
+export async function readAiMarkingLogsAction() {
+  try {
+    const { rows } = await query(
+      `SELECT * FROM ai_marking_logs ORDER BY created_at DESC LIMIT 100`
+    );
+    return { success: true, data: rows };
+  } catch (error) {
+    console.error("[ai-queue] Failed to read logs:", error);
+    return { success: false, error: "Failed to load logs." };
+  }
+}
