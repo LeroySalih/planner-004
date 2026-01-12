@@ -72,7 +72,8 @@ export async function processNextQueueItem() {
           s.body as submission_body,
           s.user_id as pupil_id,
           a.body_data as activity_body,
-          a.activity_id
+          a.activity_id,
+          a.type
         FROM submissions s
         JOIN activities a ON a.activity_id = s.activity_id
         WHERE s.submission_id = $1
@@ -84,6 +85,23 @@ export async function processNextQueueItem() {
       const context = contextRows[0];
       if (!context) {
         throw new Error("Submission or activity context missing");
+      }
+
+      // Guard: Only process short-text questions
+      if (context.type !== "short-text-question") {
+        await logQueueEvent('warn', `Skipping non-short-text activity ${context.activity_id}`, { type: context.type });
+        
+        // Mark as completed so we don't retry
+        await client.query(
+          `UPDATE ai_marking_queue SET status = 'completed', updated_at = now() WHERE queue_id = $1`,
+          [item.queue_id]
+        );
+        
+        // Recalculate remaining count and return early
+        const { count } = (await client.query(
+          "SELECT count(*) FROM ai_marking_queue WHERE status = 'pending' AND attempts < 3"
+        )).rows[0];
+        return { processed: true, remaining: parseInt(count, 10) };
       }
 
       const parsedActivity = ShortTextActivityBodySchema.parse(context.activity_body);

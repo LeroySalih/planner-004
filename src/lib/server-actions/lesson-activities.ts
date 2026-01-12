@@ -122,8 +122,8 @@ export async function createLessonActivityAction(
   }
 
   const successCriteriaIds = normalizeSuccessCriteriaIds(payload.successCriteriaIds)
-  const isSummativeRequested = payload.isSummative ?? false
   const isSummativeAllowed = isScorableActivityType(payload.type)
+  const isSummativeRequested = payload.isSummative ?? isSummativeAllowed
 
   if (isSummativeRequested && !isSummativeAllowed) {
     return {
