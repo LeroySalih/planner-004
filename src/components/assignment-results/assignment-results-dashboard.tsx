@@ -424,6 +424,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
   const [selection, setSelection] = useState<CellSelection | null>(null)
   const [activitySummarySelection, setActivitySummarySelection] = useState<string | null>(null)
   const [criterionDrafts, setCriterionDrafts] = useState<Record<string, string>>({})
+  const [overallScoreDraft, setOverallScoreDraft] = useState<string>("")
   const [feedbackDraft, setFeedbackDraft] = useState<string>("")
   const [uploadFiles, setUploadFiles] = useState<Record<string, UploadFileState>>({})
   const [viewingFile, setViewingFile] = useState<{ name: string; url: string | null } | null>(null)
@@ -1087,6 +1088,9 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
         const numeric = typeof value === "number" && Number.isFinite(value) ? value : 0
         nextCriterionDrafts[criterion.successCriteriaId] = formatPercentInput(numeric)
       }
+    } else {
+      const numeric = typeof cell.score === "number" && Number.isFinite(cell.score) ? cell.score : 0
+      setOverallScoreDraft(formatPercentInput(numeric))
     }
     setCriterionDrafts(nextCriterionDrafts)
     setFeedbackDraft(cell.feedback ?? "")
@@ -1603,39 +1607,52 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     }
   }, [handleRealtimeSubmission])
 
-  const handleOverrideSubmit = (overrides?: Record<string, string>, feedbackOverride?: string) => {
+  const handleOverrideSubmit = (
+    overrides?: Record<string, string>,
+    feedbackOverride?: string,
+    overallScoreOverride?: string,
+  ) => {
     if (!selection) return
 
     const criteria = selection.activity.successCriteria
-    if (criteria.length === 0) {
-      toast.error("This activity has no linked success criteria to override.")
-      return
-    }
-
-    const currentCriterionDrafts = overrides ?? criterionDrafts
     const currentFeedbackDraft = feedbackOverride ?? feedbackDraft
+    const currentOverallScoreDraft = overallScoreOverride ?? overallScoreDraft
 
-    const parsedCriterionScores: Record<string, number> = {}
+    let successCriteriaScores: Record<string, number | null> = {}
+    let parsedAverage = 0
 
-    for (const criterion of criteria) {
-      const percent = toPercentNumber(currentCriterionDrafts[criterion.successCriteriaId])
+    if (criteria.length > 0) {
+      const currentCriterionDrafts = overrides ?? criterionDrafts
+      const parsedCriterionScores: Record<string, number> = {}
+
+      for (const criterion of criteria) {
+        const percent = toPercentNumber(currentCriterionDrafts[criterion.successCriteriaId])
+        if (percent === null) {
+          toast.error("Enter a percentage between 0 and 100 for each success criterion.")
+          return
+        }
+        const normalised = percent / 100
+        parsedCriterionScores[criterion.successCriteriaId] = Number.parseFloat(
+          Math.min(Math.max(normalised, 0), 1).toFixed(3),
+        )
+      }
+
+      successCriteriaScores = normaliseSuccessCriteriaScores({
+        successCriteriaIds: criteria.map((criterion) => criterion.successCriteriaId),
+        existingScores: parsedCriterionScores,
+        fillValue: 0,
+      })
+
+      parsedAverage = computeAverageSuccessCriteriaScore(successCriteriaScores) ?? 0
+    } else {
+      const percent = toPercentNumber(currentOverallScoreDraft)
       if (percent === null) {
-        toast.error("Enter a percentage between 0 and 100 for each success criterion.")
+        toast.error("Enter a percentage between 0 and 100.")
         return
       }
-      const normalised = percent / 100
-      parsedCriterionScores[criterion.successCriteriaId] = Number.parseFloat(
-        Math.min(Math.max(normalised, 0), 1).toFixed(3),
-      )
+      parsedAverage = Number.parseFloat((percent / 100).toFixed(3))
     }
 
-    const successCriteriaScores = normaliseSuccessCriteriaScores({
-      successCriteriaIds: criteria.map((criterion) => criterion.successCriteriaId),
-      existingScores: parsedCriterionScores,
-      fillValue: 0,
-    })
-
-    const parsedAverage = computeAverageSuccessCriteriaScore(successCriteriaScores) ?? 0
     const feedback = currentFeedbackDraft.trim()
     const submittedAt = new Date().toISOString()
     const optimisticToken = `${Date.now()}-${Math.random().toString(16).slice(2)}`
@@ -1646,21 +1663,21 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       recordOptimisticSnapshot(selection.rowIndex, selection.activityIndex, currentCell, optimisticToken)
     }
 
-      applyCellUpdate(
-        (cell) => ({
-          ...cell,
-          submissionId: selection.cell.submissionId ?? cell.submissionId ?? null,
-          score: parsedAverage,
-          overrideScore: parsedAverage,
-          status: "override",
-          feedback: feedback.length > 0 ? feedback : null,
-          feedbackSource: feedback.length > 0 ? "teacher" : cell.feedbackSource ?? null,
-          feedbackUpdatedAt: submittedAt,
-          successCriteriaScores,
-          overrideSuccessCriteriaScores: successCriteriaScores,
-          submittedAt,
-          needsMarking: false,
-        }),
+    applyCellUpdate(
+      (cell) => ({
+        ...cell,
+        submissionId: selection.cell.submissionId ?? cell.submissionId ?? null,
+        score: parsedAverage,
+        overrideScore: parsedAverage,
+        status: "override",
+        feedback: feedback.length > 0 ? feedback : null,
+        feedbackSource: feedback.length > 0 ? "teacher" : cell.feedbackSource ?? null,
+        feedbackUpdatedAt: submittedAt,
+        successCriteriaScores,
+        overrideSuccessCriteriaScores: successCriteriaScores,
+        submittedAt,
+        needsMarking: false,
+      }),
       { rowIndex: selection.rowIndex, activityIndex: selection.activityIndex },
     )
     setSelection((current) => {
@@ -1670,30 +1687,35 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       return {
         ...current,
         cell: {
-            ...current.cell,
-            submissionId: selection.cell.submissionId ?? current.cell.submissionId ?? null,
-            score: parsedAverage,
-            overrideScore: parsedAverage,
-            status: "override",
-            feedback: feedback.length > 0 ? feedback : null,
-            feedbackSource: feedback.length > 0 ? "teacher" : current.cell.feedbackSource ?? null,
-            feedbackUpdatedAt: submittedAt,
-            successCriteriaScores,
-            overrideSuccessCriteriaScores: successCriteriaScores,
-            submittedAt,
-            needsMarking: false,
-          },
+          ...current.cell,
+          submissionId: selection.cell.submissionId ?? current.cell.submissionId ?? null,
+          score: parsedAverage,
+          overrideScore: parsedAverage,
+          status: "override",
+          feedback: feedback.length > 0 ? feedback : null,
+          feedbackSource: feedback.length > 0 ? "teacher" : current.cell.feedbackSource ?? null,
+          feedbackUpdatedAt: submittedAt,
+          successCriteriaScores,
+          overrideSuccessCriteriaScores: successCriteriaScores,
+          submittedAt,
+          needsMarking: false,
+        },
       }
     })
-    setCriterionDrafts(
-      Object.fromEntries(
-        selection.activity.successCriteria.map((criterion) => {
-          const value = successCriteriaScores[criterion.successCriteriaId]
-          const normalised = typeof value === "number" && Number.isFinite(value) ? value : 0
-          return [criterion.successCriteriaId, formatPercentInput(normalised)]
-        }),
-      ),
-    )
+
+    if (criteria.length > 0) {
+      setCriterionDrafts(
+        Object.fromEntries(
+          selection.activity.successCriteria.map((criterion) => {
+            const value = successCriteriaScores[criterion.successCriteriaId]
+            const normalised = typeof value === "number" && Number.isFinite(value) ? value : 0
+            return [criterion.successCriteriaId, formatPercentInput(normalised)]
+          }),
+        ),
+      )
+    } else {
+      setOverallScoreDraft(formatPercentInput(parsedAverage))
+    }
     setFeedbackDraft(feedback)
 
     startOverrideUITransition(() => {
@@ -1720,6 +1742,28 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
         },
       })
     })
+  }
+
+  const handleOverallScoreInputBlur = () => {
+    const raw = overallScoreDraft
+    const trimmed = typeof raw === "string" ? raw.trim() : ""
+    if (trimmed.length === 0) {
+      if (raw === "0") {
+        return
+      }
+      setOverallScoreDraft("0")
+      return
+    }
+    const parsed = Number.parseFloat(trimmed)
+    if (Number.isNaN(parsed)) {
+      setOverallScoreDraft("0")
+      return
+    }
+    const clamped = Math.min(Math.max(parsed, 0), 100)
+    const formatted = formatPercentValue(clamped)
+    if (formatted !== raw) {
+      setOverallScoreDraft(formatted)
+    }
   }
 
   const handleReset = () => {
@@ -1782,15 +1826,21 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
           }
           return { ...current, cell: optimisticEntry.snapshot }
         })
-        setCriterionDrafts(
-          Object.fromEntries(
-            derived.order.map((criterionId) => {
-              const value = optimisticEntry.snapshot.successCriteriaScores?.[criterionId]
-              const normalised = typeof value === "number" && Number.isFinite(value) ? value : 0
-              return [criterionId, formatPercentInput(normalised)]
-            }),
-          ),
-        )
+        if (derived.order.length > 0) {
+          setCriterionDrafts(
+            Object.fromEntries(
+              derived.order.map((criterionId) => {
+                const value = optimisticEntry.snapshot.successCriteriaScores?.[criterionId]
+                const normalised = typeof value === "number" && Number.isFinite(value) ? value : 0
+                return [criterionId, formatPercentInput(normalised)]
+              }),
+            ),
+          )
+        } else {
+          const value = optimisticEntry.snapshot.overrideScore ?? optimisticEntry.snapshot.score
+          const normalised = typeof value === "number" && Number.isFinite(value) ? value : 0
+          setOverallScoreDraft(formatPercentInput(normalised))
+        }
         setFeedbackDraft(optimisticEntry.snapshot.feedback ?? "")
         clearOptimisticEntry(derived.rowIndex, derived.activityIndex, derived.optimisticToken)
       }
@@ -1824,17 +1874,21 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
           },
         }
       })
-      setCriterionDrafts(
-        Object.fromEntries(
-          derived.order.map((criterionId) => {
-            const value = derived.successCriteriaScores[criterionId]
-            return [
-              criterionId,
-              formatPercentInput(typeof value === "number" && Number.isFinite(value) ? value : 0),
-            ]
-          }),
-        ),
-      )
+      if (derived.order.length > 0) {
+        setCriterionDrafts(
+          Object.fromEntries(
+            derived.order.map((criterionId) => {
+              const value = derived.successCriteriaScores[criterionId]
+              return [
+                criterionId,
+                formatPercentInput(typeof value === "number" && Number.isFinite(value) ? value : 0),
+              ]
+            }),
+          ),
+        )
+      } else {
+        setOverallScoreDraft(formatPercentInput(derived.parsedAverage))
+      }
       setFeedbackDraft(derived.feedback ?? "")
       toast.success("Override saved.")
       startOverrideUITransition(() => {
@@ -1896,17 +1950,21 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
           },
         }
       })
-      setCriterionDrafts(
-        Object.fromEntries(
-          derived.order.map((criterionId) => {
-            const value = derived.successCriteriaScores[criterionId]
-            return [
-              criterionId,
-              formatPercentInput(typeof value === "number" && Number.isFinite(value) ? value : 0),
-            ]
-          }),
-        ),
-      )
+      if (derived.order.length > 0) {
+        setCriterionDrafts(
+          Object.fromEntries(
+            derived.order.map((criterionId) => {
+              const value = derived.successCriteriaScores[criterionId]
+              return [
+                criterionId,
+                formatPercentInput(typeof value === "number" && Number.isFinite(value) ? value : 0),
+              ]
+            }),
+          ),
+        )
+      } else {
+        setOverallScoreDraft(formatPercentInput(derived.autoScore))
+      }
       setFeedbackDraft("")
       toast.success("Override cleared.")
       startResetUITransition(() => {
@@ -2319,9 +2377,55 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                             })}
                           </div>
                         ) : (
-                          <p className="text-xs text-muted-foreground">
-                            No success criteria linked to this activity.
-                          </p>
+                          <div className="space-y-2">
+                            <p className="text-xs font-semibold text-muted-foreground">Overall Score</p>
+                            <div className="flex flex-wrap items-center gap-2">
+                              {[
+                                { label: "0", percent: 0 },
+                                { label: "Partial", percent: 50 },
+                                { label: "Full", percent: 100 },
+                              ].map((option) => {
+                                const draftVal = Number.parseFloat(overallScoreDraft)
+                                const isActive = !Number.isNaN(draftVal) && Math.abs(draftVal - option.percent) < 0.0001
+                                return (
+                                  <Button
+                                    key={option.label}
+                                    type="button"
+                                    size="sm"
+                                    variant={isActive ? "default" : "outline"}
+                                    aria-pressed={isActive}
+                                    className="h-8 px-2 text-xs"
+                                    onClick={() => {
+                                      const val = formatPercentValue(option.percent)
+                                      setOverallScoreDraft(val)
+                                      handleOverrideSubmit(undefined, undefined, val)
+                                    }}
+                                  >
+                                    {option.label}
+                                  </Button>
+                                )
+                              })}
+                              <Input
+                                type="number"
+                                inputMode="decimal"
+                                min="0"
+                                max="100"
+                                step="0.1"
+                                value={overallScoreDraft}
+                                onChange={(event) => setOverallScoreDraft(event.target.value)}
+                                onBlur={() => {
+                                  handleOverallScoreInputBlur()
+                                  handleOverrideSubmit()
+                                }}
+                                placeholder="Exact percent (0-100)"
+                                aria-label="Exact overall percent"
+                                className="h-8 w-24"
+                              />
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              No success criteria linked to this activity. You can assign an overall score directly.
+                            </p>
+                          </div>
                         )}
 
                         <div className="grid gap-2">
