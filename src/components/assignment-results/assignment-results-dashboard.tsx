@@ -784,13 +784,14 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     if (!row) return
 
     const submissionsToMark = row.cells
-      .filter((cell) => cell.submissionId)
-      .map((cell) => ({
+      .map((cell, index) => ({ cell, activity: activities[index] }))
+      .filter(({ cell, activity }) => cell.submissionId && activity.type === "short-text-question")
+      .map(({ cell }) => ({
         submissionId: cell.submissionId!,
       }))
 
     if (submissionsToMark.length === 0) {
-      toast.info("No submissions found for this pupil to mark.")
+      toast.info("No short text submissions found for this pupil to mark.")
       return
     }
 
@@ -811,7 +812,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
         toast.error("Failed to request AI marking for the pupil.")
       }
     })
-  }, [groupedRows, matrixState.assignmentId, startAiMarkTransition])
+  }, [groupedRows, activities, matrixState.assignmentId, startAiMarkTransition])
 
   const handleClearAiMarks = useCallback(() => {
     if (!selectedActivity) {
