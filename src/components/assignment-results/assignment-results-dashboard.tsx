@@ -778,6 +778,40 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     })
   }, [activities, groupedRows, matrixState.assignmentId, startAiMarkTransition])
 
+  const handleRowAiMark = useCallback((rowIndex: number) => {
+    const row = groupedRows[rowIndex]
+    if (!row) return
+
+    const submissionsToMark = row.cells
+      .filter((cell) => cell.submissionId)
+      .map((cell) => ({
+        submissionId: cell.submissionId!,
+      }))
+
+    if (submissionsToMark.length === 0) {
+      toast.info("No submissions found for this pupil to mark.")
+      return
+    }
+
+    startAiMarkTransition(async () => {
+      try {
+        const result = await triggerBulkAiMarkingAction({
+          assignmentId: matrixState.assignmentId,
+          submissions: submissionsToMark,
+        })
+
+        if (result.success) {
+          toast.success(`AI marking queued for ${submissionsToMark.length} submissions.`)
+        } else {
+          toast.error("Failed to queue AI marking.")
+        }
+      } catch (error) {
+        console.error("[assignment-results] Row AI marking failed", error)
+        toast.error("Failed to request AI marking for the pupil.")
+      }
+    })
+  }, [groupedRows, matrixState.assignmentId, startAiMarkTransition])
+
   const handleClearAiMarks = useCallback(() => {
     if (!selectedActivity) {
       toast.error("No activity is selected.")
@@ -2692,7 +2726,15 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                           </div>
                         </th>
                         <td className="px-3 py-3 text-center font-medium text-foreground">
-                          {formatPercent(row.averageScore ?? null)}
+                          <button
+                            type="button"
+                            onClick={() => handleRowAiMark(rowIndex)}
+                            disabled={aiMarkPending}
+                            className="rounded px-2 py-1 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50"
+                            title="Mark all for this pupil"
+                          >
+                            {formatPercent(row.averageScore ?? null)}
+                          </button>
                         </td>
                         {row.cells.map((cell, activityIndex) => {
                           const tone = resolveCellBackgroundTone(cell)
