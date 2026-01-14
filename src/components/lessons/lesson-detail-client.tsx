@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react"
+import { Suspense, lazy, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { LinkIcon, List, Target, Upload } from "lucide-react"
@@ -20,6 +20,8 @@ import {
   LESSON_MUTATION_EVENT,
   LessonMutationEventSchema,
 } from "@/lib/lesson-channel"
+import { toggleLessonActiveAction } from "@/lib/server-updates"
+import { cn } from "@/lib/utils"
 import { LessonDetailPayloadSchema } from "@/lib/lesson-snapshot-schema"
 import { LessonFilesManager } from "@/components/lessons/lesson-files-manager"
 import { LessonLinksManager } from "@/components/lessons/lesson-links-manager"
@@ -71,6 +73,7 @@ export function LessonDetailClient({
 }: LessonDetailClientProps) {
   const router = useRouter()
   const [currentLesson, setCurrentLesson] = useState<LessonWithObjectives>(lesson)
+  const [isPending, startTransition] = useTransition()
   const [isHeaderSidebarOpen, setIsHeaderSidebarOpen] = useState(false)
   const [isObjectivesSidebarOpen, setIsObjectivesSidebarOpen] = useState(false)
   const [lessonFilesState, setLessonFilesState] = useState(lessonFiles)
@@ -99,6 +102,24 @@ export function LessonDetailClient({
   }, [unit])
 
   const isActive = currentLesson.active !== false
+
+  const handleToggleActive = () => {
+    const newActive = !isActive
+    const updatedLesson = { ...currentLesson, active: newActive }
+    setCurrentLesson(updatedLesson)
+
+    startTransition(async () => {
+      const result = await toggleLessonActiveAction(
+        currentLesson.lesson_id,
+        currentLesson.unit_id,
+        newActive,
+      )
+      if (!result.success) {
+        toast.error("Failed to update status")
+        setCurrentLesson({ ...updatedLesson, active: !newActive })
+      }
+    })
+  }
 
   const pageLoadTimeRef = useRef<number>(Date.now())
 
@@ -358,11 +379,15 @@ export function LessonDetailClient({
               <div className="flex flex-wrap items-center gap-3 text-sm">
                 <Badge
                   variant="outline"
-                  className={
+                  onClick={handleToggleActive}
+                  className={cn(
+                    "cursor-pointer transition-colors select-none",
                     isActive
-                      ? "bg-emerald-200/20 text-emerald-100"
-                      : "bg-rose-200/20 text-rose-100"
-                  }
+                      ? "bg-emerald-200/20 text-emerald-100 hover:bg-emerald-200/30"
+                      : "bg-rose-200/20 text-rose-100 hover:bg-rose-200/30",
+                    isPending && "opacity-70 cursor-wait"
+                  )}
+                  title="Click to toggle active status"
                 >
                   {isActive ? "Active" : "Inactive"}
                 </Badge>
