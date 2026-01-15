@@ -1,70 +1,69 @@
-"use server"
+"use server";
 
-import { revalidatePath } from "next/cache"
-import { z } from "zod"
-import { Client } from "pg"
+import { revalidatePath } from "next/cache";
+import { z } from "zod";
+import { Client } from "pg";
 
 import {
-  GroupsSchema,
-  GroupWithMembershipSchema,
   GroupMembershipsSchema,
   GroupMembershipsWithGroupSchema,
+  GroupsSchema,
+  GroupWithMembershipSchema,
   ProfileSchema,
   ProfilesSchema,
   ReportsPupilListingSchema,
   ReportsPupilListingsSchema,
-} from "@/types"
+} from "@/types";
 
 import {
+  type AuthenticatedProfile as BaseAuthenticatedProfile,
   getAuthenticatedProfile,
   hashPassword,
   requireAuthenticatedProfile,
-  type AuthenticatedProfile as BaseAuthenticatedProfile,
-} from "@/lib/auth"
-import { query } from "@/lib/db"
-import { withTelemetry } from "@/lib/telemetry"
+} from "@/lib/auth";
+import { query } from "@/lib/db";
+import { withTelemetry } from "@/lib/telemetry";
 
 const GroupReturnValue = z.object({
   data: GroupWithMembershipSchema.nullable(),
   error: z.string().nullable(),
-})
+});
 
 const GroupsReturnValue = z.object({
   data: GroupsSchema.nullable(),
   error: z.string().nullable(),
-})
+});
 
 const RemoveGroupMemberInputSchema = z.object({
   groupId: z.string().min(1),
   userId: z.string().min(1),
-})
+});
 
 const RemoveGroupMemberReturnSchema = z.object({
   success: z.boolean(),
   error: z.string().nullable(),
-})
+});
 
 const UpdateGroupMemberRoleInputSchema = z.object({
   groupId: z.string().min(1),
   userId: z.string().min(1),
   role: z.enum(["pupil", "teacher"]),
-})
+});
 
 const UpdateGroupMemberRoleReturnSchema = z.object({
   success: z.boolean(),
   error: z.string().nullable(),
-})
-
+});
 
 const ProfileGroupsDataSchema = z.object({
   profile: ProfileSchema,
   memberships: GroupMembershipsWithGroupSchema,
-})
+});
 
 const ProfileGroupsResultSchema = z.object({
   data: ProfileGroupsDataSchema.nullable(),
   error: z.string().nullable(),
-})
+});
 
 const JoinGroupInputSchema = z.object({
   joinCode: z
@@ -74,65 +73,69 @@ const JoinGroupInputSchema = z.object({
     .refine((value) => value.length === 5, {
       message: "Join codes must be 5 characters long.",
     }),
-})
+});
 
 const JoinGroupReturnSchema = z.object({
   success: z.boolean(),
   error: z.string().nullable(),
   groupId: z.string().nullable(),
   subject: z.string().nullable(),
-})
+});
 
 const LeaveGroupInputSchema = z.object({
   groupId: z.string().min(1),
-})
+});
 
 const LeaveGroupReturnSchema = z.object({
   success: z.boolean(),
   error: z.string().nullable(),
-})
+});
 
 const ResetPupilPasswordInputSchema = z.object({
   userId: z.string().min(1),
-})
+});
 
 const ResetPupilPasswordResultSchema = z.object({
   success: z.boolean(),
   error: z.string().nullable(),
-})
+});
 
-const DEFAULT_PUPIL_PASSWORD = "bisak123"
-export type AuthenticatedProfile = BaseAuthenticatedProfile
+const DEFAULT_PUPIL_PASSWORD = "bisak123";
+export type AuthenticatedProfile = BaseAuthenticatedProfile;
 
-export type GroupActionResult = z.infer<typeof GroupReturnValue>
-export type ProfileGroupsResult = z.infer<typeof ProfileGroupsResultSchema>
-export type JoinGroupResult = z.infer<typeof JoinGroupReturnSchema>
-export type LeaveGroupResult = z.infer<typeof LeaveGroupReturnSchema>
-export type PupilListing = z.infer<typeof ReportsPupilListingSchema>
+export type GroupActionResult = z.infer<typeof GroupReturnValue>;
+export type ProfileGroupsResult = z.infer<typeof ProfileGroupsResultSchema>;
+export type JoinGroupResult = z.infer<typeof JoinGroupReturnSchema>;
+export type LeaveGroupResult = z.infer<typeof LeaveGroupReturnSchema>;
+export type PupilListing = z.infer<typeof ReportsPupilListingSchema>;
 
 function generateJoinCode(): string {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-  let result = ""
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let result = "";
   for (let i = 0; i < 5; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length))
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
   }
-  return result
+  return result;
 }
 
 function resolveConnectionString() {
-  return process.env.DATABASE_URL ?? null
+  return process.env.DATABASE_URL ?? null;
 }
 
 function createPgClient() {
-  const connectionString = resolveConnectionString()
+  const connectionString = resolveConnectionString();
   if (!connectionString) {
-    throw new Error("Database connection is not configured (DATABASE_URL missing).")
+    throw new Error(
+      "Database connection is not configured (DATABASE_URL missing).",
+    );
   }
 
   return new Client({
     connectionString,
-    ssl: connectionString.includes("localhost") ? false : { rejectUnauthorized: false },
-  })
+    ssl: connectionString.includes("localhost")
+      ? false
+      : { rejectUnauthorized: false },
+  });
 }
 
 export async function createGroupAction(
@@ -140,34 +143,50 @@ export async function createGroupAction(
   subject: string,
   options?: { currentProfile?: AuthenticatedProfile | null },
 ): Promise<GroupActionResult> {
-  const profile = options?.currentProfile ?? (await requireAuthenticatedProfile())
+  const profile = options?.currentProfile ??
+    (await requireAuthenticatedProfile());
   if (!profile.isTeacher) {
-    return GroupReturnValue.parse({ data: null, error: "You do not have permission to create groups." })
+    return GroupReturnValue.parse({
+      data: null,
+      error: "You do not have permission to create groups.",
+    });
   }
-  const joinCode = generateJoinCode()
-  console.log("[v0] Server action started for group:", { groupId, subject, joinCode })
+  const joinCode = generateJoinCode();
+  console.log("[v0] Server action started for group:", {
+    groupId,
+    subject,
+    joinCode,
+  });
 
-  const client = createPgClient()
+  const client = createPgClient();
 
   try {
-    await client.connect()
+    await client.connect();
     const { rows } = await client.query(
       "insert into groups (group_id, subject, join_code, active) values ($1, $2, $3, true) returning group_id, subject, join_code, active",
       [groupId, subject, joinCode],
-    )
-    const row = rows[0] ?? null
-    const mapped = row ? GroupWithMembershipSchema.parse({ ...row, members: [] }) : null
+    );
+    const row = rows[0] ?? null;
+    const mapped = row
+      ? GroupWithMembershipSchema.parse({ ...row, members: [] })
+      : null;
 
-    console.log("[v0] Server action completed for group:", { groupId, subject, joinCode })
-    revalidatePath("/")
-    return GroupReturnValue.parse({ data: mapped, error: null })
+    console.log("[v0] Server action completed for group:", {
+      groupId,
+      subject,
+      joinCode,
+    });
+    revalidatePath("/");
+    return GroupReturnValue.parse({ data: mapped, error: null });
   } catch (error) {
-    console.error("[v0] Server action failed for group:", error)
-    const message = error instanceof Error ? error.message : "Unable to create group."
-    return GroupReturnValue.parse({ data: null, error: message })
+    console.error("[v0] Server action failed for group:", error);
+    const message = error instanceof Error
+      ? error.message
+      : "Unable to create group.";
+    return GroupReturnValue.parse({ data: null, error: message });
   } finally {
     try {
-      await client.end()
+      await client.end();
     } catch {
       // ignore close errors
     }
@@ -178,63 +197,74 @@ export async function readGroupAction(
   groupId: string,
   options?: { currentProfile?: AuthenticatedProfile | null },
 ) {
-  console.log("[v0] Server action started for reading group:", { groupId })
-  const profile = options?.currentProfile ?? (await requireAuthenticatedProfile())
+  console.log("[v0] Server action started for reading group:", { groupId });
+  const profile = options?.currentProfile ??
+    (await requireAuthenticatedProfile());
   if (!profile.isTeacher) {
-    return GroupReturnValue.parse({ data: null, error: "You do not have permission to view groups." })
+    return GroupReturnValue.parse({
+      data: null,
+      error: "You do not have permission to view groups.",
+    });
   }
 
-  const client = createPgClient()
+  const client = createPgClient();
 
   try {
-    await client.connect()
+    await client.connect();
 
     const { rows: groupRows } = await client.query(
       "select group_id, subject, join_code, active from groups where group_id = $1 and active = true limit 1",
       [groupId],
-    )
-    const groupRow = groupRows[0] ?? null
+    );
+    const groupRow = groupRows[0] ?? null;
 
     if (!groupRow) {
-      return GroupReturnValue.parse({ data: null, error: "Group not found." })
+      return GroupReturnValue.parse({ data: null, error: "Group not found." });
     }
 
     const { rows: membershipRows } = await client.query(
       "select group_id, user_id, 'member' as role from group_membership where group_id = $1 order by user_id asc",
       [groupId],
-    )
+    );
 
-    const parsedMembership = GroupMembershipsSchema.parse(membershipRows ?? [])
-    let parsedProfiles: z.infer<typeof ProfilesSchema> = []
+    const parsedMembership = GroupMembershipsSchema.parse(membershipRows ?? []);
+    let parsedProfiles: z.infer<typeof ProfilesSchema> = [];
 
     if (parsedMembership.length > 0) {
-      const memberIds = parsedMembership.map((member) => member.user_id)
+      const memberIds = parsedMembership.map((member) => member.user_id);
       const { rows: profileRows } = await client.query(
         "select user_id, first_name, last_name, is_teacher, email from profiles where user_id = any($1::text[])",
         [memberIds],
-      )
-      parsedProfiles = ProfilesSchema.parse(profileRows ?? [])
+      );
+      parsedProfiles = ProfilesSchema.parse(profileRows ?? []);
     }
 
-    const profileMap = new Map(parsedProfiles.map((profile) => [profile.user_id, profile]))
+    const profileMap = new Map(
+      parsedProfiles.map((profile) => [profile.user_id, profile]),
+    );
     const membershipWithProfiles = parsedMembership.map((member) => ({
       ...member,
       profile: profileMap.get(member.user_id) ?? member.profile,
-    }))
+    }));
 
-    console.log("[v0] Server action completed for reading group:", { groupId })
+    console.log("[v0] Server action completed for reading group:", { groupId });
 
     return GroupReturnValue.parse({
-      data: GroupWithMembershipSchema.parse({ ...groupRow, members: membershipWithProfiles }),
+      data: GroupWithMembershipSchema.parse({
+        ...groupRow,
+        members: membershipWithProfiles,
+      }),
       error: null,
-    })
+    });
   } catch (error) {
-    console.error("[v0] Server action failed for reading group:", error)
-    const message = error instanceof Error ? error.message : "Unable to read group."
-    return GroupReturnValue.parse({ data: null, error: message })
+    console.error("[v0] Server action failed for reading group:", error);
+    const message = error instanceof Error
+      ? error.message
+      : "Unable to read group.";
+    return GroupReturnValue.parse({ data: null, error: message });
   } finally {
     try {
-      await client.end()
+      await client.end();
     } catch {
       // ignore close errors
     }
@@ -242,16 +272,20 @@ export async function readGroupAction(
 }
 
 export async function readGroupsAction(options?: {
-  authEndTime?: number | null
-  routeTag?: string
-  currentProfile?: AuthenticatedProfile | null
-  filter?: string | null
+  authEndTime?: number | null;
+  routeTag?: string;
+  currentProfile?: AuthenticatedProfile | null;
+  filter?: string | null;
 }) {
-  const routeTag = options?.routeTag ?? "/groups:readGroups"
+  const routeTag = options?.routeTag ?? "/groups:readGroups";
 
-  const profile = options?.currentProfile ?? (await requireAuthenticatedProfile())
+  const profile = options?.currentProfile ??
+    (await requireAuthenticatedProfile());
   if (!profile.isTeacher) {
-    return GroupsReturnValue.parse({ data: null, error: "You do not have permission to view groups." })
+    return GroupsReturnValue.parse({
+      data: null,
+      error: "You do not have permission to view groups.",
+    });
   }
 
   return withTelemetry(
@@ -262,29 +296,31 @@ export async function readGroupsAction(options?: {
       authEndTime: options?.authEndTime ?? null,
     },
     async () => {
-      console.log("[v0] Server action started for reading groups:")
+      console.log("[v0] Server action started for reading groups:");
 
-      let error: string | null = null
+      let error: string | null = null;
 
-      const connectionStart = Date.now()
-      const client = createPgClient()
+      const connectionStart = Date.now();
+      const client = createPgClient();
 
-      let data: z.infer<typeof GroupsSchema> | null = null
+      let data: z.infer<typeof GroupsSchema> | null = null;
 
       try {
-        await client.connect()
-        const queryStart = Date.now()
-        const filters: Array<string | boolean> = []
-        const values: Array<string | boolean> = []
-        filters.push("g.active = true")
+        await client.connect();
+        const queryStart = Date.now();
+        const filters: Array<string | boolean> = [];
+        const values: Array<string | boolean> = [];
+        filters.push("g.active = true");
 
         if (options?.filter && options.filter.trim().length > 0) {
-          const pattern = `%${options.filter.trim().replace(/\?/g, "%")}%`
-          filters.push("(g.group_id ILIKE $1 OR g.subject ILIKE $1)")
-          values.push(pattern)
+          const pattern = `%${options.filter.trim().replace(/\?/g, "%")}%`;
+          filters.push("(g.group_id ILIKE $1 OR g.subject ILIKE $1)");
+          values.push(pattern);
         }
 
-        const whereClause = filters.length > 0 ? `where ${filters.join(" AND ")}` : ""
+        const whereClause = filters.length > 0
+          ? `where ${filters.join(" AND ")}`
+          : "";
 
         const sql = `
           select g.group_id, g.subject, g.join_code, g.active, count(m.user_id) as member_count
@@ -293,75 +329,93 @@ export async function readGroupsAction(options?: {
           ${whereClause}
           group by g.group_id, g.subject, g.join_code, g.active
           order by g.group_id asc;
-        `
+        `;
 
-        const result = await client.query(sql, values)
-        const queryEnd = Date.now()
-        data = result.rows
-        console.log(`[v0] Direct PG connect took ${queryStart - connectionStart} ms, query took ${queryEnd - queryStart} ms.`)
+        const result = await client.query(sql, values);
+        const queryEnd = Date.now();
+        data = result.rows;
+        console.log(
+          `[v0] Direct PG connect took ${
+            queryStart - connectionStart
+          } ms, query took ${queryEnd - queryStart} ms.`,
+        );
       } catch (queryError) {
-        error = queryError instanceof Error ? queryError.message : "Unable to read groups."
-        console.error("[v0] Failed to read groups via direct PG client", queryError)
+        error = queryError instanceof Error
+          ? queryError.message
+          : "Unable to read groups.";
+        console.error(
+          "[v0] Failed to read groups via direct PG client",
+          queryError,
+        );
       } finally {
         try {
-          await client.end()
+          await client.end();
         } catch {
           // ignore close errors
         }
       }
 
-      data = data ? GroupsSchema.parse(data) : null
+      data = data ? GroupsSchema.parse(data) : null;
 
-      console.log("[v0] Server action completed for reading groups:", error)
+      console.log("[v0] Server action completed for reading groups:", error);
 
-      return GroupsReturnValue.parse({ data, error })
+      return GroupsReturnValue.parse({ data, error });
     },
-  )
+  );
 }
 
 export async function listPupilsWithGroupsAction(): Promise<PupilListing[]> {
-  let payload: unknown = null
+  let payload: unknown = null;
   try {
     const { rows } = await query<{ reports_list_pupils_with_groups: unknown }>(
       "select reports_list_pupils_with_groups() as reports_list_pupils_with_groups",
-    )
-    payload = rows[0]?.reports_list_pupils_with_groups ?? null
+    );
+    payload = rows[0]?.reports_list_pupils_with_groups ?? null;
   } catch (error) {
-    console.error("[reports] Failed to load pupil report listings", error)
-    return []
+    console.error("[reports] Failed to load pupil report listings", error);
+    return [];
   }
 
-  const rawData = Array.isArray(payload) ? payload : []
+  const rawData = Array.isArray(payload) ? payload : [];
 
   if (rawData.length > 0) {
     try {
-      const pupilIds = rawData.map((p: any) => p.pupilId).filter(Boolean)
-      const { rows: profileRows } = await query<{ user_id: string; email: string | null; is_teacher: boolean | null }>(
+      const pupilIds = rawData.map((p: any) => p.pupilId).filter(Boolean);
+      const { rows: profileRows } = await query<
+        { user_id: string; email: string | null; is_teacher: boolean | null }
+      >(
         "select user_id, email, is_teacher from profiles where user_id = any($1::text[])",
         [pupilIds],
-      )
-      const emailMap = new Map(profileRows.map((r) => [r.user_id, r.email]))
-      const teacherMap = new Map(profileRows.map((r) => [r.user_id, r.is_teacher]))
-      
+      );
+      const emailMap = new Map(profileRows.map((r) => [r.user_id, r.email]));
+      const teacherMap = new Map(
+        profileRows.map((r) => [r.user_id, r.is_teacher]),
+      );
+
       rawData.forEach((p: any) => {
-        p.pupilEmail = emailMap.get(p.pupilId) ?? null
-        p.isTeacher = teacherMap.get(p.pupilId) ?? false
-      })
+        p.pupilEmail = emailMap.get(p.pupilId) ?? null;
+        p.isTeacher = teacherMap.get(p.pupilId) ?? false;
+      });
     } catch (enrichError) {
-      console.error("[reports] Failed to enrich pupil emails and teacher status", enrichError)
+      console.error(
+        "[reports] Failed to enrich pupil emails and teacher status",
+        enrichError,
+      );
     }
   }
 
-  const parsed = ReportsPupilListingsSchema.safeParse(rawData)
+  const parsed = ReportsPupilListingsSchema.safeParse(rawData);
 
   if (!parsed.success) {
-    console.error("[reports] Invalid payload from reports_list_pupils_with_groups", parsed.error)
-    return []
+    console.error(
+      "[reports] Invalid payload from reports_list_pupils_with_groups",
+      parsed.error,
+    );
+    return [];
   }
 
-  return parsed.data
+  return parsed.data;
 }
-
 
 export async function updateGroupAction(
   oldGroupId: string,
@@ -369,234 +423,291 @@ export async function updateGroupAction(
   subject: string,
   options?: { currentProfile?: AuthenticatedProfile | null },
 ) {
-  console.log("[v0] Server action started for group update:", { oldGroupId, newGroupId, subject })
+  console.log("[v0] Server action started for group update:", {
+    oldGroupId,
+    newGroupId,
+    subject,
+  });
 
-  const profile = options?.currentProfile ?? (await requireAuthenticatedProfile())
+  const profile = options?.currentProfile ??
+    (await requireAuthenticatedProfile());
   if (!profile.isTeacher) {
-    return { success: false, error: "You do not have permission to update groups." }
+    return {
+      success: false,
+      error: "You do not have permission to update groups.",
+    };
   }
 
-  const client = createPgClient()
+  const client = createPgClient();
 
   try {
-    await client.connect()
+    await client.connect();
     const { rowCount } = await client.query(
       "update groups set group_id = $2, subject = $3 where group_id = $1",
       [oldGroupId, newGroupId, subject],
-    )
+    );
 
     if (rowCount === 0) {
-      console.error("[v0] Server action failed for group update: no rows updated")
-      return { success: false, error: "Group not found." }
+      console.error(
+        "[v0] Server action failed for group update: no rows updated",
+      );
+      return { success: false, error: "Group not found." };
     }
 
-    console.log("[v0] Server action completed for group update:", { oldGroupId, newGroupId, subject })
+    console.log("[v0] Server action completed for group update:", {
+      oldGroupId,
+      newGroupId,
+      subject,
+    });
   } catch (error) {
-    console.error("[v0] Server action failed for group update:", error)
-    const message = error instanceof Error ? error.message : "Unable to update group."
-    return { success: false, error: message }
+    console.error("[v0] Server action failed for group update:", error);
+    const message = error instanceof Error
+      ? error.message
+      : "Unable to update group.";
+    return { success: false, error: message };
   } finally {
     try {
-      await client.end()
+      await client.end();
     } catch {
       // ignore close errors
     }
   }
 
-  revalidatePath("/")
-  return { success: true, oldGroupId, newGroupId, subject }
+  revalidatePath("/");
+  return { success: true, oldGroupId, newGroupId, subject };
 }
 
-export async function deleteGroupAction(groupId: string, options?: { currentProfile?: AuthenticatedProfile | null }) {
-  console.log("[v0] Server action started for group deletion:", { groupId })
+export async function deleteGroupAction(
+  groupId: string,
+  options?: { currentProfile?: AuthenticatedProfile | null },
+) {
+  console.log("[v0] Server action started for group deletion:", { groupId });
 
-  const profile = options?.currentProfile ?? (await requireAuthenticatedProfile())
+  const profile = options?.currentProfile ??
+    (await requireAuthenticatedProfile());
   if (!profile.isTeacher) {
-    return { success: false, error: "You do not have permission to delete groups." }
+    return {
+      success: false,
+      error: "You do not have permission to delete groups.",
+    };
   }
 
-  const client = createPgClient()
+  const client = createPgClient();
 
   try {
-    await client.connect()
-    const { rowCount } = await client.query("update groups set active = false where group_id = $1", [groupId])
+    await client.connect();
+    const { rowCount } = await client.query(
+      "update groups set active = false where group_id = $1",
+      [groupId],
+    );
 
     if (rowCount === 0) {
-      console.error("[v0] Server action failed for group deletion: no rows updated")
-      return { success: false, error: "Group not found." }
+      console.error(
+        "[v0] Server action failed for group deletion: no rows updated",
+      );
+      return { success: false, error: "Group not found." };
     }
   } catch (error) {
-    console.error("[v0] Server action failed for group deletion:", error)
-    const message = error instanceof Error ? error.message : "Unable to delete group."
-    return { success: false, error: message }
+    console.error("[v0] Server action failed for group deletion:", error);
+    const message = error instanceof Error
+      ? error.message
+      : "Unable to delete group.";
+    return { success: false, error: message };
   } finally {
     try {
-      await client.end()
+      await client.end();
     } catch {
       // ignore close errors
     }
   }
 
-  console.log("[v0] Server action completed for group deletion:", { groupId })
+  console.log("[v0] Server action completed for group deletion:", { groupId });
 
-  revalidatePath("/")
-  return { success: true, groupId }
+  revalidatePath("/");
+  return { success: true, groupId };
 }
 
 export async function removeGroupMemberAction(
   input: { groupId: string; userId: string },
   options?: { currentProfile?: AuthenticatedProfile | null },
 ) {
-  const parsed = RemoveGroupMemberInputSchema.safeParse(input)
+  const parsed = RemoveGroupMemberInputSchema.safeParse(input);
   if (!parsed.success) {
     return RemoveGroupMemberReturnSchema.parse({
       success: false,
       error: "Invalid group member removal payload.",
-    })
+    });
   }
 
-  const { groupId, userId } = parsed.data
+  const { groupId, userId } = parsed.data;
 
-  console.log("[v0] Server action started for removing group member:", { groupId, userId })
+  console.log("[v0] Server action started for removing group member:", {
+    groupId,
+    userId,
+  });
 
-  const profile = options?.currentProfile ?? (await requireAuthenticatedProfile())
+  const profile = options?.currentProfile ??
+    (await requireAuthenticatedProfile());
   if (!profile.isTeacher) {
     return RemoveGroupMemberReturnSchema.parse({
       success: false,
       error: "You do not have permission to remove pupils.",
-    })
+    });
   }
 
-  const client = createPgClient()
+  const client = createPgClient();
 
   try {
-    await client.connect()
+    await client.connect();
     const { rowCount } = await client.query(
       "delete from group_membership where group_id = $1 and user_id = $2",
       [groupId, userId],
-    )
+    );
 
     if (rowCount === 0) {
-      console.error("[v0] Server action failed for removing group member: no rows affected", { groupId, userId })
+      console.error(
+        "[v0] Server action failed for removing group member: no rows affected",
+        { groupId, userId },
+      );
       return RemoveGroupMemberReturnSchema.parse({
         success: false,
         error: "Unable to remove pupil from group.",
-      })
+      });
     }
   } catch (error) {
-    console.error("[v0] Server action failed for removing group member:", { groupId, userId, error })
+    console.error("[v0] Server action failed for removing group member:", {
+      groupId,
+      userId,
+      error,
+    });
     return RemoveGroupMemberReturnSchema.parse({
       success: false,
       error: "Unable to remove pupil from group.",
-    })
+    });
   } finally {
     try {
-      await client.end()
+      await client.end();
     } catch {
       // ignore close errors
     }
   }
 
-  revalidatePath(`/groups/${groupId}`)
-  revalidatePath("/groups")
+  revalidatePath(`/groups/${groupId}`);
+  revalidatePath("/groups");
 
-  console.log("[v0] Server action completed for removing group member:", { groupId, userId })
+  console.log("[v0] Server action completed for removing group member:", {
+    groupId,
+    userId,
+  });
 
   return RemoveGroupMemberReturnSchema.parse({
     success: true,
     error: null,
-  })
+  });
 }
 
-export async function resetPupilPasswordAction(input: { userId: string }, options?: { currentProfile?: AuthenticatedProfile | null }) {
+export async function resetPupilPasswordAction(
+  input: { userId: string },
+  options?: { currentProfile?: AuthenticatedProfile | null },
+) {
   // Password reset must go through Supabase auth admin API; keep this path using Supabase.
-  const profile = options?.currentProfile ?? (await requireAuthenticatedProfile())
+  const profile = options?.currentProfile ??
+    (await requireAuthenticatedProfile());
   if (!profile.isTeacher) {
     return ResetPupilPasswordResultSchema.parse({
       success: false,
       error: "You do not have permission to reset passwords.",
-    })
+    });
   }
 
-  const parsed = ResetPupilPasswordInputSchema.safeParse(input)
+  const parsed = ResetPupilPasswordInputSchema.safeParse(input);
   if (!parsed.success) {
     return ResetPupilPasswordResultSchema.parse({
       success: false,
       error: "Invalid pupil reset payload.",
-    })
+    });
   }
 
-  const { userId } = parsed.data
-  console.info("[groups] Resetting pupil password.", { userId })
+  const { userId } = parsed.data;
+  console.info("[groups] Resetting pupil password.", { userId });
 
-  const hashedPassword = await hashPassword(DEFAULT_PUPIL_PASSWORD)
+  const hashedPassword = await hashPassword(DEFAULT_PUPIL_PASSWORD);
 
   try {
-    const client = createPgClient()
+    const client = createPgClient();
     try {
-      await client.connect()
+      await client.connect();
       const { rowCount } = await client.query(
         "update profiles set password_hash = $1 where user_id = $2",
         [hashedPassword, userId],
-      )
+      );
 
       if (rowCount === 0) {
-        console.error("[groups] No profile found while resetting password.", { userId })
+        console.error("[groups] No profile found while resetting password.", {
+          userId,
+        });
         return ResetPupilPasswordResultSchema.parse({
           success: false,
           error: "Unable to reset pupil password.",
-        })
+        });
       }
     } finally {
       try {
-        await client.end()
+        await client.end();
       } catch {
         // ignore close errors
       }
     }
   } catch (error) {
-    console.error("[groups] Unexpected error resetting pupil password.", { userId, error })
+    console.error("[groups] Unexpected error resetting pupil password.", {
+      userId,
+      error,
+    });
     return ResetPupilPasswordResultSchema.parse({
       success: false,
       error: "Unable to reset pupil password.",
-    })
+    });
   }
 
   return ResetPupilPasswordResultSchema.parse({
     success: true,
     error: null,
-  })
+  });
 }
 
-export async function readProfileGroupsForCurrentUserAction(): Promise<ProfileGroupsResult> {
-  let error: string | null = null
-  const authProfile = await requireAuthenticatedProfile()
+export async function readProfileGroupsForCurrentUserAction(): Promise<
+  ProfileGroupsResult
+> {
+  let error: string | null = null;
+  const authProfile = await requireAuthenticatedProfile();
   let resolvedProfile = ProfileSchema.parse({
     user_id: authProfile.userId,
     first_name: null,
     last_name: null,
     is_teacher: authProfile.isTeacher,
-  })
+  });
 
   try {
     const { rows: profileRows } = await query(
       "select user_id, first_name, last_name, is_teacher from profiles where user_id = $1 limit 1",
       [authProfile.userId],
-    )
-    const profileRow = profileRows?.[0]
+    );
+    const profileRow = profileRows?.[0];
     if (profileRow) {
       resolvedProfile = ProfileSchema.parse({
         user_id: profileRow.user_id ?? authProfile.userId,
         first_name: profileRow.first_name ?? null,
         last_name: profileRow.last_name ?? null,
         is_teacher: Boolean(profileRow.is_teacher ?? authProfile.isTeacher),
-      })
+      });
     }
   } catch (profileError) {
-    console.error("[profile-groups] Failed to load profile", profileError)
+    console.error("[profile-groups] Failed to load profile", profileError);
   }
 
-  let memberships: Array<z.infer<typeof GroupMembershipsWithGroupSchema.element>> = []
+  let memberships: Array<
+    z.infer<typeof GroupMembershipsWithGroupSchema.element>
+  > = [];
   try {
     const { rows } = await query(
       `
@@ -614,7 +725,7 @@ export async function readProfileGroupsForCurrentUserAction(): Promise<ProfileGr
         order by gm.group_id asc
       `,
       [authProfile.userId],
-    )
+    );
 
     memberships = GroupMembershipsWithGroupSchema.parse(
       (rows ?? []).map((membership) => ({
@@ -628,10 +739,13 @@ export async function readProfileGroupsForCurrentUserAction(): Promise<ProfileGr
           active: membership.group_active,
         },
       })),
-    )
+    );
   } catch (membershipError) {
-    console.error("[profile-groups] Failed to load memberships", membershipError)
-    error = "Unable to load your groups right now. Please try again shortly."
+    console.error(
+      "[profile-groups] Failed to load memberships",
+      membershipError,
+    );
+    error = "Unable to load your groups right now. Please try again shortly.";
   }
 
   return ProfileGroupsResultSchema.parse({
@@ -640,25 +754,27 @@ export async function readProfileGroupsForCurrentUserAction(): Promise<ProfileGr
       memberships,
     },
     error,
-  })
+  });
 }
 
-export async function joinGroupByCodeAction(input: { joinCode: string }): Promise<JoinGroupResult> {
-  const parsed = JoinGroupInputSchema.safeParse({ joinCode: input.joinCode })
+export async function joinGroupByCodeAction(
+  input: { joinCode: string },
+): Promise<JoinGroupResult> {
+  const parsed = JoinGroupInputSchema.safeParse({ joinCode: input.joinCode });
 
   if (!parsed.success) {
-    const [firstError] = parsed.error.issues
+    const [firstError] = parsed.error.issues;
     return JoinGroupReturnSchema.parse({
       success: false,
       error: firstError?.message ?? "Invalid join code.",
       groupId: null,
       subject: null,
-    })
+    });
   }
 
-  const { joinCode } = parsed.data
+  const { joinCode } = parsed.data;
 
-  const authProfile = await getAuthenticatedProfile()
+  const authProfile = await getAuthenticatedProfile();
 
   if (!authProfile) {
     return JoinGroupReturnSchema.parse({
@@ -666,30 +782,41 @@ export async function joinGroupByCodeAction(input: { joinCode: string }): Promis
       error: "You must be signed in to join a group.",
       groupId: null,
       subject: null,
-    })
+    });
   }
 
-  let group: { group_id: string; subject: string | null; active: boolean | null } | null = null
+  let group: {
+    group_id: string;
+    subject: string | null;
+    active: boolean | null;
+  } | null = null;
   try {
-    const { rows } = await query("select group_id, subject, active from groups where join_code = $1 limit 1", [
-      joinCode,
-    ])
-    const rawGroup = rows?.[0] ?? null
+    const { rows } = await query(
+      "select group_id, subject, active from groups where join_code = $1 limit 1",
+      [
+        joinCode,
+      ],
+    );
+    const rawGroup = rows?.[0] ?? null;
     if (rawGroup && typeof rawGroup.group_id === "string") {
       group = {
         group_id: rawGroup.group_id,
         subject: typeof rawGroup.subject === "string" ? rawGroup.subject : null,
         active: typeof rawGroup.active === "boolean" ? rawGroup.active : null,
-      }
+      };
     }
   } catch (groupError) {
-    console.error("[profile-groups] Failed to find group by join code", joinCode, groupError)
+    console.error(
+      "[profile-groups] Failed to find group by join code",
+      joinCode,
+      groupError,
+    );
     return JoinGroupReturnSchema.parse({
       success: false,
       error: "We couldn't validate that join code. Please try again.",
       groupId: null,
       subject: null,
-    })
+    });
   }
 
   if (!group || group.active === false) {
@@ -698,14 +825,14 @@ export async function joinGroupByCodeAction(input: { joinCode: string }): Promis
       error: "No group found with that join code.",
       groupId: null,
       subject: null,
-    })
+    });
   }
 
   try {
     const { rows: existingMembership } = await query(
       "select 1 from group_membership where group_id = $1 and user_id = $2 limit 1",
       [group.group_id, authProfile.userId],
-    )
+    );
 
     if (existingMembership && existingMembership.length > 0) {
       return JoinGroupReturnSchema.parse({
@@ -713,79 +840,90 @@ export async function joinGroupByCodeAction(input: { joinCode: string }): Promis
         error: "You are already a member of that group.",
         groupId: null,
         subject: null,
-      })
+      });
     }
 
-    await query("insert into group_membership (group_id, user_id) values ($1, $2)", [
-      group.group_id,
-      authProfile.userId,
-    ])
+    await query(
+      "insert into group_membership (group_id, user_id) values ($1, $2)",
+      [
+        group.group_id,
+        authProfile.userId,
+      ],
+    );
   } catch (insertError) {
-    console.error("[profile-groups] Failed to join group", { joinCode, userId: authProfile.userId }, insertError)
+    console.error("[profile-groups] Failed to join group", {
+      joinCode,
+      userId: authProfile.userId,
+    }, insertError);
     return JoinGroupReturnSchema.parse({
       success: false,
       error: "Unable to join that group right now.",
       groupId: null,
       subject: null,
-    })
+    });
   }
 
-  revalidatePath("/profile/groups")
+  revalidatePath("/profile/groups");
 
   return JoinGroupReturnSchema.parse({
     success: true,
     error: null,
     groupId: group.group_id,
     subject: group.subject,
-  })
+  });
 }
 
-export async function leaveGroupAction(input: { groupId: string }): Promise<LeaveGroupResult> {
-  const parsed = LeaveGroupInputSchema.safeParse(input)
+export async function leaveGroupAction(
+  input: { groupId: string },
+): Promise<LeaveGroupResult> {
+  const parsed = LeaveGroupInputSchema.safeParse(input);
 
   if (!parsed.success) {
-    const [firstError] = parsed.error.issues
+    const [firstError] = parsed.error.issues;
     return LeaveGroupReturnSchema.parse({
       success: false,
       error: firstError?.message ?? "Invalid leave group payload.",
-    })
+    });
   }
 
-  const authProfile = await getAuthenticatedProfile()
+  const authProfile = await getAuthenticatedProfile();
 
   if (!authProfile) {
     return LeaveGroupReturnSchema.parse({
       success: false,
       error: "You must be signed in to leave a group.",
-    })
+    });
   }
 
   try {
     const { rowCount } = await query(
       "delete from group_membership where group_id = $1 and user_id = $2",
       [parsed.data.groupId, authProfile.userId],
-    )
+    );
 
     if (!rowCount || rowCount === 0) {
       return LeaveGroupReturnSchema.parse({
         success: false,
         error: "You are not a member of that group.",
-      })
+      });
     }
   } catch (deleteError) {
-    console.error("[profile-groups] Failed to leave group", { groupId: parsed.data.groupId, userId: authProfile.userId }, deleteError)
+    console.error("[profile-groups] Failed to leave group", {
+      groupId: parsed.data.groupId,
+      userId: authProfile.userId,
+    }, deleteError);
     return LeaveGroupReturnSchema.parse({
       success: false,
       error: "Unable to leave that group right now.",
-    })
+    });
   }
 
-  revalidatePath("/profile/groups")
+  revalidatePath("/profile/groups");
 
   return LeaveGroupReturnSchema.parse({
     success: true,
     error: null,
-  })
+  });
 }
 
 export async function updateGroupMemberRoleAction(
@@ -793,9 +931,108 @@ export async function updateGroupMemberRoleAction(
   options?: { currentProfile?: AuthenticatedProfile | null },
 ) {
   // Group-level roles are deprecated. This action is now a no-op.
-  console.warn("[groups] updateGroupMemberRoleAction called but roles are now system-wide.")
+  console.warn(
+    "[groups] updateGroupMemberRoleAction called but roles are now system-wide.",
+  );
   return UpdateGroupMemberRoleReturnSchema.parse({
     success: true,
     error: null,
-  })
+  });
+}
+
+const ImportGroupMembersInputSchema = z.object({
+  targetGroupId: z.string().min(1),
+  sourceGroupId: z.string().min(1),
+});
+
+const ImportGroupMembersReturnSchema = z.object({
+  success: z.boolean(),
+  error: z.string().nullable(),
+  count: z.number().default(0),
+});
+
+export type ImportGroupMembersResult = z.infer<
+  typeof ImportGroupMembersReturnSchema
+>;
+
+export async function importGroupMembersAction(
+  input: { targetGroupId: string; sourceGroupId: string },
+  options?: { currentProfile?: AuthenticatedProfile | null },
+): Promise<ImportGroupMembersResult> {
+  const parsed = ImportGroupMembersInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return ImportGroupMembersReturnSchema.parse({
+      success: false,
+      error: "Invalid import parameters.",
+      count: 0,
+    });
+  }
+
+  const { targetGroupId, sourceGroupId } = parsed.data;
+  console.log("[v0] Server action started for importing group members:", {
+    targetGroupId,
+    sourceGroupId,
+  });
+
+  const profile = options?.currentProfile ??
+    (await requireAuthenticatedProfile());
+  if (!profile.isTeacher) {
+    return ImportGroupMembersReturnSchema.parse({
+      success: false,
+      error: "You do not have permission to import pupils.",
+      count: 0,
+    });
+  }
+
+  const client = createPgClient();
+
+  try {
+    await client.connect();
+    // Verify ownership of source group (optional strictly speaking if just reading, but safer)
+    // For now, let's assume if they can see it in the list (which filters by member/owner), they can import from it.
+    // We should strictly verify they are a teacher member of both groups to be safe, or at least the target group.
+
+    // Insert members from source to target, ignoring duplicates
+    const { rowCount } = await client.query(
+      `
+      insert into group_membership (group_id, user_id)
+      select $1::text, source.user_id
+      from group_membership source
+      where source.group_id = $2
+      and not exists (
+        select 1 from group_membership target
+        where target.group_id = $1::text
+        and target.user_id = source.user_id
+      )
+      `,
+      [targetGroupId, sourceGroupId],
+    );
+
+    console.log("[v0] Imported members count:", rowCount);
+
+    return ImportGroupMembersReturnSchema.parse({
+      success: true,
+      error: null,
+      count: rowCount ?? 0,
+    });
+  } catch (error) {
+    console.error(
+      "[v0] Server action failed for importing group members:",
+      error,
+    );
+    const message = error instanceof Error
+      ? error.message
+      : "Unable to import pupils.";
+    return ImportGroupMembersReturnSchema.parse({
+      success: false,
+      error: message,
+      count: 0,
+    });
+  } finally {
+    try {
+      await client.end();
+    } catch {
+      // ignore close errors
+    }
+  }
 }

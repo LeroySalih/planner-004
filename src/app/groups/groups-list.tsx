@@ -35,6 +35,10 @@ export function GroupsList({ groups, onEdit, onJoinCodeClick }: GroupsListProps)
               <p className="text-sm font-medium text-slate-700">Subject</p>
               <p className="text-sm text-slate-800">{group.subject ?? "Untitled"}</p>
             </div>
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-slate-700">Learners</p>
+              <p className="text-sm text-slate-800">{group.member_count ?? 0} active pupils</p>
+            </div>
             <div className="flex flex-col gap-2">
               <p className="text-sm font-medium text-slate-700">Join code</p>
               <Button

@@ -5,6 +5,9 @@ export const GroupSchema = z.object({
     subject: z.string().min(1).max(255),
     join_code: z.string(),
     active: z.boolean().default(true),
+    member_count: z.union([z.string(), z.number()]).transform((val) =>
+        Number(val)
+    ).optional(),
 });
 
 export const GroupsSchema = z.array(GroupSchema);
