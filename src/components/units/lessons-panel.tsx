@@ -5,11 +5,14 @@ import { useCallback, useEffect, useRef, useState, useTransition } from "react"
 import { BookOpen, GripVertical, Plus } from "lucide-react"
 
 import type { LessonWithObjectives, LearningObjectiveWithCriteria } from "@/lib/server-updates"
+import { toggleLessonActiveAction } from "@/lib/server-updates"
 import { LessonJobPayloadSchema } from "@/types"
 import { reorderLessonsAction } from "@/lib/server-actions/lessons"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Switch } from "@/components/ui/switch"
+import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { LessonSidebar } from "@/components/units/lesson-sidebar"
 import { toast } from "sonner"
@@ -29,6 +32,7 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
   const [lessons, setLessons] = useState(() =>
     [...initialLessons].sort((a, b) => (a.order_by ?? 0) - (b.order_by ?? 0)),
   )
+  const [showInactive, setShowInactive] = useState(false)
   const pendingLessonJobsRef = useRef(new Map<string, { title: string }>())
   const [pendingLessonIds, setPendingLessonIds] = useState<Record<string, boolean>>({})
   const [selectedLesson, setSelectedLesson] = useState<LessonWithObjectives | null>(null)
@@ -97,7 +101,20 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
     [unitId],
   )
 
-  const activeLessons = lessons.filter((lesson) => lesson.active !== false)
+  const handleToggleActive = (lessonId: string, checked: boolean) => {
+    setLessons((prev) =>
+      prev.map((l) => (l.lesson_id === lessonId ? { ...l, active: checked } : l)),
+    )
+    startTransition(async () => {
+      const result = await toggleLessonActiveAction(lessonId, unitId, checked)
+      if (!result.success) {
+        toast.error("Failed to update status")
+        setLessons((prev) =>
+          prev.map((l) => (l.lesson_id === lessonId ? { ...l, active: !checked } : l)),
+        )
+      }
+    })
+  }
 
   const handleDragStart = (lessonId: string, event: React.DragEvent) => {
     setDraggingLessonId(lessonId)
@@ -218,6 +235,8 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
     }
   }, [unitId, upsertLesson])
 
+  const displayedLessons = lessons.filter((lesson) => showInactive || lesson.active !== false)
+
   return (
     <Card>
       <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -226,18 +245,32 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
             <BookOpen className="h-5 w-5 text-primary" />
             Lessons
           </CardTitle>
-          <CardDescription>Only active lessons appear in this list.</CardDescription>
+          <CardDescription>Manage lesson visibility and order.</CardDescription>
         </div>
-        <Button size="sm" onClick={openCreateSidebar}>
-          <Plus className="mr-2 h-4 w-4" />
-          Add Lesson
-        </Button>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Switch
+              id="show-inactive"
+              checked={showInactive}
+              onCheckedChange={setShowInactive}
+            />
+            <Label htmlFor="show-inactive" className="text-sm font-medium">
+              Show inactive
+            </Label>
+          </div>
+          <Button size="sm" onClick={openCreateSidebar}>
+            <Plus className="mr-2 h-4 w-4" />
+            Add Lesson
+          </Button>
+        </div>
       </CardHeader>
       <CardContent onDragOver={(event) => event.preventDefault()} onDrop={handleDrop(null)}>
-        {activeLessons.length > 0 ? (
+        {displayedLessons.length > 0 ? (
           <div className="space-y-3">
-            {activeLessons.map((lesson) => {
+            {displayedLessons.map((lesson) => {
+
               const isPendingLesson = pendingLessonIds[lesson.lesson_id] === true
+              const isActive = lesson.active !== false
 
               return (
                 <div
@@ -250,6 +283,7 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
                   className={cn(
                     "w-full rounded-lg border border-border p-4 text-left transition hover:border-primary",
                     draggingLessonId === lesson.lesson_id && "opacity-60",
+                    !isActive && "bg-muted/40",
                   )}
                   aria-grabbed={draggingLessonId === lesson.lesson_id}
                 >
@@ -262,19 +296,34 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
                         )}
                         aria-hidden="true"
                       />
-                      <Link
-                        href={`/lessons/${encodeURIComponent(lesson.lesson_id)}`}
-                        className="truncate text-sm font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      >
-                        {lesson.title?.trim().length ? lesson.title : "Untitled lesson"}
-                      </Link>
+                      <div className="flex flex-col">
+                        <Link
+                          href={`/lessons/${encodeURIComponent(lesson.lesson_id)}`}
+                          className={cn(
+                            "truncate text-sm font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            !isActive && "text-muted-foreground",
+                          )}
+                        >
+                          {lesson.title?.trim().length ? lesson.title : "Untitled lesson"}
+                        </Link>
+                        {!isActive && <span className="text-xs text-muted-foreground">Inactive</span>}
+                      </div>
+
                       {isPendingLesson ? (
                         <Badge variant="secondary" className="shrink-0 text-xs">
                           Pending
                         </Badge>
                       ) : null}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                        <Switch
+                          checked={isActive}
+                          onCheckedChange={(checked) => handleToggleActive(lesson.lesson_id, checked)}
+                          disabled={isPendingLesson}
+                          aria-label={`Toggle active status for ${lesson.title}`}
+                        />
+                      </div>
                       {isPendingLesson ? (
                         <span className="text-sm text-muted-foreground">Waiting for creation…</span>
                       ) : (
@@ -299,7 +348,7 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
           </div>
         ) : (
           <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-            No active lessons yet. Click “Add Lesson” to create the first one.
+            No lessons yet. Click “Add Lesson” to create the first one.
           </div>
         )}
       </CardContent>
