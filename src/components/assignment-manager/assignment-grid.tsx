@@ -55,7 +55,7 @@ const LESSON_TITLE_COLOR = "#0f172a"
 const LESSON_DETAIL_COLOR = "#334155"
 const GROUP_COLUMN_WIDTH = "12rem"
 const WEEK_COLUMN_WIDTH = "8rem"
-const GRID_FIXED_START_DAY = Date.UTC(2025, 8, 14) // 14 Sept 2025 UTC
+const GRID_FIXED_START_DAY = null // 14 Sept 2025 UTC
 
 export function AssignmentGrid({
   groups,
@@ -131,6 +131,18 @@ export function AssignmentGrid({
       current.setUTCDate(current.getUTCDate() + 7)
       current.setUTCHours(0, 0, 0, 0)
     }
+
+    console.log("[AssignmentGrid] Debug:", {
+      groupsCount: groups.length,
+      assignmentsCount: assignments.length,
+      GRID_FIXED_START_DAY,
+      minStartDay: minStartDay ? new Date(minStartDay).toISOString() : null,
+      todayDay: new Date(todayDay).toISOString(),
+      startDay: new Date(startDay).toISOString(),
+      endDay: new Date(endDay).toISOString(),
+      weekStartsCount: weekStarts.length,
+      firstWeek: weekStarts[0]?.toISOString(),
+    })
 
     const gridData: GroupRow[] = groups.map((group) => {
       const groupAssignments = assignments

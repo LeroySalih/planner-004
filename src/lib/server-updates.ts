@@ -161,6 +161,7 @@ export {
   triggerBulkAiMarkingAction,
   triggerManualAiMarkingAction,
 } from "./server-actions/short-text";
+export { saveUploadUrlAnswerAction } from "./server-actions/upload-url";
 export { saveLongTextAnswerAction } from "./server-actions/long-text";
 
 export {

@@ -20,12 +20,14 @@ import { PupilMcqActivity } from "@/components/pupil/pupil-mcq-activity"
 import { PupilFeedbackActivity } from "@/components/pupil/pupil-feedback-activity"
 import { PupilShortTextActivity } from "@/components/pupil/pupil-short-text-activity"
 import { PupilLongTextActivity } from "@/components/pupil/pupil-long-text-activity"
+import { PupilUploadUrlActivity } from "@/components/pupil/pupil-upload-url-activity"
 import { MediaImage } from "@/components/ui/media-image"
 import {
   LegacyMcqSubmissionBodySchema,
   LongTextSubmissionBodySchema,
   McqSubmissionBodySchema,
   ShortTextSubmissionBodySchema,
+  UploadUrlSubmissionBodySchema,
 } from "@/types"
 import { ActivityProgressPanel } from "./activity-progress-panel"
 import { extractScoreFromSubmission } from "@/lib/scoring/activity-scores"
@@ -85,6 +87,17 @@ function getShortTextBodyServer(activity: { body_data: unknown }) {
   const modelAnswer = typeof record.modelAnswer === "string" ? record.modelAnswer : ""
 
   return { question, modelAnswer }
+}
+
+function getUploadUrlBodyServer(activity: { body_data: unknown }) {
+  if (!activity.body_data || typeof activity.body_data !== "object") {
+    return { question: "" }
+  }
+
+  const record = activity.body_data as Record<string, unknown>
+  const question = typeof record.question === "string" ? record.question : ""
+
+  return { question }
 }
 
 function getLongTextBodyServer(activity: { body_data: unknown }) {
@@ -452,6 +465,54 @@ export default async function PupilLessonFriendlyPage({
 
   const longTextAnswerMap = new Map(longTextSubmissionEntries.map((entry) => [entry.activityId, entry.answer ?? ""]))
 
+  const uploadUrlActivities = activities.filter((activity) => activity.type === "upload-url")
+  const uploadUrlSubmissionEntries = await Promise.all(
+    uploadUrlActivities.map(async (activity) => {
+      const uploadUrlBody = getUploadUrlBodyServer(activity)
+      const questionText = uploadUrlBody.question?.trim() || null
+      activityModelAnswerMap.set(activity.activity_id, null)
+
+      const result = await getLatestSubmissionForActivityAction(activity.activity_id, pupilId)
+      if (result.error || !result.data) {
+        return {
+          activityId: activity.activity_id,
+          answer: "",
+          submissionId: null,
+          isFlagged: false,
+        }
+      }
+
+      const parsedBody = UploadUrlSubmissionBodySchema.safeParse(result.data.body)
+      if (parsedBody.success) {
+        const extraction = extractScoreFromSubmission(activity.type ?? "", result.data.body, [], {
+          question: questionText,
+          correctAnswer: null,
+          optionTextMap: undefined,
+        })
+        const latestFeedback = latestFeedbackByActivity.get(activity.activity_id)
+        activityFeedbackMap.set(
+          activity.activity_id,
+          latestFeedback ?? extraction.feedback ?? extraction.autoFeedback ?? null,
+        )
+        return {
+          activityId: activity.activity_id,
+          answer: parsedBody.data.url ?? "",
+          submissionId: result.data.submission_id,
+          isFlagged: result.data.is_flagged ?? false,
+        }
+      }
+
+      return {
+        activityId: activity.activity_id,
+        answer: "",
+        submissionId: result.data.submission_id,
+        isFlagged: result.data.is_flagged ?? false,
+      }
+    }),
+  )
+
+  const uploadUrlDataMap = new Map(uploadUrlSubmissionEntries.map((entry) => [entry.activityId, entry]))
+
   const isPupilViewer = profile.userId === pupilId
 
   const assignments = summary
@@ -491,6 +552,7 @@ export default async function PupilLessonFriendlyPage({
     "short-text-question",
     "long-text-question",
     "text-question",
+    "upload-url",
     "upload-file",
   ])
 
@@ -647,6 +709,20 @@ export default async function PupilLessonFriendlyPage({
                           lessonId={lesson.lesson_id}
                           assignmentIds={assignmentIds}
                           initialVisible={initialFeedbackVisible}
+                        />
+                      ) : activity.type === "upload-url" ? (
+                        <PupilUploadUrlActivity
+                          lessonId={lesson.lesson_id}
+                          activity={activity}
+                          pupilId={pupilId}
+                          canAnswer={isPupilViewer}
+                          stepNumber={index + 1}
+                          initialAnswer={uploadUrlDataMap.get(activity.activity_id)?.answer ?? ""}
+                          initialSubmissionId={uploadUrlDataMap.get(activity.activity_id)?.submissionId ?? null}
+                          initialIsFlagged={uploadUrlDataMap.get(activity.activity_id)?.isFlagged ?? false}
+                          feedbackAssignmentIds={assignmentIds}
+                          feedbackLessonId={lesson.lesson_id}
+                          feedbackInitiallyVisible={initialFeedbackVisible}
                         />
                       ) : (
                         <>
