@@ -2,6 +2,7 @@ export {
   createGroupAction,
   deleteGroupAction,
   type GroupActionResult,
+  importGroupMembersAction,
   joinGroupByCodeAction,
   type JoinGroupResult,
   leaveGroupAction,

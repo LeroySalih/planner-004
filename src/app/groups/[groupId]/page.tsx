@@ -5,6 +5,7 @@ import { notFound } from "next/navigation"
 import {
   clearSigninThrottleForPupilAction,
   readGroupAction,
+  readGroupsAction,
   readPupilSigninLockStatusAction,
   removeGroupMemberAction,
   resetPupilPasswordAction,
@@ -14,6 +15,7 @@ import { requireTeacherProfile } from "@/lib/auth"
 
 import type { PupilActionState } from "./pupil-action-state"
 import { GroupPupilList, type PupilMember } from "./group-pupil-list"
+import { ImportPupilsDialog } from "./import-pupils-dialog"
 
 const roleLabelMap: Record<string, string> = {
   pupil: "Pupil",
@@ -37,6 +39,10 @@ export default async function GroupDetailPage({
   if (!group) {
     notFound()
   }
+
+  // Fetch all groups for the import dialog
+  const groupsResult = await readGroupsAction({ currentProfile: teacherProfile })
+  const availableGroups = groupsResult.data ?? []
 
   const membershipError = result.error
   const pupils: PupilMember[] = group.members
@@ -216,7 +222,10 @@ export default async function GroupDetailPage({
 
         <header className="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 px-8 py-6 text-white shadow-lg">
           <div className="flex flex-col gap-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">Group</p>
+            <div className="flex items-start justify-between">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">Group</p>
+              <ImportPupilsDialog targetGroupId={group.group_id} availableGroups={availableGroups} />
+            </div>
             <div>
               <h1 className="text-3xl font-semibold text-white">{group.group_id}</h1>
               <p className="mt-2 text-sm text-slate-200">
