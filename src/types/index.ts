@@ -1,5 +1,4 @@
-import { z } from "zod"
-
+import { z } from "zod";
 
 export const GroupSchema = z.object({
     group_id: z.string(),
@@ -12,7 +11,11 @@ export const GroupsSchema = z.array(GroupSchema);
 
 export type Group = z.infer<typeof GroupSchema>;
 export type Groups = z.infer<typeof GroupsSchema>;
-export type AssignmentChangeEvent = "create" | "edit" | "delete" | "unit-title-click"
+export type AssignmentChangeEvent =
+    | "create"
+    | "edit"
+    | "delete"
+    | "unit-title-click";
 
 export const SubjectSchema = z.object({
     subject: z.string().min(1).max(255),
@@ -43,7 +46,6 @@ export const FastUiActionStateSchema = z.object({
 });
 
 export type FastUiActionState = z.infer<typeof FastUiActionStateSchema>;
-
 
 export const UnitJobOperationSchema = z.enum(["update", "deactivate"]);
 
@@ -76,10 +78,16 @@ export const GroupMembershipWithGroupSchema = GroupMembershipSchema.extend({
     group: GroupSchema.optional(),
 });
 
-export const GroupMembershipsWithGroupSchema = z.array(GroupMembershipWithGroupSchema);
+export const GroupMembershipsWithGroupSchema = z.array(
+    GroupMembershipWithGroupSchema,
+);
 
-export type GroupMembershipWithGroup = z.infer<typeof GroupMembershipWithGroupSchema>;
-export type GroupMembershipsWithGroup = z.infer<typeof GroupMembershipsWithGroupSchema>;
+export type GroupMembershipWithGroup = z.infer<
+    typeof GroupMembershipWithGroupSchema
+>;
+export type GroupMembershipsWithGroup = z.infer<
+    typeof GroupMembershipsWithGroupSchema
+>;
 
 export const ReportsPupilGroupSchema = z.object({
     group_id: z.string(),
@@ -126,7 +134,9 @@ export const PupilSignInHistorySchema = z.object({
     url: z.string().min(1),
     signed_in_at: z
         .union([z.string(), z.date()])
-        .transform((value) => (value instanceof Date ? value.toISOString() : value)),
+        .transform((
+            value,
+        ) => (value instanceof Date ? value.toISOString() : value)),
 });
 
 export const PupilSignInHistoriesSchema = z.array(PupilSignInHistorySchema);
@@ -134,7 +144,12 @@ export const PupilSignInHistoriesSchema = z.array(PupilSignInHistorySchema);
 export type PupilSignInHistory = z.infer<typeof PupilSignInHistorySchema>;
 export type PupilSignInHistories = z.infer<typeof PupilSignInHistoriesSchema>;
 
-export const SubmissionStatusSchema = z.enum(["inprogress", "submitted", "completed", "rejected"]);
+export const SubmissionStatusSchema = z.enum([
+    "inprogress",
+    "submitted",
+    "completed",
+    "rejected",
+]);
 export type SubmissionStatus = z.infer<typeof SubmissionStatusSchema>;
 
 export const FeedbackSchema = z.object({
@@ -156,7 +171,9 @@ export const SubmissionSchema = z.object({
     user_id: z.string(),
     submitted_at: z
         .union([z.string(), z.date()])
-        .transform((value) => (value instanceof Date ? value.toISOString() : value)),
+        .transform((
+            value,
+        ) => (value instanceof Date ? value.toISOString() : value)),
     body: z.unknown().nullable().default(null),
     is_flagged: z.boolean().default(false),
 });
@@ -226,7 +243,9 @@ export const AssessmentObjectiveSchema = z.object({
     title: z.string().min(1).max(255),
     order_index: z
         .union([z.number(), z.null(), z.undefined()])
-        .transform((val) => (typeof val === "number" && Number.isFinite(val) ? val : 0)),
+        .transform((
+            val,
+        ) => (typeof val === "number" && Number.isFinite(val) ? val : 0)),
 });
 
 export const AssessmentObjectivesSchema = z.array(AssessmentObjectiveSchema);
@@ -241,7 +260,9 @@ export const SuccessCriterionSchema = z.object({
     description: z.string().min(1),
     order_index: z
         .union([z.number(), z.null(), z.undefined()])
-        .transform((val) => (typeof val === "number" && Number.isFinite(val) ? val : 0)),
+        .transform((
+            val,
+        ) => (typeof val === "number" && Number.isFinite(val) ? val : 0)),
     active: z.boolean().default(true),
     units: z.array(z.string()).default([]),
 });
@@ -272,9 +293,13 @@ export const LessonSuccessCriterionSchema = z.object({
     is_summative: z.boolean().nullable().optional(),
 });
 
-export const LessonSuccessCriteriaSchema = z.array(LessonSuccessCriterionSchema);
+export const LessonSuccessCriteriaSchema = z.array(
+    LessonSuccessCriterionSchema,
+);
 
-export type LessonSuccessCriterion = z.infer<typeof LessonSuccessCriterionSchema>;
+export type LessonSuccessCriterion = z.infer<
+    typeof LessonSuccessCriterionSchema
+>;
 export type LessonSuccessCriteria = z.infer<typeof LessonSuccessCriteriaSchema>;
 
 export const ActivitySuccessCriterionSchema = z.object({
@@ -286,10 +311,16 @@ export const ActivitySuccessCriterionSchema = z.object({
     active: z.boolean().nullable().optional(),
 });
 
-export const ActivitySuccessCriteriaSchema = z.array(ActivitySuccessCriterionSchema);
+export const ActivitySuccessCriteriaSchema = z.array(
+    ActivitySuccessCriterionSchema,
+);
 
-export type ActivitySuccessCriterion = z.infer<typeof ActivitySuccessCriterionSchema>;
-export type ActivitySuccessCriteria = z.infer<typeof ActivitySuccessCriteriaSchema>;
+export type ActivitySuccessCriterion = z.infer<
+    typeof ActivitySuccessCriterionSchema
+>;
+export type ActivitySuccessCriteria = z.infer<
+    typeof ActivitySuccessCriteriaSchema
+>;
 
 export const LearningObjectiveSchema = z.object({
     learning_objective_id: z.string(),
@@ -325,21 +356,31 @@ export const SuccessCriterionWithUnitsSchema = SuccessCriterionSchema.extend({
     success_criteria_units: SuccessCriteriaUnitsSchema.optional(),
 });
 
-export const LearningObjectiveWithCriteriaSchema = LearningObjectiveSchema.extend({
-    success_criteria: SuccessCriteriaSchema.default([]),
-});
+export const LearningObjectiveWithCriteriaSchema = LearningObjectiveSchema
+    .extend({
+        success_criteria: SuccessCriteriaSchema.default([]),
+    });
 
-export const AssessmentObjectiveDetailSchema = AssessmentObjectiveSchema.extend({
-    learning_objectives: z.array(LearningObjectiveWithCriteriaSchema).default([]),
-});
+export const AssessmentObjectiveDetailSchema = AssessmentObjectiveSchema.extend(
+    {
+        learning_objectives: z.array(LearningObjectiveWithCriteriaSchema)
+            .default([]),
+    },
+);
 
 export const CurriculumDetailSchema = CurriculumSchema.extend({
     assessment_objectives: z.array(AssessmentObjectiveDetailSchema).default([]),
 });
 
-export type SuccessCriterionWithUnits = z.infer<typeof SuccessCriterionWithUnitsSchema>;
-export type LearningObjectiveWithCriteria = z.infer<typeof LearningObjectiveWithCriteriaSchema>;
-export type AssessmentObjectiveDetail = z.infer<typeof AssessmentObjectiveDetailSchema>;
+export type SuccessCriterionWithUnits = z.infer<
+    typeof SuccessCriterionWithUnitsSchema
+>;
+export type LearningObjectiveWithCriteria = z.infer<
+    typeof LearningObjectiveWithCriteriaSchema
+>;
+export type AssessmentObjectiveDetail = z.infer<
+    typeof AssessmentObjectiveDetailSchema
+>;
 export type CurriculumDetail = z.infer<typeof CurriculumDetailSchema>;
 
 export const LessonSchema = z.object({
@@ -358,8 +399,8 @@ export type Lessons = z.infer<typeof LessonsSchema>;
 export const LessonAssignmentSchema = z.object({
     group_id: z.string(),
     lesson_id: z.string(),
-    start_date: z.string().refine(date => !isNaN(Date.parse(date)), {
-        message: "Invalid date format"
+    start_date: z.string().refine((date) => !isNaN(Date.parse(date)), {
+        message: "Invalid date format",
     }),
 });
 
@@ -377,10 +418,14 @@ export const LessonFeedbackSummarySchema = z.object({
     unmarked_count: z.number().int().min(0),
 });
 
-export const LessonFeedbackSummariesSchema = z.array(LessonFeedbackSummarySchema);
+export const LessonFeedbackSummariesSchema = z.array(
+    LessonFeedbackSummarySchema,
+);
 
 export type LessonFeedbackSummary = z.infer<typeof LessonFeedbackSummarySchema>;
-export type LessonFeedbackSummaries = z.infer<typeof LessonFeedbackSummariesSchema>;
+export type LessonFeedbackSummaries = z.infer<
+    typeof LessonFeedbackSummariesSchema
+>;
 
 export const LessonAssignmentScoreSummarySchema = z.object({
     group_id: z.string(),
@@ -388,10 +433,16 @@ export const LessonAssignmentScoreSummarySchema = z.object({
     activities_average: z.number().min(0).max(1).nullable(),
 });
 
-export const LessonAssignmentScoreSummariesSchema = z.array(LessonAssignmentScoreSummarySchema);
+export const LessonAssignmentScoreSummariesSchema = z.array(
+    LessonAssignmentScoreSummarySchema,
+);
 
-export type LessonAssignmentScoreSummary = z.infer<typeof LessonAssignmentScoreSummarySchema>;
-export type LessonAssignmentScoreSummaries = z.infer<typeof LessonAssignmentScoreSummariesSchema>;
+export type LessonAssignmentScoreSummary = z.infer<
+    typeof LessonAssignmentScoreSummarySchema
+>;
+export type LessonAssignmentScoreSummaries = z.infer<
+    typeof LessonAssignmentScoreSummariesSchema
+>;
 
 export const LessonLearningObjectiveSchema = z.object({
     learning_objective_id: z.string(),
@@ -404,10 +455,16 @@ export const LessonLearningObjectiveSchema = z.object({
     }).optional(),
 });
 
-export const LessonLearningObjectivesSchema = z.array(LessonLearningObjectiveSchema);
+export const LessonLearningObjectivesSchema = z.array(
+    LessonLearningObjectiveSchema,
+);
 
-export type LessonLearningObjective = z.infer<typeof LessonLearningObjectiveSchema>;
-export type LessonLearningObjectives = z.infer<typeof LessonLearningObjectivesSchema>;
+export type LessonLearningObjective = z.infer<
+    typeof LessonLearningObjectiveSchema
+>;
+export type LessonLearningObjectives = z.infer<
+    typeof LessonLearningObjectivesSchema
+>;
 
 export const LessonLinkSchema = z.object({
     lesson_link_id: z.string(),
@@ -437,7 +494,8 @@ export const McqActivityBodySchema = z
         correctOptionId: z.string().min(1),
     })
     .refine(
-        (value) => value.options.some((option) => option.id === value.correctOptionId),
+        (value) =>
+            value.options.some((option) => option.id === value.correctOptionId),
         {
             message: "Correct option must match one of the provided options.",
             path: ["correctOptionId"],
@@ -462,7 +520,9 @@ export const McqSubmissionBodySchema = z
 
 export type McqOption = z.infer<typeof McqOptionSchema>;
 export type McqActivityBody = z.infer<typeof McqActivityBodySchema>;
-export type LegacyMcqSubmissionBody = z.infer<typeof LegacyMcqSubmissionBodySchema>;
+export type LegacyMcqSubmissionBody = z.infer<
+    typeof LegacyMcqSubmissionBodySchema
+>;
 export type McqSubmissionBody = z.infer<typeof McqSubmissionBodySchema>;
 
 export const ShortTextActivityBodySchema = z
@@ -487,7 +547,9 @@ export const ShortTextSubmissionBodySchema = z
     .passthrough();
 
 export type ShortTextActivityBody = z.infer<typeof ShortTextActivityBodySchema>;
-export type ShortTextSubmissionBody = z.infer<typeof ShortTextSubmissionBodySchema>;
+export type ShortTextSubmissionBody = z.infer<
+    typeof ShortTextSubmissionBodySchema
+>;
 
 export const LongTextActivityBodySchema = z
     .object({
@@ -506,7 +568,30 @@ export const LongTextSubmissionBodySchema = z
     .passthrough();
 
 export type LongTextActivityBody = z.infer<typeof LongTextActivityBodySchema>;
-export type LongTextSubmissionBody = z.infer<typeof LongTextSubmissionBodySchema>;
+export type LongTextSubmissionBody = z.infer<
+    typeof LongTextSubmissionBodySchema
+>;
+
+export const UploadUrlActivityBodySchema = z
+    .object({
+        question: z.string().min(1),
+    })
+    .passthrough();
+
+export const UploadUrlSubmissionBodySchema = z
+    .object({
+        url: z.string().url(),
+        teacher_feedback: z.string().nullable().optional(),
+        success_criteria_scores: z
+            .record(z.string(), z.number().min(0).max(1).nullable())
+            .default({}),
+    })
+    .passthrough();
+
+export type UploadUrlActivityBody = z.infer<typeof UploadUrlActivityBodySchema>;
+export type UploadUrlSubmissionBody = z.infer<
+    typeof UploadUrlSubmissionBodySchema
+>;
 
 export const FeedbackSourceSchema = z.enum(["teacher", "auto", "ai"]);
 export type FeedbackSource = z.infer<typeof FeedbackSourceSchema>;
@@ -532,7 +617,9 @@ export const PupilActivityFeedbackRowSchema = z.object({
     created_by: z.string().nullable().optional(),
 });
 
-export type PupilActivityFeedbackRow = z.infer<typeof PupilActivityFeedbackRowSchema>;
+export type PupilActivityFeedbackRow = z.infer<
+    typeof PupilActivityFeedbackRowSchema
+>;
 
 export const ShortTextFeedbackRequestSchema = z
     .object({
@@ -579,9 +666,15 @@ export const ShortTextFeedbackResultSchema = z.object({
     populated_from_submission: z.boolean(),
 });
 
-export type ShortTextFeedbackRequest = z.infer<typeof ShortTextFeedbackRequestSchema>;
-export type ShortTextFeedbackEvent = z.infer<typeof ShortTextFeedbackEventSchema>;
-export type ShortTextFeedbackResult = z.infer<typeof ShortTextFeedbackResultSchema>;
+export type ShortTextFeedbackRequest = z.infer<
+    typeof ShortTextFeedbackRequestSchema
+>;
+export type ShortTextFeedbackEvent = z.infer<
+    typeof ShortTextFeedbackEventSchema
+>;
+export type ShortTextFeedbackResult = z.infer<
+    typeof ShortTextFeedbackResultSchema
+>;
 
 export interface LessonSubmissionScore {
     userId: string;
@@ -619,7 +712,9 @@ export const FeedbackActivityBodySchema = z
     })
     .passthrough();
 
-export type FeedbackActivityGroupSettings = z.infer<typeof FeedbackActivityGroupSettingsSchema>;
+export type FeedbackActivityGroupSettings = z.infer<
+    typeof FeedbackActivityGroupSettingsSchema
+>;
 export type FeedbackActivityBody = z.infer<typeof FeedbackActivityBodySchema>;
 
 export const LessonWithObjectivesSchema = LessonSchema.extend({
@@ -670,7 +765,9 @@ export const LessonActivitySchema = z.object({
     body_data: z.unknown().nullish().transform((value) => value ?? null),
     is_summative: z.boolean().nullish().transform((value) => value ?? false),
     notes: z.string().nullish().transform((value) => value ?? ""),
-    order_by: z.number().nullish().transform((value) => (typeof value === "number" ? value : null)),
+    order_by: z.number().nullish().transform((
+        value,
+    ) => (typeof value === "number" ? value : null)),
     active: z.boolean().nullish().transform((value) => value ?? true),
     success_criteria_ids: z.array(z.string()).default([]),
     success_criteria: ActivitySuccessCriteriaSchema.default([]),
@@ -708,11 +805,11 @@ export type UploadSubmissionFiles = z.infer<typeof UploadSubmissionFilesSchema>;
 export const AssignmentSchema = z.object({
     group_id: z.string(),
     unit_id: z.string(),
-    start_date: z.string().refine(date => !isNaN(Date.parse(date)), {
-        message: "Invalid date format"
+    start_date: z.string().refine((date) => !isNaN(Date.parse(date)), {
+        message: "Invalid date format",
     }),
-    end_date: z.string().refine(date => !isNaN(Date.parse(date)), {
-        message: "Invalid date format"
+    end_date: z.string().refine((date) => !isNaN(Date.parse(date)), {
+        message: "Invalid date format",
     }),
     active: z.boolean().optional(),
 });
@@ -731,7 +828,9 @@ export const AssignmentsBootstrapPayloadSchema = z.object({
     lessonAssignments: LessonAssignmentsSchema.default([]),
 });
 
-export type AssignmentsBootstrapPayload = z.infer<typeof AssignmentsBootstrapPayloadSchema>;
+export type AssignmentsBootstrapPayload = z.infer<
+    typeof AssignmentsBootstrapPayloadSchema
+>;
 
 export const AssignmentWithUnitSchema = AssignmentSchema.extend({
     unit: UnitSchema.optional().nullable(),
@@ -768,7 +867,8 @@ export const AssignmentResultActivitySchema = z.object({
     type: z.string().default(""),
     orderIndex: z.number().nullable().optional(),
     isSummative: z.boolean().nullish().transform((value) => value ?? false),
-    successCriteria: z.array(AssignmentResultActivitySuccessCriterionSchema).default([]),
+    successCriteria: z.array(AssignmentResultActivitySuccessCriterionSchema)
+        .default([]),
 });
 
 export const AssignmentResultCellSchema = z.object({
@@ -788,7 +888,8 @@ export const AssignmentResultCellSchema = z.object({
     autoFeedbackUpdatedAt: z.string().nullable().optional(),
     successCriteriaScores: AssignmentResultCriterionScoresSchema,
     autoSuccessCriteriaScores: AssignmentResultCriterionScoresSchema.optional(),
-    overrideSuccessCriteriaScores: AssignmentResultCriterionScoresSchema.optional(),
+    overrideSuccessCriteriaScores: AssignmentResultCriterionScoresSchema
+        .optional(),
     question: z.string().nullable().optional(),
     correctAnswer: z.string().nullable().optional(),
     pupilAnswer: z.string().nullable().optional(),
@@ -850,21 +951,38 @@ export const AssignmentResultMatrixSchema = z.object({
     pupils: z.array(AssignmentResultPupilSchema),
     activities: z.array(AssignmentResultActivitySchema),
     rows: z.array(AssignmentResultRowSchema),
-    activitySummaries: z.array(AssignmentResultActivitySummarySchema).optional(),
-    successCriteriaSummaries: z.array(AssignmentResultSuccessCriterionSummarySchema).optional(),
+    activitySummaries: z.array(AssignmentResultActivitySummarySchema)
+        .optional(),
+    successCriteriaSummaries: z.array(
+        AssignmentResultSuccessCriterionSummarySchema,
+    ).optional(),
     overallAverages: AssignmentResultOverallAveragesSchema.optional(),
 });
 
 export type AssignmentResultPupil = z.infer<typeof AssignmentResultPupilSchema>;
-export type AssignmentResultActivitySuccessCriterion = z.infer<typeof AssignmentResultActivitySuccessCriterionSchema>;
-export type AssignmentResultCriterionScores = z.infer<typeof AssignmentResultCriterionScoresSchema>;
-export type AssignmentResultActivity = z.infer<typeof AssignmentResultActivitySchema>;
+export type AssignmentResultActivitySuccessCriterion = z.infer<
+    typeof AssignmentResultActivitySuccessCriterionSchema
+>;
+export type AssignmentResultCriterionScores = z.infer<
+    typeof AssignmentResultCriterionScoresSchema
+>;
+export type AssignmentResultActivity = z.infer<
+    typeof AssignmentResultActivitySchema
+>;
 export type AssignmentResultCell = z.infer<typeof AssignmentResultCellSchema>;
 export type AssignmentResultRow = z.infer<typeof AssignmentResultRowSchema>;
-export type AssignmentResultActivitySummary = z.infer<typeof AssignmentResultActivitySummarySchema>;
-export type AssignmentResultSuccessCriterionSummary = z.infer<typeof AssignmentResultSuccessCriterionSummarySchema>;
-export type AssignmentResultMatrix = z.infer<typeof AssignmentResultMatrixSchema>;
-export type AssignmentResultOverallAverages = z.infer<typeof AssignmentResultOverallAveragesSchema>;
+export type AssignmentResultActivitySummary = z.infer<
+    typeof AssignmentResultActivitySummarySchema
+>;
+export type AssignmentResultSuccessCriterionSummary = z.infer<
+    typeof AssignmentResultSuccessCriterionSummarySchema
+>;
+export type AssignmentResultMatrix = z.infer<
+    typeof AssignmentResultMatrixSchema
+>;
+export type AssignmentResultOverallAverages = z.infer<
+    typeof AssignmentResultOverallAveragesSchema
+>;
 
 export const UnitScoreSummarySchema = z.object({
     unitId: z.string(),

@@ -3067,6 +3067,19 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                             ? "Learner submitted file uploads listed below."
                             : "No upload has been submitted yet."}
                         </p>
+                      ) : selection.activity.type === "upload-url" ? (
+                        selection.cell.pupilAnswer ? (
+                          <a
+                            href={selection.cell.pupilAnswer}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm text-primary hover:underline break-all"
+                          >
+                            {selection.cell.pupilAnswer}
+                          </a>
+                        ) : (
+                          <p className="text-sm text-foreground">No URL submitted yet.</p>
+                        )
                       ) : selection.cell.pupilAnswer ? (
                         (() => {
                           const markup = getRichTextMarkup(selection.cell.pupilAnswer ?? "")

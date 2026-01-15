@@ -115,7 +115,7 @@ export default async function ProfileDetailPage({
       </section>
 
       <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
-        <Link href={`/profile/dashboard/${profileId}`} className="underline-offset-4 hover:underline">
+        <Link href={`/profiles/${profileId}/dashboard`} className="underline-offset-4 hover:underline">
           ← Back to dashboard
         </Link>
       </div>

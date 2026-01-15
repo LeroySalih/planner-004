@@ -1,12 +1,12 @@
 {
   "cookies": [
     {
-      "name": "planner_session",
-      "value": "d42305dc-2c1b-4913-854a-82b3ee313a82.urtLUrqSjXYSc_a6z7w1SQB-VpcaQNpRawHEKNKL8Lc",
+      "name": "planner_csrf_token",
+      "value": "46e9c3ca1df86990636ee609b0d4f8b05818d3fdb4bfc5568fd7ccb697add1a0",
       "domain": "localhost",
       "path": "/",
-      "expires": 1767547952.143223,
-      "httpOnly": true,
+      "expires": -1,
+      "httpOnly": false,
       "secure": true,
       "sameSite": "Lax"
     }

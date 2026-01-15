@@ -40,7 +40,7 @@ export async function ProfileGroups() {
         : joinResult.groupId ?? joinCode.toUpperCase()
 
       revalidatePath(`/profiles/${profile.user_id}`)
-      revalidatePath("/profile/groups") // Also update old page if it exists
+      revalidatePath("/profiles/groups") // Also update old page if it exists
       
       return {
         status: "success",
@@ -66,7 +66,7 @@ export async function ProfileGroups() {
 
     if (leaveResult.success) {
       revalidatePath(`/profiles/${profile.user_id}`)
-      revalidatePath("/profile/groups")
+      revalidatePath("/profiles/groups")
 
       return {
         status: "success",

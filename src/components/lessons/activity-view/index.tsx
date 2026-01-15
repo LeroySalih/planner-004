@@ -21,6 +21,7 @@ import {
   getMcqBody,
   getShortTextBody,
   getRichTextMarkup,
+  getUploadUrlBody,
   getVoiceBody,
   isAbsoluteUrl,
 } from "@/components/lessons/activity-view/utils"
@@ -180,6 +181,9 @@ function ActivityShortView({
   const summativeSwitchId = `activity-summative-${activity.activity_id}`
   const disableSummativeToggle = summativeUpdating || (summativeDisabled && !isSummative)
 
+  const isUploadUrl = activity.type === "upload-url"
+  const uploadUrlBody = isUploadUrl ? getUploadUrlBody(activity) : null
+
   const summativeSection = (() => {
     if (summativeDisabled) {
       return isSummative && !canToggleSummative ? (
@@ -282,6 +286,15 @@ function ActivityShortView({
       </div>
     ) : (
       <p className="text-sm text-muted-foreground">Short text question awaiting setup.</p>
+    )
+  } else if (activity.type === "upload-url") {
+    content = (
+      <div className="space-y-1">
+        <p className="text-xs font-semibold uppercase tracking-wide text-primary">Upload URL</p>
+        <p className="text-sm text-muted-foreground">
+          {uploadUrlBody?.question || "Upload URL question awaiting setup."}
+        </p>
+      </div>
     )
   } else if (activity.type === "feedback") {
     const feedback = getFeedbackBody(activity)
@@ -828,6 +841,20 @@ function ActivityPresentView({
     )
   }
 
+  if (activity.type === "upload-url") {
+    const uploadUrl = getUploadUrlBody(activity)
+    const markup = getRichTextMarkup(uploadUrl.question)
+    if (!markup) {
+      return wrap(<p className="text-muted-foreground">No question provided yet.</p>)
+    }
+    return wrap(
+      <div
+        className="prose prose-lg max-w-none text-foreground"
+        dangerouslySetInnerHTML={{ __html: markup }}
+      />
+    )
+  }
+
   if (activity.type === "display-image") {
     return wrap(
       <DisplayImagePresent
@@ -1005,6 +1032,16 @@ function ActivityPresentView({
 }
 
 function ActivityEditView({ activity, resolvedImageUrl }: LessonActivityEditViewProps) {
+  const isUploadUrl = activity.type === "upload-url"
+  const uploadUrlBody = isUploadUrl ? getUploadUrlBody(activity) : null
+
+  const handleUploadUrlQuestionChange = (val: string) => {
+    // Assuming a handleBodyChange function exists in the parent context or needs to be passed down
+    // For this example, we'll just log it or leave it as a placeholder.
+    console.log("Upload URL question changed:", val);
+    // handleBodyChange({ ...uploadUrlBody, question: val })
+  }
+
   if (activity.type === "text") {
     const text = getActivityTextValue(activity)
     const markup = getRichTextMarkup(text)
@@ -1105,6 +1142,37 @@ function ActivityEditView({ activity, resolvedImageUrl }: LessonActivityEditView
           <p className="text-xs font-semibold uppercase tracking-wide text-primary">Model answer</p>
           <p className="mt-1 font-medium text-foreground">{modelAnswer || "Not provided"}</p>
         </div>
+      </div>
+    )
+  }
+
+  if (activity.type === "upload-url") {
+    return (
+      <div className="space-y-4">
+        <div className="space-y-2">
+          <Label>Question / Prompt</Label>
+          <Input
+            value={uploadUrlBody?.question ?? ""}
+            onChange={(e) => handleUploadUrlQuestionChange(e.target.value)}
+            placeholder="e.g. Submit a link to your project"
+          />
+        </div>
+        {/* SuccessCriteriaSelector and summative toggle would typically be here,
+            but are not included in the provided snippet's imports or context.
+            Assuming they are handled elsewhere or are not part of this specific change.
+        <SuccessCriteriaSelector
+            selectedIds={activity.success_criteria_ids}
+            onChange={handleSuccessCriteriaChange}
+            unitId={unitId}
+            isSummative={activity.is_summative}
+            onSummativeChange={(val) => {
+              handleUpdateActivity({
+                ...activity,
+                is_summative: val,
+              })
+            }}
+        />
+        */}
       </div>
     )
   }
@@ -1216,7 +1284,7 @@ function FeedbackPresentView({
 
     const baseGroupIds = pupilGroups.length > 0
       ? pupilGroups
-      : teacherGroups.length > 0
+        : teacherGroups.length > 0
         ? teacherGroups
         : assignedGroupIds
 

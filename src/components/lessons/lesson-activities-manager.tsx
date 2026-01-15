@@ -72,6 +72,7 @@ const ACTIVITY_TYPES = [
   { value: "long-text-question", label: "Long text question" },
   { value: "file-download", label: "File download" },
   { value: "upload-file", label: "Upload file" },
+  { value: "upload-url", label: "Upload URL" },
   { value: "display-image", label: "Display image" },
   { value: "show-video", label: "Show video" },
   { value: "multiple-choice-question", label: "Multiple choice question" },

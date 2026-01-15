@@ -28,7 +28,6 @@ export function SignupForm() {
         window.dispatchEvent(new CustomEvent("auth-state-changed", { detail: { status: "signed-in" } }))
       }
       router.push("/profiles")
-      router.refresh()
     }
   }, [state.success, router])
 
