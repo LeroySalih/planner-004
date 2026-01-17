@@ -15,7 +15,11 @@ import {
 } from "@/lib/server-updates"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { StartRevisionButton } from "@/components/revisions/start-revision-button"
 import { PupilUploadActivity } from "@/components/pupil/pupil-upload-activity"
+// ...
+
+
 import { PupilMcqActivity } from "@/components/pupil/pupil-mcq-activity"
 import { PupilFeedbackActivity } from "@/components/pupil/pupil-feedback-activity"
 import { PupilShortTextActivity } from "@/components/pupil/pupil-short-text-activity"
@@ -573,8 +577,13 @@ export default async function PupilLessonFriendlyPage({
                 <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back to My Lessons
               </Link>
             </div>
-            <h1 className="text-3xl font-semibold text-white">{lesson.title}</h1>
-            <p className="text-sm text-slate-100">Unit: {lesson.unit_id}</p>
+            <div className="flex justify-between items-start">
+              <div className="flex flex-col gap-1">
+                <h1 className="text-3xl font-semibold text-white">{lesson.title}</h1>
+                <p className="text-sm text-slate-100">Unit: {lesson.unit_id}</p>
+              </div>
+              <StartRevisionButton lessonId={lesson.lesson_id} />
+            </div>
             {summary ? (
               <p className="text-sm text-slate-100">Hello {summary.name}, here&apos;s everything you need for this lesson.</p>
             ) : (

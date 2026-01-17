@@ -2,13 +2,13 @@
 
 import { useState, useMemo } from "react"
 import Link from "next/link"
-import { format, parseISO } from "date-fns"
+import { format, parseISO, differenceInMonths } from "date-fns"
 import { Roboto_Condensed } from "next/font/google"
 import { ChevronDown } from "lucide-react"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { PupilUnitsDetail, PupilUnitLesson } from "@/lib/pupil-units-data"
-
+import { StartRevisionButton } from "@/components/revisions/start-revision-button"
 import { LessonMedia } from "./lesson-media"
 
 function formatDate(value: string | null) {
@@ -27,6 +27,25 @@ function renderLessonObjectivesInline(lesson: PupilUnitLesson) {
 
   const titles = lesson.objectives.map((objective) => objective.title).join(", ")
   return <span className="text-xs text-muted-foreground">LO: {titles}</span>
+}
+
+function getRevisionBadgeColor(dateString: string | null) {
+  if (!dateString) return "bg-green-50 text-green-700 ring-green-600/20"
+  
+  try {
+    const date = parseISO(dateString)
+    const monthsDiff = differenceInMonths(new Date(), date)
+    
+    if (monthsDiff >= 2) {
+      return "bg-red-50 text-red-700 ring-red-600/20"
+    }
+    if (monthsDiff >= 1) {
+      return "bg-amber-50 text-amber-700 ring-amber-600/20"
+    }
+    return "bg-green-50 text-green-700 ring-green-600/20"
+  } catch {
+    return "bg-green-50 text-green-700 ring-green-600/20"
+  }
 }
 
 const robotoCondensed = Roboto_Condensed({
@@ -130,6 +149,13 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
                               <p className="text-xs text-muted-foreground sm:text-right">
                                 First lesson: {formatDate(unit.firstLessonDate)}
                               </p>
+                              {unit.unitScore !== null && unit.unitScore !== undefined && unit.unitMaxScore !== null && unit.unitMaxScore !== undefined && unit.unitMaxScore > 0 && (
+                                <div className="sm:text-right">
+                                  <span className="inline-flex items-center rounded-md bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700 ring-1 ring-inset ring-indigo-700/10">
+                                    Unit Score: {Math.round(unit.unitScore * 10) / 10}/{unit.unitMaxScore} ({Math.round((unit.unitScore / unit.unitMaxScore) * 100)}%)
+                                  </span>
+                                </div>
+                              )}
                             </div>
                           </CardHeader>
                           <CardContent className="space-y-4">
@@ -157,9 +183,33 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
                                       <span className="text-muted-foreground">•</span>
                                       {renderLessonObjectivesInline(lesson)}
                                     </div>
-                                    <p className="text-xs text-muted-foreground sm:text-sm sm:ml-auto sm:text-right">
-                                      Start date: {formatDate(lesson.startDate)}
-                                    </p>
+                                    <div className="text-xs text-muted-foreground sm:text-sm sm:ml-auto sm:text-right flex flex-col items-end gap-1">
+                                      <span>Start date: {formatDate(lesson.startDate)}</span>
+                                      
+                                      {/* Lesson Score */}
+                                      {lesson.lessonScore !== null && lesson.lessonMaxScore !== null && lesson.lessonMaxScore > 0 && (
+                                           <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10">
+                                              Lesson Score: {Math.round(lesson.lessonScore * 10) / 10}/{lesson.lessonMaxScore} ({Math.round((lesson.lessonScore / lesson.lessonMaxScore) * 100)}%)
+                                           </span>
+                                      )}
+
+                                      {/* Revision Score & Launch */}
+                                      <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                                        {lesson.revisionScore !== null && lesson.revisionMaxScore !== null && lesson.revisionMaxScore > 0 && (
+                                          <>
+                                            {lesson.revisionDate && (
+                                                <span className="text-[10px] text-muted-foreground">
+                                                    Rev: {formatDate(lesson.revisionDate)}
+                                                </span>
+                                            )}
+                                            <span className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ${getRevisionBadgeColor(lesson.revisionDate)}`}>
+                                                Revision: {Math.round(lesson.revisionScore * 10) / 10}/{lesson.revisionMaxScore} ({Math.round((lesson.revisionScore / lesson.revisionMaxScore) * 100)}%)
+                                            </span>
+                                          </>
+                                        )}
+                                        <StartRevisionButton lessonId={lesson.lessonId} compact />
+                                      </div>
+                                    </div>
                                   </div>
 
                                   <div className="mt-3 space-y-3">
