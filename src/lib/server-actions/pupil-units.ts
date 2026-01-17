@@ -1,9 +1,9 @@
-"use server"
+"use server";
 
-import { z } from "zod"
+import { z } from "zod";
 
-import { query } from "@/lib/db"
-import { withTelemetry } from "@/lib/telemetry"
+import { query } from "@/lib/db";
+import { withTelemetry } from "@/lib/telemetry";
 
 const PupilProfileSchema = z
   .object({
@@ -12,14 +12,14 @@ const PupilProfileSchema = z
     last_name: z.string().nullable().optional(),
     is_teacher: z.boolean().nullable().optional(),
   })
-  .nullable()
+  .nullable();
 
 const LessonObjectiveSchema = z.object({
   lesson_id: z.string(),
   objective_id: z.string(),
   title: z.string(),
   order_index: z.number().nullable(),
-})
+});
 
 const DisplayImageSchema = z.object({
   lesson_id: z.string(),
@@ -29,7 +29,7 @@ const DisplayImageSchema = z.object({
   image_file: z.string().nullable(),
   image_url: z.string().nullable(),
   file_url: z.string().nullable(),
-})
+});
 
 const LessonFileSchema = z.object({
   lesson_id: z.string(),
@@ -38,7 +38,7 @@ const LessonFileSchema = z.object({
   mime_type: z.string().nullable(),
   size: z.number().nullable(),
   updated_at: z.string().nullable(),
-})
+});
 
 const LessonAssignmentSchema = z.object({
   lesson_id: z.string(),
@@ -50,7 +50,7 @@ const LessonAssignmentSchema = z.object({
   subject: z.string().nullable(),
   start_date: z.string().nullable(),
   feedback_visible: z.boolean(),
-})
+});
 
 const SubjectUnitsSchema = z.object({
   profile: PupilProfileSchema,
@@ -61,6 +61,9 @@ const SubjectUnitsSchema = z.object({
         z.object({
           unitId: z.string(),
           unitTitle: z.string(),
+          priorUnitScore: z.number().nullable().optional(), // clean up if needed later, but focusing on new fields
+          unitScore: z.number().nullable().optional(),
+          unitMaxScore: z.number().nullable().optional(),
           firstLessonDate: z.string().nullable(),
           lessons: z.array(
             z.object({
@@ -98,32 +101,41 @@ const SubjectUnitsSchema = z.object({
                   updatedAt: z.string().nullable(),
                 }),
               ),
+              revisionScore: z.number().nullable(),
+              revisionMaxScore: z.number().nullable(),
+              revisionDate: z.string().nullable(),
+              lessonScore: z.number().nullable(),
+              lessonMaxScore: z.number().nullable(),
             }),
           ),
         }),
       ),
     }),
   ),
-})
+});
 
-type LessonObjective = z.infer<typeof LessonObjectiveSchema>
-type DisplayImage = z.infer<typeof DisplayImageSchema>
-type LessonFile = z.infer<typeof LessonFileSchema>
-type SubjectUnitsPayload = z.infer<typeof SubjectUnitsSchema>
-type LessonPayload = SubjectUnitsPayload["subjects"][number]["units"][number]["lessons"][number]
+type LessonObjective = z.infer<typeof LessonObjectiveSchema>;
+type DisplayImage = z.infer<typeof DisplayImageSchema>;
+type LessonFile = z.infer<typeof LessonFileSchema>;
+type SubjectUnitsPayload = z.infer<typeof SubjectUnitsSchema>;
+type LessonPayload =
+  SubjectUnitsPayload["subjects"][number]["units"][number]["lessons"][number];
 
 type LessonObjectiveRow = {
-  lesson_id: string
-  learning_objective_id: string
-  title: string | null
-  order_index: number | null
-  order_by: number | null
-}
+  lesson_id: string;
+  learning_objective_id: string;
+  title: string | null;
+  order_index: number | null;
+  order_by: number | null;
+};
 
-type TelemetryOptions = { authEndTime?: number | null; routeTag?: string }
+type TelemetryOptions = { authEndTime?: number | null; routeTag?: string };
 
-export async function readPupilUnitsBootstrapAction(pupilId: string, options?: TelemetryOptions) {
-  const routeTag = options?.routeTag ?? "/pupil-units:bootstrap"
+export async function readPupilUnitsBootstrapAction(
+  pupilId: string,
+  options?: TelemetryOptions,
+) {
+  const routeTag = options?.routeTag ?? "/pupil-units:bootstrap";
 
   return withTelemetry(
     {
@@ -134,48 +146,49 @@ export async function readPupilUnitsBootstrapAction(pupilId: string, options?: T
     },
     async () => {
       if (!pupilId || pupilId.trim().length === 0) {
-        return { data: null, error: "Missing pupil identifier." }
+        return { data: null, error: "Missing pupil identifier." };
       }
 
       try {
-        const normalizedPupilId = pupilId.trim()
-        const [profileResult, membershipResult, assignmentsResult] = await Promise.all([
-          query<{
-            user_id: string
-            first_name: string | null
-            last_name: string | null
-            is_teacher: boolean | null
-          }>(
-            `
+        const normalizedPupilId = pupilId.trim();
+        const [profileResult, membershipResult, assignmentsResult] =
+          await Promise.all([
+            query<{
+              user_id: string;
+              first_name: string | null;
+              last_name: string | null;
+              is_teacher: boolean | null;
+            }>(
+              `
               select user_id, first_name, last_name, is_teacher
               from profiles
               where user_id = $1
               limit 1
             `,
-            [normalizedPupilId],
-          ),
-          query<{ group_id: string; subject: string | null }>(
-            `
+              [normalizedPupilId],
+            ),
+            query<{ group_id: string; subject: string | null }>(
+              `
               select gm.group_id, g.subject
               from group_membership gm
               join groups g on g.group_id = gm.group_id
               where gm.user_id = $1
                 and coalesce(g.active, true) = true
             `,
-            [normalizedPupilId],
-          ),
-          query<{
-            lesson_id: string
-            lesson_title: string | null
-            lesson_order: number | null
-            unit_id: string | null
-            unit_title: string | null
-            group_id: string
-            subject: string | null
-            start_date: string | Date | null
-            feedback_visible: boolean | null
-          }>(
-            `
+              [normalizedPupilId],
+            ),
+            query<{
+              lesson_id: string;
+              lesson_title: string | null;
+              lesson_order: number | null;
+              unit_id: string | null;
+              unit_title: string | null;
+              group_id: string;
+              subject: string | null;
+              start_date: string | Date | null;
+              feedback_visible: boolean | null;
+            }>(
+              `
               with target_memberships as (
                 select gm.group_id, g.subject
                 from group_membership gm
@@ -199,52 +212,62 @@ export async function readPupilUnitsBootstrapAction(pupilId: string, options?: T
               join units u on u.unit_id = l.unit_id
               where coalesce(l.active, true) = true
             `,
-            [normalizedPupilId],
-          ),
-        ])
+              [normalizedPupilId],
+            ),
+          ]);
 
-        const profileRow = profileResult.rows[0] ?? null
+        const profileRow = profileResult.rows[0] ?? null;
         const profile = profileRow
           ? {
-              user_id: profileRow.user_id,
-              first_name: profileRow.first_name,
-              last_name: profileRow.last_name,
-              is_teacher: profileRow.is_teacher,
-            }
-          : null
+            user_id: profileRow.user_id,
+            first_name: profileRow.first_name,
+            last_name: profileRow.last_name,
+            is_teacher: profileRow.is_teacher,
+          }
+          : null;
 
-        const subjectsSet = new Map<string | null, { subject: string | null; units: Map<string, true> }>()
+        const subjectsSet = new Map<
+          string | null,
+          { subject: string | null; units: Map<string, true> }
+        >();
         membershipResult.rows.forEach((row) => {
-          subjectsSet.set(row.subject ?? null, { subject: row.subject ?? null, units: new Map() })
-        })
+          subjectsSet.set(row.subject ?? null, {
+            subject: row.subject ?? null,
+            units: new Map(),
+          });
+        });
 
         const assignments = assignmentsResult.rows
           .map((row) =>
             LessonAssignmentSchema.parse({
               lesson_id: row.lesson_id,
               lesson_title: row.lesson_title ?? "Untitled lesson",
-              lesson_order: typeof row.lesson_order === "number" ? row.lesson_order : null,
+              lesson_order: typeof row.lesson_order === "number"
+                ? row.lesson_order
+                : null,
               unit_id: row.unit_id ?? "",
               unit_title: row.unit_title ?? row.unit_id ?? "Untitled unit",
               group_id: row.group_id,
               subject: row.subject ?? null,
-              start_date:
-                row.start_date instanceof Date
-                  ? row.start_date.toISOString()
-                  : typeof row.start_date === "string"
-                    ? row.start_date
-                    : null,
+              start_date: row.start_date instanceof Date
+                ? row.start_date.toISOString()
+                : typeof row.start_date === "string"
+                ? row.start_date
+                : null,
               feedback_visible: Boolean(row.feedback_visible),
-            }),
+            })
           )
-          .filter((assignment) => assignment.unit_id && assignment.lesson_id)
+          .filter((assignment) => assignment.unit_id && assignment.lesson_id);
 
-        const lessonIds = Array.from(new Set(assignments.map((assignment) => assignment.lesson_id)))
+        const lessonIds = Array.from(
+          new Set(assignments.map((assignment) => assignment.lesson_id)),
+        );
 
-        const [objectivesResult, imagesResult, filesResult] = await Promise.all([
-          lessonIds.length === 0
-            ? Promise.resolve({ rows: [] as LessonObjectiveRow[] })
-            : query<LessonObjectiveRow>(
+        const [objectivesResult, imagesResult, filesResult, revisionsResult] =
+          await Promise.all([
+            lessonIds.length === 0
+              ? Promise.resolve({ rows: [] as LessonObjectiveRow[] })
+              : query<LessonObjectiveRow>(
                 `
                   select
                     llo.lesson_id,
@@ -258,16 +281,16 @@ export async function readPupilUnitsBootstrapAction(pupilId: string, options?: T
                 `,
                 [lessonIds],
               ),
-          lessonIds.length === 0
-            ? Promise.resolve({ rows: [] as DisplayImage[] })
-            : query<{
-                lesson_id: string
-                activity_id: string
-                title: string | null
-                order_by: number | null
-                image_file: string | null
-                image_url: string | null
-                file_url: string | null
+            lessonIds.length === 0
+              ? Promise.resolve({ rows: [] as DisplayImage[] })
+              : query<{
+                lesson_id: string;
+                activity_id: string;
+                title: string | null;
+                order_by: number | null;
+                image_file: string | null;
+                image_url: string | null;
+                file_url: string | null;
               }>(
                 `
                   select
@@ -285,15 +308,15 @@ export async function readPupilUnitsBootstrapAction(pupilId: string, options?: T
                 `,
                 [lessonIds],
               ),
-          lessonIds.length === 0
-            ? Promise.resolve({ rows: [] as LessonFile[] })
-            : query<{
-                lesson_id: string
-                name: string
-                path: string
-                mime_type: string | null
-                size: number | null
-                updated_at: string | Date | null
+            lessonIds.length === 0
+              ? Promise.resolve({ rows: [] as LessonFile[] })
+              : query<{
+                lesson_id: string;
+                name: string;
+                path: string;
+                mime_type: string | null;
+                size: number | null;
+                updated_at: string | Date | null;
               }>(
                 `
                   select
@@ -312,21 +335,111 @@ export async function readPupilUnitsBootstrapAction(pupilId: string, options?: T
                 `,
                 [lessonIds],
               ),
-        ])
+            lessonIds.length === 0
+              ? Promise.resolve({
+                rows: [] as {
+                  lesson_id: string;
+                  score: number;
+                  max_score: number;
+                  created_at: Date;
+                }[],
+              })
+              : query<
+                {
+                  lesson_id: string;
+                  score: number;
+                  max_score: number;
+                  created_at: Date;
+                }
+              >(
+                `
+                  SELECT 
+                    r.lesson_id,
+                    COALESCE(SUM(ra.score), 0) as score,
+                    COUNT(ra.answer_id) as max_score,
+                    r.created_at
+                  FROM revisions r
+                  JOIN revision_answers ra ON ra.revision_id = r.revision_id
+                  WHERE r.lesson_id = ANY($1::text[])
+                    AND r.pupil_id = $2
+                    AND r.status = 'submitted'
+                  GROUP BY r.lesson_id, r.revision_id, r.created_at
+                  ORDER BY r.created_at DESC
+                 `,
+                [lessonIds, normalizedPupilId],
+              ),
+          ]);
+
+        // Fetch Lesson Scores
+        const lessonScoresResult = lessonIds.length === 0
+          ? {
+            rows: [] as {
+              lesson_id: string;
+              score: number;
+              max_score: number;
+            }[],
+          }
+          : await query<{
+            lesson_id: string;
+            score: number;
+            max_score: number;
+          }>(
+            `
+              WITH scorable_activities AS (
+                SELECT activity_id, lesson_id
+                FROM activities
+                WHERE lesson_id = ANY($1::text[])
+                  AND type = ANY($2::text[])
+                  AND coalesce(active, true) = true
+              ),
+              latest_submissions AS (
+                SELECT DISTINCT ON (s.activity_id)
+                  s.activity_id,
+                  COALESCE(
+                      (s.body->>'teacher_override_score')::float,
+                      (s.body->>'ai_model_score')::float,
+                      (s.body->>'score')::float,
+                      CASE WHEN (s.body->>'is_correct')::boolean IS TRUE THEN 1.0 ELSE 0.0 END
+                  ) as score
+                FROM submissions s
+                JOIN scorable_activities sa ON sa.activity_id = s.activity_id
+                WHERE s.user_id = $3
+                ORDER BY s.activity_id, s.submitted_at DESC
+              )
+              SELECT 
+                sa.lesson_id,
+                COUNT(sa.activity_id) as max_score,
+                COALESCE(SUM(ls.score), 0) as score
+              FROM scorable_activities sa
+              LEFT JOIN latest_submissions ls ON ls.activity_id = sa.activity_id
+              GROUP BY sa.lesson_id
+            `,
+            [
+              lessonIds,
+              [
+                "multiple-choice-question",
+                "short-text-question",
+                "text-question",
+                "upload-url",
+                "upload-file",
+              ],
+              normalizedPupilId,
+            ],
+          );
 
         const objectives = objectivesResult.rows.map((row) =>
           LessonObjectiveSchema.parse({
             lesson_id: row.lesson_id,
             objective_id: row.learning_objective_id,
-            title: (row.title ?? "Learning objective").trim() || "Learning objective",
-            order_index:
-              typeof row.order_index === "number"
-                ? row.order_index
-                : typeof row.order_by === "number"
-                  ? row.order_by
-                  : null,
-          }),
-        )
+            title: (row.title ?? "Learning objective").trim() ||
+              "Learning objective",
+            order_index: typeof row.order_index === "number"
+              ? row.order_index
+              : typeof row.order_by === "number"
+              ? row.order_by
+              : null,
+          })
+        );
 
         const displayImages = imagesResult.rows.map((row) =>
           DisplayImageSchema.parse({
@@ -337,8 +450,8 @@ export async function readPupilUnitsBootstrapAction(pupilId: string, options?: T
             image_file: row.image_file ?? null,
             image_url: row.image_url ?? null,
             file_url: row.file_url ?? null,
-          }),
-        )
+          })
+        );
 
         const files = filesResult.rows.map((row) =>
           LessonFileSchema.parse({
@@ -347,82 +460,134 @@ export async function readPupilUnitsBootstrapAction(pupilId: string, options?: T
             path: row.path,
             mime_type: row.mime_type ?? null,
             size: typeof row.size === "number" ? row.size : null,
-            updated_at:
-              row.updated_at instanceof Date
-                ? row.updated_at.toISOString()
-                : typeof row.updated_at === "string"
-                  ? row.updated_at
-                  : null,
-          }),
-        )
+            updated_at: row.updated_at instanceof Date
+              ? row.updated_at.toISOString()
+              : typeof row.updated_at === "string"
+              ? row.updated_at
+              : null,
+          })
+        );
 
-        const objectivesByLesson = new Map<string, LessonObjective[]>()  
+        const objectivesByLesson = new Map<string, LessonObjective[]>();
         objectives.forEach((objective) => {
-          const list = objectivesByLesson.get(objective.lesson_id) ?? []
-          list.push(objective)
-          objectivesByLesson.set(objective.lesson_id, list)
-        })
+          const list = objectivesByLesson.get(objective.lesson_id) ?? [];
+          list.push(objective);
+          objectivesByLesson.set(objective.lesson_id, list);
+        });
 
-        const imagesByLesson = new Map<string, DisplayImage[]>()  
+        const imagesByLesson = new Map<string, DisplayImage[]>();
         displayImages.forEach((image) => {
-          const list = imagesByLesson.get(image.lesson_id) ?? []
-          list.push(image)
-          imagesByLesson.set(image.lesson_id, list)
-        })
+          const list = imagesByLesson.get(image.lesson_id) ?? [];
+          list.push(image);
+          imagesByLesson.set(image.lesson_id, list);
+        });
 
-        const filesByLesson = new Map<string, LessonFile[]>()  
+        const filesByLesson = new Map<string, LessonFile[]>();
         files.forEach((file) => {
-          const list = filesByLesson.get(file.lesson_id) ?? []
-          list.push(file)
-          filesByLesson.set(file.lesson_id, list)
-        })
+          const list = filesByLesson.get(file.lesson_id) ?? [];
+          list.push(file);
+          filesByLesson.set(file.lesson_id, list);
+        });
+
+        const scoresByLesson = new Map<
+          string,
+          { score: number; max_score: number; revisionDate: string | null }
+        >();
+        revisionsResult.rows.forEach((row) => {
+          // Since SQL is ordered by created_at DESC, the first one we see is the latest.
+          if (!scoresByLesson.has(row.lesson_id)) {
+            scoresByLesson.set(row.lesson_id, {
+              score: typeof row.score === "number"
+                ? row.score
+                : parseFloat(row.score as any),
+              max_score: typeof row.max_score === "number"
+                ? row.max_score
+                : parseInt(row.max_score as any, 10),
+              revisionDate: row.created_at instanceof Date
+                ? row.created_at.toISOString()
+                : (row.created_at as string) || null,
+            });
+          }
+        });
+
+        const lessonScoresByLesson = new Map<
+          string,
+          { score: number; max_score: number }
+        >();
+        (lessonScoresResult.rows || []).forEach((row) => {
+          lessonScoresByLesson.set(row.lesson_id, {
+            score: typeof row.score === "number"
+              ? row.score
+              : parseFloat(row.score as any),
+            max_score: typeof row.max_score === "number"
+              ? row.max_score
+              : parseInt(row.max_score as any, 10),
+          });
+        });
 
         const unitsBySubject = new Map<
           string | null,
           Map<
             string,
             {
-              unitId: string
-              unitTitle: string
-              firstLessonDate: string | null
-              lessonsMap: Map<string, SubjectUnitsPayload["subjects"][number]["units"][number]["lessons"][number]>
+              unitId: string;
+              unitTitle: string;
+              firstLessonDate: string | null;
+              lessonsMap: Map<
+                string,
+                SubjectUnitsPayload["subjects"][number]["units"][number][
+                  "lessons"
+                ][number]
+              >;
             }
           >
-        >()
+        >();
 
         assignments.forEach((assignment) => {
-          const subjectKey = assignment.subject ?? null
-          const subjectUnits = unitsBySubject.get(subjectKey) ?? new Map()
-          const unitEntry =
-            subjectUnits.get(assignment.unit_id) ??
+          const subjectKey = assignment.subject ?? null;
+          const subjectUnits = unitsBySubject.get(subjectKey) ?? new Map();
+          const unitEntry = subjectUnits.get(assignment.unit_id) ??
             ({
               unitId: assignment.unit_id,
               unitTitle: assignment.unit_title,
               firstLessonDate: assignment.start_date,
               lessonsMap: new Map(),
-            })
+            });
 
           if (!unitEntry.lessonsMap.has(assignment.lesson_id)) {
-            const objectivesForLesson = (objectivesByLesson.get(assignment.lesson_id) ?? []).sort((a, b) => {
-              const orderA = typeof a.order_index === "number" ? a.order_index : Number.POSITIVE_INFINITY
-              const orderB = typeof b.order_index === "number" ? b.order_index : Number.POSITIVE_INFINITY
-              if (orderA !== orderB) return orderA - orderB
-              return a.title.localeCompare(b.title)
-            })
+            const objectivesForLesson =
+              (objectivesByLesson.get(assignment.lesson_id) ?? []).sort(
+                (a, b) => {
+                  const orderA = typeof a.order_index === "number"
+                    ? a.order_index
+                    : Number.POSITIVE_INFINITY;
+                  const orderB = typeof b.order_index === "number"
+                    ? b.order_index
+                    : Number.POSITIVE_INFINITY;
+                  if (orderA !== orderB) return orderA - orderB;
+                  return a.title.localeCompare(b.title);
+                },
+              );
 
-            const imagesForLesson = (imagesByLesson.get(assignment.lesson_id) ?? []).sort((a, b) => {
-              const orderA = typeof a.order_by === "number" ? a.order_by : Number.POSITIVE_INFINITY
-              const orderB = typeof b.order_by === "number" ? b.order_by : Number.POSITIVE_INFINITY
-              if (orderA !== orderB) return orderA - orderB
-              return (a.title ?? "").localeCompare(b.title ?? "")
-            })
+            const imagesForLesson =
+              (imagesByLesson.get(assignment.lesson_id) ?? []).sort((a, b) => {
+                const orderA = typeof a.order_by === "number"
+                  ? a.order_by
+                  : Number.POSITIVE_INFINITY;
+                const orderB = typeof b.order_by === "number"
+                  ? b.order_by
+                  : Number.POSITIVE_INFINITY;
+                if (orderA !== orderB) return orderA - orderB;
+                return (a.title ?? "").localeCompare(b.title ?? "");
+              });
 
-            const filesForLesson = (filesByLesson.get(assignment.lesson_id) ?? []).sort((a, b) => {
-              const dateA = a.updated_at ? Date.parse(a.updated_at) : 0
-              const dateB = b.updated_at ? Date.parse(b.updated_at) : 0
-              if (dateA !== dateB) return dateB - dateA
-              return a.name.localeCompare(b.name)
-            })
+            const filesForLesson =
+              (filesByLesson.get(assignment.lesson_id) ?? []).sort((a, b) => {
+                const dateA = a.updated_at ? Date.parse(a.updated_at) : 0;
+                const dateB = b.updated_at ? Date.parse(b.updated_at) : 0;
+                if (dateA !== dateB) return dateB - dateA;
+                return a.name.localeCompare(b.name);
+              });
 
             unitEntry.lessonsMap.set(assignment.lesson_id, {
               lessonId: assignment.lesson_id,
@@ -453,17 +618,28 @@ export async function readPupilUnitsBootstrapAction(pupilId: string, options?: T
                 size: file.size,
                 updatedAt: file.updated_at,
               })),
-            })
+              revisionScore: scoresByLesson.get(assignment.lesson_id)?.score ??
+                null,
+              revisionMaxScore:
+                scoresByLesson.get(assignment.lesson_id)?.max_score ?? null,
+              revisionDate:
+                scoresByLesson.get(assignment.lesson_id)?.revisionDate ?? null,
+              lessonScore:
+                lessonScoresByLesson.get(assignment.lesson_id)?.score ?? null,
+              lessonMaxScore:
+                lessonScoresByLesson.get(assignment.lesson_id)?.max_score ??
+                  null,
+            });
           }
 
           unitEntry.firstLessonDate =
             unitEntry.firstLessonDate && assignment.start_date
               ? [unitEntry.firstLessonDate, assignment.start_date].sort()[0]
-              : unitEntry.firstLessonDate ?? assignment.start_date
+              : unitEntry.firstLessonDate ?? assignment.start_date;
 
-          subjectUnits.set(assignment.unit_id, unitEntry)
-          unitsBySubject.set(subjectKey, subjectUnits)
-        })
+          subjectUnits.set(assignment.unit_id, unitEntry);
+          unitsBySubject.set(subjectKey, subjectUnits);
+        });
 
         const subjects = Array.from(
           new Set([
@@ -473,58 +649,100 @@ export async function readPupilUnitsBootstrapAction(pupilId: string, options?: T
           ]),
         )
           .map((subject) => {
-            const unitMap = unitsBySubject.get(subject) ?? new Map()
-            const units = Array.from(unitMap.values()).map(u => ({
-              unitId: u.unitId,
-              unitTitle: u.unitTitle,
-              firstLessonDate: u.firstLessonDate,
-              lessons: Array.from(u.lessonsMap.values())
-            })).sort((a, b) => {
-              if (a.firstLessonDate && b.firstLessonDate && a.firstLessonDate !== b.firstLessonDate) {
-                return new Date(a.firstLessonDate).getTime() - new Date(b.firstLessonDate).getTime()
+            const unitMap = unitsBySubject.get(subject) ?? new Map();
+            const units = Array.from(unitMap.values()).map((u) => {
+              const lessons = Array.from(u.lessonsMap.values());
+              let unitScore = 0;
+              let unitMaxScore = 0;
+              let hasScoredLessons = false;
+
+              lessons.forEach((l: any) => {
+                if (
+                  l.lessonScore !== null && l.lessonMaxScore !== null &&
+                  l.lessonMaxScore > 0
+                ) {
+                  unitScore += l.lessonScore;
+                  unitMaxScore += l.lessonMaxScore;
+                  hasScoredLessons = true;
+                }
+              });
+
+              return {
+                unitId: u.unitId,
+                unitTitle: u.unitTitle,
+                firstLessonDate: u.firstLessonDate,
+                unitScore: hasScoredLessons ? unitScore : null,
+                unitMaxScore: hasScoredLessons ? unitMaxScore : null,
+                lessons: lessons,
+              };
+            }).sort((a, b) => {
+              if (
+                a.firstLessonDate && b.firstLessonDate &&
+                a.firstLessonDate !== b.firstLessonDate
+              ) {
+                return new Date(a.firstLessonDate).getTime() -
+                  new Date(b.firstLessonDate).getTime();
               }
-              if (a.firstLessonDate && !b.firstLessonDate) return -1
-              if (!a.firstLessonDate && b.firstLessonDate) return 1
-              return a.unitTitle.localeCompare(b.unitTitle)
-            })
+              if (a.firstLessonDate && !b.firstLessonDate) return -1;
+              if (!a.firstLessonDate && b.firstLessonDate) return 1;
+              return a.unitTitle.localeCompare(b.unitTitle);
+            });
 
             units.forEach((unit) =>
-              (unit.lessons as LessonPayload[]).sort((a: LessonPayload, b: LessonPayload) => {
-                const dateA = a.startDate ? Date.parse(a.startDate) : Number.NEGATIVE_INFINITY
-                const dateB = b.startDate ? Date.parse(b.startDate) : Number.NEGATIVE_INFINITY
-                if (!Number.isNaN(dateA) && !Number.isNaN(dateB) && dateA !== dateB) {
-                  return dateB - dateA
-                }
+              (unit.lessons as LessonPayload[]).sort(
+                (a: LessonPayload, b: LessonPayload) => {
+                  const dateA = a.startDate
+                    ? Date.parse(a.startDate)
+                    : Number.NEGATIVE_INFINITY;
+                  const dateB = b.startDate
+                    ? Date.parse(b.startDate)
+                    : Number.NEGATIVE_INFINITY;
+                  if (
+                    !Number.isNaN(dateA) && !Number.isNaN(dateB) &&
+                    dateA !== dateB
+                  ) {
+                    return dateB - dateA;
+                  }
 
-                const orderA = typeof a.lessonOrder === "number" ? a.lessonOrder : Number.POSITIVE_INFINITY
-                const orderB = typeof b.lessonOrder === "number" ? b.lessonOrder : Number.POSITIVE_INFINITY
-                if (orderA !== orderB) return orderA - orderB
-                return a.lessonTitle.localeCompare(b.lessonTitle)
-              }),
-            )
+                  const orderA = typeof a.lessonOrder === "number"
+                    ? a.lessonOrder
+                    : Number.POSITIVE_INFINITY;
+                  const orderB = typeof b.lessonOrder === "number"
+                    ? b.lessonOrder
+                    : Number.POSITIVE_INFINITY;
+                  if (orderA !== orderB) return orderA - orderB;
+                  return a.lessonTitle.localeCompare(b.lessonTitle);
+                },
+              )
+            );
 
             return {
               subject,
               units,
-            }
+            };
           })
           .sort((a, b) => {
-            const subjectA = a.subject ?? ""
-            const subjectB = b.subject ?? ""
-            return subjectA.localeCompare(subjectB)
-          })
+            const subjectA = a.subject ?? "";
+            const subjectB = b.subject ?? "";
+            return subjectA.localeCompare(subjectB);
+          });
 
         const payload = SubjectUnitsSchema.parse({
           profile,
           subjects,
-        })
+        });
 
-        return { data: payload, error: null }
+        return { data: payload, error: null };
       } catch (error) {
-        console.error("[pupil-units] Failed to load pupil units bootstrap", error)
-        const message = error instanceof Error ? error.message : "Unable to load pupil units."
-        return { data: null, error: message }
+        console.error(
+          "[pupil-units] Failed to load pupil units bootstrap",
+          error,
+        );
+        const message = error instanceof Error
+          ? error.message
+          : "Unable to load pupil units.";
+        return { data: null, error: message };
       }
     },
-  )
+  );
 }

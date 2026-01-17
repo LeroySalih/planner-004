@@ -1,21 +1,25 @@
-import { NextResponse } from "next/server"
-import { revalidatePath } from "next/cache"
-import { z } from "zod"
+import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
+import { z } from "zod";
 
-import { ShortTextSubmissionBodySchema } from "@/types"
-import { clampScore, fetchActivitySuccessCriteriaIds, normaliseSuccessCriteriaScores } from "@/lib/scoring/success-criteria"
+import { ShortTextSubmissionBodySchema } from "@/types";
+import {
+  clampScore,
+  fetchActivitySuccessCriteriaIds,
+  normaliseSuccessCriteriaScores,
+} from "@/lib/scoring/success-criteria";
 import {
   type AssignmentResultsRealtimePayload,
   publishAssignmentResultsEvents,
-} from "@/lib/results-sse"
-import { insertPupilActivityFeedbackEntry } from "@/lib/feedback/pupil-activity-feedback"
-import { query } from "@/lib/db"
-import { resolveQueueItem, logQueueEvent } from "@/lib/ai/marking-queue"
+} from "@/lib/results-sse";
+import { insertPupilActivityFeedbackEntry } from "@/lib/feedback/pupil-activity-feedback";
+import { query } from "@/lib/db";
+import { logQueueEvent, resolveQueueItem } from "@/lib/ai/marking-queue";
 
-export const dynamic = "force-dynamic"
+export const dynamic = "force-dynamic";
 
-const SHORT_TEXT_ACTIVITY_TYPE = "short-text-question"
-const SHORT_TEXT_CORRECTNESS_THRESHOLD = 0.8
+const SHORT_TEXT_ACTIVITY_TYPE = "short-text-question";
+const SHORT_TEXT_CORRECTNESS_THRESHOLD = 0.8;
 
 const PupilAnswerSchema = z
   .object({
@@ -27,7 +31,7 @@ const PupilAnswerSchema = z
   .refine((value) => value.pupilid || value.pupilId || value.pupil_id, {
     message: "pupil identifier is required",
     path: ["pupilid"],
-  })
+  });
 
 const ResultEntrySchema = z
   .object({
@@ -40,7 +44,7 @@ const ResultEntrySchema = z
   .refine((value) => value.pupilid || value.pupilId || value.pupil_id, {
     message: "pupil identifier is required",
     path: ["pupilid"],
-  })
+  });
 
 const PayloadSchema = z.object({
   group_assignment_id: z.string().min(3),
@@ -56,23 +60,31 @@ const PayloadSchema = z.object({
     .passthrough()
     .optional(),
   results: z.array(ResultEntrySchema),
-})
+});
 
-type WebhookPayload = z.infer<typeof PayloadSchema>
-type ResultEntry = z.infer<typeof ResultEntrySchema>
-type ResultPupil = string
+type WebhookPayload = z.infer<typeof PayloadSchema>;
+type ResultEntry = z.infer<typeof ResultEntrySchema>;
+type ResultPupil = string;
 
 export async function POST(request: Request) {
   // Capture all headers for debugging
   const headerMap: Record<string, string> = {};
   request.headers.forEach((value, key) => {
-    headerMap[key] = key.toLowerCase().includes('key') || key.toLowerCase().includes('auth') ? '[REDACTED]' : value;
+    headerMap[key] =
+      key.toLowerCase().includes("key") || key.toLowerCase().includes("auth")
+        ? "[REDACTED]"
+        : value;
   });
 
-  const expectedServiceKey = process.env.MARK_SERVICE_KEY ?? process.env.AI_MARK_SERVICE_KEY
+  const expectedServiceKey = process.env.MARK_SERVICE_KEY ??
+    process.env.AI_MARK_SERVICE_KEY;
   if (!expectedServiceKey || expectedServiceKey.trim().length === 0) {
-    console.error("[ai-mark-webhook] MARK_SERVICE_KEY is not configured")
-    await logQueueEvent('error', 'Webhook failed: MARK_SERVICE_KEY not configured on server', { headers: headerMap });
+    console.error("[ai-mark-webhook] MARK_SERVICE_KEY is not configured");
+    await logQueueEvent(
+      "error",
+      "Webhook failed: MARK_SERVICE_KEY not configured on server",
+      { headers: headerMap },
+    );
     return NextResponse.json(
       {
         success: false,
@@ -80,17 +92,22 @@ export async function POST(request: Request) {
         details: { missingEnv: "MARK_SERVICE_KEY" },
       },
       { status: 500 },
-    )
+    );
   }
 
-  const inboundServiceKey = request.headers.get("mark-service-key") ?? request.headers.get("Mark-Service-Key")
-  if (!inboundServiceKey || inboundServiceKey.trim() !== expectedServiceKey.trim()) {
-    console.warn("[ai-mark-webhook] Unauthorized webhook attempt: missing or mismatched mark-service-key header.")
-    await logQueueEvent('warn', 'Unauthorized webhook attempt', { 
-      receivedHeader: inboundServiceKey ? 'Present (mismatched)' : 'Missing',
+  const inboundServiceKey = request.headers.get("mark-service-key") ??
+    request.headers.get("Mark-Service-Key");
+  if (
+    !inboundServiceKey || inboundServiceKey.trim() !== expectedServiceKey.trim()
+  ) {
+    console.warn(
+      "[ai-mark-webhook] Unauthorized webhook attempt: missing or mismatched mark-service-key header.",
+    );
+    await logQueueEvent("warn", "Unauthorized webhook attempt", {
+      receivedHeader: inboundServiceKey ? "Present (mismatched)" : "Missing",
       expectedLength: expectedServiceKey.trim().length,
       receivedLength: inboundServiceKey ? inboundServiceKey.trim().length : 0,
-      headers: headerMap 
+      headers: headerMap,
     });
     return NextResponse.json(
       {
@@ -98,41 +115,73 @@ export async function POST(request: Request) {
         error: "Unauthorized",
         details: {
           header: "mark-service-key",
-          message: !inboundServiceKey ? "Header missing" : "Header present but does not match MARK_SERVICE_KEY.",
+          message: !inboundServiceKey
+            ? "Header missing"
+            : "Header present but does not match MARK_SERVICE_KEY.",
         },
       },
       { status: 401 },
-    )
+    );
   }
 
-  let json: unknown
+  let json: unknown;
   try {
-    json = await request.json()
-    await logQueueEvent('info', 'Webhook received payload', { resultCount: (json as any)?.results?.length });
+    json = await request.json();
+    await logQueueEvent("info", "Webhook received payload", {
+      resultCount: (json as any)?.results?.length,
+    });
   } catch (error) {
-    console.error("[ai-mark-webhook] Failed to parse payload", error)
-    return NextResponse.json({ success: false, error: "Invalid JSON payload." }, { status: 400 })
+    console.error("[ai-mark-webhook] Failed to parse payload", error);
+    return NextResponse.json(
+      { success: false, error: "Invalid JSON payload." },
+      { status: 400 },
+    );
   }
 
-  const parsed = PayloadSchema.safeParse(json)
+  const parsed = PayloadSchema.safeParse(json);
   if (!parsed.success) {
-    console.error("[ai-mark-webhook] Payload validation failed", parsed.error)
-    await logQueueEvent('error', 'Webhook payload validation failed', { error: parsed.error });
-    return NextResponse.json({ success: false, error: "Invalid payload." }, { status: 400 })
+    console.error("[ai-mark-webhook] Payload validation failed", parsed.error);
+    await logQueueEvent("error", "Webhook payload validation failed", {
+      error: parsed.error,
+    });
+    return NextResponse.json({ success: false, error: "Invalid payload." }, {
+      status: 400,
+    });
   }
 
   if (parsed.data.results.length === 0) {
-    return NextResponse.json({ success: true, updated: 0, created: 0, skipped: 0 })
+    return NextResponse.json({
+      success: true,
+      updated: 0,
+      created: 0,
+      skipped: 0,
+    });
   }
 
-  const assignmentIdentifiers = decodeAssignmentIdentifier(parsed.data.group_assignment_id)
-  if (!assignmentIdentifiers) {
-    return NextResponse.json({ success: false, error: "Invalid group assignment identifier." }, { status: 400 })
+  const assignmentIdentifiers = decodeAssignmentIdentifier(
+    parsed.data.group_assignment_id,
+  );
+  if (
+    !assignmentIdentifiers && parsed.data.group_assignment_id !== "revision"
+  ) {
+    await logQueueEvent("error", "Invalid group assignment identifier", {
+      id: parsed.data.group_assignment_id,
+    });
+    return NextResponse.json({
+      success: false,
+      error: "Invalid group assignment identifier.",
+    }, { status: 400 });
   }
 
-  let activityRow: { activity_id: string; type: string | null; lesson_id: string | null } | null = null
+  let activityRow: {
+    activity_id: string;
+    type: string | null;
+    lesson_id: string | null;
+  } | null = null;
   try {
-    const { rows } = await query<{ activity_id: string; type: string | null; lesson_id: string | null }>(
+    const { rows } = await query<
+      { activity_id: string; type: string | null; lesson_id: string | null }
+    >(
       `
         select activity_id, type, lesson_id
         from activities
@@ -140,39 +189,66 @@ export async function POST(request: Request) {
         limit 1
       `,
       [parsed.data.activity_id],
-    )
-    activityRow = rows?.[0] ?? null
+    );
+    activityRow = rows?.[0] ?? null;
   } catch (error) {
-    console.error("[ai-mark-webhook] Failed to load activity", error)
-    return NextResponse.json({ success: false, error: "Unable to load activity." }, { status: 500 })
+    console.error("[ai-mark-webhook] Failed to load activity", error);
+    return NextResponse.json({
+      success: false,
+      error: "Unable to load activity.",
+    }, { status: 500 });
   }
 
   if (!activityRow) {
-    return NextResponse.json({ success: false, error: "Activity not found." }, { status: 404 })
+    return NextResponse.json({ success: false, error: "Activity not found." }, {
+      status: 404,
+    });
   }
 
   if ((activityRow.type ?? "").trim() !== SHORT_TEXT_ACTIVITY_TYPE) {
     console.info("[ai-mark-webhook] Activity type not supported for AI mark", {
       activityId: parsed.data.activity_id,
       type: activityRow.type,
-    })
+    });
     return NextResponse.json(
-      { success: true, updated: 0, created: 0, skipped: parsed.data.results.length, info: "Activity not supported." },
+      {
+        success: true,
+        updated: 0,
+        created: 0,
+        skipped: parsed.data.results.length,
+        info: "Activity not supported.",
+      },
       { status: 202 },
-    )
+    );
   }
 
-  const successCriteriaIds = await fetchActivitySuccessCriteriaIds(parsed.data.activity_id)
+  const successCriteriaIds = await fetchActivitySuccessCriteriaIds(
+    parsed.data.activity_id,
+  );
   const pupilIds = parsed.data.results
     .map((entry) => resolveResultPupilId(entry))
-    .filter((value): value is string => typeof value === "string" && value.length > 0)
+    .filter((value): value is string =>
+      typeof value === "string" && value.length > 0
+    );
 
   let submissionRows:
-    | { submission_id: string; user_id?: string | null; body: unknown; submitted_at?: string | null }[]
-    | null = null
+    | {
+      submission_id: string;
+      user_id?: string | null;
+      body: unknown;
+      submitted_at?: string | null;
+    }[]
+    | null = null;
 
   try {
-    const { rows } = await query<{ submission_id: string; user_id: string | null; body: unknown; submitted_at: string | null }>(
+    const { rows } = await query<
+      {
+        submission_id: string;
+        user_id: string | null;
+        body: unknown;
+        submitted_at: string | null;
+      }
+    >(
       `
         select submission_id, user_id, body, submitted_at
         from submissions
@@ -180,44 +256,53 @@ export async function POST(request: Request) {
           and user_id = any($2::text[])
       `,
       [parsed.data.activity_id, pupilIds],
-    )
-    submissionRows = rows ?? []
+    );
+    submissionRows = rows ?? [];
   } catch (error) {
-    console.error("[ai-mark-webhook] Failed to load submissions", error)
-    return NextResponse.json({ success: false, error: "Unable to load submissions." }, { status: 500 })
+    console.error("[ai-mark-webhook] Failed to load submissions", error);
+    return NextResponse.json({
+      success: false,
+      error: "Unable to load submissions.",
+    }, { status: 500 });
   }
 
   const submissionsByPupil = new Map(
     (submissionRows ?? [])
       .filter((row) => typeof row.user_id === "string")
       .map((row) => [row.user_id as string, row]),
-  )
+  );
 
-  const answersByPupil = buildAnswersMap(parsed.data)
+  const answersByPupil = buildAnswersMap(parsed.data);
 
   const summary = {
     updated: 0,
     created: 0,
     skipped: 0,
     errors: 0,
-  }
+  };
 
-  const realtimeEvents: AssignmentResultsRealtimePayload[] = []
+  const realtimeEvents: AssignmentResultsRealtimePayload[] = [];
 
   for (const result of parsed.data.results) {
-    const resultPupilId = resolveResultPupilId(result)
+    const resultPupilId = resolveResultPupilId(result);
     if (!resultPupilId) {
-      await logQueueEvent('warn', 'Webhook result missing pupil ID', { result });
-      summary.skipped += 1
-      continue
+      await logQueueEvent("warn", "Webhook result missing pupil ID", {
+        result,
+      });
+      summary.skipped += 1;
+      continue;
     }
-    const existingSubmission = submissionsByPupil.get(resultPupilId) ?? null
-    await logQueueEvent('info', `Processing result for pupil ${resultPupilId}`, { 
-      hasExistingSubmission: !!existingSubmission,
-      submissionId: existingSubmission?.submission_id,
-      receivedScore: result.score,
-      receivedFeedback: result.feedback
-    });
+    const existingSubmission = submissionsByPupil.get(resultPupilId) ?? null;
+    await logQueueEvent(
+      "info",
+      `Processing result for pupil ${resultPupilId}`,
+      {
+        hasExistingSubmission: !!existingSubmission,
+        submissionId: existingSubmission?.submission_id,
+        receivedScore: result.score,
+        receivedFeedback: result.feedback,
+      },
+    );
 
     try {
       if (existingSubmission) {
@@ -228,18 +313,24 @@ export async function POST(request: Request) {
           successCriteriaIds,
           answerFallback: answersByPupil.get(resultPupilId) ?? null,
           pupilId: resultPupilId,
-        })
+        });
         if (updated?.updated) {
-          summary.updated += 1
+          summary.updated += 1;
           if (updated.payload) {
-            realtimeEvents.push(updated.payload)
+            realtimeEvents.push(updated.payload);
           }
           // Resolve from queue
-          await resolveQueueItem(existingSubmission.submission_id)
-          await logQueueEvent('info', `Resolved queue item for submission ${existingSubmission.submission_id}`);
+          await resolveQueueItem(existingSubmission.submission_id);
+          await logQueueEvent(
+            "info",
+            `Resolved queue item for submission ${existingSubmission.submission_id}`,
+          );
         } else {
-          await logQueueEvent('warn', `applyAiMarkToSubmission returned updated:false for ${existingSubmission.submission_id}`);
-          summary.skipped += 1
+          await logQueueEvent(
+            "warn",
+            `applyAiMarkToSubmission returned updated:false for ${existingSubmission.submission_id}`,
+          );
+          summary.skipped += 1;
         }
       } else {
         const created = await createAiMarkedSubmission({
@@ -248,81 +339,103 @@ export async function POST(request: Request) {
           result,
           successCriteriaIds,
           answer: answersByPupil.get(resultPupilId) ?? null,
-        })
+        });
         if (created?.created) {
-          summary.created += 1
+          summary.created += 1;
           if (created.payload) {
-            realtimeEvents.push(created.payload)
+            realtimeEvents.push(created.payload);
             // Resolve from queue if we have a submissionId
             if (created.payload.submissionId) {
-              await resolveQueueItem(created.payload.submissionId)
-              await logQueueEvent('info', `Resolved queue item for new submission ${created.payload.submissionId}`);
+              await resolveQueueItem(created.payload.submissionId);
+              await logQueueEvent(
+                "info",
+                `Resolved queue item for new submission ${created.payload.submissionId}`,
+              );
             }
           }
         } else {
-          await logQueueEvent('warn', `createAiMarkedSubmission returned created:false for pupil ${resultPupilId}`);
-          summary.skipped += 1
+          await logQueueEvent(
+            "warn",
+            `createAiMarkedSubmission returned created:false for pupil ${resultPupilId}`,
+          );
+          summary.skipped += 1;
         }
       }
     } catch (error) {
-      summary.errors += 1
+      summary.errors += 1;
       console.error("[ai-mark-webhook] Failed to apply AI mark for pupil", {
         pupilId: resultPupilId ?? "(unknown)",
         error,
-      })
-      await logQueueEvent('error', `Failed to apply AI mark for pupil ${resultPupilId}`, { error: String(error) });
+      });
+      await logQueueEvent(
+        "error",
+        `Failed to apply AI mark for pupil ${resultPupilId}`,
+        { error: String(error) },
+      );
     }
   }
 
   if (summary.errors === 0) {
-    const assignmentPath = `/results/assignments/${encodeURIComponent(parsed.data.group_assignment_id)}`
-    revalidatePath(assignmentPath)
+    const assignmentPath = `/results/assignments/${
+      encodeURIComponent(parsed.data.group_assignment_id)
+    }`;
+    revalidatePath(assignmentPath);
   }
 
   if (realtimeEvents.length > 0) {
     try {
-      await publishAssignmentResultsEvents(parsed.data.group_assignment_id, dedupeRealtimeEvents(realtimeEvents))
+      await publishAssignmentResultsEvents(
+        parsed.data.group_assignment_id,
+        dedupeRealtimeEvents(realtimeEvents),
+      );
     } catch (error) {
-      console.error("[ai-mark-webhook] Failed to publish realtime events", error)
+      console.error(
+        "[ai-mark-webhook] Failed to publish realtime events",
+        error,
+      );
     }
   }
 
-  return NextResponse.json({ success: summary.errors === 0, ...summary })
+  return NextResponse.json({ success: summary.errors === 0, ...summary });
 }
 
-function decodeAssignmentIdentifier(raw: string): { groupId: string; lessonId: string } | null {
-  const trimmed = raw.trim()
+function decodeAssignmentIdentifier(
+  raw: string,
+): { groupId: string; lessonId: string } | null {
+  const trimmed = raw.trim();
   if (!trimmed) {
-    return null
+    return null;
   }
-  const [groupId, lessonId] = trimmed.split("__")
+  const [groupId, lessonId] = trimmed.split("__");
   if (!groupId || !lessonId) {
-    return null
+    return null;
   }
-  return { groupId, lessonId }
+  return { groupId, lessonId };
 }
 
 function buildAnswersMap(payload: WebhookPayload): Map<string, string> {
-  const map = new Map<string, string>()
-  const answers = payload.dataSent?.pupil_answers ?? []
+  const map = new Map<string, string>();
+  const answers = payload.dataSent?.pupil_answers ?? [];
   for (const entry of answers ?? []) {
-    const pupilId = entry?.pupilid ?? entry?.pupilId ?? entry?.pupil_id
-    if (entry && typeof pupilId === "string" && typeof entry.answer === "string") {
-      map.set(pupilId, entry.answer)
+    const pupilId = entry?.pupilid ?? entry?.pupilId ?? entry?.pupil_id;
+    if (
+      entry && typeof pupilId === "string" && typeof entry.answer === "string"
+    ) {
+      map.set(pupilId, entry.answer);
     }
   }
-  return map
+  return map;
 }
 
 function resolveResultPupilId(entry: ResultEntry): ResultPupil | null {
-  return entry.pupilid ?? entry.pupilId ?? entry.pupil_id ?? null
+  return entry.pupilid ?? entry.pupilId ?? entry.pupil_id ?? null;
 }
 
 function computeIsCorrect(score: number | null): boolean {
   if (typeof score !== "number" || Number.isNaN(score)) {
-    return false
+    return false;
   }
-  return score >= SHORT_TEXT_CORRECTNESS_THRESHOLD
+  return score >= SHORT_TEXT_CORRECTNESS_THRESHOLD;
 }
 
 async function applyAiMarkToSubmission({
@@ -333,28 +446,43 @@ async function applyAiMarkToSubmission({
   answerFallback,
   pupilId,
 }: {
-  submission: { submission_id: string; user_id?: string | null; body: unknown; submitted_at?: string | null }
-  result: ResultEntry
-  activityId: string
-  successCriteriaIds: string[]
-  answerFallback: string | null
-  pupilId: string
-}): Promise<{ updated: boolean; payload: AssignmentResultsRealtimePayload | null }> {
-  const parsedBody = ShortTextSubmissionBodySchema.safeParse(submission.body ?? {})
-  const baseBody = parsedBody.success ? parsedBody.data : ShortTextSubmissionBodySchema.parse({})
+  submission: {
+    submission_id: string;
+    user_id?: string | null;
+    body: unknown;
+    submitted_at?: string | null;
+  };
+  result: ResultEntry;
+  activityId: string;
+  successCriteriaIds: string[];
+  answerFallback: string | null;
+  pupilId: string;
+}): Promise<
+  { updated: boolean; payload: AssignmentResultsRealtimePayload | null }
+> {
+  const parsedBody = ShortTextSubmissionBodySchema.safeParse(
+    submission.body ?? {},
+  );
+  const baseBody = parsedBody.success
+    ? parsedBody.data
+    : ShortTextSubmissionBodySchema.parse({});
 
   const hasTeacherOverride =
-    typeof baseBody.teacher_override_score === "number" && Number.isFinite(baseBody.teacher_override_score)
+    typeof baseBody.teacher_override_score === "number" &&
+    Number.isFinite(baseBody.teacher_override_score);
 
-  const aiScore = clampScore(result.score)
-  const effectiveScore = hasTeacherOverride ? baseBody.teacher_override_score : aiScore
-  const teacherFeedback = baseBody.teacher_feedback ?? null
+  const aiScore = clampScore(result.score);
+  const effectiveScore = hasTeacherOverride
+    ? baseBody.teacher_override_score
+    : aiScore;
+  const teacherFeedback = baseBody.teacher_feedback ?? null;
   const existingAiFeedback =
-    typeof baseBody.ai_model_feedback === "string" && baseBody.ai_model_feedback.trim().length > 0
+    typeof baseBody.ai_model_feedback === "string" &&
+      baseBody.ai_model_feedback.trim().length > 0
       ? baseBody.ai_model_feedback.trim()
-      : null
-  const incomingAiFeedback = (result.feedback?.trim() ?? "") || null
-  const nextAiFeedback = incomingAiFeedback ?? existingAiFeedback ?? null
+      : null;
+  const incomingAiFeedback = (result.feedback?.trim() ?? "") || null;
+  const nextAiFeedback = incomingAiFeedback ?? existingAiFeedback ?? null;
 
   const nextBody = ShortTextSubmissionBodySchema.parse({
     ...baseBody,
@@ -367,7 +495,7 @@ async function applyAiMarkToSubmission({
       successCriteriaIds,
       fillValue: effectiveScore ?? 0,
     }),
-  })
+  });
 
   await query(
     `
@@ -376,7 +504,7 @@ async function applyAiMarkToSubmission({
       where submission_id = $2
     `,
     [nextBody, submission.submission_id],
-  )
+  );
 
   await insertPupilActivityFeedbackEntry({
     activityId,
@@ -386,7 +514,7 @@ async function applyAiMarkToSubmission({
     score: aiScore,
     feedbackText: nextAiFeedback,
     createdBy: null,
-  })
+  });
 
   return {
     updated: true,
@@ -398,7 +526,7 @@ async function applyAiMarkToSubmission({
       aiFeedback: nextAiFeedback,
       successCriteriaScores: nextBody.success_criteria_scores ?? {},
     }),
-  }
+  };
 }
 
 async function createAiMarkedSubmission({
@@ -408,17 +536,19 @@ async function createAiMarkedSubmission({
   successCriteriaIds,
   answer,
 }: {
-  activityId: string
-  pupilId: string
-  result: ResultEntry
-  successCriteriaIds: string[]
-  answer: string | null
-}): Promise<{ created: boolean; payload: AssignmentResultsRealtimePayload | null }> {
-  const score = clampScore(result.score)
+  activityId: string;
+  pupilId: string;
+  result: ResultEntry;
+  successCriteriaIds: string[];
+  answer: string | null;
+}): Promise<
+  { created: boolean; payload: AssignmentResultsRealtimePayload | null }
+> {
+  const score = clampScore(result.score);
   const successCriteriaScores = normaliseSuccessCriteriaScores({
     successCriteriaIds,
     fillValue: score,
-  })
+  });
 
   const submissionBody = ShortTextSubmissionBodySchema.parse({
     answer: answer ?? "",
@@ -428,7 +558,7 @@ async function createAiMarkedSubmission({
     ai_model_feedback: (result.feedback?.trim() ?? "") || null,
     is_correct: computeIsCorrect(score),
     success_criteria_scores: successCriteriaScores,
-  })
+  });
 
   const { rows } = await query<{ submission_id: string }>(
     `
@@ -441,9 +571,9 @@ async function createAiMarkedSubmission({
       returning submission_id
     `,
     [activityId, pupilId, new Date().toISOString(), submissionBody],
-  )
+  );
 
-  const insertedRow = rows?.[0] ?? null
+  const insertedRow = rows?.[0] ?? null;
 
   await insertPupilActivityFeedbackEntry({
     activityId,
@@ -453,7 +583,7 @@ async function createAiMarkedSubmission({
     score,
     feedbackText: submissionBody.ai_model_feedback ?? null,
     createdBy: null,
-  })
+  });
 
   return {
     created: true,
@@ -465,48 +595,53 @@ async function createAiMarkedSubmission({
       aiFeedback: submissionBody.ai_model_feedback ?? null,
       successCriteriaScores: successCriteriaScores ?? {},
     }),
-  }
+  };
 }
 
 function buildRealtimePayload(input: {
-  submissionId?: string | null
-  pupilId?: string | null
-  activityId?: string | null
-  aiScore?: number | null
-  aiFeedback?: string | null
-  successCriteriaScores?: Record<string, number | null> | null
+  submissionId?: string | null;
+  pupilId?: string | null;
+  activityId?: string | null;
+  aiScore?: number | null;
+  aiFeedback?: string | null;
+  successCriteriaScores?: Record<string, number | null> | null;
 }): AssignmentResultsRealtimePayload | null {
   if (!input.activityId || !input.pupilId) {
-    return null
+    return null;
   }
   return {
     submissionId: input.submissionId ?? null,
     pupilId: input.pupilId,
     activityId: input.activityId,
-    aiScore: typeof input.aiScore === "number" ? clampScore(input.aiScore) : null,
+    aiScore: typeof input.aiScore === "number"
+      ? clampScore(input.aiScore)
+      : null,
     aiFeedback: input.aiFeedback ?? null,
-    successCriteriaScores: Object.entries(input.successCriteriaScores ?? {}).reduce<Record<string, number>>(
-      (acc, [key, value]) => {
-        if (typeof value === "number" && Number.isFinite(value)) {
-          acc[key] = clampScore(value)
-        }
-        return acc
-      },
-      {},
-    ),
-  }
+    successCriteriaScores: Object.entries(input.successCriteriaScores ?? {})
+      .reduce<Record<string, number>>(
+        (acc, [key, value]) => {
+          if (typeof value === "number" && Number.isFinite(value)) {
+            acc[key] = clampScore(value);
+          }
+          return acc;
+        },
+        {},
+      ),
+  };
 }
 
-function dedupeRealtimeEvents(events: AssignmentResultsRealtimePayload[]): AssignmentResultsRealtimePayload[] {
-  const seen = new Set<string>()
-  const result: AssignmentResultsRealtimePayload[] = []
+function dedupeRealtimeEvents(
+  events: AssignmentResultsRealtimePayload[],
+): AssignmentResultsRealtimePayload[] {
+  const seen = new Set<string>();
+  const result: AssignmentResultsRealtimePayload[] = [];
   for (const event of events) {
-    const key = `${event.activityId ?? ""}::${event.pupilId ?? ""}`
+    const key = `${event.activityId ?? ""}::${event.pupilId ?? ""}`;
     if (seen.has(key)) {
-      continue
+      continue;
     }
-    seen.add(key)
-    result.push(event)
+    seen.add(key);
+    result.push(event);
   }
-  return result
+  return result;
 }

@@ -141,8 +141,21 @@ export default function AiQueuePage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">AI Marking System</h1>
           <p className="text-sm text-muted-foreground">Monitor and manage background AI marking tasks and logs.</p>
+          <div className="text-xs text-red-500 font-mono mt-1 break-all">
+            Logs Type: {Array.isArray(logs) ? 'Array' : typeof logs} ({logs.length})
+            <br/>
+            Loading: {isLoading ? 'T' : 'F'}, Pending: {isPending ? 'T' : 'F'}
+            <br/>
+            Last Log ID: {logs[0]?.log_id}
+          </div>
         </div>
         <div className="flex gap-2">
+           <Button size="sm" variant="secondary" onClick={() => {
+              readAiMarkingLogsAction().then(res => {
+                  console.log("Manual Log Fetch:", res);
+                  alert(JSON.stringify(res).slice(0, 500));
+              })
+           }}>Debug Fetch</Button>
           <Button variant="outline" size="sm" onClick={handleClearLogs} disabled={isLoading || isPending || logs.length === 0}>
             <Trash2 className="h-4 w-4 mr-2" />
             Clear Logs
