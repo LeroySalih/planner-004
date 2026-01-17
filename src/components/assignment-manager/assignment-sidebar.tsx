@@ -15,6 +15,7 @@ import { normalizeAssignmentWeek, normalizeDateOnly, truncateText } from "@/lib/
 function buildWeekdayOptions(weekday: number, count = 52) {
   const options: { value: string; label: string }[] = []
   const cursor = new Date()
+  cursor.setUTCDate(cursor.getUTCDate() - 35)
   cursor.setUTCHours(0, 0, 0, 0)
 
   while (cursor.getUTCDay() !== weekday) {
@@ -344,22 +345,12 @@ export function AssignmentSidebar({
   }
 
   const sundayOptions = useMemo(() => {
-    const filtered = assignmentDateOptions.filter((option) => {
-      const date = new Date(`${option.value}T00:00:00Z`)
-      return date.getUTCDay() === 0
-    })
-    if (filtered.length > 0) return filtered
     return buildWeekdayOptions(0)
-  }, [assignmentDateOptions])
+  }, [])
 
   const saturdayOptions = useMemo(() => {
-    const filtered = assignmentDateOptions.filter((option) => {
-      const date = new Date(`${option.value}T00:00:00Z`)
-      return date.getUTCDay() === 6
-    })
-    if (filtered.length > 0) return filtered
     return buildWeekdayOptions(6)
-  }, [assignmentDateOptions])
+  }, [])
 
   const handleDateSelect = (field: "start_date" | "end_date", value: string) => {
     const normalized = normalizeDateOnly(value) ?? ""
