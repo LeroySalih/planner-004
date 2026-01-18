@@ -445,25 +445,26 @@ export function AssignmentGrid({
     return lessonsByWeek
   }
 
-  // Effect to scroll to the current week on mount
+  // Effect to scroll to the current week on mount (minus 2 weeks)
   useEffect(() => {
     if (scrollContainerRef.current && weekStarts.length > 0) {
-      const today = new Date()
-      const todayTime = today.getTime()
+      const targetDate = new Date()
+      targetDate.setDate(targetDate.getDate() - 14)
+      const targetTime = targetDate.getTime()
       
-      // Find the index of the week that contains today, or the first week in the future
+      // Find the index of the week that contains our target date, or the first week in the future
       let currentWeekIndex = weekStarts.findIndex((start) => {
         const end = new Date(start)
         end.setDate(end.getDate() + 7)
-        return start.getTime() <= todayTime && todayTime < end.getTime()
+        return start.getTime() <= targetTime && targetTime < end.getTime()
       })
 
-      // If today is past all weeks, scroll to the end
+      // If target date is past all weeks, scroll to the end
       if (currentWeekIndex === -1) {
-        if (todayTime > weekStarts[weekStarts.length - 1].getTime()) {
+        if (targetTime > weekStarts[weekStarts.length - 1].getTime()) {
            currentWeekIndex = weekStarts.length - 1
         } else {
-           // If today is before all weeks (unlikely given grid logic), index 0
+           // If target date is before all weeks (unlikely given grid logic), index 0
            currentWeekIndex = 0
         }
       }
@@ -485,7 +486,7 @@ export function AssignmentGrid({
           <CardTitle className="text-2xl font-bold text-primary">Assignment Schedule</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto" ref={scrollContainerRef}>
+          <div className="overflow-auto max-h-[calc(100vh-12rem)]" ref={scrollContainerRef}>
             <table className="w-full table-fixed border-collapse">
               <colgroup>
                 <col style={{ width: GROUP_COLUMN_WIDTH }} />
@@ -496,7 +497,7 @@ export function AssignmentGrid({
               <thead>
                 <tr>
                   <th
-                    className="sticky left-0 bg-muted p-3 text-left font-semibold border border-border"
+                    className="sticky left-0 top-0 z-20 bg-muted p-3 text-left font-semibold border border-border"
                     style={{ width: GROUP_COLUMN_WIDTH }}
                   >
                     <div className="space-y-2">
@@ -512,7 +513,7 @@ export function AssignmentGrid({
                   {weekStarts.map((weekStart, index) => (
                     <th
                       key={index}
-                      className="p-3 text-center font-semibold border border-border bg-muted"
+                      className="sticky top-0 z-10 p-3 text-center font-semibold border border-border bg-muted"
                       style={{ width: WEEK_COLUMN_WIDTH }}
                     >
                       <div className="text-sm">{formatWeekStart(weekStart)}</div>

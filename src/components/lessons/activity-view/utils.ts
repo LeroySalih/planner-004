@@ -1,5 +1,3 @@
-"use client";
-
 import type {
   FeedbackActivityBody,
   FeedbackActivityGroupSettings,
@@ -324,9 +322,41 @@ export function getRichTextMarkup(value: string): string | null {
 
 function escapeHtml(value: string): string {
   return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+export function getYouTubeVideoId(
+  url: string | null | undefined,
+): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.replace(/^www\./, "").toLowerCase();
+    if (host === "youtu.be") {
+      return parsed.pathname.slice(1) || null;
+    }
+    if (host === "youtube.com" || host.endsWith(".youtube.com")) {
+      if (parsed.pathname === "/watch") {
+        return parsed.searchParams.get("v");
+      }
+      const segments = parsed.pathname.split("/").filter(Boolean);
+      if (segments[0] === "embed" || segments[0] === "v") {
+        return segments[1] ?? null;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function getYouTubeThumbnailUrl(
+  url: string | null | undefined,
+): string | null {
+  const videoId = getYouTubeVideoId(url);
+  if (!videoId) {
+    return null;
+  }
+  return `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
 }

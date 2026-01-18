@@ -1,7 +1,19 @@
 import Link from "next/link"
 import { notFound, redirect } from "next/navigation"
 import { format } from "date-fns"
-import { Download, Music2, PlaySquare, TestTube, ArrowLeft } from "lucide-react"
+import {
+  ArrowLeft,
+  Download,
+  FileIcon,
+  HelpCircle,
+  Link as LinkIcon,
+  Mic,
+  Music2,
+  Play,
+  PlaySquare,
+  TestTube,
+  Video,
+} from "lucide-react"
 
 import { requireAuthenticatedProfile } from "@/lib/auth"
 import { resolveActivityImageUrl } from "@/lib/activity-assets"
@@ -12,9 +24,11 @@ import {
   listPupilActivitySubmissionsAction,
   getLatestSubmissionForActivityAction,
   readLessonSubmissionSummariesAction,
+  getActivityFileDownloadUrlAction,
 } from "@/lib/server-updates"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { StartRevisionButton } from "@/components/revisions/start-revision-button"
 import { PupilUploadActivity } from "@/components/pupil/pupil-upload-activity"
 // ...
@@ -36,6 +50,12 @@ import {
 import { ActivityProgressPanel } from "./activity-progress-panel"
 import { extractScoreFromSubmission } from "@/lib/scoring/activity-scores"
 import { fetchPupilActivityFeedbackMap, selectLatestFeedbackEntry } from "@/lib/feedback/pupil-activity-feedback"
+import {
+  getActivityFileUrlValue,
+  getActivityTextValue,
+  getRichTextMarkup,
+  getYouTubeThumbnailUrl,
+} from "@/components/lessons/activity-view/utils"
 import { FeedbackVisibilityProvider } from "./feedback-visibility-debug"
 
 type McqOption = { id: string; text: string }
@@ -188,7 +208,7 @@ function extractActivityLink(activity: { body_data: unknown; title: string }) {
   }
 
   const record = bodyData as Record<string, unknown>
-  const candidateKeys = ["url", "fileUrl", "href", "videoUrl"]
+  const candidateKeys = ["url", "fileUrl", "href", "videoUrl", "file_url"]
 
   for (const key of candidateKeys) {
     const value = record[key]
@@ -320,6 +340,26 @@ export default async function PupilLessonFriendlyPage({
       }),
   )
   const displayImageUrlMap = new Map(displayImageUrlEntries)
+  
+  const fileDownloadActivities = activities.filter((activity) => activity.type === "file-download")
+  const fileDownloadUrlEntries = await Promise.all(
+    fileDownloadActivities.map(async (activity) => {
+      const filesResult = await listActivityFilesAction(lesson.lesson_id, activity.activity_id)
+      if (filesResult.error || !filesResult.data || filesResult.data.length === 0) {
+        return [activity.activity_id, [] as { name: string; url: string | null | undefined }[]] as const
+      }
+      
+      const filesWithUrls = await Promise.all(
+        filesResult.data.map(async (file) => {
+          const urlResult = await getActivityFileDownloadUrlAction(lesson.lesson_id, activity.activity_id, file.name)
+          return { name: file.name, url: urlResult.success ? urlResult.url : null }
+        })
+      )
+      
+      return [activity.activity_id, filesWithUrls] as const
+    })
+  )
+  const fileDownloadUrlMap = new Map(fileDownloadUrlEntries)
 
   const uploadActivities = activities.filter((activity) => activity.type === "upload-file")
 
@@ -641,6 +681,8 @@ export default async function PupilLessonFriendlyPage({
               <ol className="space-y-3 text-sm">
                 {activities.map((activity, index) => {
                   const linkUrl = extractActivityLink(activity)
+                  const activityFiles = fileDownloadUrlMap.get(activity.activity_id) ?? []
+                  
                   const audioUrl = extractAudioUrl(activity)
                   const isDisplayImage = activity.type === "display-image"
                   const resolvedImageUrl = isDisplayImage
@@ -733,6 +775,90 @@ export default async function PupilLessonFriendlyPage({
                           feedbackLessonId={lesson.lesson_id}
                           feedbackInitiallyVisible={initialFeedbackVisible}
                         />
+                      ) : activity.type === "file-download" && (activityFiles.length > 0 || linkUrl) ? (
+                         <div className="rounded-md bg-card p-4 border border-border/60">
+                            <div className="flex items-start gap-3">
+                              <div className="mt-0.5 rounded-full bg-primary/10 p-2 text-primary">
+                                <Download className="h-5 w-5" />
+                              </div>
+                              <div className="space-y-1 w-full">
+                                <h3 className="font-medium leading-none text-foreground">{activity.title}</h3>
+                                <p className="text-sm text-muted-foreground">{extractUploadInstructions(activity) || "Download the attached file(s)."}</p>
+                                
+                                {activityFiles.length > 0 ? (
+                                  <div className="mt-2 flex flex-col gap-2">
+                                    {activityFiles.map((file, i) => (
+                                      <Button key={i} asChild size="sm" variant="outline" className="justify-start gap-2 w-full sm:w-auto h-auto py-2">
+                                        <a href={file.url ?? "#"} download target="_blank" rel="noopener noreferrer">
+                                          <Download className="h-4 w-4 shrink-0" />
+                                          <span className="truncate">{file.name}</span>
+                                        </a>
+                                      </Button>
+                                    ))}
+                                  </div>
+                                ) : linkUrl ? (
+                                  <Button asChild size="sm" variant="outline" className="mt-2 gap-2">
+                                    <a href={linkUrl} download target="_blank" rel="noopener noreferrer">
+                                      <Download className="h-4 w-4" />
+                                      Download File
+                                    </a>
+                                  </Button>
+                                ) : null}
+                              </div>
+                            </div>
+                         </div>
+                      ) : activity.type === "show-video" && linkUrl ? (
+                         (() => {
+                            const thumbnailUrl = getYouTubeThumbnailUrl(linkUrl)
+                            if (thumbnailUrl) {
+                              return (
+                                <div className="rounded-md bg-card p-4 border border-border/60">
+                                   <div className="flex flex-col gap-3">
+                                      <div className="flex items-center gap-2">
+                                         <div className="mt-0.5 rounded-full bg-primary/10 p-2 text-primary">
+                                            <Video className="h-5 w-5" />
+                                         </div>
+                                         <h3 className="font-medium leading-none text-foreground">{activity.title}</h3>
+                                      </div>
+                                      <a 
+                                        href={linkUrl} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        className="relative block w-full max-w-md aspect-video rounded-md overflow-hidden bg-muted group"
+                                      >
+                                        <img src={thumbnailUrl} alt={activity.title} className="w-full h-full object-cover transition-transform group-hover:scale-105" />
+                                        <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/30 transition-colors">
+                                           <div className="rounded-full bg-white/90 p-3 shadow-lg transition-transform group-hover:scale-110">
+                                              <Play className="h-6 w-6 text-primary fill-primary" />
+                                           </div>
+                                        </div>
+                                      </a>
+                                   </div>
+                                </div>
+                              )
+                            }
+                            // Fallback to generic rendering if no thumbnail
+                            return (
+                               <div className="flex items-start gap-2">
+                                 <span className="text-xs font-semibold text-muted-foreground">{index + 1}.</span>
+                                 <div className="flex flex-col gap-1">
+                                   <div className="flex flex-wrap items-center gap-2">
+                                     {icon}
+                                     <Link
+                                       href={linkUrl}
+                                       target="_blank"
+                                       className="font-medium text-blue-600 hover:underline"
+                                     >
+                                       {activity.title}
+                                     </Link>
+                                     <Badge variant="outline" className="text-[10px] font-normal">
+                                        Video
+                                     </Badge>
+                                   </div>
+                                 </div>
+                               </div>
+                            )
+                         })()
                       ) : (
                         <>
                           <div className="flex items-start gap-2">
