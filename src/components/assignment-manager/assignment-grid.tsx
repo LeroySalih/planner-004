@@ -486,7 +486,7 @@ export function AssignmentGrid({
           <CardTitle className="text-2xl font-bold text-primary">Assignment Schedule</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto" ref={scrollContainerRef}>
+          <div className="overflow-auto max-h-[calc(100vh-12rem)]" ref={scrollContainerRef}>
             <table className="w-full table-fixed border-collapse">
               <colgroup>
                 <col style={{ width: GROUP_COLUMN_WIDTH }} />
@@ -497,7 +497,7 @@ export function AssignmentGrid({
               <thead>
                 <tr>
                   <th
-                    className="sticky left-0 bg-muted p-3 text-left font-semibold border border-border"
+                    className="sticky left-0 top-0 z-20 bg-muted p-3 text-left font-semibold border border-border"
                     style={{ width: GROUP_COLUMN_WIDTH }}
                   >
                     <div className="space-y-2">
@@ -513,7 +513,7 @@ export function AssignmentGrid({
                   {weekStarts.map((weekStart, index) => (
                     <th
                       key={index}
-                      className="p-3 text-center font-semibold border border-border bg-muted"
+                      className="sticky top-0 z-10 p-3 text-center font-semibold border border-border bg-muted"
                       style={{ width: WEEK_COLUMN_WIDTH }}
                     >
                       <div className="text-sm">{formatWeekStart(weekStart)}</div>

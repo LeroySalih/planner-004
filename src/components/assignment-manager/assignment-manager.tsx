@@ -621,45 +621,30 @@ export function AssignmentManager({
     <div className="space-y-6">
       
 
-      <div>
-          <div className="flex items-center justify-between">
-            
-            {hasActiveFilter() && (
-              <Button
-                onClick={clearFilter}
-                variant="outline"
-                size="sm"
-                className="flex items-center gap-2 bg-transparent"
-              >
-                <X className="h-4 w-4" />
-                Clear Filter
-              </Button>
-            )}
-          </div>
-        
-          <div className="">
-            <div className="">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  id="search-filter"
-                  type="text"
-                  value={searchFilter}
-                  onChange={(e) => setSearchFilter(e.target.value)}
-                  placeholder="Search by group name, unit title, date, or subject..."
-                  className="pl-10"
-                />
-              </div>
-              <p className="mt-2 text-xs text-muted-foreground">Use &quot;?&quot; to match any single character.</p>
-            </div>
-
-            {hasActiveFilter() && (
-              <div className="text-sm text-muted-foreground">
-                Showing {filteredAssignments.length} of {assignments.length} assignments
-              </div>
-            )}
-          </div>
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            id="search-filter"
+            type="text"
+            value={searchFilter}
+            onChange={(e) => setSearchFilter(e.target.value)}
+            placeholder="Search by group name, unit title, date, or subject..."
+            className="pl-10"
+          />
         </div>
+        {hasActiveFilter() && (
+          <Button
+            onClick={clearFilter}
+            variant="ghost"
+            size="sm"
+            className="h-9 px-3 hover:bg-muted"
+          >
+            <X className="h-4 w-4 mr-2" />
+            Clear
+          </Button>
+        )}
+      </div>
 
         <AssignmentGrid
           groups={filteredGroups}

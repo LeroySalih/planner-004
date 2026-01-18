@@ -37,6 +37,7 @@ import {
   getMcqBody,
   getShortTextBody,
   getVoiceBody,
+  getYouTubeThumbnailUrl,
   isAbsoluteUrl,
   type ImageBody,
   type McqBody,
@@ -3691,33 +3692,3 @@ function prepareMcqBodyForSave(body: McqBody): { bodyData: McqBody; error: strin
   }
 }
 
-function getYouTubeVideoId(url: string | null | undefined): string | null {
-  if (!url) return null
-  try {
-    const parsed = new URL(url)
-    const host = parsed.hostname.replace(/^www\./, "").toLowerCase()
-    if (host === "youtu.be") {
-      return parsed.pathname.slice(1) || null
-    }
-    if (host === "youtube.com" || host.endsWith(".youtube.com")) {
-      if (parsed.pathname === "/watch") {
-        return parsed.searchParams.get("v")
-      }
-      const segments = parsed.pathname.split("/").filter(Boolean)
-      if (segments[0] === "embed" || segments[0] === "v") {
-        return segments[1] ?? null
-      }
-    }
-    return null
-  } catch {
-    return null
-  }
-}
-
-function getYouTubeThumbnailUrl(url: string | null | undefined): string | null {
-  const videoId = getYouTubeVideoId(url)
-  if (!videoId) {
-    return null
-  }
-  return `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`
-}

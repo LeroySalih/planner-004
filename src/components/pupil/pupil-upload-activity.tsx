@@ -13,6 +13,7 @@ import {
   updatePupilSubmissionStatusAction,
   updatePupilSubmissionInstructionsAction,
 } from "@/lib/server-updates"
+import { getRichTextMarkup } from "@/components/lessons/activity-view/utils"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -366,7 +367,10 @@ export function PupilUploadActivity({
       </div>
 
       {hasInstructions ? (
-        <p className="whitespace-pre-wrap text-sm text-muted-foreground">{instructions}</p>
+        <div 
+          className="prose prose-sm max-w-none text-muted-foreground"
+          dangerouslySetInnerHTML={{ __html: getRichTextMarkup(instructions) ?? "" }} 
+        />
       ) : null}
 
       {canUpload ? (
