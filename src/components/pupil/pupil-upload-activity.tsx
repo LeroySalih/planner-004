@@ -139,22 +139,7 @@ export function PupilUploadActivity({
         formData.append("file", file)
 
         try {
-          const existing = submissions[0]
-          if (existing) {
-            const { success, error } = await deletePupilActivitySubmissionAction(
-              lessonId,
-              activity.activity_id,
-              pupilId,
-              existing.name,
-            )
-            if (!success) {
-              toast.error("Unable to replace previous file", {
-                description: error ?? "Please try again later.",
-              })
-              setSelectedFileName(null)
-              return
-            }
-          }
+
 
           const result = await uploadPupilActivitySubmissionAction(formData)
           if (!result.success) {
@@ -245,7 +230,7 @@ export function PupilUploadActivity({
           )
           if (!result.success) {
             toast.error("Unable to delete file", {
-              description: result.error ?? "Please try again later.",
+              description: "Please try again later.",
             })
             return
           }
@@ -272,6 +257,7 @@ export function PupilUploadActivity({
             activityId: activity.activity_id,
             pupilId,
             status: nextStatus,
+            fileName: file.name,
           })
 
           if (!result.success) {
@@ -306,6 +292,7 @@ export function PupilUploadActivity({
             activityId: activity.activity_id,
             pupilId,
             instructions: instruction,
+            fileName: file.name,
           })
 
           if (!result.success) {
