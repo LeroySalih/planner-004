@@ -6,6 +6,7 @@ import type {
   ShortTextActivityBody,
   UploadUrlActivityBody,
 } from "@/types";
+import { marked } from "marked";
 
 export interface VoiceBody {
   audioFile: string | null;
@@ -306,18 +307,33 @@ export function getRichTextMarkup(value: string): string | null {
   if (!value) return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
-  if (/<[a-z][\s\S]*>/i.test(trimmed)) {
-    return trimmed;
+
+  try {
+    // Pre-process to unwrap HTML tags from the editor so markdown tables can be recognized
+    // 1. Replace &nbsp; with space
+    let cleaned = trimmed.replace(/&nbsp;/g, " ");
+
+    // 2. Replace block ending tags and breaks with newlines
+    cleaned = cleaned.replace(/<\/div>/g, "\n")
+      .replace(/<\/p>/g, "\n")
+      .replace(/<br\s*\/?>/g, "\n");
+
+    // 3. Remove start tags for blocks
+    cleaned = cleaned.replace(/<div>/g, "")
+      .replace(/<p>/g, "");
+
+    // Parse markdown (synchronous by default in newer marked versions,
+    // but marked.parse can be async if extensions are used.
+    // Usually it returns string if no async options are on).
+    // We force it to be treated as string for safety or handle promise if needed.
+    // Standard basic usage:
+    const parsed = marked.parse(cleaned, { async: false }) as string;
+    return parsed;
+  } catch (error) {
+    console.error("Failed to parse markdown:", error);
+    // Fallback to basic escaping if markdown parsing fails
+    return `<p>${escapeHtml(trimmed)}</p>`;
   }
-
-  const escaped = escapeHtml(trimmed);
-  const paragraphs = escaped
-    .split(/\n{2,}/)
-    .map((paragraph) => paragraph.replace(/\n/g, "<br />"))
-    .map((paragraph) => `<p>${paragraph}</p>`)
-    .join("");
-
-  return paragraphs || `<p>${escaped}</p>`;
 }
 
 function escapeHtml(value: string): string {
