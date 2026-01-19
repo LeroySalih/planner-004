@@ -169,15 +169,17 @@ export function QueueList({ items }: QueueListProps) {
     [flattenedItems],
   )
 
-  const handleStatusChange = (pupilId: string, nextStatus: SubmissionStatus) => {
+  const handleStatusChange = (item: UploadSubmissionFile, nextStatus: SubmissionStatus) => {
     startTransition(async () => {
-      setPendingId(pupilId)
+      const uniqueId = `${item.pupilId}-${item.fileName}`
+      setPendingId(uniqueId)
       try {
         const result = await updateUploadSubmissionStatusAction({
-          lessonId: itemLessonId(queueItems, pupilId) ?? "",
-          activityId: itemActivityId(queueItems, pupilId) ?? "",
-          pupilId,
+          lessonId: item.lessonId ?? "",
+          activityId: item.activityId,
+          pupilId: item.pupilId,
           status: nextStatus,
+          fileName: item.fileName ?? undefined,
         })
 
         if (!result.success) {
@@ -188,13 +190,13 @@ export function QueueList({ items }: QueueListProps) {
         }
 
         setQueueItems((prev) =>
-          prev.map((item) =>
-            item.pupilId === pupilId
+          prev.map((prevItem) =>
+            prevItem.pupilId === item.pupilId && prevItem.fileName === item.fileName
               ? {
-                  ...item,
+                  ...prevItem,
                   status: nextStatus,
                 }
-              : item,
+              : prevItem,
           ),
         )
         toast.success("Status updated")
@@ -381,14 +383,15 @@ export function QueueList({ items }: QueueListProps) {
                     </thead>
                     <tbody className="divide-y divide-border/60">
                       {group.items.map((item, index) => {
-                        const statusDisabled = pendingId !== null
+                        const uniqueId = `${item.pupilId}-${item.fileName}`
+                        const statusDisabled = pendingId !== null && pendingId !== uniqueId
                         const displayName = formatPupilName(item.pupilId, item.pupilName)
                         const lessonLabel = item.lessonTitle || item.lessonId || "Lesson"
                         const activityLabel = item.activityTitle || "Upload activity"
                         const unitLabel = item.unitTitle || "Unit"
                         const rowKey =
-                          item.submissionId ??
-                          `activity-${item.activityId}-${item.pupilId}-${item.fileName ?? "nofile"}-${item.submittedAt ?? "na"}-${index}`
+                          (item.submissionId ? `${item.submissionId}-` : `activity-${item.activityId}-${item.pupilId}-`) +
+                          `${item.fileName ?? "nofile"}-${index}`
                         return (
                           <tr key={rowKey} className="align-middle">
                             <td className="px-3 py-3 text-sm text-foreground">{group.groupLabel}</td>
@@ -437,7 +440,7 @@ export function QueueList({ items }: QueueListProps) {
                               <div className="flex items-center gap-2">
                                 <Select
                                   value={item.status}
-                                  onValueChange={(value) => handleStatusChange(item.pupilId, value as SubmissionStatus)}
+                                  onValueChange={(value) => handleStatusChange(item, value as SubmissionStatus)}
                                   disabled={statusDisabled}
                                 >
                                   <SelectTrigger className="w-36">
@@ -451,7 +454,7 @@ export function QueueList({ items }: QueueListProps) {
                                     ))}
                                   </SelectContent>
                                 </Select>
-                                {pendingId === item.pupilId || downloadId ? (
+                                {pendingId === uniqueId || downloadId === item.submissionId ? (
                                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                                 ) : null}
                               </div>
