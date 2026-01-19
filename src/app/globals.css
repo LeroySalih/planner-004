@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @plugin "tailwindcss-animate";
+@plugin "@tailwindcss/typography";
 
 /* Limit Tailwind source scanning to app code; exclude heavy/locked dirs to avoid permission errors (e.g., volumes/). */
 @source "../app/**/*.{js,ts,jsx,tsx,mdx}";
@@ -39,11 +40,21 @@
   --sidebar: oklch(0.985 0 0); /* Slate-100 sidebar */
   --sidebar-foreground: oklch(0.145 0 0); /* Slate-600 sidebar text */
   --sidebar-primary: oklch(0.205 0 0); /* Emerald-600 sidebar primary */
-  --sidebar-primary-foreground: oklch(0.985 0 0); /* White text on sidebar primary */
+  --sidebar-primary-foreground: oklch(
+    0.985
+    0
+    0
+  ); /* White text on sidebar primary */
   --sidebar-accent: oklch(0.97 0 0); /* Emerald-500 sidebar accent */
-  --sidebar-accent-foreground: oklch(0.205 0 0); /* White text on sidebar accent */
+  --sidebar-accent-foreground: oklch(
+    0.205
+    0
+    0
+  ); /* White text on sidebar accent */
   --sidebar-border: oklch(0.922 0 0); /* Slate-200 sidebar borders */
-  --sidebar-ring: oklch(0.708 0 0); /* Emerald sidebar focus ring */ --background: oklch(1 0 0); --foreground: oklch(0.145 0 0);
+  --sidebar-ring: oklch(0.708 0 0); /* Emerald sidebar focus ring */
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
 }
 
 .dark {

@@ -886,6 +886,20 @@ export default async function PupilLessonFriendlyPage({
                             </div>
                           </div>
 
+                          {(() => {
+                            const textValue = getActivityTextValue(activity)
+                            const htmlContent = getRichTextMarkup(textValue)
+                            
+                            if (!htmlContent) return null
+                            
+                            return (
+                              <div 
+                                className="prose prose-sm mt-3 max-w-none text-muted-foreground dark:prose-invert"
+                                dangerouslySetInnerHTML={{ __html: htmlContent }}
+                              />
+                            )
+                          })()}
+
                           {isDisplayImage ? (
                             resolvedImageUrl ? (
                               <figure className="mt-3 space-y-2">
