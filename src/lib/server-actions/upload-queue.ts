@@ -544,6 +544,7 @@ export async function readQueueAllItemsAction(): Promise<QueueAllItemsResult> {
             left join units u on u.unit_id = l.unit_id
             left join group_membership gm on gm.user_id = s.user_id
             left join groups g on g.group_id = gm.group_id
+            join assignments asm on asm.group_id = g.group_id and asm.unit_id = u.unit_id and asm.active = true
             where coalesce(s.body->>'upload_file_name', '') <> ''
             order by s.submitted_at asc nulls last
           `,
