@@ -22,11 +22,12 @@ async function main() {
     console.log("--- | ---");
 
     // Reverse to show chronological order of the last N items
-    rows.reverse().forEach((row) => {
-        const meta = row.metadata as any;
-        const subId = meta?.submission_id || "N/A";
-        console.log(`${new Date(row.created_at).toISOString()} | ${subId}`);
-    });
+    (rows as { created_at: string | Date; metadata: unknown }[]).reverse()
+        .forEach((row) => {
+            const meta = row.metadata as any;
+            const subId = meta?.submission_id || "N/A";
+            console.log(`${new Date(row.created_at).toISOString()} | ${subId}`);
+        });
 }
 
 main().catch((err) => {

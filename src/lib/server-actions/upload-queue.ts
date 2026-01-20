@@ -785,8 +785,9 @@ export async function updateUploadSubmissionStatusAction(input: {
   activityId: string;
   pupilId: string;
   status: SubmissionStatus;
+  fileName?: string;
 }) {
-  const { lessonId, activityId, pupilId } = input;
+  const { lessonId, activityId, pupilId, fileName } = input;
   if (!lessonId || !activityId || !pupilId) {
     return { success: false, error: "Missing selection for update." };
   }
@@ -802,7 +803,7 @@ export async function updateUploadSubmissionStatusAction(input: {
     {
       routeTag,
       functionName: "updateUploadSubmissionStatusAction",
-      params: { lessonId, activityId, pupilId, status: targetStatus },
+      params: { lessonId, activityId, pupilId, status: targetStatus, fileName },
     },
     async () => {
       const profile = await requireTeacherProfile();
@@ -832,6 +833,45 @@ export async function updateUploadSubmissionStatusAction(input: {
           };
         }
 
+        // If fileName provided, update specific file in JSON
+        if (fileName) {
+          const { rows: subRows } = await client.query(
+            `select submission_id, body from submissions where activity_id = $1 and user_id = $2 order by submitted_at desc limit 1`,
+            [activityId, pupilId],
+          );
+
+          if (subRows.length > 0) {
+            const sub = subRows[0];
+            let uploadedFiles: any[] = sub.body?.uploaded_files ?? [];
+
+            // Fallback for legacy
+            if (uploadedFiles.length === 0 && sub.body?.upload_file_name) {
+              uploadedFiles = [{
+                name: sub.body.upload_file_name,
+                path: "",
+                status: sub.submission_status ?? "inprogress",
+                instructions: sub.body.instructions,
+              }];
+            }
+
+            const fileIdx = uploadedFiles.findIndex((f: any) =>
+              f.name === fileName
+            );
+            if (fileIdx !== -1) {
+              uploadedFiles[fileIdx].status = targetStatus;
+
+              await client.query(
+                `update submissions set body = jsonb_set(body::jsonb, '{uploaded_files}', $1::jsonb, true) where submission_id = $2`,
+                [JSON.stringify(uploadedFiles), sub.submission_id],
+              );
+
+              revalidatePath("/queue");
+              return { success: true };
+            }
+          }
+        }
+
+        // Default: Update global status (legacy behavior or fallback)
         const { rows } = await client.query(
           `
             with target as (
