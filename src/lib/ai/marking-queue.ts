@@ -84,14 +84,14 @@ export async function processNextQueueItem() {
 
   // 2. Process in parallel
   const results = await Promise.allSettled(
-    rows.map((item) => processSingleItem(item, callbackUrl)),
+    (rows as any[]).map((item) => processSingleItem(item, callbackUrl)),
   );
 
   // 3. Check remaining
   const { rows: countRows } = await query(
     "SELECT count(*) FROM ai_marking_queue WHERE status = 'pending' AND attempts < 3",
   );
-  const remainingCount = parseInt(countRows[0].count, 10);
+  const remainingCount = parseInt((countRows[0] as any).count, 10);
 
   if (remainingCount === 0) {
     await logQueueEvent(
@@ -209,8 +209,8 @@ async function processSingleItem(
       pupil_answer: parsedSubmission.answer || "",
       webhook_url: effectiveCallbackUrl,
       group_assignment_id: item.assignment_id,
-      activity_id: context.activity_id,
-      pupil_id: context.pupil_id,
+      activity_id: context.activity_id as string,
+      pupil_id: context.pupil_id as string,
       submission_id: item.submission_id,
     };
 

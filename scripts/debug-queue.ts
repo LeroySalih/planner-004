@@ -19,15 +19,18 @@ async function main() {
     console.log("--- | --- | ---");
 
     // Show chronological
-    rows.reverse().forEach((row) => {
-        // Truncate message if too long
-        const msg = row.message.length > 100
-            ? row.message.substring(0, 100) + "..."
-            : row.message;
-        console.log(
-            `${new Date(row.created_at).toISOString()} | ${row.level} | ${msg}`,
-        );
-    });
+    (rows as { created_at: string | Date; level: string; message: string }[])
+        .reverse().forEach((row) => {
+            // Truncate message if too long
+            const msg = row.message.length > 100
+                ? row.message.substring(0, 100) + "..."
+                : row.message;
+            console.log(
+                `${
+                    new Date(row.created_at).toISOString()
+                } | ${row.level} | ${msg}`,
+            );
+        });
 }
 
 main().catch((err) => {
