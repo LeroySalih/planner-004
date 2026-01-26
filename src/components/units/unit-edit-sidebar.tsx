@@ -86,6 +86,16 @@ export function UnitEditSidebar({
   }, [isOpen, unit])
 
   useEffect(() => {
+    if (!isCreateMode) return
+
+    const sanitizedTitle = formState.title.trim().toUpperCase().replace(/\s+/g, "-")
+    const yearSuffix = formState.year.trim() ? `-${formState.year.trim()}` : ""
+    const generatedId = sanitizedTitle ? `${sanitizedTitle}${yearSuffix}` : ""
+
+    setFormState((prev) => ({ ...prev, unitId: generatedId }))
+  }, [formState.title, formState.year, isCreateMode])
+
+  useEffect(() => {
     if (updateState.status === "queued" && updateState.jobId) {
       if (!expectUpdateResponseRef.current || lastUpdateJobIdRef.current === updateState.jobId) {
         return
@@ -250,21 +260,6 @@ export function UnitEditSidebar({
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="unit-id">Unit ID</Label>
-              <Input
-                id="unit-id"
-                value={formState.unitId}
-                onChange={(event) => setFormState((prev) => ({ ...prev, unitId: event.target.value }))}
-                placeholder="e.g. 1001-CORE-1"
-                disabled={isPending || !isCreateMode}
-                readOnly={!isCreateMode}
-              />
-              {!isCreateMode ? (
-                <p className="text-xs text-muted-foreground">Unit ID cannot be changed for existing units.</p>
-              ) : null}
-            </div>
-
-            <div className="space-y-2">
               <Label htmlFor="unit-title">Title</Label>
               <Input
                 id="unit-title"
@@ -298,20 +293,6 @@ export function UnitEditSidebar({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="unit-description">Description</Label>
-              <Textarea
-                id="unit-description"
-                value={formState.description}
-                onChange={(event) =>
-                  setFormState((prev) => ({ ...prev, description: event.target.value }))
-                }
-                rows={6}
-                placeholder="Describe the unit objectives, scope, or resources..."
-                disabled={isPending}
-              />
-            </div>
-
-            <div className="space-y-2">
               <Label htmlFor="unit-year">Year (optional)</Label>
               <Input
                 id="unit-year"
@@ -323,6 +304,23 @@ export function UnitEditSidebar({
                 placeholder="e.g. 7"
                 disabled={isPending}
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="unit-id">Unit ID</Label>
+              <Input
+                id="unit-id"
+                value={formState.unitId}
+                onChange={(event) => setFormState((prev) => ({ ...prev, unitId: event.target.value }))}
+                placeholder="Auto-generated from title"
+                disabled={isPending}
+                readOnly={true}
+              />
+              <p className="text-xs text-muted-foreground">
+                {isCreateMode
+                  ? "Unit ID is auto-generated from the title and year."
+                  : "Unit ID cannot be changed for existing units."}
+              </p>
             </div>
 
             <div className="space-y-2">
