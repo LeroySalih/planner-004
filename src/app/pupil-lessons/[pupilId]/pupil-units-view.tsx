@@ -2,7 +2,8 @@
 
 import { useState, useMemo } from "react"
 import Link from "next/link"
-import { format, parseISO, differenceInMonths, addWeeks } from "date-fns"
+import { format, parseISO, differenceInMonths, addWeeks, isBefore } from "date-fns"
+import { cn } from "@/lib/utils"
 import { Roboto_Condensed } from "next/font/google"
 import { ChevronDown } from "lucide-react"
 
@@ -27,6 +28,24 @@ function renderLessonObjectivesInline(lesson: PupilUnitLesson) {
 
   const titles = lesson.objectives.map((objective) => objective.title).join(", ")
   return <span className="text-xs text-muted-foreground">LO: {titles}</span>
+}
+
+function isLessonOverdueAndUnderperforming(lesson: PupilUnitLesson) {
+  if (!lesson.startDate) return false
+  
+  const dueDate = addWeeks(parseISO(lesson.startDate), 1)
+  // Check if overdue
+  if (!isBefore(dueDate, new Date())) return false
+  
+  // Check if has activities (max score > 0)
+  const maxScore = lesson.lessonMaxScore ?? 0
+  if (maxScore <= 0) return false
+  
+  // Check if score < 80%
+  const score = lesson.lessonScore ?? 0
+  const percent = score / maxScore
+  
+  return percent < 0.8
 }
 
 function getRevisionBadgeColor(dateString: string | null) {
@@ -161,7 +180,14 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
                           <CardContent className="space-y-4">
                             <div className="relative ml-4 space-y-4 border-l-2 border-slate-300 dark:border-slate-600">
                               {unit.lessons.map((lesson, index) => (
-                                <div key={lesson.lessonId} className="relative py-2 pl-8 pr-2 sm:pr-3">
+                                <div
+                                  key={lesson.lessonId}
+                                  className={cn(
+                                    "relative py-2 pl-8 pr-2 sm:pr-3 rounded-md transition-colors",
+                                    isLessonOverdueAndUnderperforming(lesson) &&
+                                      "bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-900/50"
+                                  )}
+                                >
                                   <span
                                     aria-hidden
                                     className="absolute -left-3 top-2 flex h-6 w-6 items-center justify-center rounded-full border-2 border-background bg-primary text-xs font-bold text-primary-foreground shadow-sm"

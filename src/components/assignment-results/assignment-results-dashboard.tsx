@@ -2051,7 +2051,17 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
   const handleZoomOut = () => setImageTransform((prev) => ({ ...prev, scale: Math.max(prev.scale - 0.25, 0.25) }))
   const handleResetTransform = () => setImageTransform({ rotate: 0, scale: 1 })
 
-  if (viewingFile && selection) {
+  useEffect(() => {
+    if (!imageViewMode || !selection || viewingFile) return
+    if (selectedUploadState?.status === "loaded" && selectedUploadState.files.length > 0) {
+      const firstImage = selectedUploadState.files.find((f) => isImageFile(f.name))
+      if (firstImage && firstImage.url) {
+        setViewingFile({ name: firstImage.name, url: firstImage.url })
+      }
+    }
+  }, [imageViewMode, selection, viewingFile, selectedUploadState])
+
+  if (imageViewMode && selection) {
     return (
       <div className="flex items-start gap-6">
         <div className="flex h-[calc(100vh-2rem)] flex-1 min-w-0 flex-col gap-4 overflow-hidden rounded-lg border border-border bg-card p-4">
@@ -2095,15 +2105,28 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
             </div>
           </div>
           <div className="flex flex-1 items-center justify-center overflow-auto bg-muted/10">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={viewingFile.url ?? ""}
-              alt={viewingFile.name}
-              className="max-h-full max-w-full object-contain transition-transform duration-200"
-              style={{
-                transform: `rotate(${imageTransform.rotate}deg) scale(${imageTransform.scale})`,
-              }}
-            />
+            {viewingFile ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={viewingFile.url ?? ""}
+                alt={viewingFile.name}
+                className="max-h-full max-w-full object-contain transition-transform duration-200"
+                style={{
+                  transform: `rotate(${imageTransform.rotate}deg) scale(${imageTransform.scale})`,
+                }}
+              />
+            ) : (
+              <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                 {selectedUploadState?.status === "loading" ? (
+                   <>
+                     <RefreshCw className="h-8 w-8 animate-spin" />
+                     <p>Loading file...</p>
+                   </>
+                 ) : (
+                    <p>No image selected.</p>
+                 )}
+              </div>
+            )}
           </div>
         </div>
 
