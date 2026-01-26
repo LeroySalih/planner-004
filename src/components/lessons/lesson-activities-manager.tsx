@@ -2729,10 +2729,6 @@ function LessonActivityEditorSheet({
     }
 
     const trimmedTitle = title.trim()
-    if (!trimmedTitle) {
-      toast.error("Activity title is required")
-      return
-    }
 
     let bodyData: unknown
     let imageSubmission: ImageSubmissionPayload | undefined
@@ -2874,7 +2870,6 @@ function LessonActivityEditorSheet({
     isPending ||
     isProcessing ||
     isRecording ||
-    title.trim().length === 0 ||
     (type !== "voice" && rawBodyError !== null) ||
     (type === "multiple-choice-question" && mcqValidationMessage !== null) ||
     (type === "short-text-question" && shortTextValidationMessage !== null)
@@ -2891,17 +2886,6 @@ function LessonActivityEditorSheet({
           </SheetDescription>
         </SheetHeader>
         <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 pb-4">
-          <div className="space-y-2">
-            <Label htmlFor="activity-title">Title</Label>
-            <Input
-              id="activity-title"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              placeholder="Warm-up discussion"
-              disabled={isPending}
-            />
-          </div>
-
           <div className="space-y-2">
             <Label htmlFor="activity-type">Type</Label>
             <Select
@@ -2920,6 +2904,17 @@ function LessonActivityEditorSheet({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="activity-title">Title</Label>
+            <Input
+              id="activity-title"
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              placeholder="Warm-up discussion"
+              disabled={isPending}
+            />
           </div>
 
           <div className="space-y-2">

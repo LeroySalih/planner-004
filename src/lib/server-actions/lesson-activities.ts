@@ -1,42 +1,42 @@
-"use server"
+"use server";
 
-import { revalidatePath } from "next/cache"
-import { z } from "zod"
+import { revalidatePath } from "next/cache";
+import { z } from "zod";
 
 import {
-  LessonActivitySchema,
+  FeedbackActivityBodySchema,
+  type FeedbackActivityGroupSettings,
   LessonActivitiesSchema,
+  LessonActivitySchema,
   LessonJobResponseSchema,
   McqActivityBodySchema,
   ShortTextActivityBodySchema,
-  FeedbackActivityBodySchema,
-  type FeedbackActivityGroupSettings,
-} from "@/types"
-import { query, withDbClient } from "@/lib/db"
-import { withTelemetry } from "@/lib/telemetry"
-import { isScorableActivityType } from "@/dino.config"
-import { enqueueLessonMutationJob } from "@/lib/lesson-job-runner"
+} from "@/types";
+import { query, withDbClient } from "@/lib/db";
+import { withTelemetry } from "@/lib/telemetry";
+import { isScorableActivityType } from "@/dino.config";
+import { enqueueLessonMutationJob } from "@/lib/lesson-job-runner";
 
 const LessonActivitiesReturnValue = z.object({
   data: LessonActivitiesSchema.nullable(),
   error: z.string().nullable(),
-})
+});
 
 const CreateActivityInputSchema = z.object({
-  title: z.string().min(1),
+  title: z.string().optional(),
   type: z.string().min(1),
   bodyData: z.unknown().nullable().optional(),
   isSummative: z.boolean().optional(),
   successCriteriaIds: z.array(z.string().min(1)).optional(),
-})
+});
 
 const UpdateActivityInputSchema = z.object({
-  title: z.string().min(1).optional(),
+  title: z.string().optional(),
   type: z.string().min(1).optional(),
   bodyData: z.unknown().nullable().optional(),
   isSummative: z.boolean().optional(),
   successCriteriaIds: z.array(z.string().min(1)).optional(),
-})
+});
 
 const ReorderActivityInputSchema = z
   .array(
@@ -45,13 +45,13 @@ const ReorderActivityInputSchema = z
       orderBy: z.number(),
     }),
   )
-  .max(200)
+  .max(200);
 
 export async function listLessonActivitiesAction(
   lessonId: string,
   options?: { authEndTime?: number | null; routeTag?: string },
 ) {
-  const routeTag = options?.routeTag ?? "/lessons:activities"
+  const routeTag = options?.routeTag ?? "/lessons:activities";
 
   return withTelemetry(
     {
@@ -61,7 +61,7 @@ export async function listLessonActivitiesAction(
       authEndTime: options?.authEndTime ?? null,
     },
     async () => {
-      let data: Array<Record<string, unknown>> = []
+      let data: Array<Record<string, unknown>> = [];
       try {
         const { rows } = await query(
           `
@@ -72,40 +72,63 @@ export async function listLessonActivitiesAction(
             order by order_by asc nulls first, title asc
           `,
           [lessonId],
-        )
-        data = rows ?? []
+        );
+        data = rows ?? [];
       } catch (error) {
-        console.error("[v0] Failed to list lesson activities:", error)
-        const message = error instanceof Error ? error.message : "Unable to list activities."
-        return LessonActivitiesReturnValue.parse({ data: null, error: message })
+        console.error("[v0] Failed to list lesson activities:", error);
+        const message = error instanceof Error
+          ? error.message
+          : "Unable to list activities.";
+        return LessonActivitiesReturnValue.parse({
+          data: null,
+          error: message,
+        });
       }
 
       const sorted = (data ?? []).sort((a, b) => {
-        const aOrder = typeof a.order_by === "number" ? a.order_by : Number.MAX_SAFE_INTEGER
-        const bOrder = typeof b.order_by === "number" ? b.order_by : Number.MAX_SAFE_INTEGER
+        const aOrder = typeof a.order_by === "number"
+          ? a.order_by
+          : Number.MAX_SAFE_INTEGER;
+        const bOrder = typeof b.order_by === "number"
+          ? b.order_by
+          : Number.MAX_SAFE_INTEGER;
         if (aOrder !== bOrder) {
-          return aOrder - bOrder
+          return aOrder - bOrder;
         }
-        const aTitle = typeof a.title === "string" ? a.title : ""
-        const bTitle = typeof b.title === "string" ? b.title : ""
-        return aTitle.localeCompare(bTitle)
-      })
+        const aTitle = typeof a.title === "string" ? a.title : "";
+        const bTitle = typeof b.title === "string" ? b.title : "";
+        return aTitle.localeCompare(bTitle);
+      });
 
-      const { data: enriched, error: scError } = await enrichActivitiesWithSuccessCriteria(sorted)
+      const { data: enriched, error: scError } =
+        await enrichActivitiesWithSuccessCriteria(sorted);
 
       if (scError) {
-        console.error("[v0] Failed to read activity success criteria:", scError)
-        return LessonActivitiesReturnValue.parse({ data: null, error: scError })
+        console.error(
+          "[v0] Failed to read activity success criteria:",
+          scError,
+        );
+        return LessonActivitiesReturnValue.parse({
+          data: null,
+          error: scError,
+        });
       }
 
       const sanitizedActivities = (enriched ?? []).map((activity) => {
-        const activityType = typeof activity.type === "string" ? activity.type : null
-        return isScorableActivityType(activityType) ? activity : { ...activity, is_summative: false }
-      })
+        const activityType = typeof activity.type === "string"
+          ? activity.type
+          : null;
+        return isScorableActivityType(activityType)
+          ? activity
+          : { ...activity, is_summative: false };
+      });
 
-      return LessonActivitiesReturnValue.parse({ data: sanitizedActivities, error: null })
+      return LessonActivitiesReturnValue.parse({
+        data: sanitizedActivities,
+        error: null,
+      });
     },
-  )
+  );
 }
 
 export async function createLessonActivityAction(
@@ -113,27 +136,29 @@ export async function createLessonActivityAction(
   lessonId: string,
   input: z.infer<typeof CreateActivityInputSchema>,
 ) {
-  const payload = CreateActivityInputSchema.parse(input)
+  const payload = CreateActivityInputSchema.parse(input);
 
-  const normalizedBody = normalizeActivityBody(payload.type, payload.bodyData)
+  const normalizedBody = normalizeActivityBody(payload.type, payload.bodyData);
 
   if (!normalizedBody.success) {
-    return { success: false, error: normalizedBody.error, data: null }
+    return { success: false, error: normalizedBody.error, data: null };
   }
 
-  const successCriteriaIds = normalizeSuccessCriteriaIds(payload.successCriteriaIds)
-  const isSummativeAllowed = isScorableActivityType(payload.type)
-  const isSummativeRequested = payload.isSummative ?? isSummativeAllowed
+  const successCriteriaIds = normalizeSuccessCriteriaIds(
+    payload.successCriteriaIds,
+  );
+  const isSummativeAllowed = isScorableActivityType(payload.type);
+  const isSummativeRequested = payload.isSummative ?? isSummativeAllowed;
 
   if (isSummativeRequested && !isSummativeAllowed) {
     return {
       success: false,
       error: "Only scorable activity types can be marked as assessments.",
       data: null,
-    }
+    };
   }
 
-  let createdActivity: Record<string, unknown> | null = null
+  let createdActivity: Record<string, unknown> | null = null;
 
   try {
     await withDbClient(async (client) => {
@@ -146,10 +171,10 @@ export async function createLessonActivityAction(
           limit 1
         `,
         [lessonId],
-      )
+      );
 
-      const maxOrder = maxOrderRows[0]?.order_by
-      const nextOrder = typeof maxOrder === "number" ? maxOrder + 1 : 0
+      const maxOrder = maxOrderRows[0]?.order_by;
+      const nextOrder = typeof maxOrder === "number" ? maxOrder + 1 : 0;
 
       const { rows } = await client.query(
         `
@@ -167,12 +192,12 @@ export async function createLessonActivityAction(
           isSummativeAllowed ? isSummativeRequested : false,
           nextOrder,
         ],
-      )
+      );
 
-      createdActivity = rows[0] ?? null
+      createdActivity = rows[0] ?? null;
 
       if (!createdActivity) {
-        throw new Error("Unable to create lesson activity.")
+        throw new Error("Unable to create lesson activity.");
       }
 
       if (successCriteriaIds.length > 0) {
@@ -182,46 +207,61 @@ export async function createLessonActivityAction(
             select $1, unnest($2::text[])
           `,
           [createdActivity.activity_id, successCriteriaIds],
-        )
+        );
       }
-    })
+    });
   } catch (error) {
-    console.error("[v0] Failed to create lesson activity:", error)
-    const message = error instanceof Error ? error.message : "Unable to create lesson activity."
-    return { success: false, error: message, data: null }
+    console.error("[v0] Failed to create lesson activity:", error);
+    const message = error instanceof Error
+      ? error.message
+      : "Unable to create lesson activity.";
+    return { success: false, error: message, data: null };
   }
 
-  const { data: hydratedRows, error: hydrationError } = await enrichActivitiesWithSuccessCriteria(
-    createdActivity ? [createdActivity] : [],
-  )
+  const { data: hydratedRows, error: hydrationError } =
+    await enrichActivitiesWithSuccessCriteria(
+      createdActivity ? [createdActivity] : [],
+    );
 
   if (hydrationError) {
-    console.error("[v0] Failed to hydrate created activity success criteria:", hydrationError)
-    return { success: false, error: hydrationError, data: null }
+    console.error(
+      "[v0] Failed to hydrate created activity success criteria:",
+      hydrationError,
+    );
+    return { success: false, error: hydrationError, data: null };
   }
 
-  const hydratedActivity = (hydratedRows[0] ?? createdActivity) as Record<string, unknown> | null
+  const hydratedActivity = (hydratedRows[0] ?? createdActivity) as
+    | Record<string, unknown>
+    | null;
   if (!hydratedActivity) {
-    return { success: false, error: "Unable to load created activity.", data: null }
+    return {
+      success: false,
+      error: "Unable to load created activity.",
+      data: null,
+    };
   }
 
   const normalizedActivity: Record<string, unknown> = {
     ...hydratedActivity,
     success_criteria_ids:
-      Array.isArray((hydratedActivity as Record<string, unknown>)?.success_criteria_ids)
+      Array.isArray(
+          (hydratedActivity as Record<string, unknown>)?.success_criteria_ids,
+        )
         ? (hydratedActivity as Record<string, unknown>).success_criteria_ids
         : successCriteriaIds,
-    success_criteria: (hydratedActivity as Record<string, unknown>)?.success_criteria ?? [],
-  }
+    success_criteria:
+      (hydratedActivity as Record<string, unknown>)?.success_criteria ?? [],
+  };
 
   queueMicrotask(() => {
-    revalidatePath(`/units/${unitId}`)
-  })
+    revalidatePath(`/units/${unitId}`);
+  });
 
   return {
     success: true,
     data: LessonActivitySchema.parse(normalizedActivity),
-  }
+  };
 }
 
 export async function updateLessonActivityAction(
@@ -230,15 +270,14 @@ export async function updateLessonActivityAction(
   activityId: string,
   input: z.infer<typeof UpdateActivityInputSchema>,
 ) {
-  const payload = UpdateActivityInputSchema.parse(input)
-  const updates: Record<string, unknown> = {}
+  const payload = UpdateActivityInputSchema.parse(input);
+  const updates: Record<string, unknown> = {};
 
-  const nextSuccessCriteriaIds =
-    payload.successCriteriaIds !== undefined
-      ? normalizeSuccessCriteriaIds(payload.successCriteriaIds)
-      : null
+  const nextSuccessCriteriaIds = payload.successCriteriaIds !== undefined
+    ? normalizeSuccessCriteriaIds(payload.successCriteriaIds)
+    : null;
 
-  let existing: any = null
+  let existing: any = null;
   try {
     const { rows } = await query(
       `
@@ -248,78 +287,84 @@ export async function updateLessonActivityAction(
         limit 1
       `,
       [activityId, lessonId],
-    )
-    existing = rows[0] ?? null
+    );
+    existing = rows[0] ?? null;
     if (!existing) {
-      return { success: false, error: "Activity not found.", data: null }
+      return { success: false, error: "Activity not found.", data: null };
     }
   } catch (error) {
-    console.error("[v0] Failed to load activity for update:", error)
-    const message = error instanceof Error ? error.message : "Unable to load activity."
-    return { success: false, error: message, data: null }
+    console.error("[v0] Failed to load activity for update:", error);
+    const message = error instanceof Error
+      ? error.message
+      : "Unable to load activity.";
+    return { success: false, error: message, data: null };
   }
 
-  const finalType = typeof payload.type === "string" ? payload.type : existing.type
-  const isSummativeAllowed = isScorableActivityType(finalType)
-  const requestedSummative = payload.isSummative
+  const finalType = typeof payload.type === "string"
+    ? payload.type
+    : existing.type;
+  const isSummativeAllowed = isScorableActivityType(finalType);
+  const requestedSummative = payload.isSummative;
 
   if (requestedSummative === true && !isSummativeAllowed) {
     return {
       success: false,
       error: "Only scorable activity types can be marked as assessments.",
       data: null,
-    }
+    };
   }
 
   const normalizedBody = (() => {
     if (payload.bodyData !== undefined) {
-      return normalizeActivityBody(finalType, payload.bodyData)
+      return normalizeActivityBody(finalType, payload.bodyData);
     }
 
     if (payload.type !== undefined) {
-      return normalizeActivityBody(finalType, existing.body_data, { allowFallback: true })
+      return normalizeActivityBody(finalType, existing.body_data, {
+        allowFallback: true,
+      });
     }
 
-    return { success: true as const, bodyData: existing.body_data }
-  })()
+    return { success: true as const, bodyData: existing.body_data };
+  })();
 
   if (!normalizedBody.success) {
-    return { success: false, error: normalizedBody.error, data: null }
+    return { success: false, error: normalizedBody.error, data: null };
   }
 
   if (payload.title !== undefined) {
-    updates.title = payload.title
+    updates.title = payload.title;
   }
   if (payload.type !== undefined) {
-    updates.type = payload.type
+    updates.type = payload.type;
   }
   if (payload.bodyData !== undefined || payload.type !== undefined) {
-    updates.body_data = normalizedBody.bodyData
+    updates.body_data = normalizedBody.bodyData;
   }
   if (!isSummativeAllowed) {
-    updates.is_summative = false
+    updates.is_summative = false;
   } else if (requestedSummative !== undefined) {
-    updates.is_summative = requestedSummative ?? false
+    updates.is_summative = requestedSummative ?? false;
   }
 
   if (Object.keys(updates).length === 0) {
     if (nextSuccessCriteriaIds === null) {
-      return { success: true, data: null }
+      return { success: true, data: null };
     }
   }
 
-  let updatedActivityRow = existing
+  let updatedActivityRow = existing;
 
   if (Object.keys(updates).length > 0) {
-    const setFragments: string[] = []
-    const values: unknown[] = []
-    let idx = 1
+    const setFragments: string[] = [];
+    const values: unknown[] = [];
+    let idx = 1;
     for (const [key, value] of Object.entries(updates)) {
-      setFragments.push(`${key} = $${idx++}`)
-      values.push(value)
+      setFragments.push(`${key} = $${idx++}`);
+      values.push(value);
     }
-    values.push(activityId)
-    values.push(lessonId)
+    values.push(activityId);
+    values.push(lessonId);
 
     try {
       const { rows } = await query(
@@ -330,32 +375,42 @@ export async function updateLessonActivityAction(
           returning *
         `,
         values,
-      )
-      updatedActivityRow = rows[0] ?? updatedActivityRow
+      );
+      updatedActivityRow = rows[0] ?? updatedActivityRow;
     } catch (error) {
-      console.error("[v0] Failed to update lesson activity:", error)
-      const message = error instanceof Error ? error.message : "Unable to update activity."
-      return { success: false, error: message, data: null }
+      console.error("[v0] Failed to update lesson activity:", error);
+      const message = error instanceof Error
+        ? error.message
+        : "Unable to update activity.";
+      return { success: false, error: message, data: null };
     }
   }
 
   if (nextSuccessCriteriaIds !== null) {
     try {
-      const { rows: existingLinksRows } = await query<{ success_criteria_id: string }>(
+      const { rows: existingLinksRows } = await query<
+        { success_criteria_id: string }
+      >(
         "select success_criteria_id from activity_success_criteria where activity_id = $1",
         [activityId],
-      )
+      );
 
       const existingIds = Array.from(
         new Set(
           (existingLinksRows ?? [])
             .map((row) => row?.success_criteria_id)
-            .filter((id): id is string => typeof id === "string" && id.trim().length > 0),
+            .filter((id): id is string =>
+              typeof id === "string" && id.trim().length > 0
+            ),
         ),
-      )
+      );
 
-      const toInsert = nextSuccessCriteriaIds.filter((id) => !existingIds.includes(id))
-      const toDelete = existingIds.filter((id) => !nextSuccessCriteriaIds.includes(id))
+      const toInsert = nextSuccessCriteriaIds.filter((id) =>
+        !existingIds.includes(id)
+      );
+      const toDelete = existingIds.filter((id) =>
+        !nextSuccessCriteriaIds.includes(id)
+      );
 
       if (toDelete.length > 0) {
         await query(
@@ -364,7 +419,7 @@ export async function updateLessonActivityAction(
             where activity_id = $1 and success_criteria_id = any($2::text[])
           `,
           [activityId, toDelete],
-        )
+        );
       }
 
       if (toInsert.length > 0) {
@@ -374,36 +429,45 @@ export async function updateLessonActivityAction(
             select $1, unnest($2::text[])
           `,
           [activityId, toInsert],
-        )
+        );
       }
     } catch (error) {
-      console.error("[v0] Failed to update activity success criteria links:", error)
-      const message = error instanceof Error ? error.message : "Unable to update activity links."
-      return { success: false, error: message, data: null }
+      console.error(
+        "[v0] Failed to update activity success criteria links:",
+        error,
+      );
+      const message = error instanceof Error
+        ? error.message
+        : "Unable to update activity links.";
+      return { success: false, error: message, data: null };
     }
   }
 
-  const { data: hydratedRows, error: hydrationError } = await enrichActivitiesWithSuccessCriteria(
-    [updatedActivityRow],
-  )
+  const { data: hydratedRows, error: hydrationError } =
+    await enrichActivitiesWithSuccessCriteria(
+      [updatedActivityRow],
+    );
 
   if (hydrationError) {
-    console.error("[v0] Failed to hydrate updated activity success criteria:", hydrationError)
-    return { success: false, error: hydrationError, data: null }
+    console.error(
+      "[v0] Failed to hydrate updated activity success criteria:",
+      hydrationError,
+    );
+    return { success: false, error: hydrationError, data: null };
   }
 
   const hydratedActivity = hydratedRows[0] ?? {
     ...updatedActivityRow,
     success_criteria_ids: nextSuccessCriteriaIds ?? [],
     success_criteria: [],
-  }
+  };
 
   queueMicrotask(() => {
-    revalidatePath(`/units/${unitId}`)
-    revalidatePath(`/lessons/${lessonId}`)
-  })
+    revalidatePath(`/units/${unitId}`);
+    revalidatePath(`/lessons/${lessonId}`);
+  });
 
-  return { success: true, data: LessonActivitySchema.parse(hydratedActivity) }
+  return { success: true, data: LessonActivitySchema.parse(hydratedActivity) };
 }
 
 export async function reorderLessonActivitiesAction(
@@ -411,17 +475,17 @@ export async function reorderLessonActivitiesAction(
   lessonId: string,
   input: z.infer<typeof ReorderActivityInputSchema>,
 ) {
-  const payload = ReorderActivityInputSchema.parse(input)
+  const payload = ReorderActivityInputSchema.parse(input);
 
   if (payload.length === 0) {
     return LessonJobResponseSchema.parse({
       status: "queued",
       jobId: null,
       message: "No activity changes detected.",
-    })
+    });
   }
 
-  const activityIds = payload.map((entry) => entry.activityId)
+  const activityIds = payload.map((entry) => entry.activityId);
   try {
     const { rows: existing } = await query<{ activity_id: string }>(
       `
@@ -430,22 +494,27 @@ export async function reorderLessonActivitiesAction(
         where lesson_id = $1 and activity_id = any($2::text[])
       `,
       [lessonId, activityIds],
-    )
+    );
 
     if ((existing ?? []).length !== activityIds.length) {
       return LessonJobResponseSchema.parse({
         status: "error",
         jobId: null,
         message: "Some activities were not found for this lesson.",
-      })
+      });
     }
   } catch (error) {
-    console.error("[v0] Failed to verify lesson activities for reorder:", error)
+    console.error(
+      "[v0] Failed to verify lesson activities for reorder:",
+      error,
+    );
     return LessonJobResponseSchema.parse({
       status: "error",
       jobId: null,
-      message: error instanceof Error ? error.message : "Unable to verify activities.",
-    })
+      message: error instanceof Error
+        ? error.message
+        : "Unable to verify activities.",
+    });
   }
 
   return enqueueLessonMutationJob({
@@ -454,12 +523,12 @@ export async function reorderLessonActivitiesAction(
     type: "lesson.activities.reorder",
     message: "Activity reorder queued.",
     executor: async () => {
-      await applyLessonActivitiesReorder(lessonId, payload)
+      await applyLessonActivitiesReorder(lessonId, payload);
       queueMicrotask(() => {
-        revalidatePath(`/units/${unitId}`)
-      })
+        revalidatePath(`/units/${unitId}`);
+      });
     },
-  })
+  });
 }
 
 async function applyLessonActivitiesReorder(
@@ -471,52 +540,63 @@ async function applyLessonActivitiesReorder(
       await client.query(
         "update activities set order_by = $1 where activity_id = $2 and lesson_id = $3",
         [entry.orderBy, entry.activityId, lessonId],
-      )
+      );
     }
-  })
+  });
 }
 
-export async function deleteLessonActivityAction(unitId: string, lessonId: string, activityId: string) {
+export async function deleteLessonActivityAction(
+  unitId: string,
+  lessonId: string,
+  activityId: string,
+) {
   try {
     await withDbClient(async (client) => {
-      await client.query("delete from activity_success_criteria where activity_id = $1", [activityId])
+      await client.query(
+        "delete from activity_success_criteria where activity_id = $1",
+        [activityId],
+      );
       await client.query(
         "delete from activities where activity_id = $1 and lesson_id = $2",
         [activityId, lessonId],
-      )
-    })
+      );
+    });
   } catch (error) {
-    console.error("[v0] Failed to delete lesson activity:", error)
-    const message = error instanceof Error ? error.message : "Unable to delete lesson activity."
-    return { success: false, error: message }
+    console.error("[v0] Failed to delete lesson activity:", error);
+    const message = error instanceof Error
+      ? error.message
+      : "Unable to delete lesson activity.";
+    return { success: false, error: message };
   }
 
   queueMicrotask(() => {
-    revalidatePath(`/units/${unitId}`)
-  })
+    revalidatePath(`/units/${unitId}`);
+  });
 
-  return { success: true }
+  return { success: true };
 }
 
-function normalizeSuccessCriteriaIds(value: readonly string[] | undefined): string[] {
+function normalizeSuccessCriteriaIds(
+  value: readonly string[] | undefined,
+): string[] {
   if (!Array.isArray(value)) {
-    return []
+    return [];
   }
 
-  const deduped: string[] = []
+  const deduped: string[] = [];
   value.forEach((raw) => {
     if (typeof raw !== "string") {
-      return
+      return;
     }
-    const trimmed = raw.trim()
+    const trimmed = raw.trim();
     if (trimmed.length === 0) {
-      return
+      return;
     }
     if (!deduped.includes(trimmed)) {
-      deduped.push(trimmed)
+      deduped.push(trimmed);
     }
-  })
-  return deduped
+  });
+  return deduped;
 }
 
 async function enrichActivitiesWithSuccessCriteria(
@@ -530,16 +610,18 @@ async function enrichActivitiesWithSuccessCriteria(
         success_criteria: [],
       })),
       error: null,
-    }
+    };
   }
 
   const activityIds = Array.from(
     new Set(
       activities
         .map((activity) => activity.activity_id)
-        .filter((id): id is string => typeof id === "string" && id.trim().length > 0),
+        .filter((id): id is string =>
+          typeof id === "string" && id.trim().length > 0
+        ),
     ),
-  )
+  );
 
   if (activityIds.length === 0) {
     return {
@@ -549,40 +631,44 @@ async function enrichActivitiesWithSuccessCriteria(
         success_criteria: [],
       })),
       error: null,
-    }
+    };
   }
 
   try {
-    const { rows: links } = await query<{ activity_id: string; success_criteria_id: string }>(
+    const { rows: links } = await query<
+      { activity_id: string; success_criteria_id: string }
+    >(
       `
         select activity_id, success_criteria_id
         from activity_success_criteria
         where activity_id = any($1::text[])
       `,
       [activityIds],
-    )
+    );
 
     const successCriteriaIds = Array.from(
       new Set(
         (links ?? [])
           .map((row) => row?.success_criteria_id)
-          .filter((id): id is string => typeof id === "string" && id.trim().length > 0),
+          .filter((id): id is string =>
+            typeof id === "string" && id.trim().length > 0
+          ),
       ),
-    )
+    );
 
     let successCriteriaDetails: Array<{
-      success_criteria_id: string
-      learning_objective_id: string | null
-      description: string | null
-      level: number | null
-    }> = []
+      success_criteria_id: string;
+      learning_objective_id: string | null;
+      description: string | null;
+      level: number | null;
+    }> = [];
 
     if (successCriteriaIds.length > 0) {
       const { rows: criteriaRows } = await query<{
-        success_criteria_id: string
-        learning_objective_id: string | null
-        description: string | null
-        level: number | null
+        success_criteria_id: string;
+        learning_objective_id: string | null;
+        description: string | null;
+        level: number | null;
       }>(
         `
           select success_criteria_id, learning_objective_id, description, level
@@ -590,27 +676,35 @@ async function enrichActivitiesWithSuccessCriteria(
           where success_criteria_id = any($1::text[])
         `,
         [successCriteriaIds],
-      )
-      successCriteriaDetails = criteriaRows ?? []
+      );
+      successCriteriaDetails = criteriaRows ?? [];
     }
 
     const detailMap = new Map<
       string,
-      { description: string | null; level: number | null; learning_objective_id: string | null }
-    >()
+      {
+        description: string | null;
+        level: number | null;
+        learning_objective_id: string | null;
+      }
+    >();
     for (const row of successCriteriaDetails ?? []) {
-      if (!row?.success_criteria_id) continue
+      if (!row?.success_criteria_id) continue;
       detailMap.set(row.success_criteria_id, {
-        description: typeof row.description === "string" ? row.description : null,
+        description: typeof row.description === "string"
+          ? row.description
+          : null,
         level: typeof row.level === "number" ? row.level : null,
-        learning_objective_id: typeof row.learning_objective_id === "string" ? row.learning_objective_id : null,
-      })
+        learning_objective_id: typeof row.learning_objective_id === "string"
+          ? row.learning_objective_id
+          : null,
+      });
     }
 
     const payload = activities.map((activity) => {
       const linkedIds = (links ?? [])
         .filter((link) => link.activity_id === activity.activity_id)
-        .map((link) => link.success_criteria_id)
+        .map((link) => link.success_criteria_id);
 
       return {
         ...activity,
@@ -620,11 +714,13 @@ async function enrichActivitiesWithSuccessCriteria(
             description: null,
             level: null,
             learning_objective_id: null,
-          }
+          };
 
           const title =
-            (details.description && details.description.trim().length > 0 ? details.description.trim() : null) ??
-            "Success criterion"
+            (details.description && details.description.trim().length > 0
+              ? details.description.trim()
+              : null) ??
+              "Success criterion";
 
           return {
             success_criteria_id: id,
@@ -632,16 +728,21 @@ async function enrichActivitiesWithSuccessCriteria(
             description: details.description,
             level: details.level,
             title,
-          }
+          };
         }),
-      }
-    })
+      };
+    });
 
-    return { data: payload, error: null }
+    return { data: payload, error: null };
   } catch (error) {
-    console.error("[v0] Failed to load activity success criteria links/details:", error)
-    const message = error instanceof Error ? error.message : "Unable to load activity success criteria."
-    return { data: [], error: message }
+    console.error(
+      "[v0] Failed to load activity success criteria links/details:",
+      error,
+    );
+    const message = error instanceof Error
+      ? error.message
+      : "Unable to load activity success criteria.";
+    return { data: [], error: message };
   }
 }
 
@@ -651,59 +752,66 @@ function normalizeActivityBody(
   options?: { allowFallback?: boolean },
 ): { success: true; bodyData: unknown } | { success: false; error: string } {
   if (!type) {
-    return { success: false, error: "Activity type is required." }
+    return { success: false, error: "Activity type is required." };
   }
 
-  const trimmed = typeof type === "string" ? type.trim() : ""
+  const trimmed = typeof type === "string" ? type.trim() : "";
   if (!trimmed) {
-    return { success: false, error: "Activity type is required." }
+    return { success: false, error: "Activity type is required." };
   }
 
   switch (trimmed) {
     case "mcq": {
-      const parsed = McqActivityBodySchema.safeParse(bodyData)
+      const parsed = McqActivityBodySchema.safeParse(bodyData);
       if (!parsed.success) {
-        return { success: false, error: "Invalid multiple-choice activity body." }
+        return {
+          success: false,
+          error: "Invalid multiple-choice activity body.",
+        };
       }
-      return { success: true, bodyData: parsed.data }
+      return { success: true, bodyData: parsed.data };
     }
     case "short-text-question": {
-      const parsed = ShortTextActivityBodySchema.safeParse(bodyData)
+      const parsed = ShortTextActivityBodySchema.safeParse(bodyData);
       if (!parsed.success) {
-        return { success: false, error: "Invalid short text activity body." }
+        return { success: false, error: "Invalid short text activity body." };
       }
-      return { success: true, bodyData: parsed.data }
+      return { success: true, bodyData: parsed.data };
     }
     case "feedback": {
-      const parsed = FeedbackActivityBodySchema.safeParse(bodyData)
+      const parsed = FeedbackActivityBodySchema.safeParse(bodyData);
       if (!parsed.success) {
-        return { success: false, error: "Invalid feedback activity body." }
+        return { success: false, error: "Invalid feedback activity body." };
       }
-      const data = parsed.data ?? null
-      return { success: true, bodyData: data }
+      const data = parsed.data ?? null;
+      return { success: true, bodyData: data };
     }
     default: {
       if (options?.allowFallback && typeof bodyData !== "undefined") {
-        return { success: true, bodyData }
+        return { success: true, bodyData };
       }
       if (bodyData === null) {
-        return { success: true, bodyData: null }
+        return { success: true, bodyData: null };
       }
       if (typeof bodyData === "object" || typeof bodyData === "string") {
-        return { success: true, bodyData }
+        return { success: true, bodyData };
       }
-      return { success: false, error: "Unsupported activity body format." }
+      return { success: false, error: "Unsupported activity body format." };
     }
   }
 }
 
-function normalizeSuccessCriteria(successCriteriaIds: string[], details: Map<string, unknown>) {
+function normalizeSuccessCriteria(
+  successCriteriaIds: string[],
+  details: Map<string, unknown>,
+) {
   const entries = successCriteriaIds.map((id) => {
-    const detail = details.get(id) as any
+    const detail = details.get(id) as any;
     const title =
-      detail?.description && typeof detail.description === "string" && detail.description.trim().length > 0
+      detail?.description && typeof detail.description === "string" &&
+        detail.description.trim().length > 0
         ? detail.description.trim()
-        : "Success criterion"
+        : "Success criterion";
 
     return {
       success_criteria_id: id,
@@ -711,14 +819,14 @@ function normalizeSuccessCriteria(successCriteriaIds: string[], details: Map<str
       description: detail?.description ?? null,
       level: detail?.level ?? null,
       title,
-    }
-  })
+    };
+  });
 
-  return entries
+  return entries;
 }
 const deferRevalidate = (path: string) => {
   if (path.includes("/lessons/")) {
-    return
+    return;
   }
-  queueMicrotask(() => revalidatePath(path))
-}
+  queueMicrotask(() => revalidatePath(path));
+};
