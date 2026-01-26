@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react"
 import Link from "next/link"
-import { format, parseISO, differenceInMonths } from "date-fns"
+import { format, parseISO, differenceInMonths, addWeeks } from "date-fns"
 import { Roboto_Condensed } from "next/font/google"
 import { ChevronDown } from "lucide-react"
 
@@ -142,7 +142,7 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
                           <CardHeader className="space-y-1">
                             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                               <CardTitle
-                                className={`${robotoCondensed.className} text-2xl font-bold uppercase text-foreground sm:text-3xl`}
+                                className={`${robotoCondensed.className} text-3xl font-bold uppercase text-foreground sm:text-4xl`}
                               >
                                 {unit.unitTitle}
                               </CardTitle>
@@ -159,32 +159,38 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
                             </div>
                           </CardHeader>
                           <CardContent className="space-y-4">
-                            <div className="relative space-y-4 border-l border-border/60 pl-4">
-                              {unit.lessons.map((lesson) => (
-                                <div key={lesson.lessonId} className="relative p-2 sm:p-3">
+                            <div className="relative ml-4 space-y-4 border-l-2 border-slate-300 dark:border-slate-600">
+                              {unit.lessons.map((lesson, index) => (
+                                <div key={lesson.lessonId} className="relative py-2 pl-8 pr-2 sm:pr-3">
                                   <span
                                     aria-hidden
-                                    className="absolute -left-2.5 top-5 h-3 w-3 rounded-full border-2 border-background bg-primary"
-                                  />
-                                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                                    <div className="flex flex-wrap items-center gap-3">
+                                    className="absolute -left-3 top-2 flex h-6 w-6 items-center justify-center rounded-full border-2 border-background bg-primary text-xs font-bold text-primary-foreground shadow-sm"
+                                  >
+                                    {unit.lessons.length - index}
+                                  </span>
+                                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                    <div className="flex flex-col gap-1">
                                       {lesson.isEnrolled ? (
                                         <Link
                                           href={`/pupil-lessons/${encodeURIComponent(detail.pupilId)}/lessons/${encodeURIComponent(lesson.lessonId)}`}
-                                          className="text-base font-semibold text-foreground underline-offset-4 hover:text-primary hover:underline sm:text-lg"
+                                          className="text-xl font-semibold text-foreground underline-offset-4 hover:text-primary hover:underline sm:text-2xl"
                                         >
                                           {lesson.lessonTitle}
                                         </Link>
                                       ) : (
-                                        <span className="text-base font-semibold text-foreground sm:text-lg">
+                                        <span className="text-xl font-semibold text-foreground sm:text-2xl">
                                           {lesson.lessonTitle}
                                         </span>
                                       )}
-                                      <span className="text-muted-foreground">•</span>
                                       {renderLessonObjectivesInline(lesson)}
                                     </div>
                                     <div className="text-xs text-muted-foreground sm:text-sm sm:ml-auto sm:text-right flex flex-col items-end gap-1">
-                                      <span>Start date: {formatDate(lesson.startDate)}</span>
+                                      <span>
+                                        Due date:{" "}
+                                        {lesson.startDate
+                                          ? format(addWeeks(parseISO(lesson.startDate), 1), "dd-MM-yyyy")
+                                          : "No due date"}
+                                      </span>
                                       
                                       {/* Lesson Score */}
                                       {lesson.lessonScore !== null && lesson.lessonMaxScore !== null && lesson.lessonMaxScore > 0 && (
