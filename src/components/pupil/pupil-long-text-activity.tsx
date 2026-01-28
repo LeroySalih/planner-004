@@ -9,7 +9,7 @@ import { RichTextEditor } from "@/components/ui/rich-text-editor"
 import { getLongTextBody, getRichTextMarkup } from "@/components/lessons/activity-view/utils"
 import { saveLongTextAnswerAction } from "@/lib/server-updates"
 import { triggerFeedbackRefresh } from "@/lib/feedback-events"
-import { useFeedbackVisibility } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/feedback-visibility-debug"
+import { ActivityProgressPanel } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/activity-progress-panel"
 
 interface PupilLongTextActivityProps {
   lessonId: string
@@ -21,10 +21,11 @@ interface PupilLongTextActivityProps {
   feedbackAssignmentIds?: string[]
   feedbackLessonId?: string
   feedbackInitiallyVisible?: boolean
+  scoreLabel?: string
+  feedbackText?: string | null
+  modelAnswer?: string | null
 }
-
-type FeedbackState = { type: "success" | "error"; message: string } | null
-
+// ...
 export function PupilLongTextActivity({
   lessonId,
   activity,
@@ -35,15 +36,20 @@ export function PupilLongTextActivity({
   feedbackAssignmentIds = [],
   feedbackLessonId,
   feedbackInitiallyVisible = false,
+  scoreLabel = "In progress",
+  feedbackText,
+  modelAnswer,
 }: PupilLongTextActivityProps) {
+// ...
+// Render inside return
+
   const longTextBody = useMemo(() => getLongTextBody(activity), [activity])
   const questionMarkup = getRichTextMarkup(longTextBody.question)
-  const { currentVisible } = useFeedbackVisibility()
   const canAnswerEffective = canAnswer
 
   const [answer, setAnswer] = useState(initialAnswer ?? "")
   const [lastSaved, setLastSaved] = useState(initialAnswer ?? "")
-  const [feedback, setFeedback] = useState<FeedbackState>(
+  const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(
     initialAnswer ? { type: "success", message: "Answer saved" } : null,
   )
   const [isPending, startTransition] = useTransition()
@@ -166,6 +172,16 @@ export function PupilLongTextActivity({
           </p>
         </div>
       ) : null}
+
+      <ActivityProgressPanel
+        assignmentIds={feedbackAssignmentIds}
+        lessonId={lessonId}
+        initialVisible={feedbackInitiallyVisible}
+        show={true}
+        scoreLabel={scoreLabel}
+        feedbackText={feedbackText}
+        modelAnswer={modelAnswer}
+      />
     </div>
   )
 }

@@ -20,7 +20,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { triggerFeedbackRefresh } from "@/lib/feedback-events"
-import { useFeedbackVisibility } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/feedback-visibility-debug"
+import { ActivityProgressPanel } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/activity-progress-panel"
 
 interface PupilMcqActivityProps {
   lessonId: string
@@ -29,14 +29,16 @@ interface PupilMcqActivityProps {
   canAnswer: boolean
   stepNumber: number
   initialSelection: string | null
-  onSelectionChange?: (optionId: string | null) => void
   feedbackAssignmentIds?: string[]
   feedbackLessonId?: string
   feedbackInitiallyVisible?: boolean
+  onSelectionChange?: (optionId: string | null) => void
+  scoreLabel?: string
+  feedbackText?: string | null
+  modelAnswer?: string | null
 }
 
-type FeedbackState = { type: "success" | "error"; message: string } | null
-
+// ...
 export function PupilMcqActivity({
   lessonId,
   activity,
@@ -48,6 +50,9 @@ export function PupilMcqActivity({
   feedbackLessonId,
   feedbackInitiallyVisible = false,
   onSelectionChange,
+  scoreLabel = "In progress",
+  feedbackText,
+  modelAnswer,
 }: PupilMcqActivityProps) {
   const mcqBody = useMemo<McqBody>(() => getMcqBody(activity), [activity])
   const optionMap = useMemo(() => new Map(mcqBody.options.map((option) => [option.id, option])), [mcqBody.options])
@@ -55,7 +60,7 @@ export function PupilMcqActivity({
 
   const [selection, setSelection] = useState<string | null>(normalizedInitial)
   const [lastSaved, setLastSaved] = useState<string | null>(normalizedInitial)
-  const [feedback, setFeedback] = useState<FeedbackState>(
+  const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(
     normalizedInitial ? { type: "success", message: "Answer saved" } : null,
   )
   const [imageState, setImageState] = useState<{ url: string | null; loading: boolean; error: string | null }>({
@@ -64,7 +69,6 @@ export function PupilMcqActivity({
     error: null,
   })
   const [isPending, startTransition] = useTransition()
-  const { currentVisible } = useFeedbackVisibility()
   const canAnswerEffective = canAnswer
 
   useEffect(() => {
@@ -289,6 +293,16 @@ export function PupilMcqActivity({
           </span>
         ) : null}
       </footer>
+
+      <ActivityProgressPanel
+        assignmentIds={feedbackAssignmentIds}
+        lessonId={lessonId}
+        initialVisible={feedbackInitiallyVisible}
+        show={true}
+        scoreLabel={scoreLabel}
+        feedbackText={feedbackText}
+        modelAnswer={modelAnswer}
+      />
     </div>
   )
 }

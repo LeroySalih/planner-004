@@ -127,7 +127,7 @@ export function ActivityImagePreview({
                 <img
                   src={imageUrl}
                   alt={alt}
-                  className="max-h-[calc(100vh-8rem)] w-full max-w-5xl object-contain"
+                  className="max-h-[calc(100vh-4rem)] w-auto max-w-full object-contain"
                 />
               </div>
             </div>,

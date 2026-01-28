@@ -577,19 +577,31 @@ export default async function PupilLessonFriendlyPage({
   const assignmentIds = assignments.map((assignment) => assignment.assignmentId)
   const initialFeedbackVisible = assignments.some((assignment) => assignment.feedbackVisible)
 
-  const activityScoreMap = new Map<string, number | null>()
+  const activityScoreMap = new Map<string, number | null | undefined>()
   if (!lessonSubmissionSummaries.error) {
     (lessonSubmissionSummaries.data ?? []).forEach((entry) => {
       const viewerScore = entry.scores.find((score) => score.userId === pupilId)
-      activityScoreMap.set(
-        entry.activityId,
-        typeof viewerScore?.score === "number" && Number.isFinite(viewerScore.score) ? viewerScore.score : null,
-      )
+      
+      // If viewerScore is undefined, no submission exists (undefined).
+      // If viewerScore exists but score is null/undefined, it's unmarked (null).
+      // If score is a number, it's marked (number).
+      let value: number | null | undefined = undefined
+      if (viewerScore) {
+          value = typeof viewerScore.score === "number" && Number.isFinite(viewerScore.score) 
+              ? viewerScore.score 
+              : null
+      }
+      
+      activityScoreMap.set(entry.activityId, value)
     })
   }
 
-  const formatScoreLabel = (score: number | null | undefined) =>
-    typeof score === "number" && Number.isFinite(score) ? `${Math.round(score * 100)}%` : "No score yet"
+  const formatScoreLabel = (score: number | null | undefined) => {
+    if (score === null) return "—"
+    if (typeof score === "number" && Number.isFinite(score)) return `${Math.round(score * 100)}%`
+    return "No score yet"
+  }
+
 
   const inputActivityTypes = new Set([
     "multiple-choice-question",
@@ -690,13 +702,20 @@ export default async function PupilLessonFriendlyPage({
                     : null
                   const titleLink = !isDisplayImage || !resolvedImageUrl ? linkUrl : null
                   const icon = selectActivityIcon(activity.type, Boolean(audioUrl), titleLink)
-                  const feedbackText =
+                  const rawScore = activityScoreMap.get(activity.activity_id)
+                  
+                  let feedbackText =
                     activity.type === "feedback"
                       ? "Your teacher has shared feedback in this activity."
                       : activityFeedbackMap.get(activity.activity_id)
+
+                  if (rawScore === null && !feedbackText) {
+                      feedbackText = "Not Yet Marked"
+                  }
+                  
                   const modelAnswer = activityModelAnswerMap.get(activity.activity_id)
-                  const rawScore = activityScoreMap.get(activity.activity_id)
                   const showProgress = inputActivityTypes.has(activity.type ?? "")
+
 
                   return (
                     <li
@@ -729,6 +748,9 @@ export default async function PupilLessonFriendlyPage({
                           feedbackAssignmentIds={assignmentIds}
                           feedbackLessonId={lesson.lesson_id}
                           feedbackInitiallyVisible={initialFeedbackVisible}
+                          scoreLabel={formatScoreLabel(rawScore)}
+                          feedbackText={feedbackText}
+                          modelAnswer={modelAnswer}
                         />
                       ) : activity.type === "long-text-question" || activity.type === "text-question" ? (
                         <PupilLongTextActivity
@@ -741,6 +763,9 @@ export default async function PupilLessonFriendlyPage({
                           feedbackAssignmentIds={assignmentIds}
                           feedbackLessonId={lesson.lesson_id}
                           feedbackInitiallyVisible={initialFeedbackVisible}
+                          scoreLabel={formatScoreLabel(rawScore)}
+                          feedbackText={feedbackText}
+                          modelAnswer={modelAnswer}
                         />
                       ) : activity.type === "multiple-choice-question" ? (
                         <PupilMcqActivity
@@ -753,6 +778,9 @@ export default async function PupilLessonFriendlyPage({
                           feedbackAssignmentIds={assignmentIds}
                           feedbackLessonId={lesson.lesson_id}
                           feedbackInitiallyVisible={initialFeedbackVisible}
+                          scoreLabel={formatScoreLabel(rawScore)}
+                          feedbackText={feedbackText}
+                          modelAnswer={modelAnswer}
                         />
                       ) : activity.type === "feedback" ? (
                         <PupilFeedbackActivity
@@ -774,6 +802,9 @@ export default async function PupilLessonFriendlyPage({
                           feedbackAssignmentIds={assignmentIds}
                           feedbackLessonId={lesson.lesson_id}
                           feedbackInitiallyVisible={initialFeedbackVisible}
+                          scoreLabel={formatScoreLabel(rawScore)}
+                          feedbackText={feedbackText}
+                          modelAnswer={modelAnswer}
                         />
                       ) : activity.type === "file-download" && (activityFiles.length > 0 || linkUrl) ? (
                          <div className="rounded-md bg-card p-4 border border-border/60">

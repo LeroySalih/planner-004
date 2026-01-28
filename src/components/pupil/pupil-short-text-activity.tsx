@@ -14,6 +14,7 @@ import {
 import { saveShortTextAnswerAction, toggleSubmissionFlagAction } from "@/lib/server-updates"
 import { triggerFeedbackRefresh } from "@/lib/feedback-events"
 import { useFeedbackVisibility } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/feedback-visibility-debug"
+import { ActivityProgressPanel } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/activity-progress-panel"
 
 interface PupilShortTextActivityProps {
   lessonId: string
@@ -27,6 +28,9 @@ interface PupilShortTextActivityProps {
   feedbackAssignmentIds?: string[]
   feedbackLessonId?: string
   feedbackInitiallyVisible?: boolean
+  scoreLabel?: string
+  feedbackText?: string | null
+  modelAnswer?: string | null
 }
 
 type FeedbackState = { type: "success" | "error"; message: string } | null
@@ -43,6 +47,9 @@ export function PupilShortTextActivity({
   feedbackAssignmentIds = [],
   feedbackLessonId,
   feedbackInitiallyVisible = false,
+  scoreLabel = "In progress",
+  feedbackText,
+  modelAnswer,
 }: PupilShortTextActivityProps) {
   const shortTextBody = useMemo(() => getShortTextBody(activity), [activity])
   const questionMarkup = getRichTextMarkup(shortTextBody.question)
@@ -247,6 +254,16 @@ export function PupilShortTextActivity({
           </p>
         </div>
       ) : null}
+
+      <ActivityProgressPanel
+        assignmentIds={feedbackAssignmentIds}
+        lessonId={lessonId}
+        initialVisible={feedbackInitiallyVisible}
+        show={true}
+        scoreLabel={scoreLabel}
+        feedbackText={feedbackText}
+        modelAnswer={modelAnswer}
+      />
     </div>
   )
 }
