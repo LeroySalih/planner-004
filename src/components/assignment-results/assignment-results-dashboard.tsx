@@ -217,15 +217,17 @@ function describeStatus(status: CellStatus) {
   }
 }
 
+
 function resolveCellBackgroundTone(cell: AssignmentResultCell) {
-  if (cell.status === "missing") {
-    if (cell.needsMarking) {
-      return "bg-muted text-foreground border border-border"
-    }
+  if (cell.needsMarking) {
+    return "bg-gray-400 text-gray-900 border border-gray-500 hover:bg-gray-300"
+  }
+  if (cell.status === "missing" || !cell.submissionId) {
     return "bg-background text-muted-foreground border border-dashed border-border"
   }
   return resolveScoreTone(cell.score, cell.status)
 }
+
 
 function recalculateMatrix(
   activities: AssignmentResultActivity[],
@@ -267,6 +269,19 @@ function recalculateMatrix(
         if (cell.status !== "missing" || typeof cell.score === "number") {
           // submittedCount already incremented above when score exists; ensure manual submissions with missing status do not double count
         }
+      }
+      const isPseudoUnmarked =
+        cell.status === "auto" &&
+        cell.score === 0 &&
+        !cell.feedback &&
+        !cell.autoFeedback &&
+        Boolean(cell.submissionId)
+
+      const needsMarking = cell.needsMarking || (cell.status === "missing" && Boolean(cell.submissionId)) || isPseudoUnmarked
+      
+      if (needsMarking) {
+          // Keep strict reference equality if no change, else generic new object
+          return { ...cell, needsMarking: true }
       }
       return cell
     })
@@ -419,7 +434,28 @@ function isImageFile(filename: string): boolean {
 }
 
 export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResultMatrix }) {
-  const [matrixState, setMatrixState] = useState<MatrixWithState>({ ...matrix, rows: matrix.rows })
+  const [matrixState, setMatrixState] = useState<MatrixWithState>(() => {
+    // Ensure initial rows have correct needsMarking state
+    const processedRows = matrix.rows.map((row) => ({
+      ...row,
+      cells: row.cells.map((cell) => {
+        const isPseudoUnmarked =
+          cell.status === "auto" &&
+          cell.score === 0 &&
+          !cell.feedback &&
+          !cell.autoFeedback &&
+          Boolean(cell.submissionId)
+
+        const needsMarking = cell.needsMarking || (cell.status === "missing" && Boolean(cell.submissionId)) || isPseudoUnmarked
+        
+        if (needsMarking !== cell.needsMarking) {
+          return { ...cell, needsMarking: true }
+        }
+        return cell
+      }),
+    }))
+    return { ...matrix, rows: processedRows }
+  })
   const [feedbackVisible, setFeedbackVisible] = useState<boolean>(matrix.assignment?.feedbackVisible ?? false)
   const [selection, setSelection] = useState<CellSelection | null>(null)
   const [activitySummarySelection, setActivitySummarySelection] = useState<string | null>(null)
@@ -813,6 +849,74 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       }
     })
   }, [groupedRows, activities, matrixState.assignmentId, startAiMarkTransition])
+
+  const handleMarkAll = useCallback(() => {
+    // 1. Filter for short-text activities
+    const shortTextActivityIndices = activities
+      .map((activity, index) => (activity.type === "short-text-question" ? index : -1))
+      .filter((index) => index !== -1)
+
+    if (shortTextActivityIndices.length === 0) {
+      toast.info("No short text question activities found in this assignment.")
+      return
+    }
+
+    // 2. Find submissions that need marking
+    const submissionsToMark: { submissionId: string }[] = []
+
+    console.group("[handleMarkAll] Debug")
+    console.log("Activity Indices:", shortTextActivityIndices)
+    
+    let checkedCount = 0
+    let matchCount = 0
+
+    for (const row of groupedRows) {
+      for (const activityIndex of shortTextActivityIndices) {
+        const cell = row.cells[activityIndex]
+        if (!cell || !cell.submissionId) {
+          continue
+        }
+        
+        checkedCount++
+        
+        // We use needsMarking which drives the UI "new/unmarked" state.
+        // This is robust against cases where status might be ambiguous but the UI shows it as needing attention.
+        if (cell.needsMarking) {
+            matchCount++
+            submissionsToMark.push({ submissionId: cell.submissionId })
+        } else {
+             // Debug why it was skipped if it has a submission
+             console.log(`Skipping submission ${cell.submissionId}: status=${cell.status}, needsMarking=${cell.needsMarking}`)
+        }
+      }
+    }
+    
+    console.log(`Checked ${checkedCount} cells, found ${matchCount} matches.`)
+    console.groupEnd()
+
+    if (submissionsToMark.length === 0) {
+      toast.info("All short text submissions have already been marked.")
+      return
+    }
+
+    startAiMarkTransition(async () => {
+      try {
+        const result = await triggerBulkAiMarkingAction({
+          assignmentId: matrixState.assignmentId,
+          submissions: submissionsToMark,
+        })
+
+        if (result.success) {
+          toast.success(`AI marking queued for ${submissionsToMark.length} submissions.`)
+        } else {
+          toast.error("Failed to queue AI marking.")
+        }
+      } catch (error) {
+        console.error("[assignment-results] Mark All failed", error)
+        toast.error("Failed to request AI marking for all items.")
+      }
+    })
+  }, [activities, groupedRows, matrixState.assignmentId, startAiMarkTransition])
 
   const handleClearAiMarks = useCallback(() => {
     if (!selectedActivity) {
@@ -1570,6 +1674,8 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
               : envelope.type?.includes("uploaded")
                 ? "INSERT"
                 : "UPDATE"
+
+
 
           handleRealtimeSubmission({
             eventType,
@@ -2556,9 +2662,11 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                           Automatic feedback
                         </p>
                         <p className="text-sm text-foreground">
-                          {selection.cell.autoFeedback?.trim()
-                            ? selection.cell.autoFeedback
-                            : "No automatic feedback available."}
+                          {selection.cell.needsMarking
+                            ? "Not Yet Marked"
+                            : selection.cell.autoFeedback?.trim()
+                              ? selection.cell.autoFeedback
+                              : "No automatic feedback available."}
                         </p>
                       </div>
                     </div>
@@ -2639,6 +2747,22 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                     disabled={!matrixState.assignment || feedbackTogglePending}
                     aria-label="Toggle pupil feedback visibility"
                   />
+                </div>
+                <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border/60 bg-muted/40 px-3 py-3">
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-foreground">Mark all short text answers</p>
+                    <p className="text-xs text-muted-foreground">
+                      Send all unmarked short text submissions to the marking queue.
+                    </p>
+                  </div>
+                  <Button 
+                    variant="secondary" 
+                    size="sm"
+                    onClick={handleMarkAll}
+                    disabled={aiMarkPending}
+                  >
+                    {aiMarkPending ? "Queueing..." : "Mark All"}
+                  </Button>
                 </div>
               </div>
             </div>
@@ -2807,19 +2931,21 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                             </span>
                           </div>
                         </button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 w-full text-[10px] font-bold uppercase tracking-wider opacity-0 group-hover/th:opacity-100 transition-opacity"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleColumnAiMark(activityIndex)
-                          }}
-                          disabled={aiMarkPending}
-                        >
-                          {aiMarkPending ? "Marking..." : "Mark All"}
-                        </Button>
-                      </div>
+                          {activity.type === "short-text-question" && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 w-full text-[10px] font-bold uppercase tracking-wider opacity-0 group-hover/th:opacity-100 transition-opacity"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleColumnAiMark(activityIndex)
+                              }}
+                              disabled={aiMarkPending}
+                            >
+                              {aiMarkPending ? "Marking..." : "Mark All"}
+                            </Button>
+                          )}
+                        </div>
                     </th>
                   ))}
                 </tr>
@@ -2876,7 +3002,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                                 )}
                                 onClick={() => handleCellSelect(rowIndex, activityIndex)}
                               >
-                                {formatPercent(cell.score ?? null)}
+                                {cell.needsMarking ? "—" : formatPercent(cell.score ?? null)}
                                 {cell.isFlagged ? (
                                   <Flag className="ml-1.5 h-3.5 w-3.5 fill-current" />
                                 ) : null}
@@ -3217,8 +3343,10 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
 
                   <Tabs defaultValue="override" className="flex flex-1 flex-col gap-4 overflow-hidden pt-4 border-t border-border/60">
                     <TabsList className="w-full">
-                      <TabsTrigger value="override">Override</TabsTrigger>
-                      <TabsTrigger value="auto">Automatic score</TabsTrigger>
+                      <TabsTrigger value="override" className="flex-1">Override</TabsTrigger>
+                      {selection.activity.type === "short-text-question" && (
+                        <TabsTrigger value="auto" className="flex-1">Automatic score</TabsTrigger>
+                      )}
                     </TabsList>
 
                     <TabsContent value="override" className="flex-1 overflow-hidden">

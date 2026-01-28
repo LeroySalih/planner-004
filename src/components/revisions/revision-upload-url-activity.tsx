@@ -7,6 +7,7 @@ import { z } from "zod"
 
 import type { LessonActivity } from "@/types"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import {
   getRichTextMarkup,
@@ -117,6 +118,15 @@ export function RevisionUploadUrlActivity({
         <h4 className="text-lg font-semibold text-foreground">
           {activity.title || "Upload URL"}
         </h4>
+        {!canAnswer && (score === null || score === undefined) ? (
+            <Badge variant="outline" className="border-slate-700 text-slate-300 bg-slate-800">
+                Not Yet Marked
+            </Badge>
+        ) : score !== null && score !== undefined ? (
+            <Badge variant="outline" className={score > 0 ? "border-green-600 text-green-700 bg-green-50" : "border-red-200 text-red-700 bg-red-50"}>
+                Score: {Math.round(score * 100) / 100} / 1
+            </Badge>
+        ) : null}
       </header>
 
       <section className="space-y-2">
@@ -162,12 +172,17 @@ export function RevisionUploadUrlActivity({
         </div>
       </section>
       
-      {feedbackText && (
+      {(!canAnswer && !feedbackText) ? (
+          <div className="mt-4 rounded-md bg-muted p-3 text-sm">
+            <p className="font-semibold">Feedback:</p>
+            <p className="text-muted-foreground italic">Not Yet Marked</p>
+          </div>
+      ) : feedbackText ? (
           <div className="mt-4 rounded-md bg-muted p-3 text-sm">
             <p className="font-semibold">Feedback:</p>
             <p>{feedbackText}</p>
           </div>
-      )}
+      ) : null}
 
       {canAnswer ? (
         <div className="flex flex-wrap items-center gap-2">

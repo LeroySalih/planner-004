@@ -23,15 +23,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { useFeedbackVisibility } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/feedback-visibility-debug"
+import { ActivityProgressPanel } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/activity-progress-panel"
 
-export interface ActivityFileInfo {
+type ActivityFileInfo = {
   name: string
   path: string
-  size?: number
+  size: number
   status: SubmissionStatus
-  submissionId?: string | null
-  submittedAt?: string | null
+  submissionId: string | null
+  submittedAt: string | null
   instructions?: string | null
 }
 
@@ -40,13 +40,16 @@ interface PupilUploadActivityProps {
   activity: LessonActivity
   pupilId: string
   instructions: string
-  initialSubmissions: ActivityFileInfo[]
+  initialSubmissions: any[]
   canUpload: boolean
   stepNumber: number
   onSubmissionsChange?: (files: ActivityFileInfo[]) => void
   feedbackAssignmentIds?: string[]
   feedbackLessonId?: string
   feedbackInitiallyVisible?: boolean
+  scoreLabel?: string
+  feedbackText?: string | null
+  modelAnswer?: string | null
 }
 
 export function PupilUploadActivity({
@@ -61,16 +64,19 @@ export function PupilUploadActivity({
   feedbackAssignmentIds = [],
   feedbackLessonId,
   feedbackInitiallyVisible = false,
+  scoreLabel = "In progress",
+  feedbackText,
+  modelAnswer,
 }: PupilUploadActivityProps) {
   const normalizeFiles = useCallback(
-    (files: ActivityFileInfo[]) =>
+    (files: any[]) =>
       files.map((file) => ({
         ...file,
         status: file.status ?? "inprogress",
         submissionId: file.submissionId ?? null,
         submittedAt: file.submittedAt ?? null,
         instructions: file.instructions ?? null,
-      })),
+      })) as ActivityFileInfo[],
     [],
   )
 
@@ -82,7 +88,7 @@ export function PupilUploadActivity({
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null)
   const [isDragActive, setIsDragActive] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
-  const { currentVisible } = useFeedbackVisibility()
+
 
   const hasInstructions = instructions.trim().length > 0
 
@@ -519,6 +525,17 @@ export function PupilUploadActivity({
           </ul>
         )}
       </div>
+
+
+      <ActivityProgressPanel
+        assignmentIds={feedbackAssignmentIds}
+        lessonId={lessonId}
+        initialVisible={feedbackInitiallyVisible}
+        show={true}
+        scoreLabel={scoreLabel}
+        feedbackText={feedbackText}
+        modelAnswer={modelAnswer}
+      />
     </div>
   )
 }

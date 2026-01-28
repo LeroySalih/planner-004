@@ -14,7 +14,7 @@ import {
 } from "@/components/lessons/activity-view/utils"
 import { saveUploadUrlAnswerAction, toggleSubmissionFlagAction } from "@/lib/server-updates"
 import { triggerFeedbackRefresh } from "@/lib/feedback-events"
-import { useFeedbackVisibility } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/feedback-visibility-debug"
+import { ActivityProgressPanel } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/activity-progress-panel"
 
 interface PupilUploadUrlActivityProps {
   lessonId: string
@@ -23,15 +23,16 @@ interface PupilUploadUrlActivityProps {
   canAnswer: boolean
   stepNumber: number
   initialAnswer: string | null
-  initialSubmissionId?: string | null
-  initialIsFlagged?: boolean
+  initialSubmissionId: string | null
+  initialIsFlagged: boolean
   feedbackAssignmentIds?: string[]
   feedbackLessonId?: string
   feedbackInitiallyVisible?: boolean
+  scoreLabel?: string
+  feedbackText?: string | null
+  modelAnswer?: string | null
 }
-
-type FeedbackState = { type: "success" | "error"; message: string } | null
-
+//...
 export function PupilUploadUrlActivity({
   lessonId,
   activity,
@@ -44,17 +45,19 @@ export function PupilUploadUrlActivity({
   feedbackAssignmentIds = [],
   feedbackLessonId,
   feedbackInitiallyVisible = false,
+  scoreLabel = "In progress",
+  feedbackText,
+  modelAnswer,
 }: PupilUploadUrlActivityProps) {
   const uploadUrlBody = useMemo(() => getUploadUrlBody(activity), [activity])
   const questionMarkup = getRichTextMarkup(uploadUrlBody.question)
-  const { currentVisible } = useFeedbackVisibility()
   const canAnswerEffective = canAnswer
 
   const [url, setUrl] = useState(initialAnswer ?? "")
   const [lastSaved, setLastSaved] = useState(initialAnswer ?? "")
   const [submissionId, setSubmissionId] = useState(initialSubmissionId ?? null)
   const [isFlagged, setIsFlagged] = useState(initialIsFlagged ?? false)
-  const [feedback, setFeedback] = useState<FeedbackState>(
+  const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(
     initialAnswer ? { type: "success", message: "Answer saved" } : null,
   )
   const [isPending, startTransition] = useTransition()
@@ -264,30 +267,22 @@ export function PupilUploadUrlActivity({
         </div>
       ) : null}
 
-      {currentVisible && submissionId ? (
-        <div className="mt-4 flex flex-col gap-2 border-t border-border pt-4 sm:flex-row sm:items-center">
-          <Button
-            variant={isFlagged ? "destructive" : "outline"}
-            size="sm"
-            onClick={handleToggleFlag}
-            disabled={flagPending}
-            className="gap-2 self-start sm:self-auto"
-          >
-            <Flag className="h-4 w-4" />
-            {isFlagged ? "Unflag for review" : "Flag for review"}
-          </Button>
-          <p className="text-xs text-muted-foreground">
-            {isFlagged
-              ? "You have flagged this answer for your teacher to review."
-              : "Flag this answer if you want your teacher to check it again."}
-          </p>
-        </div>
-      ) : null}
+
+
+      <ActivityProgressPanel
+        assignmentIds={feedbackAssignmentIds}
+        lessonId={lessonId}
+        initialVisible={feedbackInitiallyVisible}
+        show={true}
+        scoreLabel={scoreLabel}
+        feedbackText={feedbackText}
+        modelAnswer={modelAnswer}
+      />
     </div>
   )
 }
 
-function cnFeedback(feedback: FeedbackState): string {
+function cnFeedback(feedback: { type: "success" | "error"; message: string } | null): string {
   if (!feedback) {
     return "text-xs text-muted-foreground"
   }
