@@ -1,18 +1,3 @@
-import * as dotenv from "dotenv";
-dotenv.config();
-import { Pool } from "pg";
-
-const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-});
-
-async function main() {
-    console.log(
-        "Starting migration: Update assignments_bootstrap to include hidden column",
-    );
-
-    try {
-        const res = await pool.query(`
 CREATE OR REPLACE FUNCTION public.assignments_bootstrap() RETURNS jsonb
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
@@ -71,14 +56,3 @@ begin
   return result;
 end;
 $$;
-        `);
-        console.log("Migration successful:", res);
-    } catch (error) {
-        console.error("Migration failed:", error);
-        process.exit(1);
-    } finally {
-        await pool.end();
-    }
-}
-
-main();

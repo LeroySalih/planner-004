@@ -1,18 +1,3 @@
-import * as dotenv from "dotenv";
-dotenv.config();
-import { Pool } from "pg";
-
-const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-});
-
-async function main() {
-    console.log(
-        "Starting migration: Update pupil bootstrap functions (role join fix + hidden column)",
-    );
-
-    try {
-        await pool.query(`
 CREATE OR REPLACE FUNCTION public.pupil_lessons_detail_bootstrap(p_target_user_id text) RETURNS jsonb
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
@@ -170,9 +155,7 @@ begin
   );
 end;
 $$;
-        `);
 
-        await pool.query(`
 CREATE OR REPLACE FUNCTION public.pupil_lessons_summary_bootstrap(p_target_user_id text DEFAULT NULL::text) RETURNS jsonb
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
@@ -251,15 +234,3 @@ begin
   );
 end;
 $$;
-        `);
-
-        console.log("Migration successful");
-    } catch (error) {
-        console.error("Migration failed:", error);
-        process.exit(1);
-    } finally {
-        await pool.end();
-    }
-}
-
-main();
