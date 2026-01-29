@@ -8,7 +8,7 @@ import { AssignmentGroupSelectorSidebar } from "./assignment-group-selector-side
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Search, X } from "lucide-react"
+import { Search, X, Eye, EyeOff } from "lucide-react"
 import { createWildcardRegExp, normalizeAssignmentWeek, normalizeDateOnly } from "@/lib/utils"
 import type {
   Assignment,
@@ -33,6 +33,7 @@ import {
   deleteGroupAction,
   upsertLessonAssignmentAction,
   deleteLessonAssignmentAction,
+  toggleLessonAssignmentVisibilityAction,
 } from "@/lib/server-updates"
 
 import { toast } from "sonner"
@@ -120,7 +121,13 @@ export function AssignmentManager({
         const normalizedDate = normalizeDateOnly(startDate) ?? startDate
 
         if (normalizedDate) {
-          map.set(key, { group_id: groupId, lesson_id: lessonId, start_date: normalizedDate })
+          const existing = map.get(key)
+          map.set(key, { 
+            group_id: groupId, 
+            lesson_id: lessonId, 
+            start_date: normalizedDate,
+            hidden: existing?.hidden ?? false 
+          })
         } else {
           map.delete(key)
         }
@@ -384,6 +391,53 @@ export function AssignmentManager({
     })
   }
 
+  const handleToggleHidden = (groupId: string, lessonId: string, currentHidden: boolean) => {
+    const key = lessonAssignmentKey(groupId, lessonId)
+    const newHidden = !currentHidden
+    
+    // Optimistic update
+    setLessonAssignments((prev) => 
+      prev.map((entry) => 
+        entry.group_id === groupId && entry.lesson_id === lessonId
+          ? { ...entry, hidden: newHidden }
+          : entry
+      )
+    )
+
+    setPendingLessonAssignmentKeys((prev) => ({ ...prev, [key]: true }))
+
+    startTransition(async () => {
+      try {
+        const result = await toggleLessonAssignmentVisibilityAction(groupId, lessonId, newHidden)
+
+        if (!result.success) {
+          throw new Error(result.error ?? "Unknown error")
+        }
+
+        toast.success(`Lesson is now ${newHidden ? 'hidden' : 'visible'}.`)
+      } catch (error) {
+        console.error("[v0] Failed to toggle lesson visibility:", error)
+        // Revert optimistic update
+        setLessonAssignments((prev) => 
+          prev.map((entry) => 
+            entry.group_id === groupId && entry.lesson_id === lessonId
+              ? { ...entry, hidden: currentHidden }
+              : entry
+          )
+        )
+        toast.error("Failed to update visibility", {
+          description: "We couldn't update the lesson visibility. Please try again.",
+        })
+      } finally {
+        setPendingLessonAssignmentKeys((prev) => {
+          const updated = { ...prev }
+          delete updated[key]
+          return updated
+        })
+      }
+    })
+  }
+
   const handleAssignmentClick = (assignment: Assignment) => {
     setSelectedAssignment(assignment)
     setNewAssignmentData(undefined)
@@ -415,10 +469,16 @@ export function AssignmentManager({
 
     upsertLessonAssignment(sidebarGroupId, lessonId, normalizedDate)
     setLessonAssignments((prev) => {
+      const existing = prev.find(entry => entry.group_id === sidebarGroupId && entry.lesson_id === lessonId)
       const next = prev.filter(
         (entry) => !(entry.group_id === sidebarGroupId && entry.lesson_id === lessonId),
       )
-      next.push({ group_id: sidebarGroupId, lesson_id: lessonId, start_date: normalizedDate })
+      next.push({ 
+        group_id: sidebarGroupId, 
+        lesson_id: lessonId, 
+        start_date: normalizedDate, 
+        hidden: existing?.hidden ?? false 
+      })
       return next
     })
   }
@@ -657,6 +717,7 @@ export function AssignmentManager({
           onEmptyCellClick={handleEmptyCellClick}
           onAddGroupClick={handleAddGroupClick}
           onGroupTitleClick={handleGroupTitleClick}
+          onToggleHidden={handleToggleHidden}
         />
 
         <AssignmentSidebar

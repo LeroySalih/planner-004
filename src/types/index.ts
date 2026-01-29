@@ -405,6 +405,7 @@ export const LessonAssignmentSchema = z.object({
     start_date: z.string().refine((date) => !isNaN(Date.parse(date)), {
         message: "Invalid date format",
     }),
+    hidden: z.boolean().nullable().optional().default(false),
 });
 
 export const LessonAssignmentsSchema = z.array(LessonAssignmentSchema);

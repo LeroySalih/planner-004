@@ -89,6 +89,7 @@ export { requestAiMarkAction } from "./server-actions/ai-mark";
 export {
   deleteLessonAssignmentAction,
   readLessonAssignmentsAction,
+  toggleLessonAssignmentVisibilityAction,
   upsertLessonAssignmentAction,
 } from "./server-actions/lesson-assignments";
 

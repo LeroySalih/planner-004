@@ -6,6 +6,7 @@ import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { Group, Unit, Assignment, Lesson, LessonAssignment, LessonAssignmentScoreSummary } from "@/types"
 import { normalizeDateOnly } from "@/lib/utils"
+import { Eye, EyeOff } from "lucide-react"
 
 
 interface AssignmentGridProps {
@@ -19,6 +20,7 @@ interface AssignmentGridProps {
   onEmptyCellClick?: (groupId: string, weekStart: Date) => void
   onAddGroupClick?: () => void // Changed from onAddGroup to onAddGroupClick to trigger sidebar
   onGroupTitleClick?: (groupId: string) => void // Added prop for group title click
+  onToggleHidden?: (groupId: string, lessonId: string, currentHidden: boolean) => void
 }
 
 interface TrackCell {
@@ -68,6 +70,7 @@ export function AssignmentGrid({
   onEmptyCellClick,
   onAddGroupClick, // Updated prop name
   onGroupTitleClick, // Added onGroupTitleClick prop
+  onToggleHidden,
 }: AssignmentGridProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
@@ -624,24 +627,44 @@ export function AssignmentGrid({
                                               : null
 
                                           const resultsAssignmentId = `${cell.assignment!.group_id}__${lesson.lesson_id}`
+                                          const isHidden = lessonAssignment.hidden
                                           return (
                                             <div
                                               key={lesson.lesson_id}
-                                              className="block rounded-md border border-border/70 px-2 py-2 text-xs font-medium shadow-sm transition hover:shadow-md"
+                                              className={`block rounded-md border border-border/70 px-2 py-2 text-xs font-medium shadow-sm transition hover:shadow-md relative group ${isHidden ? 'opacity-60 bg-gray-100' : ''}`}
                                               style={{
-                                                backgroundImage: gradient,
+                                                backgroundImage: isHidden ? undefined : gradient,
                                                 backgroundColor: UNMARKED_SEGMENT_COLOR,
                                               }}
                                             >
                                               <div className="flex flex-col gap-2">
-                                                <Link
-                                                  href={`/lessons/${lesson.lesson_id}/activities`}
-                                                  className="truncate text-xs font-semibold hover:underline"
-                                                  style={{ color: LESSON_TITLE_COLOR }}
-                                                  title={`View activities for ${lesson.title}`}
-                                                >
-                                                  {lesson.title}
-                                                </Link>
+                                                <div className="flex justify-between items-start gap-1">
+                                                  <Link
+                                                    href={`/lessons/${lesson.lesson_id}/activities`}
+                                                    className={`truncate text-xs font-semibold hover:underline ${isHidden ? 'text-gray-500 line-through' : ''}`}
+                                                    style={{ color: isHidden ? undefined : LESSON_TITLE_COLOR }}
+                                                    title={`View activities for ${lesson.title}`}
+                                                  >
+                                                    {lesson.title}
+                                                  </Link>
+                                                  {onToggleHidden && (
+                                                    <button
+                                                      onClick={(e) => {
+                                                        e.stopPropagation()
+                                                        e.preventDefault()
+                                                        onToggleHidden(cell.assignment!.group_id, lesson.lesson_id, !!isHidden)
+                                                      }}
+                                                      className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 hover:bg-black/10 rounded flex-shrink-0"
+                                                      title={isHidden ? "Show lesson" : "Hide lesson from pupils"}
+                                                    >
+                                                       {isHidden ? (
+                                                         <EyeOff className="h-3 w-3 text-gray-500" />
+                                                       ) : (
+                                                         <Eye className="h-3 w-3 text-gray-400" />
+                                                       )}
+                                                    </button>
+                                                  )}
+                                                </div>
                                                 <Link
                                                   href={`/results/assignments/${encodeURIComponent(resultsAssignmentId)}`}
                                                   className="text-[10px] font-medium hover:underline"
