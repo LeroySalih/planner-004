@@ -50,6 +50,7 @@ const LessonAssignmentSchema = z.object({
   subject: z.string().nullable(),
   start_date: z.string().nullable(),
   feedback_visible: z.boolean(),
+  hidden: z.boolean(),
 });
 
 const SubjectUnitsSchema = z.object({
@@ -187,6 +188,7 @@ export async function readPupilUnitsBootstrapAction(
               subject: string | null;
               start_date: string | Date | null;
               feedback_visible: boolean | null;
+              hidden: boolean | null;
             }>(
               `
               with target_memberships as (
@@ -205,7 +207,8 @@ export async function readPupilUnitsBootstrapAction(
                 la.group_id,
                 tm.subject,
                 la.start_date,
-                coalesce(la.feedback_visible, false) as feedback_visible
+                coalesce(la.feedback_visible, false) as feedback_visible,
+                coalesce(la.hidden, false) as hidden
               from target_memberships tm
               join lesson_assignments la on la.group_id = tm.group_id
               join lessons l on l.lesson_id = la.lesson_id
@@ -255,9 +258,12 @@ export async function readPupilUnitsBootstrapAction(
                 ? row.start_date
                 : null,
               feedback_visible: Boolean(row.feedback_visible),
+              hidden: Boolean(row.hidden),
             })
           )
-          .filter((assignment) => assignment.unit_id && assignment.lesson_id);
+          .filter((assignment) =>
+            assignment.unit_id && assignment.lesson_id && !assignment.hidden
+          );
 
         const lessonIds = Array.from(
           new Set(assignments.map((assignment) => assignment.lesson_id)),
