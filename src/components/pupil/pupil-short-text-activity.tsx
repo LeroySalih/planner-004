@@ -6,7 +6,7 @@ import { Flag, Loader2 } from "lucide-react"
 
 import type { LessonActivity } from "@/types"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import {
   getRichTextMarkup,
   getShortTextBody,
@@ -80,6 +80,20 @@ export function PupilShortTextActivity({
   useEffect(() => {
     console.log(`[PupilShortTextActivity] Feedback visibility changed: ${currentVisible}`)
   }, [currentVisible])
+
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const adjustHeight = useCallback(() => {
+    const textarea = textareaRef.current
+    if (textarea) {
+      textarea.style.height = "auto"
+      textarea.style.height = `${textarea.scrollHeight}px`
+    }
+  }, [])
+
+  useEffect(() => {
+    adjustHeight()
+  }, [answer, adjustHeight])
 
   const handleSave = useCallback(() => {
     if (!canAnswerEffective || isSavingRef.current) {
@@ -207,7 +221,8 @@ export function PupilShortTextActivity({
       </section>
 
       <section className="space-y-2">
-        <Input
+        <Textarea
+          ref={textareaRef}
           value={answer}
           onChange={(event) => {
             setAnswer(event.target.value)
@@ -216,6 +231,7 @@ export function PupilShortTextActivity({
           onBlur={handleBlur}
           placeholder="Type your short answer"
           disabled={!canAnswerEffective || isPending}
+          className="resize-none overflow-hidden min-h-[80px]"
         />
         <div
           className={cnFeedback(feedback)}
