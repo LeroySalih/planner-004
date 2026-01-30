@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import React, { useEffect, useState } from "react"
 import Link from "next/link"
 
 import { getSessionProfileAction } from "@/lib/server-updates"
@@ -13,6 +13,17 @@ type NavState =
 type TeacherNavLinksProps = {
   onNavigate?: () => void
 }
+
+import {
+  NavigationMenu,
+  NavigationMenuContent,
+  NavigationMenuItem,
+  NavigationMenuLink,
+  NavigationMenuList,
+  NavigationMenuTrigger,
+  navigationMenuTriggerStyle,
+} from "@/components/ui/navigation-menu"
+import { cn } from "@/lib/utils"
 
 export function TeacherNavLinks({ onNavigate }: TeacherNavLinksProps) {
   const [state, setState] = useState<NavState>({ status: "loading" })
@@ -71,85 +82,144 @@ export function TeacherNavLinks({ onNavigate }: TeacherNavLinksProps) {
     const isAdmin = roles.includes("admin")
 
     return (
-      <>
-        {isTeacher && (
-          <>
-            <Link
-              href="/assignments"
-              className="text-muted-foreground transition-colors hover:text-primary"
-              onClick={onNavigate}
-            >
-              SoW
-            </Link>
-            <Link
-              href="/groups"
-              className="text-muted-foreground transition-colors hover:text-primary"
-              onClick={onNavigate}
-            >
-              Groups
-            </Link>
-            <Link
-              href="/units"
-              className="text-muted-foreground transition-colors hover:text-primary"
-              onClick={onNavigate}
-            >
-              Units
-            </Link>
-            <Link
-              href="/reports"
-              className="text-muted-foreground transition-colors hover:text-primary"
-              onClick={onNavigate}
-            >
-              Reports
-            </Link>
-            <Link
-              href="/curriculum"
-              className="text-muted-foreground transition-colors hover:text-primary"
-              onClick={onNavigate}
-            >
-              Curriculum
-            </Link>
-          </>
-        )}
-        {isTechnician && (
-          <Link
-            href="/queue"
-            className="text-muted-foreground transition-colors hover:text-primary"
-            onClick={onNavigate}
-          >
-            Queue
-          </Link>
-        )}
-        {isPupil && (
-          <>
-            <Link
-              href={`/pupil-lessons/${encodeURIComponent(userId)}`}
-              className="text-muted-foreground transition-colors hover:text-primary"
-              onClick={onNavigate}
-            >
-              My Units
-            </Link>
-            <Link
-              href={`/reports/${encodeURIComponent(userId)}`}
-              className="text-muted-foreground transition-colors hover:text-primary"
-              onClick={onNavigate}
-            >
-              Dashboard
-            </Link>
-          </>
-        )}
-        {isAdmin && (
-          <Link
-            href="/admin"
-            className="font-semibold text-primary transition-colors hover:text-primary/80"
-            onClick={onNavigate}
-          >
-            Admin
-          </Link>
-        )}
-      </>
+      <NavigationMenu>
+        <NavigationMenuList>
+          {isTeacher && (
+            <>
+              {/* Planning Dropdown */}
+              <NavigationMenuItem>
+                <NavigationMenuTrigger>Planning</NavigationMenuTrigger>
+                <NavigationMenuContent>
+                  <ul className="grid w-[400px] gap-3 p-4 md:w-[500px] md:grid-cols-2 lg:w-[600px]">
+                    <ListItem href="/specifications" title="Specs" onClick={onNavigate}>
+                      Manage subject specifications
+                    </ListItem>
+                    <ListItem href="/curriculum" title="Curriculum" onClick={onNavigate}>
+                      View complete curriculum
+                    </ListItem>
+                    <ListItem href="/assignments" title="SoW" onClick={onNavigate}>
+                      Schemes of Work
+                    </ListItem>
+                  </ul>
+                </NavigationMenuContent>
+              </NavigationMenuItem>
+
+              {/* Resources Dropdown */}
+              <NavigationMenuItem>
+                <NavigationMenuTrigger>Resources</NavigationMenuTrigger>
+                <NavigationMenuContent>
+                  <ul className="grid gap-3 p-6 md:w-[400px] lg:w-[500px]">
+                    <ListItem href="/units" title="Units" onClick={onNavigate}>
+                      Manage resource units
+                    </ListItem>
+                  </ul>
+                </NavigationMenuContent>
+              </NavigationMenuItem>
+
+              {/* Feedback Dropdown */}
+              <NavigationMenuItem>
+                <NavigationMenuTrigger>Feedback</NavigationMenuTrigger>
+                <NavigationMenuContent>
+                  <ul className="grid gap-3 p-6 md:w-[400px] lg:w-[500px]">
+                    <ListItem href="/reports" title="Dashboards" onClick={onNavigate}>
+                      View class dashboards
+                    </ListItem>
+                    <ListItem href="/reports" title="Reports" onClick={onNavigate}>
+                      View pupil reports
+                    </ListItem>
+                  </ul>
+                </NavigationMenuContent>
+              </NavigationMenuItem>
+            </>
+          )}
+
+          {/* Admin Dropdown */}
+          {(isAdmin || isTechnician) && (
+             <NavigationMenuItem>
+               <NavigationMenuTrigger>Admin</NavigationMenuTrigger>
+               <NavigationMenuContent>
+                 <ul className="grid gap-3 p-6 md:w-[400px] lg:w-[500px]">
+                   {isAdmin && (
+                     <>
+                        <ListItem href="/admin" title="Admin" onClick={onNavigate}>
+                          System administration
+                        </ListItem>
+                        <ListItem href="/ai-queue" title="AI Queue" onClick={onNavigate}>
+                          Manage AI processing queue
+                        </ListItem>
+                        <ListItem href="/queue" title="Queue" onClick={onNavigate}>
+                          Manage file processing queue
+                        </ListItem>
+                     </>
+                   )}
+                   {isTechnician && !isAdmin && (
+                      <ListItem href="/queue" title="Queue" onClick={onNavigate}>
+                        Manage file processing queue
+                      </ListItem>
+                   )}
+                 </ul>
+               </NavigationMenuContent>
+             </NavigationMenuItem>
+          )}
+
+          {/* Pupil Links (Top Level) */}
+          {isPupil && (
+            <>
+              <NavigationMenuItem>
+                <NavigationMenuLink asChild onClick={onNavigate}>
+                  <Link href={`/pupil-lessons/${encodeURIComponent(userId)}`} className={navigationMenuTriggerStyle()}>
+                    My Units
+                  </Link>
+                </NavigationMenuLink>
+              </NavigationMenuItem>
+              <NavigationMenuItem>
+                 <NavigationMenuLink asChild onClick={onNavigate}>
+                  <Link href="/specifications" className={navigationMenuTriggerStyle()}>
+                    Specs
+                  </Link>
+                </NavigationMenuLink>
+              </NavigationMenuItem>
+              <NavigationMenuItem>
+                <NavigationMenuLink asChild onClick={onNavigate}>
+                  <Link href={`/reports/${encodeURIComponent(userId)}`} className={navigationMenuTriggerStyle()}>
+                    Dashboard
+                  </Link>
+                </NavigationMenuLink>
+              </NavigationMenuItem>
+            </>
+          )}
+        </NavigationMenuList>
+      </NavigationMenu>
     )
   }
 
   return null
 }
+
+const ListItem = React.forwardRef<
+  React.ElementRef<"a">,
+  React.ComponentPropsWithoutRef<"a"> & { title: string; href: string }
+>(({ className, title, children, href, onClick, ...props }, ref) => {
+  return (
+    <li>
+      <NavigationMenuLink asChild>
+        <Link
+          ref={ref as any}
+          href={href}
+          onClick={onClick as any}
+          className={cn(
+            "block select-none space-y-1 rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground",
+            className
+          )}
+          {...props}
+        >
+          <div className="text-sm font-medium leading-none">{title}</div>
+          <p className="line-clamp-2 text-sm leading-snug text-muted-foreground">
+            {children}
+          </p>
+        </Link>
+      </NavigationMenuLink>
+    </li>
+  )
+})
+ListItem.displayName = "ListItem"
