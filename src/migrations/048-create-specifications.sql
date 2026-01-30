@@ -1,4 +1,4 @@
-CREATE TABLE specifications (
+CREATE TABLE IF NOT EXISTS specifications (
   specification_id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
   title TEXT NOT NULL,
   subject TEXT NOT NULL REFERENCES subjects(subject),
@@ -7,7 +7,7 @@ CREATE TABLE specifications (
   active BOOLEAN DEFAULT true
 );
 
-CREATE TABLE specification_units (
+CREATE TABLE IF NOT EXISTS specification_units (
   unit_id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
   specification_id TEXT NOT NULL REFERENCES specifications(specification_id) ON DELETE CASCADE,
   number TEXT,
@@ -16,7 +16,7 @@ CREATE TABLE specification_units (
   active BOOLEAN DEFAULT true
 );
 
-CREATE TABLE key_ideas (
+CREATE TABLE IF NOT EXISTS key_ideas (
   key_idea_id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
   unit_id TEXT NOT NULL REFERENCES specification_units(unit_id) ON DELETE CASCADE,
   number TEXT,
@@ -26,7 +26,7 @@ CREATE TABLE key_ideas (
   active BOOLEAN DEFAULT true
 );
 
-CREATE TABLE sub_items (
+CREATE TABLE IF NOT EXISTS sub_items (
   sub_item_id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
   key_idea_id TEXT NOT NULL REFERENCES key_ideas(key_idea_id) ON DELETE CASCADE,
   number TEXT,
@@ -35,7 +35,7 @@ CREATE TABLE sub_items (
   active BOOLEAN DEFAULT true
 );
 
-CREATE TABLE sub_item_points (
+CREATE TABLE IF NOT EXISTS sub_item_points (
   point_id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
   sub_item_id TEXT NOT NULL REFERENCES sub_items(sub_item_id) ON DELETE CASCADE,
   label TEXT,

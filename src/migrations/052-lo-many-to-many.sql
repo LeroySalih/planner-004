@@ -1,3 +1,9 @@
+-- Create lo_links join table
+CREATE TABLE IF NOT EXISTS lo_links (
+  learning_objective_id TEXT NOT NULL REFERENCES learning_objectives(learning_objective_id) ON DELETE CASCADE,
+  sub_item_id TEXT NOT NULL REFERENCES sub_items(sub_item_id) ON DELETE CASCADE,
+  PRIMARY KEY (learning_objective_id, sub_item_id)
+);
 -- Create the parsing function properly
 CREATE OR REPLACE FUNCTION refresh_lo_links() RETURNS void AS $$
 DECLARE
