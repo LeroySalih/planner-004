@@ -15,6 +15,7 @@
     "pm2:start": "pm2 start npm --name dino.mr-salih.org -- run start"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-accordion": "1.2.12",
     "@radix-ui/react-alert-dialog": "1.1.15",
@@ -59,6 +60,7 @@
     "embla-carousel-react": "8.6.0",
     "exceljs": "^4.4.0",
     "geist": "^1.5.1",
+    "heic2any": "^0.0.4",
     "input-otp": "1.4.2",
     "lucide-react": "^0.556.0",
     "marked": "^17.0.1",

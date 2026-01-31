@@ -568,7 +568,7 @@ export async function readAssignmentResultsAction(
               ? textField.text
               : null;
             question = normaliseRichText(rawQuestion);
-          } else if (type === "upload-file") {
+          } else if (type === "upload-file" || type === "sketch-render") {
             question = extractUploadInstructions(activity.body_data);
           } else if (type === "upload-url") {
             const parsedBody = UploadUrlActivityBodySchema.safeParse(

@@ -37,6 +37,7 @@ import { CheckCircle2, Download, Eye, EyeOff, Loader2 } from "lucide-react"
 import type { LessonSubmissionSummary } from "@/types"
 import { addFeedbackRefreshListener, triggerFeedbackRefresh } from "@/lib/feedback-events"
 import { toast } from "sonner"
+import { LessonActivityViewSketchRender } from "./activity-view-sketch-render"
 
 export type LessonActivityViewMode = "short" | "present" | "edit"
 
@@ -384,6 +385,8 @@ function ActivityShortView({
         onImageClick={onImageClick}
       />
     )
+  } else if (activity.type === "sketch-render") {
+    content = <LessonActivityViewSketchRender activity={activity} />
   }
 
   const sections: ReactNode[] = []
@@ -1015,6 +1018,28 @@ function ActivityPresentView({
         fetchActivityFileUrl={fetchActivityFileUrl}
         canReveal={viewerCanReveal}
       />
+    )
+  }
+
+  if (activity.type === "sketch-render") {
+    const rawBody = (activity.body_data ?? {}) as Record<string, unknown>
+    const instructions = typeof rawBody.instructions === "string" ? rawBody.instructions : ""
+    const markup = getRichTextMarkup(instructions)
+
+    return wrap(
+      <div className="space-y-4">
+        {markup ? (
+          <div
+            className="prose prose-lg max-w-none text-foreground"
+            dangerouslySetInnerHTML={{ __html: markup }}
+          />
+        ) : (
+          <p className="text-muted-foreground">Add instructions so pupils know what to submit.</p>
+        )}
+        <div className="rounded-lg border border-dashed border-border p-6 text-center text-muted-foreground">
+          <p>Pupils will upload a sketch and generate a rendered image on their devices.</p>
+        </div>
+      </div>
     )
   }
 

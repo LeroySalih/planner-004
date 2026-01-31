@@ -44,6 +44,8 @@ import {
   buildAssignmentResultsChannelName,
 } from "@/lib/results-channel"
 import { extractScoreFromSubmission, selectLatestSubmission } from "@/lib/scoring/activity-scores"
+import { SketchRenderFeedbackView } from "@/components/assignment-results/sketch-render-feedback-view"
+
 type CellStatus = AssignmentResultCell["status"]
 
 type CellSelection = {
@@ -3208,7 +3210,16 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                       </div>
                     ) : null}
 
-                    <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
+                    {selection.activity.type === "sketch-render" && selection.cell.submissionId ? (
+                      <SketchRenderFeedbackView
+                        activityId={selection.activity.activityId}
+                        submissionId={selection.cell.submissionId}
+                        lessonId={matrixState.lesson?.lessonId ?? ""}
+                        pupilName={selection.row.pupil.displayName}
+                      />
+                    ) : (
+                      <>
+                        <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
                       <p className="text-xs font-semibold uppercase tracking-wide text-primary">Pupil response</p>
                       {selection.activity.type === "upload-file" ? (
                         <p className="text-sm text-foreground">
@@ -3339,6 +3350,8 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                         )}
                       </div>
                     ) : null}
+                    </>
+                )}
                   </div>
 
                   <Tabs defaultValue="override" className="flex flex-1 flex-col gap-4 overflow-hidden pt-4 border-t border-border/60">

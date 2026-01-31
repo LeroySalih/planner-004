@@ -6,6 +6,7 @@ export const SCORABLE_ACTIVITY_TYPES = Object.freeze([
   "upload-file",
   "upload-url",
   "feedback",
+  "sketch-render",
 ]);
 
 export const NON_SCORABLE_ACTIVITY_TYPES = Object.freeze([

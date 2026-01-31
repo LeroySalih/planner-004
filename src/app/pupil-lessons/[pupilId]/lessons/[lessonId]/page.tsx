@@ -39,6 +39,10 @@ import { PupilFeedbackActivity } from "@/components/pupil/pupil-feedback-activit
 import { PupilShortTextActivity } from "@/components/pupil/pupil-short-text-activity"
 import { PupilLongTextActivity } from "@/components/pupil/pupil-long-text-activity"
 import { PupilUploadUrlActivity } from "@/components/pupil/pupil-upload-url-activity"
+import { PupilSketchRenderActivity } from "@/components/lessons/activity-view/pupil-sketch-render-activity"
+
+
+
 import { MediaImage } from "@/components/ui/media-image"
 import {
   LegacyMcqSubmissionBodySchema,
@@ -557,6 +561,22 @@ export default async function PupilLessonFriendlyPage({
 
   const uploadUrlDataMap = new Map(uploadUrlSubmissionEntries.map((entry) => [entry.activityId, entry]))
 
+  const sketchRenderActivities = activities.filter((activity) => activity.type === "sketch-render")
+  const sketchRenderSubmissionEntries = await Promise.all(
+    sketchRenderActivities.map(async (activity) => {
+      const result = await getLatestSubmissionForActivityAction(activity.activity_id, pupilId)
+      if (result.error || !result.data) {
+        return { activityId: activity.activity_id, submission: null }
+      }
+      return { activityId: activity.activity_id, submission: result.data }
+    })
+  )
+  const sketchRenderSubmissionMap = new Map(sketchRenderSubmissionEntries.map((entry) => [entry.activityId, entry.submission]))
+
+
+
+
+
   const isPupilViewer = profile.userId === pupilId
 
   const assignments = summary
@@ -805,6 +825,13 @@ export default async function PupilLessonFriendlyPage({
                           scoreLabel={formatScoreLabel(rawScore)}
                           feedbackText={feedbackText}
                           modelAnswer={modelAnswer}
+                        />
+                      ) : activity.type === "sketch-render" ? (
+                        <PupilSketchRenderActivity
+                          activity={activity}
+                          userId={pupilId}
+                          submission={sketchRenderSubmissionMap.get(activity.activity_id) ?? null}
+                          assignmentId={assignmentIds[0]}
                         />
                       ) : activity.type === "file-download" && (activityFiles.length > 0 || linkUrl) ? (
                          <div className="rounded-md bg-card p-4 border border-border/60">

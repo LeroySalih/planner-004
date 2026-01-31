@@ -600,6 +600,36 @@ export type UploadUrlSubmissionBody = z.infer<
 export const FeedbackSourceSchema = z.enum(["teacher", "auto", "ai"]);
 export type FeedbackSource = z.infer<typeof FeedbackSourceSchema>;
 
+export const SketchRenderActivityBodySchema = z
+    .object({
+        instructions: z.string().nullable().optional(),
+    })
+    .passthrough();
+
+export const SketchRenderSubmissionBodySchema = z
+    .object({
+        prompt: z.string().default(""),
+        original_file_path: z.string().nullable().optional(),
+        rendered_file_path: z.string().nullable().optional(),
+        ai_model_score: z.number().min(0).max(1).nullable().optional(),
+        ai_model_feedback: z.string().nullable().optional(),
+        teacher_override_score: z.number().min(0).max(1).nullable().optional(),
+        is_correct: z.boolean().default(false),
+        teacher_feedback: z.string().nullable().optional(),
+        is_safety_violation: z.boolean().optional(),
+        success_criteria_scores: z
+            .record(z.string(), z.number().min(0).max(1).nullable())
+            .default({}),
+    })
+    .passthrough();
+
+export type SketchRenderActivityBody = z.infer<
+    typeof SketchRenderActivityBodySchema
+>;
+export type SketchRenderSubmissionBody = z.infer<
+    typeof SketchRenderSubmissionBodySchema
+>;
+
 export const PupilActivityFeedbackRowSchema = z.object({
     feedback_id: z.string(),
     activity_id: z.string(),
@@ -998,3 +1028,33 @@ export const UnitScoreSummarySchema = z.object({
 });
 
 export type UnitScoreSummary = z.infer<typeof UnitScoreSummarySchema>;
+
+export const SafetyLogSchema = z.object({
+    safety_log_id: z.string(),
+    user_id: z.string(),
+    activity_id: z.string().nullable().optional(),
+    lesson_id: z.string().nullable().optional(),
+    prompt: z.string().nullable().optional(),
+    ai_model_feedback: z.string().nullable().optional(),
+    request_body: z.any().nullable().optional(),
+    created_at: z.string(),
+});
+
+export type SafetyLog = z.infer<typeof SafetyLogSchema>;
+
+export const SafetyLogEntrySchema = z.object({
+    safety_log_id: z.string(),
+    created_at: z
+        .union([z.string(), z.date()])
+        .transform((val) => (val instanceof Date ? val.toISOString() : val)),
+    ai_model_feedback: z.string().nullable(),
+    prompt: z.string().nullable(),
+    activity_id: z.string().nullable(),
+    activity_title: z.string().nullable(),
+    pupil_id: z.string(),
+    pupil_first_name: z.string().nullable(),
+    pupil_last_name: z.string().nullable(),
+    pupil_email: z.string().nullable(),
+});
+
+export type SafetyLogEntry = z.infer<typeof SafetyLogEntrySchema>;
