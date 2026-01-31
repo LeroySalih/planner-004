@@ -81,6 +81,7 @@ const ACTIVITY_TYPES = [
   { value: "feedback", label: "Feedback" },
   { value: "text-question", label: "Text question" },
   { value: "voice", label: "Voice recording" },
+  { value: "sketch-render", label: "Render Sketch" },
 ] as const
 
 type ActivityTypeValue = (typeof ACTIVITY_TYPES)[number]["value"]
@@ -1438,6 +1439,9 @@ function buildBodyData(
     }
     return { audioFile: null }
   }
+  if (type === "sketch-render") {
+    return { instructions: text }
+  }
   return fallback ?? null
 }
 
@@ -2298,7 +2302,7 @@ function LessonActivityEditorSheet({
   useEffect(() => {
     setRawBodyError(null)
     if (isCreateMode) {
-      if (type === "text" || type === "text-question" || type === "long-text-question" || type === "upload-file") {
+      if (type === "text" || type === "text-question" || type === "long-text-question" || type === "upload-file" || type === "sketch-render") {
         setVideoUrl("")
         setText("")
         setRawBody("")
@@ -2376,6 +2380,14 @@ function LessonActivityEditorSheet({
       setRawBody("")
       return
     }
+
+    if (type === "sketch-render") {
+      setVideoUrl("")
+      setText(activity ? extractUploadInstructions(activity) : "")
+      setRawBody("")
+      return
+    }
+
     if (type === "show-video") {
       setText("")
       if (activity) {
@@ -2951,7 +2963,7 @@ function LessonActivityEditorSheet({
             )}
           </div>
 
-          {type === "text" || type === "text-question" || type === "long-text-question" || type === "upload-file" ? (
+          {type === "text" || type === "text-question" || type === "long-text-question" || type === "upload-file" || type === "sketch-render" ? (
             <div className="space-y-2">
               <Label>
                 {type === "upload-file" ? "Instructions for pupils" : "Instructions"}
@@ -3414,7 +3426,8 @@ function LessonActivityEditorSheet({
           type !== "display-image" &&
           type !== "multiple-choice-question" &&
           type !== "short-text-question" &&
-          type !== "feedback" ? (
+          type !== "feedback" &&
+          type !== "sketch-render" ? (
             <div className="space-y-2">
               <Label htmlFor="activity-json">Activity details</Label>
               <Textarea

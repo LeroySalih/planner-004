@@ -150,6 +150,9 @@ export function TeacherNavLinks({ onNavigate }: TeacherNavLinksProps) {
                         <ListItem href="/ai-queue" title="AI Queue" onClick={onNavigate}>
                           Manage AI processing queue
                         </ListItem>
+                        <ListItem href="/admin/safety-logs" title="Safety Logs" onClick={onNavigate}>
+                          View flagged AI submissions
+                        </ListItem>
                         <ListItem href="/queue" title="Queue" onClick={onNavigate}>
                           Manage file processing queue
                         </ListItem>

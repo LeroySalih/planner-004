@@ -151,6 +151,7 @@ export { listLessonsLearningObjectivesAction } from "./server-actions/lesson-lea
 export {
   getLatestSubmissionForActivityAction,
   readLessonSubmissionSummariesAction,
+  readSubmissionByIdAction,
   upsertMcqSubmissionAction,
 } from "./server-actions/submissions";
 
