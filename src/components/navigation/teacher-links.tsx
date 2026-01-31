@@ -144,6 +144,9 @@ export function TeacherNavLinks({ onNavigate }: TeacherNavLinksProps) {
                         <ListItem href="/admin" title="Admin" onClick={onNavigate}>
                           System administration
                         </ListItem>
+                        <ListItem href="/groups" title="Groups" onClick={onNavigate}>
+                          Manage teaching groups
+                        </ListItem>
                         <ListItem href="/ai-queue" title="AI Queue" onClick={onNavigate}>
                           Manage AI processing queue
                         </ListItem>
