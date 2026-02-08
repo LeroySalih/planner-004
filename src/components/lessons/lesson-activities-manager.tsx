@@ -2862,7 +2862,7 @@ function LessonActivityEditorSheet({
       .filter((id) => selectedSuccessCriteriaIds.includes(id))
 
     const submissionPayload: { pendingUploadFiles?: File[] } = {}
-    if (type === "upload-file" && pendingUploadFiles.length > 0) {
+    if ((type === "upload-file" || type === "file-download") && pendingUploadFiles.length > 0) {
       submissionPayload.pendingUploadFiles = [...pendingUploadFiles]
     }
 
