@@ -33,13 +33,13 @@ export function PupilSketchRenderActivity({
     const [prompt, setPrompt] = useState(submission?.body?.prompt || "");
     const [originalFile, setOriginalFile] = useState<File | null>(null);
     const [previewUrl, setPreviewUrl] = useState<string | null>(
-        submission?.body?.original_file_path 
-        ? `/api/activity-files/download?lessonId=${activity.lesson_id}&activityId=${activity.activity_id}&fileName=${submission.body.original_file_path}` 
+        submission?.body?.original_file_path
+        ? `/api/activity-files/download?lessonId=${activity.lesson_id}&activityId=${activity.activity_id}&fileName=${submission.body.original_file_path}&userId=${userId}`
         : null
     );
     const [renderedUrl, setRenderedUrl] = useState<string | null>(
         submission?.body?.rendered_file_path
-        ? `/api/activity-files/download?lessonId=${activity.lesson_id}&activityId=${activity.activity_id}&fileName=${submission.body.rendered_file_path}`
+        ? `/api/activity-files/download?lessonId=${activity.lesson_id}&activityId=${activity.activity_id}&fileName=${submission.body.rendered_file_path}&userId=${userId}`
         : null
     );
     const [isDragging, setIsDragging] = useState(false);
@@ -164,7 +164,7 @@ export function PupilSketchRenderActivity({
                 toast.success("Sketch rendered!");
                 const body = renderResult.data?.body as any;
                 if (body?.rendered_file_path) {
-                     setRenderedUrl(`/api/activity-files/download?lessonId=${activity.lesson_id}&activityId=${activity.activity_id}&fileName=${body.rendered_file_path}&t=${Date.now()}`);
+                     setRenderedUrl(`/api/activity-files/download?lessonId=${activity.lesson_id}&activityId=${activity.activity_id}&fileName=${body.rendered_file_path}&userId=${userId}&t=${Date.now()}`);
                 }
             } else {
                 toast.error(renderResult.error || "Rendering failed");

@@ -73,7 +73,7 @@ export function SketchRenderFeedbackView({
   const { original_file_path, rendered_file_path, prompt } = parsedBody.data
 
   const getDownloadUrl = (fileName: string) =>
-    `/api/activity-files/download?lessonId=${lessonId}&activityId=${activityId}&fileName=${fileName}`
+    `/api/activity-files/download?lessonId=${lessonId}&activityId=${activityId}&fileName=${fileName}&userId=${submission.user_id}`
 
   return (
     <div className="space-y-6">

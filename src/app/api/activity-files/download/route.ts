@@ -8,6 +8,7 @@ export async function GET(request: NextRequest) {
     const lessonId = searchParams.get("lessonId");
     const activityId = searchParams.get("activityId");
     const fileName = searchParams.get("fileName");
+    const userId = searchParams.get("userId");
 
     if (!lessonId || !activityId || !fileName) {
         return NextResponse.json({ error: "Missing parameters" }, {
@@ -21,15 +22,11 @@ export async function GET(request: NextRequest) {
     }
 
     // Determine whose file we are accessing.
-    // If the user is the pupil, they access their own file.
-    // If the user is a teacher, they might be accessing a pupil's file - but getting the pupilId here is tricky.
-    // For now, let's assume this endpoint is for the PUPIL viewing THEIR OWN file (revisit for teacher view).
-    // Reviewing PupilSketchRenderActivity: it is used by pupil.
-    // Teacher view (SketchRenderFeedbackView) likely uses a different mechanism or passes the explicit path/URL?
-    // Wait, SketchRenderFeedbackView uses `readSubmissionByIdAction`. Does it use this API route?
-    // Let's check SketchRenderFeedbackView later. For pupil, it's their own.
+    // If userId is provided (teacher viewing pupil's file), use that.
+    // Otherwise, use the authenticated user's ID (pupil viewing their own file).
+    const targetUserId = userId || profile.userId;
 
-    const storageKey = await resolvePupilStorageKey(profile.userId);
+    const storageKey = await resolvePupilStorageKey(targetUserId);
     const path =
         `lessons/${lessonId}/activities/${activityId}/${storageKey}/${fileName}`;
 
