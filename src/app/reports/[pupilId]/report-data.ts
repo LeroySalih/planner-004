@@ -263,6 +263,7 @@ export type PreparedUnitReport = {
   formattedDate: string
   subject: string
   unit: ReportUnitSummary
+  lessons: UnitLessonContext["lessons"]
 }
 
 export async function getPreparedReportData(
@@ -398,11 +399,22 @@ export async function getPreparedUnitReport(
       for (const subjectEntry of prepared.subjectEntries) {
         const match = subjectEntry.units.find((unit) => unit.unitId === unitId)
         if (match) {
+          // Fetch lesson/activity data for this unit
+          const dataset = await fetchReportDataset(pupilId, undefined)
+          const unitDataset = dataset.units.find((u) => u.unit_id === unitId)
+          const lessonContext = await loadUnitLessonContextFromDataset(
+            unitId,
+            pupilId,
+            unitDataset,
+            options?.authEndTime
+          )
+
           return {
             profileName: prepared.profileName,
             formattedDate: prepared.formattedDate,
             subject: subjectEntry.subject,
             unit: match,
+            lessons: lessonContext.lessons,
           }
         }
       }

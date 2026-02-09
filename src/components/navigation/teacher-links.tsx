@@ -127,6 +127,12 @@ export function TeacherNavLinks({ onNavigate }: TeacherNavLinksProps) {
                     <ListItem href="/reports" title="Reports" onClick={onNavigate}>
                       View pupil reports
                     </ListItem>
+                    <ListItem href="/unit-progress-reports" title="Unit Progress" onClick={onNavigate}>
+                      Monitor class progress by units
+                    </ListItem>
+                    <ListItem href="/lo-progress-reports" title="LO Progress" onClick={onNavigate}>
+                      Monitor class progress by learning objectives
+                    </ListItem>
                   </ul>
                 </NavigationMenuContent>
               </NavigationMenuItem>
@@ -188,7 +194,7 @@ export function TeacherNavLinks({ onNavigate }: TeacherNavLinksProps) {
               <NavigationMenuItem>
                 <NavigationMenuLink asChild onClick={onNavigate}>
                   <Link href={`/reports/${encodeURIComponent(userId)}`} className={navigationMenuTriggerStyle()}>
-                    Dashboard
+                    Mr Reports
                   </Link>
                 </NavigationMenuLink>
               </NavigationMenuItem>

@@ -71,7 +71,7 @@ export async function PupilReportView({ pupilId, authEndTime }: { pupilId: strin
 
                     <dl className="grid grid-cols-1 gap-3 text-sm text-muted-foreground sm:grid-cols-3">
                       <div className="rounded-md bg-muted/60 px-3 py-2">
-                        <dt className="text-xs uppercase tracking-wide">Activities</dt>
+                        <dt className="text-xs uppercase tracking-wide">Completion</dt>
                         <dd className="text-base font-medium text-foreground">{formatPercent(unit.activitiesAverage)}</dd>
                       </div>
                       <div className="rounded-md bg-muted/60 px-3 py-2">
