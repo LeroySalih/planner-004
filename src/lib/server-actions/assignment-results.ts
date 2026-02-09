@@ -30,7 +30,6 @@ import {
   selectLatestSubmission,
   TEACHER_OVERRIDE_PLACEHOLDER,
 } from "@/lib/scoring/activity-scores";
-import { schedulePupilReportRecalc } from "@/lib/report-cache-jobs";
 import { withTelemetry } from "@/lib/telemetry";
 import { publishAssignmentFeedbackVisibilityUpdate } from "@/lib/results-sse";
 import {
@@ -1577,10 +1576,6 @@ export async function overrideAssignmentScoreAction(
         });
 
         revalidatePath(`/results/assignments/${parsed.data.assignmentId}`);
-        schedulePupilReportRecalc({
-          pupilId: parsed.data.pupilId,
-          reason: "assignment-override",
-        });
 
         return MutateAssignmentScoreReturnSchema.parse({
           success: true,
@@ -1775,10 +1770,6 @@ export async function resetAssignmentScoreAction(
         });
 
         revalidatePath(`/results/assignments/${parsed.data.assignmentId}`);
-        schedulePupilReportRecalc({
-          pupilId: parsed.data.pupilId,
-          reason: "assignment-reset",
-        });
 
         return MutateAssignmentScoreReturnSchema.parse({
           success: true,

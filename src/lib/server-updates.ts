@@ -244,7 +244,6 @@ export {
   type LessonMutationState,
 } from "./prototypes/lesson-mutations";
 
-export { runPupilReportRecalcAction } from "./server-actions/reports";
 export {
   clearSigninThrottleForPupilAction,
   getSessionProfileAction,

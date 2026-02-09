@@ -52,23 +52,19 @@ export type ReportAssignment = z.infer<typeof AssignmentsWithUnitSchema>[number]
 
 async function fetchReportDataset(
   pupilId: string,
-  _groupIdFilter?: string | null,
+  groupIdFilter?: string | null,
 ): Promise<ReportDataset> {
   try {
-    const { rows } = await query("select dataset from report_pupil_cache where pupil_id = $1 limit 1", [pupilId])
-    let datasetPayload = rows?.[0]?.dataset ?? null
+    // Call the SQL function directly to build dataset on-the-fly (no cache)
+    const { rows } = await query(
+      "select reports_get_prepared_report_dataset($1, $2) as dataset",
+      [pupilId, groupIdFilter || null],
+    )
+    const datasetPayload = rows?.[0]?.dataset ?? {}
 
-    if (!datasetPayload) {
-      const { rows: recalcRows } = await query(
-        "select reports_recalculate_pupil_cache($1) as dataset",
-        [pupilId],
-      )
-      datasetPayload = recalcRows?.[0]?.dataset ?? {}
-    }
-
-    return ReportDatasetSchema.parse(datasetPayload ?? {})
+    return ReportDatasetSchema.parse(datasetPayload)
   } catch (error) {
-    console.error("[reports] Failed to load or recalc dataset via PG", { pupilId, error })
+    console.error("[reports] Failed to load dataset via PG", { pupilId, error })
     throw new Error(error instanceof Error ? error.message : "Failed to load report dataset.")
   }
 }
@@ -77,8 +73,14 @@ async function fetchLatestFeedbackSnapshot(
   pupilId: string,
 ): Promise<Record<string, number>> {
   try {
+    // Query latest feedback directly from feedback table (no cache)
     const { rows } = await query(
-      "select success_criteria_id, latest_rating from report_pupil_feedback_cache where pupil_id = $1",
+      `SELECT DISTINCT ON (success_criteria_id)
+         success_criteria_id,
+         rating
+       FROM feedback
+       WHERE user_id = $1
+       ORDER BY success_criteria_id, id DESC`,
       [pupilId],
     )
     const snapshot: Record<string, number> = {}
@@ -86,13 +88,13 @@ async function fetchLatestFeedbackSnapshot(
       const criterionId =
         typeof entry.success_criteria_id === "string" ? entry.success_criteria_id.trim() : ""
       if (!criterionId) continue
-      if (typeof entry.latest_rating === "number") {
-        snapshot[criterionId] = entry.latest_rating
+      if (typeof entry.rating === "number") {
+        snapshot[criterionId] = entry.rating
       }
     }
     return snapshot
   } catch (error) {
-    console.error("[reports] Failed to read feedback cache via PG", { pupilId, error })
+    console.error("[reports] Failed to read feedback via PG", { pupilId, error })
     return {}
   }
 }
@@ -101,63 +103,9 @@ async function readCachedUnitSummaries(
   pupilId: string,
   options?: { groupIdFilter?: string },
 ): Promise<ReportUnitSummary[]> {
-  try {
-    const { rows } = await query(
-      `
-        select unit_id, unit_title, unit_subject, unit_description, unit_year, related_group_ids, grouped_levels, working_level, activities_average, assessment_average, assessment_level, score_error, objective_error
-        from report_pupil_unit_summaries
-        where pupil_id = $1
-      `,
-      [pupilId],
-    )
-
-    const parsed = ReportUnitSummaryRowSchema.array().safeParse(rows ?? [])
-    if (!parsed.success) {
-      console.warn("[reports] Invalid unit summary cache rows", {
-        pupilId,
-        issues: parsed.error.issues,
-      })
-      return []
-    }
-
-    return parsed.data
-      .filter((row) => {
-        if (!options?.groupIdFilter) return true
-        const groupIds = row.related_group_ids ?? []
-        return groupIds.includes(options.groupIdFilter)
-      })
-      .map<ReportUnitSummary>((row) => ({
-        unitId: row.unit_id,
-        unitTitle: row.unit_title ?? row.unit_id,
-        unitSubject: row.unit_subject ?? "Subject not set",
-        unitDescription: row.unit_description ?? null,
-        unitYear: row.unit_year ?? null,
-        relatedGroups: Array.from(new Set(row.related_group_ids ?? [])),
-        objectiveError: row.objective_error,
-        groupedLevels: row.grouped_levels.map((group) => ({
-          level: group.level,
-          rows: group.rows.map((entry) => ({
-            level: entry.level,
-            assessmentObjectiveCode: entry.assessmentObjectiveCode,
-            assessmentObjectiveTitle: entry.assessmentObjectiveTitle,
-            objectiveTitle: entry.objectiveTitle,
-            learningObjectiveId: entry.learningObjectiveId,
-            criterionId: entry.criterionId,
-            criterionDescription: entry.criterionDescription,
-            activitiesScore: entry.activitiesScore,
-            assessmentScore: entry.assessmentScore,
-          })),
-        })),
-        workingLevel: row.working_level ?? null,
-        activitiesAverage: row.activities_average ?? null,
-        assessmentAverage: row.assessment_average ?? null,
-        assessmentLevel: row.assessment_level ?? null,
-        scoreError: row.score_error ?? null,
-      }))
-  } catch (error) {
-    console.error("[reports] Failed to read unit summaries cache via PG", { pupilId, error })
-    return []
-  }
+  // Cache tables removed - always build summaries from dataset
+  // This function now returns empty array to trigger fallback to buildDatasetUnitSummaries
+  return []
 }
 
 export function buildFeedbackMapFromDataset(entries: ReportDataset["feedback"]) {
