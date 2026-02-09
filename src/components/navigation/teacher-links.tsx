@@ -194,7 +194,7 @@ export function TeacherNavLinks({ onNavigate }: TeacherNavLinksProps) {
               <NavigationMenuItem>
                 <NavigationMenuLink asChild onClick={onNavigate}>
                   <Link href={`/reports/${encodeURIComponent(userId)}`} className={navigationMenuTriggerStyle()}>
-                    Mr Reports
+                    My Reports
                   </Link>
                 </NavigationMenuLink>
               </NavigationMenuItem>
