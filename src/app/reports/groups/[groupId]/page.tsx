@@ -120,7 +120,7 @@ export default async function GroupReportPage({
         pupilMembers.map(async (member) => {
           const prepared = await getPreparedReportData(member.userId, groupId, { authEndTime: authEnd })
 
-          const unitScores = new Map<string, { assessmentAverage: number | null; levelLabel: string }>()
+          const unitScores = new Map<string, { average: number | null; levelLabel: string }>()
 
           if (prepared) {
             prepared.subjectEntries.forEach((entry) => {
@@ -133,7 +133,7 @@ export default async function GroupReportPage({
                   })
                 }
                 unitScores.set(unit.unitId, {
-                  assessmentAverage: unit.assessmentAverage,
+                  average: unit.average,
                   levelLabel: formatLevel(unit.assessmentLevel, unit.workingLevel),
                 })
               })
@@ -220,7 +220,7 @@ export default async function GroupReportPage({
                         <td key={`${report.userId}-${unit.unitId}`} className="border border-border px-4 py-2 align-top">
                           <div className="flex flex-col gap-1 text-sm">
                             <span className="font-medium text-foreground">
-                              {formatPercent(score?.assessmentAverage ?? null)}
+                              {formatPercent(score?.average ?? null)}
                             </span>
                             <span className="text-xs text-muted-foreground">{score?.levelLabel ?? "—"}</span>
                           </div>

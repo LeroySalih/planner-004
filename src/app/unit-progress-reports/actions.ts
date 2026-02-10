@@ -18,8 +18,7 @@ export async function getClassProgressAction(groupId: string) {
        u.title as unit_title,
        u.subject as unit_subject,
        COUNT(DISTINCT gm.user_id) as pupil_count,
-       AVG(CASE WHEN a.is_summative = false THEN paf.score END) as avg_completion,
-       AVG(CASE WHEN a.is_summative = true THEN paf.score END) as avg_assessment
+       AVG(paf.score) as avg_score
      FROM lesson_assignments la
      JOIN lessons l ON l.lesson_id = la.lesson_id
      JOIN units u ON u.unit_id = l.unit_id
@@ -38,8 +37,7 @@ export async function getClassProgressAction(groupId: string) {
     unitTitle: row.unit_title as string,
     unitSubject: row.unit_subject as string | null,
     pupilCount: Number(row.pupil_count),
-    avgCompletion: row.avg_completion != null ? Number(row.avg_completion) : null,
-    avgAssessment: row.avg_assessment != null ? Number(row.avg_assessment) : null,
+    avgScore: row.avg_score != null ? Number(row.avg_score) : null,
   }))
 }
 
@@ -60,8 +58,7 @@ export async function getProgressMatrixAction() {
        u.title as unit_title,
        u.subject as unit_subject,
        COUNT(DISTINCT gm.user_id) as pupil_count,
-       AVG(CASE WHEN a.is_summative = false THEN paf.score END) as avg_completion,
-       AVG(CASE WHEN a.is_summative = true THEN paf.score END) as avg_assessment
+       AVG(paf.score) as avg_score
      FROM groups g
      JOIN group_membership gm_teacher ON g.group_id = gm_teacher.group_id AND gm_teacher.user_id = $1
      JOIN lesson_assignments la ON la.group_id = g.group_id
@@ -83,8 +80,7 @@ export async function getProgressMatrixAction() {
     unitTitle: row.unit_title as string,
     unitSubject: row.unit_subject as string | null,
     pupilCount: Number(row.pupil_count),
-    avgCompletion: row.avg_completion != null ? Number(row.avg_completion) : null,
-    avgAssessment: row.avg_assessment != null ? Number(row.avg_assessment) : null,
+    avgScore: row.avg_score != null ? Number(row.avg_score) : null,
   }))
 }
 
@@ -118,8 +114,7 @@ export async function getClassPupilMatrixAction(groupId: string) {
        u.subject as unit_subject,
        gm.user_id as pupil_id,
        COALESCE(p.first_name || ' ' || p.last_name, p.first_name, p.last_name, gm.user_id) as pupil_name,
-       AVG(CASE WHEN a.is_summative = false THEN paf.score END) as avg_completion,
-       AVG(CASE WHEN a.is_summative = true THEN paf.score END) as avg_assessment
+       AVG(paf.score) as avg_score
      FROM lesson_assignments la
      JOIN lessons l ON l.lesson_id = la.lesson_id
      JOIN units u ON u.unit_id = l.unit_id
@@ -143,8 +138,7 @@ export async function getClassPupilMatrixAction(groupId: string) {
       unitSubject: row.unit_subject as string | null,
       pupilId: row.pupil_id as string,
       pupilName: row.pupil_name as string,
-      avgCompletion: row.avg_completion != null ? Number(row.avg_completion) : null,
-      avgAssessment: row.avg_assessment != null ? Number(row.avg_assessment) : null,
+      avgScore: row.avg_score != null ? Number(row.avg_score) : null,
     }))
   }
 }
@@ -181,7 +175,6 @@ export async function getUnitLessonMatrixAction(groupId: string, unitId: string)
          gm.user_id as pupil_id,
          COALESCE(p.first_name || ' ' || p.last_name, p.first_name, p.last_name, gm.user_id) as pupil_name,
          a.activity_id,
-         a.is_summative,
          paf.score
        FROM lessons l
        JOIN lesson_assignments la ON la.lesson_id = l.lesson_id AND la.group_id = $1
@@ -197,8 +190,7 @@ export async function getUnitLessonMatrixAction(groupId: string, unitId: string)
        order_by,
        pupil_id,
        pupil_name,
-       AVG(CASE WHEN is_summative = false THEN score END) as avg_completion,
-       AVG(CASE WHEN is_summative = true THEN score END) as avg_assessment
+       AVG(score) as avg_score
      FROM lesson_activity_scores
      GROUP BY lesson_id, lesson_title, order_by, pupil_id, pupil_name
      ORDER BY order_by, pupil_name`,
@@ -215,8 +207,7 @@ export async function getUnitLessonMatrixAction(groupId: string, unitId: string)
       lessonTitle: row.lesson_title as string,
       pupilId: row.pupil_id as string,
       pupilName: row.pupil_name as string,
-      avgCompletion: row.avg_completion != null ? Number(row.avg_completion) : null,
-      avgAssessment: row.avg_assessment != null ? Number(row.avg_assessment) : null,
+      avgScore: row.avg_score != null ? Number(row.avg_score) : null,
     }))
   }
 }
@@ -265,8 +256,7 @@ export async function getPupilUnitLessonsAction(groupId: string, unitId: string,
        l.lesson_id,
        l.title as lesson_title,
        l.order_by,
-       AVG(CASE WHEN a.is_summative = false THEN paf.score END) as avg_completion,
-       AVG(CASE WHEN a.is_summative = true THEN paf.score END) as avg_assessment
+       AVG(paf.score) as avg_score
      FROM lessons l
      JOIN lesson_assignments la ON la.lesson_id = l.lesson_id AND la.group_id = $1
      LEFT JOIN activities a ON a.lesson_id = l.lesson_id
@@ -290,8 +280,7 @@ export async function getPupilUnitLessonsAction(groupId: string, unitId: string,
     lessons: lessonRows.map((row) => ({
       lessonId: row.lesson_id as string,
       lessonTitle: row.lesson_title as string,
-      avgCompletion: row.avg_completion != null ? Number(row.avg_completion) : null,
-      avgAssessment: row.avg_assessment != null ? Number(row.avg_assessment) : null,
+      avgScore: row.avg_score != null ? Number(row.avg_score) : null,
     }))
   }
 }

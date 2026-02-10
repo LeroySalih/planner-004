@@ -12,8 +12,7 @@ type UnitProgress = {
   unitTitle: string
   unitSubject: string | null
   pupilCount: number
-  avgCompletion: number | null
-  avgAssessment: number | null
+  avgScore: number | null
 }
 
 function formatPercent(value: number | null) {
@@ -108,20 +107,12 @@ export function ClassProgressView({ groupId }: ClassProgressViewProps) {
             </div>
 
             <div className="flex flex-shrink-0 gap-3">
-              <div className={`rounded-md px-3 py-2 text-center ${getMetricColor(unit.avgCompletion)}`}>
+              <div className={`rounded-md px-3 py-2 text-center ${getMetricColor(unit.avgScore)}`}>
                 <div className="text-lg font-semibold text-foreground">
-                  {formatPercent(unit.avgCompletion)}
+                  {formatPercent(unit.avgScore)}
                 </div>
                 <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                  Completion
-                </div>
-              </div>
-              <div className={`rounded-md px-3 py-2 text-center ${getMetricColor(unit.avgAssessment)}`}>
-                <div className="text-lg font-semibold text-foreground">
-                  {formatPercent(unit.avgAssessment)}
-                </div>
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                  Assessment
+                  Score
                 </div>
               </div>
             </div>

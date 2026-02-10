@@ -5,8 +5,7 @@ type LessonMatrixData = {
   lessonTitle: string
   pupilId: string
   pupilName: string
-  avgCompletion: number | null
-  avgAssessment: number | null
+  avgScore: number | null
 }
 
 type LessonMatrixProps = {
@@ -19,8 +18,7 @@ type MatrixStructure = {
     lessonId: string
     lessonTitle: string
     pupilMetrics: Map<string, {
-      avgCompletion: number | null
-      avgAssessment: number | null
+      avgScore: number | null
     }>
   }[]
 }
@@ -72,8 +70,7 @@ export function LessonMatrix({ data }: LessonMatrixProps) {
     lessonId: string
     lessonTitle: string
     pupilMetrics: Map<string, {
-      avgCompletion: number | null
-      avgAssessment: number | null
+      avgScore: number | null
     }>
   }>()
 
@@ -97,8 +94,7 @@ export function LessonMatrix({ data }: LessonMatrixProps) {
 
     const lessonEntry = lessonMap.get(row.lessonId)!
     lessonEntry.pupilMetrics.set(row.pupilId, {
-      avgCompletion: row.avgCompletion,
-      avgAssessment: row.avgAssessment
+      avgScore: row.avgScore
     })
   }
 
@@ -161,14 +157,11 @@ export function LessonMatrix({ data }: LessonMatrixProps) {
                   return (
                     <td
                       key={pupil.pupilId}
-                      className={`px-3 py-3 ${getCellBgColor(metrics.avgCompletion)}`}
+                      className={`px-3 py-3 ${getCellBgColor(metrics.avgScore)}`}
                     >
                       <div className="flex flex-col items-center gap-1">
-                        <div className={`text-sm font-semibold ${getMetricColor(metrics.avgCompletion)}`}>
-                          {formatPercent(metrics.avgCompletion)}
-                        </div>
-                        <div className={`text-xs ${getMetricColor(metrics.avgAssessment)}`}>
-                          {formatPercent(metrics.avgAssessment)}
+                        <div className={`text-sm font-semibold ${getMetricColor(metrics.avgScore)}`}>
+                          {formatPercent(metrics.avgScore)}
                         </div>
                       </div>
                     </td>
@@ -182,14 +175,6 @@ export function LessonMatrix({ data }: LessonMatrixProps) {
 
       {/* Legend */}
       <div className="flex items-center gap-6 text-xs text-muted-foreground">
-        <div className="flex items-center gap-2">
-          <div className="font-semibold">Top:</div>
-          <div>Completion</div>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="font-semibold">Bottom:</div>
-          <div>Assessment</div>
-        </div>
         <div className="ml-auto flex items-center gap-3">
           <div className="flex items-center gap-1">
             <div className="h-3 w-3 rounded bg-green-600"></div>

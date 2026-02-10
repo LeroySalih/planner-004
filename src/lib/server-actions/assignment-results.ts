@@ -958,28 +958,21 @@ export async function readAssignmentResultsAction(
 
         let overallTotal = 0;
         let overallCount = 0;
-        let summativeOverallTotal = 0;
-        let summativeOverallCount = 0;
 
         const activitySummaries = activities.map((activity) => {
           const entry = activityTotals.get(activity.activityId);
-          const activitiesAverage = entry && entry.count > 0
+          const average = entry && entry.count > 0
             ? entry.total / entry.count
             : null;
 
           if (entry) {
             overallTotal += entry.total;
             overallCount += entry.count;
-            if (activity.isSummative) {
-              summativeOverallTotal += entry.total;
-              summativeOverallCount += entry.count;
-            }
           }
 
           return {
             activityId: activity.activityId,
-            activitiesAverage,
-            assessmentAverage: activity.isSummative ? activitiesAverage : null,
+            average,
             submittedCount: entry?.submittedCount ?? 0,
           };
         });
@@ -989,8 +982,6 @@ export async function readAssignmentResultsAction(
           {
             total: number;
             count: number;
-            summativeTotal: number;
-            summativeCount: number;
             submittedCount: number;
             activityIds: Set<string>;
             title: string | null;
@@ -1008,8 +999,6 @@ export async function readAssignmentResultsAction(
                 successCriteriaTotals.get(criterion.successCriteriaId) ?? {
                   total: 0,
                   count: 0,
-                  summativeTotal: 0,
-                  summativeCount: 0,
                   submittedCount: 0,
                   activityIds: new Set<string>(),
                   title: criterion.title ?? null,
@@ -1024,10 +1013,6 @@ export async function readAssignmentResultsAction(
                   : 0;
               existing.total += numeric;
               existing.count += 1;
-              if (activity.isSummative) {
-                existing.summativeTotal += numeric;
-                existing.summativeCount += 1;
-              }
               if (cell.status !== "missing") {
                 existing.submittedCount += 1;
               }
@@ -1055,10 +1040,7 @@ export async function readAssignmentResultsAction(
           successCriteriaId,
           title: entry.title ?? null,
           description: entry.description ?? null,
-          activitiesAverage: entry.count > 0 ? entry.total / entry.count : null,
-          assessmentAverage: entry.summativeCount > 0
-            ? entry.summativeTotal / entry.summativeCount
-            : null,
+          average: entry.count > 0 ? entry.total / entry.count : null,
           submittedCount: entry.submittedCount,
           activityCount: entry.activityIds.size,
         }));
@@ -1093,11 +1075,8 @@ export async function readAssignmentResultsAction(
           activitySummaries,
           successCriteriaSummaries,
           overallAverages: {
-            activitiesAverage: overallCount > 0
+            average: overallCount > 0
               ? overallTotal / overallCount
-              : null,
-            assessmentAverage: summativeOverallCount > 0
-              ? summativeOverallTotal / summativeOverallCount
               : null,
           },
         });

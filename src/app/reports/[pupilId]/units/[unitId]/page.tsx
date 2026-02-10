@@ -127,21 +127,13 @@ export default async function UnitReportPage({
               {unit.unitDescription?.trim() || "No description available."}
             </p>
           </div>
-          <dl className="grid w-full grid-cols-1 gap-3 text-sm text-muted-foreground sm:w-auto sm:grid-cols-3">
-            <div className={`rounded-md px-3 py-2 text-center ${getMetricColor(unit.activitiesAverage)}`}>
+          <dl className="grid w-full grid-cols-1 gap-3 text-sm text-muted-foreground sm:w-auto sm:grid-cols-2">
+            <div className={`rounded-md px-3 py-2 text-center ${getMetricColor(unit.average)}`}>
               <div className="text-lg font-semibold text-foreground">
-                {formatPercent(unit.activitiesAverage)}
+                {formatPercent(unit.average)}
               </div>
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                Completion
-              </div>
-            </div>
-            <div className={`rounded-md px-3 py-2 text-center ${getMetricColor(unit.assessmentAverage)}`}>
-              <div className="text-lg font-semibold text-foreground">
-                {formatPercent(unit.assessmentAverage)}
-              </div>
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                Assessment
+                Score
               </div>
             </div>
             <div className="rounded-md bg-muted px-3 py-2 text-center">
@@ -186,22 +178,14 @@ export default async function UnitReportPage({
                   {Array.from(ao.learningObjectives.values()).map((lo) => {
                     // Aggregate metrics for this LO from its success criteria
                     const scWithScores = lo.successCriteria.filter(sc =>
-                      (typeof sc.activitiesScore === 'number' && !Number.isNaN(sc.activitiesScore)) ||
-                      (typeof sc.assessmentScore === 'number' && !Number.isNaN(sc.assessmentScore))
+                      (typeof sc.score === 'number' && !Number.isNaN(sc.score))
                     )
 
-                    const completionScores = lo.successCriteria
-                      .map(sc => sc.activitiesScore)
+                    const scores = lo.successCriteria
+                      .map(sc => sc.score)
                       .filter((score): score is number => typeof score === 'number' && !Number.isNaN(score))
-                    const avgCompletion = completionScores.length > 0
-                      ? completionScores.reduce((sum, score) => sum + score, 0) / completionScores.length
-                      : null
-
-                    const assessmentScores = lo.successCriteria
-                      .map(sc => sc.assessmentScore)
-                      .filter((score): score is number => typeof score === 'number' && !Number.isNaN(score))
-                    const avgAssessment = assessmentScores.length > 0
-                      ? assessmentScores.reduce((sum, score) => sum + score, 0) / assessmentScores.length
+                    const avgScore = scores.length > 0
+                      ? scores.reduce((sum, score) => sum + score, 0) / scores.length
                       : null
 
                     const levels = lo.successCriteria
@@ -227,20 +211,12 @@ export default async function UnitReportPage({
                                 Level
                               </div>
                             </div>
-                            <div className={`rounded-md px-2 py-1.5 text-center ${getMetricColor(avgCompletion)}`}>
+                            <div className={`rounded-md px-2 py-1.5 text-center ${getMetricColor(avgScore)}`}>
                               <div className="text-base font-semibold text-foreground">
-                                {formatPercent(avgCompletion)}
+                                {formatPercent(avgScore)}
                               </div>
                               <div className="text-[9px] uppercase tracking-wide text-muted-foreground">
-                                Completion
-                              </div>
-                            </div>
-                            <div className={`rounded-md px-2 py-1.5 text-center ${getMetricColor(avgAssessment)}`}>
-                              <div className="text-base font-semibold text-foreground">
-                                {formatPercent(avgAssessment)}
-                              </div>
-                              <div className="text-[9px] uppercase tracking-wide text-muted-foreground">
-                                Assessment
+                                Score
                               </div>
                             </div>
                           </div>
@@ -266,20 +242,12 @@ export default async function UnitReportPage({
                                   Level
                                 </div>
                               </div>
-                              <div className={`rounded px-1.5 py-0.5 text-center ${getMetricColor(sc.activitiesScore)}`}>
+                              <div className={`rounded px-1.5 py-0.5 text-center ${getMetricColor(sc.score)}`}>
                                 <div className="text-xs font-semibold text-foreground">
-                                  {formatPercent(sc.activitiesScore)}
+                                  {formatPercent(sc.score)}
                                 </div>
                                 <div className="text-[7px] uppercase tracking-wide text-muted-foreground">
-                                  Completion
-                                </div>
-                              </div>
-                              <div className={`rounded px-1.5 py-0.5 text-center ${getMetricColor(sc.assessmentScore)}`}>
-                                <div className="text-xs font-semibold text-foreground">
-                                  {formatPercent(sc.assessmentScore)}
-                                </div>
-                                <div className="text-[7px] uppercase tracking-wide text-muted-foreground">
-                                  Assessment
+                                  Score
                                 </div>
                               </div>
                             </div>
@@ -307,13 +275,9 @@ export default async function UnitReportPage({
                         <h4 className="flex-1 font-medium text-foreground">{lesson.title}</h4>
                         {lesson.scoreAverages && (
                           <div className="flex flex-shrink-0 gap-2">
-                            <div className={`rounded px-2 py-1 text-center ${getMetricColor(lesson.scoreAverages.activitiesAverage)}`}>
-                              <div className="text-xs font-semibold text-foreground">{formatPercent(lesson.scoreAverages.activitiesAverage)}</div>
-                              <div className="text-[7px] uppercase tracking-wide text-muted-foreground">Completion</div>
-                            </div>
-                            <div className={`rounded px-2 py-1 text-center ${getMetricColor(lesson.scoreAverages.assessmentAverage)}`}>
-                              <div className="text-xs font-semibold text-foreground">{formatPercent(lesson.scoreAverages.assessmentAverage)}</div>
-                              <div className="text-[7px] uppercase tracking-wide text-muted-foreground">Assessment</div>
+                            <div className={`rounded px-2 py-1 text-center ${getMetricColor(lesson.scoreAverages.average)}`}>
+                              <div className="text-xs font-semibold text-foreground">{formatPercent(lesson.scoreAverages.average)}</div>
+                              <div className="text-[7px] uppercase tracking-wide text-muted-foreground">Score</div>
                             </div>
                           </div>
                         )}

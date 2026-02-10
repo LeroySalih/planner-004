@@ -3,8 +3,7 @@
 type Lesson = {
   lessonId: string
   lessonTitle: string
-  avgCompletion: number | null
-  avgAssessment: number | null
+  avgScore: number | null
 }
 
 type PupilLessonListProps = {
@@ -58,20 +57,12 @@ export function PupilLessonList({ lessons }: PupilLessonListProps) {
               </div>
 
               <div className="flex flex-shrink-0 gap-3">
-                <div className={`rounded-md px-3 py-2 text-center ${getMetricColor(lesson.avgCompletion)}`}>
+                <div className={`rounded-md px-3 py-2 text-center ${getMetricColor(lesson.avgScore)}`}>
                   <div className="text-lg font-semibold text-foreground">
-                    {formatPercent(lesson.avgCompletion)}
+                    {formatPercent(lesson.avgScore)}
                   </div>
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                    Completion
-                  </div>
-                </div>
-                <div className={`rounded-md px-3 py-2 text-center ${getMetricColor(lesson.avgAssessment)}`}>
-                  <div className="text-lg font-semibold text-foreground">
-                    {formatPercent(lesson.avgAssessment)}
-                  </div>
-                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                    Assessment
+                    Score
                   </div>
                 </div>
               </div>

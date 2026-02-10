@@ -939,8 +939,7 @@ export const AssignmentResultRowSchema = z.object({
 
 export const AssignmentResultActivitySummarySchema = z.object({
     activityId: z.string(),
-    activitiesAverage: z.number().min(0).max(1).nullable(),
-    assessmentAverage: z.number().min(0).max(1).nullable(),
+    average: z.number().min(0).max(1).nullable(),
     submittedCount: z.number().int().min(0),
 });
 
@@ -948,15 +947,13 @@ export const AssignmentResultSuccessCriterionSummarySchema = z.object({
     successCriteriaId: z.string(),
     title: z.string().nullable().optional(),
     description: z.string().nullable().optional(),
-    activitiesAverage: z.number().min(0).max(1).nullable(),
-    assessmentAverage: z.number().min(0).max(1).nullable(),
+    average: z.number().min(0).max(1).nullable(),
     submittedCount: z.number().int().min(0),
     activityCount: z.number().int().min(0),
 });
 
 export const AssignmentResultOverallAveragesSchema = z.object({
-    activitiesAverage: z.number().min(0).max(1).nullable(),
-    assessmentAverage: z.number().min(0).max(1).nullable(),
+    average: z.number().min(0).max(1).nullable(),
 });
 
 export const AssignmentResultMatrixSchema = z.object({
@@ -1022,9 +1019,7 @@ export const UnitScoreSummarySchema = z.object({
     unitId: z.string(),
     lessonCount: z.number().int().min(0),
     activityCount: z.number().int().min(0),
-    summativeActivityCount: z.number().int().min(0),
-    activitiesAverage: z.number().min(0).max(1).nullable(),
-    assessmentAverage: z.number().min(0).max(1).nullable(),
+    average: z.number().min(0).max(1).nullable(),
 });
 
 export type UnitScoreSummary = z.infer<typeof UnitScoreSummarySchema>;
