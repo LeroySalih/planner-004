@@ -238,7 +238,7 @@ function recalculateMatrix(
   rows: AssignmentResultRow[]
   activitySummaries: AssignmentResultActivitySummary[]
   successCriteriaSummaries: AssignmentResultSuccessCriterionSummary[]
-  overallAverages: { activitiesAverage: number | null; assessmentAverage: number | null }
+  overallAverages: { average: number | null }
 } {
   const totals = new Map<
     string,
@@ -315,8 +315,7 @@ function recalculateMatrix(
     }
     return {
       activityId: activity.activityId,
-      activitiesAverage: entry.count > 0 ? entry.total / entry.count : null,
-      assessmentAverage: activity.isSummative && entry.count > 0 ? entry.total / entry.count : null,
+      average: entry.count > 0 ? entry.total / entry.count : null,
       submittedCount: entry.submittedCount,
     }
   })
@@ -326,8 +325,6 @@ function recalculateMatrix(
     {
       total: number
       count: number
-      assessmentTotal: number
-      assessmentCount: number
       submittedCount: number
       activityIds: Set<string>
       title: string | null
@@ -339,8 +336,6 @@ function recalculateMatrix(
     const totalsEntry = totals.get(activity.activityId) ?? {
       total: 0,
       count: 0,
-      assessmentTotal: 0,
-      assessmentCount: 0,
       submittedCount: 0,
     }
 
@@ -348,8 +343,6 @@ function recalculateMatrix(
       const existing = successCriteriaTotals.get(criterion.successCriteriaId) ?? {
         total: 0,
         count: 0,
-        assessmentTotal: 0,
-        assessmentCount: 0,
         submittedCount: 0,
         activityIds: new Set<string>(),
         title: criterion.title ?? null,
@@ -358,10 +351,6 @@ function recalculateMatrix(
 
       existing.total += totalsEntry.total
       existing.count += totalsEntry.count
-      if (activity.isSummative) {
-        existing.assessmentTotal += totalsEntry.total
-        existing.assessmentCount += totalsEntry.count
-      }
       existing.submittedCount += totalsEntry.submittedCount
       existing.activityIds.add(activity.activityId)
 
@@ -383,15 +372,13 @@ function recalculateMatrix(
     successCriteriaId,
     title: entry.title ?? null,
     description: entry.description ?? null,
-    activitiesAverage: entry.count > 0 ? entry.total / entry.count : null,
-    assessmentAverage: entry.assessmentCount > 0 ? entry.assessmentTotal / entry.assessmentCount : null,
+    average: entry.count > 0 ? entry.total / entry.count : null,
     submittedCount: entry.submittedCount,
     activityCount: entry.activityIds.size,
   }))
 
   const overallAverages = {
-    activitiesAverage: overallCount > 0 ? overallTotal / overallCount : null,
-    assessmentAverage: summativeOverallCount > 0 ? summativeOverallTotal / summativeOverallCount : null,
+    average: overallCount > 0 ? overallTotal / overallCount : null,
   }
 
   return { rows: nextRows, activitySummaries, successCriteriaSummaries, overallAverages }
@@ -1032,13 +1019,9 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     return total / criteria.length
   }, [selection, criterionDrafts])
 
-  const overallActivitiesLabel = useMemo(
-    () => formatPercent(matrixState.overallAverages?.activitiesAverage ?? null),
-    [matrixState.overallAverages?.activitiesAverage],
-  )
-  const overallSummativeLabel = useMemo(
-    () => formatPercent(matrixState.overallAverages?.assessmentAverage ?? null),
-    [matrixState.overallAverages?.assessmentAverage],
+  const overallAverageLabel = useMemo(
+    () => formatPercent(matrixState.overallAverages?.average ?? null),
+    [matrixState.overallAverages?.average],
   )
   const loadUploadFiles = useCallback(
     async (
@@ -2777,8 +2760,8 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
               </div>
               <div className="flex items-center gap-3">
                 <div className="flex flex-col items-end text-right">
-                  <span className="text-3xl font-semibold text-foreground">{overallActivitiesLabel}</span>
-                  <span className="text-xs text-muted-foreground">Assessment {overallSummativeLabel}</span>
+                  <span className="text-3xl font-semibold text-foreground">{overallAverageLabel}</span>
+                  <span className="text-xs text-muted-foreground">Overall score</span>
                 </div>
                 <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:-rotate-180" />
               </div>
@@ -2786,8 +2769,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
             <div className="space-y-3 border-t border-border/60 px-4 py-4">
               <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
                 <span>Overall lesson averages with linked success criteria summaries.</span>
-                <span>Activities: {overallActivitiesLabel}</span>
-                <span>Assessment: {overallSummativeLabel}</span>
+                <span>Score: {overallAverageLabel}</span>
               </div>
               {successCriteriaSummaries.length > 0 ? (
                 <div className="space-y-2">
@@ -2812,10 +2794,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                         </div>
                         <div className="flex flex-col items-end gap-0.5 text-right">
                           <span className="text-sm font-semibold text-foreground">
-                            Activities {formatPercent(summary.activitiesAverage ?? null)}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            Assessment {formatPercent(summary.assessmentAverage ?? null)}
+                            Score {formatPercent(summary.average ?? null)}
                           </span>
                         </div>
                       </div>
@@ -2924,12 +2903,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                           )}
                           <div className="flex flex-col text-xs text-muted-foreground">
                             <span className="font-semibold text-foreground">
-                              Activities {formatPercent(activitySummariesById[activity.activityId]?.activitiesAverage ?? null)}
-                            </span>
-                            <span>
-                              {activity.isSummative
-                                ? `Assessment ${formatPercent(activitySummariesById[activity.activityId]?.assessmentAverage ?? null)}`
-                                : "Not marked as assessment"}
+                              Score {formatPercent(activitySummariesById[activity.activityId]?.average ?? null)}
                             </span>
                           </div>
                         </button>
@@ -3057,20 +3031,10 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
               <div className="grid grid-cols-2 gap-3">
                 <div className="rounded-md border border-border/60 bg-muted/40 p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Activities average
+                    Score average
                   </p>
                   <p className="text-lg font-semibold text-foreground">
-                    {formatPercent(selectedActivitySummary?.activitiesAverage ?? null)}
-                  </p>
-                </div>
-                <div className="rounded-md border border-border/60 bg-muted/40 p-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Assessment average
-                  </p>
-                  <p className="text-lg font-semibold text-foreground">
-                    {selectedActivity.isSummative
-                      ? formatPercent(selectedActivitySummary?.assessmentAverage ?? null)
-                      : "N/A"}
+                    {formatPercent(selectedActivitySummary?.average ?? null)}
                   </p>
                 </div>
                 <div className="rounded-md border border-border/60 bg-muted/40 p-3">

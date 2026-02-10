@@ -10,8 +10,7 @@ type MatrixData = {
   unitTitle: string
   unitSubject: string | null
   pupilCount: number
-  avgCompletion: number | null
-  avgAssessment: number | null
+  avgScore: number | null
 }
 
 type ProgressMatrixProps = {
@@ -25,8 +24,7 @@ type SubjectData = {
     unitId: string
     unitTitle: string
     classMetrics: Map<string, {
-      avgCompletion: number | null
-      avgAssessment: number | null
+      avgScore: number | null
       pupilCount: number
     }>
   }[]
@@ -111,8 +109,7 @@ export function ProgressMatrix({ data }: ProgressMatrixProps) {
 
     // Add metrics for this class
     unitEntry.classMetrics.set(row.groupId, {
-      avgCompletion: row.avgCompletion,
-      avgAssessment: row.avgAssessment,
+      avgScore: row.avgScore,
       pupilCount: row.pupilCount
     })
   }
@@ -202,18 +199,15 @@ export function ProgressMatrix({ data }: ProgressMatrixProps) {
                     return (
                       <td
                         key={classId}
-                        className={`px-3 py-3 ${getCellBgColor(metrics.avgCompletion)}`}
+                        className={`px-3 py-3 ${getCellBgColor(metrics.avgScore)}`}
                       >
                         <Link
                           href={`/unit-progress-reports/${encodeURIComponent(classId)}/${encodeURIComponent(unit.unitId)}`}
                           className="block"
                         >
                           <div className="flex flex-col items-center gap-1 hover:opacity-80 transition-opacity">
-                            <div className={`text-sm font-semibold ${getMetricColor(metrics.avgCompletion)}`}>
-                              {formatPercent(metrics.avgCompletion)}
-                            </div>
-                            <div className={`text-xs ${getMetricColor(metrics.avgAssessment)}`}>
-                              {formatPercent(metrics.avgAssessment)}
+                            <div className={`text-sm font-semibold ${getMetricColor(metrics.avgScore)}`}>
+                              {formatPercent(metrics.avgScore)}
                             </div>
                             <div className="text-[10px] text-muted-foreground">
                               {metrics.pupilCount}p
@@ -234,11 +228,7 @@ export function ProgressMatrix({ data }: ProgressMatrixProps) {
       <div className="flex items-center gap-6 text-xs text-muted-foreground">
         <div className="flex items-center gap-2">
           <div className="font-semibold">Top:</div>
-          <div>Completion</div>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="font-semibold">Middle:</div>
-          <div>Assessment</div>
+          <div>Score</div>
         </div>
         <div className="flex items-center gap-2">
           <div className="font-semibold">Bottom:</div>

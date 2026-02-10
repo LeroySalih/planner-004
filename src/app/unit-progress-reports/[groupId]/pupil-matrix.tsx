@@ -8,8 +8,7 @@ type PupilMatrixData = {
   unitSubject: string | null
   pupilId: string
   pupilName: string
-  avgCompletion: number | null
-  avgAssessment: number | null
+  avgScore: number | null
 }
 
 type PupilMatrixProps = {
@@ -23,8 +22,7 @@ type MatrixStructure = {
     unitId: string
     unitTitle: string
     pupilMetrics: Map<string, {
-      avgCompletion: number | null
-      avgAssessment: number | null
+      avgScore: number | null
     }>
   }[]
 }
@@ -76,8 +74,7 @@ export function PupilMatrix({ groupId, data }: PupilMatrixProps) {
     unitId: string
     unitTitle: string
     pupilMetrics: Map<string, {
-      avgCompletion: number | null
-      avgAssessment: number | null
+      avgScore: number | null
     }>
   }>()
 
@@ -101,8 +98,7 @@ export function PupilMatrix({ groupId, data }: PupilMatrixProps) {
 
     const unitEntry = unitMap.get(row.unitId)!
     unitEntry.pupilMetrics.set(row.pupilId, {
-      avgCompletion: row.avgCompletion,
-      avgAssessment: row.avgAssessment
+      avgScore: row.avgScore
     })
   }
 
@@ -170,18 +166,15 @@ export function PupilMatrix({ groupId, data }: PupilMatrixProps) {
                   return (
                     <td
                       key={pupil.pupilId}
-                      className={`px-3 py-3 ${getCellBgColor(metrics.avgCompletion)}`}
+                      className={`px-3 py-3 ${getCellBgColor(metrics.avgScore)}`}
                     >
                       <Link
                         href={`/unit-progress-reports/${encodeURIComponent(groupId)}/${encodeURIComponent(unit.unitId)}/${encodeURIComponent(pupil.pupilId)}`}
                         className="block"
                       >
                         <div className="flex flex-col items-center gap-1 hover:opacity-80 transition-opacity">
-                          <div className={`text-sm font-semibold ${getMetricColor(metrics.avgCompletion)}`}>
-                            {formatPercent(metrics.avgCompletion)}
-                          </div>
-                          <div className={`text-xs ${getMetricColor(metrics.avgAssessment)}`}>
-                            {formatPercent(metrics.avgAssessment)}
+                          <div className={`text-sm font-semibold ${getMetricColor(metrics.avgScore)}`}>
+                            {formatPercent(metrics.avgScore)}
                           </div>
                         </div>
                       </Link>
@@ -196,14 +189,6 @@ export function PupilMatrix({ groupId, data }: PupilMatrixProps) {
 
       {/* Legend */}
       <div className="flex items-center gap-6 text-xs text-muted-foreground">
-        <div className="flex items-center gap-2">
-          <div className="font-semibold">Top:</div>
-          <div>Completion</div>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="font-semibold">Bottom:</div>
-          <div>Assessment</div>
-        </div>
         <div className="ml-auto flex items-center gap-3">
           <div className="flex items-center gap-1">
             <div className="h-3 w-3 rounded bg-green-600"></div>
