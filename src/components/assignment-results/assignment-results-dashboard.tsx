@@ -432,7 +432,7 @@ function resolvePupilLabels(pupil: AssignmentResultRow["pupil"]) {
 }
 
 function isImageFile(filename: string): boolean {
-  return /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(filename)
+  return /\.(jpg|jpeg|png|gif|webp|svg|heic)$/i.test(filename)
 }
 
 export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResultMatrix }) {
