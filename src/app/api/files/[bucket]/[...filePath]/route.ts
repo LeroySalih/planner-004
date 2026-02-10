@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
+import heicConvert from "heic-convert"
 
 import { getAuthenticatedProfile } from "@/lib/auth"
 import { query } from "@/lib/db"
@@ -84,15 +85,49 @@ export async function GET(
     if (name.endsWith(".jpg") || name.endsWith(".jpeg")) return "image/jpeg"
     if (name.endsWith(".gif")) return "image/gif"
     if (name.endsWith(".webp")) return "image/webp"
+    if (name.endsWith(".heic")) return "image/heic"
     return "application/octet-stream"
   }
 
   const contentType = typedMetadata.content_type || inferContentType()
+  const shouldInline = contentType.startsWith("audio/") || contentType.startsWith("video/") || contentType.startsWith("image/")
+
+  // Convert HEIC to JPEG for browser compatibility
+  if (contentType === "image/heic" || fileName.toLowerCase().endsWith(".heic")) {
+    try {
+      // Read stream into buffer
+      const chunks: Buffer[] = []
+
+      for await (const chunk of stream as any) {
+        chunks.push(Buffer.from(chunk))
+      }
+
+      const heicBuffer = Buffer.concat(chunks)
+
+      // Convert HEIC to JPEG
+      const jpegBuffer = await heicConvert({
+        buffer: heicBuffer.buffer.slice(heicBuffer.byteOffset, heicBuffer.byteOffset + heicBuffer.byteLength),
+        format: "JPEG",
+        quality: 0.92,
+      })
+
+      // Set JPEG headers
+      headers.set("Content-Type", "image/jpeg")
+      headers.set("Content-Length", String(jpegBuffer.byteLength))
+      const jpegFileName = fileName.replace(/\.heic$/i, ".jpg")
+      headers.set("Content-Disposition", `${shouldInline ? "inline" : "attachment"}; filename="${jpegFileName}"`)
+
+      return new Response(jpegBuffer as any, { headers })
+    } catch (conversionError) {
+      console.error("[files] HEIC conversion failed", { fileName, error: conversionError })
+      // Fall back to serving original file
+    }
+  }
+
   headers.set("Content-Type", contentType)
   if (typeof typedMetadata.size_bytes === "number") {
     headers.set("Content-Length", String(typedMetadata.size_bytes))
   }
-  const shouldInline = contentType.startsWith("audio/") || contentType.startsWith("video/") || contentType.startsWith("image/")
   headers.set("Content-Disposition", `${shouldInline ? "inline" : "attachment"}; filename="${fileName}"`)
 
   return new Response(stream as any, { headers })
