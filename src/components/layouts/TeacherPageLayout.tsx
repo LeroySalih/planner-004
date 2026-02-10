@@ -1,6 +1,5 @@
 import { ReactNode } from "react"
-import { redirect } from "next/navigation"
-import { requireAuthenticatedProfile } from "@/lib/auth"
+import { requireTeacherProfile } from "@/lib/auth"
 import { PageLayout } from "./PageLayout"
 import { type BreadcrumbItem } from "@/components/common/PageBreadcrumbs"
 
@@ -43,11 +42,7 @@ export async function TeacherPageLayout({
   headerAction,
 }: TeacherPageLayoutProps) {
   // Auth check - this runs on the server
-  const profile = await requireAuthenticatedProfile()
-
-  if (!profile.isTeacher) {
-    redirect("/")
-  }
+  await requireTeacherProfile()
 
   // If auth passes, render the page layout
   return (
