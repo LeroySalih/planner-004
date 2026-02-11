@@ -2,14 +2,13 @@
 
 import { useState, useMemo } from "react"
 import Link from "next/link"
-import { format, parseISO, differenceInMonths, addWeeks, isBefore } from "date-fns"
+import { format, parseISO, addWeeks, isBefore } from "date-fns"
 import { cn } from "@/lib/utils"
 import { Roboto_Condensed } from "next/font/google"
 import { ChevronDown } from "lucide-react"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { PupilUnitsDetail, PupilUnitLesson } from "@/lib/pupil-units-data"
-import { StartRevisionButton } from "@/components/revisions/start-revision-button"
 import { LessonMedia } from "./lesson-media"
 
 function formatDate(value: string | null) {
@@ -32,39 +31,20 @@ function renderLessonObjectivesInline(lesson: PupilUnitLesson) {
 
 function isLessonOverdueAndUnderperforming(lesson: PupilUnitLesson) {
   if (!lesson.startDate) return false
-  
+
   const dueDate = addWeeks(parseISO(lesson.startDate), 1)
   // Check if overdue
   if (!isBefore(dueDate, new Date())) return false
-  
+
   // Check if has activities (max score > 0)
   const maxScore = lesson.lessonMaxScore ?? 0
   if (maxScore <= 0) return false
-  
+
   // Check if score < 80%
   const score = lesson.lessonScore ?? 0
   const percent = score / maxScore
-  
-  return percent < 0.8
-}
 
-function getRevisionBadgeColor(dateString: string | null) {
-  if (!dateString) return "bg-green-50 text-green-700 ring-green-600/20"
-  
-  try {
-    const date = parseISO(dateString)
-    const monthsDiff = differenceInMonths(new Date(), date)
-    
-    if (monthsDiff >= 2) {
-      return "bg-red-50 text-red-700 ring-red-600/20"
-    }
-    if (monthsDiff >= 1) {
-      return "bg-amber-50 text-amber-700 ring-amber-600/20"
-    }
-    return "bg-green-50 text-green-700 ring-green-600/20"
-  } catch {
-    return "bg-green-50 text-green-700 ring-green-600/20"
-  }
+  return percent < 0.8
 }
 
 const robotoCondensed = Roboto_Condensed({
@@ -224,23 +204,6 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
                                               Lesson Score: {Math.round(lesson.lessonScore * 10) / 10}/{lesson.lessonMaxScore} ({Math.round((lesson.lessonScore / lesson.lessonMaxScore) * 100)}%)
                                            </span>
                                       )}
-
-                                      {/* Revision Score & Launch */}
-                                      <div className="flex items-center gap-1.5 flex-wrap justify-end">
-                                        {lesson.revisionScore !== null && lesson.revisionMaxScore !== null && lesson.revisionMaxScore > 0 && (
-                                          <>
-                                            {lesson.revisionDate && (
-                                                <span className="text-[10px] text-muted-foreground">
-                                                    Rev: {formatDate(lesson.revisionDate)}
-                                                </span>
-                                            )}
-                                            <span className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ${getRevisionBadgeColor(lesson.revisionDate)}`}>
-                                                Revision: {Math.round(lesson.revisionScore * 10) / 10}/{lesson.revisionMaxScore} ({Math.round((lesson.revisionScore / lesson.revisionMaxScore) * 100)}%)
-                                            </span>
-                                          </>
-                                        )}
-                                        <StartRevisionButton lessonId={lesson.lessonId} compact />
-                                      </div>
                                     </div>
                                   </div>
 
