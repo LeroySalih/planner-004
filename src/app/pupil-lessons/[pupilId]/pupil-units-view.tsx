@@ -5,10 +5,12 @@ import Link from "next/link"
 import { format, parseISO, addWeeks, isBefore } from "date-fns"
 import { cn } from "@/lib/utils"
 import { Roboto_Condensed } from "next/font/google"
-import { ChevronDown } from "lucide-react"
+import { ChevronDown, BookOpen } from "lucide-react"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import type { PupilUnitsDetail, PupilUnitLesson } from "@/lib/pupil-units-data"
+import { StartRevisionButton } from "@/components/revisions/start-revision-button"
 import { LessonMedia } from "./lesson-media"
 
 function formatDate(value: string | null) {
@@ -215,6 +217,24 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
                                       files={lesson.files}
                                     />
                                   </div>
+
+                                  {/* Launch Buttons */}
+                                  {lesson.isEnrolled && (
+                                    <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:gap-2">
+                                      <Button asChild className="gap-2">
+                                        <Link
+                                          href={`/pupil-lessons/${encodeURIComponent(detail.pupilId)}/lessons/${encodeURIComponent(lesson.lessonId)}`}
+                                        >
+                                          <BookOpen className="h-4 w-4" />
+                                          Launch Lesson
+                                        </Link>
+                                      </Button>
+
+                                      {lesson.lessonScore !== null && (
+                                        <StartRevisionButton lessonId={lesson.lessonId} />
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
                               ))}
                             </div>
