@@ -169,7 +169,8 @@ export async function getUnitLessonMatrixAction(groupId: string, unitId: string)
          l.title as lesson_title,
          l.order_by,
          gm.user_id as pupil_id,
-         COALESCE(p.first_name || ' ' || p.last_name, p.first_name, p.last_name, gm.user_id) as pupil_name,
+         p.first_name,
+         p.last_name,
          a.activity_id,
          paf.score
        FROM lessons l
@@ -185,11 +186,12 @@ export async function getUnitLessonMatrixAction(groupId: string, unitId: string)
        lesson_title,
        order_by,
        pupil_id,
-       pupil_name,
+       first_name,
+       last_name,
        AVG(score) as avg_score
      FROM lesson_activity_scores
-     GROUP BY lesson_id, lesson_title, order_by, pupil_id, pupil_name
-     ORDER BY order_by, pupil_name`,
+     GROUP BY lesson_id, lesson_title, order_by, pupil_id, first_name, last_name
+     ORDER BY order_by, last_name, first_name`,
     [groupId, unitId]
   )
 
@@ -202,7 +204,8 @@ export async function getUnitLessonMatrixAction(groupId: string, unitId: string)
       lessonId: row.lesson_id as string,
       lessonTitle: row.lesson_title as string,
       pupilId: row.pupil_id as string,
-      pupilName: row.pupil_name as string,
+      firstName: row.first_name as string,
+      lastName: row.last_name as string,
       avgScore: row.avg_score != null ? Number(row.avg_score) : null,
     }))
   }

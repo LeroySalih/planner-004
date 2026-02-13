@@ -4,7 +4,8 @@ type LessonMatrixData = {
   lessonId: string
   lessonTitle: string
   pupilId: string
-  pupilName: string
+  firstName: string
+  lastName: string
   avgScore: number | null
 }
 
@@ -13,7 +14,7 @@ type LessonMatrixProps = {
 }
 
 type MatrixStructure = {
-  pupils: { pupilId: string; pupilName: string }[]
+  pupils: { pupilId: string; firstName: string; lastName: string }[]
   lessons: {
     lessonId: string
     lessonTitle: string
@@ -65,7 +66,7 @@ export function LessonMatrix({ data }: LessonMatrixProps) {
     lessons: []
   }
 
-  const pupilMap = new Map<string, { pupilId: string; pupilName: string }>()
+  const pupilMap = new Map<string, { pupilId: string; firstName: string; lastName: string }>()
   const lessonMap = new Map<string, {
     lessonId: string
     lessonTitle: string
@@ -79,7 +80,8 @@ export function LessonMatrix({ data }: LessonMatrixProps) {
     if (!pupilMap.has(row.pupilId)) {
       pupilMap.set(row.pupilId, {
         pupilId: row.pupilId,
-        pupilName: row.pupilName
+        firstName: row.firstName,
+        lastName: row.lastName
       })
     }
 
@@ -98,9 +100,11 @@ export function LessonMatrix({ data }: LessonMatrixProps) {
     })
   }
 
-  matrix.pupils = Array.from(pupilMap.values()).sort((a, b) =>
-    a.pupilName.localeCompare(b.pupilName)
-  )
+  matrix.pupils = Array.from(pupilMap.values()).sort((a, b) => {
+    const lastNameCompare = a.lastName.localeCompare(b.lastName)
+    if (lastNameCompare !== 0) return lastNameCompare
+    return a.firstName.localeCompare(b.firstName)
+  })
   matrix.lessons = Array.from(lessonMap.values())
 
   if (matrix.pupils.length === 0 || matrix.lessons.length === 0) {
@@ -139,7 +143,7 @@ export function LessonMatrix({ data }: LessonMatrixProps) {
             {matrix.pupils.map((pupil) => (
               <tr key={pupil.pupilId} className="border-b border-border last:border-b-0">
                 <td className="sticky left-0 z-10 bg-card px-4 py-3 text-sm font-medium text-foreground">
-                  {pupil.pupilName}
+                  {pupil.firstName} {pupil.lastName}
                 </td>
                 {matrix.lessons.map((lesson) => {
                   const metrics = lesson.pupilMetrics.get(pupil.pupilId)
