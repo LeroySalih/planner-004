@@ -1,10 +1,12 @@
-# N+1 Query Fixes: Learning Objectives
+# N+1 Query Fixes: Learning Objectives & Lessons
 
 ## Problem Identified
 
-**File:** `src/lib/server-actions/learning-objectives.ts`
+**Files:**
+- `src/lib/server-actions/learning-objectives.ts`
+- `src/lib/server-actions/lessons.ts`
 
-Three N+1 query patterns were found where loops executed individual database queries instead of batch operations:
+Four N+1 query patterns were found where loops executed individual database queries instead of batch operations:
 
 1. **createLearningObjectiveAction** - Creating success criteria one at a time
 2. **updateLearningObjectiveAction** - Inserting new success criteria one at a time
@@ -171,6 +173,48 @@ This works because `unnest()` converts parallel arrays into a temporary table wi
 
 ---
 
+## Fix 4: Batch Update for Lesson Reordering
+
+### Before (N+1 Pattern)
+```typescript
+for (const update of updates) {
+  await client.query(
+    "update lessons set order_by = $1 where lesson_id = $2",
+    [update.orderBy, update.lessonId]
+  )
+}
+```
+
+**Impact:** Reordering 20 lessons = 20 UPDATE queries
+
+### After (Single UPDATE with unnest)
+```typescript
+if (updates.length > 0) {
+  const ids = updates.map(u => u.lessonId)
+  const orderIndexes = updates.map(u => u.orderBy)
+
+  await client.query(
+    `UPDATE lessons l
+     SET order_by = data.order_by
+     FROM (
+       SELECT unnest($1::text[]) as lesson_id,
+              unnest($2::integer[]) as order_by
+     ) AS data
+     WHERE l.lesson_id = data.lesson_id`,
+    [ids, orderIndexes]
+  )
+}
+```
+
+**Performance:**
+- Before: N UPDATE queries (one per lesson)
+- After: 1 UPDATE query
+- Typical improvement: 20 lessons = **20 queries → 1 query**
+
+**File:** `src/lib/server-actions/lessons.ts` - `reorderLessonsAction()`
+
+---
+
 ## Overall Impact
 
 ### Queries Saved Per Operation
@@ -180,6 +224,7 @@ This works because `unnest()` converts parallel arrays into a temporary table wi
 | Create LO with 10 SCs + units | 20+ | 2 | **10x faster** |
 | Update LO adding 5 SCs + units | 10+ | 2 | **5x faster** |
 | Reorder 15 LOs | 15 | 1 | **15x faster** |
+| Reorder 20 lessons | 20 | 1 | **20x faster** |
 
 ### Database Load Reduction
 
@@ -208,6 +253,9 @@ For a typical learning objective management session:
    - `createLearningObjectiveAction` - Batch insert for success criteria
    - `updateLearningObjectiveAction` - Batch insert for new success criteria
    - `reorderLearningObjectivesAction` - Single UPDATE with unnest()
+
+2. **`src/lib/server-actions/lessons.ts`**
+   - `reorderLessonsAction` - Single UPDATE with unnest()
 
 ---
 
