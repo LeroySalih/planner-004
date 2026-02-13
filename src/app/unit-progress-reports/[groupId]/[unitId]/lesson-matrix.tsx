@@ -1,19 +1,27 @@
 'use client'
 
+import { useRouter, usePathname, useSearchParams } from 'next/navigation'
+import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
+import { getLevelForYearScore } from '@/lib/levels'
+
 type LessonMatrixData = {
   lessonId: string
   lessonTitle: string
   pupilId: string
-  pupilName: string
+  firstName: string
+  lastName: string
   avgScore: number | null
 }
 
 type LessonMatrixProps = {
   data: LessonMatrixData[]
+  summativeOnly: boolean
+  groupId: string
 }
 
 type MatrixStructure = {
-  pupils: { pupilId: string; pupilName: string }[]
+  pupils: { pupilId: string; firstName: string; lastName: string }[]
   lessons: {
     lessonId: string
     lessonTitle: string
@@ -58,14 +66,62 @@ function getCellBgColor(value: number | null): string {
   }
 }
 
-export function LessonMatrix({ data }: LessonMatrixProps) {
+function parseYearFromGroupId(groupId: string): number | null {
+  // Expected format: "25-7A-IT" where 7 is the year group
+  const match = groupId.match(/^\d+-(\d+)[A-Z]?-/)
+  if (match && match[1]) {
+    const year = parseInt(match[1], 10)
+    if (year >= 7 && year <= 11) {
+      return year
+    }
+  }
+  return null
+}
+
+function calculatePupilAverage(
+  pupilId: string,
+  lessons: { pupilMetrics: Map<string, { avgScore: number | null }> }[]
+): number | null {
+  const scores: number[] = []
+
+  for (const lesson of lessons) {
+    const metrics = lesson.pupilMetrics.get(pupilId)
+    if (metrics && typeof metrics.avgScore === 'number' && !Number.isNaN(metrics.avgScore)) {
+      scores.push(metrics.avgScore)
+    }
+  }
+
+  if (scores.length === 0) {
+    return null
+  }
+
+  return scores.reduce((sum, score) => sum + score, 0) / scores.length
+}
+
+export function LessonMatrix({ data, summativeOnly, groupId }: LessonMatrixProps) {
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+
+  const handleToggle = (checked: boolean) => {
+    const params = new URLSearchParams(searchParams)
+    if (checked) {
+      params.set('summative', 'true')
+    } else {
+      params.delete('summative')
+    }
+    router.push(`${pathname}?${params.toString()}`)
+  }
+
+  const yearGroup = parseYearFromGroupId(groupId)
+
   // Build matrix structure
   const matrix: MatrixStructure = {
     pupils: [],
     lessons: []
   }
 
-  const pupilMap = new Map<string, { pupilId: string; pupilName: string }>()
+  const pupilMap = new Map<string, { pupilId: string; firstName: string; lastName: string }>()
   const lessonMap = new Map<string, {
     lessonId: string
     lessonTitle: string
@@ -79,7 +135,8 @@ export function LessonMatrix({ data }: LessonMatrixProps) {
     if (!pupilMap.has(row.pupilId)) {
       pupilMap.set(row.pupilId, {
         pupilId: row.pupilId,
-        pupilName: row.pupilName
+        firstName: row.firstName,
+        lastName: row.lastName
       })
     }
 
@@ -98,9 +155,11 @@ export function LessonMatrix({ data }: LessonMatrixProps) {
     })
   }
 
-  matrix.pupils = Array.from(pupilMap.values()).sort((a, b) =>
-    a.pupilName.localeCompare(b.pupilName)
-  )
+  matrix.pupils = Array.from(pupilMap.values()).sort((a, b) => {
+    const lastNameCompare = a.lastName.localeCompare(b.lastName)
+    if (lastNameCompare !== 0) return lastNameCompare
+    return a.firstName.localeCompare(b.firstName)
+  })
   matrix.lessons = Array.from(lessonMap.values())
 
   if (matrix.pupils.length === 0 || matrix.lessons.length === 0) {
@@ -115,60 +174,101 @@ export function LessonMatrix({ data }: LessonMatrixProps) {
 
   return (
     <div className="space-y-6">
+      {/* Toggle */}
+      <div className="flex items-center gap-3 rounded-lg border border-border bg-card p-4">
+        <Switch
+          id="summative-toggle"
+          checked={summativeOnly}
+          onCheckedChange={handleToggle}
+        />
+        <Label htmlFor="summative-toggle" className="cursor-pointer">
+          Show assessment scores only (summative activities)
+        </Label>
+      </div>
+
       {/* Matrix */}
       <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
         <table className="w-full">
           <thead>
             <tr className="border-b border-border bg-muted/50">
               <th className="sticky left-0 z-10 bg-muted/50 px-4 py-3 text-left text-sm font-semibold text-foreground">
-                Lesson
+                Pupil
               </th>
-              {matrix.pupils.map((pupil) => (
+              {matrix.lessons.map((lesson) => (
                 <th
-                  key={pupil.pupilId}
+                  key={lesson.lessonId}
                   className="px-3 py-3 text-center text-sm font-semibold text-foreground"
                 >
                   <div className="min-w-[80px]">
-                    {pupil.pupilName}
+                    {lesson.lessonTitle}
                   </div>
                 </th>
               ))}
+              <th className="px-3 py-3 text-center text-sm font-semibold text-foreground bg-blue-50 dark:bg-blue-900/20">
+                <div className="min-w-[80px]">
+                  Average
+                </div>
+              </th>
+              <th className="px-3 py-3 text-center text-sm font-semibold text-foreground bg-blue-50 dark:bg-blue-900/20">
+                <div className="min-w-[80px]">
+                  Level
+                </div>
+              </th>
             </tr>
           </thead>
           <tbody>
-            {matrix.lessons.map((lesson) => (
-              <tr key={lesson.lessonId} className="border-b border-border last:border-b-0">
-                <td className="sticky left-0 z-10 bg-card px-4 py-3 text-sm font-medium text-foreground">
-                  {lesson.lessonTitle}
-                </td>
-                {matrix.pupils.map((pupil) => {
-                  const metrics = lesson.pupilMetrics.get(pupil.pupilId)
-                  if (!metrics) {
+            {matrix.pupils.map((pupil) => {
+              const avgScore = calculatePupilAverage(pupil.pupilId, matrix.lessons)
+              const level = getLevelForYearScore(yearGroup, avgScore)
+
+              return (
+                <tr key={pupil.pupilId} className="border-b border-border last:border-b-0">
+                  <td className="sticky left-0 z-10 bg-card px-4 py-3 text-sm font-medium text-foreground">
+                    {pupil.firstName} {pupil.lastName}
+                  </td>
+                  {matrix.lessons.map((lesson) => {
+                    const metrics = lesson.pupilMetrics.get(pupil.pupilId)
+                    if (!metrics) {
+                      return (
+                        <td
+                          key={lesson.lessonId}
+                          className="px-3 py-3 text-center text-xs text-muted-foreground"
+                        >
+                          —
+                        </td>
+                      )
+                    }
+
                     return (
                       <td
-                        key={pupil.pupilId}
-                        className="px-3 py-3 text-center text-xs text-muted-foreground"
+                        key={lesson.lessonId}
+                        className={`px-3 py-3 ${getCellBgColor(metrics.avgScore)}`}
                       >
-                        —
+                        <div className="flex flex-col items-center gap-1">
+                          <div className={`text-sm font-semibold ${getMetricColor(metrics.avgScore)}`}>
+                            {formatPercent(metrics.avgScore)}
+                          </div>
+                        </div>
                       </td>
                     )
-                  }
-
-                  return (
-                    <td
-                      key={pupil.pupilId}
-                      className={`px-3 py-3 ${getCellBgColor(metrics.avgScore)}`}
-                    >
-                      <div className="flex flex-col items-center gap-1">
-                        <div className={`text-sm font-semibold ${getMetricColor(metrics.avgScore)}`}>
-                          {formatPercent(metrics.avgScore)}
-                        </div>
+                  })}
+                  <td className={`px-3 py-3 bg-blue-50 dark:bg-blue-900/20 ${getCellBgColor(avgScore)}`}>
+                    <div className="flex flex-col items-center gap-1">
+                      <div className={`text-sm font-bold ${getMetricColor(avgScore)}`}>
+                        {formatPercent(avgScore)}
                       </div>
-                    </td>
-                  )
-                })}
-              </tr>
-            ))}
+                    </div>
+                  </td>
+                  <td className="px-3 py-3 bg-blue-50 dark:bg-blue-900/20">
+                    <div className="flex items-center justify-center">
+                      <div className="text-sm font-bold text-foreground">
+                        {level ?? '—'}
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>

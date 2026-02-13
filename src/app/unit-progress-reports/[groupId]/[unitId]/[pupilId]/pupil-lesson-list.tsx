@@ -1,5 +1,9 @@
 'use client'
 
+import { useRouter, usePathname, useSearchParams } from 'next/navigation'
+import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
+
 type Lesson = {
   lessonId: string
   lessonTitle: string
@@ -8,6 +12,7 @@ type Lesson = {
 
 type PupilLessonListProps = {
   lessons: Lesson[]
+  summativeOnly: boolean
 }
 
 function formatPercent(value: number | null) {
@@ -31,7 +36,21 @@ function getMetricColor(value: number | null): string {
   }
 }
 
-export function PupilLessonList({ lessons }: PupilLessonListProps) {
+export function PupilLessonList({ lessons, summativeOnly }: PupilLessonListProps) {
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+
+  const handleToggle = (checked: boolean) => {
+    const params = new URLSearchParams(searchParams)
+    if (checked) {
+      params.set('summative', 'true')
+    } else {
+      params.delete('summative')
+    }
+    router.push(`${pathname}?${params.toString()}`)
+  }
+
   if (lessons.length === 0) {
     return (
       <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
@@ -44,6 +63,18 @@ export function PupilLessonList({ lessons }: PupilLessonListProps) {
 
   return (
     <div className="space-y-4">
+      {/* Toggle */}
+      <div className="flex items-center gap-3 rounded-lg border border-border bg-card p-4">
+        <Switch
+          id="summative-toggle"
+          checked={summativeOnly}
+          onCheckedChange={handleToggle}
+        />
+        <Label htmlFor="summative-toggle" className="cursor-pointer">
+          Show assessment scores only (summative activities)
+        </Label>
+      </div>
+
       <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
         <h2 className="mb-4 text-lg font-semibold text-foreground">Lessons</h2>
         <div className="space-y-3">

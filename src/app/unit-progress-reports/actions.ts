@@ -3,7 +3,7 @@
 import { query } from '@/lib/db'
 import { requireAuthenticatedProfile } from '@/lib/auth'
 
-export async function getClassProgressAction(groupId: string) {
+export async function getClassProgressAction(groupId: string, summativeOnly = false) {
   const profile = await requireAuthenticatedProfile()
 
   if (!profile.isTeacher) {
@@ -11,25 +11,26 @@ export async function getClassProgressAction(groupId: string) {
   }
 
   // Get units assigned to this group with average metrics across all pupils
-  // Aggregated directly from pupil_activity_feedback
+  // Aggregated from submission-level scores (not individual feedback records)
   const { rows: unitRows } = await query(
     `SELECT
        u.unit_id,
        u.title as unit_title,
        u.subject as unit_subject,
        COUNT(DISTINCT gm.user_id) as pupil_count,
-       AVG(paf.score) as avg_score
+       AVG(CASE WHEN $2 = true AND a.is_summative = false THEN NULL
+                ELSE COALESCE((s.body->>'teacher_override_score')::numeric, 0) END) as avg_score
      FROM lesson_assignments la
      JOIN lessons l ON l.lesson_id = la.lesson_id
      JOIN units u ON u.unit_id = l.unit_id
      JOIN activities a ON a.lesson_id = l.lesson_id
      JOIN group_membership gm ON gm.group_id = la.group_id
-     LEFT JOIN pupil_activity_feedback paf ON paf.activity_id = a.activity_id
-                                           AND paf.pupil_id = gm.user_id
+     LEFT JOIN submissions s ON s.activity_id = a.activity_id
+                             AND s.user_id = gm.user_id
      WHERE la.group_id = $1
      GROUP BY u.unit_id, u.title, u.subject
      ORDER BY u.title`,
-    [groupId]
+    [groupId, summativeOnly]
   )
 
   return unitRows.map((row) => ({
@@ -41,15 +42,15 @@ export async function getClassProgressAction(groupId: string) {
   }))
 }
 
-export async function getProgressMatrixAction() {
+export async function getProgressMatrixAction(summativeOnly = false) {
   const profile = await requireAuthenticatedProfile()
 
   if (!profile.isTeacher) {
     throw new Error('Unauthorized')
   }
 
-  // Get all units, classes, and their metrics for all classes
-  // Aggregated directly from pupil_activity_feedback
+  // Get all units, classes, and their metrics across all classes
+  // Aggregated from submission-level scores (not individual feedback records)
   const { rows } = await query(
     `SELECT
        g.group_id,
@@ -58,17 +59,19 @@ export async function getProgressMatrixAction() {
        u.title as unit_title,
        u.subject as unit_subject,
        COUNT(DISTINCT gm.user_id) as pupil_count,
-       AVG(paf.score) as avg_score
+       AVG(CASE WHEN $1 = true AND a.is_summative = false THEN NULL
+                ELSE COALESCE((s.body->>'teacher_override_score')::numeric, 0) END) as avg_score
      FROM groups g
      JOIN lesson_assignments la ON la.group_id = g.group_id
      JOIN lessons l ON l.lesson_id = la.lesson_id
      JOIN units u ON u.unit_id = l.unit_id
      JOIN activities a ON a.lesson_id = l.lesson_id
      JOIN group_membership gm ON gm.group_id = g.group_id
-     LEFT JOIN pupil_activity_feedback paf ON paf.activity_id = a.activity_id
-                                           AND paf.pupil_id = gm.user_id
+     LEFT JOIN submissions s ON s.activity_id = a.activity_id
+                             AND s.user_id = gm.user_id
      GROUP BY g.group_id, g.subject, u.unit_id, u.title, u.subject
-     ORDER BY g.subject, u.title, g.group_id`
+     ORDER BY g.subject, u.title, g.group_id`,
+    [summativeOnly]
   )
 
   return rows.map((row) => ({
@@ -82,7 +85,7 @@ export async function getProgressMatrixAction() {
   }))
 }
 
-export async function getClassPupilMatrixAction(groupId: string) {
+export async function getClassPupilMatrixAction(groupId: string, summativeOnly = false) {
   const profile = await requireAuthenticatedProfile()
 
   if (!profile.isTeacher) {
@@ -103,27 +106,29 @@ export async function getClassPupilMatrixAction(groupId: string) {
   }
 
   // Get all units assigned to this class with metrics for each pupil
-  // Aggregated directly from pupil_activity_feedback
+  // Aggregated from submission-level scores (not individual feedback records)
   const { rows } = await query(
     `SELECT
        u.unit_id,
        u.title as unit_title,
        u.subject as unit_subject,
        gm.user_id as pupil_id,
-       COALESCE(p.first_name || ' ' || p.last_name, p.first_name, p.last_name, gm.user_id) as pupil_name,
-       AVG(paf.score) as avg_score
+       p.first_name,
+       p.last_name,
+       AVG(CASE WHEN $2 = true AND a.is_summative = false THEN NULL
+                ELSE COALESCE((s.body->>'teacher_override_score')::numeric, 0) END) as avg_score
      FROM lesson_assignments la
      JOIN lessons l ON l.lesson_id = la.lesson_id
      JOIN units u ON u.unit_id = l.unit_id
      JOIN activities a ON a.lesson_id = l.lesson_id
      JOIN group_membership gm ON gm.group_id = la.group_id
      JOIN profiles p ON p.user_id = gm.user_id
-     LEFT JOIN pupil_activity_feedback paf ON paf.activity_id = a.activity_id
-                                           AND paf.pupil_id = gm.user_id
+     LEFT JOIN submissions s ON s.activity_id = a.activity_id
+                             AND s.user_id = gm.user_id
      WHERE la.group_id = $1
      GROUP BY u.unit_id, u.title, u.subject, gm.user_id, p.first_name, p.last_name
-     ORDER BY u.title, p.first_name, p.last_name`,
-    [groupId]
+     ORDER BY p.last_name, p.first_name, u.title`,
+    [groupId, summativeOnly]
   )
 
   return {
@@ -134,13 +139,14 @@ export async function getClassPupilMatrixAction(groupId: string) {
       unitTitle: row.unit_title as string,
       unitSubject: row.unit_subject as string | null,
       pupilId: row.pupil_id as string,
-      pupilName: row.pupil_name as string,
+      firstName: row.first_name as string,
+      lastName: row.last_name as string,
       avgScore: row.avg_score != null ? Number(row.avg_score) : null,
     }))
   }
 }
 
-export async function getUnitLessonMatrixAction(groupId: string, unitId: string) {
+export async function getUnitLessonMatrixAction(groupId: string, unitId: string, summativeOnly = false) {
   const profile = await requireAuthenticatedProfile()
 
   if (!profile.isTeacher) {
@@ -161,7 +167,7 @@ export async function getUnitLessonMatrixAction(groupId: string, unitId: string)
     throw new Error('Class or unit not found')
   }
 
-  // Get lesson-level metrics by aggregating activity feedback scores
+  // Get lesson-level metrics by aggregating submission-level scores
   const { rows } = await query(
     `WITH lesson_activity_scores AS (
        SELECT
@@ -169,15 +175,17 @@ export async function getUnitLessonMatrixAction(groupId: string, unitId: string)
          l.title as lesson_title,
          l.order_by,
          gm.user_id as pupil_id,
-         COALESCE(p.first_name || ' ' || p.last_name, p.first_name, p.last_name, gm.user_id) as pupil_name,
+         p.first_name,
+         p.last_name,
          a.activity_id,
-         paf.score
+         a.is_summative,
+         COALESCE((s.body->>'teacher_override_score')::numeric, 0) as score
        FROM lessons l
        JOIN lesson_assignments la ON la.lesson_id = l.lesson_id AND la.group_id = $1
        JOIN group_membership gm ON gm.group_id = la.group_id
        JOIN profiles p ON p.user_id = gm.user_id
        LEFT JOIN activities a ON a.lesson_id = l.lesson_id
-       LEFT JOIN pupil_activity_feedback paf ON paf.activity_id = a.activity_id AND paf.pupil_id = gm.user_id
+       LEFT JOIN submissions s ON s.activity_id = a.activity_id AND s.user_id = gm.user_id
        WHERE l.unit_id = $2
      )
      SELECT
@@ -185,12 +193,13 @@ export async function getUnitLessonMatrixAction(groupId: string, unitId: string)
        lesson_title,
        order_by,
        pupil_id,
-       pupil_name,
-       AVG(score) as avg_score
+       first_name,
+       last_name,
+       AVG(CASE WHEN $3 = true AND is_summative = false THEN NULL ELSE score END) as avg_score
      FROM lesson_activity_scores
-     GROUP BY lesson_id, lesson_title, order_by, pupil_id, pupil_name
-     ORDER BY order_by, pupil_name`,
-    [groupId, unitId]
+     GROUP BY lesson_id, lesson_title, order_by, pupil_id, first_name, last_name
+     ORDER BY order_by, last_name, first_name`,
+    [groupId, unitId, summativeOnly]
   )
 
   return {
@@ -202,20 +211,19 @@ export async function getUnitLessonMatrixAction(groupId: string, unitId: string)
       lessonId: row.lesson_id as string,
       lessonTitle: row.lesson_title as string,
       pupilId: row.pupil_id as string,
-      pupilName: row.pupil_name as string,
+      firstName: row.first_name as string,
+      lastName: row.last_name as string,
       avgScore: row.avg_score != null ? Number(row.avg_score) : null,
     }))
   }
 }
 
-export async function getPupilUnitLessonsAction(groupId: string, unitId: string, pupilId: string) {
+export async function getPupilUnitLessonsAction(groupId: string, unitId: string, pupilId: string, summativeOnly = false) {
   const profile = await requireAuthenticatedProfile()
 
   if (!profile.isTeacher) {
     throw new Error('Unauthorized')
   }
-
-  // Teacher access already verified by requireAuthenticatedProfile + isTeacher check
 
   // Get pupil info and context
   const { rows: infoRows } = await query(
@@ -238,22 +246,23 @@ export async function getPupilUnitLessonsAction(groupId: string, unitId: string,
     throw new Error('Pupil, class, or unit not found')
   }
 
-  // Get lesson-level averages by aggregating from pupil_activity_feedback
+  // Get lesson-level averages by aggregating from submission-level scores
   const { rows: lessonRows } = await query(
     `SELECT
        l.lesson_id,
        l.title as lesson_title,
        l.order_by,
-       AVG(paf.score) as avg_score
+       AVG(CASE WHEN $4 = true AND a.is_summative = false THEN NULL
+                ELSE COALESCE((s.body->>'teacher_override_score')::numeric, 0) END) as avg_score
      FROM lessons l
      JOIN lesson_assignments la ON la.lesson_id = l.lesson_id AND la.group_id = $1
      LEFT JOIN activities a ON a.lesson_id = l.lesson_id
-     LEFT JOIN pupil_activity_feedback paf ON paf.activity_id = a.activity_id
-                                           AND paf.pupil_id = $2
+     LEFT JOIN submissions s ON s.activity_id = a.activity_id
+                             AND s.user_id = $2
      WHERE l.unit_id = $3
      GROUP BY l.lesson_id, l.title, l.order_by
      ORDER BY l.order_by`,
-    [groupId, pupilId, unitId]
+    [groupId, pupilId, unitId, summativeOnly]
   )
 
   const infoRow = infoRows[0]
