@@ -110,7 +110,8 @@ export async function getClassPupilMatrixAction(groupId: string) {
        u.title as unit_title,
        u.subject as unit_subject,
        gm.user_id as pupil_id,
-       COALESCE(p.first_name || ' ' || p.last_name, p.first_name, p.last_name, gm.user_id) as pupil_name,
+       p.first_name,
+       p.last_name,
        AVG(paf.score) as avg_score
      FROM lesson_assignments la
      JOIN lessons l ON l.lesson_id = la.lesson_id
@@ -122,7 +123,7 @@ export async function getClassPupilMatrixAction(groupId: string) {
                                            AND paf.pupil_id = gm.user_id
      WHERE la.group_id = $1
      GROUP BY u.unit_id, u.title, u.subject, gm.user_id, p.first_name, p.last_name
-     ORDER BY u.title, p.first_name, p.last_name`,
+     ORDER BY p.last_name, p.first_name, u.title`,
     [groupId]
   )
 
@@ -134,7 +135,8 @@ export async function getClassPupilMatrixAction(groupId: string) {
       unitTitle: row.unit_title as string,
       unitSubject: row.unit_subject as string | null,
       pupilId: row.pupil_id as string,
-      pupilName: row.pupil_name as string,
+      firstName: row.first_name as string,
+      lastName: row.last_name as string,
       avgScore: row.avg_score != null ? Number(row.avg_score) : null,
     }))
   }
