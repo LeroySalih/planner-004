@@ -93,14 +93,13 @@ export async function getClassPupilMatrixAction(groupId: string) {
   const { rows: classRows } = await query(
     `SELECT g.group_id, g.subject
      FROM groups g
-     JOIN group_membership gm ON g.group_id = gm.group_id
-     WHERE g.group_id = $1 AND gm.user_id = $2
+     WHERE g.group_id = $1
      LIMIT 1`,
-    [groupId, profile.userId]
+    [groupId]
   )
 
   if (classRows.length === 0) {
-    throw new Error('Class not found or access denied')
+    throw new Error('Class not found')
   }
 
   // Get all units assigned to this class with metrics for each pupil
@@ -152,15 +151,14 @@ export async function getUnitLessonMatrixAction(groupId: string, unitId: string)
   const { rows: infoRows } = await query(
     `SELECT g.group_id, g.subject, u.unit_id, u.title as unit_title
      FROM groups g
-     JOIN group_membership gm ON g.group_id = gm.group_id
      CROSS JOIN units u
-     WHERE g.group_id = $1 AND u.unit_id = $2 AND gm.user_id = $3
+     WHERE g.group_id = $1 AND u.unit_id = $2
      LIMIT 1`,
-    [groupId, unitId, profile.userId]
+    [groupId, unitId]
   )
 
   if (infoRows.length === 0) {
-    throw new Error('Class or unit not found or access denied')
+    throw new Error('Class or unit not found')
   }
 
   // Get lesson-level metrics by aggregating activity feedback scores
@@ -215,16 +213,6 @@ export async function getPupilUnitLessonsAction(groupId: string, unitId: string,
 
   if (!profile.isTeacher) {
     throw new Error('Unauthorized')
-  }
-
-  // Verify teacher has access to this class
-  const { rows: accessRows } = await query(
-    `SELECT 1 FROM group_membership WHERE group_id = $1 AND user_id = $2 LIMIT 1`,
-    [groupId, profile.userId]
-  )
-
-  if (accessRows.length === 0) {
-    throw new Error('Access denied')
   }
 
   // Get pupil info and context
