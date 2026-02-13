@@ -1293,6 +1293,58 @@ export async function checkSuccessCriteriaUsageAction(
 }
 
 /**
+ * Fetches usage status for ALL success criteria in a curriculum in a single query.
+ * Returns a map of SC ID -> boolean indicating if it's assigned to any activities.
+ * This is much more efficient than checking each SC individually.
+ */
+export async function readCurriculumSuccessCriteriaUsageAction(
+  curriculumId: string
+): Promise<{ data: Record<string, boolean> | null; error: string | null }> {
+  console.log("[curricula] readCurriculumSuccessCriteriaUsageAction:start", { curriculumId })
+
+  try {
+    // Single query to get all SCs in curriculum and their usage status
+    const { rows } = await query<{
+      success_criteria_id: string
+      is_assigned: boolean
+    }>(
+      `
+        select distinct
+          sc.success_criteria_id,
+          exists(
+            select 1
+            from activity_success_criteria acs
+            where acs.success_criteria_id = sc.success_criteria_id
+          ) as is_assigned
+        from success_criteria sc
+        join learning_objectives lo on lo.learning_objective_id = sc.learning_objective_id
+        join assessment_objectives ao on ao.assessment_objective_id = lo.assessment_objective_id
+        where ao.curriculum_id = $1
+      `,
+      [curriculumId]
+    )
+
+    // Convert to Record<string, boolean>
+    const usageMap: Record<string, boolean> = {}
+    for (const row of rows) {
+      usageMap[row.success_criteria_id] = row.is_assigned
+    }
+
+    console.log("[curricula] readCurriculumSuccessCriteriaUsageAction:success", {
+      curriculumId,
+      totalSCs: Object.keys(usageMap).length,
+      assignedCount: Object.values(usageMap).filter(Boolean).length
+    })
+
+    return { data: usageMap, error: null }
+  } catch (error) {
+    console.error("[curricula] readCurriculumSuccessCriteriaUsageAction:error", error)
+    const message = error instanceof Error ? error.message : "Unable to load SC usage data."
+    return { data: null, error: message }
+  }
+}
+
+/**
  * Unassigns a success criterion from all activities.
  * Does not delete the SC itself, and keeps all activities, submissions, and feedback intact.
  */

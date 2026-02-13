@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation"
 
-import { readCurriculumDetailAction, readLessonsAction, readUnitsAction } from "@/lib/server-updates"
+import { readCurriculumDetailAction, readCurriculumSuccessCriteriaUsageAction, readLessonsAction, readUnitsAction } from "@/lib/server-updates"
 import type { CurriculumDetail, LessonWithObjectives, Units } from "@/types"
 
 import CurriculumPrototypeClient from "./curriculum-prototype-client"
@@ -14,10 +14,11 @@ export default async function CurriculumDetailPage({
   await requireTeacherProfile()
   const { curriculumId } = await params
 
-  const [curriculumResult, unitsResult, lessonsResult] = await Promise.all([
+  const [curriculumResult, unitsResult, lessonsResult, usageResult] = await Promise.all([
     readCurriculumDetailAction(curriculumId),
     readUnitsAction(),
     readLessonsAction(),
+    readCurriculumSuccessCriteriaUsageAction(curriculumId),
   ])
 
   if (curriculumResult.error) {
@@ -36,6 +37,11 @@ export default async function CurriculumDetailPage({
 
   const units: Units = unitsResult.data ?? []
   const lessons: LessonWithObjectives[] = (lessonsResult.data ?? []) as LessonWithObjectives[]
+  const initialUsageMap = usageResult.data ?? {}
+
+  if (usageResult.error) {
+    console.warn("[curricula] Failed to load SC usage data", usageResult.error)
+  }
 
   return (
     <CurriculumPrototypeClient
@@ -44,6 +50,7 @@ export default async function CurriculumDetailPage({
       unitsError={unitsResult.error}
       lessons={lessons}
       lessonsError={lessonsResult.error}
+      initialScUsageMap={initialUsageMap}
     />
   )
 }

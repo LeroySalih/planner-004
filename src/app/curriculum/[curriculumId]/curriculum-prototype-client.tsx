@@ -42,6 +42,7 @@ interface CurriculumPrototypeClientProps {
   lessons: LessonWithObjectives[]
   unitsError?: string | null
   lessonsError?: string | null
+  initialScUsageMap?: Record<string, boolean>
 }
 
 type SuccessCriterion = {
@@ -150,6 +151,7 @@ export default function CurriculumPrototypeClient({
   lessons,
   unitsError,
   lessonsError,
+  initialScUsageMap = {},
 }: CurriculumPrototypeClientProps) {
   const curriculumId = curriculum.curriculum_id
   const curriculumName = curriculum.title
@@ -194,7 +196,14 @@ export default function CurriculumPrototypeClient({
   const [mapperUnitId, setMapperUnitId] = useState("")
 
   // Track which SCs are assigned to activities
-  const [scUsageMap, setScUsageMap] = useState<Map<string, boolean>>(new Map())
+  // Initialize with server-provided data to avoid loading delay
+  const [scUsageMap, setScUsageMap] = useState<Map<string, boolean>>(() => {
+    const map = new Map<string, boolean>()
+    Object.entries(initialScUsageMap).forEach(([scId, isAssigned]) => {
+      map.set(scId, isAssigned)
+    })
+    return map
+  })
 
   // Unassign dialog state
   const [unassignDialog, setUnassignDialog] = useState<{
@@ -604,28 +613,16 @@ export default function CurriculumPrototypeClient({
     }
   }
 
-  const checkAllSuccessCriteriaUsage = useCallback(async () => {
-    const allScIds = assessmentObjectives.flatMap((ao) =>
-      ao.lessonObjectives.flatMap((lo) => lo.successCriteria.map((sc) => sc.id))
-    )
-
-    const usageMap = new Map<string, boolean>()
-
-    await Promise.all(
-      allScIds.map(async (scId) => {
-        const result = await checkSuccessCriteriaUsageAction(scId)
-        if (result.data) {
-          usageMap.set(scId, result.data.isAssigned)
-        }
-      })
-    )
-
-    setScUsageMap(usageMap)
-  }, [assessmentObjectives])
-
-  useEffect(() => {
-    checkAllSuccessCriteriaUsage()
-  }, [checkAllSuccessCriteriaUsage])
+  // Removed automatic usage check on mount - now using server-provided initialScUsageMap
+  // This eliminates the 5-10 second delay where trash icons would switch to chain icons
+  //
+  // If we need to refresh usage data (e.g., after operations), we can add a manual refresh function:
+  // const refreshScUsage = useCallback(async (scId: string) => {
+  //   const result = await checkSuccessCriteriaUsageAction(scId)
+  //   if (result.data) {
+  //     setScUsageMap(prev => new Map(prev).set(scId, result.data.isAssigned))
+  //   }
+  // }, [])
 
   const addAssessmentObjective = () => {
     const newAoIndex = assessmentObjectives.length
