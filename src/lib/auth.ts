@@ -48,6 +48,8 @@ export async function requireRole(role: string, options?: { refreshSessionCookie
   return profile
 }
 
+const COOKIE_SECURE = process.env.NODE_ENV === "production" && !process.env.NEXT_PUBLIC_APP_URL?.startsWith("http://")
+
 async function setSessionCookie(sessionId: string, token: string, expiresAt: Date) {
   const cookieStore = await cookies()
   cookieStore.set({
@@ -55,7 +57,7 @@ async function setSessionCookie(sessionId: string, token: string, expiresAt: Dat
     value: `${sessionId}.${token}`,
     httpOnly: true,
     sameSite: "strict",
-    secure: true,
+    secure: COOKIE_SECURE,
     path: "/",
     expires: expiresAt,
   })
@@ -71,7 +73,7 @@ async function clearSessionCookie() {
       value: "",
       httpOnly: true,
       sameSite: "strict",
-      secure: true,
+      secure: COOKIE_SECURE,
       path: "/",
       maxAge: 0,
     })

@@ -293,7 +293,7 @@ export async function issueSigninCsrfTokenAction(): Promise<{ token: string }> {
     value: token,
     httpOnly: false,
     sameSite: "lax",
-    secure: true,
+    secure: process.env.NODE_ENV === "production" && !process.env.NEXT_PUBLIC_APP_URL?.startsWith("http://"),
     path: "/",
   })
 
