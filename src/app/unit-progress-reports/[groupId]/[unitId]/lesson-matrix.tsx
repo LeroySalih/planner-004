@@ -121,32 +121,32 @@ export function LessonMatrix({ data }: LessonMatrixProps) {
           <thead>
             <tr className="border-b border-border bg-muted/50">
               <th className="sticky left-0 z-10 bg-muted/50 px-4 py-3 text-left text-sm font-semibold text-foreground">
-                Lesson
+                Pupil
               </th>
-              {matrix.pupils.map((pupil) => (
+              {matrix.lessons.map((lesson) => (
                 <th
-                  key={pupil.pupilId}
+                  key={lesson.lessonId}
                   className="px-3 py-3 text-center text-sm font-semibold text-foreground"
                 >
                   <div className="min-w-[80px]">
-                    {pupil.pupilName}
+                    {lesson.lessonTitle}
                   </div>
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {matrix.lessons.map((lesson) => (
-              <tr key={lesson.lessonId} className="border-b border-border last:border-b-0">
+            {matrix.pupils.map((pupil) => (
+              <tr key={pupil.pupilId} className="border-b border-border last:border-b-0">
                 <td className="sticky left-0 z-10 bg-card px-4 py-3 text-sm font-medium text-foreground">
-                  {lesson.lessonTitle}
+                  {pupil.pupilName}
                 </td>
-                {matrix.pupils.map((pupil) => {
+                {matrix.lessons.map((lesson) => {
                   const metrics = lesson.pupilMetrics.get(pupil.pupilId)
                   if (!metrics) {
                     return (
                       <td
-                        key={pupil.pupilId}
+                        key={lesson.lessonId}
                         className="px-3 py-3 text-center text-xs text-muted-foreground"
                       >
                         —
@@ -156,7 +156,7 @@ export function LessonMatrix({ data }: LessonMatrixProps) {
 
                   return (
                     <td
-                      key={pupil.pupilId}
+                      key={lesson.lessonId}
                       className={`px-3 py-3 ${getCellBgColor(metrics.avgScore)}`}
                     >
                       <div className="flex flex-col items-center gap-1">
