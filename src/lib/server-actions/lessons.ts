@@ -1416,14 +1416,21 @@ export async function reorderLessonsAction(
 
   try {
     await withDbClient(async (client) => {
-      for (const update of updates) {
+      // Batch update all order_by values (N+1 fix)
+      if (updates.length > 0) {
+        const ids = updates.map(u => u.lessonId)
+        const orderIndexes = updates.map(u => u.orderBy)
+
         await client.query(
-          "update lessons set order_by = $1 where lesson_id = $2",
-          [
-            update.orderBy,
-            update.lessonId,
-          ],
-        );
+          `UPDATE lessons l
+           SET order_by = data.order_by
+           FROM (
+             SELECT unnest($1::text[]) as lesson_id,
+                    unnest($2::integer[]) as order_by
+           ) AS data
+           WHERE l.lesson_id = data.lesson_id`,
+          [ids, orderIndexes]
+        )
       }
     });
   } catch (error) {

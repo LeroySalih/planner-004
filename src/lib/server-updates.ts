@@ -189,6 +189,7 @@ export {
   readAssessmentObjectivesAction,
   readCurriculaAction,
   readCurriculumDetailAction,
+  readCurriculumSuccessCriteriaUsageAction,
   reorderCurriculumAssessmentObjectivesAction,
   reorderCurriculumLearningObjectivesAction,
   reorderCurriculumSuccessCriteriaAction,
