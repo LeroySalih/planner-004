@@ -5,9 +5,10 @@ import { TeacherPageLayout } from "@/components/layouts/TeacherPageLayout"
 export default async function ProgressReportsPage({
   searchParams
 }: {
-  searchParams: { summative?: string }
+  searchParams: Promise<{ summative?: string }>
 }) {
-  const summativeOnly = searchParams.summative === 'true'
+  const params = await searchParams
+  const summativeOnly = params.summative === 'true'
   const data = await getProgressMatrixAction(summativeOnly)
 
   return (

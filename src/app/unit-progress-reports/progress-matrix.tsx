@@ -83,11 +83,11 @@ export function ProgressMatrix({ data, summativeOnly }: ProgressMatrixProps) {
   const pathname = usePathname()
 
   const handleToggle = (checked: boolean) => {
-    const params = new URLSearchParams()
     if (checked) {
-      params.set('summative', 'true')
+      router.push(`${pathname}?summative=true`)
+    } else {
+      router.push(pathname)
     }
-    router.push(`${pathname}?${params.toString()}`)
   }
 
   // Group data by subject

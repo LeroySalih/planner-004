@@ -4,12 +4,13 @@ import { TeacherPageLayout } from "@/components/layouts/TeacherPageLayout"
 
 type PageProps = {
   params: Promise<{ groupId: string }>
-  searchParams: { summative?: string }
+  searchParams: Promise<{ summative?: string }>
 }
 
 export default async function ClassProgressPage({ params, searchParams }: PageProps) {
   const { groupId } = await params
-  const summativeOnly = searchParams.summative === 'true'
+  const sp = await searchParams
+  const summativeOnly = sp.summative === 'true'
   const result = await getClassPupilMatrixAction(groupId, summativeOnly)
 
   return (
