@@ -48,7 +48,7 @@ export async function getProgressMatrixAction() {
     throw new Error('Unauthorized')
   }
 
-  // Get all units, classes, and their metrics for classes the teacher is associated with
+  // Get all units, classes, and their metrics across all classes
   // Aggregated directly from pupil_activity_feedback
   const { rows } = await query(
     `SELECT
@@ -60,7 +60,6 @@ export async function getProgressMatrixAction() {
        COUNT(DISTINCT gm.user_id) as pupil_count,
        AVG(paf.score) as avg_score
      FROM groups g
-     JOIN group_membership gm_teacher ON g.group_id = gm_teacher.group_id AND gm_teacher.user_id = $1
      JOIN lesson_assignments la ON la.group_id = g.group_id
      JOIN lessons l ON l.lesson_id = la.lesson_id
      JOIN units u ON u.unit_id = l.unit_id
@@ -69,8 +68,7 @@ export async function getProgressMatrixAction() {
      LEFT JOIN pupil_activity_feedback paf ON paf.activity_id = a.activity_id
                                            AND paf.pupil_id = gm.user_id
      GROUP BY g.group_id, g.subject, u.unit_id, u.title, u.subject
-     ORDER BY g.subject, u.title, g.group_id`,
-    [profile.userId]
+     ORDER BY g.subject, u.title, g.group_id`
   )
 
   return rows.map((row) => ({
