@@ -537,36 +537,55 @@ export async function createLearningObjectiveAction(
         throw new Error("Unable to create learning objective.")
       }
 
-      for (const criterion of filteredCriteria) {
-        const { rows: inserted } = await client.query(
+      // Batch insert all success criteria (N+1 fix)
+      if (filteredCriteria.length > 0) {
+        const scValues: unknown[] = []
+        const scPlaceholders: string[] = []
+
+        filteredCriteria.forEach((criterion, idx) => {
+          const base = idx * 5
+          scValues.push(
+            createdLearningObjectiveId,
+            criterion.description,
+            criterion.level,
+            criterion.order_index,
+            criterion.active
+          )
+          scPlaceholders.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5})`)
+        })
+
+        const { rows: insertedCriteria } = await client.query(
           `
             insert into success_criteria (learning_objective_id, description, level, order_index, active)
-            values ($1, $2, $3, $4, $5)
+            values ${scPlaceholders.join(", ")}
             returning success_criteria_id
           `,
-          [createdLearningObjectiveId, criterion.description, criterion.level, criterion.order_index, criterion.active],
+          scValues
         )
 
-        const successCriteriaId = inserted?.[0]?.success_criteria_id ?? null
-        if (!successCriteriaId) {
-          throw new Error("Unable to create success criterion.")
+        if (insertedCriteria.length !== filteredCriteria.length) {
+          throw new Error("Unable to create all success criteria.")
         }
 
-        const unitIds = criterion.unit_ids ?? []
-        if (unitIds.length > 0) {
-          const values: Array<unknown> = []
-          const placeholders: string[] = []
-          unitIds.forEach((unit, idx) => {
-            values.push(successCriteriaId, unit)
-            placeholders.push(`($${values.length - 1}, $${values.length})`)
-          })
+        // Batch insert all unit associations
+        const unitValues: unknown[] = []
+        const unitPlaceholders: string[] = []
 
+        insertedCriteria.forEach((row, idx) => {
+          const unitIds = filteredCriteria[idx].unit_ids ?? []
+          unitIds.forEach((unitId) => {
+            unitValues.push(row.success_criteria_id, unitId)
+            unitPlaceholders.push(`($${unitValues.length - 1}, $${unitValues.length})`)
+          })
+        })
+
+        if (unitPlaceholders.length > 0) {
           await client.query(
             `
               insert into success_criteria_units (success_criteria_id, unit_id)
-              values ${placeholders.join(", ")}
+              values ${unitPlaceholders.join(", ")}
             `,
-            values,
+            unitValues
           )
         }
       }
@@ -709,37 +728,56 @@ export async function updateLearningObjectiveAction(
         }
       }
 
+      // Batch insert new success criteria (N+1 fix)
       const inserts = filteredCriteria.filter((criterion) => !criterion.success_criteria_id)
-      for (const criterion of inserts) {
+      if (inserts.length > 0) {
+        const scValues: unknown[] = []
+        const scPlaceholders: string[] = []
+
+        inserts.forEach((criterion, idx) => {
+          const base = idx * 5
+          scValues.push(
+            learningObjectiveId,
+            criterion.description,
+            criterion.level,
+            criterion.order_index,
+            criterion.active
+          )
+          scPlaceholders.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5})`)
+        })
+
         const { rows: insertedRows } = await client.query(
           `
             insert into success_criteria (learning_objective_id, description, level, order_index, active)
-            values ($1, $2, $3, $4, $5)
+            values ${scPlaceholders.join(", ")}
             returning success_criteria_id
           `,
-          [learningObjectiveId, criterion.description, criterion.level, criterion.order_index, criterion.active],
+          scValues
         )
 
-        const successCriteriaId = insertedRows?.[0]?.success_criteria_id ?? null
-        if (!successCriteriaId) {
-          throw new Error("Unable to create success criterion.")
+        if (insertedRows.length !== inserts.length) {
+          throw new Error("Unable to create all success criteria.")
         }
 
-        const units = criterion.unit_ids ?? []
-        if (units.length > 0) {
-          const values: Array<unknown> = []
-          const placeholders: string[] = []
-          units.forEach((unitId) => {
-            values.push(successCriteriaId, unitId)
-            placeholders.push(`($${values.length - 1}, $${values.length})`)
-          })
+        // Batch insert unit associations for new criteria
+        const unitValues: unknown[] = []
+        const unitPlaceholders: string[] = []
 
+        insertedRows.forEach((row, idx) => {
+          const units = inserts[idx].unit_ids ?? []
+          units.forEach((unitId) => {
+            unitValues.push(row.success_criteria_id, unitId)
+            unitPlaceholders.push(`($${unitValues.length - 1}, $${unitValues.length})`)
+          })
+        })
+
+        if (unitPlaceholders.length > 0) {
           await client.query(
             `
               insert into success_criteria_units (success_criteria_id, unit_id)
-              values ${placeholders.join(", ")}
+              values ${unitPlaceholders.join(", ")}
             `,
-            values,
+            unitValues
           )
         }
       }
@@ -784,11 +822,21 @@ export async function reorderLearningObjectivesAction(
 
   try {
     await withDbClient(async (client) => {
-      for (const update of updates) {
-        await client.query("update learning_objectives set order_index = $1 where learning_objective_id = $2", [
-          update.orderBy,
-          update.learningObjectiveId,
-        ])
+      // Batch update all order_index values (N+1 fix)
+      if (updates.length > 0) {
+        const ids = updates.map(u => u.learningObjectiveId)
+        const orderIndexes = updates.map(u => u.orderBy)
+
+        await client.query(
+          `UPDATE learning_objectives lo
+           SET order_index = data.order_index
+           FROM (
+             SELECT unnest($1::text[]) as learning_objective_id,
+                    unnest($2::integer[]) as order_index
+           ) AS data
+           WHERE lo.learning_objective_id = data.learning_objective_id`,
+          [ids, orderIndexes]
+        )
       }
     })
   } catch (error) {
