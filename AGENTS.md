@@ -6,18 +6,20 @@ This guide captures the working knowledge future coding agents need to extend th
 - Next.js 15 App Router with React 19 server and client components (`src/app/page.tsx`).
 - TypeScript throughout; validation expressed with Zod schemas in `src/types/index.ts`.
 - Tailwind CSS v4 with Radix UI primitives and shared wrappers under `src/components/ui`.
-- Supabase provides auth, database access, and storage. Server and browser clients live in `src/lib/supabase/server.ts` and `src/lib/supabase-browser.ts`.
+- PostgreSQL database accessed via `pg` library with connection pooling in `src/lib/db.ts`. Custom session-based authentication managed in `src/lib/auth.ts`.
+- SSE (Server-Sent Events) for real-time updates via custom hub implementation in `src/lib/sse/hub.ts`.
 - Playwright drives end-to-end coverage (`tests/sign-in/teacher-sign-in.spec.ts`).
 
 ## Directory Landmarks
 - `src/app` – Route handlers, layouts, and feature entrypoints. For example, `src/app/assignments/page.tsx` composes Assignment Manager data on the server.
 - `src/components` – Reusable UI and composite widgets. Feature bundles like `src/components/assignment-manager` plug into pages.
 - `src/actions` – Ad-hoc server-side helpers that do not yet live in the consolidated action modules.
-- `src/lib` – Domain helpers and service clients. Key files: `src/lib/server-updates.ts` (server action barrel), `src/lib/auth.ts` (auth guards), `src/lib/utils.ts` (utility helpers).
-- `src/types` – Canonical Zod schemas and inferred types that mirror Supabase tables.
-- `supabase` – SQL migrations, schema snapshots, and seed tooling; drive all schema changes through here.
+- `src/lib` – Domain helpers and service clients. Key files: `src/lib/server-updates.ts` (server action barrel), `src/lib/auth.ts` (auth guards), `src/lib/db.ts` (PostgreSQL connection), `src/lib/utils.ts` (utility helpers).
+- `src/types` – Canonical Zod schemas and inferred types that mirror database tables.
+- `src/migrations` – SQL migrations for schema changes.
 - `tests` – Playwright specs plus `.env.test` fixture configuration.
-- `bin` – Shell scripts for Supabase sync and environment loading (e.g. `bin/dev_db_sync.sh`).
+- `bin` – Shell script for database sync (`prod2dev.sh`).
+- `scripts` – Database and utility scripts (`db_clean.sh`, etc.).
 - `MCP` – Standalone Model Context Protocol server that exposes curated planner resources/tools to coding agents (`npm run dev` to watch).
 
 ## Core Domain & Data Contracts
@@ -26,21 +28,21 @@ This guide captures the working knowledge future coding agents need to extend th
 - Assignment-related UI expects `Assignments`, `LessonAssignments`, and `LessonAssignmentScoreSummaries` shaped exactly like the schemas; ensure backend changes keep these contracts intact (`src/components/assignment-manager/assignment-manager.tsx`).
 - Report level lookups reference the boundary helper in `src/lib/levels/index.ts`; update that file (not ad-hoc math) if the scale shifts.
 
-## Supabase & Server Actions
-- Use `createSupabaseServerClient()` for server components/actions (`src/lib/supabase/server.ts:1`). It wires cookies for authenticated requests.
-- Client-side Supabase usage must import `supabaseBrowserClient` (`src/lib/supabase-browser.ts:1`) to guarantee consistent config.
-- All server actions are exported through `src/lib/server-updates.ts:1`; add new domain actions there so pages/components can consume a single barrel.
-- Follow the defensive error handling shown in `src/lib/server-actions/feedback.ts:1`—parse input with Zod, wrap Supabase calls, and surface a safe error string.
-- Authorization helpers like `requireTeacherProfile()` live in `src/lib/auth.ts:1`; enforce these guards in route handlers before performing teacher-only operations (`src/app/assignments/page.tsx:1`).
+## Database & Server Actions
+- Use `query()` from `src/lib/db.ts` for database access in server components/actions. Connection pooling with automatic retry logic handles connection issues.
+- Database connection via `DATABASE_URL` environment variable, SSL configuration auto-detected based on hostname.
+- All server actions are exported through `src/lib/server-updates.ts`; add new domain actions there so pages/components can consume a single barrel.
+- Follow the defensive error handling shown in `src/lib/server-actions/feedback.ts`—parse input with Zod, wrap database calls in try/catch, and surface a safe error string.
+- Authorization helpers like `requireTeacherProfile()` and `requireRole()` live in `src/lib/auth.ts`; enforce these guards in route handlers before performing privileged operations (`src/app/assignments/page.tsx`).
 - Minimise redundant calls to `requireTeacherProfile()` by fetching the profile once per request/action and passing the result to downstream logic rather than invoking the guard repeatedly.
-- `/assignments` must hydrate via the `assignments_bootstrap` RPC (`readAssignmentsBootstrapAction`) and compute lesson averages through `lesson_assignment_score_summaries` (`readLessonAssignmentScoreSummariesAction`); extend those RPCs when new data is needed instead of layering extra Supabase selects.
+- `/assignments` must hydrate via the `assignments_bootstrap` RPC (`readAssignmentsBootstrapAction`) and compute lesson averages through `lesson_assignment_score_summaries` (`readLessonAssignmentScoreSummariesAction`); extend those RPCs when new data is needed instead of layering extra database queries.
 - `/pupil-lessons` now relies on two RPCs: `pupil_lessons_summary_bootstrap(p_target_user_id)` for the teacher landing summaries and `pupil_lessons_detail_bootstrap(p_target_user_id)` for the pupil detail view. Call them through `readPupilLessonsSummaryBootstrapAction` / `readPupilLessonsDetailBootstrapAction` and keep the JSON shaping on the Next.js server (clients should never see the raw payloads).
 - Use pure server components where possible.
-- Standardise write flows on the async pattern prototyped in `/prototypes/fast-ui`: server actions validate and respond immediately, queue the heavy work (e.g. long-running Supabase mutation or background enrichment), then broadcast completion via Supabase Realtime. Always wrap the action with `withTelemetry` for timing data, log queue events, and ensure the client subscribes through the shared browser client so optimistic UI stays in sync. Client components should use `useActionState` for loaders, update local state optimistically, and surface both success and failure via `sonner` toasts while keeping buttons interactive for follow-up attempts.
+- Standardise write flows on the async pattern prototyped in `/prototypes/fast-ui`: server actions validate and respond immediately, queue the heavy work (e.g. long-running database mutation or background enrichment), then broadcast completion via SSE (Server-Sent Events). Always wrap the action with `withTelemetry` for timing data, log queue events, and ensure the client subscribes to the SSE endpoint so optimistic UI stays in sync. Client components should use `useActionState` for loaders, update local state optimistically, and surface both success and failure via `sonner` toasts while keeping buttons interactive for follow-up attempts.
 
 ## Client/UI Conventions
-- All data fetching on the client must utilise a server action, and no supabase clients should be used on the client browser.  This is to ensure that no supabase variables do not leak.
-- Prefer server side renderign, with Suspense where possible, over client side fetching.
+- All data fetching on the client must utilise a server action. Never access the database directly from client components to prevent credential leaks.
+- Prefer server side rendering, with Suspense where possible, over client side fetching.
 - Compose UI with the Radix-backed primitives from `src/components/ui` (e.g. `button.tsx:1`, `form.tsx:1`, `dropdown-menu.tsx`). Wire class names through the `cn` helper (`src/lib/utils.ts:1`) to maintain Tailwind merge behaviour.
 - Long-form feature components (e.g. `src/components/assignment-manager/assignment-manager.tsx:1`) separate stateful logic and per-pane subcomponents. Mirror this pattern when introducing new management consoles.
 - Styling tokens and dark mode variants come from `src/app/globals.css:1`; keep new Tailwind classes aligned with the defined palette.
@@ -63,21 +65,20 @@ This guide captures the working knowledge future coding agents need to extend th
 
 
 ## Tooling & Workflows
-- Scripts in `package.json` cover the usual dev, build, lint, and test tasks. Database helpers (`db:pull`, `db:push`, `db:diff`) assume Supabase CLI setup.
-- Sync Supabase schema for local development via `bin/dev_db_sync.sh`, which chains dump/apply scripts. Seed users live in `supabase/seed.sql` and `supabase/seed-users.mjs`.
-- Use `npm run db:diff "migration-name"` to scaffold migrations, commit them under `supabase/migrations`, and refresh generated types if table shapes change.
+- Scripts in `package.json` cover the usual dev, build, lint, and test tasks. Database helpers: `db:prod2dev` (sync production to dev), `db:clean` (clean database).
+- SQL migrations stored in `src/migrations/`. Create new migrations and apply them to keep schema in sync.
 - The MCP server under `/MCP` is its own Node workspace (`npm install` already committed). Use `npm run dev` for hot reload via `tsx watch`, or `npm start` for a single run; the HTTP endpoint defaults to `http://127.0.0.1:4545/mcp`. Exposed resources include `planner://playbook`, `planner://todos`, and `planner://file/{path}` (pinned paths from `MCP_PINNED_FILES`). Tools currently shipped: `read_workspace_file` (returns snippets with byte limits) and `search_todos` (finds lines in `todos.md`). Environment knobs: `MCP_PORT`, `MCP_HOST`, `MCP_ROUTE`, `MCP_PINNED_FILES` (comma list), `MCP_ALLOWED_HOSTS`, `MCP_ALLOWED_ORIGINS`, `MCP_ENABLE_DNS_REBINDING_PROTECTION`, and `MCP_FILE_BYTE_LIMIT`.
 
 ## Implementation Checklist
-1. Confirm the relevant Zod schema exists or add one in `src/types/index.ts` before touching UI or Supabase logic.
+1. Confirm the relevant Zod schema exists or add one in `src/types/index.ts` before touching UI or database logic.
 2. Expose new server mutations or queries through the `src/lib/server-actions/*` modules and re-export from `src/lib/server-updates.ts`.
-3. Guard server routes with `requireAuthenticatedProfile()`/`requireTeacherProfile()` where needed (`src/lib/auth.ts:1`).
+3. Guard server routes with `requireAuthenticatedProfile()`, `requireTeacherProfile()`, or `requireRole()` where needed (`src/lib/auth.ts`).
 4. Build UI using existing primitives, keep indentation at two spaces, and leverage `cn()` for class composition.
 5. Wire optimistic updates carefully—use `useTransition` and state snapshots like in the Assignment Manager to keep UI responsive.
 6. Update or add Playwright specs covering the user-visible change; store connections to seeded data where possible.
 7. Document any new workflows or scripts by appending to this playbook so the next agent inherits the context.
 
-Stay vigilant for unexpected file changes. If Supabase tables or shared types evolve, ripple the updates through server actions, client components, and tests in one pass to avoid drift.
+Stay vigilant for unexpected file changes. If database tables or shared types evolve, ripple the updates through server actions, client components, and tests in one pass to avoid drift.
 .
 
 # Dates

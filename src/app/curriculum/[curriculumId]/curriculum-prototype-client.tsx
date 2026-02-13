@@ -3,22 +3,34 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type JSX } from "react"
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react"
 import Link from "next/link"
-import { Check, Download, Loader2, Pencil, Plus, Trash2, X } from "lucide-react"
+import { Check, Download, Link2, Loader2, Pencil, Plus, Trash2, X } from "lucide-react"
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import type { CurriculumDetail, LessonWithObjectives, Units } from "@/types"
 import {
+  checkSuccessCriteriaUsageAction,
   createCurriculumAssessmentObjectiveAction,
   createCurriculumLearningObjectiveAction,
   createCurriculumSuccessCriterionAction,
+  deleteCurriculumSuccessCriterionAction,
+  linkLessonSuccessCriterionAction,
+  readCurriculumDetailAction,
+  unassignSuccessCriteriaFromActivitiesAction,
+  unlinkLessonSuccessCriterionAction,
   updateCurriculumAssessmentObjectiveAction,
   updateCurriculumLearningObjectiveAction,
   updateCurriculumSuccessCriterionAction,
-  deleteCurriculumSuccessCriterionAction,
-  readCurriculumDetailAction,
-  linkLessonSuccessCriterionAction,
-  unlinkLessonSuccessCriterionAction,
 } from "@/lib/server-updates"
 import { useToast } from "@/components/ui/use-toast"
 import { createExportBasename } from "@/lib/export-utils"
@@ -58,9 +70,10 @@ type AssessmentObjective = {
   lessonObjectives: LessonObjective[]
 }
 
-const levels = [1, 2, 3, 4, 5, 6, 7]
+const levels = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 
 const levelStyleMap: Record<number, { badge: string; text: string }> = {
+  0: { badge: "bg-gray-100 text-gray-600", text: "text-gray-600" },
   1: { badge: "bg-emerald-100 text-emerald-900", text: "text-emerald-900" },
   2: { badge: "bg-emerald-200 text-emerald-900", text: "text-emerald-900" },
   3: { badge: "bg-emerald-300 text-emerald-900", text: "text-emerald-900" },
@@ -68,6 +81,8 @@ const levelStyleMap: Record<number, { badge: string; text: string }> = {
   5: { badge: "bg-emerald-500 text-emerald-50", text: "text-emerald-50" },
   6: { badge: "bg-emerald-600 text-emerald-50", text: "text-emerald-50" },
   7: { badge: "bg-emerald-700 text-emerald-50", text: "text-emerald-50" },
+  8: { badge: "bg-emerald-800 text-emerald-50", text: "text-emerald-50" },
+  9: { badge: "bg-emerald-900 text-emerald-50", text: "text-emerald-50" },
 }
 
 const yearBadgeMap: Record<number, string> = {
@@ -110,7 +125,7 @@ function mapCurriculumToAssessmentObjectives(curriculum: CurriculumDetail): Asse
               .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0))
               .map((criterion, criterionIndex) => ({
                 id: criterion.success_criteria_id,
-                level: criterion.level ?? 1,
+                level: criterion.level ?? 0,
                 description: criterion.description ?? "",
                 units: criterion.units ?? [],
                 active: criterion.active ?? true,
@@ -177,6 +192,21 @@ export default function CurriculumPrototypeClient({
   >(null)
   const editingTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const [mapperUnitId, setMapperUnitId] = useState("")
+
+  // Track which SCs are assigned to activities
+  const [scUsageMap, setScUsageMap] = useState<Map<string, boolean>>(new Map())
+
+  // Unassign dialog state
+  const [unassignDialog, setUnassignDialog] = useState<{
+    open: boolean
+    successCriteriaId: string | null
+    affectedLessons: Array<{ lesson_id: string; lesson_title: string; unit_title: string | null }>
+  }>({
+    open: false,
+    successCriteriaId: null,
+    affectedLessons: [],
+  })
+
   const mapperStickyWidth = "clamp(14rem, 33.3333%, 22rem)"
   const { toast } = useToast()
 
@@ -574,6 +604,29 @@ export default function CurriculumPrototypeClient({
     }
   }
 
+  const checkAllSuccessCriteriaUsage = useCallback(async () => {
+    const allScIds = assessmentObjectives.flatMap((ao) =>
+      ao.lessonObjectives.flatMap((lo) => lo.successCriteria.map((sc) => sc.id))
+    )
+
+    const usageMap = new Map<string, boolean>()
+
+    await Promise.all(
+      allScIds.map(async (scId) => {
+        const result = await checkSuccessCriteriaUsageAction(scId)
+        if (result.data) {
+          usageMap.set(scId, result.data.isAssigned)
+        }
+      })
+    )
+
+    setScUsageMap(usageMap)
+  }, [assessmentObjectives])
+
+  useEffect(() => {
+    checkAllSuccessCriteriaUsage()
+  }, [checkAllSuccessCriteriaUsage])
+
   const addAssessmentObjective = () => {
     const newAoIndex = assessmentObjectives.length
     const aoNumber = newAoIndex + 1
@@ -611,7 +664,7 @@ export default function CurriculumPrototypeClient({
 
       const scResult = await createCurriculumSuccessCriterionAction(loId, curriculumId, {
         description: defaultCriterionDescription,
-        level: 1,
+        level: 0,
         order_index: 0,
         unit_ids: [],
       })
@@ -650,7 +703,7 @@ export default function CurriculumPrototypeClient({
 
       const scResult = await createCurriculumSuccessCriterionAction(loId, curriculumId, {
         description: "New success criterion",
-        level: 1,
+        level: 0,
         order_index: 0,
         unit_ids: [],
       })
@@ -674,7 +727,7 @@ export default function CurriculumPrototypeClient({
     startTransition(async () => {
       const scResult = await createCurriculumSuccessCriterionAction(targetLo.id, curriculumId, {
         description: "New success criterion",
-        level: 1,
+        level: 0,
         order_index: targetLo.successCriteria.length,
         unit_ids: [],
       })
@@ -812,11 +865,28 @@ export default function CurriculumPrototypeClient({
     })
   }
 
-  const handleDeleteCriterion = (aoIndex: number, loIndex: number, criterionId: string) => {
+  const handleDeleteCriterion = async (aoIndex: number, loIndex: number, criterionId: string) => {
     const targetAo = assessmentObjectives[aoIndex]
     const targetLo = targetAo?.lessonObjectives[loIndex]
     if (!targetAo || !targetLo) return
 
+    // Check if SC is assigned to activities
+    const isAssigned = scUsageMap.get(criterionId)
+
+    if (isAssigned) {
+      // Fetch affected lessons and show unassign dialog
+      const result = await checkSuccessCriteriaUsageAction(criterionId)
+      if (result.data) {
+        setUnassignDialog({
+          open: true,
+          successCriteriaId: criterionId,
+          affectedLessons: result.data.affectedLessons
+        })
+      }
+      return
+    }
+
+    // Original deletion logic for unassigned SCs
     setAssessmentObjectives((prev) =>
       prev.map((ao, aoIdx) =>
         aoIdx === aoIndex
@@ -860,6 +930,35 @@ export default function CurriculumPrototypeClient({
       }
 
       showToast("success", "Success criterion removed.")
+    })
+  }
+
+  const handleUnassignCriterion = async () => {
+    const { successCriteriaId, affectedLessons } = unassignDialog
+    if (!successCriteriaId) return
+
+    // Close dialog immediately
+    setUnassignDialog({ open: false, successCriteriaId: null, affectedLessons: [] })
+
+    startTransition(async () => {
+      const result = await unassignSuccessCriteriaFromActivitiesAction(successCriteriaId, curriculumId)
+
+      if (!result.success) {
+        showToast("error", result.error ?? "Failed to unassign success criterion.")
+        return
+      }
+
+      showToast(
+        "success",
+        `Success criterion unassigned from ${result.removedCount} ${result.removedCount === 1 ? "activity" : "activities"}.`
+      )
+
+      // Update usage map to reflect that SC is no longer assigned
+      setScUsageMap((prev) => {
+        const next = new Map(prev)
+        next.set(successCriteriaId, false)
+        return next
+      })
     })
   }
 
@@ -1327,7 +1426,7 @@ export default function CurriculumPrototypeClient({
                             editingContext?.aoIndex === aoIndex &&
                             editingContext?.loIndex === loIndex &&
                             editingContext?.criterionId === sc.id
-                          const levelStyles = levelStyleMap[sc.level] ?? levelStyleMap[1]
+                          const levelStyles = levelStyleMap[sc.level] ?? levelStyleMap[0]
                           const isSelected = selectedCriteriaIds.has(sc.id)
 
                           const handleCriterionClick = (event: ReactMouseEvent<HTMLDivElement>) => {
@@ -1427,12 +1526,25 @@ export default function CurriculumPrototypeClient({
                                       </button>
                                     </>
                                   ) : null}
-                                  <button
-                                    className="rounded border border-destructive/50 p-1 text-destructive transition hover:bg-destructive hover:text-destructive-foreground"
-                                    onClick={() => handleDeleteCriterion(aoIndex, loIndex, sc.id)}
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </button>
+                                  {scUsageMap.get(sc.id) ? (
+                                    <button
+                                      className="rounded border border-blue-500/50 p-1 text-blue-600 transition hover:bg-blue-50"
+                                      onClick={() => handleDeleteCriterion(aoIndex, loIndex, sc.id)}
+                                      aria-label="Unassign success criterion from activities"
+                                      title="This SC is assigned to activities. Click to unassign."
+                                    >
+                                      <Link2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  ) : (
+                                    <button
+                                      className="rounded border border-destructive/50 p-1 text-destructive transition hover:bg-destructive hover:text-destructive-foreground"
+                                      onClick={() => handleDeleteCriterion(aoIndex, loIndex, sc.id)}
+                                      aria-label="Delete success criterion"
+                                      title="Delete this success criterion"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -2132,6 +2244,38 @@ export default function CurriculumPrototypeClient({
           </aside>
         </>
       ) : null}
+
+      <AlertDialog open={unassignDialog.open} onOpenChange={(open) => !open && setUnassignDialog({ open: false, successCriteriaId: null, affectedLessons: [] })}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unassign Success Criterion from Activities</AlertDialogTitle>
+            <AlertDialogDescription>
+              This success criterion is currently assigned to activities in the following {unassignDialog.affectedLessons.length} {unassignDialog.affectedLessons.length === 1 ? "lesson" : "lessons"}:
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="max-h-48 overflow-y-auto rounded-md border border-border bg-muted/30 p-3">
+            <ul className="space-y-2">
+              {unassignDialog.affectedLessons.map((lesson) => (
+                <li key={lesson.lesson_id} className="text-sm">
+                  <div className="font-medium text-foreground">{lesson.lesson_title}</div>
+                  {lesson.unit_title && (
+                    <div className="text-xs text-muted-foreground">Unit: {lesson.unit_title}</div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <AlertDialogDescription className="mt-2 text-xs text-muted-foreground">
+            Unassigning will remove this success criterion from all activities, but the activities themselves, student submissions, and feedback will remain unchanged. Activity scores will be recalculated without this criterion.
+          </AlertDialogDescription>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleUnassignCriterion} className="bg-blue-600 hover:bg-blue-700">
+              Proceed with Unassign
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </main>
   )
 }

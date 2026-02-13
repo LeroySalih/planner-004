@@ -443,7 +443,7 @@ export async function fetchSuccessCriteriaForLearningObjectives(
       bucket.push({
         success_criteria_id: criterion.success_criteria_id,
         learning_objective_id: criterion.learning_objective_id,
-        level: criterion.level ?? 1,
+        level: criterion.level ?? 0,
         description: criterion.description ?? "",
         order_index: criterion.order_index ?? 0,
         active: criterion.active ?? true,

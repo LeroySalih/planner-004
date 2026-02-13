@@ -3004,6 +3004,14 @@ ALTER TABLE ONLY public.activities
 
 
 --
+-- Name: activity_success_criteria fk_activity_sc_success_criteria; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.activity_success_criteria
+    ADD CONSTRAINT fk_activity_sc_success_criteria FOREIGN KEY (success_criteria_id) REFERENCES public.success_criteria(success_criteria_id) ON DELETE RESTRICT;
+
+
+--
 -- Name: assessment_objectives assessment_objectives_curriculum_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3052,6 +3060,14 @@ ALTER TABLE ONLY public.user_roles
 
 
 --
+-- Name: feedback fk_feedback_success_criteria; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feedback
+    ADD CONSTRAINT fk_feedback_success_criteria FOREIGN KEY (success_criteria_id) REFERENCES public.success_criteria(success_criteria_id) ON DELETE CASCADE;
+
+
+--
 -- Name: group_membership group_membership_group_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3089,6 +3105,14 @@ ALTER TABLE ONLY public.learning_objectives
 
 ALTER TABLE ONLY public.lesson_links
     ADD CONSTRAINT lesson_links_lesson_id_fkey FOREIGN KEY (lesson_id) REFERENCES public.lessons(lesson_id) ON DELETE CASCADE;
+
+
+--
+-- Name: lesson_success_criteria fk_lesson_sc_success_criteria; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.lesson_success_criteria
+    ADD CONSTRAINT fk_lesson_sc_success_criteria FOREIGN KEY (success_criteria_id) REFERENCES public.success_criteria(success_criteria_id) ON DELETE CASCADE;
 
 
 --

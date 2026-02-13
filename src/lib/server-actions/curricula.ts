@@ -931,7 +931,7 @@ export async function createCurriculumSuccessCriterionAction(
   const sanitized = {
     learning_objective_id: learningObjectiveId,
     description: payload.description.trim(),
-    level: payload.level ?? 1,
+    level: payload.level ?? 0,
     order_index: payload.order_index ?? 0,
     active: payload.active ?? true,
   }
@@ -1107,7 +1107,7 @@ export async function updateCurriculumSuccessCriterionAction(
       data: {
         success_criteria_id: data.success_criteria_id,
         learning_objective_id: data.learning_objective_id,
-        level: data.level ?? 1,
+        level: data.level ?? 0,
         description: data.description ?? "",
         order_index: data.order_index ?? 0,
         active: data.active ?? true,
@@ -1219,7 +1219,7 @@ export async function reorderCurriculumSuccessCriteriaAction(
     const normalized = (rows ?? []).map((criterion, index) => ({
       success_criteria_id: criterion.success_criteria_id,
       learning_objective_id: criterion.learning_objective_id,
-      level: criterion.level ?? 1,
+      level: criterion.level ?? 0,
       description: criterion.description ?? "",
       order_index: criterion.order_index ?? index,
       active: criterion.active ?? true,
@@ -1233,3 +1233,102 @@ export async function reorderCurriculumSuccessCriteriaAction(
     return SuccessCriteriaListReturnValue.parse({ data: null, error: message })
   }
 }
+
+const SuccessCriteriaUsageSchema = z.object({
+  isAssigned: z.boolean(),
+  affectedLessons: z.array(z.object({
+    lesson_id: z.string(),
+    lesson_title: z.string(),
+    unit_title: z.string().nullable(),
+  })),
+})
+
+const SuccessCriteriaUsageReturnValue = z.object({
+  data: SuccessCriteriaUsageSchema.nullable(),
+  error: z.string().nullable(),
+})
+
+/**
+ * Checks if a success criterion is assigned to any activities.
+ * Returns list of affected lessons if assigned.
+ */
+export async function checkSuccessCriteriaUsageAction(
+  successCriteriaId: string
+): Promise<{ data: z.infer<typeof SuccessCriteriaUsageSchema> | null; error: string | null }> {
+  console.log("[curricula] checkSuccessCriteriaUsageAction:start", { successCriteriaId })
+
+  try {
+    const { rows } = await query<{
+      lesson_id: string
+      lesson_title: string
+      unit_title: string | null
+    }>(
+      `
+        select distinct
+          l.lesson_id,
+          l.title as lesson_title,
+          u.title as unit_title
+        from activity_success_criteria acs
+        join activities a on a.activity_id = acs.activity_id
+        join lessons l on l.lesson_id = a.lesson_id
+        left join units u on u.unit_id = l.unit_id
+        where acs.success_criteria_id = $1
+        order by u.title, l.title
+      `,
+      [successCriteriaId]
+    )
+
+    return SuccessCriteriaUsageReturnValue.parse({
+      data: {
+        isAssigned: rows.length > 0,
+        affectedLessons: rows ?? [],
+      },
+      error: null,
+    })
+  } catch (error) {
+    console.error("[curricula] checkSuccessCriteriaUsageAction:error", error)
+    const message = error instanceof Error ? error.message : "Unable to check success criteria usage."
+    return SuccessCriteriaUsageReturnValue.parse({ data: null, error: message })
+  }
+}
+
+/**
+ * Unassigns a success criterion from all activities.
+ * Does not delete the SC itself, and keeps all activities, submissions, and feedback intact.
+ */
+export async function unassignSuccessCriteriaFromActivitiesAction(
+  successCriteriaId: string,
+  curriculumId: string
+): Promise<{ success: boolean; error: string | null; removedCount: number }> {
+  console.log("[curricula] unassignSuccessCriteriaFromActivitiesAction:start", {
+    successCriteriaId,
+    curriculumId,
+  })
+
+  try {
+    const { rowCount } = await query(
+      `
+        delete from activity_success_criteria
+        where success_criteria_id = $1
+      `,
+      [successCriteriaId]
+    )
+
+    revalidatePath(`/curriculum/${curriculumId}`)
+
+    return {
+      success: true,
+      error: null,
+      removedCount: rowCount ?? 0,
+    }
+  } catch (error) {
+    console.error("[curricula] unassignSuccessCriteriaFromActivitiesAction:error", error)
+    const message = error instanceof Error ? error.message : "Unable to unassign success criteria."
+    return {
+      success: false,
+      error: message,
+      removedCount: 0,
+    }
+  }
+}
+
