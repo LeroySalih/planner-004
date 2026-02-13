@@ -178,6 +178,7 @@ export {
 export { fetchLessonLinkMetadataAction } from "./server-actions/link-metadata";
 
 export {
+  checkSuccessCriteriaUsageAction,
   createCurriculumAction,
   createCurriculumAssessmentObjectiveAction,
   createCurriculumLearningObjectiveAction,
@@ -191,6 +192,7 @@ export {
   reorderCurriculumAssessmentObjectivesAction,
   reorderCurriculumLearningObjectivesAction,
   reorderCurriculumSuccessCriteriaAction,
+  unassignSuccessCriteriaFromActivitiesAction,
   updateCurriculumAction,
   updateCurriculumAssessmentObjectiveAction,
   updateCurriculumLearningObjectiveAction,

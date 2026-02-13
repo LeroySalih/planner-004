@@ -259,7 +259,7 @@ export type AssessmentObjectives = z.infer<typeof AssessmentObjectivesSchema>;
 export const SuccessCriterionSchema = z.object({
     success_criteria_id: z.string(),
     learning_objective_id: z.string(),
-    level: z.number().min(1).max(9).default(1),
+    level: z.number().min(0).max(9).default(0),
     description: z.string().min(1),
     order_index: z
         .union([z.number(), z.null(), z.undefined()])
