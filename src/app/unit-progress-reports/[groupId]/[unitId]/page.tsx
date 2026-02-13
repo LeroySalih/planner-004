@@ -4,11 +4,13 @@ import { TeacherPageLayout } from "@/components/layouts/TeacherPageLayout"
 
 type PageProps = {
   params: Promise<{ groupId: string; unitId: string }>
+  searchParams: { summative?: string }
 }
 
-export default async function UnitLessonProgressPage({ params }: PageProps) {
+export default async function UnitLessonProgressPage({ params, searchParams }: PageProps) {
   const { groupId, unitId } = await params
-  const result = await getUnitLessonMatrixAction(groupId, unitId)
+  const summativeOnly = searchParams.summative === 'true'
+  const result = await getUnitLessonMatrixAction(groupId, unitId, summativeOnly)
 
   return (
     <TeacherPageLayout
@@ -20,7 +22,7 @@ export default async function UnitLessonProgressPage({ params }: PageProps) {
       title={result.unitTitle}
       subtitle={`${result.groupId} - ${result.groupSubject} · Lesson-level progress`}
     >
-      <LessonMatrix data={result.data} />
+      <LessonMatrix data={result.data} summativeOnly={summativeOnly} />
     </TeacherPageLayout>
   )
 }

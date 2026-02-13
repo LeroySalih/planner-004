@@ -2,6 +2,9 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { useRouter, usePathname } from 'next/navigation'
+import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 
 type MatrixData = {
   groupId: string
@@ -15,6 +18,7 @@ type MatrixData = {
 
 type ProgressMatrixProps = {
   data: MatrixData[]
+  summativeOnly: boolean
 }
 
 type SubjectData = {
@@ -74,7 +78,18 @@ function sortClassIds(classIds: string[]): string[] {
   })
 }
 
-export function ProgressMatrix({ data }: ProgressMatrixProps) {
+export function ProgressMatrix({ data, summativeOnly }: ProgressMatrixProps) {
+  const router = useRouter()
+  const pathname = usePathname()
+
+  const handleToggle = (checked: boolean) => {
+    const params = new URLSearchParams()
+    if (checked) {
+      params.set('summative', 'true')
+    }
+    router.push(`${pathname}?${params.toString()}`)
+  }
+
   // Group data by subject
   const subjectMap = new Map<string, SubjectData>()
 
@@ -136,6 +151,18 @@ export function ProgressMatrix({ data }: ProgressMatrixProps) {
 
   return (
     <div className="space-y-6">
+      {/* Toggle */}
+      <div className="flex items-center gap-3 rounded-lg border border-border bg-card p-4">
+        <Switch
+          id="summative-toggle"
+          checked={summativeOnly}
+          onCheckedChange={handleToggle}
+        />
+        <Label htmlFor="summative-toggle" className="cursor-pointer">
+          Show assessment scores only (summative activities)
+        </Label>
+      </div>
+
       {/* Tabs */}
       <div className="flex gap-2 border-b border-border">
         {subjects.map((subject) => (

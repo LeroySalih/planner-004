@@ -1,5 +1,9 @@
 'use client'
 
+import { useRouter, usePathname, useSearchParams } from 'next/navigation'
+import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
+
 type LessonMatrixData = {
   lessonId: string
   lessonTitle: string
@@ -11,6 +15,7 @@ type LessonMatrixData = {
 
 type LessonMatrixProps = {
   data: LessonMatrixData[]
+  summativeOnly: boolean
 }
 
 type MatrixStructure = {
@@ -59,7 +64,21 @@ function getCellBgColor(value: number | null): string {
   }
 }
 
-export function LessonMatrix({ data }: LessonMatrixProps) {
+export function LessonMatrix({ data, summativeOnly }: LessonMatrixProps) {
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+
+  const handleToggle = (checked: boolean) => {
+    const params = new URLSearchParams(searchParams)
+    if (checked) {
+      params.set('summative', 'true')
+    } else {
+      params.delete('summative')
+    }
+    router.push(`${pathname}?${params.toString()}`)
+  }
+
   // Build matrix structure
   const matrix: MatrixStructure = {
     pupils: [],
@@ -119,6 +138,18 @@ export function LessonMatrix({ data }: LessonMatrixProps) {
 
   return (
     <div className="space-y-6">
+      {/* Toggle */}
+      <div className="flex items-center gap-3 rounded-lg border border-border bg-card p-4">
+        <Switch
+          id="summative-toggle"
+          checked={summativeOnly}
+          onCheckedChange={handleToggle}
+        />
+        <Label htmlFor="summative-toggle" className="cursor-pointer">
+          Show assessment scores only (summative activities)
+        </Label>
+      </div>
+
       {/* Matrix */}
       <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
         <table className="w-full">
