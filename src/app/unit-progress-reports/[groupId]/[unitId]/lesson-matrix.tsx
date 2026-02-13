@@ -3,6 +3,7 @@
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { getLevelForYearScore } from '@/lib/levels'
 
 type LessonMatrixData = {
   lessonId: string
@@ -16,6 +17,7 @@ type LessonMatrixData = {
 type LessonMatrixProps = {
   data: LessonMatrixData[]
   summativeOnly: boolean
+  groupId: string
 }
 
 type MatrixStructure = {
@@ -64,7 +66,39 @@ function getCellBgColor(value: number | null): string {
   }
 }
 
-export function LessonMatrix({ data, summativeOnly }: LessonMatrixProps) {
+function parseYearFromGroupId(groupId: string): number | null {
+  // Expected format: "25-7A-IT" where 7 is the year group
+  const match = groupId.match(/^\d+-(\d+)[A-Z]?-/)
+  if (match && match[1]) {
+    const year = parseInt(match[1], 10)
+    if (year >= 7 && year <= 11) {
+      return year
+    }
+  }
+  return null
+}
+
+function calculatePupilAverage(
+  pupilId: string,
+  lessons: { pupilMetrics: Map<string, { avgScore: number | null }> }[]
+): number | null {
+  const scores: number[] = []
+
+  for (const lesson of lessons) {
+    const metrics = lesson.pupilMetrics.get(pupilId)
+    if (metrics && typeof metrics.avgScore === 'number' && !Number.isNaN(metrics.avgScore)) {
+      scores.push(metrics.avgScore)
+    }
+  }
+
+  if (scores.length === 0) {
+    return null
+  }
+
+  return scores.reduce((sum, score) => sum + score, 0) / scores.length
+}
+
+export function LessonMatrix({ data, summativeOnly, groupId }: LessonMatrixProps) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -78,6 +112,8 @@ export function LessonMatrix({ data, summativeOnly }: LessonMatrixProps) {
     }
     router.push(`${pathname}?${params.toString()}`)
   }
+
+  const yearGroup = parseYearFromGroupId(groupId)
 
   // Build matrix structure
   const matrix: MatrixStructure = {
@@ -168,42 +204,71 @@ export function LessonMatrix({ data, summativeOnly }: LessonMatrixProps) {
                   </div>
                 </th>
               ))}
+              <th className="px-3 py-3 text-center text-sm font-semibold text-foreground bg-blue-50 dark:bg-blue-900/20">
+                <div className="min-w-[80px]">
+                  Average
+                </div>
+              </th>
+              <th className="px-3 py-3 text-center text-sm font-semibold text-foreground bg-blue-50 dark:bg-blue-900/20">
+                <div className="min-w-[80px]">
+                  Level
+                </div>
+              </th>
             </tr>
           </thead>
           <tbody>
-            {matrix.pupils.map((pupil) => (
-              <tr key={pupil.pupilId} className="border-b border-border last:border-b-0">
-                <td className="sticky left-0 z-10 bg-card px-4 py-3 text-sm font-medium text-foreground">
-                  {pupil.firstName} {pupil.lastName}
-                </td>
-                {matrix.lessons.map((lesson) => {
-                  const metrics = lesson.pupilMetrics.get(pupil.pupilId)
-                  if (!metrics) {
+            {matrix.pupils.map((pupil) => {
+              const avgScore = calculatePupilAverage(pupil.pupilId, matrix.lessons)
+              const level = getLevelForYearScore(yearGroup, avgScore)
+
+              return (
+                <tr key={pupil.pupilId} className="border-b border-border last:border-b-0">
+                  <td className="sticky left-0 z-10 bg-card px-4 py-3 text-sm font-medium text-foreground">
+                    {pupil.firstName} {pupil.lastName}
+                  </td>
+                  {matrix.lessons.map((lesson) => {
+                    const metrics = lesson.pupilMetrics.get(pupil.pupilId)
+                    if (!metrics) {
+                      return (
+                        <td
+                          key={lesson.lessonId}
+                          className="px-3 py-3 text-center text-xs text-muted-foreground"
+                        >
+                          —
+                        </td>
+                      )
+                    }
+
                     return (
                       <td
                         key={lesson.lessonId}
-                        className="px-3 py-3 text-center text-xs text-muted-foreground"
+                        className={`px-3 py-3 ${getCellBgColor(metrics.avgScore)}`}
                       >
-                        —
+                        <div className="flex flex-col items-center gap-1">
+                          <div className={`text-sm font-semibold ${getMetricColor(metrics.avgScore)}`}>
+                            {formatPercent(metrics.avgScore)}
+                          </div>
+                        </div>
                       </td>
                     )
-                  }
-
-                  return (
-                    <td
-                      key={lesson.lessonId}
-                      className={`px-3 py-3 ${getCellBgColor(metrics.avgScore)}`}
-                    >
-                      <div className="flex flex-col items-center gap-1">
-                        <div className={`text-sm font-semibold ${getMetricColor(metrics.avgScore)}`}>
-                          {formatPercent(metrics.avgScore)}
-                        </div>
+                  })}
+                  <td className={`px-3 py-3 bg-blue-50 dark:bg-blue-900/20 ${getCellBgColor(avgScore)}`}>
+                    <div className="flex flex-col items-center gap-1">
+                      <div className={`text-sm font-bold ${getMetricColor(avgScore)}`}>
+                        {formatPercent(avgScore)}
                       </div>
-                    </td>
-                  )
-                })}
-              </tr>
-            ))}
+                    </div>
+                  </td>
+                  <td className="px-3 py-3 bg-blue-50 dark:bg-blue-900/20">
+                    <div className="flex items-center justify-center">
+                      <div className="text-sm font-bold text-foreground">
+                        {level ?? '—'}
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>

@@ -11,21 +11,22 @@ export async function getClassProgressAction(groupId: string, summativeOnly = fa
   }
 
   // Get units assigned to this group with average metrics across all pupils
-  // Aggregated directly from pupil_activity_feedback
+  // Aggregated from submission-level scores (not individual feedback records)
   const { rows: unitRows } = await query(
     `SELECT
        u.unit_id,
        u.title as unit_title,
        u.subject as unit_subject,
        COUNT(DISTINCT gm.user_id) as pupil_count,
-       AVG(CASE WHEN $2 = true AND a.is_summative = false THEN NULL ELSE paf.score END) as avg_score
+       AVG(CASE WHEN $2 = true AND a.is_summative = false THEN NULL
+                ELSE COALESCE((s.body->>'teacher_override_score')::numeric, 0) END) as avg_score
      FROM lesson_assignments la
      JOIN lessons l ON l.lesson_id = la.lesson_id
      JOIN units u ON u.unit_id = l.unit_id
      JOIN activities a ON a.lesson_id = l.lesson_id
      JOIN group_membership gm ON gm.group_id = la.group_id
-     LEFT JOIN pupil_activity_feedback paf ON paf.activity_id = a.activity_id
-                                           AND paf.pupil_id = gm.user_id
+     LEFT JOIN submissions s ON s.activity_id = a.activity_id
+                             AND s.user_id = gm.user_id
      WHERE la.group_id = $1
      GROUP BY u.unit_id, u.title, u.subject
      ORDER BY u.title`,
@@ -49,7 +50,7 @@ export async function getProgressMatrixAction(summativeOnly = false) {
   }
 
   // Get all units, classes, and their metrics across all classes
-  // Aggregated directly from pupil_activity_feedback
+  // Aggregated from submission-level scores (not individual feedback records)
   const { rows } = await query(
     `SELECT
        g.group_id,
@@ -58,15 +59,16 @@ export async function getProgressMatrixAction(summativeOnly = false) {
        u.title as unit_title,
        u.subject as unit_subject,
        COUNT(DISTINCT gm.user_id) as pupil_count,
-       AVG(CASE WHEN $1 = true AND a.is_summative = false THEN NULL ELSE paf.score END) as avg_score
+       AVG(CASE WHEN $1 = true AND a.is_summative = false THEN NULL
+                ELSE COALESCE((s.body->>'teacher_override_score')::numeric, 0) END) as avg_score
      FROM groups g
      JOIN lesson_assignments la ON la.group_id = g.group_id
      JOIN lessons l ON l.lesson_id = la.lesson_id
      JOIN units u ON u.unit_id = l.unit_id
      JOIN activities a ON a.lesson_id = l.lesson_id
      JOIN group_membership gm ON gm.group_id = g.group_id
-     LEFT JOIN pupil_activity_feedback paf ON paf.activity_id = a.activity_id
-                                           AND paf.pupil_id = gm.user_id
+     LEFT JOIN submissions s ON s.activity_id = a.activity_id
+                             AND s.user_id = gm.user_id
      GROUP BY g.group_id, g.subject, u.unit_id, u.title, u.subject
      ORDER BY g.subject, u.title, g.group_id`,
     [summativeOnly]
@@ -104,7 +106,7 @@ export async function getClassPupilMatrixAction(groupId: string, summativeOnly =
   }
 
   // Get all units assigned to this class with metrics for each pupil
-  // Aggregated directly from pupil_activity_feedback
+  // Aggregated from submission-level scores (not individual feedback records)
   const { rows } = await query(
     `SELECT
        u.unit_id,
@@ -113,15 +115,16 @@ export async function getClassPupilMatrixAction(groupId: string, summativeOnly =
        gm.user_id as pupil_id,
        p.first_name,
        p.last_name,
-       AVG(CASE WHEN $2 = true AND a.is_summative = false THEN NULL ELSE paf.score END) as avg_score
+       AVG(CASE WHEN $2 = true AND a.is_summative = false THEN NULL
+                ELSE COALESCE((s.body->>'teacher_override_score')::numeric, 0) END) as avg_score
      FROM lesson_assignments la
      JOIN lessons l ON l.lesson_id = la.lesson_id
      JOIN units u ON u.unit_id = l.unit_id
      JOIN activities a ON a.lesson_id = l.lesson_id
      JOIN group_membership gm ON gm.group_id = la.group_id
      JOIN profiles p ON p.user_id = gm.user_id
-     LEFT JOIN pupil_activity_feedback paf ON paf.activity_id = a.activity_id
-                                           AND paf.pupil_id = gm.user_id
+     LEFT JOIN submissions s ON s.activity_id = a.activity_id
+                             AND s.user_id = gm.user_id
      WHERE la.group_id = $1
      GROUP BY u.unit_id, u.title, u.subject, gm.user_id, p.first_name, p.last_name
      ORDER BY p.last_name, p.first_name, u.title`,
@@ -164,7 +167,7 @@ export async function getUnitLessonMatrixAction(groupId: string, unitId: string,
     throw new Error('Class or unit not found')
   }
 
-  // Get lesson-level metrics by aggregating activity feedback scores
+  // Get lesson-level metrics by aggregating submission-level scores
   const { rows } = await query(
     `WITH lesson_activity_scores AS (
        SELECT
@@ -176,13 +179,13 @@ export async function getUnitLessonMatrixAction(groupId: string, unitId: string,
          p.last_name,
          a.activity_id,
          a.is_summative,
-         paf.score
+         COALESCE((s.body->>'teacher_override_score')::numeric, 0) as score
        FROM lessons l
        JOIN lesson_assignments la ON la.lesson_id = l.lesson_id AND la.group_id = $1
        JOIN group_membership gm ON gm.group_id = la.group_id
        JOIN profiles p ON p.user_id = gm.user_id
        LEFT JOIN activities a ON a.lesson_id = l.lesson_id
-       LEFT JOIN pupil_activity_feedback paf ON paf.activity_id = a.activity_id AND paf.pupil_id = gm.user_id
+       LEFT JOIN submissions s ON s.activity_id = a.activity_id AND s.user_id = gm.user_id
        WHERE l.unit_id = $2
      )
      SELECT
@@ -243,18 +246,19 @@ export async function getPupilUnitLessonsAction(groupId: string, unitId: string,
     throw new Error('Pupil, class, or unit not found')
   }
 
-  // Get lesson-level averages by aggregating from pupil_activity_feedback
+  // Get lesson-level averages by aggregating from submission-level scores
   const { rows: lessonRows } = await query(
     `SELECT
        l.lesson_id,
        l.title as lesson_title,
        l.order_by,
-       AVG(CASE WHEN $4 = true AND a.is_summative = false THEN NULL ELSE paf.score END) as avg_score
+       AVG(CASE WHEN $4 = true AND a.is_summative = false THEN NULL
+                ELSE COALESCE((s.body->>'teacher_override_score')::numeric, 0) END) as avg_score
      FROM lessons l
      JOIN lesson_assignments la ON la.lesson_id = l.lesson_id AND la.group_id = $1
      LEFT JOIN activities a ON a.lesson_id = l.lesson_id
-     LEFT JOIN pupil_activity_feedback paf ON paf.activity_id = a.activity_id
-                                           AND paf.pupil_id = $2
+     LEFT JOIN submissions s ON s.activity_id = a.activity_id
+                             AND s.user_id = $2
      WHERE l.unit_id = $3
      GROUP BY l.lesson_id, l.title, l.order_by
      ORDER BY l.order_by`,
