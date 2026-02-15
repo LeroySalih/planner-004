@@ -4,7 +4,7 @@ import type { ChangeEvent, DragEvent } from "react"
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { Download, GripVertical, Loader2, Pencil, Play, Plus, Trash2 } from "lucide-react"
+import { Download, GripVertical, Loader2, Pencil, Play, Plus, Trash2, Upload } from "lucide-react"
 
 import type { FeedbackActivityBody, FeedbackActivityGroupSettings, LessonActivity } from "@/types"
 import {
@@ -17,8 +17,10 @@ import {
   readGroupsAction,
   reorderLessonActivitiesAction,
   updateLessonActivityAction,
+  uploadActivitiesFromMarkdownAction,
   uploadActivityFileAction,
 } from "@/lib/server-updates"
+import { parseActivitiesMarkdown } from "@/lib/parse-activities-markdown"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -120,6 +122,8 @@ export function LessonActivitiesManager({
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dragOverId, setDragOverId] = useState<string | null>(null)
   const pendingReorderRef = useRef<{ next: LessonActivity[]; previous: LessonActivity[] } | null>(null)
+  const mdFileInputRef = useRef<HTMLInputElement | null>(null)
+  const [isUploading, setIsUploading] = useState(false)
   const [voicePreviewState, setVoicePreviewState] = useState<
     Record<string, { url: string | null; loading: boolean }>
   >({})
@@ -888,12 +892,182 @@ useEffect(() => {
     [lessonId, router, startTransition, unitId],
   )
 
+  const handleDownloadTemplate = useCallback(() => {
+    // Build unique LOs and SCs from availableSuccessCriteria
+    const loMap = new Map<string, string>()
+    for (const sc of availableSuccessCriteria) {
+      if (sc.learningObjectiveId && sc.learningObjectiveTitle) {
+        loMap.set(sc.learningObjectiveId, sc.learningObjectiveTitle)
+      }
+    }
+    const los = [...loMap.values()]
+    const scs = availableSuccessCriteria.map((sc) => ({
+      title: sc.title,
+      loTitle: sc.learningObjectiveTitle,
+    }))
+
+    let template = `# Activities Template
+#
+# FORMAT RULES:
+# - Each activity starts with a level-2 heading: ## MCQ: Title  or  ## SHORT: Title
+# - MCQ (Multiple Choice Question):
+#     Question text on plain lines after the heading.
+#     Options as a checklist: - [x] Correct answer  and  - [ ] Wrong answer
+#     Exactly 1 correct answer marked with [x]. 2–4 options total.
+# - SHORT (Short Text Question):
+#     Question text on plain lines after the heading.
+#     Model answer on a line starting with: ANSWER: your answer here
+# - Optionally link to a Learning Objective:  LO: Objective Title
+# - Optionally link to Success Criteria:     SC: Criterion Description
+#   (SC must belong to the specified LO if both are provided)
+#
+`
+
+    if (los.length > 0) {
+      template += `\n# AVAILABLE LEARNING OBJECTIVES FOR THIS LESSON:\n`
+      for (const lo of los) {
+        template += `#   - ${lo}\n`
+      }
+    }
+
+    if (scs.length > 0) {
+      template += `#\n# AVAILABLE SUCCESS CRITERIA FOR THIS LESSON:\n`
+      for (const sc of scs) {
+        template += `#   - ${sc.title}${sc.loTitle ? ` (LO: ${sc.loTitle})` : ""}\n`
+      }
+    }
+
+    template += `\n## MCQ: Example Multiple Choice Question
+
+What is 2 + 2?
+
+- [ ] 3
+- [x] 4
+- [ ] 5
+${los[0] ? `\nLO: ${los[0]}` : ""}
+${scs[0] ? `SC: ${scs[0].title}` : ""}
+
+## SHORT: Example Short Answer Question
+
+Explain why the sky is blue.
+
+ANSWER: The sky appears blue because of Rayleigh scattering of sunlight by the atmosphere.
+${los[0] ? `\nLO: ${los[0]}` : ""}
+${scs[0] ? `SC: ${scs[0].title}` : ""}
+`
+
+    const blob = new Blob([template], { type: "text/markdown" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = "activities-template.md"
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [availableSuccessCriteria])
+
+  const handleMarkdownUpload = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0]
+      if (event.target) event.target.value = ""
+      if (!file) return
+
+      const reader = new FileReader()
+      reader.onload = () => {
+        const content = reader.result as string
+        const parseResult = parseActivitiesMarkdown(content)
+
+        if (!parseResult.success) {
+          toast.error("Failed to parse markdown file", { description: parseResult.error })
+          return
+        }
+
+        const resolvedActivities: Array<{
+          title: string
+          type: "multiple-choice-question" | "short-text-question"
+          bodyData: unknown
+          successCriteriaIds: string[]
+        }> = []
+
+        for (const parsed of parseResult.activities) {
+          const successCriteriaIds: string[] = []
+
+          // Resolve LO reference
+          let loId: string | null = null
+          if (parsed.loReference) {
+            const matchedLo = availableSuccessCriteria.find(
+              (sc) =>
+                sc.learningObjectiveTitle !== null &&
+                sc.learningObjectiveTitle.trim().toLowerCase() === parsed.loReference!.trim().toLowerCase(),
+            )
+            if (!matchedLo) {
+              toast.error("Upload failed", {
+                description: `Activity "${parsed.title}" references Learning Objective "${parsed.loReference}" which is not attached to this lesson.`,
+              })
+              return
+            }
+            loId = matchedLo.learningObjectiveId
+          }
+
+          // Resolve SC references
+          for (const scRef of parsed.scReferences) {
+            const matchedSc = availableSuccessCriteria.find(
+              (sc) => sc.title.trim().toLowerCase() === scRef.trim().toLowerCase(),
+            )
+            if (!matchedSc) {
+              toast.error("Upload failed", {
+                description: `Activity "${parsed.title}" references Success Criterion "${scRef}" which is not attached to this lesson.`,
+              })
+              return
+            }
+            // If LO specified, verify SC belongs to that LO
+            if (loId !== null && matchedSc.learningObjectiveId !== loId) {
+              toast.error("Upload failed", {
+                description: `Activity "${parsed.title}" references Success Criterion "${scRef}" which does not belong to Learning Objective "${parsed.loReference}".`,
+              })
+              return
+            }
+            successCriteriaIds.push(matchedSc.successCriteriaId)
+          }
+
+          resolvedActivities.push({
+            title: parsed.title,
+            type: parsed.type,
+            bodyData: parsed.bodyData,
+            successCriteriaIds,
+          })
+        }
+
+        setIsUploading(true)
+        startTransition(async () => {
+          try {
+            const result = await uploadActivitiesFromMarkdownAction(unitId, lessonId, resolvedActivities)
+            if (result.success && result.data) {
+              toast.success(`${result.data.count} activities uploaded successfully`)
+              router.refresh()
+            } else {
+              toast.error("Upload failed", { description: result.error ?? "An unknown error occurred." })
+            }
+          } catch (error) {
+            console.error("[activities] Failed to upload from markdown", error)
+            toast.error("Upload failed", {
+              description: error instanceof Error ? error.message : "An unknown error occurred.",
+            })
+          } finally {
+            setIsUploading(false)
+          }
+        })
+      }
+      reader.readAsText(file)
+    },
+    [availableSuccessCriteria, lessonId, router, startTransition, unitId],
+  )
+
   const openImageModal = useCallback((url: string | null, title: string) => {
     if (!url) return
     setImageModal({ open: true, url, title })
   }, [])
 
-  const isBusy = isPending
+  const isBusy = isPending || isUploading
 
   const handleDragStart = (activityId: string) => (event: DragEvent<HTMLButtonElement>) => {
     event.dataTransfer.effectAllowed = "move"
@@ -1044,6 +1218,33 @@ useEffect(() => {
                 className="w-full sm:w-auto"
               >
                 <Play className="mr-2 h-4 w-4" /> Show Activities
+              </Button>
+              <Button
+                onClick={handleDownloadTemplate}
+                variant="outline"
+                className="w-full sm:w-auto"
+              >
+                <Download className="mr-2 h-4 w-4" /> Download Template
+              </Button>
+              <input
+                ref={mdFileInputRef}
+                type="file"
+                accept=".md"
+                className="hidden"
+                onChange={handleMarkdownUpload}
+              />
+              <Button
+                onClick={() => mdFileInputRef.current?.click()}
+                variant="outline"
+                disabled={isBusy}
+                className="w-full sm:w-auto"
+              >
+                {isUploading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Upload className="mr-2 h-4 w-4" />
+                )}
+                Upload Activities
               </Button>
               <Button
                 onClick={() => openEditor(NEW_ACTIVITY_ID)}

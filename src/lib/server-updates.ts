@@ -137,6 +137,7 @@ export {
   listLessonActivitiesAction,
   reorderLessonActivitiesAction,
   updateLessonActivityAction,
+  uploadActivitiesFromMarkdownAction,
 } from "./server-actions/lesson-activities";
 
 export {

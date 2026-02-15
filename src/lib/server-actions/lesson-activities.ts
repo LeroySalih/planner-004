@@ -16,6 +16,7 @@ import { query, withDbClient } from "@/lib/db";
 import { withTelemetry } from "@/lib/telemetry";
 import { isScorableActivityType } from "@/dino.config";
 import { enqueueLessonMutationJob } from "@/lib/lesson-job-runner";
+import { requireRole } from "@/lib/auth";
 
 const LessonActivitiesReturnValue = z.object({
   data: LessonActivitiesSchema.nullable(),
@@ -574,6 +575,122 @@ export async function deleteLessonActivityAction(
   });
 
   return { success: true };
+}
+
+export async function uploadActivitiesFromMarkdownAction(
+  unitId: string,
+  lessonId: string,
+  activities: Array<{
+    title: string
+    type: "multiple-choice-question" | "short-text-question"
+    bodyData: unknown
+    successCriteriaIds: string[]
+  }>,
+): Promise<{ success: boolean; error?: string | null; data?: { count: number } }> {
+  await requireRole("teacher");
+
+  for (const activity of activities) {
+    if (activity.type === "multiple-choice-question") {
+      const parsed = McqActivityBodySchema.safeParse(activity.bodyData);
+      if (!parsed.success) {
+        return {
+          success: false,
+          error: `Activity "${activity.title}" has an invalid multiple-choice body.`,
+        };
+      }
+    } else if (activity.type === "short-text-question") {
+      const parsed = ShortTextActivityBodySchema.safeParse(activity.bodyData);
+      if (!parsed.success) {
+        return {
+          success: false,
+          error: `Activity "${activity.title}" has an invalid short text body.`,
+        };
+      }
+    } else {
+      return {
+        success: false,
+        error: `Activity "${activity.title}" has an unsupported type "${activity.type}".`,
+      };
+    }
+  }
+
+  try {
+    await withDbClient(async (client) => {
+      await client.query("BEGIN");
+
+      try {
+        const { rows: maxOrderRows } = await client.query(
+          `
+            select order_by
+            from activities
+            where lesson_id = $1
+            order by order_by desc nulls last
+            limit 1
+          `,
+          [lessonId],
+        );
+
+        const maxOrder = maxOrderRows[0]?.order_by;
+        let nextOrder = typeof maxOrder === "number" ? maxOrder + 1 : 0;
+
+        for (const activity of activities) {
+          const isSummative = isScorableActivityType(activity.type);
+
+          const { rows } = await client.query(
+            `
+              insert into activities (
+                lesson_id, title, type, body_data, is_summative, order_by, active
+              )
+              values ($1, $2, $3, $4, $5, $6, true)
+              returning activity_id
+            `,
+            [
+              lessonId,
+              activity.title,
+              activity.type,
+              JSON.stringify(activity.bodyData),
+              isSummative,
+              nextOrder,
+            ],
+          );
+
+          const createdId = rows[0]?.activity_id;
+          if (!createdId) {
+            throw new Error(`Failed to insert activity "${activity.title}".`);
+          }
+
+          if (activity.successCriteriaIds.length > 0) {
+            await client.query(
+              `
+                insert into activity_success_criteria (activity_id, success_criteria_id)
+                select $1, unnest($2::text[])
+              `,
+              [createdId, activity.successCriteriaIds],
+            );
+          }
+
+          nextOrder++;
+        }
+
+        await client.query("COMMIT");
+      } catch (innerError) {
+        await client.query("ROLLBACK");
+        throw innerError;
+      }
+    });
+  } catch (error) {
+    console.error("[v0] Failed to upload activities from markdown:", error);
+    const message = error instanceof Error
+      ? error.message
+      : "Upload failed: database error. No activities were created.";
+    return { success: false, error: message };
+  }
+
+  queueMicrotask(() => {
+    revalidatePath(`/units/${unitId}`);
+  });
+
+  return { success: true, data: { count: activities.length } };
 }
 
 function normalizeSuccessCriteriaIds(
