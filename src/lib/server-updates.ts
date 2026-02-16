@@ -179,6 +179,7 @@ export {
 export { fetchLessonLinkMetadataAction } from "./server-actions/link-metadata";
 
 export {
+  batchCreateLosAndScsAction,
   checkSuccessCriteriaUsageAction,
   createCurriculumAction,
   createCurriculumAssessmentObjectiveAction,

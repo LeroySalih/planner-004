@@ -16,6 +16,7 @@ import {
   CurriculumSchema,
 } from "@/types"
 import { query, withDbClient } from "@/lib/db"
+import { requireRole } from "@/lib/auth"
 import {
   fetchSuccessCriteriaForLearningObjectives,
   type NormalizedSuccessCriterion,
@@ -979,6 +980,84 @@ export async function createCurriculumSuccessCriterionAction(
     console.error("[curricula] createCurriculumSuccessCriterionAction:error", error)
     const message = error instanceof Error ? error.message : "Unable to create success criterion."
     return SuccessCriterionReturnValue.parse({ data: null, error: message })
+  }
+}
+
+export async function batchCreateLosAndScsAction(
+  assessmentObjectiveId: string,
+  curriculumId: string,
+  items: Array<{ title: string; specRef?: string | null; successCriteria: Array<{ description: string; level: number }> }>,
+): Promise<{ success: boolean; error?: string; data?: { loCount: number; scCount: number } }> {
+  await requireRole("teacher")
+
+  if (items.length === 0) {
+    return { success: false, error: "No learning objectives provided." }
+  }
+
+  try {
+    let loCount = 0
+    let scCount = 0
+
+    await withDbClient(async (client) => {
+      await client.query("BEGIN")
+
+      try {
+        const { rows: maxOrderRows } = await client.query(
+          `
+            select coalesce(max(order_index), -1) as max_order
+            from learning_objectives
+            where assessment_objective_id = $1
+          `,
+          [assessmentObjectiveId],
+        )
+
+        let nextLoOrder = (maxOrderRows[0]?.max_order ?? -1) + 1
+
+        for (const item of items) {
+          const { rows: loRows } = await client.query(
+            `
+              insert into learning_objectives (assessment_objective_id, title, order_index, active, spec_ref)
+              values ($1, $2, $3, true, $4)
+              returning learning_objective_id
+            `,
+            [assessmentObjectiveId, item.title.trim(), nextLoOrder, item.specRef?.trim() || null],
+          )
+
+          const loId = loRows[0]?.learning_objective_id
+          if (!loId) {
+            throw new Error(`Failed to insert LO "${item.title}".`)
+          }
+
+          loCount++
+          nextLoOrder++
+
+          for (let scIdx = 0; scIdx < item.successCriteria.length; scIdx++) {
+            const sc = item.successCriteria[scIdx]
+            await client.query(
+              `
+                insert into success_criteria (learning_objective_id, level, description, order_index, active)
+                values ($1, $2, $3, $4, true)
+              `,
+              [loId, sc.level, sc.description.trim(), scIdx],
+            )
+            scCount++
+          }
+        }
+
+        await client.query("COMMIT")
+      } catch (innerError) {
+        await client.query("ROLLBACK")
+        throw innerError
+      }
+    })
+
+    revalidatePath(`/curriculum/${curriculumId}`)
+
+    return { success: true, data: { loCount, scCount } }
+  } catch (error) {
+    console.error("[curricula] batchCreateLosAndScsAction:error", error)
+    const message = error instanceof Error ? error.message : "Unable to create learning objectives."
+    return { success: false, error: message }
   }
 }
 

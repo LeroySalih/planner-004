@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type JSX } from "react"
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react"
 import Link from "next/link"
-import { Check, Download, Link2, Loader2, Pencil, Plus, Trash2, X } from "lucide-react"
+import { Check, ClipboardPaste, Copy, Download, Link2, Loader2, Pencil, Plus, Trash2, X } from "lucide-react"
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
@@ -17,8 +17,18 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Textarea } from "@/components/ui/textarea"
 import type { CurriculumDetail, LessonWithObjectives, Units } from "@/types"
 import {
+  batchCreateLosAndScsAction,
   checkSuccessCriteriaUsageAction,
   createCurriculumAssessmentObjectiveAction,
   createCurriculumLearningObjectiveAction,
@@ -32,6 +42,7 @@ import {
   updateCurriculumLearningObjectiveAction,
   updateCurriculumSuccessCriterionAction,
 } from "@/lib/server-updates"
+import { parseLoScMarkdown, type ParseLoScResult } from "@/lib/parse-lo-sc-markdown"
 import { useToast } from "@/components/ui/use-toast"
 import { createExportBasename } from "@/lib/export-utils"
 import { stripLearningObjectiveFromDescription } from "@/lib/curriculum-formatting"
@@ -215,6 +226,13 @@ export default function CurriculumPrototypeClient({
     successCriteriaId: null,
     affectedLessons: [],
   })
+
+  const pasteTextareaRef = useRef<HTMLTextAreaElement>(null)
+  const [pasteDialog, setPasteDialog] = useState<{ open: boolean; aoIndex: number | null }>({ open: false, aoIndex: null })
+  const [pasteContent, setPasteContent] = useState("")
+  const [pastePreview, setPastePreview] = useState<ParseLoScResult | null>(null)
+  const [isPasting, setIsPasting] = useState(false)
+  const [promptCopied, setPromptCopied] = useState(false)
 
   const mapperStickyWidth = "clamp(14rem, 33.3333%, 22rem)"
   const { toast } = useToast()
@@ -1606,6 +1624,17 @@ export default function CurriculumPrototypeClient({
                           >
                             <Plus className="h-4 w-4" />
                           </button>
+                          <button
+                            className="rounded-full border border-border p-1 transition hover:bg-card"
+                            onClick={() => {
+                              setPasteContent("")
+                              setPastePreview(null)
+                              setPasteDialog({ open: true, aoIndex })
+                            }}
+                            aria-label="Paste learning objectives from markdown"
+                          >
+                            <ClipboardPaste className="h-4 w-4" />
+                          </button>
                         </div>
                       </header>
 
@@ -2273,6 +2302,177 @@ export default function CurriculumPrototypeClient({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog
+        open={pasteDialog.open}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPasteDialog({ open: false, aoIndex: null })
+            setPasteContent("")
+            setPastePreview(null)
+          }
+        }}
+      >
+        <DialogContent className="flex max-h-[80vh] flex-col sm:max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Paste Learning Objectives</DialogTitle>
+            <DialogDescription>
+              {pasteDialog.aoIndex !== null && assessmentObjectives[pasteDialog.aoIndex]
+                ? `Add LOs to ${assessmentObjectives[pasteDialog.aoIndex].code}: ${assessmentObjectives[pasteDialog.aoIndex].title}`
+                : "Paste markdown-formatted learning objectives and success criteria."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 self-start rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground transition hover:bg-muted"
+            onClick={() => {
+              const prompt = [
+                "Context: You are an expert Design and Technology teacher specializing in the Edexcel GCSE (9-1) specification.",
+                "",
+                "Task: Generate a structured list of Learning Objectives (LOs) and Success Criteria (SC) for a lesson on: [INSERT CHAPTER OR TOPIC NAME HERE].",
+                "",
+                "Instructions:",
+                "",
+                'LO Format: Start each LO with "TBAT" (To Be Able To). Include the exact Edexcel Specification reference code in parentheses.',
+                "",
+                'SC Format: Group 3-4 Success Criteria under each LO. Start each with "I can...".',
+                "",
+                "Differentiation: Each SC must end with a difficulty level tag from [L2] to [L8], mapped to GCSE grading.",
+                "",
+                "[L2-3] Identify / Name",
+                "[L4-5] Describe / Explain",
+                "[L6-8] Analyze / Compare / Evaluate",
+                "",
+                "Output Format: Provide the response in raw, unformatted markdown inside a code block (using ```) to preserve the syntax exactly as follows:",
+                "",
+                "## LO: TBAT <Learning Objective title> (Ref: <spec reference>)",
+                "- I can <Success criterion description> [L<level>]",
+                "- I can <Success criterion description> [L<level>]",
+              ].join("\n")
+              const el = document.createElement("textarea")
+              el.value = prompt
+              el.setAttribute("readonly", "")
+              el.style.position = "fixed"
+              el.style.left = "-9999px"
+              el.style.opacity = "0"
+              document.body.appendChild(el)
+              el.focus()
+              el.select()
+              document.execCommand("copy")
+              document.body.removeChild(el)
+              setPromptCopied(true)
+              setTimeout(() => setPromptCopied(false), 2000)
+            }}
+          >
+            {promptCopied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+            Copy Prompt
+          </button>
+
+          <div className="grid min-h-0 flex-1 grid-cols-2 gap-4">
+            <div className="flex min-h-0 flex-col gap-1">
+              <span className="text-xs font-medium text-muted-foreground">Markdown</span>
+              <Textarea
+                ref={pasteTextareaRef}
+                className="min-h-0 flex-1 resize-none overflow-y-auto font-mono text-sm"
+                placeholder={`## LO: Understand variables (Ref: 3.1.1)\n- Define what a variable is [L3]\n- Distinguish between types [L4]\n\n## LO: Use conditionals (Ref: 3.1.2)\n- Write if/else statements [L3]`}
+                value={pasteContent}
+                onChange={(e) => {
+                  const value = e.target.value
+                  setPasteContent(value)
+                  if (value.trim()) {
+                    setPastePreview(parseLoScMarkdown(value))
+                  } else {
+                    setPastePreview(null)
+                  }
+                }}
+              />
+            </div>
+            <div className="flex min-h-0 flex-col gap-1">
+              <span className="text-xs font-medium text-muted-foreground">Preview</span>
+              <div className="min-h-0 flex-1 overflow-y-auto rounded-md border border-border bg-muted/30 p-3 text-sm">
+                {pastePreview ? (
+                  pastePreview.success ? (
+                    <ul className="space-y-2">
+                      {pastePreview.learningObjectives.map((lo, loIdx) => (
+                        <li key={loIdx}>
+                          <div className="font-medium text-foreground">
+                            {lo.title}
+                            {lo.specRef && <span className="ml-2 text-xs text-muted-foreground">({lo.specRef})</span>}
+                          </div>
+                          <ul className="ml-4 mt-1 space-y-0.5">
+                            {lo.successCriteria.map((sc, scIdx) => (
+                              <li key={scIdx} className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <span>{sc.description}</span>
+                                <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${levelStyleMap[sc.level]?.badge ?? "bg-gray-100 text-gray-600"}`}>
+                                  L{sc.level}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-destructive">{pastePreview.error}</p>
+                  )
+                ) : (
+                  <p className="text-muted-foreground/50">Parsed LOs and SCs will appear here.</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <button
+              className="rounded-md border border-border px-4 py-2 text-sm transition hover:bg-muted"
+              onClick={() => {
+                setPasteDialog({ open: false, aoIndex: null })
+                setPasteContent("")
+                setPastePreview(null)
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!pastePreview?.success || isPasting}
+              onClick={async () => {
+                if (!pastePreview?.success || pasteDialog.aoIndex === null) return
+                const ao = assessmentObjectives[pasteDialog.aoIndex]
+                if (!ao) return
+
+                setIsPasting(true)
+                try {
+                  const result = await batchCreateLosAndScsAction(
+                    ao.id,
+                    curriculumId,
+                    pastePreview.learningObjectives,
+                  )
+                  if (result.success && result.data) {
+                    showToast("success", `Added ${result.data.loCount} LO${result.data.loCount !== 1 ? "s" : ""} and ${result.data.scCount} SC${result.data.scCount !== 1 ? "s" : ""}.`)
+                    setPasteDialog({ open: false, aoIndex: null })
+                    setPasteContent("")
+                    setPastePreview(null)
+                    await refreshCurriculum({ aoId: ao.id })
+                  } else {
+                    showToast("error", result.error ?? "Failed to add learning objectives.")
+                  }
+                } catch {
+                  showToast("error", "An unexpected error occurred.")
+                } finally {
+                  setIsPasting(false)
+                }
+              }}
+            >
+              {isPasting && <Loader2 className="h-4 w-4 animate-spin" />}
+              {pastePreview?.success
+                ? `Add ${pastePreview.learningObjectives.length} Learning Objective${pastePreview.learningObjectives.length !== 1 ? "s" : ""}`
+                : "Add Learning Objectives"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   )
 }
