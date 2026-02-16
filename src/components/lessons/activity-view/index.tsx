@@ -17,6 +17,7 @@ import {
   getActivityTextValue,
   getFeedbackBody,
   getImageBody,
+  getKeyTermsMarkdown,
   getLongTextBody,
   getMcqBody,
   getShortTextBody,
@@ -387,6 +388,12 @@ function ActivityShortView({
     )
   } else if (activity.type === "sketch-render") {
     content = <LessonActivityViewSketchRender activity={activity} />
+  } else if (activity.type === "display-key-terms") {
+    const md = getKeyTermsMarkdown(activity)
+    const firstLine = md.split("\n").find((l) => l.trim().length > 0)?.trim()
+    content = (
+      <p className="text-sm text-muted-foreground">{firstLine || "Key terms table"}</p>
+    )
   }
 
   const sections: ReactNode[] = []
@@ -826,6 +833,20 @@ function ActivityPresentView({
     )
   }
 
+  if (activity.type === "display-key-terms") {
+    const md = getKeyTermsMarkdown(activity)
+    const markup = getRichTextMarkup(md)
+    if (!markup) {
+      return wrap(<p className="text-muted-foreground">No key terms provided for this activity.</p>)
+    }
+    return wrap(
+      <div
+        className="prose prose-lg max-w-none text-foreground"
+        dangerouslySetInnerHTML={{ __html: markup }}
+      />
+    )
+  }
+
   if (activity.type === "short-text-question") {
     return wrap(<ShortTextPresentView activity={activity} lessonId={lessonId} />)
   }
@@ -1070,6 +1091,18 @@ function ActivityEditView({ activity, resolvedImageUrl }: LessonActivityEditView
   if (activity.type === "text") {
     const text = getActivityTextValue(activity)
     const markup = getRichTextMarkup(text)
+    if (!markup) return null
+    return (
+      <div
+        className="prose prose-sm max-w-none text-muted-foreground"
+        dangerouslySetInnerHTML={{ __html: markup }}
+      />
+    )
+  }
+
+  if (activity.type === "display-key-terms") {
+    const md = getKeyTermsMarkdown(activity)
+    const markup = getRichTextMarkup(md)
     if (!markup) return null
     return (
       <div

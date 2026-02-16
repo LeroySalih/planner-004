@@ -77,6 +77,7 @@ const ACTIVITY_TYPES = [
   { value: "upload-file", label: "Upload file" },
   { value: "upload-url", label: "Upload URL" },
   { value: "display-image", label: "Display image" },
+  { value: "display-key-terms", label: "Display key terms" },
   { value: "show-video", label: "Show video" },
   { value: "multiple-choice-question", label: "Multiple choice question" },
   { value: "short-text-question", label: "Short text question" },
@@ -1602,6 +1603,14 @@ function extractUploadInstructions(activity: LessonActivity): string {
   return typeof value === "string" ? value : ""
 }
 
+function extractKeyTermsMarkdown(activity: LessonActivity): string {
+  if (!activity.body_data || typeof activity.body_data !== "object") {
+    return ""
+  }
+  const value = (activity.body_data as Record<string, unknown>).markdown
+  return typeof value === "string" ? value : ""
+}
+
 function extractVideoUrl(activity: LessonActivity): string {
   if (!activity.body_data || typeof activity.body_data !== "object") {
     return ""
@@ -1642,6 +1651,9 @@ function buildBodyData(
   }
   if (type === "sketch-render") {
     return { instructions: text }
+  }
+  if (type === "display-key-terms") {
+    return { markdown: text }
   }
   return fallback ?? null
 }
@@ -2380,7 +2392,9 @@ function LessonActivityEditorSheet({
       setTitle(activity.title)
       setType(ensuredType)
       const initialText =
-        ensuredType === "upload-file" ? extractUploadInstructions(activity) : extractText(activity)
+        ensuredType === "upload-file" ? extractUploadInstructions(activity)
+        : ensuredType === "display-key-terms" ? extractKeyTermsMarkdown(activity)
+        : extractText(activity)
       setText(initialText)
       setVideoUrl(extractVideoUrl(activity))
       setRawBody(activity.body_data ? JSON.stringify(activity.body_data, null, 2) : "")
@@ -2503,7 +2517,7 @@ function LessonActivityEditorSheet({
   useEffect(() => {
     setRawBodyError(null)
     if (isCreateMode) {
-      if (type === "text" || type === "text-question" || type === "long-text-question" || type === "upload-file" || type === "sketch-render") {
+      if (type === "text" || type === "text-question" || type === "long-text-question" || type === "upload-file" || type === "sketch-render" || type === "display-key-terms") {
         setVideoUrl("")
         setText("")
         setRawBody("")
@@ -2611,6 +2625,16 @@ function LessonActivityEditorSheet({
       } else {
         setPlaybackUrl(null)
         setIsPlaybackLoading(false)
+      }
+      return
+    }
+
+    if (type === "display-key-terms") {
+      if (activity) {
+        const record = (activity.body_data ?? {}) as Record<string, unknown>
+        setText(typeof record.markdown === "string" ? record.markdown : "")
+      } else {
+        setText("")
       }
       return
     }
@@ -3179,6 +3203,21 @@ function LessonActivityEditorSheet({
                     : "Enter the activity instructions"
                 }
                 disabled={isPending}
+              />
+            </div>
+          ) : null}
+
+          {type === "display-key-terms" ? (
+            <div className="space-y-2">
+              <Label htmlFor="activity-key-terms">Key terms (markdown table)</Label>
+              <Textarea
+                id="activity-key-terms"
+                value={text}
+                onChange={(event) => setText(event.target.value)}
+                placeholder={"| Term | Definition |\n|---|---|\n| Algorithm | A step-by-step set of instructions |"}
+                rows={10}
+                disabled={isPending}
+                className="font-mono text-sm"
               />
             </div>
           ) : null}

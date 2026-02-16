@@ -303,6 +303,12 @@ export function getFeedbackBody(
   } as FeedbackActivityBody;
 }
 
+export function getKeyTermsMarkdown(activity: LessonActivity): string {
+  if (!activity.body_data || typeof activity.body_data !== "object") return ""
+  const record = activity.body_data as Record<string, unknown>
+  return typeof record.markdown === "string" ? record.markdown : ""
+}
+
 export function getRichTextMarkup(value: string): string | null {
   if (!value) return null;
   const trimmed = value.trim();
