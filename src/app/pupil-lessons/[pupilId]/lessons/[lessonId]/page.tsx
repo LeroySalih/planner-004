@@ -57,6 +57,7 @@ import { fetchPupilActivityFeedbackMap, selectLatestFeedbackEntry } from "@/lib/
 import {
   getActivityFileUrlValue,
   getActivityTextValue,
+  getKeyTermsMarkdown,
   getRichTextMarkup,
   getYouTubeThumbnailUrl,
 } from "@/components/lessons/activity-view/utils"
@@ -934,10 +935,12 @@ export default async function PupilLessonFriendlyPage({
                                     {activity.title}
                                   </Link>
                                 ) : (
-                                  <span className="font-medium text-foreground">{activity.title}</span>
+                                  <span className="font-medium text-foreground">{activity.title || formatActivityType(activity.type)}</span>
                                 )}
                               </div>
-                              <span className="text-xs text-muted-foreground">{formatActivityType(activity.type)}</span>
+                              {activity.title ? (
+                                <span className="text-xs text-muted-foreground">{formatActivityType(activity.type)}</span>
+                              ) : null}
                               {titleLink ? (
                                 <span className="break-all text-xs text-muted-foreground">{titleLink}</span>
                               ) : null}
@@ -945,13 +948,15 @@ export default async function PupilLessonFriendlyPage({
                           </div>
 
                           {(() => {
-                            const textValue = getActivityTextValue(activity)
+                            const textValue = activity.type === "display-key-terms"
+                              ? getKeyTermsMarkdown(activity)
+                              : getActivityTextValue(activity)
                             const htmlContent = getRichTextMarkup(textValue)
-                            
+
                             if (!htmlContent) return null
-                            
+
                             return (
-                              <div 
+                              <div
                                 className="prose prose-sm mt-3 max-w-none text-muted-foreground dark:prose-invert"
                                 dangerouslySetInnerHTML={{ __html: htmlContent }}
                               />

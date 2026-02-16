@@ -41,9 +41,9 @@ export function LessonDetailsPanel({ lesson, activities, activitiesError }: Less
 
     return {
       id: activity.activity_id,
-      title: activity.title,
+      title: activity.title || formatActivityType(activity.type),
       type: activity.type,
-      typeLabel: formatActivityType(activity.type),
+      typeLabel: activity.title ? formatActivityType(activity.type) : "",
       linkUrl: linkInfo?.url ?? null,
       audioUrl,
       icon,
