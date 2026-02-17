@@ -741,6 +741,7 @@ export default async function PupilLessonFriendlyPage({
                   return (
                     <li
                       key={activity.activity_id}
+                      id={`activity-${activity.activity_id}`}
                       className="rounded-md border border-border/60 bg-muted/40 px-3 py-3"
                     >
                       {activity.type === "upload-file" ? (

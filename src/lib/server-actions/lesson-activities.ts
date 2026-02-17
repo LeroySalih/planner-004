@@ -18,6 +18,49 @@ import { isScorableActivityType } from "@/dino.config";
 import { enqueueLessonMutationJob } from "@/lib/lesson-job-runner";
 import { requireRole } from "@/lib/auth";
 
+const ActivityByIdReturnValue = z.object({
+  data: z
+    .object({
+      activity_id: z.string(),
+      lesson_id: z.string(),
+      active: z.boolean().nullable(),
+    })
+    .nullable(),
+  error: z.string().nullable(),
+});
+
+export async function readActivityByIdAction(activityId: string) {
+  try {
+    const { rows } = await query<{
+      activity_id: string;
+      lesson_id: string;
+      active: boolean | null;
+    }>(
+      `
+        select activity_id, lesson_id, active
+        from activities
+        where activity_id = $1
+        limit 1
+      `,
+      [activityId],
+    );
+
+    return ActivityByIdReturnValue.parse({
+      data: rows[0] ?? null,
+      error: null,
+    });
+  } catch (error) {
+    console.error("[v0] Failed to read activity by id:", error);
+    const message = error instanceof Error
+      ? error.message
+      : "Unable to read activity.";
+    return ActivityByIdReturnValue.parse({
+      data: null,
+      error: message,
+    });
+  }
+}
+
 const LessonActivitiesReturnValue = z.object({
   data: LessonActivitiesSchema.nullable(),
   error: z.string().nullable(),
