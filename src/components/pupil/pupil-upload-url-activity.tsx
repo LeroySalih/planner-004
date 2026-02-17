@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { toast } from "sonner"
-import { Flag, Loader2, X } from "lucide-react"
+import { Flag, Loader2, RotateCcw, X } from "lucide-react"
 import { z } from "zod"
 
 import type { LessonActivity } from "@/types"
@@ -25,6 +25,8 @@ interface PupilUploadUrlActivityProps {
   initialAnswer: string | null
   initialSubmissionId: string | null
   initialIsFlagged: boolean
+  initialResubmitRequested?: boolean
+  resubmitNote?: string | null
   feedbackAssignmentIds?: string[]
   feedbackLessonId?: string
   feedbackInitiallyVisible?: boolean
@@ -42,6 +44,8 @@ export function PupilUploadUrlActivity({
   initialAnswer,
   initialSubmissionId,
   initialIsFlagged,
+  initialResubmitRequested,
+  resubmitNote,
   feedbackAssignmentIds = [],
   feedbackLessonId,
   feedbackInitiallyVisible = false,
@@ -205,6 +209,20 @@ export function PupilUploadUrlActivity({
           {activity.title || "Upload URL"}
         </h4>
       </header>
+
+      {initialResubmitRequested && (
+        <div className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-700 dark:bg-amber-950/30">
+          <RotateCcw className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+              Resubmission requested
+            </p>
+            {resubmitNote && (
+              <p className="text-sm text-amber-600 dark:text-amber-300">{resubmitNote}</p>
+            )}
+          </div>
+        </div>
+      )}
 
       <section className="space-y-2">
         {questionMarkup ? (

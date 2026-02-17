@@ -31,6 +31,7 @@ import {
   triggerManualAiMarkingAction,
   triggerBulkAiMarkingAction,
   toggleSubmissionFlagAction,
+  requestResubmissionAction,
 } from "@/lib/server-updates"
 import { resolveScoreTone } from "@/lib/results/colors"
 import {
@@ -506,6 +507,8 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
   const [clearAiPending, startClearAiTransition] = useTransition()
   const [feedbackTogglePending, startFeedbackToggleTransition] = useTransition()
   const [flagPending, startFlagTransition] = useTransition()
+  const [resubmitPending, startResubmitTransition] = useTransition()
+  const [resubmitNote, setResubmitNote] = useState("")
   const router = useRouter()
   const matrixStateRef = useRef(matrixState)
   const buildOverrideKey = useCallback((rowIndex: number, activityIndex: number) => `${rowIndex}:${activityIndex}`, [])
@@ -1279,6 +1282,70 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       }
     })
   }, [selection, applyCellUpdate, startFlagTransition])
+
+  const handleRequestResubmission = useCallback(() => {
+    if (!selection) {
+      toast.error("No selection to update.")
+      return
+    }
+
+    if (!selection.cell.submissionId) {
+      toast.error("No submission available to update.")
+      return
+    }
+
+    startResubmitTransition(async () => {
+      try {
+        // Optimistic update: zero score and set resubmit flag
+        applyCellUpdate((cell) => ({
+          ...cell,
+          score: 0,
+          autoScore: 0,
+          overrideScore: null,
+          status: "auto" as const,
+          resubmitRequested: true,
+          resubmitNote: resubmitNote.trim() || null,
+          successCriteriaScores: Object.fromEntries(
+            Object.keys(cell.successCriteriaScores ?? {}).map((k) => [k, 0])
+          ),
+        }))
+        setSelection((prev) =>
+          prev
+            ? {
+                ...prev,
+                cell: {
+                  ...prev.cell,
+                  score: 0,
+                  autoScore: 0,
+                  overrideScore: null,
+                  status: "auto" as const,
+                  resubmitRequested: true,
+                  resubmitNote: resubmitNote.trim() || null,
+                },
+              }
+            : null
+        )
+
+        const result = await requestResubmissionAction({
+          assignmentId: matrixState.assignmentId,
+          activityId: selection.cell.activityId,
+          pupilId: selection.cell.pupilId,
+          submissionId: selection.cell.submissionId,
+          note: resubmitNote.trim() || null,
+        })
+
+        if (result.success) {
+          toast.success("Resubmission requested.")
+          setResubmitNote("")
+        } else {
+          toast.error(result.error ?? "Failed to request resubmission.")
+        }
+      } catch (error) {
+        console.error("[assignment-results] Failed to request resubmission", error)
+        toast.error("An error occurred while requesting resubmission.")
+      }
+    })
+  }, [selection, applyCellUpdate, startResubmitTransition, resubmitNote, matrixState.assignmentId])
 
   const normalizeRow = (row: unknown): SubmissionRow | null => {
     if (!row || typeof row !== "object") {
@@ -2245,6 +2312,12 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                 {formatPercent(selection.cell.score ?? null)}
               </span>
               <div className="flex items-center gap-2">
+                {selection.cell.resubmitRequested && (
+                  <Badge variant="outline" className="gap-1 border-amber-500 text-amber-600">
+                    <RotateCcw className="h-3 w-3" />
+                    Resubmission requested
+                  </Badge>
+                )}
                 {selection.cell.isFlagged && (
                   <Badge
                     variant="destructive"
@@ -2563,6 +2636,34 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                             of the pupil so you can capture scores and feedback.
                           </div>
                         ) : null}
+                      </div>
+
+                      {/* Request Resubmission */}
+                      <div className="rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950/30">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+                          Request Resubmission
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Ask the pupil to redo this activity. Their score will be zeroed out.
+                        </p>
+                        <Textarea
+                          className="mt-2 text-sm"
+                          placeholder="Note for the pupil (optional)..."
+                          rows={2}
+                          value={resubmitNote}
+                          onChange={(e) => setResubmitNote(e.target.value)}
+                          maxLength={2000}
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-2 w-full gap-1.5 border-amber-400 text-amber-700 hover:bg-amber-100 dark:border-amber-600 dark:text-amber-400 dark:hover:bg-amber-950"
+                          onClick={handleRequestResubmission}
+                          disabled={resubmitPending || !selection.cell.submissionId}
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                          {resubmitPending ? "Requesting…" : "Request Resubmission"}
+                        </Button>
                       </div>
 
                       <div className="sticky bottom-0 left-0 right-0 mt-4 flex flex-col gap-2 bg-background pt-2">
@@ -2979,6 +3080,9 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                                 onClick={() => handleCellSelect(rowIndex, activityIndex)}
                               >
                                 {cell.needsMarking ? "—" : formatPercent(cell.score ?? null)}
+                                {cell.resubmitRequested ? (
+                                  <RotateCcw className="ml-1.5 h-3.5 w-3.5" />
+                                ) : null}
                                 {cell.isFlagged ? (
                                   <Flag className="ml-1.5 h-3.5 w-3.5 fill-current" />
                                 ) : null}
@@ -3135,6 +3239,12 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                   {formatPercent(selection.cell.score ?? null)}
                 </span>
                 <div className="flex items-center gap-2">
+                  {selection.cell.resubmitRequested && (
+                    <Badge variant="outline" className="gap-1 border-amber-500 text-amber-600">
+                      <RotateCcw className="h-3 w-3" />
+                      Resubmission requested
+                    </Badge>
+                  )}
                   {selection.cell.isFlagged && (
                     <Badge
                       variant="destructive"
@@ -3432,6 +3542,34 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                               of the pupil so you can capture scores and feedback.
                             </div>
                           ) : null}
+                        </div>
+
+                        {/* Request Resubmission */}
+                        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950/30">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+                            Request Resubmission
+                          </p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Ask the pupil to redo this activity. Their score will be zeroed out.
+                          </p>
+                          <Textarea
+                            className="mt-2 text-sm"
+                            placeholder="Note for the pupil (optional)..."
+                            rows={2}
+                            value={resubmitNote}
+                            onChange={(e) => setResubmitNote(e.target.value)}
+                            maxLength={2000}
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="mt-2 w-full gap-1.5 border-amber-400 text-amber-700 hover:bg-amber-100 dark:border-amber-600 dark:text-amber-400 dark:hover:bg-amber-950"
+                            onClick={handleRequestResubmission}
+                            disabled={resubmitPending || !selection.cell.submissionId}
+                          >
+                            <RotateCcw className="h-3.5 w-3.5" />
+                            {resubmitPending ? "Requesting…" : "Request Resubmission"}
+                          </Button>
                         </div>
 
                         <div className="sticky bottom-0 left-0 right-0 mt-4 flex flex-col gap-2 bg-background pt-2">

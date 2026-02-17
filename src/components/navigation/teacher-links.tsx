@@ -185,6 +185,13 @@ export function TeacherNavLinks({ onNavigate }: TeacherNavLinksProps) {
                 </NavigationMenuLink>
               </NavigationMenuItem>
               <NavigationMenuItem>
+                <NavigationMenuLink asChild onClick={onNavigate}>
+                  <Link href="/tasks" className={navigationMenuTriggerStyle()}>
+                    My Tasks
+                  </Link>
+                </NavigationMenuLink>
+              </NavigationMenuItem>
+              <NavigationMenuItem>
                  <NavigationMenuLink asChild onClick={onNavigate}>
                   <Link href="/specifications" className={navigationMenuTriggerStyle()}>
                     Specs

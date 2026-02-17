@@ -681,7 +681,7 @@ export async function uploadPupilActivitySubmissionAction(formData: FormData) {
             await client.query(
               `
                  update submissions
-                 set body = $1, submitted_at = $2, submission_status = 'inprogress', is_flagged = false
+                 set body = $1, submitted_at = $2, submission_status = 'inprogress', is_flagged = false, resubmit_requested = false, resubmit_note = NULL
                  where submission_id = $3
                `,
               [submissionPayload, submittedAt, existing.submission_id],
@@ -1273,7 +1273,7 @@ async function upsertUploadSubmissionRecord({
     await client.query(
       `
         update submissions
-        set body = $1, submitted_at = $2, submission_status = 'inprogress', is_flagged = false
+        set body = $1, submitted_at = $2, submission_status = 'inprogress', is_flagged = false, resubmit_requested = false, resubmit_note = NULL
         where submission_id = $3
       `,
       [payload, submittedAt, existing.submission_id],
