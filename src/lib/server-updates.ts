@@ -229,6 +229,14 @@ export {
 export { readPupilUnitsBootstrapAction } from "./server-actions/pupil-units";
 
 export {
+  completeFlashcardSessionAction,
+  readFlashcardDeckAction,
+  readFlashcardsBootstrapAction,
+  recordFlashcardAttemptAction,
+  startFlashcardSessionAction,
+} from "./server-actions/flashcards";
+
+export {
   readCurrentProfileAction,
   type ReadCurrentProfileResult,
   readProfileDetailAction,
