@@ -7,7 +7,13 @@ export const metadata: Metadata = {
   title: "Sign in",
 }
 
-export default function SigninPage() {
+export default async function SigninPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ returnTo?: string }>
+}) {
+  const { returnTo } = await searchParams
+
   return (
     <main className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-8 px-6 py-12">
       <header className="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 px-8 py-6 text-white shadow-lg">
@@ -21,7 +27,7 @@ export default function SigninPage() {
       </header>
 
       <section className="rounded-lg border border-border bg-card p-6 shadow-sm">
-        <SigninForm />
+        <SigninForm returnTo={returnTo} />
       </section>
 
       <div className="text-center text-sm text-muted-foreground">

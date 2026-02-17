@@ -15,7 +15,11 @@ type SigninState = {
   destination: string | null
 }
 
-export function SigninForm() {
+function isValidReturnTo(url: string | undefined): url is string {
+  return typeof url === "string" && url.startsWith("/") && !url.startsWith("//")
+}
+
+export function SigninForm({ returnTo }: { returnTo?: string }) {
   const router = useRouter()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -48,12 +52,14 @@ export function SigninForm() {
     startTransition(async () => {
       const result = await signinAction({ email, password, csrfToken })
 
+      const defaultDestination = result.isTeacher
+        ? "/assignments"
+        : result.userId
+          ? `/pupil-lessons/${encodeURIComponent(result.userId)}`
+          : "/pupil-lessons"
+
       const destination = result.success
-        ? result.isTeacher
-          ? "/assignments"
-          : result.userId
-            ? `/pupil-lessons/${encodeURIComponent(result.userId)}`
-            : "/pupil-lessons"
+        ? isValidReturnTo(returnTo) ? returnTo : defaultDestination
         : null
 
       setState({ success: result.success, error: result.error, destination })

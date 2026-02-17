@@ -32,11 +32,20 @@ export function hasRole(profile: AuthenticatedProfile | null, role: string): boo
   return profile.roles.includes(role)
 }
 
+async function buildSigninRedirect(): Promise<string> {
+  const headerList = await headers()
+  const pathname = headerList.get("x-pathname")
+  if (pathname && pathname !== "/signin" && pathname !== "/" && pathname.startsWith("/") && !pathname.startsWith("//")) {
+    return `/signin?returnTo=${encodeURIComponent(pathname)}`
+  }
+  return "/signin"
+}
+
 export async function requireRole(role: string, options?: { refreshSessionCookie?: boolean }): Promise<AuthenticatedProfile> {
   const profile = await getAuthenticatedProfile({ refreshSessionCookie: options?.refreshSessionCookie })
 
   if (!profile) {
-    redirect("/signin")
+    redirect(await buildSigninRedirect())
   }
 
   if (!hasRole(profile, role)) {
@@ -326,7 +335,7 @@ export async function requireAuthenticatedProfile(options?: { refreshSessionCook
   const profile = await getAuthenticatedProfile({ refreshSessionCookie: options?.refreshSessionCookie })
 
   if (!profile) {
-    redirect("/signin")
+    redirect(await buildSigninRedirect())
   }
 
   return profile
