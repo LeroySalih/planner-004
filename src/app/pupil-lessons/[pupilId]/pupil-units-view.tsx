@@ -5,7 +5,7 @@ import Link from "next/link"
 import { format, parseISO, differenceInMonths, addWeeks, isBefore } from "date-fns"
 import { cn } from "@/lib/utils"
 import { Roboto_Condensed } from "next/font/google"
-import { ChevronDown, BookOpen } from "lucide-react"
+import { ChevronDown, BookOpen, RotateCcw, AlertTriangle } from "lucide-react"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -130,17 +130,33 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
                   </h3>
                 ) : null}
                 <ul className="space-y-2">
-                  {subjectEntry.units.map((unit) => (
-                    <li key={unit.unitId}>
-                      <Link
-                        href={`#unit-${unit.unitId}`}
-                        className="block truncate text-sm text-muted-foreground transition-colors hover:text-foreground hover:underline"
-                        title={unit.unitTitle}
-                      >
-                        {unit.unitTitle}
-                      </Link>
-                    </li>
-                  ))}
+                  {subjectEntry.units.map((unit) => {
+                    const resubmitLessons = unit.lessons.filter((l) => l.resubmitCount > 0).length
+                    const underperformingLessons = unit.lessons.filter(isLessonOverdueAndUnderperforming).length
+                    return (
+                      <li key={unit.unitId}>
+                        <Link
+                          href={`#unit-${unit.unitId}`}
+                          className="flex items-center gap-2 truncate text-sm text-muted-foreground transition-colors hover:text-foreground hover:underline"
+                          title={unit.unitTitle}
+                        >
+                          <span className="truncate">{unit.unitTitle}</span>
+                          {resubmitLessons > 0 && (
+                            <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-600/20">
+                              <RotateCcw className="h-2.5 w-2.5" />
+                              {resubmitLessons}
+                            </span>
+                          )}
+                          {underperformingLessons > 0 && (
+                            <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 ring-1 ring-inset ring-red-600/20">
+                              <AlertTriangle className="h-2.5 w-2.5" />
+                              {underperformingLessons}
+                            </span>
+                          )}
+                        </Link>
+                      </li>
+                    )
+                  })}
                 </ul>
               </div>
             ))}
@@ -220,6 +236,15 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
                                       </span>
                                     </div>
                                   </div>
+
+                                  {lesson.resubmitCount > 0 && (
+                                    <div className="mt-3 flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-700 dark:bg-amber-950/30">
+                                      <RotateCcw className="h-4 w-4 shrink-0 text-amber-600" />
+                                      <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
+                                        {lesson.resubmitCount} {lesson.resubmitCount === 1 ? "activity requires" : "activities require"} resubmission
+                                      </p>
+                                    </div>
+                                  )}
 
                                   <div className="mt-3 space-y-3">
                                     <LessonMedia

@@ -451,7 +451,7 @@ export default async function PupilLessonFriendlyPage({
 
       const result = await getLatestSubmissionForActivityAction(activity.activity_id, pupilId)
       if (result.error || !result.data) {
-        return { activityId: activity.activity_id, answer: "", submissionId: null, isFlagged: false }
+        return { activityId: activity.activity_id, answer: "", submissionId: null, isFlagged: false, resubmitRequested: false, resubmitNote: null as string | null }
       }
 
       const parsedBody = ShortTextSubmissionBodySchema.safeParse(result.data.body)
@@ -471,10 +471,12 @@ export default async function PupilLessonFriendlyPage({
           answer: parsedBody.data.answer ?? "",
           submissionId: result.data.submission_id,
           isFlagged: result.data.is_flagged ?? false,
+          resubmitRequested: result.data.resubmit_requested ?? false,
+          resubmitNote: result.data.resubmit_note ?? null,
         }
       }
 
-      return { activityId: activity.activity_id, answer: "", submissionId: result.data.submission_id, isFlagged: result.data.is_flagged ?? false }
+      return { activityId: activity.activity_id, answer: "", submissionId: result.data.submission_id, isFlagged: result.data.is_flagged ?? false, resubmitRequested: result.data.resubmit_requested ?? false, resubmitNote: result.data.resubmit_note ?? null }
     }),
   )
 
@@ -528,6 +530,8 @@ export default async function PupilLessonFriendlyPage({
           answer: "",
           submissionId: null,
           isFlagged: false,
+          resubmitRequested: false,
+          resubmitNote: null as string | null,
         }
       }
 
@@ -548,6 +552,8 @@ export default async function PupilLessonFriendlyPage({
           answer: parsedBody.data.url ?? "",
           submissionId: result.data.submission_id,
           isFlagged: result.data.is_flagged ?? false,
+          resubmitRequested: result.data.resubmit_requested ?? false,
+          resubmitNote: result.data.resubmit_note ?? null,
         }
       }
 
@@ -556,6 +562,8 @@ export default async function PupilLessonFriendlyPage({
         answer: "",
         submissionId: result.data.submission_id,
         isFlagged: result.data.is_flagged ?? false,
+        resubmitRequested: result.data.resubmit_requested ?? false,
+        resubmitNote: result.data.resubmit_note ?? null,
       }
     }),
   )
@@ -766,6 +774,8 @@ export default async function PupilLessonFriendlyPage({
                           initialAnswer={shortTextDataMap.get(activity.activity_id)?.answer ?? ""}
                           initialSubmissionId={shortTextDataMap.get(activity.activity_id)?.submissionId ?? null}
                           initialIsFlagged={shortTextDataMap.get(activity.activity_id)?.isFlagged ?? false}
+                          initialResubmitRequested={shortTextDataMap.get(activity.activity_id)?.resubmitRequested ?? false}
+                          resubmitNote={shortTextDataMap.get(activity.activity_id)?.resubmitNote ?? null}
                           feedbackAssignmentIds={assignmentIds}
                           feedbackLessonId={lesson.lesson_id}
                           feedbackInitiallyVisible={initialFeedbackVisible}
@@ -820,6 +830,8 @@ export default async function PupilLessonFriendlyPage({
                           initialAnswer={uploadUrlDataMap.get(activity.activity_id)?.answer ?? ""}
                           initialSubmissionId={uploadUrlDataMap.get(activity.activity_id)?.submissionId ?? null}
                           initialIsFlagged={uploadUrlDataMap.get(activity.activity_id)?.isFlagged ?? false}
+                          initialResubmitRequested={uploadUrlDataMap.get(activity.activity_id)?.resubmitRequested ?? false}
+                          resubmitNote={uploadUrlDataMap.get(activity.activity_id)?.resubmitNote ?? null}
                           feedbackAssignmentIds={assignmentIds}
                           feedbackLessonId={lesson.lesson_id}
                           feedbackInitiallyVisible={initialFeedbackVisible}

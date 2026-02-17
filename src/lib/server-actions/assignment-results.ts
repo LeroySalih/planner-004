@@ -621,7 +621,7 @@ export async function readAssignmentResultsAction(
           try {
             const { rows } = await query(
               `
-            select submission_id, activity_id, user_id, submitted_at, body, is_flagged
+            select submission_id, activity_id, user_id, submitted_at, body, is_flagged, resubmit_requested, resubmit_note
             from submissions
             where activity_id = any($1::text[])
               and user_id = any($2::text[])
@@ -643,6 +643,8 @@ export async function readAssignmentResultsAction(
                 : null,
               body: row?.body ?? null,
               is_flagged: Boolean(row?.is_flagged),
+              resubmit_requested: Boolean(row?.resubmit_requested),
+              resubmit_note: typeof row?.resubmit_note === "string" ? row.resubmit_note : null,
             }));
           } catch (submissionsError) {
             console.error(
@@ -820,6 +822,8 @@ export async function readAssignmentResultsAction(
               needsMarking: Boolean(submission.submission_id) &&
                 status === "missing",
               isFlagged: (submission as any).is_flagged ?? false,
+              resubmitRequested: (submission as any).resubmit_requested ?? false,
+              resubmitNote: (submission as any).resubmit_note ?? null,
             }),
           );
         }

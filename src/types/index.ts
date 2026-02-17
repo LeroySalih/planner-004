@@ -179,6 +179,8 @@ export const SubmissionSchema = z.object({
         ) => (value instanceof Date ? value.toISOString() : value)),
     body: z.unknown().nullable().default(null),
     is_flagged: z.boolean().default(false),
+    resubmit_requested: z.boolean().default(false),
+    resubmit_note: z.string().nullable().optional(),
 });
 
 export const SubmissionsSchema = z.array(SubmissionSchema);
@@ -929,6 +931,8 @@ export const AssignmentResultCellSchema = z.object({
     pupilAnswer: z.string().nullable().optional(),
     needsMarking: z.boolean().default(false),
     isFlagged: z.boolean().default(false),
+    resubmitRequested: z.boolean().default(false),
+    resubmitNote: z.string().nullable().optional(),
 });
 
 export const AssignmentResultRowSchema = z.object({

@@ -127,7 +127,7 @@ export async function saveShortTextAnswerAction(input: z.infer<typeof ShortTextA
       const { rows } = await query(
         `
           update submissions
-          set body = $1, submitted_at = $2, is_flagged = false
+          set body = $1, submitted_at = $2, is_flagged = false, resubmit_requested = false, resubmit_note = NULL
           where submission_id = $3
           returning *
         `,

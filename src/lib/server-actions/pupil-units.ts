@@ -107,6 +107,7 @@ const SubjectUnitsSchema = z.object({
               revisionDate: z.string().nullable(),
               lessonScore: z.number().nullable(),
               lessonMaxScore: z.number().nullable(),
+              resubmitCount: z.number().int().default(0),
             }),
           ),
         }),
@@ -433,6 +434,32 @@ export async function readPupilUnitsBootstrapAction(
             ],
           );
 
+        // Fetch resubmit counts per lesson
+        const resubmitResult = lessonIds.length === 0
+          ? { rows: [] as { lesson_id: string; resubmit_count: number }[] }
+          : await query<{ lesson_id: string; resubmit_count: number }>(
+            `
+              select a.lesson_id, count(*)::int as resubmit_count
+              from submissions s
+              join activities a on a.activity_id = s.activity_id
+              where a.lesson_id = any($1::text[])
+                and s.user_id = $2
+                and s.resubmit_requested = true
+              group by a.lesson_id
+            `,
+            [lessonIds, normalizedPupilId],
+          );
+
+        const resubmitByLesson = new Map<string, number>();
+        (resubmitResult.rows || []).forEach((row) => {
+          resubmitByLesson.set(
+            row.lesson_id,
+            typeof row.resubmit_count === "number"
+              ? row.resubmit_count
+              : parseInt(row.resubmit_count as any, 10),
+          );
+        });
+
         const objectives = objectivesResult.rows.map((row) =>
           LessonObjectiveSchema.parse({
             lesson_id: row.lesson_id,
@@ -635,6 +662,8 @@ export async function readPupilUnitsBootstrapAction(
               lessonMaxScore:
                 lessonScoresByLesson.get(assignment.lesson_id)?.max_score ??
                   null,
+              resubmitCount:
+                resubmitByLesson.get(assignment.lesson_id) ?? 0,
             });
           }
 
