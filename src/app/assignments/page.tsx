@@ -4,9 +4,9 @@ import AssignmentManager from "@/components/assignment-manager"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { BookOpen } from "lucide-react"
-import { readAssignmentsBootstrapAction, readLessonAssignmentScoreSummariesAction } from "@/lib/server-updates"
+import { readAssignmentsBootstrapAction, readLessonAssignmentScoreSummariesAction, listDateCommentsAction } from "@/lib/server-updates"
 import { requireTeacherProfile } from "@/lib/auth"
-import type { Assignments, AssignmentsBootstrapPayload, Groups, LessonAssignments, Lessons, Subjects, Units } from "@/types"
+import type { Assignments, AssignmentsBootstrapPayload, DateComments, Groups, LessonAssignments, Lessons, Subjects, Units } from "@/types"
 
 export default async function Home() {
   const teacherProfile = await requireTeacherProfile()
@@ -32,6 +32,19 @@ export default async function Home() {
   const units = (bootstrap.units ?? []) as Units
   const lessons = (bootstrap.lessons ?? []) as Lessons
   const lessonAssignments = (bootstrap.lessonAssignments ?? []) as LessonAssignments
+
+  // Compute a generous date range for date comments (1 year back, 1 year forward from today)
+  const today = new Date()
+  const commentsStartDate = new Date(today)
+  commentsStartDate.setFullYear(commentsStartDate.getFullYear() - 1)
+  const commentsEndDate = new Date(today)
+  commentsEndDate.setFullYear(commentsEndDate.getFullYear() + 1)
+  const formatIso = (d: Date) => d.toISOString().slice(0, 10)
+
+  const { data: dateComments } = await listDateCommentsAction(
+    formatIso(commentsStartDate),
+    formatIso(commentsEndDate),
+  )
 
   const summaryPairs = Array.from(
     new Map(
@@ -77,6 +90,7 @@ export default async function Home() {
         lessons={(lessons ?? []).filter((lesson) => lesson.active ?? true)}
         lessonAssignments={lessonAssignments}
         lessonScoreSummaries={lessonScoreSummaries}
+        dateComments={(dateComments ?? []) as DateComments}
       />
     </main>
   )

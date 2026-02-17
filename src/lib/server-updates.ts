@@ -132,6 +132,13 @@ export {
 } from "./server-actions/lesson-links";
 
 export {
+  createDateCommentAction,
+  deleteDateCommentAction,
+  listDateCommentsAction,
+  updateDateCommentAction,
+} from "./server-actions/date-comments";
+
+export {
   createLessonActivityAction,
   deleteLessonActivityAction,
   listLessonActivitiesAction,

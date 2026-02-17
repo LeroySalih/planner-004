@@ -1053,3 +1053,18 @@ export const SafetyLogEntrySchema = z.object({
 });
 
 export type SafetyLogEntry = z.infer<typeof SafetyLogEntrySchema>;
+
+export const DateCommentSchema = z.object({
+    date_comment_id: z.string(),
+    comment_date: z.string(),
+    comment: z.string().min(1),
+    created_by: z.string(),
+    created_at: z
+        .union([z.string(), z.date()])
+        .transform((val) => (val instanceof Date ? val.toISOString() : val)),
+});
+
+export const DateCommentsSchema = z.array(DateCommentSchema);
+
+export type DateComment = z.infer<typeof DateCommentSchema>;
+export type DateComments = z.infer<typeof DateCommentsSchema>;
