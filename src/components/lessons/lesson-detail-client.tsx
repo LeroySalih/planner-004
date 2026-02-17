@@ -27,6 +27,7 @@ import { LessonFilesManager } from "@/components/lessons/lesson-files-manager"
 import { LessonLinksManager } from "@/components/lessons/lesson-links-manager"
 import { LessonActivitiesManager } from "@/components/lessons/lesson-activities-manager"
 import { LessonObjectivesSidebar } from "@/components/lessons/lesson-objectives-sidebar"
+import { LessonShareButton } from "@/components/lessons/lesson-share-button"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -410,14 +411,20 @@ export function LessonDetailClient({
             <div className="space-y-1">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <h1 className="text-3xl font-semibold text-white">{currentLesson.title}</h1>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="bg-white/10 text-white hover:bg-white/20"
-                  onClick={() => setIsHeaderSidebarOpen(true)}
-                >
-                  Edit lesson details
-                </Button>
+                <div className="flex items-center gap-2">
+                  <LessonShareButton
+                    lessonId={currentLesson.lesson_id}
+                    lessonTitle={currentLesson.title}
+                  />
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="bg-white/10 text-white hover:bg-white/20"
+                    onClick={() => setIsHeaderSidebarOpen(true)}
+                  >
+                    Edit lesson details
+                  </Button>
+                </div>
               </div>
             </div>
           </div>

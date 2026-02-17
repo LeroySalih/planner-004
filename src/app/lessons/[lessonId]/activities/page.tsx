@@ -2,6 +2,7 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 import { ArrowLeft, ChevronRight } from "lucide-react"
 
+import { ActivityShareButton } from "@/components/activity-share-dialog"
 import { LessonActivityView } from "@/components/lessons/activity-view"
 import { Button } from "@/components/ui/button"
 import { resolveActivityAssets } from "@/lib/activity-assets"
@@ -166,7 +167,13 @@ export default async function LessonActivitiesOverviewPage({
                             resolvedImageUrl={imageUrl}
                           />
                         </div>
-                        <ChevronRight className="mt-2 h-5 w-5 shrink-0 text-muted-foreground transition group-hover:text-primary" />
+                        <div className="flex shrink-0 items-center gap-1">
+                          <ActivityShareButton
+                            activityId={activity.activity_id}
+                            activityTitle={displayTitle}
+                          />
+                          <ChevronRight className="mt-0.5 h-5 w-5 text-muted-foreground transition group-hover:text-primary" />
+                        </div>
                       </div>
                     </Link>
                   </li>

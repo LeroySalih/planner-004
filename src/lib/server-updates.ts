@@ -142,6 +142,7 @@ export {
   createLessonActivityAction,
   deleteLessonActivityAction,
   listLessonActivitiesAction,
+  readActivityByIdAction,
   reorderLessonActivitiesAction,
   updateLessonActivityAction,
   uploadActivitiesFromMarkdownAction,
