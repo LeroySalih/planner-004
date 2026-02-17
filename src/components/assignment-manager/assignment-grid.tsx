@@ -4,7 +4,7 @@ import type React from "react"
 import { useMemo, useRef, useEffect } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import type { Group, Unit, Assignment, Lesson, LessonAssignment, LessonAssignmentScoreSummary } from "@/types"
+import type { Group, Unit, Assignment, Lesson, LessonAssignment, LessonAssignmentScoreSummary, DateComment } from "@/types"
 import { normalizeDateOnly } from "@/lib/utils"
 import { Eye, EyeOff } from "lucide-react"
 
@@ -21,6 +21,8 @@ interface AssignmentGridProps {
   onAddGroupClick?: () => void // Changed from onAddGroup to onAddGroupClick to trigger sidebar
   onGroupTitleClick?: (groupId: string) => void // Added prop for group title click
   onToggleHidden?: (groupId: string, lessonId: string, currentHidden: boolean) => void
+  onDateClick?: (dateString: string) => void
+  dateCommentsByDate?: Map<string, DateComment[]>
 }
 
 interface TrackCell {
@@ -71,6 +73,8 @@ export function AssignmentGrid({
   onAddGroupClick, // Updated prop name
   onGroupTitleClick, // Added onGroupTitleClick prop
   onToggleHidden,
+  onDateClick,
+  dateCommentsByDate,
 }: AssignmentGridProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
@@ -513,15 +517,33 @@ export function AssignmentGrid({
                       </button>
                     </div>
                   </th>
-                  {weekStarts.map((weekStart, index) => (
-                    <th
-                      key={index}
-                      className="sticky top-0 z-10 p-3 text-center font-semibold border border-border bg-muted"
-                      style={{ width: WEEK_COLUMN_WIDTH }}
-                    >
-                      <div className="text-sm">{formatWeekStart(weekStart)}</div>
-                    </th>
-                  ))}
+                  {weekStarts.map((weekStart, index) => {
+                    const dateStr = formatWeekStart(weekStart)
+                    const comments = dateCommentsByDate?.get(dateStr) ?? []
+                    return (
+                      <th
+                        key={index}
+                        className={`sticky top-0 z-10 p-3 text-center font-semibold border border-border bg-muted ${onDateClick ? "cursor-pointer hover:bg-muted/70 transition-colors" : ""}`}
+                        style={{ width: WEEK_COLUMN_WIDTH }}
+                        onClick={() => onDateClick?.(dateStr)}
+                      >
+                        <div className="text-sm">{dateStr}</div>
+                        {comments.length > 0 && (
+                          <div className="mt-1 space-y-0.5">
+                            {comments.map((c) => (
+                              <div
+                                key={c.date_comment_id}
+                                className="text-xs text-primary font-normal truncate"
+                                title={c.comment}
+                              >
+                                {c.comment}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </th>
+                    )
+                  })}
                 </tr>
               </thead>
               <tbody>

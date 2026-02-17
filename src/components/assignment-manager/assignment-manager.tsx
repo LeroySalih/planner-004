@@ -5,6 +5,7 @@ import { AssignmentGrid } from "./assignment-grid"
 import { AssignmentSidebar } from "./assignment-sidebar"
 import { GroupSidebar } from "./group-sidebar"
 import { AssignmentGroupSelectorSidebar } from "./assignment-group-selector-sidebar"
+import { DateCommentsSidebar } from "./date-comments-sidebar"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -14,6 +15,8 @@ import type {
   Assignment,
   AssignmentChangeEvent,
   Assignments,
+  DateComment,
+  DateComments,
   Group,
   Groups,
   LessonAssignment,
@@ -34,6 +37,9 @@ import {
   upsertLessonAssignmentAction,
   deleteLessonAssignmentAction,
   toggleLessonAssignmentVisibilityAction,
+  createDateCommentAction,
+  updateDateCommentAction,
+  deleteDateCommentAction,
 } from "@/lib/server-updates"
 
 import { toast } from "sonner"
@@ -49,17 +55,19 @@ export interface AssignmentManagerProps {
   lessons?: Lessons | null
   lessonAssignments?: LessonAssignments | null
   lessonScoreSummaries?: LessonAssignmentScoreSummaries | null
+  dateComments?: DateComments | null
   onChange?: (assignment: Assignment, eventType: AssignmentChangeEvent) => void
 }
 
-export function AssignmentManager({ 
-    groups: initialGroups, 
-    subjects: initialSubjects, 
-    assignments: initialAssignments, 
+export function AssignmentManager({
+    groups: initialGroups,
+    subjects: initialSubjects,
+    assignments: initialAssignments,
     units: initialUnits,
     lessons: initialLessons,
     lessonAssignments: initialLessonAssignments,
     lessonScoreSummaries: initialLessonScoreSummaries,
+    dateComments: initialDateComments,
     onChange }: AssignmentManagerProps) {
 
   const normalizeAssignmentDates = (assignment: Assignment): Assignment => {
@@ -111,6 +119,9 @@ export function AssignmentManager({
   const [editingGroup, setEditingGroup] = useState<Group | null>(null)
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([])
   const [pendingLessonAssignmentKeys, setPendingLessonAssignmentKeys] = useState<Record<string, boolean>>({})
+  const [dateComments, setDateComments] = useState<DateComments>(initialDateComments ?? [])
+  const [isDateCommentsSidebarOpen, setIsDateCommentsSidebarOpen] = useState(false)
+  const [selectedCommentDate, setSelectedCommentDate] = useState<string | null>(null)
   const updateLessonAssignmentState = useCallback(
     (groupId: string, lessonId: string, startDate: string | null) => {
       setLessonAssignments((prev: LessonAssignments) => {
@@ -438,6 +449,103 @@ export function AssignmentManager({
     })
   }
 
+  const handleDateClick = (dateString: string) => {
+    setSelectedCommentDate(dateString)
+    setIsDateCommentsSidebarOpen(true)
+  }
+
+  const commentsForSelectedDate = useMemo(
+    () => dateComments.filter((c) => c.comment_date === selectedCommentDate),
+    [dateComments, selectedCommentDate],
+  )
+
+  const dateCommentsByDate = useMemo(() => {
+    const map = new Map<string, DateComment[]>()
+    dateComments.forEach((c) => {
+      if (!map.has(c.comment_date)) map.set(c.comment_date, [])
+      map.get(c.comment_date)!.push(c)
+    })
+    return map
+  }, [dateComments])
+
+  const handleCreateDateComment = (commentDate: string, comment: string) => {
+    const optimisticId = `temp-${Date.now()}`
+    const optimistic: DateComment = {
+      date_comment_id: optimisticId,
+      comment_date: commentDate,
+      comment,
+      created_by: "",
+      created_at: new Date().toISOString(),
+    }
+    const previous = [...dateComments]
+    setDateComments((prev) => [...prev, optimistic])
+
+    startTransition(async () => {
+      try {
+        const result = await createDateCommentAction(commentDate, comment)
+        if (!result.success || !result.data) {
+          throw new Error(result.error ?? "Unknown error")
+        }
+        setDateComments((prev) =>
+          prev.map((c) => (c.date_comment_id === optimisticId ? result.data! : c)),
+        )
+        toast.success("Comment saved.")
+      } catch (error) {
+        console.error("[date-comments] Failed to create:", error)
+        setDateComments(previous)
+        toast.error("Failed to save comment.")
+      }
+    })
+  }
+
+  const handleUpdateDateComment = (dateCommentId: string, comment: string) => {
+    const previous = [...dateComments]
+    setDateComments((prev) =>
+      prev.map((c) => (c.date_comment_id === dateCommentId ? { ...c, comment } : c)),
+    )
+
+    startTransition(async () => {
+      try {
+        const result = await updateDateCommentAction(dateCommentId, comment)
+        if (!result.success || !result.data) {
+          throw new Error(result.error ?? "Unknown error")
+        }
+        setDateComments((prev) =>
+          prev.map((c) => (c.date_comment_id === dateCommentId ? result.data! : c)),
+        )
+        toast.success("Comment updated.")
+      } catch (error) {
+        console.error("[date-comments] Failed to update:", error)
+        setDateComments(previous)
+        toast.error("Failed to update comment.")
+      }
+    })
+  }
+
+  const handleDeleteDateComment = (dateCommentId: string) => {
+    const previous = [...dateComments]
+    setDateComments((prev) => prev.filter((c) => c.date_comment_id !== dateCommentId))
+
+    startTransition(async () => {
+      try {
+        const result = await deleteDateCommentAction(dateCommentId)
+        if (!result.success) {
+          throw new Error(result.error ?? "Unknown error")
+        }
+        toast.success("Comment deleted.")
+      } catch (error) {
+        console.error("[date-comments] Failed to delete:", error)
+        setDateComments(previous)
+        toast.error("Failed to delete comment.")
+      }
+    })
+  }
+
+  const closeDateCommentsSidebar = () => {
+    setIsDateCommentsSidebarOpen(false)
+    setSelectedCommentDate(null)
+  }
+
   const handleAssignmentClick = (assignment: Assignment) => {
     setSelectedAssignment(assignment)
     setNewAssignmentData(undefined)
@@ -718,6 +826,8 @@ export function AssignmentManager({
           onAddGroupClick={handleAddGroupClick}
           onGroupTitleClick={handleGroupTitleClick}
           onToggleHidden={handleToggleHidden}
+          onDateClick={handleDateClick}
+          dateCommentsByDate={dateCommentsByDate}
         />
 
         <AssignmentSidebar
@@ -765,6 +875,16 @@ export function AssignmentManager({
           setSelectedGroupIds(Array.from(new Set(normalized)))
           setIsGroupSelectorOpen(false)
         }}
+      />
+
+        <DateCommentsSidebar
+        isOpen={isDateCommentsSidebarOpen}
+        onClose={closeDateCommentsSidebar}
+        selectedDate={selectedCommentDate}
+        comments={commentsForSelectedDate}
+        onCreate={handleCreateDateComment}
+        onUpdate={handleUpdateDateComment}
+        onDelete={handleDeleteDateComment}
       />
     </div>
   )
