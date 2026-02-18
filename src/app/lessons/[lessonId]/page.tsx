@@ -4,6 +4,7 @@ import { notFound } from "next/navigation"
 
 import { LessonDetailClient } from "@/components/lessons/lesson-detail-client"
 import {
+  listLessonSubmissionFilesAction,
   readAllLearningObjectivesAction,
   readLessonDetailBootstrapAction,
   readLessonReferenceDataAction,
@@ -64,12 +65,15 @@ export default async function LessonDetailPage({
   const curriculumIds =
     referenceResult.data?.curricula?.map((c) => c.curriculum_id).filter((id): id is string => Boolean(id)) ?? []
 
-  const learningObjectivesResult = await readAllLearningObjectivesAction({
-    routeTag: "/lessons/[lessonId]",
-    authEndTime: authEnd,
-    curriculumIds,
-    unitId: lesson.unit_id,
-  })
+  const [learningObjectivesResult, submissionFilesResult] = await Promise.all([
+    readAllLearningObjectivesAction({
+      routeTag: "/lessons/[lessonId]",
+      authEndTime: authEnd,
+      curriculumIds,
+      unitId: lesson.unit_id,
+    }),
+    listLessonSubmissionFilesAction(lessonId),
+  ])
 
   if (referenceResult.error || learningObjectivesResult.error) {
     return (
@@ -129,6 +133,7 @@ export default async function LessonDetailPage({
       assessmentObjectives={referenceResult.data?.assessmentObjectives ?? []}
       lessonFiles={lessonPayload?.lessonFiles ?? []}
       lessonActivities={lessonPayload?.lessonActivities ?? []}
+      activityFiles={submissionFilesResult.data ?? []}
       unitLessons={lessonOptions}
     />
   )
