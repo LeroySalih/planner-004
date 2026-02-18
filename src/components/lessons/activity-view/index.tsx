@@ -394,6 +394,20 @@ function ActivityShortView({
     content = (
       <p className="text-sm text-muted-foreground">{firstLine || "Key terms table"}</p>
     )
+  } else if (activity.type === "share-my-work") {
+    const body = (activity.body_data ?? {}) as Record<string, unknown>
+    const name = typeof body.name === "string" ? body.name : ""
+    content = (
+      <p className="text-sm text-muted-foreground">
+        Pupils upload images{name ? ` for "${name}"` : ""} to share with classmates.
+      </p>
+    )
+  } else if (activity.type === "review-others-work") {
+    content = (
+      <p className="text-sm text-muted-foreground">
+        Pupils review and comment on classmates&apos; shared work anonymously.
+      </p>
+    )
   }
 
   const sections: ReactNode[] = []
@@ -1060,6 +1074,34 @@ function ActivityPresentView({
         <div className="rounded-lg border border-dashed border-border p-6 text-center text-muted-foreground">
           <p>Pupils will upload a sketch and generate a rendered image on their devices.</p>
         </div>
+      </div>
+    )
+  }
+
+  if (activity.type === "share-my-work") {
+    const body = (activity.body_data ?? {}) as Record<string, unknown>
+    const name = typeof body.name === "string" ? body.name : ""
+    return wrap(
+      <div className="space-y-2">
+        <p className="text-lg text-foreground">
+          Share your {name || "work"} with your classmates for peer review.
+        </p>
+        <p className="text-sm text-muted-foreground">
+          Open this activity on your device to upload images of your work.
+        </p>
+      </div>
+    )
+  }
+
+  if (activity.type === "review-others-work") {
+    return wrap(
+      <div className="space-y-2">
+        <p className="text-lg text-foreground">
+          Review and comment on your classmates&apos; shared work.
+        </p>
+        <p className="text-sm text-muted-foreground">
+          Open this activity on your device to browse submissions and leave feedback.
+        </p>
       </div>
     )
   }

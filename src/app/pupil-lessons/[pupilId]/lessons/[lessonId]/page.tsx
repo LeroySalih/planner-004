@@ -40,8 +40,8 @@ import { PupilShortTextActivity } from "@/components/pupil/pupil-short-text-acti
 import { PupilLongTextActivity } from "@/components/pupil/pupil-long-text-activity"
 import { PupilUploadUrlActivity } from "@/components/pupil/pupil-upload-url-activity"
 import { PupilSketchRenderActivity } from "@/components/lessons/activity-view/pupil-sketch-render-activity"
-
-
+import { PupilShareMyWorkActivity } from "@/components/pupil/pupil-share-my-work-activity"
+import { PupilReviewOthersWorkActivity } from "@/components/pupil/pupil-review-others-work-activity"
 
 import { MediaImage } from "@/components/ui/media-image"
 import {
@@ -385,6 +385,22 @@ export default async function PupilLessonFriendlyPage({
 
   const submissionMap = new Map(uploadActivityData.map((item) => [item.activityId, item.submissions]))
 
+  // Load share-my-work submissions (own files for each activity)
+  type ShareMyWorkData = { submissionId: string | null; files: Array<{ fileId: string; fileName: string; mimeType: string; order: number }> }
+  const shareMyWorkActivities = activities.filter((activity) => activity.type === "share-my-work")
+  const shareMyWorkDataEntries = await Promise.all(
+    shareMyWorkActivities.map(async (activity): Promise<[string, ShareMyWorkData]> => {
+      const result = await getLatestSubmissionForActivityAction(activity.activity_id, pupilId)
+      if (!result.data) return [activity.activity_id, { submissionId: null, files: [] }]
+      const body = (result.data.body ?? {}) as { files?: Array<{ fileId: string; fileName: string; mimeType: string; order: number }> }
+      return [activity.activity_id, {
+        submissionId: result.data.submission_id,
+        files: Array.isArray(body.files) ? body.files : [],
+      }]
+    }),
+  )
+  const shareMyWorkDataMap = new Map(shareMyWorkDataEntries)
+
   const mcqActivities = activities.filter((activity) => activity.type === "multiple-choice-question")
   const activityFeedbackMap = new Map<string, string | null>()
   const activityModelAnswerMap = new Map<string, string | null>()
@@ -587,6 +603,7 @@ export default async function PupilLessonFriendlyPage({
 
 
   const isPupilViewer = profile.userId === pupilId
+  const isTeacher = profile.isTeacher
 
   const assignments = summary
     ? summary.sections.flatMap((section) =>
@@ -846,6 +863,22 @@ export default async function PupilLessonFriendlyPage({
                           userId={pupilId}
                           submission={sketchRenderSubmissionMap.get(activity.activity_id) ?? null}
                           assignmentId={assignmentIds[0]}
+                        />
+                      ) : activity.type === "share-my-work" ? (
+                        <PupilShareMyWorkActivity
+                          lessonId={lesson.lesson_id}
+                          activity={activity}
+                          pupilId={pupilId}
+                          canUpload={isPupilViewer}
+                          stepNumber={index + 1}
+                          initialFiles={shareMyWorkDataMap.get(activity.activity_id)?.files ?? []}
+                          initialSubmissionId={shareMyWorkDataMap.get(activity.activity_id)?.submissionId ?? null}
+                        />
+                      ) : activity.type === "review-others-work" ? (
+                        <PupilReviewOthersWorkActivity
+                          activity={activity}
+                          pupilId={pupilId}
+                          stepNumber={index + 1}
                         />
                       ) : activity.type === "file-download" && (activityFiles.length > 0 || linkUrl) ? (
                          <div className="rounded-md bg-card p-4 border border-border/60">
