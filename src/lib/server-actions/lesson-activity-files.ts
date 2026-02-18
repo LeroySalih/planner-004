@@ -1299,3 +1299,186 @@ const deferRevalidate = (path: string) => {
   }
   queueMicrotask(() => revalidatePath(path));
 };
+
+// --- Lesson-level submission files (teacher view) ---
+
+export interface LessonSubmissionFile {
+  pupilId: string;
+  pupilName: string | null;
+  activityId: string;
+  activityTitle: string;
+  fileName: string;
+  submittedAt: string | null;
+  status: z.infer<typeof SubmissionStatusSchema>;
+}
+
+export async function listLessonSubmissionFilesAction(
+  lessonId: string,
+): Promise<{ data: LessonSubmissionFile[] | null; error: string | null }> {
+  return withTelemetry(
+    {
+      routeTag: "/lessons/[lessonId]",
+      functionName: "listLessonSubmissionFilesAction",
+      params: { lessonId },
+    },
+    async () => {
+      const client = createPgClient();
+      try {
+        await client.connect();
+
+        // 1. Get file-bearing activities for this lesson (upload and file-download types)
+        const { rows: activityRows } = await client.query(
+          `select activity_id, title from activities where lesson_id = $1 and (lower(type) like 'upload%' or lower(type) = 'file-download')`,
+          [lessonId],
+        );
+
+        if (activityRows.length === 0) {
+          return { data: [], error: null };
+        }
+
+        const activityIds = activityRows.map((r) => r.activity_id);
+        const activityTitleMap = new Map<string, string>(
+          activityRows.map((r) => [r.activity_id, r.title ?? ""]),
+        );
+
+        // 2. Query stored_files for files under these activity directories
+        //    Matches both legacy paths ({lessonId}/activities/{activityId}/...)
+        //    and new paths (lessons/{lessonId}/activities/{activityId}/...)
+        const { rows: fileRows } = await client.query(
+          `
+            select
+              sf.file_name,
+              sf.scope_path,
+              sf.size_bytes,
+              coalesce(sf.updated_at, sf.created_at) as file_date
+            from stored_files sf
+            where sf.bucket = 'lessons'
+              and (
+                sf.scope_path like $1 || '/activities/%'
+                or sf.scope_path like 'lessons/' || $1 || '/activities/%'
+              )
+          `,
+          [lessonId],
+        );
+
+        // 3. Parse file rows to extract activity_id and optional pupil storage key
+        const results: LessonSubmissionFile[] = [];
+        // Collect pupil storage keys that need profile lookup
+        const pupilKeySet = new Set<string>();
+
+        interface ParsedFile {
+          activityId: string;
+          activityTitle: string;
+          fileName: string;
+          fileDate: string | null;
+          pupilStorageKey: string | null; // null = teacher resource
+        }
+        const parsedFiles: ParsedFile[] = [];
+
+        for (const row of fileRows) {
+          const scopePath = row.scope_path as string;
+          const fileName = row.file_name as string;
+          if (!fileName) continue;
+
+          // Extract activity_id from scope_path
+          // Patterns: "{lessonId}/activities/{activityId}" or "lessons/{lessonId}/activities/{activityId}"
+          //           "{lessonId}/activities/{activityId}/{pupilKey}" or "lessons/{lessonId}/activities/{activityId}/{pupilKey}"
+          const activityMatch = scopePath.match(
+            /(?:^|lessons\/)([^/]+)\/activities\/([^/]+)(?:\/(.+))?$/,
+          );
+          if (!activityMatch) continue;
+
+          const matchedActivityId = activityMatch[2];
+          if (!activityIds.includes(matchedActivityId)) continue;
+
+          const pupilStorageKey = activityMatch[3] ?? null;
+          const fileDate =
+            typeof row.file_date === "string"
+              ? row.file_date
+              : row.file_date instanceof Date
+                ? row.file_date.toISOString()
+                : null;
+
+          if (pupilStorageKey) {
+            pupilKeySet.add(pupilStorageKey);
+          }
+
+          parsedFiles.push({
+            activityId: matchedActivityId,
+            activityTitle: activityTitleMap.get(matchedActivityId) ?? "",
+            fileName,
+            fileDate,
+            pupilStorageKey,
+          });
+        }
+
+        // 4. Resolve pupil storage keys to profile names
+        //    Keys can be either emails or user_ids
+        const pupilKeys = Array.from(pupilKeySet);
+        const keyToProfile = new Map<
+          string,
+          { userId: string; name: string | null }
+        >();
+
+        if (pupilKeys.length > 0) {
+          const { rows: profileRows } = await client.query(
+            `select user_id, email, first_name, last_name from profiles where user_id = any($1::text[]) or email = any($1::text[])`,
+            [pupilKeys],
+          );
+          for (const p of profileRows) {
+            const name = formatPupilName(p.first_name, p.last_name);
+            keyToProfile.set(p.user_id, { userId: p.user_id, name });
+            if (p.email) {
+              keyToProfile.set(p.email, { userId: p.user_id, name });
+            }
+          }
+        }
+
+        // 5. Build results
+        for (const pf of parsedFiles) {
+          const profile = pf.pupilStorageKey
+            ? keyToProfile.get(pf.pupilStorageKey)
+            : null;
+
+          results.push({
+            pupilId: profile?.userId ?? pf.pupilStorageKey ?? "",
+            pupilName: pf.pupilStorageKey
+              ? (profile?.name ?? pf.pupilStorageKey)
+              : null,
+            activityId: pf.activityId,
+            activityTitle: pf.activityTitle,
+            fileName: pf.fileName,
+            submittedAt: pf.fileDate,
+            status: "submitted",
+          });
+        }
+
+        return { data: results, error: null };
+      } catch (error) {
+        console.error(
+          "[lesson-activity-files] Failed to list lesson submission files:",
+          error,
+        );
+        return { data: null, error: "Unable to load activity submission files." };
+      } finally {
+        try {
+          await client.end();
+        } catch {
+          // ignore close errors
+        }
+      }
+    },
+  );
+}
+
+function formatPupilName(
+  firstName?: string | null,
+  lastName?: string | null,
+): string | null {
+  const first = (firstName ?? "").trim();
+  const last = (lastName ?? "").trim();
+  if (first && last) return `${first} ${last}`;
+  if (first) return first;
+  if (last) return last;
+  return null;
+}

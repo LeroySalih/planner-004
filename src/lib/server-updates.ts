@@ -120,6 +120,8 @@ export {
   getActivityFileDownloadUrlAction,
   getPupilActivitySubmissionUrlAction,
   listActivityFilesAction,
+  type LessonSubmissionFile,
+  listLessonSubmissionFilesAction,
   listPupilActivitySubmissionsAction,
   updatePupilSubmissionInstructionsAction,
   updatePupilSubmissionStatusAction,

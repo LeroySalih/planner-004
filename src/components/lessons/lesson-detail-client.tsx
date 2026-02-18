@@ -15,6 +15,7 @@ import type {
   LessonWithObjectives,
   Unit,
 } from "@/types"
+import type { LessonSubmissionFile } from "@/lib/server-updates"
 import {
   LESSON_CHANNEL_NAME,
   LESSON_MUTATION_EVENT,
@@ -59,6 +60,7 @@ interface LessonDetailClientProps {
     size?: number | null
   }[]
   lessonActivities: LessonActivity[]
+  activityFiles: LessonSubmissionFile[]
   unitLessons: LessonPickerOption[]
 }
 
@@ -70,6 +72,7 @@ export function LessonDetailClient({
   assessmentObjectives,
   lessonFiles,
   lessonActivities,
+  activityFiles,
   unitLessons,
 }: LessonDetailClientProps) {
   const router = useRouter()
@@ -524,6 +527,7 @@ export function LessonDetailClient({
                 unitId={currentUnit?.unit_id ?? currentLesson.unit_id}
                 lessonId={currentLesson.lesson_id}
                 initialFiles={lessonFilesState}
+                activityFiles={activityFiles}
               />
             </CardContent>
           </Card>

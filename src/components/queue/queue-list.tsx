@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState, useTransition } from "react"
+import { Fragment, useEffect, useMemo, useState, useTransition } from "react"
 import { toast } from "sonner"
 import { Download, Loader2 } from "lucide-react"
 import { format } from "date-fns"
@@ -51,7 +51,7 @@ export function QueueList({ items }: QueueListProps) {
   const [, startTransition] = useTransition()
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [downloadId, setDownloadId] = useState<string | null>(null)
-  const [downloadAllPending, setDownloadAllPending] = useState(false)
+  const [downloadSubGroupKey, setDownloadSubGroupKey] = useState<string | null>(null)
   const [filterText, setFilterText] = useState("")
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("submitted")
   const [ownerFilter, setOwnerFilter] = useState<string>("all")
@@ -136,8 +136,14 @@ export function QueueList({ items }: QueueListProps) {
   }, [filterText, lessonActivityFilter, ownerFilter, queueItems, statusFilter])
 
   const groupedItems = useMemo(() => {
-    const groups = new Map<string, UploadSubmissionFile[]>()
+    const compareSubmittedAt = (a: UploadSubmissionFile, b: UploadSubmissionFile) => {
+      const dateA = a.submittedAt ? new Date(a.submittedAt).getTime() : 0
+      const dateB = b.submittedAt ? new Date(b.submittedAt).getTime() : 0
+      return dateA - dateB
+    }
 
+    // First level: group by class/group
+    const groups = new Map<string, UploadSubmissionFile[]>()
     filteredItems.forEach((item) => {
       const label = item.groupId || item.groupName || "Ungrouped"
       const existing = groups.get(label) ?? []
@@ -145,29 +151,48 @@ export function QueueList({ items }: QueueListProps) {
       groups.set(label, existing)
     })
 
-    const compareSubmittedAt = (a: UploadSubmissionFile, b: UploadSubmissionFile) => {
-      const dateA = a.submittedAt ? new Date(a.submittedAt).getTime() : 0
-      const dateB = b.submittedAt ? new Date(b.submittedAt).getTime() : 0
-      return dateA - dateB
-    }
-
     return Array.from(groups.entries())
-      .map(([groupLabel, groupItems]) => ({
-        groupLabel,
-        items: [...groupItems].sort(compareSubmittedAt),
-      }))
+      .map(([groupLabel, groupItems]) => {
+        // Second level: sub-group by unit / lesson / activity
+        const subGroups = new Map<string, UploadSubmissionFile[]>()
+        groupItems.forEach((item) => {
+          const unitLabel = item.unitTitle || "Unit"
+          const lessonLabel = item.lessonTitle || item.lessonId || "Lesson"
+          const activityLabel = item.activityTitle || "Upload activity"
+          const key = `${unitLabel}|||${lessonLabel}|||${activityLabel}`
+          const existing = subGroups.get(key) ?? []
+          existing.push(item)
+          subGroups.set(key, existing)
+        })
+
+        const sortedSubGroups = Array.from(subGroups.entries())
+          .map(([key, items]) => {
+            const [unitLabel, lessonLabel, activityLabel] = key.split("|||")
+            return {
+              key,
+              unitLabel,
+              lessonLabel,
+              activityLabel,
+              items: [...items].sort(compareSubmittedAt),
+            }
+          })
+          .sort((a, b) => a.key.localeCompare(b.key, undefined, { sensitivity: "base" }))
+
+        return {
+          groupLabel,
+          subGroups: sortedSubGroups,
+          totalItems: groupItems.length,
+        }
+      })
       .sort((a, b) => a.groupLabel.localeCompare(b.groupLabel, undefined, { sensitivity: "base" }))
   }, [filteredItems])
 
   const flattenedItems = useMemo(
-    () => groupedItems.flatMap((group) => group.items),
+    () => groupedItems.flatMap((group) => group.subGroups.flatMap((sub) => sub.items)),
     [groupedItems],
   )
 
-  const hasDownloadableFiles = useMemo(
-    () => flattenedItems.some((item) => item.fileName && item.fileName.trim().length > 0),
-    [flattenedItems],
-  )
+
 
   const handleStatusChange = (item: UploadSubmissionFile, nextStatus: SubmissionStatus) => {
     startTransition(async () => {
@@ -245,7 +270,7 @@ export function QueueList({ items }: QueueListProps) {
     })
   }
 
-  const handleDownloadAll = (itemsToDownload: UploadSubmissionFile[]) => {
+  const handleDownloadSubGroup = (subGroupKey: string, itemsToDownload: UploadSubmissionFile[], zipName: string) => {
     const downloadable = itemsToDownload.filter((item) => item.lessonId && item.activityId && item.pupilId && item.fileName)
     if (downloadable.length === 0) {
       toast.error("No files to download for the current filter.")
@@ -253,7 +278,7 @@ export function QueueList({ items }: QueueListProps) {
     }
 
     startTransition(async () => {
-      setDownloadAllPending(true)
+      setDownloadSubGroupKey(subGroupKey)
       try {
         const response = await fetch("/queue/download", {
           method: "POST",
@@ -278,7 +303,7 @@ export function QueueList({ items }: QueueListProps) {
         const url = URL.createObjectURL(blob)
         const link = document.createElement("a")
         link.href = url
-        link.download = "uploads.zip"
+        link.download = zipName
         document.body.appendChild(link)
         link.click()
         link.remove()
@@ -287,28 +312,16 @@ export function QueueList({ items }: QueueListProps) {
         console.error("[queue] Failed to download zip", error)
         toast.error("Unable to download files", { description: "Please try again later." })
       } finally {
-        setDownloadAllPending(false)
+        setDownloadSubGroupKey(null)
       }
     })
   }
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="space-y-1">
-          <h3 className="text-base font-semibold text-foreground">Queue</h3>
-          <p className="text-sm text-muted-foreground">Review all uploads.</p>
-        </div>
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          onClick={() => handleDownloadAll(flattenedItems)}
-          disabled={!hasDownloadableFiles || downloadAllPending}
-        >
-          <Download className="mr-2 h-4 w-4" />
-          {downloadAllPending ? "Preparing..." : "Download all as zip"}
-        </Button>
+      <div className="space-y-1">
+        <h3 className="text-base font-semibold text-foreground">Queue</h3>
+        <p className="text-sm text-muted-foreground">Review all uploads.</p>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -362,18 +375,16 @@ export function QueueList({ items }: QueueListProps) {
             const headerId = `group-${group.groupLabel}`
             return (
               <div key={headerId} className="overflow-hidden rounded-md border border-border/60 bg-muted/30">
-                <div className="flex flex-wrap items-center justify-between border-b border-border/60 px-3 py-2">
+                <div className="flex flex-wrap items-center justify-between border-b border-border/60 bg-muted px-3 py-2.5">
                   <div className="space-y-0.5">
-                    <p className="text-sm font-semibold text-foreground">{group.groupLabel}</p>
-                    <p className="text-xs text-muted-foreground">{group.items.length} file(s)</p>
+                    <p className="text-sm font-bold text-foreground">{group.groupLabel}</p>
+                    <p className="text-xs text-muted-foreground">{group.totalItems} file(s)</p>
                   </div>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full border-separate border-spacing-0">
                     <thead className="bg-muted/40 text-xs font-semibold uppercase text-muted-foreground">
                       <tr>
-                        <th className="px-3 py-2 text-left">Group</th>
-                        <th className="px-3 py-2 text-left">Unit / Lesson / Activity</th>
                         <th className="px-3 py-2 text-left">Owner</th>
                         <th className="px-3 py-2 text-left">Instructions</th>
                         <th className="px-3 py-2 text-left">Submitted</th>
@@ -382,86 +393,114 @@ export function QueueList({ items }: QueueListProps) {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/60">
-                      {group.items.map((item, index) => {
-                        const uniqueId = `${item.pupilId}-${item.fileName}`
-                        const statusDisabled = pendingId !== null && pendingId !== uniqueId
-                        const displayName = formatPupilName(item.pupilId, item.pupilName)
-                        const lessonLabel = item.lessonTitle || item.lessonId || "Lesson"
-                        const activityLabel = item.activityTitle || "Upload activity"
-                        const unitLabel = item.unitTitle || "Unit"
-                        const rowKey =
-                          (item.submissionId ? `${item.submissionId}-` : `activity-${item.activityId}-${item.pupilId}-`) +
-                          `${item.fileName ?? "nofile"}-${index}`
-                        return (
-                          <tr key={rowKey} className="align-middle">
-                            <td className="px-3 py-3 text-sm text-foreground">{group.groupLabel}</td>
-                            <td className="px-3 py-3">
-                              <div className="space-y-1 text-sm">
-                                <p className="font-medium text-foreground">{unitLabel}</p>
-                                <p className="text-muted-foreground">
-                                  {lessonLabel} / {activityLabel}
-                                </p>
-                              </div>
-                            </td>
-                            <td className="px-3 py-3 text-sm text-foreground">{displayName}</td>
-                            <td className="px-3 py-3 text-sm text-foreground">
-                              {item.instructions ? (
-                                <Badge variant="outline" className="font-normal">
-                                  {item.instructions}
-                                </Badge>
-                              ) : (
-                                "—"
-                              )}
-                            </td>
-                            <td className="px-3 py-3 text-sm text-foreground tabular-nums">
-                              {item.submittedAt ? (
-                                <div className="flex flex-col">
-                                  <span>{format(new Date(item.submittedAt), "yyyy-MM-dd")}</span>
-                                  <span className="text-xs text-muted-foreground">
-                                    {format(new Date(item.submittedAt), "HH:mm")}
+                      {group.subGroups.map((subGroup) => (
+                        <Fragment key={`sub-${subGroup.key}`}>
+                          <tr className="bg-muted/20">
+                            <td colSpan={5} className="px-3 py-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="text-sm">
+                                  <span className="font-medium text-foreground">{subGroup.unitLabel}</span>
+                                  <span className="text-muted-foreground">
+                                    {" — "}{subGroup.lessonLabel} / {subGroup.activityLabel}
+                                  </span>
+                                  <span className="ml-2 text-xs text-muted-foreground">
+                                    ({subGroup.items.length})
                                   </span>
                                 </div>
-                              ) : (
-                                "—"
-                              )}
-                            </td>
-                            <td className="px-3 py-3">
-                              <button
-                                type="button"
-                                className="text-sm text-left text-foreground underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
-                                title={item.fileName ?? undefined}
-                                onClick={() => handleDownload(item)}
-                                disabled={!item.fileName || downloadId !== null}
-                              >
-                                {item.fileName ? item.fileName : "No file uploaded yet"}
-                              </button>
-                            </td>
-                            <td className="px-3 py-3">
-                              <div className="flex items-center gap-2">
-                                <Select
-                                  value={item.status}
-                                  onValueChange={(value) => handleStatusChange(item, value as SubmissionStatus)}
-                                  disabled={statusDisabled}
-                                >
-                                  <SelectTrigger className="w-36">
-                                    <SelectValue aria-label={item.status} />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {statusOptions.map((option) => (
-                                      <SelectItem key={option.value} value={option.value}>
-                                        {option.label}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                                {pendingId === uniqueId || downloadId === item.submissionId ? (
-                                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                                ) : null}
+                                {subGroup.items.some((i) => i.fileName) && (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs"
+                                    onClick={() => {
+                                      const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
+                                      const zipName = `${slug(group.groupLabel)}-${slug(subGroup.activityLabel)}.zip`
+                                      handleDownloadSubGroup(subGroup.key, subGroup.items, zipName)
+                                    }}
+                                    disabled={downloadSubGroupKey !== null}
+                                  >
+                                    {downloadSubGroupKey === subGroup.key ? (
+                                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                    ) : (
+                                      <Download className="mr-1 h-3 w-3" />
+                                    )}
+                                    {downloadSubGroupKey === subGroup.key ? "Preparing..." : "Download zip"}
+                                  </Button>
+                                )}
                               </div>
                             </td>
                           </tr>
-                        )
-                      })}
+                          {subGroup.items.map((item, index) => {
+                            const uniqueId = `${item.pupilId}-${item.fileName}`
+                            const statusDisabled = pendingId !== null && pendingId !== uniqueId
+                            const displayName = formatPupilName(item.pupilId, item.pupilName)
+                            const rowKey =
+                              (item.submissionId ? `${item.submissionId}-` : `activity-${item.activityId}-${item.pupilId}-`) +
+                              `${item.fileName ?? "nofile"}-${index}`
+                            return (
+                              <tr key={rowKey} className="align-middle">
+                                <td className="px-3 py-3 text-sm text-foreground">{displayName}</td>
+                                <td className="px-3 py-3 text-sm text-foreground">
+                                  {item.instructions ? (
+                                    <Badge variant="outline" className="font-normal">
+                                      {item.instructions}
+                                    </Badge>
+                                  ) : (
+                                    "—"
+                                  )}
+                                </td>
+                                <td className="px-3 py-3 text-sm text-foreground tabular-nums">
+                                  {item.submittedAt ? (
+                                    <div className="flex flex-col">
+                                      <span>{format(new Date(item.submittedAt), "dd-MM-yyyy")}</span>
+                                      <span className="text-xs text-muted-foreground">
+                                        {format(new Date(item.submittedAt), "HH:mm")}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    "—"
+                                  )}
+                                </td>
+                                <td className="px-3 py-3">
+                                  <button
+                                    type="button"
+                                    className="text-sm text-left text-foreground underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+                                    title={item.fileName ?? undefined}
+                                    onClick={() => handleDownload(item)}
+                                    disabled={!item.fileName || downloadId !== null}
+                                  >
+                                    {item.fileName ? item.fileName : "No file uploaded yet"}
+                                  </button>
+                                </td>
+                                <td className="px-3 py-3">
+                                  <div className="flex items-center gap-2">
+                                    <Select
+                                      value={item.status}
+                                      onValueChange={(value) => handleStatusChange(item, value as SubmissionStatus)}
+                                      disabled={statusDisabled}
+                                    >
+                                      <SelectTrigger className="w-36">
+                                        <SelectValue aria-label={item.status} />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {statusOptions.map((option) => (
+                                          <SelectItem key={option.value} value={option.value}>
+                                            {option.label}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                    {pendingId === uniqueId || downloadId === item.submissionId ? (
+                                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                                    ) : null}
+                                  </div>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </Fragment>
+                      ))}
                     </tbody>
                   </table>
                 </div>

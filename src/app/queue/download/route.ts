@@ -6,8 +6,26 @@ import { z } from "zod"
 import { readQueueItemsAction } from "@/lib/server-updates"
 import { requireTeacherProfile } from "@/lib/auth"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
+import { query } from "@/lib/db"
 
 const LESSON_FILES_BUCKET = "lessons"
+
+async function resolveStorageKey(pupilId: string, cache: Map<string, string>): Promise<string> {
+  if (cache.has(pupilId)) return cache.get(pupilId)!
+  try {
+    const { rows } = await query<{ email: string | null }>(
+      "select email from profiles where user_id = $1 limit 1",
+      [pupilId],
+    )
+    const email = rows?.[0]?.email?.trim()
+    const resolved = email && email.length > 0 ? email : pupilId
+    cache.set(pupilId, resolved)
+    return resolved
+  } catch {
+    cache.set(pupilId, pupilId)
+    return pupilId
+  }
+}
 
 function buildSubmissionPaths(lessonId: string, activityId: string, pupilId: string, fileName: string) {
   const basePath = `lessons/${lessonId}/activities/${activityId}/${pupilId}/${fileName}`
@@ -40,8 +58,10 @@ async function appendFilesToArchive(
   storage: ReturnType<typeof createLocalStorageClient>,
   archive: archiver.Archiver,
 ) {
+  const emailCache = new Map<string, string>()
   for (const item of items) {
-    const paths = buildSubmissionPaths(item.lessonId, item.activityId, item.pupilId, item.fileName)
+    const storageKey = await resolveStorageKey(item.pupilId, emailCache)
+    const paths = buildSubmissionPaths(item.lessonId, item.activityId, storageKey, item.fileName)
     let appended = false
     let lastError: { message?: string } | null = null
 
