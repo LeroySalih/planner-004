@@ -1427,6 +1427,117 @@ export async function readCurriculumSuccessCriteriaUsageAction(
  * Unassigns a success criterion from all activities.
  * Does not delete the SC itself, and keeps all activities, submissions, and feedback intact.
  */
+export async function moveLearningObjectiveAction(
+  learningObjectiveId: string,
+  targetAssessmentObjectiveId: string,
+  sourceCurriculumId: string,
+  targetCurriculumId: string,
+): Promise<{ success: boolean; error: string | null }> {
+  await requireRole("teacher")
+
+  console.log("[curricula] moveLearningObjectiveAction:start", {
+    learningObjectiveId,
+    targetAssessmentObjectiveId,
+    sourceCurriculumId,
+    targetCurriculumId,
+  })
+
+  try {
+    const { rowCount } = await query(
+      `update learning_objectives set assessment_objective_id = $1 where learning_objective_id = $2`,
+      [targetAssessmentObjectiveId, learningObjectiveId],
+    )
+
+    if (rowCount === 0) {
+      return { success: false, error: "Learning objective not found." }
+    }
+
+    revalidatePath(`/curriculum/${sourceCurriculumId}`)
+    if (targetCurriculumId !== sourceCurriculumId) {
+      revalidatePath(`/curriculum/${targetCurriculumId}`)
+    }
+
+    return { success: true, error: null }
+  } catch (error) {
+    console.error("[curricula] moveLearningObjectiveAction:error", error)
+    const message = error instanceof Error ? error.message : "Unable to move learning objective."
+    return { success: false, error: message }
+  }
+}
+
+const CurriculaWithAOsSchema = z.array(
+  z.object({
+    curriculum_id: z.string(),
+    title: z.string().nullable(),
+    assessment_objectives: z.array(
+      z.object({
+        assessment_objective_id: z.string(),
+        code: z.string().nullable(),
+        title: z.string().nullable(),
+      }),
+    ),
+  }),
+)
+
+export async function readCurriculaWithAOsAction(): Promise<{
+  data: z.infer<typeof CurriculaWithAOsSchema> | null
+  error: string | null
+}> {
+  console.log("[curricula] readCurriculaWithAOsAction:start")
+
+  try {
+    const { rows } = await query<{
+      curriculum_id: string
+      curriculum_title: string | null
+      assessment_objective_id: string | null
+      ao_code: string | null
+      ao_title: string | null
+    }>(
+      `
+        select
+          c.curriculum_id,
+          c.title as curriculum_title,
+          ao.assessment_objective_id,
+          ao.code as ao_code,
+          ao.title as ao_title
+        from curricula c
+        left join assessment_objectives ao on ao.curriculum_id = c.curriculum_id
+        order by c.title asc, ao.order_index asc nulls first, ao.title asc
+      `,
+    )
+
+    const curriculaMap = new Map<string, {
+      curriculum_id: string
+      title: string | null
+      assessment_objectives: { assessment_objective_id: string; code: string | null; title: string | null }[]
+    }>()
+
+    for (const row of rows) {
+      if (!curriculaMap.has(row.curriculum_id)) {
+        curriculaMap.set(row.curriculum_id, {
+          curriculum_id: row.curriculum_id,
+          title: row.curriculum_title,
+          assessment_objectives: [],
+        })
+      }
+      if (row.assessment_objective_id) {
+        curriculaMap.get(row.curriculum_id)!.assessment_objectives.push({
+          assessment_objective_id: row.assessment_objective_id,
+          code: row.ao_code,
+          title: row.ao_title,
+        })
+      }
+    }
+
+    const data = CurriculaWithAOsSchema.parse(Array.from(curriculaMap.values()))
+    return { data, error: null }
+  } catch (error) {
+    console.error("[curricula] readCurriculaWithAOsAction:error", error)
+    const message = error instanceof Error ? error.message : "Unable to load curricula with AOs."
+    return { data: null, error: message }
+  }
+}
+
 export async function unassignSuccessCriteriaFromActivitiesAction(
   successCriteriaId: string,
   curriculumId: string

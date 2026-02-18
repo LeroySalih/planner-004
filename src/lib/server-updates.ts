@@ -195,6 +195,8 @@ export {
   batchCreateLosAndScsAction,
   checkSuccessCriteriaUsageAction,
   createCurriculumAction,
+  moveLearningObjectiveAction,
+  readCurriculaWithAOsAction,
   createCurriculumAssessmentObjectiveAction,
   createCurriculumLearningObjectiveAction,
   createCurriculumSuccessCriterionAction,

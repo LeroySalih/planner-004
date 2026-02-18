@@ -38,6 +38,8 @@ import {
   readCurriculumDetailAction,
   unassignSuccessCriteriaFromActivitiesAction,
   unlinkLessonSuccessCriterionAction,
+  moveLearningObjectiveAction,
+  readCurriculaWithAOsAction,
   updateCurriculumAssessmentObjectiveAction,
   updateCurriculumLearningObjectiveAction,
   updateCurriculumSuccessCriterionAction,
@@ -195,6 +197,11 @@ export default function CurriculumPrototypeClient({
   >(null)
   const [editingLessonObjectiveTitle, setEditingLessonObjectiveTitle] = useState("")
   const [editingLessonObjectiveSpecRef, setEditingLessonObjectiveSpecRef] = useState("")
+  const [editingLessonObjectiveAoId, setEditingLessonObjectiveAoId] = useState("")
+  const [editingLessonObjectiveCurriculumId, setEditingLessonObjectiveCurriculumId] = useState("")
+  const [allCurriculaWithAOs, setAllCurriculaWithAOs] = useState<
+    { curriculum_id: string; title: string | null; assessment_objectives: { assessment_objective_id: string; code: string | null; title: string | null }[] }[] | null
+  >(null)
   const [unitPickerContext, setUnitPickerContext] = useState<
     | {
         aoIndex: number
@@ -577,6 +584,8 @@ export default function CurriculumPrototypeClient({
     setEditingLessonObjective(null)
     setEditingLessonObjectiveTitle("")
     setEditingLessonObjectiveSpecRef("")
+    setEditingLessonObjectiveAoId("")
+    setEditingLessonObjectiveCurriculumId("")
     setUnitPickerContext(null)
     setSelectedCriteriaIds(new Set<string>())
   }
@@ -1107,21 +1116,33 @@ export default function CurriculumPrototypeClient({
     })
   }
 
-  const startLessonObjectiveEdit = (
+  const startLessonObjectiveEdit = async (
     aoIndex: number,
     loIndex: number,
     currentTitle: string,
     currentSpecRef: string | null,
+    aoId: string,
   ) => {
     setEditingLessonObjective({ aoIndex, loIndex })
     setEditingLessonObjectiveTitle(currentTitle)
     setEditingLessonObjectiveSpecRef(currentSpecRef ?? "")
+    setEditingLessonObjectiveAoId(aoId)
+    setEditingLessonObjectiveCurriculumId(curriculumId)
+
+    if (!allCurriculaWithAOs) {
+      const result = await readCurriculaWithAOsAction()
+      if (result.data) {
+        setAllCurriculaWithAOs(result.data)
+      }
+    }
   }
 
   const cancelLessonObjectiveEdit = () => {
     setEditingLessonObjective(null)
     setEditingLessonObjectiveTitle("")
     setEditingLessonObjectiveSpecRef("")
+    setEditingLessonObjectiveAoId("")
+    setEditingLessonObjectiveCurriculumId("")
   }
 
   const saveLessonObjectiveEdit = () => {
@@ -1132,6 +1153,8 @@ export default function CurriculumPrototypeClient({
     const targetLo = targetAo?.lessonObjectives[loIndex]
     const newTitle = editingLessonObjectiveTitle.trim()
     const newSpecRef = editingLessonObjectiveSpecRef.trim()
+    const newAoId = editingLessonObjectiveAoId
+    const newCurriculumId = editingLessonObjectiveCurriculumId
 
     if (!targetAo || !targetLo) {
       showToast("error", "Unable to locate learning objective.")
@@ -1143,24 +1166,54 @@ export default function CurriculumPrototypeClient({
       return
     }
 
-    setAssessmentObjectives((prev) =>
-      prev.map((ao, aoIdx) =>
-        aoIdx === aoIndex
-          ? {
-              ...ao,
-              lessonObjectives: ao.lessonObjectives.map((lo, loIdx) =>
-                loIdx === loIndex
-                  ? { ...lo, title: newTitle, specRef: newSpecRef.length > 0 ? newSpecRef : null }
-                  : lo,
-              ),
-            }
-          : ao,
-      ),
-    )
+    const aoChanged = newAoId !== "" && newAoId !== targetAo.id
+    const movingToDifferentCurriculum = aoChanged && newCurriculumId !== curriculumId
+
+    if (movingToDifferentCurriculum) {
+      // Remove LO from local state since it's moving to a different curriculum
+      setAssessmentObjectives((prev) =>
+        prev.map((ao, aoIdx) =>
+          aoIdx === aoIndex
+            ? { ...ao, lessonObjectives: ao.lessonObjectives.filter((_, loIdx) => loIdx !== loIndex) }
+            : ao,
+        ),
+      )
+    } else if (aoChanged) {
+      // Move LO to a different AO within the same curriculum
+      const loData = { ...targetLo, title: newTitle, specRef: newSpecRef.length > 0 ? newSpecRef : null }
+      setAssessmentObjectives((prev) =>
+        prev.map((ao) => {
+          if (ao.id === targetAo.id) {
+            return { ...ao, lessonObjectives: ao.lessonObjectives.filter((lo) => lo.id !== targetLo.id) }
+          }
+          if (ao.id === newAoId) {
+            return { ...ao, lessonObjectives: [...ao.lessonObjectives, loData] }
+          }
+          return ao
+        }),
+      )
+    } else {
+      // Just updating title/specRef within the same AO
+      setAssessmentObjectives((prev) =>
+        prev.map((ao, aoIdx) =>
+          aoIdx === aoIndex
+            ? {
+                ...ao,
+                lessonObjectives: ao.lessonObjectives.map((lo, loIdx) =>
+                  loIdx === loIndex
+                    ? { ...lo, title: newTitle, specRef: newSpecRef.length > 0 ? newSpecRef : null }
+                    : lo,
+                ),
+              }
+            : ao,
+        ),
+      )
+    }
 
     cancelLessonObjectiveEdit()
 
     startTransition(async () => {
+      // Update title/specRef
       const result = await updateCurriculumLearningObjectiveAction(targetLo.id, curriculumId, {
         title: newTitle,
         spec_ref: newSpecRef.length > 0 ? newSpecRef : null,
@@ -1172,7 +1225,31 @@ export default function CurriculumPrototypeClient({
         return
       }
 
-      showToast("success", "Learning objective updated.")
+      // Move AO if changed
+      if (aoChanged) {
+        const moveResult = await moveLearningObjectiveAction(
+          targetLo.id,
+          newAoId,
+          curriculumId,
+          newCurriculumId || curriculumId,
+        )
+
+        if (moveResult.error) {
+          showToast("error", moveResult.error)
+          await refreshCurriculum({ aoId: targetAo.id, loId: targetLo.id })
+          return
+        }
+
+        if (movingToDifferentCurriculum) {
+          showToast("success", "Learning objective moved to another curriculum.")
+          await refreshCurriculum()
+        } else {
+          showToast("success", "Learning objective moved.")
+          await refreshCurriculum({ aoId: newAoId, loId: targetLo.id })
+        }
+      } else {
+        showToast("success", "Learning objective updated.")
+      }
     })
   }
 
@@ -1376,6 +1453,41 @@ export default function CurriculumPrototypeClient({
                                     className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
                                     placeholder="Spec reference (optional)"
                                   />
+                                  {allCurriculaWithAOs ? (
+                                    <div className="flex gap-2">
+                                      <select
+                                        value={editingLessonObjectiveCurriculumId}
+                                        onChange={(event) => {
+                                          const newCid = event.target.value
+                                          setEditingLessonObjectiveCurriculumId(newCid)
+                                          const curr = allCurriculaWithAOs.find((c) => c.curriculum_id === newCid)
+                                          const firstAo = curr?.assessment_objectives[0]
+                                          setEditingLessonObjectiveAoId(firstAo?.assessment_objective_id ?? "")
+                                        }}
+                                        className="w-1/2 rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                                      >
+                                        {allCurriculaWithAOs.map((c) => (
+                                          <option key={c.curriculum_id} value={c.curriculum_id}>
+                                            {c.title ?? "Untitled"}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <select
+                                        value={editingLessonObjectiveAoId}
+                                        onChange={(event) => setEditingLessonObjectiveAoId(event.target.value)}
+                                        className="w-1/2 rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                                      >
+                                        {(allCurriculaWithAOs
+                                          .find((c) => c.curriculum_id === editingLessonObjectiveCurriculumId)
+                                          ?.assessment_objectives ?? []
+                                        ).map((aoOption) => (
+                                          <option key={aoOption.assessment_objective_id} value={aoOption.assessment_objective_id}>
+                                            {aoOption.code}: {aoOption.title ?? "Untitled"}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  ) : null}
                                 </div>
                                 <div className="flex items-start gap-1 pt-1">
                                   <button
@@ -1411,7 +1523,7 @@ export default function CurriculumPrototypeClient({
                           <div className="flex items-center gap-1">
                             <button
                               className="rounded-full border border-border p-1 transition hover:bg-muted"
-                              onClick={() => startLessonObjectiveEdit(aoIndex, loIndex, lo.title, lo.specRef)}
+                              onClick={() => startLessonObjectiveEdit(aoIndex, loIndex, lo.title, lo.specRef, ao.id)}
                               aria-label="Edit learning objective"
                             >
                               <Pencil className="h-4 w-4" />
