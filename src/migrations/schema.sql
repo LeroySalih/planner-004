@@ -2,10 +2,10 @@
 -- PostgreSQL database dump
 --
 
-\restrict Q7GQSDIke641CXl19CcglPXFcsNuncm147Hq2rW2A7Fh8iE8AvjZFd1kCxUF92g
+\restrict vgLzp6nGxfcJTHPgXiveG26aP3RX0ryOTPRAcm6buEyl97XoVSJlw3XXec4zK5I
 
--- Dumped from database version 17.7 (Debian 17.7-3.pgdg13+1)
--- Dumped by pg_dump version 17.6 (Homebrew)
+-- Dumped from database version 17.8 (Debian 17.8-1.pgdg12+1)
+-- Dumped by pg_dump version 17.8 (Debian 17.8-1.pgdg12+1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -34,24 +34,10 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
 
 
 --
--- Name: EXTENSION pgcrypto; Type: COMMENT; Schema: -; Owner: -
---
-
-COMMENT ON EXTENSION pgcrypto IS 'cryptographic functions';
-
-
---
 -- Name: vector; Type: EXTENSION; Schema: -; Owner: -
 --
 
 CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA extensions;
-
-
---
--- Name: EXTENSION vector; Type: COMMENT; Schema: -; Owner: -
---
-
-COMMENT ON EXTENSION vector IS 'vector data type and ivfflat and hnsw access methods';
 
 
 --
@@ -1136,7 +1122,9 @@ begin
                     'user_id', s.user_id,
                     'submitted_at', s.submitted_at,
                     'body', s.body,
-                    'is_flagged', s.is_flagged
+                    'is_flagged', s.is_flagged,
+                    'resubmit_requested', s.resubmit_requested,
+                    'resubmit_note', s.resubmit_note
                   ) as submission_payload
                   from submissions s
                   where s.activity_id in (
@@ -1244,59 +1232,6 @@ begin
   from aggregated a;
 
   return result;
-end;
-$$;
-
-
---
--- Name: reports_recalculate_pupil_cache(text); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.reports_recalculate_pupil_cache(p_pupil_id text) RETURNS jsonb
-    LANGUAGE plpgsql SECURITY DEFINER
-    SET search_path TO 'public'
-    AS $$
-declare
-  dataset jsonb;
-begin
-  if coalesce(trim(p_pupil_id), '') = '' then
-    raise exception 'pupil id is required';
-  end if;
-
-  select public.reports_get_prepared_report_dataset(p_pupil_id, null)
-    into dataset;
-
-  if dataset is null then
-    dataset := '{}'::jsonb;
-  end if;
-
-  insert into public.report_pupil_cache (pupil_id, dataset, calculated_at)
-  values (p_pupil_id, dataset, now())
-  on conflict (pupil_id) do update
-    set dataset = excluded.dataset,
-        calculated_at = excluded.calculated_at;
-
-  delete from public.report_pupil_feedback_cache where pupil_id = p_pupil_id;
-
-  insert into public.report_pupil_feedback_cache (pupil_id, success_criteria_id, latest_feedback_id, latest_rating, updated_at)
-  select
-    p_pupil_id as pupil_id,
-    latest.success_criteria_id,
-    latest.id,
-    latest.rating,
-    now()
-  from (
-    select distinct on (success_criteria_id)
-      success_criteria_id,
-      id,
-      rating
-    from public.feedback
-    where user_id = p_pupil_id
-    order by success_criteria_id, id desc
-  ) as latest
-  where coalesce(trim(latest.success_criteria_id), '') <> '';
-
-  return dataset;
 end;
 $$;
 
@@ -1621,6 +1556,19 @@ CREATE TABLE public.curricula (
 
 
 --
+-- Name: date_comments; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.date_comments (
+    date_comment_id text DEFAULT gen_random_uuid() NOT NULL,
+    comment_date date NOT NULL,
+    comment text NOT NULL,
+    created_by text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
 -- Name: documents; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1682,6 +1630,38 @@ CREATE SEQUENCE public.feedback_id_seq
 --
 
 ALTER SEQUENCE public.feedback_id_seq OWNED BY public.feedback.id;
+
+
+--
+-- Name: flashcard_attempts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.flashcard_attempts (
+    attempt_id text DEFAULT gen_random_uuid() NOT NULL,
+    session_id text NOT NULL,
+    term text NOT NULL,
+    definition text NOT NULL,
+    chosen_definition text NOT NULL,
+    is_correct boolean NOT NULL,
+    attempt_number integer NOT NULL,
+    attempted_at timestamp with time zone DEFAULT now()
+);
+
+
+--
+-- Name: flashcard_sessions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.flashcard_sessions (
+    session_id text DEFAULT gen_random_uuid() NOT NULL,
+    pupil_id text NOT NULL,
+    lesson_id text NOT NULL,
+    status text DEFAULT 'in_progress'::text NOT NULL,
+    started_at timestamp with time zone DEFAULT now(),
+    completed_at timestamp with time zone,
+    total_cards integer NOT NULL,
+    correct_count integer DEFAULT 0
+);
 
 
 --
@@ -1882,74 +1862,6 @@ CREATE TABLE public.pupil_sign_in_history (
     pupil_id text NOT NULL,
     url text NOT NULL,
     signed_in_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
--- Name: report_pupil_cache; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.report_pupil_cache (
-    pupil_id text NOT NULL,
-    dataset jsonb NOT NULL,
-    calculated_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
--- Name: TABLE report_pupil_cache; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.report_pupil_cache IS 'Precomputed per-pupil report dataset payloads powering /reports views.';
-
-
---
--- Name: COLUMN report_pupil_cache.dataset; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.report_pupil_cache.dataset IS 'Full dataset as returned by reports_get_prepared_report_dataset.';
-
-
---
--- Name: report_pupil_feedback_cache; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.report_pupil_feedback_cache (
-    pupil_id text NOT NULL,
-    success_criteria_id text NOT NULL,
-    latest_feedback_id bigint NOT NULL,
-    latest_rating integer,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
--- Name: TABLE report_pupil_feedback_cache; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.report_pupil_feedback_cache IS 'Latest feedback/rating snapshot per pupil and success criterion for group-level aggregations.';
-
-
---
--- Name: report_pupil_unit_summaries; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.report_pupil_unit_summaries (
-    pupil_id text NOT NULL,
-    unit_id text NOT NULL,
-    unit_title text,
-    unit_subject text,
-    unit_description text,
-    unit_year integer,
-    related_group_ids text[] DEFAULT '{}'::text[] NOT NULL,
-    grouped_levels jsonb DEFAULT '[]'::jsonb NOT NULL,
-    working_level integer,
-    activities_average double precision,
-    assessment_average double precision,
-    assessment_level text,
-    score_error text,
-    objective_error text,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
 
@@ -2163,6 +2075,8 @@ CREATE TABLE public.submissions (
     replication_pk bigint NOT NULL,
     submission_status text DEFAULT 'inprogress'::text NOT NULL,
     is_flagged boolean DEFAULT false NOT NULL,
+    resubmit_requested boolean DEFAULT false NOT NULL,
+    resubmit_note text,
     CONSTRAINT submissions_submission_status_check CHECK ((submission_status = ANY (ARRAY['inprogress'::text, 'submitted'::text, 'completed'::text, 'rejected'::text])))
 );
 
@@ -2364,6 +2278,14 @@ ALTER TABLE ONLY public.curricula
 
 
 --
+-- Name: date_comments date_comments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.date_comments
+    ADD CONSTRAINT date_comments_pkey PRIMARY KEY (date_comment_id);
+
+
+--
 -- Name: documents documents_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2377,6 +2299,22 @@ ALTER TABLE ONLY public.documents
 
 ALTER TABLE ONLY public.feedback
     ADD CONSTRAINT feedback_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: flashcard_attempts flashcard_attempts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.flashcard_attempts
+    ADD CONSTRAINT flashcard_attempts_pkey PRIMARY KEY (attempt_id);
+
+
+--
+-- Name: flashcard_sessions flashcard_sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.flashcard_sessions
+    ADD CONSTRAINT flashcard_sessions_pkey PRIMARY KEY (session_id);
 
 
 --
@@ -2473,30 +2411,6 @@ ALTER TABLE ONLY public.profiles
 
 ALTER TABLE ONLY public.pupil_activity_feedback
     ADD CONSTRAINT pupil_activity_feedback_pkey PRIMARY KEY (feedback_id);
-
-
---
--- Name: report_pupil_cache report_pupil_cache_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.report_pupil_cache
-    ADD CONSTRAINT report_pupil_cache_pkey PRIMARY KEY (pupil_id);
-
-
---
--- Name: report_pupil_feedback_cache report_pupil_feedback_cache_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.report_pupil_feedback_cache
-    ADD CONSTRAINT report_pupil_feedback_cache_pkey PRIMARY KEY (pupil_id, success_criteria_id);
-
-
---
--- Name: report_pupil_unit_summaries report_pupil_unit_summaries_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.report_pupil_unit_summaries
-    ADD CONSTRAINT report_pupil_unit_summaries_pkey PRIMARY KEY (pupil_id, unit_id);
 
 
 --
@@ -2758,6 +2672,41 @@ CREATE INDEX idx_feedback_lesson_user ON public.feedback USING btree (lesson_id,
 
 
 --
+-- Name: idx_feedback_success_criteria_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_feedback_success_criteria_id ON public.feedback USING btree (success_criteria_id);
+
+
+--
+-- Name: idx_feedback_user_criteria_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_feedback_user_criteria_id ON public.feedback USING btree (user_id, success_criteria_id, id DESC);
+
+
+--
+-- Name: idx_flashcard_attempts_session_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_flashcard_attempts_session_id ON public.flashcard_attempts USING btree (session_id);
+
+
+--
+-- Name: idx_flashcard_sessions_lesson_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_flashcard_sessions_lesson_id ON public.flashcard_sessions USING btree (lesson_id);
+
+
+--
+-- Name: idx_flashcard_sessions_pupil_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_flashcard_sessions_pupil_id ON public.flashcard_sessions USING btree (pupil_id);
+
+
+--
 -- Name: idx_group_membership_group_user; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2814,31 +2763,17 @@ CREATE INDEX idx_lessons_unit_order ON public.lessons USING btree (unit_id, orde
 
 
 --
--- Name: idx_report_pupil_feedback_cache_criteria; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_paf_activity_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_report_pupil_feedback_cache_criteria ON public.report_pupil_feedback_cache USING btree (success_criteria_id, pupil_id);
-
-
---
--- Name: idx_report_pupil_unit_summaries_group_ids; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_report_pupil_unit_summaries_group_ids ON public.report_pupil_unit_summaries USING gin (related_group_ids);
+CREATE INDEX idx_paf_activity_id ON public.pupil_activity_feedback USING btree (activity_id);
 
 
 --
--- Name: idx_report_pupil_unit_summaries_pupil_subject; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_paf_pupil_activity; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_report_pupil_unit_summaries_pupil_subject ON public.report_pupil_unit_summaries USING btree (pupil_id, unit_subject);
-
-
---
--- Name: idx_report_pupil_unit_summaries_subject; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_report_pupil_unit_summaries_subject ON public.report_pupil_unit_summaries USING btree (unit_subject);
+CREATE INDEX idx_paf_pupil_activity ON public.pupil_activity_feedback USING btree (pupil_id, activity_id);
 
 
 --
@@ -3004,14 +2939,6 @@ ALTER TABLE ONLY public.activities
 
 
 --
--- Name: activity_success_criteria fk_activity_sc_success_criteria; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.activity_success_criteria
-    ADD CONSTRAINT fk_activity_sc_success_criteria FOREIGN KEY (success_criteria_id) REFERENCES public.success_criteria(success_criteria_id) ON DELETE RESTRICT;
-
-
---
 -- Name: assessment_objectives assessment_objectives_curriculum_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3044,6 +2971,30 @@ ALTER TABLE ONLY public.curricula
 
 
 --
+-- Name: activity_success_criteria fk_activity_sc_success_criteria; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.activity_success_criteria
+    ADD CONSTRAINT fk_activity_sc_success_criteria FOREIGN KEY (success_criteria_id) REFERENCES public.success_criteria(success_criteria_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: feedback fk_feedback_success_criteria; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.feedback
+    ADD CONSTRAINT fk_feedback_success_criteria FOREIGN KEY (success_criteria_id) REFERENCES public.success_criteria(success_criteria_id) ON DELETE CASCADE;
+
+
+--
+-- Name: lesson_success_criteria fk_lesson_sc_success_criteria; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.lesson_success_criteria
+    ADD CONSTRAINT fk_lesson_sc_success_criteria FOREIGN KEY (success_criteria_id) REFERENCES public.success_criteria(success_criteria_id) ON DELETE CASCADE;
+
+
+--
 -- Name: user_roles fk_user_roles_role; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3060,11 +3011,11 @@ ALTER TABLE ONLY public.user_roles
 
 
 --
--- Name: feedback fk_feedback_success_criteria; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: flashcard_attempts flashcard_attempts_session_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.feedback
-    ADD CONSTRAINT fk_feedback_success_criteria FOREIGN KEY (success_criteria_id) REFERENCES public.success_criteria(success_criteria_id) ON DELETE CASCADE;
+ALTER TABLE ONLY public.flashcard_attempts
+    ADD CONSTRAINT flashcard_attempts_session_id_fkey FOREIGN KEY (session_id) REFERENCES public.flashcard_sessions(session_id) ON DELETE CASCADE;
 
 
 --
@@ -3105,14 +3056,6 @@ ALTER TABLE ONLY public.learning_objectives
 
 ALTER TABLE ONLY public.lesson_links
     ADD CONSTRAINT lesson_links_lesson_id_fkey FOREIGN KEY (lesson_id) REFERENCES public.lessons(lesson_id) ON DELETE CASCADE;
-
-
---
--- Name: lesson_success_criteria fk_lesson_sc_success_criteria; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.lesson_success_criteria
-    ADD CONSTRAINT fk_lesson_sc_success_criteria FOREIGN KEY (success_criteria_id) REFERENCES public.success_criteria(success_criteria_id) ON DELETE CASCADE;
 
 
 --
@@ -3193,30 +3136,6 @@ ALTER TABLE ONLY public.pupil_activity_feedback
 
 ALTER TABLE ONLY public.pupil_sign_in_history
     ADD CONSTRAINT pupil_sign_in_history_pupil_id_fkey FOREIGN KEY (pupil_id) REFERENCES public.profiles(user_id);
-
-
---
--- Name: report_pupil_cache report_pupil_cache_pupil_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.report_pupil_cache
-    ADD CONSTRAINT report_pupil_cache_pupil_id_fkey FOREIGN KEY (pupil_id) REFERENCES public.profiles(user_id) ON DELETE CASCADE;
-
-
---
--- Name: report_pupil_feedback_cache report_pupil_feedback_cache_pupil_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.report_pupil_feedback_cache
-    ADD CONSTRAINT report_pupil_feedback_cache_pupil_id_fkey FOREIGN KEY (pupil_id) REFERENCES public.profiles(user_id) ON DELETE CASCADE;
-
-
---
--- Name: report_pupil_unit_summaries report_pupil_unit_summaries_pupil_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.report_pupil_unit_summaries
-    ADD CONSTRAINT report_pupil_unit_summaries_pupil_id_fkey FOREIGN KEY (pupil_id) REFERENCES public.profiles(user_id) ON DELETE CASCADE;
 
 
 --
@@ -3383,5 +3302,5 @@ ALTER TABLE ONLY public.units
 -- PostgreSQL database dump complete
 --
 
-\unrestrict Q7GQSDIke641CXl19CcglPXFcsNuncm147Hq2rW2A7Fh8iE8AvjZFd1kCxUF92g
+\unrestrict vgLzp6nGxfcJTHPgXiveG26aP3RX0ryOTPRAcm6buEyl97XoVSJlw3XXec4zK5I
 
