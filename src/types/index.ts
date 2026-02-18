@@ -1072,3 +1072,53 @@ export const DateCommentsSchema = z.array(DateCommentSchema);
 
 export type DateComment = z.infer<typeof DateCommentSchema>;
 export type DateComments = z.infer<typeof DateCommentsSchema>;
+
+export const ShareMyWorkActivityBodySchema = z.object({
+    name: z.string().min(1),
+});
+
+export type ShareMyWorkActivityBody = z.infer<typeof ShareMyWorkActivityBodySchema>;
+
+export const ShareMyWorkSubmissionFileSchema = z.object({
+    fileId: z.string().min(1),
+    fileName: z.string().min(1),
+    mimeType: z.string().min(1),
+    order: z.number().int().min(0),
+});
+
+export const ShareMyWorkSubmissionBodySchema = z.object({
+    files: z.array(ShareMyWorkSubmissionFileSchema).default([]),
+});
+
+export type ShareMyWorkSubmissionFile = z.infer<typeof ShareMyWorkSubmissionFileSchema>;
+export type ShareMyWorkSubmissionBody = z.infer<typeof ShareMyWorkSubmissionBodySchema>;
+
+export const ReviewOthersWorkActivityBodySchema = z.object({
+    shareActivityId: z.string().min(1),
+});
+
+export type ReviewOthersWorkActivityBody = z.infer<typeof ReviewOthersWorkActivityBodySchema>;
+
+export const PeerReviewCommentSchema = z.object({
+    comment_id: z.string(),
+    review_activity_id: z.string(),
+    author_user_id: z.string(),
+    target_user_id: z.string(),
+    comment_text: z.string(),
+    is_flagged: z.boolean().default(false),
+    flagged_at: z
+        .union([z.string(), z.date(), z.null()])
+        .transform((val) =>
+            val instanceof Date ? val.toISOString() : val
+        )
+        .nullable()
+        .default(null),
+    created_at: z
+        .union([z.string(), z.date()])
+        .transform((val) => (val instanceof Date ? val.toISOString() : val)),
+});
+
+export const PeerReviewCommentsSchema = z.array(PeerReviewCommentSchema);
+
+export type PeerReviewComment = z.infer<typeof PeerReviewCommentSchema>;
+export type PeerReviewComments = z.infer<typeof PeerReviewCommentsSchema>;

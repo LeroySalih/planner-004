@@ -279,3 +279,17 @@ export {
   signoutAction,
   signupAction,
 } from "./server-actions/auth";
+
+export {
+  createPeerReviewCommentAction,
+  flagPeerReviewCommentAction,
+  readAllPeerReviewCommentsForLessonAction,
+  readFlaggedCommentsAction,
+  readPeerReviewFilterOptionsAction,
+  readPeerReviewCommentsAction,
+  readReceivedCommentsAction,
+  readShareActivitySubmissionsAction,
+  removeShareMyWorkImageAction,
+  reorderShareMyWorkImagesAction,
+  uploadShareMyWorkImageAction,
+} from "./server-actions/peer-review";

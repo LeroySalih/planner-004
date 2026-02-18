@@ -10,6 +10,8 @@ import {
   LessonActivitySchema,
   LessonJobResponseSchema,
   McqActivityBodySchema,
+  ReviewOthersWorkActivityBodySchema,
+  ShareMyWorkActivityBodySchema,
   ShortTextActivityBodySchema,
 } from "@/types";
 import { query, withDbClient } from "@/lib/db";
@@ -945,6 +947,26 @@ function normalizeActivityBody(
       }
       const data = parsed.data ?? null;
       return { success: true, bodyData: data };
+    }
+    case "share-my-work": {
+      const parsed = ShareMyWorkActivityBodySchema.safeParse(bodyData);
+      if (!parsed.success) {
+        return {
+          success: false,
+          error: "Invalid share-my-work activity body.",
+        };
+      }
+      return { success: true, bodyData: parsed.data };
+    }
+    case "review-others-work": {
+      const parsed = ReviewOthersWorkActivityBodySchema.safeParse(bodyData);
+      if (!parsed.success) {
+        return {
+          success: false,
+          error: "Invalid review-others-work activity body.",
+        };
+      }
+      return { success: true, bodyData: parsed.data };
     }
     default: {
       if (options?.allowFallback && typeof bodyData !== "undefined") {

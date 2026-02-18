@@ -85,6 +85,8 @@ const ACTIVITY_TYPES = [
   { value: "text-question", label: "Text question" },
   { value: "voice", label: "Voice recording" },
   { value: "sketch-render", label: "Render Sketch" },
+  { value: "share-my-work", label: "Share my work" },
+  { value: "review-others-work", label: "Review others' work" },
 ] as const
 
 type ActivityTypeValue = (typeof ACTIVITY_TYPES)[number]["value"]
@@ -1494,6 +1496,7 @@ ${scs[0] ? `SC: ${scs[0].title}` : ""}
         assignedGroupsLoading={assignedGroupsLoading}
         availableSuccessCriteria={availableSuccessCriteria}
         onFilePresenceChange={handleFilePresenceChange}
+        allActivities={activities}
       />
 
       <Dialog
@@ -1712,6 +1715,7 @@ interface LessonActivityEditorSheetProps {
   assignedGroupsLoading: boolean
   availableSuccessCriteria: LessonActivitySuccessCriterionOption[]
   onFilePresenceChange?: (activityId: string, hasFiles: boolean) => void
+  allActivities: LessonActivity[]
 }
 
 function LessonActivityEditorSheet({
@@ -1727,6 +1731,7 @@ function LessonActivityEditorSheet({
   assignedGroupsLoading,
   availableSuccessCriteria,
   onFilePresenceChange,
+  allActivities,
 }: LessonActivityEditorSheetProps) {
   const isCreateMode = mode === "create"
   const [title, setTitle] = useState("")
@@ -1758,6 +1763,8 @@ function LessonActivityEditorSheet({
   const [feedbackBody, setFeedbackBody] = useState<FeedbackActivityBody>(() => createDefaultFeedbackBody())
   const [shortTextBody, setShortTextBody] = useState<ShortTextBody>(() => createDefaultShortTextBody())
   const [selectedSuccessCriteriaIds, setSelectedSuccessCriteriaIds] = useState<string[]>([])
+  const [shareMyWorkName, setShareMyWorkName] = useState("")
+  const [reviewShareActivityId, setReviewShareActivityId] = useState("")
 
   const normalizedShortTextBody = useMemo(() => normalizeShortTextBody(shortTextBody), [shortTextBody])
   const shortTextValidationMessage = useMemo(
@@ -2560,6 +2567,20 @@ function LessonActivityEditorSheet({
         return
       }
 
+      if (type === "share-my-work") {
+        setText("")
+        setRawBody("")
+        setShareMyWorkName("")
+        return
+      }
+
+      if (type === "review-others-work") {
+        setText("")
+        setRawBody("")
+        setReviewShareActivityId("")
+        return
+      }
+
       if (type === "voice") {
         const defaultVoice: VoiceBody = { audioFile: null }
         setVoiceBody(defaultVoice)
@@ -2682,6 +2703,26 @@ function LessonActivityEditorSheet({
         setShortTextBody(normalizeShortTextBody(getShortTextBody(activity)))
       } else {
         setShortTextBody(createDefaultShortTextBody())
+      }
+      return
+    }
+
+    if (type === "share-my-work") {
+      if (activity) {
+        const body = (activity.body_data ?? {}) as Record<string, unknown>
+        setShareMyWorkName(typeof body.name === "string" ? body.name : "")
+      } else {
+        setShareMyWorkName("")
+      }
+      return
+    }
+
+    if (type === "review-others-work") {
+      if (activity) {
+        const body = (activity.body_data ?? {}) as Record<string, unknown>
+        setReviewShareActivityId(typeof body.shareActivityId === "string" ? body.shareActivityId : "")
+      } else {
+        setReviewShareActivityId("")
       }
       return
     }
@@ -3058,6 +3099,29 @@ function LessonActivityEditorSheet({
       bodyData = normalizedShortTextBody
     } else if (type === "feedback") {
       bodyData = syncFeedbackBodyWithGroups(normalizeFeedbackBody(feedbackBody), assignedGroups)
+    } else if (type === "share-my-work") {
+      if (!shareMyWorkName.trim()) {
+        toast.error("Please provide a name for this shared work collection")
+        return
+      }
+      // Check uniqueness among other share-my-work activities in this lesson
+      const duplicate = allActivities.find(
+        (a) =>
+          a.type === "share-my-work" &&
+          a.activity_id !== activity?.activity_id &&
+          (a.body_data as { name?: string } | null)?.name === shareMyWorkName.trim(),
+      )
+      if (duplicate) {
+        toast.error("Another share-my-work activity already uses this name")
+        return
+      }
+      bodyData = { name: shareMyWorkName.trim() }
+    } else if (type === "review-others-work") {
+      if (!reviewShareActivityId) {
+        toast.error("Please select a share-my-work activity to review")
+        return
+      }
+      bodyData = { shareActivityId: reviewShareActivityId }
     } else {
       let fallbackBody: unknown = !isCreateMode && activity ? activity.body_data ?? null : null
       if (!isCreateMode && type !== "text" && type !== "show-video") {
@@ -3506,6 +3570,68 @@ function LessonActivityEditorSheet({
               </div>
             </div>
           ) : null}
+
+          {type === "share-my-work" ? (
+            <div className="space-y-3 rounded-md border border-border bg-muted/20 p-4">
+              <div className="space-y-2">
+                <Label htmlFor="share-my-work-name" className="text-xs font-medium text-muted-foreground">
+                  Collection name
+                </Label>
+                <Input
+                  id="share-my-work-name"
+                  value={shareMyWorkName}
+                  onChange={(e) => setShareMyWorkName(e.target.value)}
+                  placeholder="e.g. poster-draft"
+                  disabled={isPending}
+                />
+                <p className="text-xs text-muted-foreground">
+                  A unique name for this shared work collection within the lesson.
+                </p>
+              </div>
+            </div>
+          ) : null}
+
+          {type === "review-others-work" ? (() => {
+            const shareActivities = allActivities.filter((a) => a.type === "share-my-work")
+            return (
+              <div className="space-y-3 rounded-md border border-border bg-muted/20 p-4">
+                <div className="space-y-2">
+                  <Label className="text-xs font-medium text-muted-foreground">
+                    Linked share activity
+                  </Label>
+                  {shareActivities.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No &quot;Share my work&quot; activities found in this lesson. Add one first.
+                    </p>
+                  ) : (
+                    <Select
+                      value={reviewShareActivityId}
+                      onValueChange={setReviewShareActivityId}
+                      disabled={isPending}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a share activity" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {shareActivities.map((sa) => {
+                          const body = (sa.body_data ?? {}) as Record<string, unknown>
+                          const name = typeof body.name === "string" ? body.name : sa.title
+                          return (
+                            <SelectItem key={sa.activity_id} value={sa.activity_id}>
+                              {sa.title || name || "Untitled"}
+                            </SelectItem>
+                          )
+                        })}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Select which &quot;Share my work&quot; activity pupils will review.
+                  </p>
+                </div>
+              </div>
+            )
+          })() : null}
 
           {type === "voice" ? (
             <div className="space-y-3 rounded-md border border-border p-4">

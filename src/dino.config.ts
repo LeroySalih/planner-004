@@ -16,6 +16,8 @@ export const NON_SCORABLE_ACTIVITY_TYPES = Object.freeze([
   "file-download",
   "show-video",
   "voice",
+  "share-my-work",
+  "review-others-work",
 ]);
 
 const SCORABLE_ACTIVITY_TYPE_SET = new Set(SCORABLE_ACTIVITY_TYPES);

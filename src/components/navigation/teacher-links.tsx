@@ -133,6 +133,9 @@ export function TeacherNavLinks({ onNavigate }: TeacherNavLinksProps) {
                     <ListItem href="/lo-progress-reports" title="LO Progress" onClick={onNavigate}>
                       Monitor class progress by learning objectives
                     </ListItem>
+                    <ListItem href="/feedback/peer-review" title="Peer Review" onClick={onNavigate}>
+                      View peer review comments across lessons
+                    </ListItem>
                   </ul>
                 </NavigationMenuContent>
               </NavigationMenuItem>
