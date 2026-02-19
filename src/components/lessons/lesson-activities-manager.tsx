@@ -4,7 +4,7 @@ import type { ChangeEvent, DragEvent } from "react"
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { Download, GripVertical, Loader2, Pencil, Play, Plus, Trash2, Upload } from "lucide-react"
+import { Download, GripVertical, Loader2, Pencil, Play, Plus, Trash2 } from "lucide-react"
 
 import type { FeedbackActivityBody, FeedbackActivityGroupSettings, LessonActivity } from "@/types"
 import {
@@ -125,8 +125,9 @@ export function LessonActivitiesManager({
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dragOverId, setDragOverId] = useState<string | null>(null)
   const pendingReorderRef = useRef<{ next: LessonActivity[]; previous: LessonActivity[] } | null>(null)
-  const mdFileInputRef = useRef<HTMLInputElement | null>(null)
   const [isUploading, setIsUploading] = useState(false)
+  const [mdPasteDialogOpen, setMdPasteDialogOpen] = useState(false)
+  const [mdPasteContent, setMdPasteContent] = useState("")
   const [voicePreviewState, setVoicePreviewState] = useState<
     Record<string, { url: string | null; loading: boolean }>
   >({})
@@ -968,99 +969,97 @@ ${scs[0] ? `SC: ${scs[0].title}` : ""}
     URL.revokeObjectURL(url)
   }, [availableSuccessCriteria])
 
-  const handleMarkdownUpload = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0]
-      if (event.target) event.target.value = ""
-      if (!file) return
+  const handleMarkdownSubmit = useCallback(
+    (content: string) => {
+      if (!content.trim()) {
+        toast.error("No content", { description: "Please paste some markdown content first." })
+        return
+      }
 
-      const reader = new FileReader()
-      reader.onload = () => {
-        const content = reader.result as string
-        const parseResult = parseActivitiesMarkdown(content)
+      const parseResult = parseActivitiesMarkdown(content)
 
-        if (!parseResult.success) {
-          toast.error("Failed to parse markdown file", { description: parseResult.error })
-          return
-        }
+      if (!parseResult.success) {
+        toast.error("Failed to parse markdown", { description: parseResult.error })
+        return
+      }
 
-        const resolvedActivities: Array<{
-          title: string
-          type: "multiple-choice-question" | "short-text-question"
-          bodyData: unknown
-          successCriteriaIds: string[]
-        }> = []
+      const resolvedActivities: Array<{
+        title: string
+        type: "multiple-choice-question" | "short-text-question"
+        bodyData: unknown
+        successCriteriaIds: string[]
+      }> = []
 
-        for (const parsed of parseResult.activities) {
-          const successCriteriaIds: string[] = []
+      for (const parsed of parseResult.activities) {
+        const successCriteriaIds: string[] = []
 
-          // Resolve LO reference
-          let loId: string | null = null
-          if (parsed.loReference) {
-            const matchedLo = availableSuccessCriteria.find(
-              (sc) =>
-                sc.learningObjectiveTitle !== null &&
-                sc.learningObjectiveTitle.trim().toLowerCase() === parsed.loReference!.trim().toLowerCase(),
-            )
-            if (!matchedLo) {
-              toast.error("Upload failed", {
-                description: `Activity "${parsed.title}" references Learning Objective "${parsed.loReference}" which is not attached to this lesson.`,
-              })
-              return
-            }
-            loId = matchedLo.learningObjectiveId
-          }
-
-          // Resolve SC references
-          for (const scRef of parsed.scReferences) {
-            const matchedSc = availableSuccessCriteria.find(
-              (sc) => sc.title.trim().toLowerCase() === scRef.trim().toLowerCase(),
-            )
-            if (!matchedSc) {
-              toast.error("Upload failed", {
-                description: `Activity "${parsed.title}" references Success Criterion "${scRef}" which is not attached to this lesson.`,
-              })
-              return
-            }
-            // If LO specified, verify SC belongs to that LO
-            if (loId !== null && matchedSc.learningObjectiveId !== loId) {
-              toast.error("Upload failed", {
-                description: `Activity "${parsed.title}" references Success Criterion "${scRef}" which does not belong to Learning Objective "${parsed.loReference}".`,
-              })
-              return
-            }
-            successCriteriaIds.push(matchedSc.successCriteriaId)
-          }
-
-          resolvedActivities.push({
-            title: parsed.title,
-            type: parsed.type,
-            bodyData: parsed.bodyData,
-            successCriteriaIds,
-          })
-        }
-
-        setIsUploading(true)
-        startTransition(async () => {
-          try {
-            const result = await uploadActivitiesFromMarkdownAction(unitId, lessonId, resolvedActivities)
-            if (result.success && result.data) {
-              toast.success(`${result.data.count} activities uploaded successfully`)
-              router.refresh()
-            } else {
-              toast.error("Upload failed", { description: result.error ?? "An unknown error occurred." })
-            }
-          } catch (error) {
-            console.error("[activities] Failed to upload from markdown", error)
+        // Resolve LO reference
+        let loId: string | null = null
+        if (parsed.loReference) {
+          const matchedLo = availableSuccessCriteria.find(
+            (sc) =>
+              sc.learningObjectiveTitle !== null &&
+              sc.learningObjectiveTitle.trim().toLowerCase() === parsed.loReference!.trim().toLowerCase(),
+          )
+          if (!matchedLo) {
             toast.error("Upload failed", {
-              description: error instanceof Error ? error.message : "An unknown error occurred.",
+              description: `Activity "${parsed.title}" references Learning Objective "${parsed.loReference}" which is not attached to this lesson.`,
             })
-          } finally {
-            setIsUploading(false)
+            return
           }
+          loId = matchedLo.learningObjectiveId
+        }
+
+        // Resolve SC references
+        for (const scRef of parsed.scReferences) {
+          const matchedSc = availableSuccessCriteria.find(
+            (sc) => sc.title.trim().toLowerCase() === scRef.trim().toLowerCase(),
+          )
+          if (!matchedSc) {
+            toast.error("Upload failed", {
+              description: `Activity "${parsed.title}" references Success Criterion "${scRef}" which is not attached to this lesson.`,
+            })
+            return
+          }
+          // If LO specified, verify SC belongs to that LO
+          if (loId !== null && matchedSc.learningObjectiveId !== loId) {
+            toast.error("Upload failed", {
+              description: `Activity "${parsed.title}" references Success Criterion "${scRef}" which does not belong to Learning Objective "${parsed.loReference}".`,
+            })
+            return
+          }
+          successCriteriaIds.push(matchedSc.successCriteriaId)
+        }
+
+        resolvedActivities.push({
+          title: parsed.title,
+          type: parsed.type,
+          bodyData: parsed.bodyData,
+          successCriteriaIds,
         })
       }
-      reader.readAsText(file)
+
+      setIsUploading(true)
+      setMdPasteDialogOpen(false)
+      startTransition(async () => {
+        try {
+          const result = await uploadActivitiesFromMarkdownAction(unitId, lessonId, resolvedActivities)
+          if (result.success && result.data) {
+            toast.success(`${result.data.count} activities added successfully`)
+            setMdPasteContent("")
+            router.refresh()
+          } else {
+            toast.error("Upload failed", { description: result.error ?? "An unknown error occurred." })
+          }
+        } catch (error) {
+          console.error("[activities] Failed to upload from markdown", error)
+          toast.error("Upload failed", {
+            description: error instanceof Error ? error.message : "An unknown error occurred.",
+          })
+        } finally {
+          setIsUploading(false)
+        }
+      })
     },
     [availableSuccessCriteria, lessonId, router, startTransition, unitId],
   )
@@ -1229,15 +1228,8 @@ ${scs[0] ? `SC: ${scs[0].title}` : ""}
               >
                 <Download className="mr-2 h-4 w-4" /> Download Template
               </Button>
-              <input
-                ref={mdFileInputRef}
-                type="file"
-                accept=".md"
-                className="hidden"
-                onChange={handleMarkdownUpload}
-              />
               <Button
-                onClick={() => mdFileInputRef.current?.click()}
+                onClick={() => setMdPasteDialogOpen(true)}
                 variant="outline"
                 disabled={isBusy}
                 className="w-full sm:w-auto"
@@ -1245,9 +1237,9 @@ ${scs[0] ? `SC: ${scs[0].title}` : ""}
                 {isUploading ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
-                  <Upload className="mr-2 h-4 w-4" />
+                  <Plus className="mr-2 h-4 w-4" />
                 )}
-                Upload Activities
+                Paste Activities
               </Button>
               <Button
                 onClick={() => openEditor(NEW_ACTIVITY_ID)}
@@ -1524,6 +1516,35 @@ ${scs[0] ? `SC: ${scs[0].title}` : ""}
           ) : (
             <p className="text-sm text-muted-foreground">Image not available.</p>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={mdPasteDialogOpen} onOpenChange={setMdPasteDialogOpen}>
+        <DialogContent className="flex w-[90vw] max-w-2xl max-h-[85vh] flex-col">
+          <DialogTitle>Paste Activities</DialogTitle>
+          <p className="text-sm text-muted-foreground">
+            Paste your activities markdown below. Use the Download Template button for the expected format.
+          </p>
+          <Textarea
+            value={mdPasteContent}
+            onChange={(e) => setMdPasteContent(e.target.value)}
+            placeholder="Paste your markdown here..."
+            className="min-h-0 flex-1 resize-none font-mono text-sm"
+          />
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setMdPasteDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => handleMarkdownSubmit(mdPasteContent)}
+              disabled={!mdPasteContent.trim() || isUploading}
+            >
+              {isUploading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              Add Activities
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
 
