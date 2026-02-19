@@ -10,35 +10,25 @@ type PupilSCListProps = {
   successCriteria: SuccessCriterion[]
 }
 
-function formatRating(value: number | null) {
+function formatPercent(value: number | null) {
   if (typeof value !== 'number' || Number.isNaN(value)) {
     return '—'
   }
-  return value.toFixed(1)
+  return `${Math.round(value * 100)}%`
 }
 
 function getMetricColor(value: number | null): string {
   if (typeof value !== 'number' || Number.isNaN(value)) {
     return 'bg-muted'
   }
-  if (value < 2) {
+  const percent = value * 100
+  if (percent < 40) {
     return 'bg-red-100 dark:bg-red-900/30'
-  } else if (value < 3) {
+  } else if (percent < 70) {
     return 'bg-amber-100 dark:bg-amber-900/30'
   } else {
     return 'bg-green-100 dark:bg-green-900/30'
   }
-}
-
-function getRatingLabel(value: number | null): string {
-  if (typeof value !== 'number' || Number.isNaN(value)) {
-    return 'Not assessed'
-  }
-  if (value < 1) return 'Beginning'
-  if (value < 2) return 'Developing'
-  if (value < 3) return 'Secure'
-  if (value < 4) return 'Mastered'
-  return 'Exceeded'
 }
 
 export function PupilSCList({ successCriteria }: PupilSCListProps) {
@@ -69,10 +59,7 @@ export function PupilSCList({ successCriteria }: PupilSCListProps) {
               <div className="flex flex-shrink-0 gap-3">
                 <div className={`rounded-md px-4 py-3 text-center ${getMetricColor(sc.rating)}`}>
                   <div className="text-2xl font-semibold text-foreground">
-                    {formatRating(sc.rating)}
-                  </div>
-                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                    {getRatingLabel(sc.rating)}
+                    {formatPercent(sc.rating)}
                   </div>
                 </div>
               </div>
@@ -84,21 +71,21 @@ export function PupilSCList({ successCriteria }: PupilSCListProps) {
       {/* Legend */}
       <div className="flex items-center gap-6 text-xs text-muted-foreground">
         <div className="flex items-center gap-2">
-          <div className="font-semibold">Scale:</div>
-          <div>0 = Beginning, 1 = Developing, 2 = Secure, 3 = Mastered, 4 = Exceeded</div>
+          <div className="font-semibold">Score:</div>
+          <div>Average score per success criterion</div>
         </div>
         <div className="ml-auto flex items-center gap-3">
           <div className="flex items-center gap-1">
             <div className="h-3 w-3 rounded bg-green-100 dark:bg-green-900/30"></div>
-            <span>≥3.0</span>
+            <span>≥70%</span>
           </div>
           <div className="flex items-center gap-1">
             <div className="h-3 w-3 rounded bg-amber-100 dark:bg-amber-900/30"></div>
-            <span>2.0-2.9</span>
+            <span>40-69%</span>
           </div>
           <div className="flex items-center gap-1">
             <div className="h-3 w-3 rounded bg-red-100 dark:bg-red-900/30"></div>
-            <span>&lt;2.0</span>
+            <span>&lt;40%</span>
           </div>
         </div>
       </div>

@@ -28,20 +28,21 @@ type MatrixStructure = {
   }[]
 }
 
-function formatRating(value: number | null) {
+function formatPercent(value: number | null) {
   if (typeof value !== 'number' || Number.isNaN(value)) {
     return '—'
   }
-  return value.toFixed(1)
+  return `${Math.round(value * 100)}%`
 }
 
 function getMetricColor(value: number | null): string {
   if (typeof value !== 'number' || Number.isNaN(value)) {
     return 'text-muted-foreground'
   }
-  if (value < 2) {
+  const percent = value * 100
+  if (percent < 40) {
     return 'text-red-600 dark:text-red-400'
-  } else if (value < 3) {
+  } else if (percent < 70) {
     return 'text-amber-600 dark:text-amber-400'
   } else {
     return 'text-green-600 dark:text-green-400'
@@ -52,9 +53,10 @@ function getCellBgColor(value: number | null): string {
   if (typeof value !== 'number' || Number.isNaN(value)) {
     return 'bg-muted/30'
   }
-  if (value < 2) {
+  const percent = value * 100
+  if (percent < 40) {
     return 'bg-red-50 dark:bg-red-900/20'
-  } else if (value < 3) {
+  } else if (percent < 70) {
     return 'bg-amber-50 dark:bg-amber-900/20'
   } else {
     return 'bg-green-50 dark:bg-green-900/20'
@@ -171,7 +173,7 @@ export function LOPupilMatrix({ groupId, data }: LOPupilMatrixProps) {
                       >
                         <div className="flex flex-col items-center gap-1 hover:opacity-80 transition-opacity">
                           <div className={`text-sm font-semibold ${getMetricColor(metrics.avgRating)}`}>
-                            {formatRating(metrics.avgRating)}
+                            {formatPercent(metrics.avgRating)}
                           </div>
                         </div>
                       </Link>
@@ -187,21 +189,21 @@ export function LOPupilMatrix({ groupId, data }: LOPupilMatrixProps) {
       {/* Legend */}
       <div className="flex items-center gap-6 text-xs text-muted-foreground">
         <div className="flex items-center gap-2">
-          <div className="font-semibold">Rating:</div>
-          <div>Average success criteria rating (0-4)</div>
+          <div className="font-semibold">Score:</div>
+          <div>Average success criteria score</div>
         </div>
         <div className="ml-auto flex items-center gap-3">
           <div className="flex items-center gap-1">
             <div className="h-3 w-3 rounded bg-green-600"></div>
-            <span>≥3.0</span>
+            <span>≥70%</span>
           </div>
           <div className="flex items-center gap-1">
             <div className="h-3 w-3 rounded bg-amber-600"></div>
-            <span>2.0-2.9</span>
+            <span>40-69%</span>
           </div>
           <div className="flex items-center gap-1">
             <div className="h-3 w-3 rounded bg-red-600"></div>
-            <span>&lt;2.0</span>
+            <span>&lt;40%</span>
           </div>
         </div>
       </div>

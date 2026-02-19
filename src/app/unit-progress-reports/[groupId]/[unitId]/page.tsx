@@ -23,7 +23,7 @@ export default async function UnitLessonProgressPage({ params, searchParams }: P
       title={result.unitTitle}
       subtitle={`${result.groupId} - ${result.groupSubject} · Lesson-level progress`}
     >
-      <LessonMatrix data={result.data} summativeOnly={summativeOnly} groupId={result.groupId} />
+      <LessonMatrix data={result.data} summativeOnly={summativeOnly} groupId={result.groupId} unitId={result.unitId} />
     </TeacherPageLayout>
   )
 }

@@ -1,9 +1,13 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+
+type SortField = 'firstName' | 'lastName' | 'score'
+type SortDir = 'asc' | 'desc'
 
 type PupilMatrixData = {
   unitId: string
@@ -127,12 +131,37 @@ export function PupilMatrix({ groupId, data, summativeOnly }: PupilMatrixProps) 
     }
   }
 
-  matrix.pupils = Array.from(pupilMap.values()).sort((a, b) => {
-    const lastNameCompare = a.lastName.localeCompare(b.lastName)
-    if (lastNameCompare !== 0) return lastNameCompare
-    return a.firstName.localeCompare(b.firstName)
-  })
+  matrix.pupils = Array.from(pupilMap.values())
   matrix.units = Array.from(unitMap.values())
+
+  const [sortField, setSortField] = useState<SortField>('score')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+
+  function getPupilAvg(pupil: typeof matrix.pupils[number]): number | null {
+    const scores = matrix.units
+      .map(u => pupil.unitMetrics.get(u.unitId)?.avgScore)
+      .filter((s): s is number => typeof s === 'number' && !Number.isNaN(s))
+    return scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : null
+  }
+
+  const sortedPupils = [...matrix.pupils].sort((a, b) => {
+    const dir = sortDir === 'asc' ? 1 : -1
+    if (sortField === 'firstName') {
+      const cmp = a.firstName.localeCompare(b.firstName)
+      return cmp !== 0 ? cmp * dir : a.lastName.localeCompare(b.lastName) * dir
+    }
+    if (sortField === 'lastName') {
+      const cmp = a.lastName.localeCompare(b.lastName)
+      return cmp !== 0 ? cmp * dir : a.firstName.localeCompare(b.firstName) * dir
+    }
+    // score
+    const aAvg = getPupilAvg(a)
+    const bAvg = getPupilAvg(b)
+    if (aAvg === null && bAvg === null) return 0
+    if (aAvg === null) return 1
+    if (bAvg === null) return -1
+    return (aAvg - bAvg) * dir
+  })
 
   if (matrix.pupils.length === 0 || matrix.units.length === 0) {
     return (
@@ -146,16 +175,45 @@ export function PupilMatrix({ groupId, data, summativeOnly }: PupilMatrixProps) 
 
   return (
     <div className="space-y-6">
-      {/* Toggle */}
-      <div className="flex items-center gap-3 rounded-lg border border-border bg-card p-4">
-        <Switch
-          id="summative-toggle"
-          checked={summativeOnly}
-          onCheckedChange={handleToggle}
-        />
-        <Label htmlFor="summative-toggle" className="cursor-pointer">
-          Show assessment scores only (summative activities)
-        </Label>
+      {/* Controls */}
+      <div className="flex items-center gap-6 flex-wrap rounded-lg border border-border bg-card p-4">
+        <div className="flex items-center gap-3">
+          <Switch
+            id="summative-toggle"
+            checked={summativeOnly}
+            onCheckedChange={handleToggle}
+          />
+          <Label htmlFor="summative-toggle" className="cursor-pointer">
+            Show assessment scores only (summative activities)
+          </Label>
+        </div>
+        <div className="flex items-center gap-3 ml-auto">
+          <div className="flex items-center gap-2">
+            <label htmlFor="sort-field" className="text-sm font-medium text-muted-foreground whitespace-nowrap">Sort by</label>
+            <select
+              id="sort-field"
+              value={sortField}
+              onChange={(e) => setSortField(e.target.value as SortField)}
+              className="rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-xs"
+            >
+              <option value="firstName">First name</option>
+              <option value="lastName">Last name</option>
+              <option value="score">Score</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <label htmlFor="sort-dir" className="text-sm font-medium text-muted-foreground whitespace-nowrap">Order</label>
+            <select
+              id="sort-dir"
+              value={sortDir}
+              onChange={(e) => setSortDir(e.target.value as SortDir)}
+              className="rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-xs"
+            >
+              <option value="asc">Ascending</option>
+              <option value="desc">Descending</option>
+            </select>
+          </div>
+        </div>
       </div>
 
       {/* Matrix */}
@@ -165,6 +223,9 @@ export function PupilMatrix({ groupId, data, summativeOnly }: PupilMatrixProps) 
             <tr className="border-b border-border bg-muted/50">
               <th className="sticky left-0 z-10 bg-muted/50 px-4 py-3 text-left text-sm font-semibold text-foreground">
                 Pupil
+              </th>
+              <th className="px-3 py-3 text-center text-sm font-semibold text-foreground">
+                Avg
               </th>
               {matrix.units.map((unit) => (
                 <th
@@ -179,10 +240,17 @@ export function PupilMatrix({ groupId, data, summativeOnly }: PupilMatrixProps) 
             </tr>
           </thead>
           <tbody>
-            {matrix.pupils.map((pupil) => (
+            {sortedPupils.map((pupil) => {
+              const avg = getPupilAvg(pupil)
+              return (
               <tr key={pupil.pupilId} className="border-b border-border last:border-b-0">
                 <td className="sticky left-0 z-10 bg-card px-4 py-3 text-sm font-medium text-foreground">
                   {pupil.firstName} {pupil.lastName}
+                </td>
+                <td className={`px-3 py-3 ${getCellBgColor(avg)}`}>
+                  <div className={`text-center text-sm font-semibold ${getMetricColor(avg)}`}>
+                    {formatPercent(avg)}
+                  </div>
                 </td>
                 {matrix.units.map((unit) => {
                   const metrics = pupil.unitMetrics.get(unit.unitId)
@@ -216,7 +284,8 @@ export function PupilMatrix({ groupId, data, summativeOnly }: PupilMatrixProps) 
                   )
                 })}
               </tr>
-            ))}
+              )
+            })}
           </tbody>
         </table>
       </div>

@@ -1,9 +1,14 @@
 'use client'
 
+import { useState } from 'react'
+import Link from 'next/link'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { getLevelForYearScore } from '@/lib/levels'
+
+type SortField = 'firstName' | 'lastName' | 'score'
+type SortDir = 'asc' | 'desc'
 
 type LessonMatrixData = {
   lessonId: string
@@ -18,6 +23,7 @@ type LessonMatrixProps = {
   data: LessonMatrixData[]
   summativeOnly: boolean
   groupId: string
+  unitId: string
 }
 
 type MatrixStructure = {
@@ -98,7 +104,7 @@ function calculatePupilAverage(
   return scores.reduce((sum, score) => sum + score, 0) / scores.length
 }
 
-export function LessonMatrix({ data, summativeOnly, groupId }: LessonMatrixProps) {
+export function LessonMatrix({ data, summativeOnly, groupId, unitId }: LessonMatrixProps) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -155,12 +161,30 @@ export function LessonMatrix({ data, summativeOnly, groupId }: LessonMatrixProps
     })
   }
 
-  matrix.pupils = Array.from(pupilMap.values()).sort((a, b) => {
-    const lastNameCompare = a.lastName.localeCompare(b.lastName)
-    if (lastNameCompare !== 0) return lastNameCompare
-    return a.firstName.localeCompare(b.firstName)
-  })
+  matrix.pupils = Array.from(pupilMap.values())
   matrix.lessons = Array.from(lessonMap.values())
+
+  const [sortField, setSortField] = useState<SortField>('score')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+
+  const sortedPupils = [...matrix.pupils].sort((a, b) => {
+    const dir = sortDir === 'asc' ? 1 : -1
+    if (sortField === 'firstName') {
+      const cmp = a.firstName.localeCompare(b.firstName)
+      return cmp !== 0 ? cmp * dir : a.lastName.localeCompare(b.lastName) * dir
+    }
+    if (sortField === 'lastName') {
+      const cmp = a.lastName.localeCompare(b.lastName)
+      return cmp !== 0 ? cmp * dir : a.firstName.localeCompare(b.firstName) * dir
+    }
+    // score
+    const aAvg = calculatePupilAverage(a.pupilId, matrix.lessons)
+    const bAvg = calculatePupilAverage(b.pupilId, matrix.lessons)
+    if (aAvg === null && bAvg === null) return 0
+    if (aAvg === null) return 1
+    if (bAvg === null) return -1
+    return (aAvg - bAvg) * dir
+  })
 
   if (matrix.pupils.length === 0 || matrix.lessons.length === 0) {
     return (
@@ -174,16 +198,45 @@ export function LessonMatrix({ data, summativeOnly, groupId }: LessonMatrixProps
 
   return (
     <div className="space-y-6">
-      {/* Toggle */}
-      <div className="flex items-center gap-3 rounded-lg border border-border bg-card p-4">
-        <Switch
-          id="summative-toggle"
-          checked={summativeOnly}
-          onCheckedChange={handleToggle}
-        />
-        <Label htmlFor="summative-toggle" className="cursor-pointer">
-          Show assessment scores only (summative activities)
-        </Label>
+      {/* Controls */}
+      <div className="flex items-center gap-6 flex-wrap rounded-lg border border-border bg-card p-4">
+        <div className="flex items-center gap-3">
+          <Switch
+            id="summative-toggle"
+            checked={summativeOnly}
+            onCheckedChange={handleToggle}
+          />
+          <Label htmlFor="summative-toggle" className="cursor-pointer">
+            Show assessment scores only (summative activities)
+          </Label>
+        </div>
+        <div className="flex items-center gap-3 ml-auto">
+          <div className="flex items-center gap-2">
+            <label htmlFor="sort-field" className="text-sm font-medium text-muted-foreground whitespace-nowrap">Sort by</label>
+            <select
+              id="sort-field"
+              value={sortField}
+              onChange={(e) => setSortField(e.target.value as SortField)}
+              className="rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-xs"
+            >
+              <option value="firstName">First name</option>
+              <option value="lastName">Last name</option>
+              <option value="score">Score</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <label htmlFor="sort-dir" className="text-sm font-medium text-muted-foreground whitespace-nowrap">Order</label>
+            <select
+              id="sort-dir"
+              value={sortDir}
+              onChange={(e) => setSortDir(e.target.value as SortDir)}
+              className="rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-xs"
+            >
+              <option value="asc">Ascending</option>
+              <option value="desc">Descending</option>
+            </select>
+          </div>
+        </div>
       </div>
 
       {/* Matrix */}
@@ -217,14 +270,19 @@ export function LessonMatrix({ data, summativeOnly, groupId }: LessonMatrixProps
             </tr>
           </thead>
           <tbody>
-            {matrix.pupils.map((pupil) => {
+            {sortedPupils.map((pupil) => {
               const avgScore = calculatePupilAverage(pupil.pupilId, matrix.lessons)
               const level = getLevelForYearScore(yearGroup, avgScore)
 
               return (
                 <tr key={pupil.pupilId} className="border-b border-border last:border-b-0">
-                  <td className="sticky left-0 z-10 bg-card px-4 py-3 text-sm font-medium text-foreground">
-                    {pupil.firstName} {pupil.lastName}
+                  <td className="sticky left-0 z-10 bg-card px-4 py-3">
+                    <Link
+                      href={`/unit-progress-reports/${encodeURIComponent(groupId)}/${encodeURIComponent(unitId)}/${encodeURIComponent(pupil.pupilId)}`}
+                      className="text-sm font-medium text-foreground hover:text-primary hover:underline"
+                    >
+                      {pupil.firstName} {pupil.lastName}
+                    </Link>
                   </td>
                   {matrix.lessons.map((lesson) => {
                     const metrics = lesson.pupilMetrics.get(pupil.pupilId)

@@ -8,7 +8,7 @@ export default async function LOProgressReportsPage() {
   return (
     <TeacherPageLayout
       title="Learning Objective Progress Reports"
-      subtitle="Monitor class progress by learning objectives"
+      subtitle="Use this report to identify where we can make whole class improvements to the unit"
     >
       <LOProgressMatrix data={data} />
     </TeacherPageLayout>

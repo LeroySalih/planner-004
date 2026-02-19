@@ -281,3 +281,86 @@ export async function getPupilUnitLessonsAction(groupId: string, unitId: string,
     }))
   }
 }
+
+export async function getPupilUnitLOSCAction(groupId: string, unitId: string, pupilId: string) {
+  const profile = await requireAuthenticatedProfile()
+
+  if (!profile.isTeacher) {
+    throw new Error('Unauthorized')
+  }
+
+  // Get pupil info and context
+  const { rows: infoRows } = await query(
+    `SELECT
+       p.user_id,
+       COALESCE(p.first_name || ' ' || p.last_name, p.first_name, p.last_name, p.user_id) as pupil_name,
+       g.group_id,
+       g.subject as group_subject,
+       u.unit_id,
+       u.title as unit_title
+     FROM profiles p
+     CROSS JOIN groups g
+     CROSS JOIN units u
+     WHERE p.user_id = $1 AND g.group_id = $2 AND u.unit_id = $3
+     LIMIT 1`,
+    [pupilId, groupId, unitId]
+  )
+
+  if (infoRows.length === 0) {
+    throw new Error('Pupil, class, or unit not found')
+  }
+
+  // Get LOs linked to lessons in this unit, their SCs, and the pupil's latest SC scores
+  const { rows } = await query(
+    `WITH latest_feedback AS (
+       SELECT DISTINCT ON (s.user_id, sc_kv.key)
+         s.user_id,
+         sc_kv.key as success_criteria_id,
+         (sc_kv.value)::numeric as rating
+       FROM submissions s
+       CROSS JOIN LATERAL json_each_text(s.body->'success_criteria_scores') as sc_kv
+       WHERE s.body->'success_criteria_scores' IS NOT NULL
+         AND s.user_id = $3
+       ORDER BY s.user_id, sc_kv.key, s.submitted_at DESC
+     )
+     SELECT DISTINCT
+       lo.learning_objective_id as lo_id,
+       lo.title as lo_title,
+       ao.title as ao_title,
+       ao.order_index as ao_order,
+       lo.order_index as lo_order,
+       sc.success_criteria_id as sc_id,
+       sc.description as sc_description,
+       sc.order_index as sc_order,
+       lf.rating
+     FROM lessons l
+     JOIN lesson_assignments la ON la.lesson_id = l.lesson_id AND la.group_id = $1
+     JOIN lessons_learning_objective llo ON llo.lesson_id = l.lesson_id
+     JOIN learning_objectives lo ON lo.learning_objective_id = llo.learning_objective_id
+     JOIN assessment_objectives ao ON ao.assessment_objective_id = lo.assessment_objective_id
+     LEFT JOIN success_criteria sc ON sc.learning_objective_id = lo.learning_objective_id
+     LEFT JOIN latest_feedback lf ON lf.success_criteria_id = sc.success_criteria_id
+     WHERE l.unit_id = $2
+     ORDER BY ao.order_index, lo.order_index, sc.order_index`,
+    [groupId, unitId, pupilId]
+  )
+
+  const infoRow = infoRows[0]
+
+  return {
+    groupId: infoRow.group_id as string,
+    groupSubject: infoRow.group_subject as string,
+    unitId: infoRow.unit_id as string,
+    unitTitle: infoRow.unit_title as string,
+    pupilId: infoRow.user_id as string,
+    pupilName: infoRow.pupil_name as string,
+    data: rows.map((row) => ({
+      loId: row.lo_id as string,
+      loTitle: row.lo_title as string,
+      aoTitle: row.ao_title as string,
+      scId: row.sc_id as string | null,
+      scDescription: row.sc_description as string | null,
+      rating: row.rating != null ? Number(row.rating) : null,
+    }))
+  }
+}

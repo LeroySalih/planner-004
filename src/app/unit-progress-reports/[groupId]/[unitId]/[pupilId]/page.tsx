@@ -1,30 +1,27 @@
-import { getPupilUnitLessonsAction } from "../../../actions"
-import { PupilLessonList } from "./pupil-lesson-list"
+import { getPupilUnitLOSCAction } from "../../../actions"
+import { PupilLOSCList } from "./pupil-lo-sc-list"
 import { TeacherPageLayout } from "@/components/layouts/TeacherPageLayout"
 
 type PageProps = {
   params: Promise<{ groupId: string; unitId: string; pupilId: string }>
-  searchParams: Promise<{ summative?: string }>
 }
 
-export default async function PupilUnitLessonsPage({ params, searchParams }: PageProps) {
+export default async function PupilUnitLessonsPage({ params }: PageProps) {
   const { groupId, unitId, pupilId } = await params
-  const sp = await searchParams
-  const summativeOnly = sp.summative === 'true'
-  const result = await getPupilUnitLessonsAction(groupId, unitId, pupilId, summativeOnly)
+  const result = await getPupilUnitLOSCAction(groupId, unitId, pupilId)
 
   return (
     <TeacherPageLayout
       breadcrumbs={[
         { label: "Unit Progress Reports", href: "/unit-progress-reports" },
         { label: result.groupId, href: `/unit-progress-reports/${encodeURIComponent(groupId)}` },
-        { label: result.unitTitle },
+        { label: result.unitTitle, href: `/unit-progress-reports/${encodeURIComponent(groupId)}/${encodeURIComponent(unitId)}` },
         { label: result.pupilName },
       ]}
       title={`${result.pupilName} - ${result.unitTitle}`}
       subtitle={`${result.groupId} - ${result.groupSubject}`}
     >
-      <PupilLessonList lessons={result.lessons} summativeOnly={summativeOnly} />
+      <PupilLOSCList data={result.data} />
     </TeacherPageLayout>
   )
 }
