@@ -136,6 +136,9 @@ export function TeacherNavLinks({ onNavigate }: TeacherNavLinksProps) {
                     <ListItem href="/feedback/peer-review" title="Peer Review" onClick={onNavigate}>
                       View peer review comments across lessons
                     </ListItem>
+                    <ListItem href="/flashcard-monitor" title="Flashcard Monitor" onClick={onNavigate}>
+                      Monitor pupil flashcard activity
+                    </ListItem>
                   </ul>
                 </NavigationMenuContent>
               </NavigationMenuItem>

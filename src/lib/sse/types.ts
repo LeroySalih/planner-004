@@ -6,6 +6,7 @@ export const SSE_TOPICS = [
   "lessons",
   "units",
   "fast-ui",
+  "flashcards",
   "test-sse",
 ] as const
 

@@ -28,3 +28,7 @@ export function emitUnitEvent(type: string, payload: SseEventPayload, emittedBy?
 export function emitFastUiEvent(type: string, payload: SseEventPayload, emittedBy?: string | null) {
   return emitSseEvent({ topic: "fast-ui", type, payload, emittedBy })
 }
+
+export function emitFlashcardEvent(type: string, payload: SseEventPayload, emittedBy?: string | null) {
+  return emitSseEvent({ topic: "flashcards", type, payload, emittedBy })
+}

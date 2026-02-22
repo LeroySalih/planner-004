@@ -113,6 +113,7 @@ export function FlashcardSession({ deck, pupilId }: FlashcardSessionProps) {
 
       // Fire-and-forget
       if (sessionId) {
+        const newConsecutiveForEmit = isCorrect ? consecutiveCorrect + 1 : 0
         recordFlashcardAttemptAction({
           sessionId,
           term: currentCard.term,
@@ -120,6 +121,12 @@ export function FlashcardSession({ deck, pupilId }: FlashcardSessionProps) {
           chosenDefinition: option,
           isCorrect,
           attemptNumber: currentCount + 1,
+          progress: {
+            pupilId,
+            lessonId: deck.lessonId,
+            consecutiveCorrect: newConsecutiveForEmit,
+            totalCards: pile.length,
+          },
         })
       }
 
@@ -132,7 +139,11 @@ export function FlashcardSession({ deck, pupilId }: FlashcardSessionProps) {
           setConsecutiveCorrect(newConsecutive)
           setPhase("complete")
           if (sessionId) {
-            completeFlashcardSessionAction(sessionId, totalCorrectAnswers + 1)
+            completeFlashcardSessionAction(sessionId, totalCorrectAnswers + 1, {
+              pupilId,
+              lessonId: deck.lessonId,
+              totalCards: pile.length,
+            })
           }
           return
         }

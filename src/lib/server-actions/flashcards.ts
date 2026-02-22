@@ -4,6 +4,7 @@ import { query } from "@/lib/db"
 import { withTelemetry } from "@/lib/telemetry"
 import { readPupilUnitsBootstrapAction } from "@/lib/server-actions/pupil-units"
 import { parseKeyTermsMarkdown, type KeyTerm } from "@/lib/flashcards/parse-key-terms"
+import { emitFlashcardEvent } from "@/lib/sse/topics"
 
 type TelemetryOptions = { authEndTime?: number | null; routeTag?: string }
 
@@ -166,7 +167,12 @@ export async function startFlashcardSessionAction(
           [pupilId, lessonId, totalCards],
         )
 
-        return { data: { sessionId: result.rows[0].session_id }, error: null }
+        const sessionId = result.rows[0].session_id
+        void emitFlashcardEvent("flashcard.start", {
+          pupilId, lessonId, sessionId, consecutiveCorrect: 0, totalCards, status: "in_progress",
+        })
+
+        return { data: { sessionId }, error: null }
       } catch (error) {
         console.error("[flashcards] Failed to start session", error)
         const message = error instanceof Error ? error.message : "Unable to start flashcard session."
@@ -183,6 +189,12 @@ export async function recordFlashcardAttemptAction(input: {
   chosenDefinition: string
   isCorrect: boolean
   attemptNumber: number
+  progress?: {
+    pupilId: string
+    lessonId: string
+    consecutiveCorrect: number
+    totalCards: number
+  }
 }) {
   return withTelemetry(
     {
@@ -207,6 +219,14 @@ export async function recordFlashcardAttemptAction(input: {
           ],
         )
 
+        if (input.progress) {
+          const { pupilId, lessonId, consecutiveCorrect, totalCards } = input.progress
+          void emitFlashcardEvent("flashcard.progress", {
+            pupilId, lessonId, sessionId: input.sessionId,
+            consecutiveCorrect, totalCards, status: "in_progress",
+          })
+        }
+
         return { data: { success: true }, error: null }
       } catch (error) {
         console.error("[flashcards] Failed to record attempt", error)
@@ -220,6 +240,7 @@ export async function recordFlashcardAttemptAction(input: {
 export async function completeFlashcardSessionAction(
   sessionId: string,
   correctCount: number,
+  progress?: { pupilId: string; lessonId: string; totalCards: number },
 ) {
   return withTelemetry(
     {
@@ -237,6 +258,14 @@ export async function completeFlashcardSessionAction(
           `,
           [correctCount, sessionId],
         )
+
+        if (progress) {
+          void emitFlashcardEvent("flashcard.complete", {
+            pupilId: progress.pupilId, lessonId: progress.lessonId, sessionId,
+            consecutiveCorrect: progress.totalCards, totalCards: progress.totalCards,
+            status: "completed",
+          })
+        }
 
         return { data: { success: true }, error: null }
       } catch (error) {
