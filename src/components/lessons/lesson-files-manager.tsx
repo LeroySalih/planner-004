@@ -1,15 +1,12 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
+import { useCallback, useEffect, useRef, useState, useTransition } from "react"
 import { toast } from "sonner"
 import { Download, RefreshCcw, Trash2, Upload } from "lucide-react"
 
 import {
   deleteLessonFileAction,
-  getActivityFileDownloadUrlAction,
   getLessonFileDownloadUrlAction,
-  getPupilActivitySubmissionUrlAction,
-  type LessonSubmissionFile,
   listLessonFilesAction,
   uploadLessonFileAction,
 } from "@/lib/server-updates"
@@ -29,7 +26,6 @@ interface LessonFilesManagerProps {
   unitId: string
   lessonId: string
   initialFiles: LessonFileInfo[]
-  activityFiles?: LessonSubmissionFile[]
 }
 
 const dateFormatter = new Intl.DateTimeFormat("en-US", {
@@ -49,7 +45,7 @@ const formatTimestamp = (value?: string | null) => {
   return dateFormatter.format(date)
 }
 
-export function LessonFilesManager({ unitId, lessonId, initialFiles, activityFiles }: LessonFilesManagerProps) {
+export function LessonFilesManager({ unitId, lessonId, initialFiles }: LessonFilesManagerProps) {
   const [files, setFiles] = useState<LessonFileInfo[]>(initialFiles)
   const [isLoading, setIsLoading] = useState(false)
   const [isPending, startTransition] = useTransition()
@@ -197,45 +193,6 @@ export function LessonFilesManager({ unitId, lessonId, initialFiles, activityFil
     uploadFiles(droppedFiles)
   }
 
-  const handleActivityFileDownload = (file: LessonSubmissionFile) => {
-    startTransition(async () => {
-      // Teacher resource files have no pupilId; pupil submissions do
-      const result = file.pupilId
-        ? await getPupilActivitySubmissionUrlAction(
-            lessonId,
-            file.activityId,
-            file.pupilId,
-            file.fileName,
-          )
-        : await getActivityFileDownloadUrlAction(
-            lessonId,
-            file.activityId,
-            file.fileName,
-          )
-      if (!result.success || !result.url) {
-        toast.error("Failed to download file", {
-          description: result.error ?? "Please try again later.",
-        })
-        return
-      }
-      window.open(result.url, "_blank")
-    })
-  }
-
-  const groupedActivityFiles = useMemo(() => {
-    if (!activityFiles || activityFiles.length === 0) return []
-    const groups = new Map<string, { activityTitle: string; files: LessonSubmissionFile[] }>()
-    for (const file of activityFiles) {
-      const existing = groups.get(file.activityId)
-      if (existing) {
-        existing.files.push(file)
-      } else {
-        groups.set(file.activityId, { activityTitle: file.activityTitle, files: [file] })
-      }
-    }
-    return Array.from(groups.values())
-  }, [activityFiles])
-
   return (
     <div
       className="space-y-4"
@@ -323,41 +280,6 @@ export function LessonFilesManager({ unitId, lessonId, initialFiles, activityFil
           </ul>
         )}
       </div>
-
-      {groupedActivityFiles.length > 0 && (
-        <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-foreground">Activity Uploads</h3>
-          {groupedActivityFiles.map((group) => (
-            <div key={group.activityTitle} className="space-y-2">
-              <p className="text-xs font-medium text-muted-foreground">{group.activityTitle}</p>
-              <ul className="space-y-2">
-                {group.files.map((file) => (
-                  <li
-                    key={`${file.pupilId}-${file.activityId}-${file.fileName}`}
-                    className="flex flex-col gap-2 rounded-md border border-border p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div>
-                      <p className="font-medium break-all">{file.fileName}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {file.pupilName ?? "Activity resource"}
-                        {formatTimestamp(file.submittedAt) ? ` · ${formatTimestamp(file.submittedAt)}` : ""}
-                      </p>
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleActivityFileDownload(file)}
-                      disabled={isPending}
-                    >
-                      <Download className="mr-2 h-4 w-4" /> Download
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   )
 }
