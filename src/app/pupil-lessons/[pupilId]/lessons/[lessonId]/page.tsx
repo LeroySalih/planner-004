@@ -7,6 +7,7 @@ import {
   FileIcon,
   HelpCircle,
   Link as LinkIcon,
+  Lock,
   Mic,
   Music2,
   Play,
@@ -19,6 +20,7 @@ import { requireAuthenticatedProfile } from "@/lib/auth"
 import { resolveActivityImageUrl } from "@/lib/activity-assets"
 import { loadPupilLessonsSummaries } from "@/lib/pupil-lessons-data"
 import {
+  checkLessonAccessForPupilAction,
   readLessonDetailBootstrapAction,
   listActivityFilesAction,
   listPupilActivitySubmissionsAction,
@@ -291,6 +293,36 @@ export default async function PupilLessonFriendlyPage({
 
   if (!profile.isTeacher && profile.userId !== pupilId) {
     redirect(`/pupil-lessons/${encodeURIComponent(profile.userId)}`)
+  }
+
+  if (!profile.isTeacher) {
+    const access = await checkLessonAccessForPupilAction(pupilId, lessonId)
+    if (!access.accessible) {
+      return (
+        <main className="mx-auto flex w-full max-w-2xl flex-col items-center gap-6 px-6 py-20 text-center">
+          {access.reason === "locked" ? (
+            <>
+              <Lock className="h-16 w-16 text-red-500" />
+              <h1 className="text-2xl font-semibold text-foreground">This lesson is currently locked</h1>
+              <p className="text-muted-foreground">Your teacher has locked this lesson. Please check back later or ask your teacher for more information.</p>
+            </>
+          ) : (
+            <>
+              <Lock className="h-16 w-16 text-muted-foreground" />
+              <h1 className="text-2xl font-semibold text-foreground">This lesson is not available</h1>
+              <p className="text-muted-foreground">This lesson is not currently available to you. Please contact your teacher if you think this is an error.</p>
+            </>
+          )}
+          <Link
+            href={`/pupil-lessons/${encodeURIComponent(pupilId)}`}
+            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to My Lessons
+          </Link>
+        </main>
+      )
+    }
   }
 
   const [summaries, lessonDetailResult, lessonSubmissionSummaries] = await Promise.all([

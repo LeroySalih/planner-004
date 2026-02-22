@@ -90,8 +90,10 @@ export { readPupilTasksAction } from "./server-actions/tasks";
 export type { PupilTask, PupilTaskGroup } from "./server-actions/tasks";
 
 export {
+  checkLessonAccessForPupilAction,
   deleteLessonAssignmentAction,
   readLessonAssignmentsAction,
+  toggleLessonAssignmentLockedAction,
   toggleLessonAssignmentVisibilityAction,
   upsertLessonAssignmentAction,
 } from "./server-actions/lesson-assignments";

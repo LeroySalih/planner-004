@@ -36,6 +36,7 @@ import {
   deleteGroupAction,
   upsertLessonAssignmentAction,
   deleteLessonAssignmentAction,
+  toggleLessonAssignmentLockedAction,
   toggleLessonAssignmentVisibilityAction,
   createDateCommentAction,
   updateDateCommentAction,
@@ -133,11 +134,12 @@ export function AssignmentManager({
 
         if (normalizedDate) {
           const existing = map.get(key)
-          map.set(key, { 
-            group_id: groupId, 
-            lesson_id: lessonId, 
+          map.set(key, {
+            group_id: groupId,
+            lesson_id: lessonId,
             start_date: normalizedDate,
-            hidden: existing?.hidden ?? false 
+            hidden: existing?.hidden ?? false,
+            locked: existing?.locked ?? false,
           })
         } else {
           map.delete(key)
@@ -449,6 +451,53 @@ export function AssignmentManager({
     })
   }
 
+  const handleToggleLocked = (groupId: string, lessonId: string, currentLocked: boolean) => {
+    const key = lessonAssignmentKey(groupId, lessonId)
+    const newLocked = !currentLocked
+
+    // Optimistic update
+    setLessonAssignments((prev) =>
+      prev.map((entry) =>
+        entry.group_id === groupId && entry.lesson_id === lessonId
+          ? { ...entry, locked: newLocked }
+          : entry
+      )
+    )
+
+    setPendingLessonAssignmentKeys((prev) => ({ ...prev, [key]: true }))
+
+    startTransition(async () => {
+      try {
+        const result = await toggleLessonAssignmentLockedAction(groupId, lessonId, newLocked)
+
+        if (!result.success) {
+          throw new Error(result.error ?? "Unknown error")
+        }
+
+        toast.success(`Lesson is now ${newLocked ? 'locked' : 'unlocked'}.`)
+      } catch (error) {
+        console.error("[v0] Failed to toggle lesson locked:", error)
+        // Revert optimistic update
+        setLessonAssignments((prev) =>
+          prev.map((entry) =>
+            entry.group_id === groupId && entry.lesson_id === lessonId
+              ? { ...entry, locked: currentLocked }
+              : entry
+          )
+        )
+        toast.error("Failed to update locked status", {
+          description: "We couldn't update the lesson lock. Please try again.",
+        })
+      } finally {
+        setPendingLessonAssignmentKeys((prev) => {
+          const updated = { ...prev }
+          delete updated[key]
+          return updated
+        })
+      }
+    })
+  }
+
   const handleDateClick = (dateString: string) => {
     setSelectedCommentDate(dateString)
     setIsDateCommentsSidebarOpen(true)
@@ -581,11 +630,12 @@ export function AssignmentManager({
       const next = prev.filter(
         (entry) => !(entry.group_id === sidebarGroupId && entry.lesson_id === lessonId),
       )
-      next.push({ 
-        group_id: sidebarGroupId, 
-        lesson_id: lessonId, 
-        start_date: normalizedDate, 
-        hidden: existing?.hidden ?? false 
+      next.push({
+        group_id: sidebarGroupId,
+        lesson_id: lessonId,
+        start_date: normalizedDate,
+        hidden: existing?.hidden ?? false,
+        locked: existing?.locked ?? false,
       })
       return next
     })
@@ -826,6 +876,7 @@ export function AssignmentManager({
           onAddGroupClick={handleAddGroupClick}
           onGroupTitleClick={handleGroupTitleClick}
           onToggleHidden={handleToggleHidden}
+          onToggleLocked={handleToggleLocked}
           onDateClick={handleDateClick}
           dateCommentsByDate={dateCommentsByDate}
         />

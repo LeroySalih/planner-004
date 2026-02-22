@@ -26,6 +26,7 @@ export type PupilUnitLesson = {
   subject: string | null;
   feedbackVisible: boolean;
   isEnrolled: boolean;
+  locked: boolean;
   objectives: Array<{
     id: string;
     title: string;
