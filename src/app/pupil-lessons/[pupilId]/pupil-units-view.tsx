@@ -5,7 +5,7 @@ import Link from "next/link"
 import { format, parseISO, differenceInMonths, addWeeks, isBefore } from "date-fns"
 import { cn } from "@/lib/utils"
 import { Roboto_Condensed } from "next/font/google"
-import { ChevronDown, BookOpen, RotateCcw, AlertTriangle } from "lucide-react"
+import { ChevronDown, BookOpen, Lock, RotateCcw, AlertTriangle } from "lucide-react"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -202,7 +202,8 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
                                   className={cn(
                                     "relative py-2 pl-8 pr-2 sm:pr-3 rounded-md transition-colors",
                                     isLessonOverdueAndUnderperforming(lesson) &&
-                                      "bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-900/50"
+                                      "bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-900/50",
+                                    lesson.locked && "opacity-50"
                                   )}
                                 >
                                   <span
@@ -213,13 +214,18 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
                                   </span>
                                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                                     <div className="flex flex-col gap-1">
-                                      {lesson.isEnrolled ? (
+                                      {lesson.isEnrolled && !lesson.locked ? (
                                         <Link
                                           href={`/pupil-lessons/${encodeURIComponent(detail.pupilId)}/lessons/${encodeURIComponent(lesson.lessonId)}`}
                                           className="text-xl font-semibold text-foreground underline-offset-4 hover:text-primary hover:underline sm:text-2xl"
                                         >
                                           {lesson.lessonTitle}
                                         </Link>
+                                      ) : lesson.locked ? (
+                                        <span className="flex items-center gap-2 text-xl font-semibold text-muted-foreground sm:text-2xl">
+                                          {lesson.lessonTitle}
+                                          <Lock className="h-4 w-4 text-red-500" />
+                                        </span>
                                       ) : (
                                         <span className="text-xl font-semibold text-foreground sm:text-2xl">
                                           {lesson.lessonTitle}
@@ -256,7 +262,7 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
                                   </div>
 
                                   {/* Launch Buttons */}
-                                  {lesson.isEnrolled && (
+                                  {lesson.isEnrolled && !lesson.locked && (
                                     <div className="mt-4 space-y-3">
                                       <div className="flex flex-col gap-3 sm:flex-row sm:gap-2">
                                         <Button asChild className="gap-2">

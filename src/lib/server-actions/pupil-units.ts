@@ -51,6 +51,7 @@ const LessonAssignmentSchema = z.object({
   start_date: z.string().nullable(),
   feedback_visible: z.boolean(),
   hidden: z.boolean(),
+  locked: z.boolean(),
 });
 
 const SubjectUnitsSchema = z.object({
@@ -76,6 +77,7 @@ const SubjectUnitsSchema = z.object({
               subject: z.string().nullable(),
               feedbackVisible: z.boolean(),
               isEnrolled: z.boolean(),
+              locked: z.boolean().default(false),
               objectives: z.array(
                 z.object({
                   id: z.string(),
@@ -190,6 +192,7 @@ export async function readPupilUnitsBootstrapAction(
               start_date: string | Date | null;
               feedback_visible: boolean | null;
               hidden: boolean | null;
+              locked: boolean | null;
             }>(
               `
               with target_memberships as (
@@ -209,7 +212,8 @@ export async function readPupilUnitsBootstrapAction(
                 tm.subject,
                 la.start_date,
                 coalesce(la.feedback_visible, false) as feedback_visible,
-                coalesce(la.hidden, false) as hidden
+                coalesce(la.hidden, false) as hidden,
+                coalesce(la.locked, false) as locked
               from target_memberships tm
               join lesson_assignments la on la.group_id = tm.group_id
               join lessons l on l.lesson_id = la.lesson_id
@@ -260,6 +264,7 @@ export async function readPupilUnitsBootstrapAction(
                 : null,
               feedback_visible: Boolean(row.feedback_visible),
               hidden: Boolean(row.hidden),
+              locked: Boolean(row.locked),
             })
           )
           .filter((assignment) =>
@@ -631,6 +636,7 @@ export async function readPupilUnitsBootstrapAction(
               subject: assignment.subject,
               feedbackVisible: assignment.feedback_visible,
               isEnrolled: true,
+              locked: Boolean(assignment.locked),
               objectives: objectivesForLesson.map((objective) => ({
                 id: objective.objective_id,
                 title: objective.title,

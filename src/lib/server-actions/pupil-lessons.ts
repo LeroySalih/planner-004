@@ -28,6 +28,7 @@ const SummaryAssignmentSchema = z.object({
   unit_id: z.string().nullable().optional(),
   subject: z.string().nullable().optional(),
   feedback_visible: z.boolean().nullable().optional(),
+  locked: z.boolean().nullable().optional(),
 });
 
 const PupilLessonsSummaryBootstrapSchema = z.object({

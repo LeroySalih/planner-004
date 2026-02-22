@@ -95,8 +95,8 @@ export async function upsertLessonAssignmentAction(
     } else {
       const { rows } = await query(
         `
-          insert into lesson_assignments (group_id, lesson_id, start_date, hidden)
-          values ($1, $2, $3, false)
+          insert into lesson_assignments (group_id, lesson_id, start_date, hidden, locked)
+          values ($1, $2, $3, false, false)
           returning *
         `,
         [groupId, lessonId, normalizedStartDate],
@@ -216,6 +216,67 @@ export async function toggleLessonAssignmentVisibilityAction(
     },
   );
 
-  revalidatePath("/assignments");
   return { success: true };
+}
+
+export async function toggleLessonAssignmentLockedAction(
+  groupId: string,
+  lessonId: string,
+  locked: boolean,
+) {
+  try {
+    const { rowCount } = await query(
+      "update lesson_assignments set locked = $1 where group_id = $2 and lesson_id = $3",
+      [locked, groupId, lessonId],
+    );
+
+    if (rowCount === 0) {
+      return { success: false, error: "Lesson assignment not found." };
+    }
+  } catch (error) {
+    const message = error instanceof Error
+      ? error.message
+      : "Unable to update locked status.";
+    return { success: false, error: message };
+  }
+
+  return { success: true };
+}
+
+export async function checkLessonAccessForPupilAction(
+  pupilId: string,
+  lessonId: string,
+): Promise<{ accessible: boolean; reason: "hidden" | "locked" | null }> {
+  try {
+    const { rows } = await query<{ hidden: boolean; locked: boolean }>(
+      `
+        select
+          coalesce(la.hidden, false) as hidden,
+          coalesce(la.locked, false) as locked
+        from lesson_assignments la
+        join group_membership gm on gm.group_id = la.group_id
+        where gm.user_id = $1
+          and la.lesson_id = $2
+        limit 1
+      `,
+      [pupilId, lessonId],
+    );
+
+    if (rows.length === 0) {
+      return { accessible: true, reason: null };
+    }
+
+    const row = rows[0];
+    if (row.hidden) {
+      return { accessible: false, reason: "hidden" };
+    }
+    if (row.locked) {
+      return { accessible: false, reason: "locked" };
+    }
+
+    return { accessible: true, reason: null };
+  } catch (error) {
+    console.error("[lesson-assignments] checkLessonAccessForPupilAction failed:", error);
+    return { accessible: true, reason: null };
+  }
 }

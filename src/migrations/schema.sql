@@ -93,7 +93,7 @@ begin
     'lessonAssignments', coalesce((
       select jsonb_agg(row_to_json(row_data) order by row_data.group_id, row_data.lesson_id)
       from (
-        select group_id, lesson_id, start_date, coalesce(hidden, false) as hidden
+        select group_id, lesson_id, start_date, coalesce(hidden, false) as hidden, coalesce(locked, false) as locked
         from lesson_assignments
       ) as row_data
     ), '[]'::jsonb)
@@ -685,7 +685,8 @@ begin
       l.title as lesson_title,
       l.unit_id,
       coalesce(la.feedback_visible, false) as feedback_visible,
-      coalesce(la.hidden, false) as hidden
+      coalesce(la.hidden, false) as hidden,
+      coalesce(la.locked, false) as locked
     from target_memberships tm
     join lesson_assignments la on la.group_id = tm.group_id
     join lessons l on l.lesson_id = la.lesson_id
@@ -846,7 +847,8 @@ begin
       l.unit_id,
       g.subject,
       coalesce(la.feedback_visible, false) as feedback_visible,
-      coalesce(la.hidden, false) as hidden
+      coalesce(la.hidden, false) as hidden,
+      coalesce(la.locked, false) as locked
     from lesson_assignments la
     join lessons l on l.lesson_id = la.lesson_id
     left join groups g on g.group_id = la.group_id
@@ -1726,7 +1728,8 @@ CREATE TABLE public.lesson_assignments (
     lesson_id text NOT NULL,
     start_date date NOT NULL,
     feedback_visible boolean DEFAULT false NOT NULL,
-    hidden boolean DEFAULT false
+    hidden boolean DEFAULT false,
+    locked boolean DEFAULT false
 );
 
 
