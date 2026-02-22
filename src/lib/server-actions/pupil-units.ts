@@ -732,19 +732,6 @@ export async function readPupilUnitsBootstrapAction(
             units.forEach((unit) =>
               (unit.lessons as LessonPayload[]).sort(
                 (a: LessonPayload, b: LessonPayload) => {
-                  const dateA = a.startDate
-                    ? Date.parse(a.startDate)
-                    : Number.NEGATIVE_INFINITY;
-                  const dateB = b.startDate
-                    ? Date.parse(b.startDate)
-                    : Number.NEGATIVE_INFINITY;
-                  if (
-                    !Number.isNaN(dateA) && !Number.isNaN(dateB) &&
-                    dateA !== dateB
-                  ) {
-                    return dateB - dateA;
-                  }
-
                   const orderA = typeof a.lessonOrder === "number"
                     ? a.lessonOrder
                     : Number.POSITIVE_INFINITY;
