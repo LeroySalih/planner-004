@@ -244,6 +244,7 @@ export {
 
 export {
   readFlashcardMonitorGroupsAction,
+  readFlashcardSessionDetailAction,
   readLiveFlashcardMonitorAction,
   readStudyTrackerAction,
 } from "./server-actions/flashcard-monitor";

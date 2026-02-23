@@ -38,6 +38,8 @@ export default async function StudyTrackerPage({ params }: PageProps) {
         lessons={result.data.lessons}
         pupils={result.data.pupils}
         cells={result.data.cells}
+        groupId={groupId}
+        unitId={unitId}
       />
     </TeacherPageLayout>
   )

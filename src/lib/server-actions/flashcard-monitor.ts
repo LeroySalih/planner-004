@@ -149,28 +149,33 @@ export async function readStudyTrackerAction(
         const pupilIds = membersResult.rows.map((r) => r.user_id)
         const unitTitle = unitResult.rows[0]?.title ?? "Untitled unit"
 
-        let cells: { pupilId: string; lessonId: string; completedAt: string }[] = []
+        let cells: { pupilId: string; lessonId: string; startedAt: string; completedAt: string | null; status: string }[] = []
 
         if (lessonIds.length > 0 && pupilIds.length > 0) {
           const cellsResult = await query<{
             pupil_id: string
             lesson_id: string
-            completed_at: string
+            started_at: string
+            completed_at: string | null
+            status: string
           }>(
             `SELECT DISTINCT ON (pupil_id, lesson_id)
-               pupil_id, lesson_id, completed_at
+               pupil_id, lesson_id, started_at, completed_at, status
              FROM flashcard_sessions
-             WHERE status = 'completed'
-               AND lesson_id = ANY($1::text[])
+             WHERE lesson_id = ANY($1::text[])
                AND pupil_id = ANY($2::text[])
-             ORDER BY pupil_id, lesson_id, completed_at DESC`,
+             ORDER BY pupil_id, lesson_id,
+               CASE WHEN status = 'completed' THEN 0 ELSE 1 END,
+               started_at DESC`,
             [lessonIds, pupilIds],
           )
 
           cells = cellsResult.rows.map((r) => ({
             pupilId: r.pupil_id,
             lessonId: r.lesson_id,
+            startedAt: r.started_at,
             completedAt: r.completed_at,
+            status: r.status,
           }))
         }
 
@@ -189,6 +194,144 @@ export async function readStudyTrackerAction(
       } catch (error) {
         console.error("[flashcard-monitor] Failed to load study tracker", error)
         const message = error instanceof Error ? error.message : "Unable to load study tracker data."
+        return { data: null, error: message }
+      }
+    },
+  )
+}
+
+export async function readFlashcardSessionDetailAction(
+  pupilId: string,
+  unitId: string,
+  options?: TelemetryOptions,
+) {
+  const routeTag = options?.routeTag ?? "/flashcard-monitor:session-detail"
+
+  return withTelemetry(
+    {
+      routeTag,
+      functionName: "readFlashcardSessionDetailAction",
+      params: { pupilId, unitId },
+      authEndTime: options?.authEndTime ?? null,
+    },
+    async () => {
+      await requireTeacherProfile()
+
+      try {
+        const [profileResult, lessonsResult] = await Promise.all([
+          query<{ first_name: string | null; last_name: string | null }>(
+            `SELECT first_name, last_name FROM profiles WHERE user_id = $1 LIMIT 1`,
+            [pupilId],
+          ),
+          query<{ lesson_id: string; title: string }>(
+            `SELECT l.lesson_id, coalesce(l.title, 'Untitled') as title
+             FROM lessons l
+             WHERE l.unit_id = $1
+               AND coalesce(l.active, true) = true
+               AND EXISTS (
+                 SELECT 1 FROM activities a
+                 WHERE a.lesson_id = l.lesson_id
+                   AND a.type = 'display-key-terms'
+                   AND coalesce(a.active, true) = true
+               )
+             ORDER BY l.order_by ASC NULLS LAST`,
+            [unitId],
+          ),
+        ])
+
+        const pupilName = [
+          profileResult.rows[0]?.first_name ?? "",
+          profileResult.rows[0]?.last_name ?? "",
+        ].filter(Boolean).join(" ") || "Unknown pupil"
+
+        const lessonIds = lessonsResult.rows.map((r) => r.lesson_id)
+        const lessonTitleMap = new Map(lessonsResult.rows.map((r) => [r.lesson_id, r.title]))
+
+        let sessions: {
+          session_id: string
+          lesson_id: string
+          status: string
+          started_at: string
+          completed_at: string | null
+          total_cards: number
+          correct_count: number
+        }[] = []
+
+        if (lessonIds.length > 0) {
+          const sessionsResult = await query<{
+            session_id: string
+            lesson_id: string
+            status: string
+            started_at: string
+            completed_at: string | null
+            total_cards: number
+            correct_count: number
+          }>(
+            `SELECT session_id, lesson_id, status, started_at, completed_at, total_cards, coalesce(correct_count, 0) as correct_count
+             FROM flashcard_sessions
+             WHERE pupil_id = $1 AND lesson_id = ANY($2::text[])
+             ORDER BY started_at DESC`,
+            [pupilId, lessonIds],
+          )
+          sessions = sessionsResult.rows
+        }
+
+        const sessionIds = sessions.map((r) => r.session_id)
+        let attemptsBySession = new Map<string, {
+          term: string
+          definition: string
+          chosen_definition: string
+          is_correct: boolean
+          attempt_number: number
+          attempted_at: string
+        }[]>()
+
+        if (sessionIds.length > 0) {
+          const attemptsResult = await query<{
+            session_id: string
+            term: string
+            definition: string
+            chosen_definition: string
+            is_correct: boolean
+            attempt_number: number
+            attempted_at: string
+          }>(
+            `SELECT session_id, term, definition, chosen_definition, is_correct, attempt_number, attempted_at
+             FROM flashcard_attempts
+             WHERE session_id = ANY($1::text[])
+             ORDER BY session_id, attempt_number, attempted_at`,
+            [sessionIds],
+          )
+
+          for (const row of attemptsResult.rows) {
+            const arr = attemptsBySession.get(row.session_id) ?? []
+            arr.push(row)
+            attemptsBySession.set(row.session_id, arr)
+          }
+        }
+
+        const shapedSessions = sessions.map((s) => ({
+          sessionId: s.session_id,
+          lessonTitle: lessonTitleMap.get(s.lesson_id) ?? "Untitled",
+          status: s.status,
+          startedAt: s.started_at,
+          completedAt: s.completed_at,
+          totalCards: s.total_cards,
+          correctCount: s.correct_count,
+          attempts: (attemptsBySession.get(s.session_id) ?? []).map((a) => ({
+            term: a.term,
+            definition: a.definition,
+            chosenDefinition: a.chosen_definition,
+            isCorrect: a.is_correct,
+            attemptNumber: a.attempt_number,
+            attemptedAt: a.attempted_at,
+          })),
+        }))
+
+        return { data: { pupilName, sessions: shapedSessions }, error: null }
+      } catch (error) {
+        console.error("[flashcard-monitor] Failed to load session detail", error)
+        const message = error instanceof Error ? error.message : "Unable to load session detail."
         return { data: null, error: message }
       }
     },

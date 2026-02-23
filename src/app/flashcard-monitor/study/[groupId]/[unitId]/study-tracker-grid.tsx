@@ -1,16 +1,19 @@
 "use client"
 
 import { useMemo } from "react"
+import Link from "next/link"
 import { cn } from "@/lib/utils"
 
 type Lesson = { lessonId: string; title: string }
 type Pupil = { pupilId: string; firstName: string; lastName: string }
-type Cell = { pupilId: string; lessonId: string; completedAt: string }
+type Cell = { pupilId: string; lessonId: string; startedAt: string; completedAt: string | null; status: string }
 
 type Props = {
   lessons: Lesson[]
   pupils: Pupil[]
   cells: Cell[]
+  groupId: string
+  unitId: string
 }
 
 function formatDate(iso: string): string {
@@ -20,11 +23,11 @@ function formatDate(iso: string): string {
   return `${day} ${month}`
 }
 
-export function StudyTrackerGrid({ lessons, pupils, cells }: Props) {
+export function StudyTrackerGrid({ lessons, pupils, cells, groupId, unitId }: Props) {
   const cellMap = useMemo(() => {
-    const map = new Map<string, string>()
+    const map = new Map<string, Cell>()
     for (const c of cells) {
-      map.set(`${c.pupilId}:${c.lessonId}`, c.completedAt)
+      map.set(`${c.pupilId}:${c.lessonId}`, c)
     }
     return map
   }, [cells])
@@ -66,13 +69,18 @@ export function StudyTrackerGrid({ lessons, pupils, cells }: Props) {
                 {p.firstName} {p.lastName}
               </td>
               {lessons.map((l) => {
-                const completedAt = cellMap.get(`${p.pupilId}:${l.lessonId}`)
+                const cell = cellMap.get(`${p.pupilId}:${l.lessonId}`)
+                const href = `/flashcard-monitor/study/${encodeURIComponent(groupId)}/${encodeURIComponent(unitId)}/${encodeURIComponent(p.pupilId)}/${encodeURIComponent(l.lessonId)}`
                 return (
                   <td key={l.lessonId} className="px-3 py-2.5 text-center whitespace-nowrap">
-                    {completedAt ? (
-                      <span className="text-emerald-600 dark:text-emerald-400">
-                        {formatDate(completedAt)}
-                      </span>
+                    {cell?.status === "completed" ? (
+                      <Link href={href} className="text-emerald-600 underline-offset-2 hover:underline dark:text-emerald-400">
+                        {formatDate(cell.completedAt!)}
+                      </Link>
+                    ) : cell ? (
+                      <Link href={href} className="text-red-600 underline-offset-2 hover:underline dark:text-red-400">
+                        {formatDate(cell.startedAt)}
+                      </Link>
                     ) : (
                       <span className="text-muted-foreground">—</span>
                     )}
