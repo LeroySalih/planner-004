@@ -13,20 +13,28 @@ export async function getClassProgressAction(groupId: string, summativeOnly = fa
   // Get units assigned to this group with average metrics across all pupils
   // Aggregated from submission-level scores (not individual feedback records)
   const { rows: unitRows } = await query(
-    `SELECT
+    `WITH latest_submissions AS (
+       SELECT DISTINCT ON (s.activity_id, s.user_id)
+         s.activity_id, s.user_id, s.body
+       FROM submissions s
+       ORDER BY s.activity_id, s.user_id, s.submitted_at DESC NULLS LAST, s.submission_id DESC
+     )
+     SELECT
        u.unit_id,
        u.title as unit_title,
        u.subject as unit_subject,
        COUNT(DISTINCT gm.user_id) as pupil_count,
        AVG(CASE WHEN $2 = true AND a.is_summative = false THEN NULL
-                ELSE COALESCE((s.body->>'teacher_override_score')::numeric, 0) END) as avg_score
+                ELSE COALESCE(compute_submission_base_score(s.body, a.type), 0) END) as avg_score
      FROM lesson_assignments la
      JOIN lessons l ON l.lesson_id = la.lesson_id
      JOIN units u ON u.unit_id = l.unit_id
      JOIN activities a ON a.lesson_id = l.lesson_id
+       AND coalesce(a.active, true) = true
+       AND lower(trim(coalesce(a.type, ''))) = ANY (ARRAY['multiple-choice-question', 'short-text-question', 'upload-file'])
      JOIN group_membership gm ON gm.group_id = la.group_id
-     LEFT JOIN submissions s ON s.activity_id = a.activity_id
-                             AND s.user_id = gm.user_id
+     LEFT JOIN latest_submissions s ON s.activity_id = a.activity_id
+                                    AND s.user_id = gm.user_id
      WHERE la.group_id = $1
      GROUP BY u.unit_id, u.title, u.subject
      ORDER BY u.title`,
@@ -52,7 +60,13 @@ export async function getProgressMatrixAction(summativeOnly = false) {
   // Get all units, classes, and their metrics across all classes
   // Aggregated from submission-level scores (not individual feedback records)
   const { rows } = await query(
-    `SELECT
+    `WITH latest_submissions AS (
+       SELECT DISTINCT ON (s.activity_id, s.user_id)
+         s.activity_id, s.user_id, s.body
+       FROM submissions s
+       ORDER BY s.activity_id, s.user_id, s.submitted_at DESC NULLS LAST, s.submission_id DESC
+     )
+     SELECT
        g.group_id,
        g.subject as group_subject,
        u.unit_id,
@@ -60,15 +74,17 @@ export async function getProgressMatrixAction(summativeOnly = false) {
        u.subject as unit_subject,
        COUNT(DISTINCT gm.user_id) as pupil_count,
        AVG(CASE WHEN $1 = true AND a.is_summative = false THEN NULL
-                ELSE COALESCE((s.body->>'teacher_override_score')::numeric, 0) END) as avg_score
+                ELSE COALESCE(compute_submission_base_score(s.body, a.type), 0) END) as avg_score
      FROM groups g
      JOIN lesson_assignments la ON la.group_id = g.group_id
      JOIN lessons l ON l.lesson_id = la.lesson_id
      JOIN units u ON u.unit_id = l.unit_id
      JOIN activities a ON a.lesson_id = l.lesson_id
+       AND coalesce(a.active, true) = true
+       AND lower(trim(coalesce(a.type, ''))) = ANY (ARRAY['multiple-choice-question', 'short-text-question', 'upload-file'])
      JOIN group_membership gm ON gm.group_id = g.group_id
-     LEFT JOIN submissions s ON s.activity_id = a.activity_id
-                             AND s.user_id = gm.user_id
+     LEFT JOIN latest_submissions s ON s.activity_id = a.activity_id
+                                    AND s.user_id = gm.user_id
      GROUP BY g.group_id, g.subject, u.unit_id, u.title, u.subject
      ORDER BY g.subject, u.title, g.group_id`,
     [summativeOnly]
@@ -108,7 +124,13 @@ export async function getClassPupilMatrixAction(groupId: string, summativeOnly =
   // Get all units assigned to this class with metrics for each pupil
   // Aggregated from submission-level scores (not individual feedback records)
   const { rows } = await query(
-    `SELECT
+    `WITH latest_submissions AS (
+       SELECT DISTINCT ON (s.activity_id, s.user_id)
+         s.activity_id, s.user_id, s.body
+       FROM submissions s
+       ORDER BY s.activity_id, s.user_id, s.submitted_at DESC NULLS LAST, s.submission_id DESC
+     )
+     SELECT
        u.unit_id,
        u.title as unit_title,
        u.subject as unit_subject,
@@ -116,15 +138,17 @@ export async function getClassPupilMatrixAction(groupId: string, summativeOnly =
        p.first_name,
        p.last_name,
        AVG(CASE WHEN $2 = true AND a.is_summative = false THEN NULL
-                ELSE COALESCE((s.body->>'teacher_override_score')::numeric, 0) END) as avg_score
+                ELSE COALESCE(compute_submission_base_score(s.body, a.type), 0) END) as avg_score
      FROM lesson_assignments la
      JOIN lessons l ON l.lesson_id = la.lesson_id
      JOIN units u ON u.unit_id = l.unit_id
      JOIN activities a ON a.lesson_id = l.lesson_id
+       AND coalesce(a.active, true) = true
+       AND lower(trim(coalesce(a.type, ''))) = ANY (ARRAY['multiple-choice-question', 'short-text-question', 'upload-file'])
      JOIN group_membership gm ON gm.group_id = la.group_id
      JOIN profiles p ON p.user_id = gm.user_id
-     LEFT JOIN submissions s ON s.activity_id = a.activity_id
-                             AND s.user_id = gm.user_id
+     LEFT JOIN latest_submissions s ON s.activity_id = a.activity_id
+                                    AND s.user_id = gm.user_id
      WHERE la.group_id = $1
      GROUP BY u.unit_id, u.title, u.subject, gm.user_id, p.first_name, p.last_name
      ORDER BY p.last_name, p.first_name, u.title`,
@@ -169,7 +193,13 @@ export async function getUnitLessonMatrixAction(groupId: string, unitId: string,
 
   // Get lesson-level metrics by aggregating submission-level scores
   const { rows } = await query(
-    `WITH lesson_activity_scores AS (
+    `WITH latest_submissions AS (
+       SELECT DISTINCT ON (s.activity_id, s.user_id)
+         s.activity_id, s.user_id, s.body
+       FROM submissions s
+       ORDER BY s.activity_id, s.user_id, s.submitted_at DESC NULLS LAST, s.submission_id DESC
+     ),
+     lesson_activity_scores AS (
        SELECT
          l.lesson_id,
          l.title as lesson_title,
@@ -179,13 +209,15 @@ export async function getUnitLessonMatrixAction(groupId: string, unitId: string,
          p.last_name,
          a.activity_id,
          a.is_summative,
-         COALESCE((s.body->>'teacher_override_score')::numeric, 0) as score
+         CASE WHEN a.activity_id IS NOT NULL THEN COALESCE(compute_submission_base_score(s.body, a.type), 0) END as score
        FROM lessons l
        JOIN lesson_assignments la ON la.lesson_id = l.lesson_id AND la.group_id = $1
        JOIN group_membership gm ON gm.group_id = la.group_id
        JOIN profiles p ON p.user_id = gm.user_id
        LEFT JOIN activities a ON a.lesson_id = l.lesson_id
-       LEFT JOIN submissions s ON s.activity_id = a.activity_id AND s.user_id = gm.user_id
+         AND coalesce(a.active, true) = true
+         AND lower(trim(coalesce(a.type, ''))) = ANY (ARRAY['multiple-choice-question', 'short-text-question', 'upload-file'])
+       LEFT JOIN latest_submissions s ON s.activity_id = a.activity_id AND s.user_id = gm.user_id
        WHERE l.unit_id = $2
      )
      SELECT
@@ -248,17 +280,26 @@ export async function getPupilUnitLessonsAction(groupId: string, unitId: string,
 
   // Get lesson-level averages by aggregating from submission-level scores
   const { rows: lessonRows } = await query(
-    `SELECT
+    `WITH latest_submissions AS (
+       SELECT DISTINCT ON (s.activity_id, s.user_id)
+         s.activity_id, s.user_id, s.body
+       FROM submissions s
+       WHERE s.user_id = $2
+       ORDER BY s.activity_id, s.user_id, s.submitted_at DESC NULLS LAST, s.submission_id DESC
+     )
+     SELECT
        l.lesson_id,
        l.title as lesson_title,
        l.order_by,
        AVG(CASE WHEN $4 = true AND a.is_summative = false THEN NULL
-                ELSE COALESCE((s.body->>'teacher_override_score')::numeric, 0) END) as avg_score
+                WHEN a.activity_id IS NOT NULL THEN COALESCE(compute_submission_base_score(s.body, a.type), 0) END) as avg_score
      FROM lessons l
      JOIN lesson_assignments la ON la.lesson_id = l.lesson_id AND la.group_id = $1
      LEFT JOIN activities a ON a.lesson_id = l.lesson_id
-     LEFT JOIN submissions s ON s.activity_id = a.activity_id
-                             AND s.user_id = $2
+       AND coalesce(a.active, true) = true
+       AND lower(trim(coalesce(a.type, ''))) = ANY (ARRAY['multiple-choice-question', 'short-text-question', 'upload-file'])
+     LEFT JOIN latest_submissions s ON s.activity_id = a.activity_id
+                                    AND s.user_id = $2
      WHERE l.unit_id = $3
      GROUP BY l.lesson_id, l.title, l.order_by
      ORDER BY l.order_by`,
