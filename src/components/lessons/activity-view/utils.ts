@@ -303,10 +303,10 @@ export function getFeedbackBody(
   } as FeedbackActivityBody;
 }
 
-export function getKeyTermsMarkdown(activity: LessonActivity): string {
+export function getFlashcardsText(activity: LessonActivity): string {
   if (!activity.body_data || typeof activity.body_data !== "object") return ""
   const record = activity.body_data as Record<string, unknown>
-  return typeof record.markdown === "string" ? record.markdown : ""
+  return typeof record.lines === "string" ? record.lines : ""
 }
 
 export function getRichTextMarkup(value: string): string | null {

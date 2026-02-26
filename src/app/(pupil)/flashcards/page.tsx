@@ -7,14 +7,14 @@ import { FlashcardsShell } from "@/components/flashcards/flashcards-shell"
 export default async function FlashcardsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ unitId?: string; lessonId?: string }>
+  searchParams: Promise<{ unitId?: string; activityId?: string }>
 }) {
   const profile = await requireAuthenticatedProfile()
   if (!profile) redirect("/signin")
 
   const params = await searchParams
   const selectedUnitId = params.unitId ?? null
-  const selectedLessonId = params.lessonId ?? null
+  const selectedActivityId = params.activityId ?? null
 
   const bootstrapResult = await readFlashcardsBootstrapAction(profile.userId)
 
@@ -26,11 +26,11 @@ export default async function FlashcardsPage({
     )
   }
 
-  const { subjects, lessonsWithKeyTerms } = bootstrapResult.data
+  const { subjects, flashcardActivities } = bootstrapResult.data
 
-  let deck: { lessonId: string; lessonTitle: string; terms: { term: string; definition: string }[] } | null = null
-  if (selectedLessonId) {
-    const deckResult = await readFlashcardDeckAction(selectedLessonId)
+  let deck: { activityId: string; activityTitle: string; lessonTitle: string; cards: { sentence: string; answer: string; template: string }[] } | null = null
+  if (selectedActivityId) {
+    const deckResult = await readFlashcardDeckAction(selectedActivityId)
     if (deckResult.data) {
       deck = deckResult.data
     }
@@ -40,9 +40,9 @@ export default async function FlashcardsPage({
     <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-10">
       <FlashcardsShell
         subjects={subjects}
-        lessonsWithKeyTerms={lessonsWithKeyTerms}
+        flashcardActivities={flashcardActivities}
         selectedUnitId={selectedUnitId}
-        selectedLessonId={selectedLessonId}
+        selectedActivityId={selectedActivityId}
         deck={deck}
         pupilId={profile.userId}
       />

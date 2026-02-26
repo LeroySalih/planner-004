@@ -8,7 +8,7 @@ type TelemetryOptions = { authEndTime?: number | null; routeTag?: string }
 
 export async function readLiveFlashcardMonitorAction(
   groupId: string,
-  lessonId: string,
+  activityId: string,
   options?: TelemetryOptions,
 ) {
   const routeTag = options?.routeTag ?? "/flashcard-monitor:live"
@@ -17,14 +17,14 @@ export async function readLiveFlashcardMonitorAction(
     {
       routeTag,
       functionName: "readLiveFlashcardMonitorAction",
-      params: { groupId, lessonId },
+      params: { groupId, activityId },
       authEndTime: options?.authEndTime ?? null,
     },
     async () => {
       await requireTeacherProfile()
 
       try {
-        const [membersResult, lessonResult] = await Promise.all([
+        const [membersResult, activityResult] = await Promise.all([
           query<{ user_id: string; first_name: string | null; last_name: string | null }>(
             `SELECT gm.user_id, p.first_name, p.last_name
              FROM group_membership gm
@@ -34,13 +34,15 @@ export async function readLiveFlashcardMonitorAction(
             [groupId],
           ),
           query<{ title: string }>(
-            `SELECT coalesce(title, 'Untitled lesson') as title FROM lessons WHERE lesson_id = $1 LIMIT 1`,
-            [lessonId],
+            `SELECT coalesce(a.title, 'Flashcards') as title
+             FROM activities a
+             WHERE a.activity_id = $1 LIMIT 1`,
+            [activityId],
           ),
         ])
 
         const pupilIds = membersResult.rows.map((r) => r.user_id)
-        const lessonTitle = lessonResult.rows[0]?.title ?? "Untitled lesson"
+        const activityTitle = activityResult.rows[0]?.title ?? "Flashcards"
 
         let sessionMap = new Map<string, {
           session_id: string
@@ -60,9 +62,9 @@ export async function readLiveFlashcardMonitorAction(
             `SELECT DISTINCT ON (pupil_id)
                pupil_id, session_id, status, total_cards, coalesce(correct_count, 0) as correct_count
              FROM flashcard_sessions
-             WHERE lesson_id = $1 AND pupil_id = ANY($2::text[])
+             WHERE activity_id = $1 AND pupil_id = ANY($2::text[])
              ORDER BY pupil_id, started_at DESC`,
-            [lessonId, pupilIds],
+            [activityId, pupilIds],
           )
 
           for (const row of sessionsResult.rows) {
@@ -88,7 +90,7 @@ export async function readLiveFlashcardMonitorAction(
           }
         })
 
-        return { data: { pupils, lessonTitle }, error: null }
+        return { data: { pupils, activityTitle }, error: null }
       } catch (error) {
         console.error("[flashcard-monitor] Failed to load live monitor", error)
         const message = error instanceof Error ? error.message : "Unable to load monitor data."
@@ -116,19 +118,16 @@ export async function readStudyTrackerAction(
       await requireTeacherProfile()
 
       try {
-        const [lessonsResult, membersResult, unitResult] = await Promise.all([
-          query<{ lesson_id: string; title: string; order_by: number | null }>(
-            `SELECT l.lesson_id, coalesce(l.title, 'Untitled') as title, l.order_by
-             FROM lessons l
+        const [activitiesResult, membersResult, unitResult] = await Promise.all([
+          query<{ activity_id: string; title: string | null; lesson_id: string }>(
+            `SELECT a.activity_id, a.title, a.lesson_id
+             FROM activities a
+             JOIN lessons l ON l.lesson_id = a.lesson_id
              WHERE l.unit_id = $1
+               AND a.type = 'display-flashcards'
+               AND coalesce(a.active, true) = true
                AND coalesce(l.active, true) = true
-               AND EXISTS (
-                 SELECT 1 FROM activities a
-                 WHERE a.lesson_id = l.lesson_id
-                   AND a.type = 'display-key-terms'
-                   AND coalesce(a.active, true) = true
-               )
-             ORDER BY l.order_by ASC NULLS LAST`,
+             ORDER BY l.order_by ASC NULLS LAST, a.order_by ASC NULLS LAST`,
             [unitId],
           ),
           query<{ user_id: string; first_name: string | null; last_name: string | null }>(
@@ -145,43 +144,43 @@ export async function readStudyTrackerAction(
           ),
         ])
 
-        const lessonIds = lessonsResult.rows.map((r) => r.lesson_id)
+        const activityIds = activitiesResult.rows.map((r) => r.activity_id)
         const pupilIds = membersResult.rows.map((r) => r.user_id)
         const unitTitle = unitResult.rows[0]?.title ?? "Untitled unit"
 
-        let cells: { pupilId: string; lessonId: string; startedAt: string; completedAt: string | null; status: string }[] = []
+        let cells: { pupilId: string; activityId: string; startedAt: string; completedAt: string | null; status: string }[] = []
 
-        if (lessonIds.length > 0 && pupilIds.length > 0) {
+        if (activityIds.length > 0 && pupilIds.length > 0) {
           const cellsResult = await query<{
             pupil_id: string
-            lesson_id: string
+            activity_id: string
             started_at: string
             completed_at: string | null
             status: string
           }>(
-            `SELECT DISTINCT ON (pupil_id, lesson_id)
-               pupil_id, lesson_id, started_at, completed_at, status
+            `SELECT DISTINCT ON (pupil_id, activity_id)
+               pupil_id, activity_id, started_at, completed_at, status
              FROM flashcard_sessions
-             WHERE lesson_id = ANY($1::text[])
+             WHERE activity_id = ANY($1::text[])
                AND pupil_id = ANY($2::text[])
-             ORDER BY pupil_id, lesson_id,
+             ORDER BY pupil_id, activity_id,
                CASE WHEN status = 'completed' THEN 0 ELSE 1 END,
                started_at DESC`,
-            [lessonIds, pupilIds],
+            [activityIds, pupilIds],
           )
 
           cells = cellsResult.rows.map((r) => ({
             pupilId: r.pupil_id,
-            lessonId: r.lesson_id,
+            activityId: r.activity_id,
             startedAt: r.started_at,
             completedAt: r.completed_at,
             status: r.status,
           }))
         }
 
-        const lessons = lessonsResult.rows.map((r) => ({
-          lessonId: r.lesson_id,
-          title: r.title,
+        const activities = activitiesResult.rows.map((r) => ({
+          activityId: r.activity_id,
+          activityTitle: r.title ?? "Flashcards",
         }))
 
         const pupils = membersResult.rows.map((r) => ({
@@ -190,7 +189,7 @@ export async function readStudyTrackerAction(
           lastName: r.last_name ?? "",
         }))
 
-        return { data: { lessons, pupils, cells, unitTitle }, error: null }
+        return { data: { activities, pupils, cells, unitTitle }, error: null }
       } catch (error) {
         console.error("[flashcard-monitor] Failed to load study tracker", error)
         const message = error instanceof Error ? error.message : "Unable to load study tracker data."
@@ -218,23 +217,20 @@ export async function readFlashcardSessionDetailAction(
       await requireTeacherProfile()
 
       try {
-        const [profileResult, lessonsResult] = await Promise.all([
+        const [profileResult, activitiesResult] = await Promise.all([
           query<{ first_name: string | null; last_name: string | null }>(
             `SELECT first_name, last_name FROM profiles WHERE user_id = $1 LIMIT 1`,
             [pupilId],
           ),
-          query<{ lesson_id: string; title: string }>(
-            `SELECT l.lesson_id, coalesce(l.title, 'Untitled') as title
-             FROM lessons l
+          query<{ activity_id: string; title: string | null }>(
+            `SELECT a.activity_id, a.title
+             FROM activities a
+             JOIN lessons l ON l.lesson_id = a.lesson_id
              WHERE l.unit_id = $1
+               AND a.type = 'display-flashcards'
+               AND coalesce(a.active, true) = true
                AND coalesce(l.active, true) = true
-               AND EXISTS (
-                 SELECT 1 FROM activities a
-                 WHERE a.lesson_id = l.lesson_id
-                   AND a.type = 'display-key-terms'
-                   AND coalesce(a.active, true) = true
-               )
-             ORDER BY l.order_by ASC NULLS LAST`,
+             ORDER BY l.order_by ASC NULLS LAST, a.order_by ASC NULLS LAST`,
             [unitId],
           ),
         ])
@@ -244,12 +240,12 @@ export async function readFlashcardSessionDetailAction(
           profileResult.rows[0]?.last_name ?? "",
         ].filter(Boolean).join(" ") || "Unknown pupil"
 
-        const lessonIds = lessonsResult.rows.map((r) => r.lesson_id)
-        const lessonTitleMap = new Map(lessonsResult.rows.map((r) => [r.lesson_id, r.title]))
+        const activityIds = activitiesResult.rows.map((r) => r.activity_id)
+        const activityTitleMap = new Map(activitiesResult.rows.map((r) => [r.activity_id, r.title ?? "Flashcards"]))
 
         let sessions: {
           session_id: string
-          lesson_id: string
+          activity_id: string
           status: string
           started_at: string
           completed_at: string | null
@@ -257,21 +253,21 @@ export async function readFlashcardSessionDetailAction(
           correct_count: number
         }[] = []
 
-        if (lessonIds.length > 0) {
+        if (activityIds.length > 0) {
           const sessionsResult = await query<{
             session_id: string
-            lesson_id: string
+            activity_id: string
             status: string
             started_at: string
             completed_at: string | null
             total_cards: number
             correct_count: number
           }>(
-            `SELECT session_id, lesson_id, status, started_at, completed_at, total_cards, coalesce(correct_count, 0) as correct_count
+            `SELECT session_id, activity_id, status, started_at, completed_at, total_cards, coalesce(correct_count, 0) as correct_count
              FROM flashcard_sessions
-             WHERE pupil_id = $1 AND lesson_id = ANY($2::text[])
+             WHERE pupil_id = $1 AND activity_id = ANY($2::text[])
              ORDER BY started_at DESC`,
-            [pupilId, lessonIds],
+            [pupilId, activityIds],
           )
           sessions = sessionsResult.rows
         }
@@ -312,7 +308,7 @@ export async function readFlashcardSessionDetailAction(
 
         const shapedSessions = sessions.map((s) => ({
           sessionId: s.session_id,
-          lessonTitle: lessonTitleMap.get(s.lesson_id) ?? "Untitled",
+          activityTitle: activityTitleMap.get(s.activity_id) ?? "Flashcards",
           status: s.status,
           startedAt: s.started_at,
           completedAt: s.completed_at,
@@ -366,14 +362,12 @@ export async function readFlashcardMonitorGroupsAction(
           subject: g.subject ?? "",
         }))
 
-        // For each group, find units that have lessons assigned to the group
-        // and that contain key-terms activities
         const groupIds = groups.map((g) => g.groupId)
         let groupUnits: { groupId: string; unitId: string; unitTitle: string }[] = []
-        let groupLessons: { groupId: string; lessonId: string; lessonTitle: string }[] = []
+        let groupActivities: { groupId: string; activityId: string; activityTitle: string }[] = []
 
         if (groupIds.length > 0) {
-          const [unitsResult, lessonsResult] = await Promise.all([
+          const [unitsResult, activitiesResult] = await Promise.all([
             query<{ group_id: string; unit_id: string; unit_title: string }>(
               `SELECT DISTINCT la.group_id, u.unit_id, coalesce(u.title, 'Untitled') as unit_title
                FROM lesson_assignments la
@@ -384,25 +378,22 @@ export async function readFlashcardMonitorGroupsAction(
                  AND EXISTS (
                    SELECT 1 FROM activities a
                    WHERE a.lesson_id = l.lesson_id
-                     AND a.type = 'display-key-terms'
+                     AND a.type = 'display-flashcards'
                      AND coalesce(a.active, true) = true
                  )
                ORDER BY la.group_id, unit_title`,
               [groupIds],
             ),
-            query<{ group_id: string; lesson_id: string; lesson_title: string }>(
-              `SELECT la.group_id, la.lesson_id, coalesce(l.title, 'Untitled') as lesson_title
+            query<{ group_id: string; activity_id: string; activity_title: string }>(
+              `SELECT la.group_id, a.activity_id, coalesce(a.title, 'Flashcards') as activity_title
                FROM lesson_assignments la
                JOIN lessons l ON l.lesson_id = la.lesson_id
+               JOIN activities a ON a.lesson_id = l.lesson_id
                WHERE la.group_id = ANY($1::text[])
                  AND coalesce(l.active, true) = true
-                 AND EXISTS (
-                   SELECT 1 FROM activities a
-                   WHERE a.lesson_id = l.lesson_id
-                     AND a.type = 'display-key-terms'
-                     AND coalesce(a.active, true) = true
-                 )
-               ORDER BY la.group_id, lesson_title`,
+                 AND a.type = 'display-flashcards'
+                 AND coalesce(a.active, true) = true
+               ORDER BY la.group_id, activity_title`,
               [groupIds],
             ),
           ])
@@ -413,14 +404,14 @@ export async function readFlashcardMonitorGroupsAction(
             unitTitle: r.unit_title,
           }))
 
-          groupLessons = lessonsResult.rows.map((r) => ({
+          groupActivities = activitiesResult.rows.map((r) => ({
             groupId: r.group_id,
-            lessonId: r.lesson_id,
-            lessonTitle: r.lesson_title,
+            activityId: r.activity_id,
+            activityTitle: r.activity_title,
           }))
         }
 
-        return { data: { groups, groupUnits, groupLessons }, error: null }
+        return { data: { groups, groupUnits, groupActivities }, error: null }
       } catch (error) {
         console.error("[flashcard-monitor] Failed to load groups", error)
         const message = error instanceof Error ? error.message : "Unable to load groups."

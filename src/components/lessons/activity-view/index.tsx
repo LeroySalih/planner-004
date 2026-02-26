@@ -17,7 +17,7 @@ import {
   getActivityTextValue,
   getFeedbackBody,
   getImageBody,
-  getKeyTermsMarkdown,
+  getFlashcardsText,
   getLongTextBody,
   getMcqBody,
   getShortTextBody,
@@ -388,11 +388,11 @@ function ActivityShortView({
     )
   } else if (activity.type === "sketch-render") {
     content = <LessonActivityViewSketchRender activity={activity} />
-  } else if (activity.type === "display-key-terms") {
-    const md = getKeyTermsMarkdown(activity)
+  } else if (activity.type === "display-flashcards") {
+    const md = getFlashcardsText(activity)
     const firstLine = md.split("\n").find((l) => l.trim().length > 0)?.trim()
     content = (
-      <p className="text-sm text-muted-foreground">{firstLine || "Key terms table"}</p>
+      <p className="text-sm text-muted-foreground">{firstLine || "Flashcard sentences"}</p>
     )
   } else if (activity.type === "share-my-work") {
     const body = (activity.body_data ?? {}) as Record<string, unknown>
@@ -847,11 +847,11 @@ function ActivityPresentView({
     )
   }
 
-  if (activity.type === "display-key-terms") {
-    const md = getKeyTermsMarkdown(activity)
+  if (activity.type === "display-flashcards") {
+    const md = getFlashcardsText(activity)
     const markup = getRichTextMarkup(md)
     if (!markup) {
-      return wrap(<p className="text-muted-foreground">No key terms provided for this activity.</p>)
+      return wrap(<p className="text-muted-foreground">No flashcard sentences provided for this activity.</p>)
     }
     return wrap(
       <div
@@ -1142,8 +1142,8 @@ function ActivityEditView({ activity, resolvedImageUrl }: LessonActivityEditView
     )
   }
 
-  if (activity.type === "display-key-terms") {
-    const md = getKeyTermsMarkdown(activity)
+  if (activity.type === "display-flashcards") {
+    const md = getFlashcardsText(activity)
     const markup = getRichTextMarkup(md)
     if (!markup) return null
     return (

@@ -6,24 +6,34 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { FlashcardCard } from "@/components/flashcards/flashcard-card"
+import { similarity, SIMILARITY_THRESHOLD } from "@/lib/flashcards/similarity"
 import {
   startFlashcardSessionAction,
   recordFlashcardAttemptAction,
   completeFlashcardSessionAction,
 } from "@/lib/server-updates"
 
-type KeyTerm = {
-  term: string
-  definition: string
+type FlashCard = {
+  sentence: string
+  answer: string
+  template: string
 }
 
 type Deck = {
-  lessonId: string
+  activityId: string
+  activityTitle: string
   lessonTitle: string
-  terms: KeyTerm[]
+  cards: FlashCard[]
 }
 
 type Phase = "ready" | "question" | "feedback" | "complete"
+
+type FeedbackState = {
+  isCorrect: boolean
+  isExactMatch: boolean
+  correctAnswer: string
+  typedAnswer: string
+}
 
 function shuffleArray<T>(arr: T[]): T[] {
   const result = [...arr]
@@ -34,30 +44,16 @@ function shuffleArray<T>(arr: T[]): T[] {
   return result
 }
 
-function generateOptions(
-  currentTerm: KeyTerm,
-  allTerms: KeyTerm[],
-): string[] {
-  const otherDefinitions = allTerms
-    .filter((t) => t.term !== currentTerm.term)
-    .map((t) => t.definition)
-
-  const shuffledOthers = shuffleArray(otherDefinitions)
-  const wrongOptions = shuffledOthers.slice(0, 3)
-  return shuffleArray([currentTerm.definition, ...wrongOptions])
-}
-
 type FlashcardSessionProps = {
   deck: Deck
   pupilId: string
 }
 
 export function FlashcardSession({ deck, pupilId }: FlashcardSessionProps) {
-  const [pile, setPile] = useState<KeyTerm[]>([])
+  const [pile, setPile] = useState<FlashCard[]>([])
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [phase, setPhase] = useState<Phase>("ready")
-  const [options, setOptions] = useState<string[]>([])
-  const [selectedOption, setSelectedOption] = useState<string | null>(null)
+  const [feedbackState, setFeedbackState] = useState<FeedbackState | null>(null)
   const [consecutiveCorrect, setConsecutiveCorrect] = useState(0)
   const [attemptCounts, setAttemptCounts] = useState<Map<string, number>>(
     new Map(),
@@ -69,18 +65,17 @@ export function FlashcardSession({ deck, pupilId }: FlashcardSessionProps) {
     if (sessionStarted.current) return
     sessionStarted.current = true
 
-    const shuffled = shuffleArray(deck.terms)
+    const shuffled = shuffleArray(deck.cards)
     setPile(shuffled)
-    setOptions(generateOptions(shuffled[0], deck.terms))
     setPhase("question")
     setConsecutiveCorrect(0)
     setAttemptCounts(new Map())
     setTotalCorrectAnswers(0)
-    setSelectedOption(null)
+    setFeedbackState(null)
 
     const result = await startFlashcardSessionAction(
-      deck.lessonId,
-      deck.terms.length,
+      deck.activityId,
+      deck.cards.length,
       pupilId,
     )
     if (result.data) {
@@ -92,16 +87,23 @@ export function FlashcardSession({ deck, pupilId }: FlashcardSessionProps) {
     startSession()
   }, [startSession])
 
-  const handleSelect = useCallback(
-    (option: string) => {
+  const handleSubmit = useCallback(
+    (typedAnswer: string) => {
       if (phase !== "question" || pile.length === 0) return
 
       const currentCard = pile[0]
-      const isCorrect = option === currentCard.definition
-      setSelectedOption(option)
+      const score = similarity(typedAnswer, currentCard.answer)
+      const isExactMatch = typedAnswer.trim().toLowerCase() === currentCard.answer.trim().toLowerCase()
+      const isCorrect = score >= SIMILARITY_THRESHOLD
+      setFeedbackState({
+        isCorrect,
+        isExactMatch,
+        correctAnswer: currentCard.answer,
+        typedAnswer,
+      })
       setPhase("feedback")
 
-      const termKey = currentCard.term
+      const termKey = currentCard.template
       const newAttemptCounts = new Map(attemptCounts)
       const currentCount = newAttemptCounts.get(termKey) ?? 0
       newAttemptCounts.set(termKey, currentCount + 1)
@@ -116,58 +118,66 @@ export function FlashcardSession({ deck, pupilId }: FlashcardSessionProps) {
         const newConsecutiveForEmit = isCorrect ? consecutiveCorrect + 1 : 0
         recordFlashcardAttemptAction({
           sessionId,
-          term: currentCard.term,
-          definition: currentCard.definition,
-          chosenDefinition: option,
+          term: currentCard.template,
+          definition: currentCard.answer,
+          chosenDefinition: typedAnswer,
           isCorrect,
           attemptNumber: currentCount + 1,
           progress: {
             pupilId,
-            lessonId: deck.lessonId,
+            activityId: deck.activityId,
             consecutiveCorrect: newConsecutiveForEmit,
             totalCards: pile.length,
           },
         })
       }
 
-      // Advance after feedback delay
-      setTimeout(() => {
-        const newConsecutive = isCorrect ? consecutiveCorrect + 1 : 0
-
-        if (isCorrect && newConsecutive >= pile.length) {
-          // Clean pass complete
-          setConsecutiveCorrect(newConsecutive)
-          setPhase("complete")
-          if (sessionId) {
-            completeFlashcardSessionAction(sessionId, totalCorrectAnswers + 1, {
-              pupilId,
-              lessonId: deck.lessonId,
-              totalCards: pile.length,
-            })
-          }
-          return
-        }
-
-        // Rearrange pile
-        const newPile = [...pile]
-        newPile.splice(0, 1) // Remove current card
-
-        if (isCorrect) {
-          newPile.push(currentCard) // Back of pile
-        } else {
-          const insertPos = Math.min(2, newPile.length)
-          newPile.splice(insertPos, 0, currentCard) // 2 positions down
-        }
-
-        setPile(newPile)
-        setConsecutiveCorrect(newConsecutive)
-        setOptions(generateOptions(newPile[0], deck.terms))
-        setSelectedOption(null)
-        setPhase("question")
-      }, 1200)
+      // Both correct and incorrect wait for user to click "Next" (handled by handleNext)
     },
-    [phase, pile, sessionId, consecutiveCorrect, attemptCounts, deck.terms, totalCorrectAnswers],
+    [phase, pile, sessionId, consecutiveCorrect, attemptCounts, deck.activityId, totalCorrectAnswers, pupilId],
   )
+
+  const handleNext = useCallback(() => {
+    if (phase !== "feedback" || pile.length === 0 || !feedbackState) return
+
+    const currentCard = pile[0]
+    const isCorrect = feedbackState.isCorrect
+
+    if (isCorrect) {
+      const newConsecutive = consecutiveCorrect + 1
+
+      if (newConsecutive >= pile.length) {
+        setConsecutiveCorrect(newConsecutive)
+        setPhase("complete")
+        if (sessionId) {
+          completeFlashcardSessionAction(sessionId, totalCorrectAnswers, {
+            pupilId,
+            activityId: deck.activityId,
+            totalCards: pile.length,
+          })
+        }
+        return
+      }
+
+      const newPile = [...pile]
+      newPile.splice(0, 1)
+      newPile.push(currentCard)
+
+      setPile(newPile)
+      setConsecutiveCorrect(newConsecutive)
+    } else {
+      const newPile = [...pile]
+      newPile.splice(0, 1)
+      const insertPos = Math.min(2, newPile.length)
+      newPile.splice(insertPos, 0, currentCard)
+
+      setPile(newPile)
+      setConsecutiveCorrect(0)
+    }
+
+    setFeedbackState(null)
+    setPhase("question")
+  }, [phase, pile, feedbackState, consecutiveCorrect, sessionId, totalCorrectAnswers, pupilId, deck.activityId])
 
   const handleRestart = useCallback(() => {
     sessionStarted.current = false
@@ -192,7 +202,7 @@ export function FlashcardSession({ deck, pupilId }: FlashcardSessionProps) {
         <CardContent className="flex flex-col items-center gap-6 py-8">
           <div className="text-center">
             <p className="text-4xl font-bold text-emerald-600">
-              {deck.terms.length}/{deck.terms.length}
+              {deck.cards.length}/{deck.cards.length}
             </p>
             <p className="mt-2 text-muted-foreground">
               All cards correct in a row — clean pass!
@@ -215,7 +225,7 @@ export function FlashcardSession({ deck, pupilId }: FlashcardSessionProps) {
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-1">
         <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>{deck.lessonTitle}</span>
+          <span>{deck.activityTitle}</span>
           <span>{Math.round(progressPercent)}% to clean pass</span>
         </div>
         <Progress value={progressPercent} />
@@ -223,13 +233,11 @@ export function FlashcardSession({ deck, pupilId }: FlashcardSessionProps) {
 
       {pile.length > 0 && (
         <FlashcardCard
-          term={pile[0].term}
-          options={options}
-          selectedOption={selectedOption}
-          correctDefinition={pile[0].definition}
-          isAnswered={phase === "feedback"}
-          onSelect={handleSelect}
-          currentIndex={0}
+          key={phase === "question" ? `q-${pile[0].template}` : `f-${pile[0].template}`}
+          template={pile[0].template}
+          feedbackState={feedbackState}
+          onSubmit={handleSubmit}
+          onNext={handleNext}
           totalCards={pile.length}
           consecutiveCorrect={consecutiveCorrect}
         />

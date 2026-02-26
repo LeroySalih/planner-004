@@ -3,12 +3,12 @@ import { readLiveFlashcardMonitorAction } from "@/lib/server-updates"
 import { LiveFlashcardMonitor } from "./live-flashcard-monitor"
 
 type PageProps = {
-  params: Promise<{ groupId: string; lessonId: string }>
+  params: Promise<{ groupId: string; activityId: string }>
 }
 
 export default async function LiveFlashcardMonitorPage({ params }: PageProps) {
-  const { groupId, lessonId } = await params
-  const result = await readLiveFlashcardMonitorAction(groupId, lessonId)
+  const { groupId, activityId } = await params
+  const result = await readLiveFlashcardMonitorAction(groupId, activityId)
 
   if (result.error || !result.data) {
     return (
@@ -29,14 +29,14 @@ export default async function LiveFlashcardMonitorPage({ params }: PageProps) {
       breadcrumbs={[
         { label: "Flashcard Monitor", href: "/flashcard-monitor" },
         { label: groupId },
-        { label: result.data.lessonTitle },
+        { label: result.data.activityTitle },
       ]}
-      title={result.data.lessonTitle}
+      title={result.data.activityTitle}
       subtitle={`${groupId} — Live flashcard monitor`}
     >
       <LiveFlashcardMonitor
         initialPupils={result.data.pupils}
-        lessonId={lessonId}
+        activityId={activityId}
       />
     </TeacherPageLayout>
   )

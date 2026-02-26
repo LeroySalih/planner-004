@@ -59,7 +59,7 @@ import { fetchPupilActivityFeedbackMap, selectLatestFeedbackEntry } from "@/lib/
 import {
   getActivityFileUrlValue,
   getActivityTextValue,
-  getKeyTermsMarkdown,
+  getFlashcardsText,
   getRichTextMarkup,
   getYouTubeThumbnailUrl,
 } from "@/components/lessons/activity-view/utils"
@@ -1026,8 +1026,8 @@ export default async function PupilLessonFriendlyPage({
                           </div>
 
                           {(() => {
-                            const textValue = activity.type === "display-key-terms"
-                              ? getKeyTermsMarkdown(activity)
+                            const textValue = activity.type === "display-flashcards"
+                              ? getFlashcardsText(activity)
                               : getActivityTextValue(activity)
                             const htmlContent = getRichTextMarkup(textValue)
 
