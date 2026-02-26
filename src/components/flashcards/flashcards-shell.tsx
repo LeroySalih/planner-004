@@ -14,17 +14,28 @@ import {
 } from "@/components/ui/select"
 import { FlashcardSession } from "@/components/flashcards/flashcard-session"
 
-type Lesson = {
+type FlashCard = {
+  sentence: string
+  answer: string
+  template: string
+}
+
+type FlashcardActivity = {
+  activityId: string
+  activityTitle: string
   lessonId: string
   lessonTitle: string
-  lessonOrder: number | null
-  startDate: string | null
 }
 
 type Unit = {
   unitId: string
   unitTitle: string
-  lessons: Lesson[]
+  lessons: {
+    lessonId: string
+    lessonTitle: string
+    lessonOrder: number | null
+    startDate: string | null
+  }[]
 }
 
 type Subject = {
@@ -32,39 +43,35 @@ type Subject = {
   units: Unit[]
 }
 
-type KeyTerm = {
-  term: string
-  definition: string
-}
-
 type Deck = {
-  lessonId: string
+  activityId: string
+  activityTitle: string
   lessonTitle: string
-  terms: KeyTerm[]
+  cards: FlashCard[]
 }
 
 type FlashcardsShellProps = {
   subjects: Subject[]
-  lessonsWithKeyTerms: string[]
+  flashcardActivities: FlashcardActivity[]
   selectedUnitId: string | null
-  selectedLessonId: string | null
+  selectedActivityId: string | null
   deck: Deck | null
   pupilId: string
 }
 
 export function FlashcardsShell({
   subjects,
-  lessonsWithKeyTerms,
+  flashcardActivities,
   selectedUnitId,
-  selectedLessonId,
+  selectedActivityId,
   deck,
   pupilId,
 }: FlashcardsShellProps) {
   const router = useRouter()
 
-  const keyTermsSet = useMemo(
-    () => new Set(lessonsWithKeyTerms),
-    [lessonsWithKeyTerms],
+  const activitySet = useMemo(
+    () => new Set(flashcardActivities.map((a) => a.activityId)),
+    [flashcardActivities],
   )
 
   const allUnits = useMemo(() => {
@@ -84,14 +91,28 @@ export function FlashcardsShell({
     return allUnits[0] ?? null
   }, [allUnits, selectedUnitId])
 
+  // Group activities by lesson for sidebar display
+  const activitiesByLesson = useMemo(() => {
+    if (!activeUnit) return new Map<string, FlashcardActivity[]>()
+    const lessonIds = new Set(activeUnit.lessons.map((l) => l.lessonId))
+    const map = new Map<string, FlashcardActivity[]>()
+    for (const activity of flashcardActivities) {
+      if (!lessonIds.has(activity.lessonId)) continue
+      const arr = map.get(activity.lessonId) ?? []
+      arr.push(activity)
+      map.set(activity.lessonId, arr)
+    }
+    return map
+  }, [activeUnit, flashcardActivities])
+
   const handleUnitChange = (unitId: string) => {
     router.push(`/flashcards?unitId=${encodeURIComponent(unitId)}`)
   }
 
-  const handleLessonClick = (lessonId: string) => {
+  const handleActivityClick = (activityId: string) => {
     if (!activeUnit) return
     router.push(
-      `/flashcards?unitId=${encodeURIComponent(activeUnit.unitId)}&lessonId=${encodeURIComponent(lessonId)}`,
+      `/flashcards?unitId=${encodeURIComponent(activeUnit.unitId)}&activityId=${encodeURIComponent(activityId)}`,
     )
   }
 
@@ -108,7 +129,7 @@ export function FlashcardsShell({
       <header className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold">Flashcards</h1>
         <p className="text-sm text-muted-foreground">
-          Practise key terminology from your lessons
+          Fill in the missing word to practise key vocabulary
         </p>
       </header>
 
@@ -134,16 +155,11 @@ export function FlashcardsShell({
       </div>
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-[240px_1fr]">
-        {/* Lesson sidebar */}
+        {/* Activity sidebar grouped by lesson */}
         <nav className="flex flex-col gap-1">
-          <h2 className="mb-2 text-sm font-medium text-muted-foreground">
-            Lessons
-          </h2>
           {activeUnit?.lessons.map((lesson) => {
-            const hasKeyTerms = keyTermsSet.has(lesson.lessonId)
-            const isSelected = lesson.lessonId === selectedLessonId
-
-            if (!hasKeyTerms) {
+            const activities = activitiesByLesson.get(lesson.lessonId)
+            if (!activities || activities.length === 0) {
               return (
                 <div
                   key={lesson.lessonId}
@@ -155,17 +171,27 @@ export function FlashcardsShell({
             }
 
             return (
-              <Button
-                key={lesson.lessonId}
-                variant={isSelected ? "secondary" : "ghost"}
-                className={cn(
-                  "justify-start text-left h-auto py-2",
-                  isSelected && "font-medium",
-                )}
-                onClick={() => handleLessonClick(lesson.lessonId)}
-              >
-                {lesson.lessonTitle}
-              </Button>
+              <div key={lesson.lessonId} className="flex flex-col gap-0.5">
+                <h3 className="px-3 pt-2 pb-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  {lesson.lessonTitle}
+                </h3>
+                {activities.map((activity) => {
+                  const isSelected = activity.activityId === selectedActivityId
+                  return (
+                    <Button
+                      key={activity.activityId}
+                      variant={isSelected ? "secondary" : "ghost"}
+                      className={cn(
+                        "justify-start text-left h-auto py-2 pl-5",
+                        isSelected && "font-medium",
+                      )}
+                      onClick={() => handleActivityClick(activity.activityId)}
+                    >
+                      {activity.activityTitle}
+                    </Button>
+                  )
+                })}
+              </div>
             )
           })}
           {activeUnit && activeUnit.lessons.length === 0 && (
@@ -175,35 +201,34 @@ export function FlashcardsShell({
 
         {/* Main area */}
         <div className="min-h-[400px]">
-          {!selectedLessonId && (
+          {!selectedActivityId && (
             <div className="flex h-full items-center justify-center">
               <p className="text-muted-foreground">
-                Select a lesson to start practising flashcards
+                Select a flashcard activity to start practising
               </p>
             </div>
           )}
 
-          {selectedLessonId && deck && deck.terms.length < 4 && (
+          {selectedActivityId && deck && deck.cards.length === 0 && (
             <div className="flex h-full items-center justify-center">
               <p className="text-muted-foreground">
-                This lesson needs at least 4 key terms to run a flashcard session
-                (currently {deck.terms.length}).
+                No flashcard sentences found for this activity.
               </p>
             </div>
           )}
 
-          {selectedLessonId && deck && deck.terms.length >= 4 && (
+          {selectedActivityId && deck && deck.cards.length > 0 && (
             <FlashcardSession
-              key={deck.lessonId}
+              key={deck.activityId}
               deck={deck}
               pupilId={pupilId}
             />
           )}
 
-          {selectedLessonId && !deck && (
+          {selectedActivityId && !deck && (
             <div className="flex h-full items-center justify-center">
               <p className="text-muted-foreground">
-                No key terms found for this lesson.
+                No flashcard sentences found for this activity.
               </p>
             </div>
           )}

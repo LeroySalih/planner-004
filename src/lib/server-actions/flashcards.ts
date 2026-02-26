@@ -3,10 +3,17 @@
 import { query } from "@/lib/db"
 import { withTelemetry } from "@/lib/telemetry"
 import { readPupilUnitsBootstrapAction } from "@/lib/server-actions/pupil-units"
-import { parseKeyTermsMarkdown, type KeyTerm } from "@/lib/flashcards/parse-key-terms"
+import { parseFlashcardLines, type FlashCard } from "@/lib/flashcards/parse-flashcards"
 import { emitFlashcardEvent } from "@/lib/sse/topics"
 
 type TelemetryOptions = { authEndTime?: number | null; routeTag?: string }
+
+export type FlashcardActivity = {
+  activityId: string
+  activityTitle: string
+  lessonId: string
+  lessonTitle: string
+}
 
 export async function readFlashcardsBootstrapAction(
   pupilId: string,
@@ -47,23 +54,36 @@ export async function readFlashcardsBootstrapAction(
           }
         }
 
-        let lessonsWithKeyTerms: string[] = []
+        let flashcardActivities: FlashcardActivity[] = []
         if (allLessonIds.length > 0) {
-          const result = await query<{ lesson_id: string }>(
+          const result = await query<{
+            activity_id: string
+            title: string | null
+            lesson_id: string
+            lesson_title: string | null
+          }>(
             `
-            SELECT DISTINCT lesson_id
-            FROM activities
-            WHERE type = 'display-key-terms'
-              AND coalesce(active, true) = true
-              AND lesson_id = ANY($1::text[])
+            SELECT a.activity_id, a.title, a.lesson_id,
+                   coalesce(l.title, 'Untitled lesson') as lesson_title
+            FROM activities a
+            JOIN lessons l ON l.lesson_id = a.lesson_id
+            WHERE a.type = 'display-flashcards'
+              AND coalesce(a.active, true) = true
+              AND a.lesson_id = ANY($1::text[])
+            ORDER BY l.order_by ASC NULLS LAST, a.order_by ASC NULLS LAST
             `,
             [allLessonIds],
           )
-          lessonsWithKeyTerms = result.rows.map((row) => row.lesson_id)
+          flashcardActivities = result.rows.map((row) => ({
+            activityId: row.activity_id,
+            activityTitle: row.title ?? "Flashcards",
+            lessonId: row.lesson_id,
+            lessonTitle: row.lesson_title ?? "Untitled lesson",
+          }))
         }
 
         return {
-          data: { subjects, lessonsWithKeyTerms },
+          data: { subjects, flashcardActivities },
           error: null,
         }
       } catch (error) {
@@ -76,7 +96,7 @@ export async function readFlashcardsBootstrapAction(
 }
 
 export async function readFlashcardDeckAction(
-  lessonId: string,
+  activityId: string,
   options?: TelemetryOptions,
 ) {
   const routeTag = options?.routeTag ?? "/flashcards:deck"
@@ -85,55 +105,52 @@ export async function readFlashcardDeckAction(
     {
       routeTag,
       functionName: "readFlashcardDeckAction",
-      params: { lessonId },
+      params: { activityId },
       authEndTime: options?.authEndTime ?? null,
     },
     async () => {
-      if (!lessonId || lessonId.trim().length === 0) {
-        return { data: null, error: "Missing lesson identifier." }
+      if (!activityId || activityId.trim().length === 0) {
+        return { data: null, error: "Missing activity identifier." }
       }
 
       try {
-        const [lessonResult, activitiesResult] = await Promise.all([
-          query<{ title: string }>(
-            `SELECT coalesce(title, 'Untitled lesson') as title FROM lessons WHERE lesson_id = $1 LIMIT 1`,
-            [lessonId],
-          ),
-          query<{ body_data: Record<string, unknown> | null }>(
-            `
-            SELECT body_data
-            FROM activities
-            WHERE lesson_id = $1
-              AND type = 'display-key-terms'
-              AND coalesce(active, true) = true
-            ORDER BY order_by ASC NULLS LAST
-            `,
-            [lessonId],
-          ),
-        ])
+        const result = await query<{
+          activity_id: string
+          title: string | null
+          body_data: Record<string, unknown> | null
+          lesson_title: string | null
+        }>(
+          `
+          SELECT a.activity_id, a.title, a.body_data,
+                 coalesce(l.title, 'Untitled lesson') as lesson_title
+          FROM activities a
+          JOIN lessons l ON l.lesson_id = a.lesson_id
+          WHERE a.activity_id = $1
+            AND a.type = 'display-flashcards'
+            AND coalesce(a.active, true) = true
+          LIMIT 1
+          `,
+          [activityId],
+        )
 
-        const lessonTitle = lessonResult.rows[0]?.title ?? "Untitled lesson"
+        if (result.rows.length === 0) {
+          return { data: null, error: "Activity not found." }
+        }
 
-        const allTerms: KeyTerm[] = []
-        const seenTerms = new Set<string>()
+        const row = result.rows[0]
+        const activityTitle = row.title ?? "Flashcards"
+        const lessonTitle = row.lesson_title ?? "Untitled lesson"
 
-        for (const row of activitiesResult.rows) {
-          if (!row.body_data || typeof row.body_data !== "object") continue
-          const markdown = (row.body_data as Record<string, unknown>).markdown
-          if (typeof markdown !== "string") continue
-
-          const parsed = parseKeyTermsMarkdown(markdown)
-          for (const term of parsed) {
-            const key = term.term.toLowerCase().trim()
-            if (!seenTerms.has(key)) {
-              seenTerms.add(key)
-              allTerms.push(term)
-            }
+        let cards: FlashCard[] = []
+        if (row.body_data && typeof row.body_data === "object") {
+          const lines = (row.body_data as Record<string, unknown>).lines
+          if (typeof lines === "string") {
+            cards = parseFlashcardLines(lines)
           }
         }
 
         return {
-          data: { lessonId, lessonTitle, terms: allTerms },
+          data: { activityId, activityTitle, lessonTitle, cards },
           error: null,
         }
       } catch (error) {
@@ -146,7 +163,7 @@ export async function readFlashcardDeckAction(
 }
 
 export async function startFlashcardSessionAction(
-  lessonId: string,
+  activityId: string,
   totalCards: number,
   pupilId: string,
 ) {
@@ -154,22 +171,22 @@ export async function startFlashcardSessionAction(
     {
       routeTag: "/flashcards:start-session",
       functionName: "startFlashcardSessionAction",
-      params: { lessonId, totalCards, pupilId },
+      params: { activityId, totalCards, pupilId },
     },
     async () => {
       try {
         const result = await query<{ session_id: string }>(
           `
-          INSERT INTO flashcard_sessions (pupil_id, lesson_id, total_cards)
+          INSERT INTO flashcard_sessions (pupil_id, activity_id, total_cards)
           VALUES ($1, $2, $3)
           RETURNING session_id
           `,
-          [pupilId, lessonId, totalCards],
+          [pupilId, activityId, totalCards],
         )
 
         const sessionId = result.rows[0].session_id
         void emitFlashcardEvent("flashcard.start", {
-          pupilId, lessonId, sessionId, consecutiveCorrect: 0, totalCards, status: "in_progress",
+          pupilId, activityId, sessionId, consecutiveCorrect: 0, totalCards, status: "in_progress",
         })
 
         return { data: { sessionId }, error: null }
@@ -191,7 +208,7 @@ export async function recordFlashcardAttemptAction(input: {
   attemptNumber: number
   progress?: {
     pupilId: string
-    lessonId: string
+    activityId: string
     consecutiveCorrect: number
     totalCards: number
   }
@@ -220,9 +237,9 @@ export async function recordFlashcardAttemptAction(input: {
         )
 
         if (input.progress) {
-          const { pupilId, lessonId, consecutiveCorrect, totalCards } = input.progress
+          const { pupilId, activityId, consecutiveCorrect, totalCards } = input.progress
           void emitFlashcardEvent("flashcard.progress", {
-            pupilId, lessonId, sessionId: input.sessionId,
+            pupilId, activityId, sessionId: input.sessionId,
             consecutiveCorrect, totalCards, status: "in_progress",
           })
         }
@@ -240,7 +257,7 @@ export async function recordFlashcardAttemptAction(input: {
 export async function completeFlashcardSessionAction(
   sessionId: string,
   correctCount: number,
-  progress?: { pupilId: string; lessonId: string; totalCards: number },
+  progress?: { pupilId: string; activityId: string; totalCards: number },
 ) {
   return withTelemetry(
     {
@@ -261,7 +278,7 @@ export async function completeFlashcardSessionAction(
 
         if (progress) {
           void emitFlashcardEvent("flashcard.complete", {
-            pupilId: progress.pupilId, lessonId: progress.lessonId, sessionId,
+            pupilId: progress.pupilId, activityId: progress.activityId, sessionId,
             consecutiveCorrect: progress.totalCards, totalCards: progress.totalCards,
             status: "completed",
           })

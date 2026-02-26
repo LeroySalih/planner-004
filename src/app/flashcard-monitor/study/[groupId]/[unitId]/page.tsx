@@ -35,7 +35,7 @@ export default async function StudyTrackerPage({ params }: PageProps) {
       subtitle={`${groupId} — Flashcard study tracker`}
     >
       <StudyTrackerGrid
-        lessons={result.data.lessons}
+        activities={result.data.activities}
         pupils={result.data.pupils}
         cells={result.data.cells}
         groupId={groupId}

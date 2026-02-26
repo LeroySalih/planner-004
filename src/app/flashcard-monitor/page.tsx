@@ -21,7 +21,7 @@ export default async function FlashcardMonitorPage() {
       <FlashcardMonitorSelector
         groups={result.data.groups}
         groupUnits={result.data.groupUnits}
-        groupLessons={result.data.groupLessons}
+        groupActivities={result.data.groupActivities}
       />
     </TeacherPageLayout>
   )

@@ -3,7 +3,7 @@ import { readFlashcardSessionDetailAction } from "@/lib/server-updates"
 import { SessionDetailView } from "./session-detail-view"
 
 type PageProps = {
-  params: Promise<{ groupId: string; unitId: string; pupilId: string; lessonId: string }>
+  params: Promise<{ groupId: string; unitId: string; pupilId: string; activityId: string }>
 }
 
 export default async function FlashcardSessionDetailPage({ params }: PageProps) {

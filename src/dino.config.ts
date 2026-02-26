@@ -12,7 +12,7 @@ export const SCORABLE_ACTIVITY_TYPES = Object.freeze([
 export const NON_SCORABLE_ACTIVITY_TYPES = Object.freeze([
   "text",
   "display-image",
-  "display-key-terms",
+  "display-flashcards",
   "file-download",
   "show-video",
   "voice",

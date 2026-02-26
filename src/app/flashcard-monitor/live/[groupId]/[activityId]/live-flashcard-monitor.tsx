@@ -19,19 +19,19 @@ type Pupil = {
 
 type Props = {
   initialPupils: Pupil[]
-  lessonId: string
+  activityId: string
 }
 
 type SsePayload = {
   pupilId?: string
-  lessonId?: string
+  activityId?: string
   sessionId?: string
   consecutiveCorrect?: number
   totalCards?: number
   status?: string
 }
 
-export function LiveFlashcardMonitor({ initialPupils, lessonId }: Props) {
+export function LiveFlashcardMonitor({ initialPupils, activityId }: Props) {
   const [pupils, setPupils] = useState<Pupil[]>(initialPupils)
   const [connected, setConnected] = useState(false)
 
@@ -56,8 +56,8 @@ export function LiveFlashcardMonitor({ initialPupils, lessonId }: Props) {
         if (envelope.topic !== "flashcards") return
 
         const payload = envelope.payload
-        if (!payload?.pupilId || !payload?.lessonId) return
-        if (payload.lessonId !== lessonId) return
+        if (!payload?.pupilId || !payload?.activityId) return
+        if (payload.activityId !== activityId) return
         if (!pupilIdSet.has(payload.pupilId)) return
 
         const { pupilId, consecutiveCorrect, totalCards, sessionId } = payload
@@ -105,7 +105,7 @@ export function LiveFlashcardMonitor({ initialPupils, lessonId }: Props) {
     }
 
     return () => eventSource.close()
-  }, [lessonId, pupilIdSet])
+  }, [activityId, pupilIdSet])
 
   const completedCount = pupils.filter((p) => p.status === "completed").length
 

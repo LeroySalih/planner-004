@@ -77,7 +77,7 @@ const ACTIVITY_TYPES = [
   { value: "upload-file", label: "Upload file" },
   { value: "upload-url", label: "Upload URL" },
   { value: "display-image", label: "Display image" },
-  { value: "display-key-terms", label: "Display key terms" },
+  { value: "display-flashcards", label: "Flashcards" },
   { value: "show-video", label: "Show video" },
   { value: "multiple-choice-question", label: "Multiple choice question" },
   { value: "short-text-question", label: "Short text question" },
@@ -1627,11 +1627,11 @@ function extractUploadInstructions(activity: LessonActivity): string {
   return typeof value === "string" ? value : ""
 }
 
-function extractKeyTermsMarkdown(activity: LessonActivity): string {
+function extractFlashcardsText(activity: LessonActivity): string {
   if (!activity.body_data || typeof activity.body_data !== "object") {
     return ""
   }
-  const value = (activity.body_data as Record<string, unknown>).markdown
+  const value = (activity.body_data as Record<string, unknown>).lines
   return typeof value === "string" ? value : ""
 }
 
@@ -1676,8 +1676,8 @@ function buildBodyData(
   if (type === "sketch-render") {
     return { instructions: text }
   }
-  if (type === "display-key-terms") {
-    return { markdown: text }
+  if (type === "display-flashcards") {
+    return { lines: text }
   }
   return fallback ?? null
 }
@@ -2421,7 +2421,7 @@ function LessonActivityEditorSheet({
       setType(ensuredType)
       const initialText =
         ensuredType === "upload-file" ? extractUploadInstructions(activity)
-        : ensuredType === "display-key-terms" ? extractKeyTermsMarkdown(activity)
+        : ensuredType === "display-flashcards" ? extractFlashcardsText(activity)
         : extractText(activity)
       setText(initialText)
       setVideoUrl(extractVideoUrl(activity))
@@ -2545,7 +2545,7 @@ function LessonActivityEditorSheet({
   useEffect(() => {
     setRawBodyError(null)
     if (isCreateMode) {
-      if (type === "text" || type === "text-question" || type === "long-text-question" || type === "upload-file" || type === "sketch-render" || type === "display-key-terms") {
+      if (type === "text" || type === "text-question" || type === "long-text-question" || type === "upload-file" || type === "sketch-render" || type === "display-flashcards") {
         setVideoUrl("")
         setText("")
         setRawBody("")
@@ -2671,10 +2671,10 @@ function LessonActivityEditorSheet({
       return
     }
 
-    if (type === "display-key-terms") {
+    if (type === "display-flashcards") {
       if (activity) {
         const record = (activity.body_data ?? {}) as Record<string, unknown>
-        setText(typeof record.markdown === "string" ? record.markdown : "")
+        setText(typeof record.lines === "string" ? record.lines : "")
       } else {
         setText("")
       }
@@ -3292,17 +3292,17 @@ function LessonActivityEditorSheet({
             </div>
           ) : null}
 
-          {type === "display-key-terms" ? (
+          {type === "display-flashcards" ? (
             <div className="space-y-2">
-              <Label htmlFor="activity-key-terms">Key terms (markdown table)</Label>
+              <Label htmlFor="activity-flashcards">Flashcard sentences</Label>
               <Textarea
-                id="activity-key-terms"
+                id="activity-flashcards"
                 value={text}
                 onChange={(event) => setText(event.target.value)}
-                placeholder={"| Term | Definition |\n|---|---|\n| Algorithm | A step-by-step set of instructions |"}
+                placeholder={"An **algorithm** is a step-by-step set of instructions.\nA **variable** stores a value in memory."}
                 rows={10}
                 disabled={isPending}
-                className="font-mono text-sm"
+                className="text-sm"
               />
             </div>
           ) : null}
