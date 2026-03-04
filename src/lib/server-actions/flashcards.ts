@@ -13,6 +13,10 @@ export type FlashcardActivity = {
   activityTitle: string
   lessonId: string
   lessonTitle: string
+  lastSession?: {
+    completedAt: string   // ISO string
+    score: number         // correct_count / total_cards, 0–1
+  }
 }
 
 export async function readFlashcardsBootstrapAction(
@@ -79,6 +83,46 @@ export async function readFlashcardsBootstrapAction(
             activityTitle: row.title ?? "Flashcards",
             lessonId: row.lesson_id,
             lessonTitle: row.lesson_title ?? "Untitled lesson",
+          }))
+        }
+
+        // Fetch most recent completed session per activity for this pupil
+        if (flashcardActivities.length > 0) {
+          const activityIds = flashcardActivities.map((a) => a.activityId)
+          const sessionResult = await query<{
+            activity_id: string
+            completed_at: string
+            correct_count: number
+            total_cards: number
+          }>(
+            `
+            SELECT DISTINCT ON (activity_id)
+              activity_id,
+              completed_at,
+              correct_count,
+              total_cards
+            FROM flashcard_sessions
+            WHERE pupil_id = $1
+              AND status = 'completed'
+              AND activity_id = ANY($2::text[])
+            ORDER BY activity_id, completed_at DESC
+            `,
+            [pupilId, activityIds],
+          )
+
+          const sessionMap = new Map(
+            sessionResult.rows.map((row) => [
+              row.activity_id,
+              {
+                completedAt: row.completed_at,
+                score: row.total_cards > 0 ? row.correct_count / row.total_cards : 0,
+              },
+            ]),
+          )
+
+          flashcardActivities = flashcardActivities.map((a) => ({
+            ...a,
+            lastSession: sessionMap.get(a.activityId),
           }))
         }
 
