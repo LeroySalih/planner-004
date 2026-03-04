@@ -220,7 +220,7 @@ export function FlashcardsShell({
                                 : "bg-red-100 text-red-800",
                             )}
                           >
-                            {Math.round(activity.lastSession.score * 100)}%
+                            {Math.min(100, Math.round(activity.lastSession.score * 100))}%
                           </span>
                         </span>
                       )}
