@@ -91,7 +91,7 @@ export async function readFlashcardsBootstrapAction(
           const activityIds = flashcardActivities.map((a) => a.activityId)
           const sessionResult = await query<{
             activity_id: string
-            completed_at: string
+            completed_at: Date
             correct_count: number
             total_cards: number
           }>(
@@ -99,8 +99,8 @@ export async function readFlashcardsBootstrapAction(
             SELECT DISTINCT ON (activity_id)
               activity_id,
               completed_at,
-              correct_count,
-              total_cards
+              correct_count::integer,
+              total_cards::integer
             FROM flashcard_sessions
             WHERE pupil_id = $1
               AND status = 'completed'
@@ -114,7 +114,7 @@ export async function readFlashcardsBootstrapAction(
             sessionResult.rows.map((row) => [
               row.activity_id,
               {
-                completedAt: row.completed_at,
+                completedAt: row.completed_at.toISOString(),
                 score: row.total_cards > 0 ? row.correct_count / row.total_cards : 0,
               },
             ]),
