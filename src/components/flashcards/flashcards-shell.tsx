@@ -86,11 +86,6 @@ export function FlashcardsShell({
 }: FlashcardsShellProps) {
   const router = useRouter()
 
-  const activitySet = useMemo(
-    () => new Set(flashcardActivities.map((a) => a.activityId)),
-    [flashcardActivities],
-  )
-
   const allUnits = useMemo(() => {
     const units: Unit[] = []
     for (const subject of subjects) {
@@ -250,7 +245,7 @@ export function FlashcardsShell({
             </div>
           )}
 
-          {selectedActivityId && deck && deck.cards.length === 0 && (
+          {selectedActivityId && (!deck || deck.cards.length === 0) && (
             <div className="flex h-full items-center justify-center">
               <p className="text-muted-foreground">
                 No flashcard sentences found for this activity.
@@ -264,14 +259,6 @@ export function FlashcardsShell({
               deck={deck}
               pupilId={pupilId}
             />
-          )}
-
-          {selectedActivityId && !deck && (
-            <div className="flex h-full items-center justify-center">
-              <p className="text-muted-foreground">
-                No flashcard sentences found for this activity.
-              </p>
-            </div>
           )}
         </div>
       </div>
