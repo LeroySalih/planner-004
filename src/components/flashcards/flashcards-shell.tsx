@@ -14,6 +14,19 @@ import {
 } from "@/components/ui/select"
 import { FlashcardSession } from "@/components/flashcards/flashcard-session"
 
+function formatDate(iso: string): string {
+  const d = new Date(iso)
+  const dd = String(d.getDate()).padStart(2, "0")
+  const mm = String(d.getMonth() + 1).padStart(2, "0")
+  const yyyy = d.getFullYear()
+  return `${dd}-${mm}-${yyyy}`
+}
+
+function isWithin30Days(iso: string): boolean {
+  const diffMs = Date.now() - new Date(iso).getTime()
+  return diffMs < 30 * 24 * 60 * 60 * 1000
+}
+
 type FlashCard = {
   sentence: string
   answer: string
@@ -25,6 +38,10 @@ type FlashcardActivity = {
   activityTitle: string
   lessonId: string
   lessonTitle: string
+  lastSession?: {
+    completedAt: string
+    score: number
+  }
 }
 
 type Unit = {
@@ -182,12 +199,36 @@ export function FlashcardsShell({
                       key={activity.activityId}
                       variant={isSelected ? "secondary" : "ghost"}
                       className={cn(
-                        "justify-start text-left h-auto py-2 pl-5",
+                        "justify-start text-left h-auto py-2 pl-5 flex-col items-start gap-1",
                         isSelected && "font-medium",
                       )}
                       onClick={() => handleActivityClick(activity.activityId)}
                     >
-                      {activity.activityTitle}
+                      <span>{activity.activityTitle}</span>
+                      {activity.lastSession && (
+                        <span className="flex gap-1.5">
+                          <span
+                            className={cn(
+                              "text-xs rounded-full px-2 py-0.5 font-normal",
+                              isWithin30Days(activity.lastSession.completedAt)
+                                ? "bg-green-100 text-green-800"
+                                : "bg-red-100 text-red-800",
+                            )}
+                          >
+                            {formatDate(activity.lastSession.completedAt)}
+                          </span>
+                          <span
+                            className={cn(
+                              "text-xs rounded-full px-2 py-0.5 font-normal",
+                              activity.lastSession.score > 0.8
+                                ? "bg-green-100 text-green-800"
+                                : "bg-red-100 text-red-800",
+                            )}
+                          >
+                            {Math.round(activity.lastSession.score * 100)}%
+                          </span>
+                        </span>
+                      )}
                     </Button>
                   )
                 })}
