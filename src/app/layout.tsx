@@ -8,6 +8,7 @@ import { Analytics } from "@vercel/analytics/next"
 import { Toaster } from "sonner"
 
 import { TopBar } from "@/components/navigation/top-bar"
+import { ThemeProvider } from "@/components/theme-provider"
 
 export const metadata: Metadata = {
   title: "Dino",
@@ -21,14 +22,16 @@ export default async function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable}`}>
-        <div className="flex min-h-screen flex-col bg-background text-foreground">
-          <TopBar />
-          <main className="flex-1">{children}</main>
-        </div>
-        <Analytics />
-        <Toaster />
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          <div className="flex min-h-screen flex-col bg-background text-foreground">
+            <TopBar />
+            <main className="flex-1">{children}</main>
+          </div>
+          <Analytics />
+          <Toaster />
+        </ThemeProvider>
       </body>
     </html>
   )
