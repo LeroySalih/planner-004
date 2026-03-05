@@ -123,7 +123,7 @@ export function FlashcardSession({ deck, pupilId }: FlashcardSessionProps) {
 
       // Fire-and-forget
       if (sessionId) {
-        recordFlashcardAttemptAction({
+        void recordFlashcardAttemptAction({
           sessionId,
           term: currentCard.template,
           definition: currentCard.answer,
@@ -134,7 +134,7 @@ export function FlashcardSession({ deck, pupilId }: FlashcardSessionProps) {
             pupilId,
             activityId: deck.activityId,
             consecutiveCorrect: newConsecutiveForEmit,
-            totalCards: pile.length,
+            totalCards: deck.cards.length,
             correctCount: newCorrectCount,
             wrongCount: newWrongCount,
           },
