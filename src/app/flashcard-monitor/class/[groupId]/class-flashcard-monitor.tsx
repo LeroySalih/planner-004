@@ -34,6 +34,7 @@ type SsePayload = {
   status?: string
   correctCount?: number
   wrongCount?: number
+  activityTitle?: string
 }
 
 type Props = {
@@ -74,7 +75,7 @@ export function ClassFlashcardMonitor({ initialPupils, initialSessions }: Props)
         if (!payload?.pupilId || !payload?.sessionId) return
         if (!pupilIdSet.has(payload.pupilId)) return
 
-        const { pupilId, activityId, sessionId, consecutiveCorrect, totalCards, correctCount, wrongCount } = payload
+        const { pupilId, activityId, sessionId, consecutiveCorrect, totalCards, correctCount, wrongCount, activityTitle } = payload
 
         setSessionMap((prev) => {
           const next = new Map(prev)
@@ -84,7 +85,7 @@ export function ClassFlashcardMonitor({ initialPupils, initialSessions }: Props)
               sessionId: sessionId!,
               pupilId: pupilId!,
               activityId: activityId ?? "",
-              activityTitle: "Flashcards",
+              activityTitle: activityTitle ?? "Flashcards",
               status: "in_progress",
               totalCards: totalCards ?? 0,
               consecutiveCorrect: 0,

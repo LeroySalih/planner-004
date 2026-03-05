@@ -79,6 +79,7 @@ export function FlashcardSession({ deck, pupilId }: FlashcardSessionProps) {
       deck.activityId,
       deck.cards.length,
       pupilId,
+      deck.activityTitle,
     )
     if (result.data) {
       setSessionId(result.data.sessionId)

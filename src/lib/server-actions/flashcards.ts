@@ -210,6 +210,7 @@ export async function startFlashcardSessionAction(
   activityId: string,
   totalCards: number,
   pupilId: string,
+  activityTitle?: string,
 ) {
   return withTelemetry(
     {
@@ -231,6 +232,7 @@ export async function startFlashcardSessionAction(
         const sessionId = result.rows[0].session_id
         void emitFlashcardEvent("flashcard.start", {
           pupilId, activityId, sessionId, consecutiveCorrect: 0, totalCards, status: "in_progress",
+          ...(activityTitle !== undefined && { activityTitle }),
         })
 
         return { data: { sessionId }, error: null }
