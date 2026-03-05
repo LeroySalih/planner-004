@@ -1,34 +1,39 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import Image from "next/image"
 import Link from "next/link"
-import { Menu, X } from "lucide-react"
+import { Menu } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
-  Drawer,
-  DrawerClose,
-  DrawerContent,
-  DrawerHeader,
-  DrawerTitle,
-  DrawerTrigger,
-} from "@/components/ui/drawer"
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
 
-import { TeacherNavLinks } from "./teacher-links"
+import { SideNav } from "./side-nav"
 import { UserNav } from "./user-nav"
 
 export function TopBar() {
-  const [isClient, setIsClient] = useState(false)
-  const [open, setOpen] = useState(false)
-
-  useEffect(() => {
-    setIsClient(true)
-  }, [])
+  const [mobileOpen, setMobileOpen] = useState(false)
 
   return (
     <header className="sticky top-0 z-50 border-b bg-card" style={{ height: "80px" }}>
-      <div className="mx-auto flex h-full w-full max-w-6xl items-center justify-between px-4 sm:px-6">
+      <div className="flex h-full w-full items-center justify-between px-4 sm:px-6">
+        {/* Mobile hamburger */}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label="Open navigation menu"
+          className="md:hidden"
+          onClick={() => setMobileOpen(true)}
+        >
+          <Menu className="size-5" />
+        </Button>
+
         <Link href="/" className="flex items-center gap-3">
           <Image
             src="/header-logo.png"
@@ -41,59 +46,20 @@ export function TopBar() {
           Dino
         </Link>
 
-        <nav className="hidden items-center gap-4 text-sm font-medium md:flex">
-          <TeacherNavLinks />
-        </nav>
-
-        <div className="hidden md:flex">
-          <UserNav />
-        </div>
-
-        {isClient ? (
-          <Drawer open={open} onOpenChange={setOpen}>
-            <DrawerTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label="Open navigation menu"
-                className="md:hidden"
-              >
-                <Menu className="size-5" />
-              </Button>
-            </DrawerTrigger>
-            <DrawerContent className="border-t">
-              <DrawerHeader className="flex flex-row items-center justify-between">
-                <DrawerTitle className="text-lg font-semibold text-foreground">Menu</DrawerTitle>
-                <DrawerClose asChild>
-                  <Button type="button" variant="ghost" size="icon" aria-label="Close navigation menu">
-                    <X className="size-5" />
-                  </Button>
-                </DrawerClose>
-              </DrawerHeader>
-              <div className="space-y-4 px-4 pb-6">
-                <div className="flex flex-col gap-3 text-base font-medium">
-                  <TeacherNavLinks onNavigate={() => setOpen(false)} />
-                </div>
-                <div className="rounded-lg border border-border bg-card/60 p-3 shadow-sm">
-                  <UserNav />
-                </div>
-              </div>
-            </DrawerContent>
-          </Drawer>
-        ) : (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label="Open navigation menu"
-            className="md:hidden"
-            disabled
-          >
-            <Menu className="size-5" />
-          </Button>
-        )}
+        <UserNav />
       </div>
+
+      {/* Mobile sidebar sheet */}
+      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+        <SheetContent side="left" className="w-64 p-0">
+          <SheetHeader className="border-b px-4 py-3">
+            <SheetTitle className="text-left text-base font-semibold">Menu</SheetTitle>
+          </SheetHeader>
+          <div className="overflow-y-auto">
+            <SideNav onNavigate={() => setMobileOpen(false)} />
+          </div>
+        </SheetContent>
+      </Sheet>
     </header>
   )
 }
