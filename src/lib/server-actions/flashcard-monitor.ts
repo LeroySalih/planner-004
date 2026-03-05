@@ -413,7 +413,7 @@ export async function readClassFlashcardActivityAction(
              LEFT JOIN flashcard_attempts fa ON fa.session_id = fs.session_id
              WHERE fs.pupil_id = ANY($1::text[])
                AND (
-                 fs.status = 'in_progress'
+                 (fs.status = 'in_progress' AND fs.started_at > now() - interval '24 hours')
                  OR (fs.status = 'completed' AND fs.completed_at > now() - interval '24 hours')
                )
              GROUP BY

@@ -1,3 +1,5 @@
+import { lancasterStem } from "./lancaster-stemmer"
+
 export const SIMILARITY_THRESHOLD = 0.85
 
 export function levenshteinDistance(a: string, b: string): number {
@@ -25,6 +27,12 @@ export function similarity(a: string, b: string): number {
   const normA = a.trim().toLowerCase()
   const normB = b.trim().toLowerCase()
   if (normA === normB) return 1
+
+  // Stem match via Lancaster stemmer (handles malleable/malleability, corrosion/corrosive, etc.)
+  const stemA = lancasterStem(normA)
+  const stemB = lancasterStem(normB)
+  if (stemA === stemB && stemA.length >= 3) return 0.9
+
   const maxLen = Math.max(normA.length, normB.length)
   if (maxLen === 0) return 1
   const distance = levenshteinDistance(normA, normB)

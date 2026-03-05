@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 
 type Pupil = {
@@ -163,7 +163,7 @@ export function ClassFlashcardMonitor({ initialPupils, initialSessions }: Props)
         </Badge>
       </div>
 
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-1">
         {sortedPupils.map((pupil) => {
           const pupilSessions = sessionsByPupil.get(pupil.pupilId) ?? []
           return (
@@ -176,25 +176,20 @@ export function ClassFlashcardMonitor({ initialPupils, initialSessions }: Props)
 }
 
 function PupilRow({ pupil, sessions }: { pupil: Pupil; sessions: SessionStats[] }) {
+  const displayName = `${pupil.firstName} ${pupil.lastName}`.slice(0, 10)
   return (
-    <div className="rounded-lg border p-4">
-      <h3 className="mb-3 font-medium">
-        {pupil.firstName} {pupil.lastName}
-      </h3>
+    <div className="flex items-center gap-3 border-b py-1.5 last:border-b-0">
+      <span className="w-24 shrink-0 truncate text-sm font-medium">{displayName}</span>
       {sessions.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No recent activity</p>
+        <span className="text-xs text-muted-foreground">—</span>
       ) : (
-        <div className="flex flex-wrap gap-3">
-          {sessions.map((s) => (
-            <SessionCard key={s.sessionId} session={s} />
-          ))}
-        </div>
+        sessions.map((s) => <SessionPill key={s.sessionId} session={s} />)
       )}
     </div>
   )
 }
 
-function SessionCard({ session }: { session: SessionStats }) {
+function SessionPill({ session }: { session: SessionStats }) {
   const progressPercent =
     session.totalCards > 0
       ? Math.round((session.consecutiveCorrect / session.totalCards) * 100)
@@ -203,38 +198,25 @@ function SessionCard({ session }: { session: SessionStats }) {
   const isComplete = session.status === "completed"
 
   return (
-    <div
-      className={cn(
-        "flex w-48 flex-col gap-2 rounded-md border p-3",
-        isComplete &&
-          "border-emerald-200 bg-emerald-50/50 dark:border-emerald-800 dark:bg-emerald-950/20",
-      )}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <span className="truncate text-sm font-medium">{session.activityTitle}</span>
-        <span
-          className={cn(
-            "shrink-0 rounded-full px-1.5 py-0.5 text-xs",
-            isComplete
-              ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400"
-              : "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
-          )}
-        >
-          {isComplete ? "✓" : "●"}
-        </span>
-      </div>
-
-      <div className="flex gap-3 text-sm">
-        <span className="text-emerald-700 dark:text-emerald-400">✓ {session.correctCount}</span>
-        <span className="text-red-700 dark:text-red-400">✗ {session.wrongCount}</span>
-      </div>
-
-      <Progress value={progressPercent} className="h-1.5" />
-      <span className="text-xs text-muted-foreground">
-        {isComplete
-          ? "Complete"
-          : `${session.consecutiveCorrect}/${session.totalCards} in a row`}
-      </span>
-    </div>
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div
+            className={cn(
+              "flex cursor-default items-center gap-2 rounded px-2 py-0.5 text-xs",
+              isComplete
+                ? "bg-emerald-50 dark:bg-emerald-950/20"
+                : "bg-muted/50",
+            )}
+          >
+            <span className={cn("font-medium", isComplete ? "text-emerald-700 dark:text-emerald-400" : "text-foreground")}>
+              {progressPercent}%
+            </span>
+            <span className="text-red-600 dark:text-red-400">✗ {session.wrongCount}</span>
+          </div>
+        </TooltipTrigger>
+        <TooltipContent>{session.activityTitle}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   )
 }
