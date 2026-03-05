@@ -31,7 +31,7 @@ export default async function RootLayout({
             <div className="flex flex-1">
               {/* Desktop sidebar */}
               <aside className="hidden w-60 shrink-0 border-r md:block">
-                <div className="sticky top-[80px] h-[calc(100vh-80px)] overflow-y-auto">
+                <div className="sticky top-[80px] h-[calc(100vh-80px)]">
                   <SideNav />
                 </div>
               </aside>
