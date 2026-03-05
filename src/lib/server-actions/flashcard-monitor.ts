@@ -398,8 +398,7 @@ export async function readClassFlashcardActivityAction(
             correct_count: number
             wrong_count: number
           }>(
-            `SELECT
-               fs.session_id,
+            `SELECT fs.session_id,
                fs.pupil_id,
                fs.activity_id,
                coalesce(a.title, 'Flashcards') as activity_title,
@@ -431,6 +430,7 @@ export async function readClassFlashcardActivityAction(
             activityTitle: r.activity_title,
             status: r.status as "in_progress" | "completed",
             totalCards: r.total_cards,
+            // completed = clean pass so all cards were consecutive; in_progress starts at 0 and is updated via SSE
             consecutiveCorrect: r.status === "completed" ? r.total_cards : 0,
             correctCount: r.correct_count,
             wrongCount: r.wrong_count,
