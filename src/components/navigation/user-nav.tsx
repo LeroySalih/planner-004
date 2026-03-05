@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState, useTransition } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { MoreVertical } from "lucide-react"
+import { Moon, MoreVertical, Sun } from "lucide-react"
+import { useTheme } from "next-themes"
 
 import { getSessionProfileAction, signoutAction } from "@/lib/server-updates"
 import {
@@ -25,6 +26,7 @@ export function UserNav() {
   const router = useRouter()
   const [profile, setProfile] = useState<UserProfile | null | undefined>(undefined)
   const [isPending, startTransition] = useTransition()
+  const { resolvedTheme, setTheme } = useTheme()
 
   const loadProfile = useCallback(async () => {
     setProfile(undefined)
@@ -126,6 +128,8 @@ export function UserNav() {
     )
   }
 
+  const isDark = resolvedTheme === "dark"
+
   return (
     <div className="flex items-center gap-2">
       <Link
@@ -147,6 +151,10 @@ export function UserNav() {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-44">
+          <DropdownMenuItem onSelect={() => setTheme(isDark ? "light" : "dark")}>
+            {isDark ? <Sun className="mr-2 size-4" /> : <Moon className="mr-2 size-4" />}
+            {isDark ? "Light mode" : "Dark mode"}
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={handleSignOutSelect} disabled={isPending}>
             Sign out
