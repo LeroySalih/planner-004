@@ -152,7 +152,7 @@ export function UserNav() {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-44">
           <DropdownMenuItem onSelect={() => setTheme(isDark ? "light" : "dark")}>
-            {isDark ? <Sun className="mr-2 size-4" /> : <Moon className="mr-2 size-4" />}
+            {isDark ? <Sun className="mr-2 size-4" aria-hidden="true" /> : <Moon className="mr-2 size-4" aria-hidden="true" />}
             {isDark ? "Light mode" : "Dark mode"}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
