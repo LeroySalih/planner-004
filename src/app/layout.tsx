@@ -5,7 +5,7 @@ import { GeistSans } from "geist/font/sans"
 import "./globals.css"
 
 import { Analytics } from "@vercel/analytics/next"
-import { Toaster } from "sonner"
+import { Toaster } from "@/components/ui/sonner"
 
 import { TopBar } from "@/components/navigation/top-bar"
 import { ThemeProvider } from "@/components/theme-provider"
