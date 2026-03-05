@@ -52,7 +52,7 @@ export function FlashcardMonitorSelector({ groups, groupUnits, groupActivities }
       </div>
 
       {selectedGroupId && (
-        <div className="grid gap-8 md:grid-cols-2">
+        <div className="grid gap-8 md:grid-cols-3">
           {/* Live Monitor */}
           <div>
             <h2 className="mb-3 text-lg font-semibold">Live Monitor</h2>
@@ -99,6 +99,20 @@ export function FlashcardMonitorSelector({ groups, groupUnits, groupActivities }
                 ))}
               </ul>
             )}
+          </div>
+
+          {/* Class Activity */}
+          <div>
+            <h2 className="mb-3 text-lg font-semibold">Class Activity</h2>
+            <p className="mb-4 text-sm text-muted-foreground">
+              See all pupils&apos; current flashcard activity in real-time.
+            </p>
+            <Link
+              href={`/flashcard-monitor/class/${encodeURIComponent(selectedGroupId)}`}
+              className="block rounded-md border p-3 text-sm hover:bg-accent transition-colors"
+            >
+              View class activity →
+            </Link>
           </div>
         </div>
       )}

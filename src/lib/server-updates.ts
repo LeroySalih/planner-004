@@ -243,6 +243,7 @@ export {
 } from "./server-actions/flashcards";
 
 export {
+  readClassFlashcardActivityAction,
   readFlashcardMonitorGroupsAction,
   readFlashcardSessionDetailAction,
   readLiveFlashcardMonitorAction,

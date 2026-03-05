@@ -59,6 +59,7 @@ export function FlashcardSession({ deck, pupilId }: FlashcardSessionProps) {
     new Map(),
   )
   const [totalCorrectAnswers, setTotalCorrectAnswers] = useState(0)
+  const [totalAttempts, setTotalAttempts] = useState(0)
   const sessionStarted = useRef(false)
 
   const startSession = useCallback(async () => {
@@ -71,12 +72,14 @@ export function FlashcardSession({ deck, pupilId }: FlashcardSessionProps) {
     setConsecutiveCorrect(0)
     setAttemptCounts(new Map())
     setTotalCorrectAnswers(0)
+    setTotalAttempts(0)
     setFeedbackState(null)
 
     const result = await startFlashcardSessionAction(
       deck.activityId,
       deck.cards.length,
       pupilId,
+      deck.activityTitle,
     )
     if (result.data) {
       setSessionId(result.data.sessionId)
@@ -109,14 +112,19 @@ export function FlashcardSession({ deck, pupilId }: FlashcardSessionProps) {
       newAttemptCounts.set(termKey, currentCount + 1)
       setAttemptCounts(newAttemptCounts)
 
+      const newTotalAttempts = totalAttempts + 1
+      const newCorrectCount = totalCorrectAnswers + (isCorrect ? 1 : 0)
+      const newWrongCount = newTotalAttempts - newCorrectCount
+      const newConsecutiveForEmit = isCorrect ? consecutiveCorrect + 1 : 0
+
+      setTotalAttempts(newTotalAttempts)
       if (isCorrect) {
-        setTotalCorrectAnswers((prev) => prev + 1)
+        setTotalCorrectAnswers(newCorrectCount)
       }
 
       // Fire-and-forget
       if (sessionId) {
-        const newConsecutiveForEmit = isCorrect ? consecutiveCorrect + 1 : 0
-        recordFlashcardAttemptAction({
+        void recordFlashcardAttemptAction({
           sessionId,
           term: currentCard.template,
           definition: currentCard.answer,
@@ -127,14 +135,16 @@ export function FlashcardSession({ deck, pupilId }: FlashcardSessionProps) {
             pupilId,
             activityId: deck.activityId,
             consecutiveCorrect: newConsecutiveForEmit,
-            totalCards: pile.length,
+            totalCards: deck.cards.length,
+            correctCount: newCorrectCount,
+            wrongCount: newWrongCount,
           },
         })
       }
 
       // Both correct and incorrect wait for user to click "Next" (handled by handleNext)
     },
-    [phase, pile, sessionId, consecutiveCorrect, attemptCounts, deck.activityId, totalCorrectAnswers, pupilId],
+    [phase, pile, sessionId, consecutiveCorrect, attemptCounts, deck.activityId, totalCorrectAnswers, totalAttempts, pupilId],
   )
 
   const handleNext = useCallback(() => {

@@ -210,6 +210,7 @@ export async function startFlashcardSessionAction(
   activityId: string,
   totalCards: number,
   pupilId: string,
+  activityTitle?: string,
 ) {
   return withTelemetry(
     {
@@ -231,6 +232,7 @@ export async function startFlashcardSessionAction(
         const sessionId = result.rows[0].session_id
         void emitFlashcardEvent("flashcard.start", {
           pupilId, activityId, sessionId, consecutiveCorrect: 0, totalCards, status: "in_progress",
+          ...(activityTitle !== undefined && { activityTitle }),
         })
 
         return { data: { sessionId }, error: null }
@@ -255,6 +257,8 @@ export async function recordFlashcardAttemptAction(input: {
     activityId: string
     consecutiveCorrect: number
     totalCards: number
+    correctCount?: number
+    wrongCount?: number
   }
 }) {
   return withTelemetry(
@@ -283,8 +287,14 @@ export async function recordFlashcardAttemptAction(input: {
         if (input.progress) {
           const { pupilId, activityId, consecutiveCorrect, totalCards } = input.progress
           void emitFlashcardEvent("flashcard.progress", {
-            pupilId, activityId, sessionId: input.sessionId,
-            consecutiveCorrect, totalCards, status: "in_progress",
+            pupilId,
+            activityId,
+            sessionId: input.sessionId,
+            consecutiveCorrect,
+            totalCards,
+            status: "in_progress",
+            ...(input.progress.correctCount !== undefined && { correctCount: input.progress.correctCount }),
+            ...(input.progress.wrongCount !== undefined && { wrongCount: input.progress.wrongCount }),
           })
         }
 
