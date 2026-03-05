@@ -334,6 +334,121 @@ export async function readFlashcardSessionDetailAction(
   )
 }
 
+export async function readClassFlashcardActivityAction(
+  groupId: string,
+  options?: TelemetryOptions,
+) {
+  const routeTag = options?.routeTag ?? "/flashcard-monitor:class"
+
+  return withTelemetry(
+    {
+      routeTag,
+      functionName: "readClassFlashcardActivityAction",
+      params: { groupId },
+      authEndTime: options?.authEndTime ?? null,
+    },
+    async () => {
+      await requireTeacherProfile()
+
+      try {
+        const membersResult = await query<{
+          user_id: string
+          first_name: string | null
+          last_name: string | null
+        }>(
+          `SELECT gm.user_id, p.first_name, p.last_name
+           FROM group_membership gm
+           JOIN profiles p ON p.user_id = gm.user_id
+           WHERE gm.group_id = $1
+           ORDER BY p.last_name, p.first_name`,
+          [groupId],
+        )
+
+        const pupils = membersResult.rows.map((r) => ({
+          pupilId: r.user_id,
+          firstName: r.first_name ?? "",
+          lastName: r.last_name ?? "",
+        }))
+
+        const pupilIds = membersResult.rows.map((r) => r.user_id)
+        let sessions: {
+          sessionId: string
+          pupilId: string
+          activityId: string
+          activityTitle: string
+          status: "in_progress" | "completed"
+          totalCards: number
+          consecutiveCorrect: number
+          correctCount: number
+          wrongCount: number
+          startedAt: string
+          completedAt: string | null
+        }[] = []
+
+        if (pupilIds.length > 0) {
+          const sessionsResult = await query<{
+            session_id: string
+            pupil_id: string
+            activity_id: string
+            activity_title: string
+            status: string
+            total_cards: number
+            started_at: string
+            completed_at: string | null
+            correct_count: number
+            wrong_count: number
+          }>(
+            `SELECT
+               fs.session_id,
+               fs.pupil_id,
+               fs.activity_id,
+               coalesce(a.title, 'Flashcards') as activity_title,
+               fs.status,
+               fs.total_cards::integer,
+               fs.started_at,
+               fs.completed_at,
+               coalesce(SUM(fa.is_correct::int), 0)::integer as correct_count,
+               (COUNT(fa.attempt_id) - coalesce(SUM(fa.is_correct::int), 0))::integer as wrong_count
+             FROM flashcard_sessions fs
+             JOIN activities a ON a.activity_id = fs.activity_id
+             LEFT JOIN flashcard_attempts fa ON fa.session_id = fs.session_id
+             WHERE fs.pupil_id = ANY($1::text[])
+               AND (
+                 fs.status = 'in_progress'
+                 OR (fs.status = 'completed' AND fs.completed_at > now() - interval '24 hours')
+               )
+             GROUP BY
+               fs.session_id, fs.pupil_id, fs.activity_id, a.title,
+               fs.status, fs.total_cards, fs.started_at, fs.completed_at
+             ORDER BY fs.started_at DESC`,
+            [pupilIds],
+          )
+
+          sessions = sessionsResult.rows.map((r) => ({
+            sessionId: r.session_id,
+            pupilId: r.pupil_id,
+            activityId: r.activity_id,
+            activityTitle: r.activity_title,
+            status: r.status as "in_progress" | "completed",
+            totalCards: r.total_cards,
+            consecutiveCorrect: r.status === "completed" ? r.total_cards : 0,
+            correctCount: r.correct_count,
+            wrongCount: r.wrong_count,
+            startedAt: r.started_at,
+            completedAt: r.completed_at,
+          }))
+        }
+
+        return { data: { pupils, sessions }, error: null }
+      } catch (error) {
+        console.error("[flashcard-monitor] Failed to load class activity", error)
+        const message = error instanceof Error ? error.message : "Unable to load class activity."
+        return { data: null, error: message }
+      }
+    },
+  )
+}
+
 export async function readFlashcardMonitorGroupsAction(
   options?: TelemetryOptions,
 ) {
