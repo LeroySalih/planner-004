@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import { Menu } from "lucide-react"
@@ -12,8 +12,33 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { getSessionProfileAction } from "@/lib/server-updates"
 
 import { SideNav } from "./side-nav"
+
+function SignInButton() {
+  const [isSignedIn, setIsSignedIn] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    getSessionProfileAction().then((session) => setIsSignedIn(!!session))
+
+    const handler = (e: Event) => {
+      const status = (e as CustomEvent<{ status?: string }>).detail?.status
+      if (status === "signed-in") setIsSignedIn(true)
+      if (status === "signed-out") setIsSignedIn(false)
+    }
+    window.addEventListener("auth-state-changed", handler)
+    return () => window.removeEventListener("auth-state-changed", handler)
+  }, [])
+
+  if (isSignedIn !== false) return null
+
+  return (
+    <Button asChild size="sm">
+      <Link href="/signin">Sign in</Link>
+    </Button>
+  )
+}
 
 export function TopBar() {
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -53,6 +78,7 @@ export function TopBar() {
           Dino
         </Link>
 
+        <SignInButton />
       </div>
 
       {/* Mobile sidebar sheet */}
