@@ -691,12 +691,33 @@ export default async function PupilLessonFriendlyPage({
   ])
 
   return (
-    <FeedbackVisibilityProvider 
-      assignmentIds={assignmentIds} 
-      lessonId={lesson.lesson_id} 
+    <FeedbackVisibilityProvider
+      assignmentIds={assignmentIds}
+      lessonId={lesson.lesson_id}
       initialVisible={initialFeedbackVisible}
     >
-      <main className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-6 py-10">
+      <div className="mx-auto flex w-full max-w-6xl gap-8 px-6 py-10">
+        {/* Activity sidebar */}
+        {activities.length > 0 && (
+          <aside className="hidden lg:block w-52 shrink-0">
+            <div className="sticky top-24 space-y-1">
+              <p className="mb-3 px-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Activities
+              </p>
+              {activities.map((activity, index) => (
+                <a
+                  key={activity.activity_id}
+                  href={`#activity-${activity.activity_id}`}
+                  className="flex items-start gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                >
+                  <span className="shrink-0 font-medium">{index + 1}.</span>
+                  <span className="line-clamp-2">{activity.title ?? formatActivityType(activity.type)}</span>
+                </a>
+              ))}
+            </div>
+          </aside>
+        )}
+        <main className="min-w-0 flex-1 flex flex-col gap-8">
         <header className="rounded-2xl bg-gradient-to-r from-sky-600 to-indigo-600 px-8 py-6 text-white shadow-lg">
           <div className="flex flex-col gap-3">
             <div>
@@ -799,8 +820,11 @@ export default async function PupilLessonFriendlyPage({
                     <li
                       key={activity.activity_id}
                       id={`activity-${activity.activity_id}`}
-                      className="rounded-md border border-border/60 bg-muted/40 px-3 py-3"
+                      className="scroll-mt-24 rounded-md border border-border/60 bg-muted/40 px-3 py-3"
                     >
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        Step {index + 1}
+                      </p>
                       {activity.type === "upload-file" ? (
                         <PupilUploadActivity
                           lessonId={lesson.lesson_id}
@@ -809,7 +833,6 @@ export default async function PupilLessonFriendlyPage({
                           instructions={extractUploadInstructions(activity)}
                           initialSubmissions={submissionMap.get(activity.activity_id) ?? []}
                           canUpload={isPupilViewer}
-                          stepNumber={index + 1}
                           feedbackAssignmentIds={assignmentIds}
                           feedbackLessonId={lesson.lesson_id}
                           feedbackInitiallyVisible={initialFeedbackVisible}
@@ -820,7 +843,6 @@ export default async function PupilLessonFriendlyPage({
                           activity={activity}
                           pupilId={pupilId}
                           canAnswer={isPupilViewer}
-                          stepNumber={index + 1}
                           initialAnswer={shortTextDataMap.get(activity.activity_id)?.answer ?? ""}
                           initialSubmissionId={shortTextDataMap.get(activity.activity_id)?.submissionId ?? null}
                           initialIsFlagged={shortTextDataMap.get(activity.activity_id)?.isFlagged ?? false}
@@ -839,7 +861,6 @@ export default async function PupilLessonFriendlyPage({
                           activity={activity}
                           pupilId={pupilId}
                           canAnswer={isPupilViewer}
-                          stepNumber={index + 1}
                           initialAnswer={longTextAnswerMap.get(activity.activity_id) ?? ""}
                           feedbackAssignmentIds={assignmentIds}
                           feedbackLessonId={lesson.lesson_id}
@@ -854,7 +875,6 @@ export default async function PupilLessonFriendlyPage({
                           activity={activity}
                           pupilId={pupilId}
                           canAnswer={isPupilViewer}
-                          stepNumber={index + 1}
                           initialSelection={mcqSelectionMap.get(activity.activity_id) ?? null}
                           feedbackAssignmentIds={assignmentIds}
                           feedbackLessonId={lesson.lesson_id}
@@ -876,7 +896,6 @@ export default async function PupilLessonFriendlyPage({
                           activity={activity}
                           pupilId={pupilId}
                           canAnswer={isPupilViewer}
-                          stepNumber={index + 1}
                           initialAnswer={uploadUrlDataMap.get(activity.activity_id)?.answer ?? ""}
                           initialSubmissionId={uploadUrlDataMap.get(activity.activity_id)?.submissionId ?? null}
                           initialIsFlagged={uploadUrlDataMap.get(activity.activity_id)?.isFlagged ?? false}
@@ -902,7 +921,6 @@ export default async function PupilLessonFriendlyPage({
                           activity={activity}
                           pupilId={pupilId}
                           canUpload={isPupilViewer}
-                          stepNumber={index + 1}
                           initialFiles={shareMyWorkDataMap.get(activity.activity_id)?.files ?? []}
                           initialSubmissionId={shareMyWorkDataMap.get(activity.activity_id)?.submissionId ?? null}
                         />
@@ -910,7 +928,6 @@ export default async function PupilLessonFriendlyPage({
                         <PupilReviewOthersWorkActivity
                           activity={activity}
                           pupilId={pupilId}
-                          stepNumber={index + 1}
                         />
                       ) : activity.type === "file-download" && (activityFiles.length > 0 || linkUrl) ? (
                          <div className="rounded-md bg-card p-4 border border-border/60">
@@ -1136,7 +1153,8 @@ export default async function PupilLessonFriendlyPage({
             </CardContent>
           </Card>
         ) : null}
-      </main>
+        </main>
+      </div>
     </FeedbackVisibilityProvider>
   )
 }

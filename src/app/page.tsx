@@ -70,7 +70,15 @@ const Home = async () => {
         width={480}
         height={160}
         priority
-        className="h-auto w-full max-w-[420px] sm:max-w-[480px]"
+        className="h-auto w-full max-w-[420px] sm:max-w-[480px] dark:hidden"
+      />
+      <Image
+        src="/header-dark.png"
+        alt="Planner"
+        width={480}
+        height={160}
+        priority
+        className="hidden h-auto w-full max-w-[420px] sm:max-w-[480px] dark:block"
       />
 
       <div className="mt-8 w-full max-w-md rounded-lg border border-border bg-card p-6 text-card-foreground shadow-sm">

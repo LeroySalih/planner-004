@@ -21,7 +21,7 @@ interface PupilShortTextActivityProps {
   activity: LessonActivity
   pupilId: string
   canAnswer: boolean
-  stepNumber: number
+  stepNumber?: number
   initialAnswer: string | null
   initialSubmissionId?: string | null
   initialIsFlagged?: boolean
@@ -198,9 +198,6 @@ export function PupilShortTextActivity({
   return (
     <div className="space-y-4 rounded-md border border-border bg-card p-4 shadow-sm">
       <header className="flex flex-col gap-2">
-        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Step {stepNumber}
-        </span>
         <h4 className="text-lg font-semibold text-foreground">
           {activity.title || "Short text question"}
         </h4>

@@ -35,7 +35,7 @@ interface PupilShareMyWorkActivityProps {
   activity: LessonActivity
   pupilId: string
   canUpload: boolean
-  stepNumber: number
+  stepNumber?: number
   initialFiles: ShareMyWorkFile[]
   initialSubmissionId: string | null
 }
@@ -241,7 +241,6 @@ export function PupilShareMyWorkActivity({
   return (
     <div className="space-y-3">
       <div className="flex items-start gap-2">
-        <span className="text-xs font-semibold text-muted-foreground">{stepNumber}.</span>
         <div>
           <h3 className="font-medium text-foreground">{activity.title || "Share my work"}</h3>
           <p className="text-sm text-muted-foreground">

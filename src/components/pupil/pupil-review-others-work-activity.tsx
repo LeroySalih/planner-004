@@ -43,7 +43,7 @@ interface Comment {
 interface PupilReviewOthersWorkActivityProps {
   activity: LessonActivity
   pupilId: string
-  stepNumber: number
+  stepNumber?: number
 }
 
 export function PupilReviewOthersWorkActivity({
@@ -161,7 +161,6 @@ export function PupilReviewOthersWorkActivity({
     return (
       <div className="space-y-2">
         <div className="flex items-start gap-2">
-          <span className="text-xs font-semibold text-muted-foreground">{stepNumber}.</span>
           <h3 className="font-medium text-foreground">{activity.title || "Review others' work"}</h3>
         </div>
         <p className="text-sm text-muted-foreground">

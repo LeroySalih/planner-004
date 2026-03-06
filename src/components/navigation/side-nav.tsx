@@ -1,9 +1,9 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState, useTransition } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { Moon, Sun } from "lucide-react"
+import { usePathname, useRouter } from "next/navigation"
+import { LogOut, Moon, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 
 import {
@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/accordion"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { getSessionProfileAction } from "@/lib/server-updates"
+import { getSessionProfileAction, signoutAction } from "@/lib/server-updates"
 
 type NavState =
   | { status: "loading" }
@@ -71,7 +71,21 @@ function ThemeToggle() {
 }
 
 export function SideNav({ onNavigate }: SideNavProps) {
+  const router = useRouter()
   const [state, setState] = useState<NavState>({ status: "loading" })
+  const [isPending, startTransition] = useTransition()
+
+  const handleSignOut = useCallback(() => {
+    startTransition(async () => {
+      await signoutAction()
+      setState({ status: "visitor" })
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("auth-state-changed", { detail: { status: "signed-out" } }))
+      }
+      router.replace("/")
+      router.refresh()
+    })
+  }, [router])
 
   useEffect(() => {
     let cancelled = false
@@ -229,6 +243,16 @@ export function SideNav({ onNavigate }: SideNavProps) {
                   Profile
                 </NavLink>
                 <ThemeToggle />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full justify-start px-3 py-1.5 text-sm font-normal h-auto"
+                  onClick={handleSignOut}
+                  disabled={isPending}
+                >
+                  <LogOut className="mr-2 size-4 shrink-0" aria-hidden="true" />
+                  Sign out
+                </Button>
               </div>
             </AccordionContent>
           </AccordionItem>

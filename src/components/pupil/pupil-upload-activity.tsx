@@ -42,7 +42,7 @@ interface PupilUploadActivityProps {
   instructions: string
   initialSubmissions: any[]
   canUpload: boolean
-  stepNumber: number
+  stepNumber?: number
   onSubmissionsChange?: (files: ActivityFileInfo[]) => void
   feedbackAssignmentIds?: string[]
   feedbackLessonId?: string
@@ -348,9 +348,6 @@ export function PupilUploadActivity({
       <div className="space-y-1">
         <div className="flex items-start justify-between gap-3">
           <div className="flex flex-col gap-1">
-            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Step {stepNumber}
-            </span>
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-base font-semibold text-foreground">{activity.title}</h3>
             </div>

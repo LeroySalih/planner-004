@@ -14,7 +14,6 @@ import {
 } from "@/components/ui/sheet"
 
 import { SideNav } from "./side-nav"
-import { UserNav } from "./user-nav"
 
 export function TopBar() {
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -41,12 +40,19 @@ export function TopBar() {
             width={48}
             height={16}
             priority
-            className="h-auto w-auto"
+            className="h-auto w-auto dark:hidden"
+          />
+          <Image
+            src="/header-logo-dark.png"
+            alt="Planner"
+            width={48}
+            height={16}
+            priority
+            className="hidden h-auto w-auto dark:block"
           />
           Dino
         </Link>
 
-        <UserNav />
       </div>
 
       {/* Mobile sidebar sheet */}

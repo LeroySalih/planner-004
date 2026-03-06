@@ -16,7 +16,7 @@ interface PupilLongTextActivityProps {
   activity: LessonActivity
   pupilId: string
   canAnswer: boolean
-  stepNumber: number
+  stepNumber?: number
   initialAnswer: string | null
   feedbackAssignmentIds?: string[]
   feedbackLessonId?: string
@@ -120,9 +120,6 @@ export function PupilLongTextActivity({
   return (
     <div className="space-y-4 rounded-md border border-border bg-card p-4 shadow-sm">
       <header className="flex flex-col gap-2">
-        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Step {stepNumber}
-        </span>
         <h4 className="text-lg font-semibold text-foreground">
           {activity.title || "Long text question"}
         </h4>
