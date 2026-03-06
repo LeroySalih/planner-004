@@ -14,7 +14,6 @@ import {
 } from "@/components/ui/sheet"
 
 import { SideNav } from "./side-nav"
-import { UserNav } from "./user-nav"
 
 export function TopBar() {
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -54,7 +53,6 @@ export function TopBar() {
           Dino
         </Link>
 
-        <UserNav />
       </div>
 
       {/* Mobile sidebar sheet */}
