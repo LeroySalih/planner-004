@@ -127,7 +127,7 @@ function UnitCard({
     <Card className="border-border shadow-sm">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between gap-2">
-          <CardTitle className="text-lg font-semibold text-slate-900">
+          <CardTitle className="text-lg font-semibold text-green-700 dark:text-green-400">
             <Link href={`/units/${unit.unit_id}`} className="hover:underline">
               {unit.title}
             </Link>
