@@ -5,12 +5,11 @@ import Link from "next/link"
 import { format, parseISO, differenceInMonths, addWeeks, isBefore } from "date-fns"
 import { cn } from "@/lib/utils"
 import { Roboto_Condensed } from "next/font/google"
-import { ChevronDown, BookOpen, Lock, RotateCcw, AlertTriangle } from "lucide-react"
+import { ChevronDown, Lock, RotateCcw, AlertTriangle } from "lucide-react"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import type { PupilUnitsDetail, PupilUnitLesson } from "@/lib/pupil-units-data"
-import { StartRevisionButton } from "@/components/revisions/start-revision-button"
 import { LessonMedia } from "./lesson-media"
 
 function formatDate(value: string | null) {
@@ -92,6 +91,16 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
     return detail.subjects.filter((s) => (s.subject ?? "Subject not set") === selectedSubject)
   }, [detail, selectedSubject])
 
+  const allUnits = useMemo(() => filteredSubjects.flatMap((s) => s.units), [filteredSubjects])
+
+  const [selectedUnitId, setSelectedUnitId] = useState<string | null>(() => allUnits[0]?.unitId ?? null)
+
+  // Keep selectedUnitId valid when subject filter changes
+  const selectedUnit = useMemo(() => {
+    const found = allUnits.find((u) => u.unitId === selectedUnitId)
+    return found ?? allUnits[0] ?? null
+  }, [allUnits, selectedUnitId])
+
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-8 sm:px-6 sm:py-10">
       <header className="rounded-2xl bg-gradient-to-r from-sky-600 to-indigo-600 px-6 py-6 text-white shadow-lg sm:px-8">
@@ -133,11 +142,18 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
                   {subjectEntry.units.map((unit) => {
                     const resubmitLessons = unit.lessons.filter((l) => l.resubmitCount > 0).length
                     const underperformingLessons = unit.lessons.filter(isLessonOverdueAndUnderperforming).length
+                    const isActive = unit.unitId === selectedUnit?.unitId
                     return (
                       <li key={unit.unitId}>
-                        <Link
-                          href={`#unit-${unit.unitId}`}
-                          className="flex items-center gap-2 truncate text-sm text-muted-foreground transition-colors hover:text-foreground hover:underline"
+                        <button
+                          type="button"
+                          onClick={() => setSelectedUnitId(unit.unitId)}
+                          className={cn(
+                            "flex w-full items-center gap-2 truncate rounded-md px-2 py-1 text-left text-sm transition-colors hover:text-foreground",
+                            isActive
+                              ? "bg-accent font-medium text-accent-foreground"
+                              : "text-muted-foreground hover:bg-accent/50"
+                          )}
                           title={unit.unitTitle}
                         >
                           <span className="truncate">{unit.unitTitle}</span>
@@ -153,7 +169,7 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
                               {underperformingLessons}
                             </span>
                           )}
-                        </Link>
+                        </button>
                       </li>
                     )
                   })}
@@ -162,159 +178,120 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
             ))}
           </aside>
 
-          <div className="h-[calc(100vh-16rem)] space-y-10 overflow-y-auto pr-4 pb-10">
-            {filteredSubjects.map((subjectEntry) => (
-              <section
-                key={subjectEntry.subject ?? "subject-not-set"}
-                className="space-y-8"
-              >
-                {subjectEntry.units.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No units assigned for this subject yet.</p>
-                ) : (
-                  <div className="space-y-8">
-                    {subjectEntry.units.map((unit) => (
-                      <div id={`unit-${unit.unitId}`} key={unit.unitId} className="scroll-mt-6">
-                        <Card className="border border-border/70 shadow-sm">
-                          <CardHeader className="space-y-1">
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                              <CardTitle
-                                className={`${robotoCondensed.className} text-3xl font-bold uppercase text-foreground sm:text-4xl`}
+          <div className="h-[calc(100vh-16rem)] overflow-y-auto pr-4 pb-10">
+            {selectedUnit === null ? (
+              <p className="text-sm text-muted-foreground">No units assigned yet.</p>
+            ) : (
+              <Card className="border border-border/70 shadow-sm">
+                <CardHeader className="space-y-1">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <CardTitle
+                      className={`${robotoCondensed.className} text-3xl font-bold uppercase text-foreground sm:text-4xl`}
+                    >
+                      {selectedUnit.unitTitle}
+                    </CardTitle>
+                    <p className="text-xs text-muted-foreground sm:text-right">
+                      First lesson: {formatDate(selectedUnit.firstLessonDate)}
+                    </p>
+                    {selectedUnit.unitScore !== null && selectedUnit.unitScore !== undefined && selectedUnit.unitMaxScore !== null && selectedUnit.unitMaxScore !== undefined && selectedUnit.unitMaxScore > 0 && (
+                      <div className="sm:text-right">
+                        <span className="inline-flex items-center rounded-md bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700 ring-1 ring-inset ring-indigo-700/10">
+                          Unit Score: {Math.round(selectedUnit.unitScore * 10) / 10}/{selectedUnit.unitMaxScore} ({Math.round((selectedUnit.unitScore / selectedUnit.unitMaxScore) * 100)}%)
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="relative ml-4 space-y-8 border-l-2 border-slate-300 dark:border-slate-600">
+                    {selectedUnit.lessons.map((lesson, index) => (
+                      <div
+                        key={lesson.lessonId}
+                        className={cn(
+                          "relative py-2 pl-8 pr-2 sm:pr-3 rounded-md transition-colors mx-2",
+                          isLessonOverdueAndUnderperforming(lesson) &&
+                            "bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-900/50",
+                          lesson.locked && "opacity-50"
+                        )}
+                      >
+                        <span
+                          aria-hidden
+                          className="absolute -left-3 top-2 flex h-6 w-6 items-center justify-center rounded-full border-2 border-background bg-primary text-xs font-bold text-primary-foreground shadow-sm"
+                        >
+                          {selectedUnit.lessons.length - index}
+                        </span>
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="flex flex-col gap-1">
+                            {lesson.isEnrolled && !lesson.locked ? (
+                              <Link
+                                href={`/pupil-lessons/${encodeURIComponent(detail.pupilId)}/lessons/${encodeURIComponent(lesson.lessonId)}`}
+                                className="text-xl font-semibold text-foreground underline-offset-4 hover:text-primary hover:underline sm:text-2xl"
                               >
-                                {unit.unitTitle}
-                              </CardTitle>
-                              <p className="text-xs text-muted-foreground sm:text-right">
-                                First lesson: {formatDate(unit.firstLessonDate)}
-                              </p>
-                              {unit.unitScore !== null && unit.unitScore !== undefined && unit.unitMaxScore !== null && unit.unitMaxScore !== undefined && unit.unitMaxScore > 0 && (
-                                <div className="sm:text-right">
-                                  <span className="inline-flex items-center rounded-md bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700 ring-1 ring-inset ring-indigo-700/10">
-                                    Unit Score: {Math.round(unit.unitScore * 10) / 10}/{unit.unitMaxScore} ({Math.round((unit.unitScore / unit.unitMaxScore) * 100)}%)
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-                          </CardHeader>
-                          <CardContent className="space-y-4">
-                            <div className="relative ml-4 space-y-4 border-l-2 border-slate-300 dark:border-slate-600">
-                              {unit.lessons.map((lesson, index) => (
-                                <div
-                                  key={lesson.lessonId}
-                                  className={cn(
-                                    "relative py-2 pl-8 pr-2 sm:pr-3 rounded-md transition-colors",
-                                    isLessonOverdueAndUnderperforming(lesson) &&
-                                      "bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-900/50",
-                                    lesson.locked && "opacity-50"
-                                  )}
-                                >
-                                  <span
-                                    aria-hidden
-                                    className="absolute -left-3 top-2 flex h-6 w-6 items-center justify-center rounded-full border-2 border-background bg-primary text-xs font-bold text-primary-foreground shadow-sm"
-                                  >
-                                    {unit.lessons.length - index}
-                                  </span>
-                                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                                    <div className="flex flex-col gap-1">
-                                      {lesson.isEnrolled && !lesson.locked ? (
-                                        <Link
-                                          href={`/pupil-lessons/${encodeURIComponent(detail.pupilId)}/lessons/${encodeURIComponent(lesson.lessonId)}`}
-                                          className="text-xl font-semibold text-foreground underline-offset-4 hover:text-primary hover:underline sm:text-2xl"
-                                        >
-                                          {lesson.lessonTitle}
-                                        </Link>
-                                      ) : lesson.locked ? (
-                                        <span className="flex items-center gap-2 text-xl font-semibold text-muted-foreground sm:text-2xl">
-                                          {lesson.lessonTitle}
-                                          <Lock className="h-4 w-4 text-red-500" />
-                                        </span>
-                                      ) : (
-                                        <span className="text-xl font-semibold text-foreground sm:text-2xl">
-                                          {lesson.lessonTitle}
-                                        </span>
-                                      )}
-                                      {renderLessonObjectivesInline(lesson)}
-                                    </div>
-                                    <div className="text-xs text-muted-foreground sm:text-sm sm:ml-auto sm:text-right">
-                                      <span>
-                                        Due date:{" "}
-                                        {lesson.startDate
-                                          ? format(addWeeks(parseISO(lesson.startDate), 1), "dd-MM-yyyy")
-                                          : "No due date"}
-                                      </span>
-                                    </div>
-                                  </div>
+                                {lesson.lessonTitle}
+                              </Link>
+                            ) : lesson.locked ? (
+                              <span className="flex items-center gap-2 text-xl font-semibold text-muted-foreground sm:text-2xl">
+                                {lesson.lessonTitle}
+                                <Lock className="h-4 w-4 text-red-500" />
+                              </span>
+                            ) : (
+                              <span className="text-xl font-semibold text-foreground sm:text-2xl">
+                                {lesson.lessonTitle}
+                              </span>
+                            )}
+                            {renderLessonObjectivesInline(lesson)}
+                          </div>
+                          <div className="flex flex-col items-end gap-1 sm:ml-auto">
+                            <span className="text-xs text-muted-foreground sm:text-sm">
+                              Due date:{" "}
+                              {lesson.startDate
+                                ? format(addWeeks(parseISO(lesson.startDate), 1), "dd-MM-yyyy")
+                                : "No due date"}
+                            </span>
+                            {lesson.lessonScore !== null && lesson.lessonMaxScore !== null && lesson.lessonMaxScore > 0 && (
+                              <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10">
+                                {Math.round(lesson.lessonScore * 10) / 10}/{lesson.lessonMaxScore} ({Math.round((lesson.lessonScore / lesson.lessonMaxScore) * 100)}%)
+                              </span>
+                            )}
+                          </div>
+                        </div>
 
-                                  {lesson.resubmitCount > 0 && (
-                                    <div className="mt-3 flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-700 dark:bg-amber-950/30">
-                                      <RotateCcw className="h-4 w-4 shrink-0 text-amber-600" />
-                                      <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
-                                        {lesson.resubmitCount} {lesson.resubmitCount === 1 ? "activity requires" : "activities require"} resubmission
-                                      </p>
-                                    </div>
-                                  )}
+                        {lesson.resubmitCount > 0 && (
+                          <div className="mt-3 flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-700 dark:bg-amber-950/30">
+                            <RotateCcw className="h-4 w-4 shrink-0 text-amber-600" />
+                            <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
+                              {lesson.resubmitCount} {lesson.resubmitCount === 1 ? "activity requires" : "activities require"} resubmission
+                            </p>
+                          </div>
+                        )}
 
-                                  <div className="mt-3 space-y-3">
-                                    <LessonMedia
-                                      lessonId={lesson.lessonId}
-                                      lessonTitle={lesson.lessonTitle}
-                                      images={lesson.displayImages}
-                                      files={lesson.files}
-                                    />
-                                  </div>
+                        <div className="mt-3 space-y-3">
+                          <LessonMedia
+                            lessonId={lesson.lessonId}
+                            lessonTitle={lesson.lessonTitle}
+                            images={lesson.displayImages}
+                            files={lesson.files}
+                          />
+                        </div>
 
-                                  {/* Launch Buttons */}
-                                  {lesson.isEnrolled && !lesson.locked && (
-                                    <div className="mt-4 space-y-3">
-                                      <div className="flex flex-col gap-3 sm:flex-row sm:gap-2">
-                                        <Button asChild className="gap-2">
-                                          <Link
-                                            href={`/pupil-lessons/${encodeURIComponent(detail.pupilId)}/lessons/${encodeURIComponent(lesson.lessonId)}`}
-                                          >
-                                            <BookOpen className="h-4 w-4" />
-                                            Launch Lesson
-                                          </Link>
-                                        </Button>
-
-                                        {lesson.lessonScore !== null && (
-                                          <StartRevisionButton lessonId={lesson.lessonId} />
-                                        )}
-                                      </div>
-
-                                      {/* Score Display */}
-                                      <div className="flex flex-col gap-1.5 text-sm">
-                                        {lesson.lessonScore !== null && lesson.lessonMaxScore !== null && lesson.lessonMaxScore > 0 && (
-                                          <div className="flex items-center gap-2">
-                                            <span className="inline-flex items-center rounded-md bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10">
-                                              Lesson Score: {Math.round(lesson.lessonScore * 10) / 10}/{lesson.lessonMaxScore} ({Math.round((lesson.lessonScore / lesson.lessonMaxScore) * 100)}%)
-                                            </span>
-                                          </div>
-                                        )}
-
-                                        {lesson.revisionScore !== null && lesson.revisionMaxScore !== null && lesson.revisionMaxScore > 0 && (
-                                          <div className="flex items-center gap-2 flex-wrap">
-                                            <span className={`inline-flex items-center rounded-md px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${getRevisionBadgeColor(lesson.revisionDate)}`}>
-                                              Revision: {Math.round(lesson.revisionScore * 10) / 10}/{lesson.revisionMaxScore} ({Math.round((lesson.revisionScore / lesson.revisionMaxScore) * 100)}%)
-                                            </span>
-                                            {lesson.revisionDate && (
-                                              <span className="text-xs text-muted-foreground">
-                                                Last revised: {formatDate(lesson.revisionDate)}
-                                              </span>
-                                            )}
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          </CardContent>
-                        </Card>
+                        {lesson.isEnrolled && !lesson.locked && lesson.revisionScore !== null && lesson.revisionMaxScore !== null && lesson.revisionMaxScore > 0 && (
+                          <div className="mt-3 flex items-center gap-2 flex-wrap">
+                            <span className={`inline-flex items-center rounded-md px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${getRevisionBadgeColor(lesson.revisionDate)}`}>
+                              Revision: {Math.round(lesson.revisionScore * 10) / 10}/{lesson.revisionMaxScore} ({Math.round((lesson.revisionScore / lesson.revisionMaxScore) * 100)}%)
+                            </span>
+                            {lesson.revisionDate && (
+                              <span className="text-xs text-muted-foreground">
+                                Last revised: {formatDate(lesson.revisionDate)}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
-                )}
-              </section>
-            ))}
+                </CardContent>
+              </Card>
+            )}
           </div>
         </div>
       </div>
