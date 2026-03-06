@@ -41,7 +41,15 @@ export function TopBar() {
             width={48}
             height={16}
             priority
-            className="h-auto w-auto"
+            className="h-auto w-auto dark:hidden"
+          />
+          <Image
+            src="/header-logo-dark.png"
+            alt="Planner"
+            width={48}
+            height={16}
+            priority
+            className="hidden h-auto w-auto dark:block"
           />
           Dino
         </Link>
