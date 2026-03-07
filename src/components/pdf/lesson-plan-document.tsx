@@ -342,13 +342,47 @@ const styles = StyleSheet.create({
     fontSize: 7,
     color: "#94a3b8",
   },
+  answerBlock: {
+    marginBottom: 14,
+    padding: 12,
+    backgroundColor: "#f8fafc",
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  answerActivityTitle: {
+    fontSize: 10,
+    fontFamily: "Helvetica-Bold",
+    color: "#1e293b",
+    marginBottom: 6,
+  },
+  answerActivityType: {
+    fontSize: 7,
+    color: "#64748b",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  answerCorrectLabel: {
+    fontSize: 8,
+    fontFamily: "Helvetica-Bold",
+    color: "#16a34a",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 3,
+  },
+  answerCorrectText: {
+    fontSize: 9,
+    color: "#16a34a",
+    fontFamily: "Helvetica-Bold",
+  },
 })
 
 // ---- Sub-components -------------------------------------------------------
 
 function McqActivity({ activity }: { activity: PdfMcqActivity }) {
   return (
-    <View style={styles.activityBlock}>
+    <View style={styles.activityBlock} wrap={false}>
       <Text style={styles.activityTypeBadge}>Multiple Choice</Text>
       <Text style={styles.activityTitle}>{activity.title}</Text>
       <Text style={styles.questionText}>{activity.question}</Text>
@@ -356,19 +390,12 @@ function McqActivity({ activity }: { activity: PdfMcqActivity }) {
         <Image src={activity.imageDataUri} style={styles.activityImage} />
       ) : null}
       <View>
-        {activity.options.map((opt) => {
-          const isCorrect = opt.id === activity.correctOptionId
-          return (
-            <View key={opt.id} style={styles.optionRow}>
-              <Text style={isCorrect ? styles.optionMarkerCorrect : styles.optionMarker}>
-                {isCorrect ? "✓" : "○"}
-              </Text>
-              <Text style={isCorrect ? styles.optionTextCorrect : styles.optionText}>
-                {opt.text}
-              </Text>
-            </View>
-          )
-        })}
+        {activity.options.map((opt) => (
+          <View key={opt.id} style={styles.optionRow}>
+            <Text style={styles.optionMarker}>○</Text>
+            <Text style={styles.optionText}>{opt.text}</Text>
+          </View>
+        ))}
       </View>
     </View>
   )
@@ -376,14 +403,10 @@ function McqActivity({ activity }: { activity: PdfMcqActivity }) {
 
 function ShortTextActivity({ activity }: { activity: PdfShortTextActivity }) {
   return (
-    <View style={styles.activityBlock}>
+    <View style={styles.activityBlock} wrap={false}>
       <Text style={styles.activityTypeBadge}>Short Answer</Text>
       <Text style={styles.activityTitle}>{activity.title}</Text>
       <Text style={styles.questionText}>{activity.question}</Text>
-      <Text style={styles.modelAnswerLabel}>Model Answer</Text>
-      <View style={styles.modelAnswerBox}>
-        <Text style={styles.modelAnswerText}>{activity.modelAnswer}</Text>
-      </View>
     </View>
   )
 }
@@ -391,7 +414,7 @@ function ShortTextActivity({ activity }: { activity: PdfShortTextActivity }) {
 function ImageActivity({ activity }: { activity: PdfImageActivity }) {
   if (!activity.imageDataUri) return null
   return (
-    <View style={styles.activityBlock}>
+    <View style={styles.activityBlock} wrap={false}>
       <Text style={styles.activityTitle}>{activity.title}</Text>
       <Image src={activity.imageDataUri} style={styles.activityImage} />
     </View>
@@ -400,7 +423,7 @@ function ImageActivity({ activity }: { activity: PdfImageActivity }) {
 
 function VideoActivity({ activity }: { activity: PdfVideoActivity }) {
   return (
-    <View style={styles.activityBlock}>
+    <View style={styles.activityBlock} wrap={false}>
       <Text style={styles.activityTypeBadge}>Video</Text>
       <Text style={styles.activityTitle}>{activity.title}</Text>
       <View style={styles.videoRow}>
@@ -420,7 +443,7 @@ function VideoActivity({ activity }: { activity: PdfVideoActivity }) {
 
 function TextActivity({ activity }: { activity: PdfTextActivity }) {
   return (
-    <View style={styles.activityBlock}>
+    <View style={styles.activityBlock} wrap={false}>
       <Text style={styles.activityTitle}>{activity.title}</Text>
       <Text style={styles.plainText}>{activity.content}</Text>
     </View>
@@ -430,7 +453,7 @@ function TextActivity({ activity }: { activity: PdfTextActivity }) {
 function KeyTermsActivity({ activity }: { activity: PdfKeyTermsActivity }) {
   if (activity.terms.length === 0) return null
   return (
-    <View style={styles.activityBlock}>
+    <View style={styles.activityBlock} wrap={false}>
       <Text style={styles.activityTypeBadge}>Key Terms</Text>
       <Text style={styles.activityTitle}>{activity.title}</Text>
       <View style={styles.termTable}>
@@ -451,7 +474,7 @@ function KeyTermsActivity({ activity }: { activity: PdfKeyTermsActivity }) {
 
 function OtherActivity({ activity }: { activity: PdfOtherActivity }) {
   return (
-    <View style={styles.activityBlock}>
+    <View style={styles.activityBlock} wrap={false}>
       <Text style={styles.activityTitle}>{activity.title}</Text>
     </View>
   )
@@ -466,6 +489,11 @@ export function LessonPlanDocument({
   learningObjectives,
   activities,
 }: LessonPlanDocumentProps) {
+  const answerItems = activities.filter(
+    (a): a is PdfMcqActivity | PdfShortTextActivity =>
+      a.kind === "mcq" || a.kind === "short-text",
+  )
+
   return (
     <Document>
       <Page size="A4" style={styles.page}>
@@ -484,7 +512,7 @@ export function LessonPlanDocument({
           <View style={styles.section}>
             <Text style={styles.sectionHeading}>Learning Objectives</Text>
             {learningObjectives.map((lo, index) => (
-              <View key={lo.id} style={styles.loBlock}>
+              <View key={lo.id} style={styles.loBlock} wrap={false}>
                 <Text style={styles.loTitle}>
                   {index + 1}. {lo.title}
                 </Text>
@@ -531,6 +559,55 @@ export function LessonPlanDocument({
           />
         </View>
       </Page>
+
+      {answerItems.length > 0 ? (
+        <Page size="A4" style={styles.page}>
+          <View style={styles.header}>
+            <View style={styles.headerRow}>
+              <View>
+                <Text style={styles.unitLabel}>Unit</Text>
+                <Text style={styles.unitTitle}>{unitTitle}</Text>
+              </View>
+              <Text style={styles.generatedDate}>{generatedAt}</Text>
+            </View>
+            <Text style={styles.lessonTitle}>Answer Sheet</Text>
+          </View>
+
+          <View style={styles.section}>
+            {answerItems.map((activity) => {
+              if (activity.kind === "mcq") {
+                const correct = activity.options.find((o) => o.id === activity.correctOptionId)
+                return (
+                  <View key={activity.id} style={styles.answerBlock} wrap={false}>
+                    <Text style={styles.answerActivityType}>Multiple Choice</Text>
+                    <Text style={styles.answerActivityTitle}>{activity.title}</Text>
+                    <Text style={styles.answerCorrectLabel}>Correct Answer</Text>
+                    <Text style={styles.answerCorrectText}>{correct?.text ?? "—"}</Text>
+                  </View>
+                )
+              }
+              return (
+                <View key={activity.id} style={styles.answerBlock} wrap={false}>
+                  <Text style={styles.answerActivityType}>Short Answer</Text>
+                  <Text style={styles.answerActivityTitle}>{activity.title}</Text>
+                  <Text style={styles.answerCorrectLabel}>Model Answer</Text>
+                  <View style={styles.modelAnswerBox}>
+                    <Text style={styles.modelAnswerText}>{activity.modelAnswer}</Text>
+                  </View>
+                </View>
+              )
+            })}
+          </View>
+
+          <View style={styles.footer} fixed>
+            <Text style={styles.footerText}>{lessonTitle} — Answer Sheet</Text>
+            <Text
+              style={styles.footerText}
+              render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`}
+            />
+          </View>
+        </Page>
+      ) : null}
     </Document>
   )
 }

@@ -4,6 +4,7 @@ import { ArrowLeft, ChevronRight } from "lucide-react"
 
 import { ActivityShareButton } from "@/components/activity-share-dialog"
 import { LessonActivityView } from "@/components/lessons/activity-view"
+import { LessonPlanDownloadButton } from "@/components/pdf/lesson-plan-download-button"
 import { Button } from "@/components/ui/button"
 import { resolveActivityAssets } from "@/lib/activity-assets"
 import { listLessonActivitiesAction, readLessonAction, readUnitAction } from "@/lib/server-updates"
@@ -83,15 +84,22 @@ export default async function LessonActivitiesOverviewPage({
                 <h1 className="text-3xl font-bold leading-tight">{lesson.title}</h1>
               </div>
             </div>
-            <Button
-              asChild
-              variant="secondary"
-              className="bg-white/10 text-white shadow-sm hover:bg-white/20"
-            >
-              <Link href={`/lessons/${encodeURIComponent(lesson.lesson_id)}`}>
-                <ArrowLeft className="mr-2 h-4 w-4" /> Back to lesson
-              </Link>
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <LessonPlanDownloadButton
+                lessonId={lesson.lesson_id}
+                variant="secondary"
+                className="bg-white/10 text-white hover:bg-white/20"
+              />
+              <Button
+                asChild
+                variant="secondary"
+                className="bg-white/10 text-white shadow-sm hover:bg-white/20"
+              >
+                <Link href={`/lessons/${encodeURIComponent(lesson.lesson_id)}`}>
+                  <ArrowLeft className="mr-2 h-4 w-4" /> Back to lesson
+                </Link>
+              </Button>
+            </div>
           </div>
           <p className="text-sm text-white/80">
             Review every planned activity, then jump straight into presentation mode when you&apos;re ready to teach.
