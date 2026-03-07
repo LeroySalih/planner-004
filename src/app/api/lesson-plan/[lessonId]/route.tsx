@@ -1,0 +1,201 @@
+import { createElement } from "react"
+import { renderToBuffer } from "@react-pdf/renderer"
+
+import { getAuthenticatedProfile, hasRole } from "@/lib/auth"
+import {
+  readAllLearningObjectivesAction,
+  readLessonDetailBootstrapAction,
+  readLessonReferenceDataAction,
+} from "@/lib/server-updates"
+import {
+  extractYouTubeVideoId,
+  fetchAsDataUri,
+  generateQrDataUri,
+  getBaseUrl,
+} from "@/lib/pdf-helpers"
+import { LessonPlanDocument } from "@/components/pdf/lesson-plan-document"
+import type {
+  PdfActivity,
+  PdfLearningObjective,
+} from "@/components/pdf/lesson-plan-document"
+import { McqActivityBodySchema, ShortTextActivityBodySchema } from "@/types"
+
+const ROUTE_TAG = "/api/lesson-plan/[lessonId]"
+
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ lessonId: string }> },
+) {
+  const profile = await getAuthenticatedProfile()
+  if (!profile || !hasRole(profile, "teacher")) {
+    return new Response("Unauthorized", { status: 401 })
+  }
+
+  const { lessonId } = await params
+  const baseUrl = getBaseUrl(request)
+
+  const lessonResult = await readLessonDetailBootstrapAction(lessonId, {
+    routeTag: ROUTE_TAG,
+    authEndTime: null,
+  })
+  if (lessonResult.error || !lessonResult.data?.lesson) {
+    return new Response("Lesson not found", { status: 404 })
+  }
+
+  const { lesson, unit, lessonActivities = [] } = lessonResult.data
+
+  const referenceResult = await readLessonReferenceDataAction(lessonId, {
+    routeTag: ROUTE_TAG,
+    authEndTime: null,
+  })
+  const curricula = referenceResult.data?.curricula ?? []
+  const curriculumIds = curricula
+    .map((c) => c.curriculum_id)
+    .filter((id): id is string => Boolean(id))
+
+  const loResult = await readAllLearningObjectivesAction({
+    routeTag: ROUTE_TAG,
+    authEndTime: null,
+    curriculumIds,
+    unitId: lesson.unit_id,
+  })
+  const allLos = loResult.data ?? []
+
+  const lessonScIds = new Set(
+    (lesson.lesson_success_criteria ?? []).map((sc) => sc.success_criteria_id),
+  )
+
+  const pdfLos: PdfLearningObjective[] = []
+  for (const lo of allLos) {
+    const linkedCriteria = (lo.success_criteria ?? []).filter((sc) =>
+      lessonScIds.has(sc.success_criteria_id),
+    )
+    if (linkedCriteria.length === 0) continue
+    pdfLos.push({
+      id: lo.learning_objective_id,
+      title: lo.title ?? "Untitled objective",
+      criteria: linkedCriteria.map((sc) => ({
+        id: sc.success_criteria_id,
+        description: sc.description?.trim() || sc.title || "Success criterion",
+      })),
+    })
+  }
+
+  const activeActivities = lessonActivities
+    .filter((a) => a.active !== false)
+    .sort((a, b) => (a.order_by ?? 0) - (b.order_by ?? 0))
+
+  const pdfActivities: PdfActivity[] = await Promise.all(
+    activeActivities.map(async (activity): Promise<PdfActivity> => {
+      const base = {
+        id: activity.activity_id,
+        title: activity.title || "Untitled activity",
+        orderBy: activity.order_by ?? null,
+      }
+      const body = activity.body_data as Record<string, unknown> | null
+
+      switch (activity.type) {
+        case "multiple-choice-question": {
+          const parsed = McqActivityBodySchema.safeParse(body)
+          if (!parsed.success) return { ...base, kind: "other" as const }
+          const { question, options, correctOptionId, imageFile, imageUrl } = parsed.data
+          const rawImgUrl = imageFile ?? imageUrl ?? null
+          const imageDataUri = rawImgUrl
+            ? await fetchAsDataUri(rawImgUrl, baseUrl).catch(() => null)
+            : null
+          return {
+            ...base,
+            kind: "mcq" as const,
+            question,
+            options: options.map((o) => ({ id: o.id, text: o.text })),
+            correctOptionId,
+            imageDataUri,
+          }
+        }
+
+        case "short-text-question": {
+          const parsed = ShortTextActivityBodySchema.safeParse(body)
+          if (!parsed.success) return { ...base, kind: "other" as const }
+          return {
+            ...base,
+            kind: "short-text" as const,
+            question: parsed.data.question,
+            modelAnswer: parsed.data.modelAnswer,
+          }
+        }
+
+        case "display-image": {
+          const rawUrl =
+            (body?.imageFile as string | undefined) ??
+            (body?.imageUrl as string | undefined) ??
+            null
+          const imageDataUri = rawUrl
+            ? await fetchAsDataUri(rawUrl, baseUrl).catch(() => null)
+            : null
+          return { ...base, kind: "image" as const, imageDataUri }
+        }
+
+        case "show-video": {
+          const videoUrl = (body?.url as string | undefined) ?? ""
+          if (!videoUrl) return { ...base, kind: "other" as const }
+          const videoId = extractYouTubeVideoId(videoUrl)
+          const thumbnailUrl = videoId
+            ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`
+            : null
+          const [thumbnailDataUri, qrDataUri] = await Promise.all([
+            thumbnailUrl
+              ? fetchAsDataUri(thumbnailUrl, baseUrl).catch(() => null)
+              : Promise.resolve(null),
+            generateQrDataUri(videoUrl).catch(() => null),
+          ])
+          return {
+            ...base,
+            kind: "video" as const,
+            videoUrl,
+            thumbnailDataUri,
+            qrDataUri,
+          }
+        }
+
+        case "text": {
+          const content = (body?.content as string | undefined) ?? ""
+          return { ...base, kind: "text" as const, content }
+        }
+
+        default:
+          return { ...base, kind: "other" as const }
+      }
+    }),
+  )
+
+  const now = new Date()
+  const generatedAt = [
+    String(now.getDate()).padStart(2, "0"),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    now.getFullYear(),
+  ].join("-")
+
+  const buffer = await renderToBuffer(
+    createElement(LessonPlanDocument, {
+      unitTitle: unit?.title ?? "Unknown Unit",
+      lessonTitle: lesson.title ?? "Untitled Lesson",
+      generatedAt,
+      learningObjectives: pdfLos,
+      activities: pdfActivities,
+    }),
+  )
+
+  const safeTitle = (lesson.title ?? "lesson-plan")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .slice(0, 60)
+
+  return new Response(buffer, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `attachment; filename="${safeTitle}.pdf"`,
+      "Cache-Control": "no-store",
+    },
+  })
+}
