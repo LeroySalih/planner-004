@@ -11,7 +11,9 @@ import {
 } from "@/lib/server-updates"
 import {
   extractYouTubeVideoId,
+  fetchActivityImageAsDataUri,
   fetchAsDataUri,
+  fetchYouTubeThumbnailAsDataUri,
   generateQrDataUri,
   getBaseUrl,
 } from "@/lib/pdf-helpers"
@@ -127,16 +129,19 @@ export async function GET(
 
         case "display-image": {
           const imageFile = body?.imageFile as string | undefined
-          const imageUrl = body?.imageUrl as string | undefined
-          // imageFile is a filename stored on disk; construct the serving URL
-          const rawUrl = imageUrl && /^https?:\/\//i.test(imageUrl)
-            ? imageUrl
-            : imageFile
-              ? `/api/files/lessons/${encodeURIComponent(activity.lesson_id)}/activities/${encodeURIComponent(activity.activity_id)}/${encodeURIComponent(imageFile)}`
-              : null
-          const imageDataUri = rawUrl
-            ? await fetchAsDataUri(rawUrl, baseUrl).catch(() => null)
-            : null
+          const imageUrl = (body?.imageUrl as string | undefined) ?? (body?.fileUrl as string | undefined)
+          let imageDataUri: string | null = null
+          if (imageUrl && /^https?:\/\//i.test(imageUrl)) {
+            // Absolute URL — fetch directly
+            imageDataUri = await fetchAsDataUri(imageUrl, baseUrl).catch(() => null)
+          } else if (imageFile) {
+            // Local file — read from disk, bypassing the auth-gated /api/files route
+            imageDataUri = await fetchActivityImageAsDataUri(
+              activity.lesson_id,
+              activity.activity_id,
+              imageFile,
+            ).catch(() => null)
+          }
           return { ...base, kind: "image" as const, imageDataUri }
         }
 
@@ -145,13 +150,8 @@ export async function GET(
           const videoUrl = (body?.fileUrl as string | undefined) ?? (body?.file_url as string | undefined) ?? ""
           if (!videoUrl) return { ...base, kind: "other" as const }
           const videoId = extractYouTubeVideoId(videoUrl)
-          const thumbnailUrl = videoId
-            ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`
-            : null
           const [thumbnailDataUri, qrDataUri] = await Promise.all([
-            thumbnailUrl
-              ? fetchAsDataUri(thumbnailUrl, baseUrl).catch(() => null)
-              : Promise.resolve(null),
+            videoId ? fetchYouTubeThumbnailAsDataUri(videoId).catch(() => null) : Promise.resolve(null),
             generateQrDataUri(videoUrl).catch(() => null),
           ])
           return {
