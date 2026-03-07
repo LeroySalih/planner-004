@@ -213,6 +213,9 @@ export default function CurriculumPrototypeClient({
   const editingTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const [mapperUnitId, setMapperUnitId] = useState("")
   const [mapperFilter, setMapperFilter] = useState("")
+  const [mapperEditLo, setMapperEditLo] = useState<{ aoIndex: number; loIndex: number } | null>(null)
+  const [mapperEditTitle, setMapperEditTitle] = useState("")
+  const [mapperEditSpecRef, setMapperEditSpecRef] = useState("")
 
   // Track which SCs are assigned to activities
   // Initialize with server-provided data to avoid loading delay
@@ -1138,6 +1141,60 @@ export default function CurriculumPrototypeClient({
     }
   }
 
+  const openMapperLoEdit = (aoIndex: number, loIndex: number) => {
+    const lo = assessmentObjectives[aoIndex]?.lessonObjectives[loIndex]
+    if (!lo) return
+    setMapperEditLo({ aoIndex, loIndex })
+    setMapperEditTitle(lo.title)
+    setMapperEditSpecRef(lo.specRef ?? "")
+  }
+
+  const cancelMapperLoEdit = () => {
+    setMapperEditLo(null)
+    setMapperEditTitle("")
+    setMapperEditSpecRef("")
+  }
+
+  const saveMapperLoEdit = () => {
+    if (!mapperEditLo) return
+    const { aoIndex, loIndex } = mapperEditLo
+    const targetAo = assessmentObjectives[aoIndex]
+    const targetLo = targetAo?.lessonObjectives[loIndex]
+    if (!targetAo || !targetLo) return
+    const newTitle = mapperEditTitle.trim()
+    const newSpecRef = mapperEditSpecRef.trim()
+    if (!newTitle) return
+
+    setAssessmentObjectives((prev) =>
+      prev.map((ao, aIdx) =>
+        aIdx === aoIndex
+          ? {
+              ...ao,
+              lessonObjectives: ao.lessonObjectives.map((lo, lIdx) =>
+                lIdx === loIndex
+                  ? { ...lo, title: newTitle, specRef: newSpecRef || null }
+                  : lo,
+              ),
+            }
+          : ao,
+      ),
+    )
+    cancelMapperLoEdit()
+
+    startTransition(async () => {
+      const result = await updateCurriculumLearningObjectiveAction(targetLo.id, curriculumId, {
+        title: newTitle,
+        spec_ref: newSpecRef || null,
+      })
+      if (result.error) {
+        showToast("error", result.error)
+        await refreshCurriculum({ aoId: targetAo.id, loId: targetLo.id })
+      } else {
+        showToast("success", "Learning objective updated.")
+      }
+    })
+  }
+
   const cancelLessonObjectiveEdit = () => {
     setEditingLessonObjective(null)
     setEditingLessonObjectiveTitle("")
@@ -1760,7 +1817,8 @@ export default function CurriculumPrototypeClient({
           </TabsContent>
 
           <TabsContent value="mapper" className="mt-0">
-            <section className="flex h-[70vh] flex-col overflow-hidden rounded-xl border bg-card shadow-sm">
+            <section className="flex h-[70vh] overflow-hidden rounded-xl border bg-card shadow-sm">
+            <div className="flex flex-1 flex-col overflow-hidden">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4">
                 <div>
                   <h2 className="text-lg font-semibold text-foreground">Curriculum Mapper</h2>
@@ -1845,7 +1903,7 @@ export default function CurriculumPrototypeClient({
                         </tr>
                       </thead>
                       <tbody>
-                        {assessmentObjectives.map((ao) => {
+                        {assessmentObjectives.map((ao, aoIndex) => {
                           const orderedLessonObjectives = ao.lessonObjectives
                             .slice()
                             .sort((a, b) => a.orderIndex - b.orderIndex)
@@ -1885,6 +1943,8 @@ export default function CurriculumPrototypeClient({
 
                           return filteredLessonObjectives.flatMap((lo) => {
                             const rowKey = `mapper-lo-${lo.id}`
+                            const loIndex = assessmentObjectives[aoIndex].lessonObjectives.findIndex((l) => l.id === lo.id)
+                            const isEditingThis = mapperEditLo?.aoIndex === aoIndex && mapperEditLo?.loIndex === loIndex
 
                             const rows: JSX.Element[] = []
 
@@ -1897,7 +1957,12 @@ export default function CurriculumPrototypeClient({
                                   {lo.specRef ? (
                                     <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-primary/70">{lo.specRef}</p>
                                   ) : null}
-                                  <p className="text-sm font-medium text-foreground">{lo.title}</p>
+                                  <button
+                                    onClick={() => isEditingThis ? cancelMapperLoEdit() : openMapperLoEdit(aoIndex, loIndex)}
+                                    className={`text-left text-sm font-medium underline-offset-2 hover:underline ${isEditingThis ? "text-primary" : "text-foreground"}`}
+                                  >
+                                    {lo.title}
+                                  </button>
                                 </td>
                                 {mapperLessons.map((lesson) => {
                                   const linkedCount =
@@ -2015,6 +2080,62 @@ export default function CurriculumPrototypeClient({
                   </div>
                 )}
               </div>
+            </div>
+
+            {mapperEditLo !== null ? (
+              <div className="flex w-80 shrink-0 flex-col border-l bg-background">
+                <div className="flex items-center justify-between border-b px-4 py-3">
+                  <h3 className="text-sm font-semibold text-foreground">Edit Learning Objective</h3>
+                  <button
+                    onClick={cancelMapperLoEdit}
+                    className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    aria-label="Close"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Spec Ref
+                    </label>
+                    <input
+                      type="text"
+                      value={mapperEditSpecRef}
+                      onChange={(e) => setMapperEditSpecRef(e.target.value)}
+                      placeholder="e.g. 3.1.2"
+                      className="rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Title
+                    </label>
+                    <textarea
+                      value={mapperEditTitle}
+                      onChange={(e) => setMapperEditTitle(e.target.value)}
+                      rows={4}
+                      className="rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2 border-t px-4 py-3">
+                  <button
+                    onClick={saveMapperLoEdit}
+                    disabled={!mapperEditTitle.trim() || isPending}
+                    className="flex-1 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={cancelMapperLoEdit}
+                    className="rounded-md border border-border px-3 py-2 text-sm text-muted-foreground hover:bg-muted"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : null}
             </section>
           </TabsContent>
           <TabsContent value="levels" className="mt-0">
