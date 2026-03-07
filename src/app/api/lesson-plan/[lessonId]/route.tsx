@@ -126,10 +126,14 @@ export async function GET(
         }
 
         case "display-image": {
-          const rawUrl =
-            (body?.imageFile as string | undefined) ??
-            (body?.imageUrl as string | undefined) ??
-            null
+          const imageFile = body?.imageFile as string | undefined
+          const imageUrl = body?.imageUrl as string | undefined
+          // imageFile is a filename stored on disk; construct the serving URL
+          const rawUrl = imageUrl && /^https?:\/\//i.test(imageUrl)
+            ? imageUrl
+            : imageFile
+              ? `/api/files/lessons/${encodeURIComponent(activity.lesson_id)}/activities/${encodeURIComponent(activity.activity_id)}/${encodeURIComponent(imageFile)}`
+              : null
           const imageDataUri = rawUrl
             ? await fetchAsDataUri(rawUrl, baseUrl).catch(() => null)
             : null
@@ -137,7 +141,8 @@ export async function GET(
         }
 
         case "show-video": {
-          const videoUrl = (body?.url as string | undefined) ?? ""
+          // URL stored as fileUrl/file_url, not url
+          const videoUrl = (body?.fileUrl as string | undefined) ?? (body?.file_url as string | undefined) ?? ""
           if (!videoUrl) return { ...base, kind: "other" as const }
           const videoId = extractYouTubeVideoId(videoUrl)
           const thumbnailUrl = videoId
