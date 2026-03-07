@@ -28,6 +28,7 @@ import { LessonLinksManager } from "@/components/lessons/lesson-links-manager"
 import { LessonActivitiesManager } from "@/components/lessons/lesson-activities-manager"
 import { LessonObjectivesSidebar } from "@/components/lessons/lesson-objectives-sidebar"
 import { LessonShareButton } from "@/components/lessons/lesson-share-button"
+import { LessonPlanDownloadButton } from "@/components/pdf/lesson-plan-download-button"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -415,6 +416,11 @@ export function LessonDetailClient({
                   <LessonShareButton
                     lessonId={currentLesson.lesson_id}
                     lessonTitle={currentLesson.title}
+                  />
+                  <LessonPlanDownloadButton
+                    lessonId={currentLesson.lesson_id}
+                    variant="secondary"
+                    className="bg-white/10 text-white hover:bg-white/20"
                   />
                   <Button
                     size="sm"
