@@ -1,5 +1,7 @@
 import { createElement } from "react"
+import type { ReactElement } from "react"
 import { renderToBuffer } from "@react-pdf/renderer"
+import type { DocumentProps } from "@react-pdf/renderer"
 
 import { getAuthenticatedProfile, hasRole } from "@/lib/auth"
 import {
@@ -76,7 +78,7 @@ export async function GET(
       title: lo.title ?? "Untitled objective",
       criteria: linkedCriteria.map((sc) => ({
         id: sc.success_criteria_id,
-        description: sc.description?.trim() || sc.title || "Success criterion",
+        description: sc.description?.trim() || "Success criterion",
       })),
     })
   }
@@ -175,22 +177,22 @@ export async function GET(
     now.getFullYear(),
   ].join("-")
 
-  const buffer = await renderToBuffer(
-    createElement(LessonPlanDocument, {
-      unitTitle: unit?.title ?? "Unknown Unit",
-      lessonTitle: lesson.title ?? "Untitled Lesson",
-      generatedAt,
-      learningObjectives: pdfLos,
-      activities: pdfActivities,
-    }),
-  )
+  const docElement = createElement(LessonPlanDocument, {
+    unitTitle: unit?.title ?? "Unknown Unit",
+    lessonTitle: lesson.title ?? "Untitled Lesson",
+    generatedAt,
+    learningObjectives: pdfLos,
+    activities: pdfActivities,
+  }) as unknown as ReactElement<DocumentProps>
+
+  const buffer = await renderToBuffer(docElement)
 
   const safeTitle = (lesson.title ?? "lesson-plan")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .slice(0, 60)
 
-  return new Response(buffer, {
+  return new Response(new Uint8Array(buffer), {
     status: 200,
     headers: {
       "Content-Type": "application/pdf",
