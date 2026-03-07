@@ -158,6 +158,24 @@ export async function GET(
           }
         }
 
+        case "display-flashcards": {
+          const lines = (body?.lines as string | undefined) ?? ""
+          const terms = lines
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .map((line) => {
+              // Extract bold term: **term** anywhere in the sentence
+              const match = line.match(/\*\*([^*]+)\*\*/)
+              const term = match ? match[1].trim() : ""
+              // Definition: strip all ** markers to get plain text
+              const definition = line.replace(/\*\*/g, "").trim()
+              return { term, definition }
+            })
+            .filter((row) => row.term.length > 0)
+          return { ...base, kind: "key-terms" as const, terms }
+        }
+
         case "text": {
           const content = (body?.content as string | undefined) ?? ""
           return { ...base, kind: "text" as const, content }

@@ -51,6 +51,11 @@ export interface PdfTextActivity extends PdfActivityBase {
   content: string
 }
 
+export interface PdfKeyTermsActivity extends PdfActivityBase {
+  kind: "key-terms"
+  terms: { term: string; definition: string }[]
+}
+
 export interface PdfOtherActivity extends PdfActivityBase {
   kind: "other"
 }
@@ -61,6 +66,7 @@ export type PdfActivity =
   | PdfImageActivity
   | PdfVideoActivity
   | PdfTextActivity
+  | PdfKeyTermsActivity
   | PdfOtherActivity
 
 export interface LessonPlanDocumentProps {
@@ -272,6 +278,58 @@ const styles = StyleSheet.create({
     color: "#374151",
     lineHeight: 1.6,
   },
+  // Key terms table
+  termTable: {
+    marginTop: 4,
+  },
+  termTableHeader: {
+    flexDirection: "row",
+    backgroundColor: "#1e293b",
+    borderRadius: 3,
+    marginBottom: 2,
+  },
+  termTableHeaderCell: {
+    fontSize: 8,
+    fontFamily: "Helvetica-Bold",
+    color: "#ffffff",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+  },
+  termTableHeaderCellTerm: {
+    width: "30%",
+  },
+  termTableHeaderCellDef: {
+    width: "70%",
+  },
+  termRow: {
+    flexDirection: "row",
+    borderBottomWidth: 1,
+    borderBottomColor: "#e2e8f0",
+  },
+  termRowAlt: {
+    flexDirection: "row",
+    borderBottomWidth: 1,
+    borderBottomColor: "#e2e8f0",
+    backgroundColor: "#f1f5f9",
+  },
+  termCell: {
+    fontSize: 9,
+    fontFamily: "Helvetica-Bold",
+    color: "#1e293b",
+    width: "30%",
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+  },
+  defCell: {
+    fontSize: 9,
+    color: "#374151",
+    width: "70%",
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    lineHeight: 1.4,
+  },
   footer: {
     position: "absolute",
     bottom: 20,
@@ -369,6 +427,28 @@ function TextActivity({ activity }: { activity: PdfTextActivity }) {
   )
 }
 
+function KeyTermsActivity({ activity }: { activity: PdfKeyTermsActivity }) {
+  if (activity.terms.length === 0) return null
+  return (
+    <View style={styles.activityBlock}>
+      <Text style={styles.activityTypeBadge}>Key Terms</Text>
+      <Text style={styles.activityTitle}>{activity.title}</Text>
+      <View style={styles.termTable}>
+        <View style={styles.termTableHeader}>
+          <Text style={[styles.termTableHeaderCell, styles.termTableHeaderCellTerm]}>Term</Text>
+          <Text style={[styles.termTableHeaderCell, styles.termTableHeaderCellDef]}>Definition</Text>
+        </View>
+        {activity.terms.map((row, index) => (
+          <View key={index} style={index % 2 === 0 ? styles.termRow : styles.termRowAlt}>
+            <Text style={styles.termCell}>{row.term}</Text>
+            <Text style={styles.defCell}>{row.definition}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  )
+}
+
 function OtherActivity({ activity }: { activity: PdfOtherActivity }) {
   return (
     <View style={styles.activityBlock}>
@@ -434,6 +514,8 @@ export function LessonPlanDocument({
                   return <VideoActivity key={activity.id} activity={activity} />
                 case "text":
                   return <TextActivity key={activity.id} activity={activity} />
+                case "key-terms":
+                  return <KeyTermsActivity key={activity.id} activity={activity} />
                 case "other":
                   return <OtherActivity key={activity.id} activity={activity} />
               }
