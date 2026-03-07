@@ -212,6 +212,7 @@ export default function CurriculumPrototypeClient({
   >(null)
   const editingTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const [mapperUnitId, setMapperUnitId] = useState("")
+  const [mapperFilter, setMapperFilter] = useState("")
 
   // Track which SCs are assigned to activities
   // Initialize with server-provided data to avoid loading delay
@@ -1379,7 +1380,7 @@ export default function CurriculumPrototypeClient({
     : null
 
   return (
-    <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-6 py-10">
+    <main className="flex w-full flex-1 flex-col px-2 py-10">
       <div className="space-y-8">
         <header className="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 px-8 py-6 text-white shadow-lg">
           <p className="text-sm uppercase tracking-wide text-white/70">Curriculum</p>
@@ -1767,28 +1768,37 @@ export default function CurriculumPrototypeClient({
                     Click a lesson cell to toggle its link to a learning objective or success criterion.
                   </p>
                 </div>
-                {subjectUnitOptions.length > 0 ? (
-                  <div className="flex items-end gap-2">
-                    <label
-                      htmlFor="mapper-unit-select"
-                      className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                    >
-                      Unit
-                    </label>
-                    <select
-                      id="mapper-unit-select"
-                      value={mapperUnitId}
-                      onChange={(event) => setMapperUnitId(event.target.value)}
-                      className="rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    >
-                      {subjectUnitOptions.map((unit) => (
-                        <option key={unit.unit_id} value={unit.unit_id}>
-                          {unit.title}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ) : null}
+                <div className="flex flex-wrap items-end gap-3">
+                  <input
+                    type="search"
+                    placeholder="Filter by spec ref, LO or SC…"
+                    value={mapperFilter}
+                    onChange={(e) => setMapperFilter(e.target.value)}
+                    className="w-56 rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  />
+                  {subjectUnitOptions.length > 0 ? (
+                    <div className="flex items-end gap-2">
+                      <label
+                        htmlFor="mapper-unit-select"
+                        className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                      >
+                        Unit
+                      </label>
+                      <select
+                        id="mapper-unit-select"
+                        value={mapperUnitId}
+                        onChange={(event) => setMapperUnitId(event.target.value)}
+                        className="rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                      >
+                        {subjectUnitOptions.map((unit) => (
+                          <option key={unit.unit_id} value={unit.unit_id}>
+                            {unit.title}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
+                </div>
               </div>
               {lessonsError ? (
                 <div className="border-b border-destructive/40 bg-destructive/10 px-5 py-3 text-xs text-destructive">
@@ -1862,7 +1872,18 @@ export default function CurriculumPrototypeClient({
   )
 }
 
-                          return orderedLessonObjectives.flatMap((lo) => {
+                          const normalizedMapperFilter = mapperFilter.trim().toLowerCase()
+                          const filteredLessonObjectives = normalizedMapperFilter
+                            ? orderedLessonObjectives.filter((lo) => {
+                                if (lo.specRef?.toLowerCase().includes(normalizedMapperFilter)) return true
+                                if (lo.title.toLowerCase().includes(normalizedMapperFilter)) return true
+                                return lo.successCriteria.some((sc) =>
+                                  sc.description.toLowerCase().includes(normalizedMapperFilter),
+                                )
+                              })
+                            : orderedLessonObjectives
+
+                          return filteredLessonObjectives.flatMap((lo) => {
                             const rowKey = `mapper-lo-${lo.id}`
 
                             const rows: JSX.Element[] = []
@@ -1873,6 +1894,9 @@ export default function CurriculumPrototypeClient({
                                   className="sticky left-0 z-20 border border-border bg-card px-3 py-3 align-top shadow-sm"
                                   style={{ minWidth: "14rem", width: mapperStickyWidth, maxWidth: "33.3333%" }}
                                 >
+                                  {lo.specRef ? (
+                                    <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-primary/70">{lo.specRef}</p>
+                                  ) : null}
                                   <p className="text-sm font-medium text-foreground">{lo.title}</p>
                                 </td>
                                 {mapperLessons.map((lesson) => {
@@ -1918,12 +1942,7 @@ export default function CurriculumPrototypeClient({
                                     style={{ minWidth: "14rem", width: mapperStickyWidth, maxWidth: "33.3333%" }}
                                   >
                                     <div className="pl-6">
-                                      <div className="flex items-start gap-2">
-                                        <span className="mt-0.5 inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-primary">
-                                          {levelBadge}
-                                        </span>
-                                        <p className="text-sm text-muted-foreground">{criterion.description}</p>
-                                      </div>
+                                      <p className="text-sm text-muted-foreground">{criterion.description}</p>
                                     </div>
                                   </td>
                                 {mapperLessons.map((lesson) => {
