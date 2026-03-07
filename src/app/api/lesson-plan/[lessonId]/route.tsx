@@ -33,23 +33,22 @@ export async function GET(
     return new Response("Unauthorized", { status: 401 })
   }
 
+  // Note: This checks the caller is an authenticated teacher but does not verify
+  // the lesson belongs to a unit accessible to this teacher. This is acceptable
+  // for a single-school deployment where all teachers share access to all content.
   const { lessonId } = await params
   const baseUrl = getBaseUrl(request)
 
-  const lessonResult = await readLessonDetailBootstrapAction(lessonId, {
-    routeTag: ROUTE_TAG,
-    authEndTime: null,
-  })
+  const [lessonResult, referenceResult] = await Promise.all([
+    readLessonDetailBootstrapAction(lessonId, { routeTag: ROUTE_TAG, authEndTime: null }),
+    readLessonReferenceDataAction(lessonId, { routeTag: ROUTE_TAG, authEndTime: null }),
+  ])
+
   if (lessonResult.error || !lessonResult.data?.lesson) {
     return new Response("Lesson not found", { status: 404 })
   }
 
   const { lesson, unit, lessonActivities = [] } = lessonResult.data
-
-  const referenceResult = await readLessonReferenceDataAction(lessonId, {
-    routeTag: ROUTE_TAG,
-    authEndTime: null,
-  })
   const curricula = referenceResult.data?.curricula ?? []
   const curriculumIds = curricula
     .map((c) => c.curriculum_id)
@@ -177,6 +176,9 @@ export async function GET(
     now.getFullYear(),
   ].join("-")
 
+  // @react-pdf/renderer's renderToBuffer expects ReactElement<DocumentProps>.
+  // createElement returns ReactElement<LessonPlanDocumentProps> which TypeScript
+  // considers incompatible, so we cast through unknown.
   const docElement = createElement(LessonPlanDocument, {
     unitTitle: unit?.title ?? "Unknown Unit",
     lessonTitle: lesson.title ?? "Untitled Lesson",
