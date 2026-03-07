@@ -15,6 +15,7 @@ import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { LessonSidebar } from "@/components/units/lesson-sidebar"
+import { LessonPlanDownloadButton } from "@/components/pdf/lesson-plan-download-button"
 import { toast } from "sonner"
 
 interface LessonsPanelProps {
@@ -338,6 +339,9 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
                               Show activities
                             </Link>
                           </Button>
+                          <div onClick={(e) => e.stopPropagation()}>
+                            <LessonPlanDownloadButton lessonId={lesson.lesson_id} />
+                          </div>
                         </>
                       )}
                     </div>
