@@ -894,11 +894,13 @@ function ActivityPresentView({
   }
 
   if (activity.type === "display-image") {
-    return wrap(
-      <DisplayImagePresent
-        activity={activity}
-        fetchActivityFileUrl={fetchActivityFileUrl}
-      />
+    return (
+      <div className="flex h-full w-full flex-1">
+        <DisplayImagePresent
+          activity={activity}
+          fetchActivityFileUrl={fetchActivityFileUrl}
+        />
+      </div>
     )
   }
 
@@ -1728,16 +1730,13 @@ function DisplayImagePresent({
   }
 
   return (
-    <div className="space-y-3">
-      <div className="flex h-full min-h-[240px] w-full items-center justify-center">
-        <ActivityImagePreview
-          imageUrl={url}
-          alt={activity.title ? `${activity.title} image` : "Activity image"}
-          objectFit="contain"
-          className="flex max-h-[60vh] w-full max-w-3xl items-center justify-center bg-muted/10 p-4"
-          imageClassName="max-h-[60vh]"
-        />
-      </div>
+    <div className="flex h-full w-full items-center justify-center">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={url}
+        alt={activity.title ? `${activity.title} image` : "Activity image"}
+        className="h-full w-full object-contain"
+      />
     </div>
   )
 }

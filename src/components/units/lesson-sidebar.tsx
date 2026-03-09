@@ -2336,6 +2336,7 @@ export function LessonPresentation({
   const isOverview = currentIndex < 0
   const activity = !isOverview && currentIndex >= 0 ? activities[currentIndex] : null
   const activityFiles = activity ? activityFilesMap[activity.activity_id] ?? [] : []
+  const isFullScreenImage = !isOverview && activity?.type === "display-image"
   const [voicePlayback, setVoicePlayback] = useState<{ url: string | null; loading: boolean }>(
     { url: null, loading: false },
   )
@@ -2406,8 +2407,25 @@ export function LessonPresentation({
         </Button>
       </header>
 
-      <main className="flex flex-1 flex-col items-center overflow-y-auto px-6 py-8">
-        <div className="flex w-full max-w-5xl flex-col gap-6">
+      <main className={cn(
+        "flex flex-1 flex-col",
+        isFullScreenImage ? "overflow-hidden" : "items-center overflow-y-auto px-6 py-8",
+      )}>
+        {isFullScreenImage ? (
+          <div className="flex h-full flex-1">
+            <LessonActivityView
+              mode="present"
+              activity={activity}
+              lessonId={lessonId}
+              files={activityFiles}
+              onDownloadFile={(fileName) => onDownloadActivityFile(activity.activity_id, fileName)}
+              voicePlayback={{ url: voicePlayback.url, isLoading: voicePlayback.loading }}
+              fetchActivityFileUrl={fetchActivityFileUrl}
+              viewerCanReveal
+            />
+          </div>
+        ) : null}
+        <div className={cn("flex w-full max-w-5xl flex-col gap-6", isFullScreenImage && "hidden")}>
           {isOverview ? (
             <div className="space-y-6">
               <section className="rounded-xl border bg-card p-6 shadow-sm">
