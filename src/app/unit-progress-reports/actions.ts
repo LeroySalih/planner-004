@@ -219,6 +219,7 @@ export async function getUnitLessonMatrixAction(groupId: string, unitId: string,
          AND lower(trim(coalesce(a.type, ''))) = ANY (ARRAY['multiple-choice-question', 'short-text-question', 'upload-file'])
        LEFT JOIN latest_submissions s ON s.activity_id = a.activity_id AND s.user_id = gm.user_id
        WHERE l.unit_id = $2
+        AND coalesce(l.active, true) = true
      )
      SELECT
        lesson_id,
