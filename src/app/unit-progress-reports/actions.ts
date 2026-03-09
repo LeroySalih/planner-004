@@ -36,6 +36,7 @@ export async function getClassProgressAction(groupId: string, summativeOnly = fa
      LEFT JOIN latest_submissions s ON s.activity_id = a.activity_id
                                     AND s.user_id = gm.user_id
      WHERE la.group_id = $1
+       AND coalesce(l.active, true) = true
      GROUP BY u.unit_id, u.title, u.subject
      ORDER BY u.title`,
     [groupId, summativeOnly]
@@ -85,6 +86,7 @@ export async function getProgressMatrixAction(summativeOnly = false) {
      JOIN group_membership gm ON gm.group_id = g.group_id
      LEFT JOIN latest_submissions s ON s.activity_id = a.activity_id
                                     AND s.user_id = gm.user_id
+     WHERE coalesce(l.active, true) = true
      GROUP BY g.group_id, g.subject, u.unit_id, u.title, u.subject
      ORDER BY g.subject, u.title, g.group_id`,
     [summativeOnly]
@@ -150,6 +152,7 @@ export async function getClassPupilMatrixAction(groupId: string, summativeOnly =
      LEFT JOIN latest_submissions s ON s.activity_id = a.activity_id
                                     AND s.user_id = gm.user_id
      WHERE la.group_id = $1
+       AND coalesce(l.active, true) = true
      GROUP BY u.unit_id, u.title, u.subject, gm.user_id, p.first_name, p.last_name
      ORDER BY p.last_name, p.first_name, u.title`,
     [groupId, summativeOnly]
@@ -302,6 +305,7 @@ export async function getPupilUnitLessonsAction(groupId: string, unitId: string,
      LEFT JOIN latest_submissions s ON s.activity_id = a.activity_id
                                     AND s.user_id = $2
      WHERE l.unit_id = $3
+       AND coalesce(l.active, true) = true
      GROUP BY l.lesson_id, l.title, l.order_by
      ORDER BY l.order_by`,
     [groupId, pupilId, unitId, summativeOnly]
@@ -383,6 +387,7 @@ export async function getPupilUnitLOSCAction(groupId: string, unitId: string, pu
      LEFT JOIN success_criteria sc ON sc.learning_objective_id = lo.learning_objective_id
      LEFT JOIN latest_feedback lf ON lf.success_criteria_id = sc.success_criteria_id
      WHERE l.unit_id = $2
+       AND coalesce(l.active, true) = true
      ORDER BY ao.order_index, lo.order_index, sc.order_index`,
     [groupId, unitId, pupilId]
   )
