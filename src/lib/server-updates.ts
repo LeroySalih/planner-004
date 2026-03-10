@@ -311,6 +311,7 @@ export {
   readWeeklyPlannerPupilAction,
   readWeeklyPlannerTeacherAction,
   createWeeklyPlanNoteAction,
+  deleteWeeklyPlanNoteAction,
   createWeeklyPlanQuestionAction,
   createWeeklyPlanReplyAction,
 } from "./server-actions/weekly-planner";

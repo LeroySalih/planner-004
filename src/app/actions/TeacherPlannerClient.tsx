@@ -4,7 +4,8 @@ import { useState, useTransition } from "react";
 import { TeacherSidebar } from "@/components/weekly-planner/TeacherSidebar";
 import { WeekSection } from "@/components/weekly-planner/WeekSection";
 import { NoteEditor } from "@/components/weekly-planner/NoteEditor";
-import { readWeeklyPlannerTeacherAction } from "@/lib/server-updates";
+import { readWeeklyPlannerTeacherAction, deleteWeeklyPlanNoteAction } from "@/lib/server-updates";
+import { toast } from "sonner";
 import { getWeekRange, defaultPupilDateRange } from "@/lib/weekly-planner-utils";
 import { WeeklyPlanGroup } from "@/types";
 
@@ -17,7 +18,7 @@ type Props = { groups: Group[] };
 export function TeacherPlannerClient({ groups }: Props) {
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [weekEntries, setWeekEntries] = useState<WeekEntry[]>([]);
-  const [noteTarget, setNoteTarget] = useState<{ groupId: string; weekStart: string } | null>(null);
+  const [noteTarget, setNoteTarget] = useState<{ groupId: string; weekStart: string; initialContent?: string } | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const loadGroup = (groupId: string) => {
@@ -60,15 +61,23 @@ export function TeacherPlannerClient({ groups }: Props) {
             groups={[group]}
             isTeacher
             onAddNote={(ws) => setNoteTarget({ groupId: selectedGroupId, weekStart: ws })}
+            onEditNote={(ws, content) => setNoteTarget({ groupId: selectedGroupId, weekStart: ws, initialContent: content })}
+            onDeleteNote={async (ws) => {
+              const { error } = await deleteWeeklyPlanNoteAction(selectedGroupId, ws);
+              if (error) { toast.error(error); return; }
+              toast.success("Note deleted");
+              loadGroup(selectedGroupId);
+            }}
           />
         ))}
         {noteTarget && (
           <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
             <div className="bg-background rounded-lg shadow-lg w-full max-w-lg p-6">
-              <h2 className="font-semibold mb-3">Add note for week of {noteTarget.weekStart}</h2>
+              <h2 className="font-semibold mb-3">{noteTarget.initialContent ? "Edit" : "Add"} note for week of {noteTarget.weekStart}</h2>
               <NoteEditor
                 groupId={noteTarget.groupId}
                 weekStartDate={noteTarget.weekStart}
+                initialContent={noteTarget.initialContent}
                 onSaved={() => {
                   setNoteTarget(null);
                   loadGroup(noteTarget.groupId);

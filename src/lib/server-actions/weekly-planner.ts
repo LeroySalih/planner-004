@@ -317,6 +317,28 @@ export async function createWeeklyPlanNoteAction(
   );
 }
 
+export async function deleteWeeklyPlanNoteAction(
+  groupId: string,
+  weekStartDate: string,
+): Promise<{ data: null; error: string | null }> {
+  return withTelemetry(
+    { routeTag: "weekly-planner", functionName: "deleteWeeklyPlanNoteAction" },
+    async () => {
+      try {
+        await requireRole("teacher");
+        await query(
+          `DELETE FROM weekly_plan_notes WHERE group_id = $1 AND week_start_date = $2`,
+          [groupId, weekStartDate],
+        );
+        return { data: null, error: null };
+      } catch (err) {
+        console.error("deleteWeeklyPlanNoteAction", err);
+        return { data: null, error: "Failed to delete note" };
+      }
+    },
+  );
+}
+
 export async function createWeeklyPlanQuestionAction(
   lessonId: string,
   activityId: string | null,

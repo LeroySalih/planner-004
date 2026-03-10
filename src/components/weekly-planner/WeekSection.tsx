@@ -7,9 +7,11 @@ type Props = {
   groups: WeeklyPlanGroup[];
   isTeacher?: boolean;
   onAddNote?: (weekStart: string) => void;
+  onEditNote?: (weekStart: string, currentContent: string) => void;
+  onDeleteNote?: (weekStart: string) => void;
 };
 
-export function WeekSection({ weekStart, groups, isTeacher, onAddNote }: Props) {
+export function WeekSection({ weekStart, groups, isTeacher, onAddNote, onEditNote, onDeleteNote }: Props) {
   const label = formatDate(new Date(weekStart));
 
   return (
@@ -27,7 +29,13 @@ export function WeekSection({ weekStart, groups, isTeacher, onAddNote }: Props) 
       </div>
       <div className="flex flex-col gap-4">
         {groups.map((group) => (
-          <GroupSection key={group.group_id} group={group} isTeacher={isTeacher} />
+          <GroupSection
+            key={group.group_id}
+            group={group}
+            isTeacher={isTeacher}
+            onEditNote={onEditNote ? (content) => onEditNote(weekStart, content) : undefined}
+            onDeleteNote={onDeleteNote ? () => onDeleteNote(weekStart) : undefined}
+          />
         ))}
         {groups.length === 0 && (
           <p className="text-sm text-muted-foreground">No lessons scheduled this week.</p>
