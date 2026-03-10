@@ -305,3 +305,11 @@ export {
   reorderShareMyWorkImagesAction,
   uploadShareMyWorkImageAction,
 } from "./server-actions/peer-review";
+
+export {
+  readWeeklyPlannerPupilAction,
+  readWeeklyPlannerTeacherAction,
+  createWeeklyPlanNoteAction,
+  createWeeklyPlanQuestionAction,
+  createWeeklyPlanReplyAction,
+} from "./server-actions/weekly-planner";
