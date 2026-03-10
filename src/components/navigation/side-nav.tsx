@@ -154,6 +154,7 @@ export function SideNav({ onNavigate }: SideNavProps) {
                     <NavLink href="/specifications" onNavigate={onNavigate}>Specs</NavLink>
                     <NavLink href="/curriculum" onNavigate={onNavigate}>Curriculum</NavLink>
                     <NavLink href="/assignments" onNavigate={onNavigate}>SoW</NavLink>
+                    <NavLink href="/actions" onNavigate={onNavigate}>Actions</NavLink>
                   </div>
                 </AccordionContent>
               </AccordionItem>
@@ -220,6 +221,7 @@ export function SideNav({ onNavigate }: SideNavProps) {
                 <div className="flex flex-col gap-0.5">
                   <NavLink href={`/pupil-lessons/${encodeURIComponent(userId)}`} onNavigate={onNavigate}>My Units</NavLink>
                   <NavLink href="/tasks" onNavigate={onNavigate}>My Tasks</NavLink>
+                  <NavLink href="/my-actions" onNavigate={onNavigate}>My Actions</NavLink>
                   <NavLink href="/flashcards" onNavigate={onNavigate}>Flashcards</NavLink>
                   <NavLink href="/specifications" onNavigate={onNavigate}>Specs</NavLink>
                   <NavLink href={`/reports/${encodeURIComponent(userId)}`} onNavigate={onNavigate}>My Reports</NavLink>
