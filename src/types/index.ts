@@ -1122,4 +1122,73 @@ export const PeerReviewCommentSchema = z.object({
 export const PeerReviewCommentsSchema = z.array(PeerReviewCommentSchema);
 
 export type PeerReviewComment = z.infer<typeof PeerReviewCommentSchema>;
+
+// ─── Weekly Planner ───────────────────────────────────────────────────────────
+
+export const WeeklyPlanNoteSchema = z.object({
+  id: z.string(),
+  group_id: z.string(),
+  week_start_date: z.string(),
+  content: z.string(),
+  created_by: z.string(),
+  created_at: z.string(),
+});
+export type WeeklyPlanNote = z.infer<typeof WeeklyPlanNoteSchema>;
+
+export const WeeklyPlanQuestionSchema = z.object({
+  id: z.string(),
+  lesson_id: z.string(),
+  activity_id: z.string().nullable(),
+  user_id: z.string(),
+  display_name: z.string(),
+  content: z.string(),
+  created_at: z.string(),
+});
+export type WeeklyPlanQuestion = z.infer<typeof WeeklyPlanQuestionSchema>;
+
+export const WeeklyPlanReplySchema = z.object({
+  id: z.string(),
+  question_id: z.string(),
+  user_id: z.string(),
+  display_name: z.string(),
+  content: z.string(),
+  created_at: z.string(),
+});
+export type WeeklyPlanReply = z.infer<typeof WeeklyPlanReplySchema>;
+
+export const WeeklyPlanActivitySchema = z.object({
+  activity_id: z.string(),
+  title: z.string(),
+  activity_type: z.string(),
+  order_by: z.number(),
+  question_count: z.number().default(0),
+  questions: z.array(WeeklyPlanQuestionSchema).default([]),
+  replies: z.array(WeeklyPlanReplySchema).default([]),
+});
+export type WeeklyPlanActivity = z.infer<typeof WeeklyPlanActivitySchema>;
+
+export const WeeklyPlanLessonSchema = z.object({
+  lesson_id: z.string(),
+  title: z.string(),
+  start_date: z.string(),
+  question_count: z.number().default(0),
+  questions: z.array(WeeklyPlanQuestionSchema).default([]),
+  replies: z.array(WeeklyPlanReplySchema).default([]),
+  activities: z.array(WeeklyPlanActivitySchema).default([]),
+});
+export type WeeklyPlanLesson = z.infer<typeof WeeklyPlanLessonSchema>;
+
+export const WeeklyPlanGroupSchema = z.object({
+  group_id: z.string(),
+  group_name: z.string(),
+  note: WeeklyPlanNoteSchema.nullable(),
+  lessons: z.array(WeeklyPlanLessonSchema).default([]),
+});
+export type WeeklyPlanGroup = z.infer<typeof WeeklyPlanGroupSchema>;
+
+export const WeeklyPlanWeekSchema = z.object({
+  week_start: z.string(),
+  groups: z.array(WeeklyPlanGroupSchema).default([]),
+});
+export type WeeklyPlanWeek = z.infer<typeof WeeklyPlanWeekSchema>;
 export type PeerReviewComments = z.infer<typeof PeerReviewCommentsSchema>;
