@@ -1,6 +1,6 @@
 import { requireAuthenticatedProfile } from "@/lib/auth";
 import { readWeeklyPlannerPupilAction } from "@/lib/server-updates";
-import { getWeekRange, defaultPupilDateRange } from "@/lib/weekly-planner-utils";
+import { getWeekRange, defaultPupilDateRange, toLocalISODate } from "@/lib/weekly-planner-utils";
 import { WeeklyPlanGroup } from "@/types";
 import { PupilPlannerClient } from "./PupilPlannerClient";
 
@@ -12,7 +12,7 @@ export default async function MyActionsPage() {
 
   const initialWeeks = await Promise.all(
     weeks.map(async (weekStart) => {
-      const iso = weekStart.toISOString().split("T")[0];
+      const iso = toLocalISODate(weekStart);
       const { data } = await readWeeklyPlannerPupilAction(iso);
       return { weekStart: iso, groups: (data ?? []) as WeeklyPlanGroup[] };
     })

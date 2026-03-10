@@ -39,6 +39,17 @@ export function formatDate(date: Date | string): string {
 }
 
 /**
+ * Formats a Date as YYYY-MM-DD using local timezone (not UTC).
+ * Use instead of .toISOString().split("T")[0] to avoid UTC offset shifting the date.
+ */
+export function toLocalISODate(date: Date): string {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+/**
  * Returns default date range: current week start going back 3 weeks.
  */
 export function defaultPupilDateRange(): { from: Date; to: Date } {

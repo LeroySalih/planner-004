@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { WeekSection } from "@/components/weekly-planner/WeekSection";
 import { readWeeklyPlannerPupilAction } from "@/lib/server-updates";
-import { getWeekRange } from "@/lib/weekly-planner-utils";
+import { getWeekRange, toLocalISODate } from "@/lib/weekly-planner-utils";
 import { Button } from "@/components/ui/button";
 import { WeeklyPlanGroup } from "@/types";
 
@@ -28,7 +28,7 @@ export function PupilPlannerClient({ initialWeeks }: Props) {
       const newWeeks = getWeekRange(newFrom, newTo);
       const entries = await Promise.all(
         newWeeks.map(async (ws) => {
-          const iso = ws.toISOString().split("T")[0];
+          const iso = toLocalISODate(ws);
           const { data } = await readWeeklyPlannerPupilAction(iso);
           return { weekStart: iso, groups: (data ?? []) as WeeklyPlanGroup[] };
         })
@@ -47,7 +47,7 @@ export function PupilPlannerClient({ initialWeeks }: Props) {
       const newWeeks = getWeekRange(newFrom, newTo);
       const entries = await Promise.all(
         newWeeks.map(async (ws) => {
-          const iso = ws.toISOString().split("T")[0];
+          const iso = toLocalISODate(ws);
           const { data } = await readWeeklyPlannerPupilAction(iso);
           return { weekStart: iso, groups: (data ?? []) as WeeklyPlanGroup[] };
         })

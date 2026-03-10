@@ -6,7 +6,7 @@ import { WeekSection } from "@/components/weekly-planner/WeekSection";
 import { NoteEditor } from "@/components/weekly-planner/NoteEditor";
 import { readWeeklyPlannerTeacherAction, deleteWeeklyPlanNoteAction } from "@/lib/server-updates";
 import { toast } from "sonner";
-import { getWeekRange, defaultPupilDateRange } from "@/lib/weekly-planner-utils";
+import { getWeekRange, defaultPupilDateRange, toLocalISODate } from "@/lib/weekly-planner-utils";
 import { WeeklyPlanGroup } from "@/types";
 
 type Group = { group_id: string; subject: string };
@@ -29,7 +29,7 @@ export function TeacherPlannerClient({ groups }: Props) {
     startTransition(async () => {
       const results = await Promise.all(
         weeks.map(async (weekStart) => {
-          const iso = weekStart.toISOString().split("T")[0];
+          const iso = toLocalISODate(weekStart);
           const { data } = await readWeeklyPlannerTeacherAction(groupId, iso);
           if (!data) return null;
           return { weekStart: iso, group: data };
