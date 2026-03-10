@@ -9,7 +9,7 @@ import { WeeklyPlanGroup } from "@/types";
 
 type GroupRow = { group_id: string; group_name: string };
 
-type LessonRow = { lesson_id: string; title: string; start_date: string };
+type LessonRow = { lesson_id: string; title: string; unit_title: string | null; start_date: string };
 
 type NoteRow = {
   id: string;
@@ -112,9 +112,10 @@ async function fetchLessonsWithQA(groupId: string, weekStart: string) {
   const end = weekEndStr(weekStart);
 
   const lessonsResult = await query<LessonRow>(
-    `SELECT la.lesson_id, l.title, la.start_date::text AS start_date
+    `SELECT la.lesson_id, l.title, u.title AS unit_title, la.start_date::text AS start_date
      FROM lesson_assignments la
      JOIN lessons l ON l.lesson_id = la.lesson_id
+     JOIN units u ON u.unit_id = l.unit_id
      WHERE la.group_id = $1
        AND la.start_date >= $2
        AND la.start_date <= $3
@@ -157,6 +158,7 @@ async function fetchLessonsWithQA(groupId: string, weekStart: string) {
     lessons.push({
       lesson_id: lesson.lesson_id,
       title: lesson.title,
+      unit_title: lesson.unit_title,
       start_date: lesson.start_date,
       question_count: lessonQuestions.filter((q) =>
         !lessonRepliesResult.rows.some((r) => r.question_id === q.id)

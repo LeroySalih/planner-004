@@ -4,7 +4,6 @@ import { useState } from "react";
 import Link from "next/link";
 import { WeeklyPlanLesson } from "@/types";
 import { QuestionThread } from "./QuestionThread";
-import { formatDate } from "@/lib/weekly-planner-utils";
 import { MessageCircle } from "lucide-react";
 
 type Props = {
@@ -30,7 +29,7 @@ export function LessonRow({ lesson, isTeacher, pupilId }: Props) {
           ) : (
             <p className="font-medium text-sm">{lesson.title}</p>
           )}
-          <p className="text-xs text-muted-foreground">{formatDate(lesson.start_date)}</p>
+          {lesson.unit_title && <p className="text-xs text-muted-foreground">{lesson.unit_title}</p>}
         </div>
         <div className="flex items-center gap-2">
           {pupilId && lesson.lesson_max_score !== null && lesson.lesson_max_score > 0 && (

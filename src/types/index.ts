@@ -1170,6 +1170,7 @@ export type WeeklyPlanActivity = z.infer<typeof WeeklyPlanActivitySchema>;
 export const WeeklyPlanLessonSchema = z.object({
   lesson_id: z.string(),
   title: z.string(),
+  unit_title: z.string().nullable().default(null),
   start_date: z.string(),
   question_count: z.number().default(0),
   questions: z.array(WeeklyPlanQuestionSchema).default([]),
