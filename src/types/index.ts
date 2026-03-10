@@ -1175,6 +1175,8 @@ export const WeeklyPlanLessonSchema = z.object({
   questions: z.array(WeeklyPlanQuestionSchema).default([]),
   replies: z.array(WeeklyPlanReplySchema).default([]),
   activities: z.array(WeeklyPlanActivitySchema).default([]),
+  lesson_score: z.number().nullable().default(null),
+  lesson_max_score: z.number().nullable().default(null),
 });
 export type WeeklyPlanLesson = z.infer<typeof WeeklyPlanLessonSchema>;
 

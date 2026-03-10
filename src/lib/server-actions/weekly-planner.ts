@@ -164,6 +164,8 @@ async function fetchLessonsWithQA(groupId: string, weekStart: string) {
       questions: lessonQuestions,
       replies: lessonRepliesResult.rows,
       activities,
+      lesson_score: null,
+      lesson_max_score: null,
     });
   }
 
@@ -212,6 +214,49 @@ export async function readWeeklyPlannerPupilAction(
             note: noteResult.rows[0] ?? null,
             lessons,
           });
+        }
+
+        // Fetch lesson scores for all lessons in one query
+        const allLessonIds = groups.flatMap((g) => g.lessons.map((l) => l.lesson_id));
+        if (allLessonIds.length > 0) {
+          const scoresResult = await query<{ lesson_id: string; score: number; max_score: number }>(
+            `WITH latest_submissions AS (
+               SELECT DISTINCT ON (s.activity_id) s.activity_id,
+                 COALESCE(
+                   (s.body->>'score')::float,
+                   CASE WHEN (s.body->>'is_correct')::boolean IS TRUE THEN 1.0 ELSE 0.0 END
+                 ) AS score
+               FROM submissions s
+               JOIN activities a ON a.activity_id = s.activity_id
+               WHERE s.user_id = $1
+                 AND a.type IN ('Multiple-Choice-Question','Short-Text-Question','Long-Text-Question','File-Upload')
+               ORDER BY s.activity_id, s.submitted_at DESC
+             ),
+             lesson_scores AS (
+               SELECT a.lesson_id,
+                 count(a.activity_id)::int AS max_score,
+                 coalesce(sum(ls.score), 0) AS score
+               FROM activities a
+               LEFT JOIN latest_submissions ls ON ls.activity_id = a.activity_id
+               WHERE a.lesson_id = ANY($2::text[])
+                 AND a.type IN ('Multiple-Choice-Question','Short-Text-Question','Long-Text-Question','File-Upload')
+                 AND (a.active IS NULL OR a.active = true)
+               GROUP BY a.lesson_id
+               HAVING count(a.activity_id) > 0
+             )
+             SELECT lesson_id, score, max_score FROM lesson_scores`,
+            [profile.userId, allLessonIds],
+          );
+          const scoreMap = new Map(scoresResult.rows.map((r) => [r.lesson_id, r]));
+          for (const group of groups) {
+            for (const lesson of group.lessons) {
+              const s = scoreMap.get(lesson.lesson_id);
+              if (s) {
+                lesson.lesson_score = s.score;
+                lesson.lesson_max_score = s.max_score;
+              }
+            }
+          }
         }
 
         return { data: groups, error: null };
