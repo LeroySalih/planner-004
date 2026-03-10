@@ -30,10 +30,11 @@ export function TeacherPlannerClient({ groups }: Props) {
         weeks.map(async (weekStart) => {
           const iso = weekStart.toISOString().split("T")[0];
           const { data } = await readWeeklyPlannerTeacherAction(groupId, iso);
-          return { weekStart: iso, group: data! };
+          if (!data) return null;
+          return { weekStart: iso, group: data };
         })
       );
-      setWeekEntries(results.filter((e) => e.group !== null));
+      setWeekEntries(results.filter((e): e is WeekEntry => e !== null));
     });
   };
 

@@ -56,9 +56,9 @@ function weekEndStr(weekStart: string): string {
 
 async function fetchActivitiesWithQA(lessonId: string) {
   const activitiesResult = await query<ActivityRow>(
-    `SELECT activity_id, title, activity_type, order_by
+    `SELECT activity_id, title, type AS activity_type, order_by
      FROM activities
-     WHERE lesson_id = $1
+     WHERE lesson_id = $1 AND (active IS NULL OR active = true)
      ORDER BY order_by`,
     [lessonId],
   );
@@ -97,7 +97,9 @@ async function fetchActivitiesWithQA(lessonId: string) {
       title: activity.title,
       activity_type: activity.activity_type,
       order_by: activity.order_by,
-      question_count: actQuestions.length,
+      question_count: actQuestions.filter((q) =>
+        !actRepliesResult.rows.some((r) => r.question_id === q.id)
+      ).length,
       questions: actQuestions,
       replies: actRepliesResult.rows,
     });
@@ -156,7 +158,9 @@ async function fetchLessonsWithQA(groupId: string, weekStart: string) {
       lesson_id: lesson.lesson_id,
       title: lesson.title,
       start_date: lesson.start_date,
-      question_count: lessonQuestions.length,
+      question_count: lessonQuestions.filter((q) =>
+        !lessonRepliesResult.rows.some((r) => r.question_id === q.id)
+      ).length,
       questions: lessonQuestions,
       replies: lessonRepliesResult.rows,
       activities,
@@ -261,6 +265,26 @@ export async function readWeeklyPlannerTeacherAction(
         return { data: null, error: "Failed to load teacher planner" };
       }
     },
+  );
+}
+
+// ─── Teacher: fetch all groups ─────────────────────────────────────────────────
+
+export async function readAllGroupsAction(): Promise<{ data: { group_id: string; name: string }[] | null; error: string | null }> {
+  return withTelemetry(
+    { routeTag: "weekly-planner", functionName: "readAllGroupsAction" },
+    async () => {
+      try {
+        await requireRole("teacher");
+        const result = await query<{ group_id: string; name: string }>(
+          `SELECT group_id, name FROM groups ORDER BY name`
+        );
+        return { data: result.rows, error: null };
+      } catch (err) {
+        console.error("readAllGroupsAction", err);
+        return { data: null, error: "Failed to load groups" };
+      }
+    }
   );
 }
 

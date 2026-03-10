@@ -35,6 +35,15 @@ export function QuestionThread({ lessonId, activityId, questions, replies, isTea
       }
       setNewQuestion("");
       toast.success("Question posted");
+      setLocalQuestions((prev) => [...prev, {
+        id: crypto.randomUUID(),
+        lesson_id: lessonId,
+        activity_id: activityId,
+        user_id: "",
+        display_name: "You",
+        content,
+        created_at: new Date().toISOString(),
+      }]);
     });
   };
 
@@ -49,6 +58,14 @@ export function QuestionThread({ lessonId, activityId, questions, replies, isTea
       }
       setReplyContent((prev) => ({ ...prev, [questionId]: "" }));
       toast.success("Reply posted");
+      setLocalReplies((prev) => [...prev, {
+        id: crypto.randomUUID(),
+        question_id: questionId,
+        user_id: "",
+        display_name: "You",
+        content,
+        created_at: new Date().toISOString(),
+      }]);
     });
   };
 

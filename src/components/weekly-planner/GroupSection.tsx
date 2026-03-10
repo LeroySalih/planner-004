@@ -1,3 +1,4 @@
+import DOMPurify from "isomorphic-dompurify";
 import { WeeklyPlanGroup } from "@/types";
 import { LessonRow } from "./LessonRow";
 
@@ -15,7 +16,7 @@ export function GroupSection({ group, isTeacher }: Props) {
       {group.note && (
         <div
           className="prose prose-sm dark:prose-invert mb-4 p-3 bg-muted rounded-md"
-          dangerouslySetInnerHTML={{ __html: group.note.content }}
+          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(group.note.content) }}
         />
       )}
       <div className="flex flex-col gap-2">

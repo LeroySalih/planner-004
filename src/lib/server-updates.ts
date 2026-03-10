@@ -307,6 +307,7 @@ export {
 } from "./server-actions/peer-review";
 
 export {
+  readAllGroupsAction,
   readWeeklyPlannerPupilAction,
   readWeeklyPlannerTeacherAction,
   createWeeklyPlanNoteAction,
