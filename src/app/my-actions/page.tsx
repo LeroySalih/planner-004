@@ -5,7 +5,7 @@ import { WeeklyPlanGroup } from "@/types";
 import { PupilPlannerClient } from "./PupilPlannerClient";
 
 export default async function MyActionsPage() {
-  await requireAuthenticatedProfile();
+  const profile = await requireAuthenticatedProfile();
 
   const { from, to } = defaultPupilDateRange();
   const weeks = getWeekRange(from, to);
@@ -21,7 +21,7 @@ export default async function MyActionsPage() {
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
       <h1 className="text-2xl font-bold mb-6">My Actions</h1>
-      <PupilPlannerClient initialWeeks={initialWeeks} />
+      <PupilPlannerClient initialWeeks={initialWeeks} pupilId={profile.userId} />
     </div>
   );
 }

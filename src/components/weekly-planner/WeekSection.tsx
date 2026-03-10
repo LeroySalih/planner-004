@@ -6,12 +6,13 @@ type Props = {
   weekStart: string;
   groups: WeeklyPlanGroup[];
   isTeacher?: boolean;
+  pupilId?: string;
   onAddNote?: (weekStart: string) => void;
   onEditNote?: (weekStart: string, currentContent: string) => void;
   onDeleteNote?: (weekStart: string) => void;
 };
 
-export function WeekSection({ weekStart, groups, isTeacher, onAddNote, onEditNote, onDeleteNote }: Props) {
+export function WeekSection({ weekStart, groups, isTeacher, pupilId, onAddNote, onEditNote, onDeleteNote }: Props) {
   const label = formatDate(new Date(weekStart));
 
   return (
@@ -33,6 +34,7 @@ export function WeekSection({ weekStart, groups, isTeacher, onAddNote, onEditNot
             key={group.group_id}
             group={group}
             isTeacher={isTeacher}
+            pupilId={pupilId}
             onEditNote={onEditNote ? (content) => onEditNote(weekStart, content) : undefined}
             onDeleteNote={onDeleteNote ? () => onDeleteNote(weekStart) : undefined}
           />

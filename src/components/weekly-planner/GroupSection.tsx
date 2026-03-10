@@ -5,11 +5,12 @@ import { LessonRow } from "./LessonRow";
 type Props = {
   group: WeeklyPlanGroup;
   isTeacher?: boolean;
+  pupilId?: string;
   onEditNote?: (currentContent: string) => void;
   onDeleteNote?: () => void;
 };
 
-export function GroupSection({ group, isTeacher, onEditNote, onDeleteNote }: Props) {
+export function GroupSection({ group, isTeacher, pupilId, onEditNote, onDeleteNote }: Props) {
   return (
     <div className="rounded-lg border bg-card p-4">
       <h3 className="font-medium text-sm text-muted-foreground mb-3 uppercase tracking-wide">
@@ -41,7 +42,7 @@ export function GroupSection({ group, isTeacher, onEditNote, onDeleteNote }: Pro
       )}
       <div className="flex flex-col gap-2">
         {group.lessons.map((lesson) => (
-          <LessonRow key={lesson.lesson_id} lesson={lesson} isTeacher={isTeacher} />
+          <LessonRow key={lesson.lesson_id} lesson={lesson} isTeacher={isTeacher} pupilId={pupilId} />
         ))}
         {group.lessons.length === 0 && (
           <p className="text-sm text-muted-foreground">No lessons assigned.</p>

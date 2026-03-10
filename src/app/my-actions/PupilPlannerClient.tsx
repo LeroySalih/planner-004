@@ -9,9 +9,9 @@ import { WeeklyPlanGroup } from "@/types";
 
 type WeekEntry = { weekStart: string; groups: WeeklyPlanGroup[] };
 
-type Props = { initialWeeks: WeekEntry[] };
+type Props = { initialWeeks: WeekEntry[]; pupilId: string };
 
-export function PupilPlannerClient({ initialWeeks }: Props) {
+export function PupilPlannerClient({ initialWeeks, pupilId }: Props) {
   const [weeks, setWeeks] = useState<WeekEntry[]>(initialWeeks);
   const [isPending, startTransition] = useTransition();
 
@@ -64,7 +64,7 @@ export function PupilPlannerClient({ initialWeeks }: Props) {
         </Button>
       </div>
       {weeks.map(({ weekStart, groups }) => (
-        <WeekSection key={weekStart} weekStart={weekStart} groups={groups} />
+        <WeekSection key={weekStart} weekStart={weekStart} groups={groups} pupilId={pupilId} />
       ))}
       <div className="flex justify-center mt-4">
         <Button variant="outline" size="sm" disabled={isPending} onClick={loadPast}>

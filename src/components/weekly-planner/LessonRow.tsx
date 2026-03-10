@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { WeeklyPlanLesson } from "@/types";
 import { ActivityRow } from "./ActivityRow";
 import { QuestionThread } from "./QuestionThread";
@@ -10,16 +11,26 @@ import { MessageCircle } from "lucide-react";
 type Props = {
   lesson: WeeklyPlanLesson;
   isTeacher?: boolean;
+  pupilId?: string;
 };
 
-export function LessonRow({ lesson, isTeacher }: Props) {
+export function LessonRow({ lesson, isTeacher, pupilId }: Props) {
   const [showThread, setShowThread] = useState(false);
 
   return (
     <div className="border rounded-md bg-background">
       <div className="flex items-center justify-between px-4 py-3">
         <div>
-          <p className="font-medium text-sm">{lesson.title}</p>
+          {pupilId ? (
+            <Link
+              href={`/pupil-lessons/${encodeURIComponent(pupilId)}/lessons/${encodeURIComponent(lesson.lesson_id)}`}
+              className="font-medium text-sm hover:underline"
+            >
+              {lesson.title}
+            </Link>
+          ) : (
+            <p className="font-medium text-sm">{lesson.title}</p>
+          )}
           <p className="text-xs text-muted-foreground">{formatDate(lesson.start_date)}</p>
         </div>
         <button
