@@ -18,6 +18,7 @@ export function NoteEditor({ groupId, weekStartDate, initialContent, onSaved }: 
   const [isPending, startTransition] = useTransition();
 
   const editor = useEditor({
+    immediatelyRender: false,
     extensions: [StarterKit],
     content: initialContent ?? "",
     editorProps: {
