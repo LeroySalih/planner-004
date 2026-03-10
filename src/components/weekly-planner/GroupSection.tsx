@@ -13,8 +13,9 @@ type Props = {
 export function GroupSection({ group, isTeacher, pupilId, onEditNote, onDeleteNote }: Props) {
   return (
     <div className="rounded-lg border bg-card p-4">
-      <h3 className="font-medium text-sm text-muted-foreground mb-3 uppercase tracking-wide">
+      <h3 className="font-medium text-sm text-muted-foreground mb-3 uppercase tracking-wide flex items-center gap-2">
         {group.group_name}
+        <span className="normal-case tracking-normal font-normal">({group.group_id})</span>
       </h3>
       {group.note && (
         <div className="mb-4">
