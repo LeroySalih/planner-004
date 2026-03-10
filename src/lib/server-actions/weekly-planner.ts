@@ -219,6 +219,16 @@ export async function readWeeklyPlannerPupilAction(
         // Fetch lesson scores for all lessons in one query
         const allLessonIds = groups.flatMap((g) => g.lessons.map((l) => l.lesson_id));
         if (allLessonIds.length > 0) {
+          const scorableTypes = [
+            "multiple-choice-question",
+            "short-text-question",
+            "text-question",
+            "long-text-question",
+            "upload-file",
+            "upload-url",
+            "feedback",
+            "sketch-render",
+          ];
           const scoresResult = await query<{ lesson_id: string; score: number; max_score: number }>(
             `WITH latest_submissions AS (
                SELECT DISTINCT ON (s.activity_id) s.activity_id,
@@ -229,7 +239,7 @@ export async function readWeeklyPlannerPupilAction(
                FROM submissions s
                JOIN activities a ON a.activity_id = s.activity_id
                WHERE s.user_id = $1
-                 AND a.type IN ('Multiple-Choice-Question','Short-Text-Question','Long-Text-Question','File-Upload')
+                 AND a.type = ANY($3::text[])
                ORDER BY s.activity_id, s.submitted_at DESC
              ),
              lesson_scores AS (
@@ -239,13 +249,13 @@ export async function readWeeklyPlannerPupilAction(
                FROM activities a
                LEFT JOIN latest_submissions ls ON ls.activity_id = a.activity_id
                WHERE a.lesson_id = ANY($2::text[])
-                 AND a.type IN ('Multiple-Choice-Question','Short-Text-Question','Long-Text-Question','File-Upload')
+                 AND a.type = ANY($3::text[])
                  AND (a.active IS NULL OR a.active = true)
                GROUP BY a.lesson_id
                HAVING count(a.activity_id) > 0
              )
              SELECT lesson_id, score, max_score FROM lesson_scores`,
-            [profile.userId, allLessonIds],
+            [profile.userId, allLessonIds, scorableTypes],
           );
           const scoreMap = new Map(scoresResult.rows.map((r) => [r.lesson_id, r]));
           for (const group of groups) {
