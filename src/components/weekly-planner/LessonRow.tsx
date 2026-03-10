@@ -3,7 +3,6 @@
 import { useState } from "react";
 import Link from "next/link";
 import { WeeklyPlanLesson } from "@/types";
-import { ActivityRow } from "./ActivityRow";
 import { QuestionThread } from "./QuestionThread";
 import { formatDate } from "@/lib/weekly-planner-utils";
 import { MessageCircle } from "lucide-react";
@@ -62,18 +61,6 @@ export function LessonRow({ lesson, isTeacher, pupilId }: Props) {
             replies={lesson.replies}
             isTeacher={isTeacher}
           />
-        </div>
-      )}
-      {!pupilId && lesson.activities.length > 0 && (
-        <div className="border-t">
-          {lesson.activities.map((activity) => (
-            <ActivityRow
-              key={activity.activity_id}
-              activity={activity}
-              lessonId={lesson.lesson_id}
-              isTeacher={isTeacher}
-            />
-          ))}
         </div>
       )}
     </div>
