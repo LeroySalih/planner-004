@@ -277,7 +277,7 @@ export async function readAllGroupsAction(): Promise<{ data: { group_id: string;
       try {
         await requireRole("teacher");
         const result = await query<{ group_id: string; name: string }>(
-          `SELECT group_id, subject AS name FROM groups WHERE active = true ORDER BY subject`
+          `SELECT group_id, join_code AS name FROM groups WHERE active = true ORDER BY join_code`
         );
         return { data: result.rows, error: null };
       } catch (err) {
