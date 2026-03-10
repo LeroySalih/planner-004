@@ -182,11 +182,11 @@ export async function readWeeklyPlannerPupilAction(
         const profile = await requireAuthenticatedProfile();
 
         const groupsResult = await query<GroupRow>(
-          `SELECT g.group_id, g.name AS group_name
+          `SELECT g.group_id, g.subject AS group_name
            FROM group_membership gm
            JOIN groups g ON g.group_id = gm.group_id
            WHERE gm.user_id = $1
-           ORDER BY g.name`,
+           ORDER BY g.subject`,
           [profile.userId],
         );
 
@@ -236,7 +236,7 @@ export async function readWeeklyPlannerTeacherAction(
         await requireRole("teacher");
 
         const groupResult = await query<GroupRow>(
-          `SELECT group_id, name AS group_name FROM groups WHERE group_id = $1`,
+          `SELECT group_id, subject AS group_name FROM groups WHERE group_id = $1`,
           [groupId],
         );
         if (groupResult.rows.length === 0) return { data: null, error: "Group not found" };
@@ -277,7 +277,7 @@ export async function readAllGroupsAction(): Promise<{ data: { group_id: string;
       try {
         await requireRole("teacher");
         const result = await query<{ group_id: string; name: string }>(
-          `SELECT group_id, name FROM groups ORDER BY name`
+          `SELECT group_id, subject AS name FROM groups WHERE active = true ORDER BY subject`
         );
         return { data: result.rows, error: null };
       } catch (err) {
