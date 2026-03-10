@@ -54,9 +54,7 @@ export function SigninForm({ returnTo }: { returnTo?: string }) {
 
       const defaultDestination = result.isTeacher
         ? "/assignments"
-        : result.userId
-          ? `/pupil-lessons/${encodeURIComponent(result.userId)}`
-          : "/pupil-lessons"
+        : "/my-actions"
 
       const destination = result.success
         ? isValidReturnTo(returnTo) ? returnTo : defaultDestination
