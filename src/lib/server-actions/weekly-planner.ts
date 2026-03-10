@@ -270,14 +270,14 @@ export async function readWeeklyPlannerTeacherAction(
 
 // ─── Teacher: fetch all groups ─────────────────────────────────────────────────
 
-export async function readAllGroupsAction(): Promise<{ data: { group_id: string; name: string }[] | null; error: string | null }> {
+export async function readAllGroupsAction(): Promise<{ data: { group_id: string; subject: string }[] | null; error: string | null }> {
   return withTelemetry(
     { routeTag: "weekly-planner", functionName: "readAllGroupsAction" },
     async () => {
       try {
         await requireRole("teacher");
-        const result = await query<{ group_id: string; name: string }>(
-          `SELECT group_id, group_id AS name FROM groups WHERE active = true ORDER BY group_id`
+        const result = await query<{ group_id: string; subject: string }>(
+          `SELECT group_id, subject FROM groups WHERE active = true ORDER BY subject, group_id`
         );
         return { data: result.rows, error: null };
       } catch (err) {

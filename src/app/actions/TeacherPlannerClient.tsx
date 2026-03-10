@@ -8,7 +8,7 @@ import { readWeeklyPlannerTeacherAction } from "@/lib/server-updates";
 import { getWeekRange, defaultPupilDateRange } from "@/lib/weekly-planner-utils";
 import { WeeklyPlanGroup } from "@/types";
 
-type Group = { group_id: string; name: string };
+type Group = { group_id: string; subject: string };
 
 type WeekEntry = { weekStart: string; group: WeeklyPlanGroup };
 
