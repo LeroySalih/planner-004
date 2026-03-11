@@ -178,6 +178,13 @@ export async function saveShortTextAnswerAction(input: z.infer<typeof ShortTextA
         isFlagged: false,
       })
 
+      // Auto-enqueue for AI marking on every save
+      if (payload.assignmentId) {
+        void enqueueMarkingTasks(payload.assignmentId, [{ submissionId: savedSubmission.submission_id }])
+          .then(() => triggerQueueProcessor())
+          .catch((err) => console.error("[short-text] Failed to enqueue AI marking:", err))
+      }
+
       deferRevalidate(`/lessons/${payload.activityId}`)
       return { success: true, error: null, data: savedSubmission }
     }
