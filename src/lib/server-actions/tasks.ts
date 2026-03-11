@@ -119,12 +119,7 @@ export async function readPupilTasksAction(userId: string): Promise<{
       latest_submissions as (
         select distinct on (s.activity_id)
           s.activity_id,
-          coalesce(
-            (s.body->>'teacher_override_score')::float,
-            (s.body->>'ai_model_score')::float,
-            (s.body->>'score')::float,
-            case when (s.body->>'is_correct')::boolean is true then 1.0 else 0.0 end
-          ) as score
+          compute_submission_base_score(s.body, sa.activity_type) as score
         from submissions s
         join scorable_activities sa on sa.activity_id = s.activity_id
         where s.user_id = $1

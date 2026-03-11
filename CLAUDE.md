@@ -156,6 +156,20 @@ src/
 
 **Report Levels**: Use boundary helper in `src/lib/levels/index.ts` for level lookups - update centrally if scale changes.
 
+## Scoring Conventions
+
+**Always use `compute_submission_base_score(body, activity_type)`** when computing a submission score in SQL. This is the canonical PostgreSQL function (defined in `schema.sql`) and handles all score fields in the correct priority order:
+
+1. `teacher_override_score` / `override_score` — teacher manually overrides any auto score
+2. `multiple-choice-question`: `is_correct` → 1 or 0, fallback to `score` / `auto_score`
+3. `short-text-question`: `teacher_ai_score` → `ai_model_score` → `score` → `auto_score`
+4. All other scorable types: `score` → `auto_score`
+5. Returns `NULL` if the submission exists but has no score yet (not 0)
+
+**Never write ad-hoc COALESCE chains** over individual body fields — they will miss score fields and produce incorrect results. The function accepts both `json` and `jsonb` so it works with the `submissions.body` column directly.
+
+**Scorable activity types** are defined in `src/dino.config.ts` as `SCORABLE_ACTIVITY_TYPES`. Use `isScorableActivityType()` from that module when filtering in TypeScript, and pass the same array as a parameter when filtering in SQL.
+
 ## Telemetry
 
 All server functions should use `withTelemetry` wrapper for performance tracking:

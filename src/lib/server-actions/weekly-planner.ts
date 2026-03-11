@@ -234,10 +234,7 @@ export async function readWeeklyPlannerPupilAction(
           const scoresResult = await query<{ lesson_id: string; score: number; max_score: number }>(
             `WITH latest_submissions AS (
                SELECT DISTINCT ON (s.activity_id) s.activity_id,
-                 COALESCE(
-                   (s.body->>'score')::float,
-                   CASE WHEN (s.body->>'is_correct')::boolean IS TRUE THEN 1.0 ELSE 0.0 END
-                 ) AS score
+                 compute_submission_base_score(s.body, a.type) AS score
                FROM submissions s
                JOIN activities a ON a.activity_id = s.activity_id
                WHERE s.user_id = $1

@@ -407,12 +407,7 @@ export async function readPupilUnitsBootstrapAction(
               latest_submissions AS (
                 SELECT DISTINCT ON (s.activity_id)
                   s.activity_id,
-                  COALESCE(
-                      (s.body->>'teacher_override_score')::float,
-                      (s.body->>'ai_model_score')::float,
-                      (s.body->>'score')::float,
-                      CASE WHEN (s.body->>'is_correct')::boolean IS TRUE THEN 1.0 ELSE 0.0 END
-                  ) as score
+                  compute_submission_base_score(s.body, sa.activity_type) as score
                 FROM submissions s
                 JOIN scorable_activities sa ON sa.activity_id = s.activity_id
                 WHERE s.user_id = $3
