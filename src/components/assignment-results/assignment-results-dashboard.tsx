@@ -1619,12 +1619,9 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       if (typeof nextVisible !== "boolean") {
         return
       }
-      if (nextVisible === feedbackVisible) {
-        return
-      }
       applyFeedbackVisibilityUpdate(nextVisible)
     },
-    [applyFeedbackVisibilityUpdate, feedbackVisible],
+    [applyFeedbackVisibilityUpdate],
   )
 
   const handleFeedbackToggle = useCallback(
@@ -1652,7 +1649,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
         toast.success(resolvedVisibility ? "Feedback is now visible to pupils." : "Feedback hidden from pupils.")
       })
     },
-    [applyFeedbackVisibilityUpdate, matrix.assignmentId, startFeedbackToggleTransition],
+    [applyFeedbackVisibilityUpdate, feedbackVisible, matrix.assignmentId, startFeedbackToggleTransition],
   )
 
   useEffect(() => {
