@@ -14,7 +14,6 @@ import {
 import { saveShortTextAnswerAction, toggleSubmissionFlagAction } from "@/lib/server-updates"
 import { triggerFeedbackRefresh } from "@/lib/feedback-events"
 import { useFeedbackVisibility } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/feedback-visibility-debug"
-import { ActivityProgressPanel } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/activity-progress-panel"
 
 interface PupilShortTextActivityProps {
   lessonId: string
@@ -286,15 +285,6 @@ export function PupilShortTextActivity({
         </div>
       ) : null}
 
-      <ActivityProgressPanel
-        assignmentIds={feedbackAssignmentIds}
-        lessonId={lessonId}
-        initialVisible={feedbackInitiallyVisible}
-        show={true}
-        scoreLabel={scoreLabel}
-        feedbackText={feedbackText}
-        modelAnswer={modelAnswer}
-      />
     </div>
   )
 }
