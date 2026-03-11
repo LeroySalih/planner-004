@@ -33,9 +33,23 @@ export function LessonRow({ lesson, isTeacher, pupilId }: Props) {
         </div>
         <div className="flex items-center gap-2">
           {pupilId && lesson.lesson_max_score !== null && lesson.lesson_max_score > 0 && (
-            <span className="text-xs bg-muted text-muted-foreground rounded px-1.5 py-0.5 tabular-nums">
-              {Math.round((lesson.lesson_score ?? 0) * 10) / 10}/{lesson.lesson_max_score} ({Math.round(((lesson.lesson_score ?? 0) / lesson.lesson_max_score) * 100)}%)
-            </span>
+            <>
+              {!lesson.lesson_has_submission && (
+                <span className="text-xs bg-muted text-muted-foreground rounded px-1.5 py-0.5">
+                  Not answered
+                </span>
+              )}
+              {lesson.lesson_has_submission && !lesson.lesson_has_score && (
+                <span className="text-xs bg-muted text-muted-foreground rounded px-1.5 py-0.5">
+                  Awaiting marking
+                </span>
+              )}
+              {lesson.lesson_has_submission && lesson.lesson_has_score && (
+                <span className="text-xs bg-muted text-muted-foreground rounded px-1.5 py-0.5 tabular-nums">
+                  {Math.round((lesson.lesson_score ?? 0) * 10) / 10}/{lesson.lesson_max_score} ({Math.round(((lesson.lesson_score ?? 0) / lesson.lesson_max_score) * 100)}%)
+                </span>
+              )}
+            </>
           )}
           <button
             onClick={() => setShowThread((v) => !v)}

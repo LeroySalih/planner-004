@@ -168,6 +168,8 @@ async function fetchLessonsWithQA(groupId: string, weekStart: string) {
       activities,
       lesson_score: null,
       lesson_max_score: null,
+      lesson_has_submission: false,
+      lesson_has_score: false,
     });
   }
 
@@ -231,7 +233,7 @@ export async function readWeeklyPlannerPupilAction(
             "feedback",
             "sketch-render",
           ];
-          const scoresResult = await query<{ lesson_id: string; score: number; max_score: number }>(
+          const scoresResult = await query<{ lesson_id: string; score: number; max_score: number; has_submission: boolean; has_score: boolean }>(
             `WITH latest_submissions AS (
                SELECT DISTINCT ON (s.activity_id) s.activity_id,
                  compute_submission_base_score(s.body, a.type) AS score
@@ -244,7 +246,9 @@ export async function readWeeklyPlannerPupilAction(
              lesson_scores AS (
                SELECT a.lesson_id,
                  count(a.activity_id)::int AS max_score,
-                 coalesce(sum(ls.score), 0) AS score
+                 coalesce(sum(ls.score), 0) AS score,
+                 bool_or(ls.activity_id IS NOT NULL) AS has_submission,
+                 bool_or(ls.score IS NOT NULL) AS has_score
                FROM activities a
                LEFT JOIN latest_submissions ls ON ls.activity_id = a.activity_id
                WHERE a.lesson_id = ANY($2::text[])
@@ -253,7 +257,7 @@ export async function readWeeklyPlannerPupilAction(
                GROUP BY a.lesson_id
                HAVING count(a.activity_id) > 0
              )
-             SELECT lesson_id, score, max_score FROM lesson_scores`,
+             SELECT lesson_id, score, max_score, has_submission, has_score FROM lesson_scores`,
             [profile.userId, allLessonIds, scorableTypes],
           );
           const scoreMap = new Map(scoresResult.rows.map((r) => [r.lesson_id, r]));
@@ -261,8 +265,12 @@ export async function readWeeklyPlannerPupilAction(
             for (const lesson of group.lessons) {
               const s = scoreMap.get(lesson.lesson_id);
               if (s) {
-                lesson.lesson_score = s.score;
                 lesson.lesson_max_score = s.max_score;
+                lesson.lesson_has_submission = s.has_submission ?? false;
+                lesson.lesson_has_score = s.has_score ?? false;
+                if (s.has_score) {
+                  lesson.lesson_score = s.score;
+                }
               }
             }
           }
