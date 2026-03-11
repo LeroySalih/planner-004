@@ -13,6 +13,7 @@ type ActivityProgressPanelProps = {
   scoreLabel: string
   feedbackText: string | null | undefined
   modelAnswer: string | null | undefined
+  isMarked: boolean
   lockedMessage?: string
 }
 
@@ -24,12 +25,15 @@ export function ActivityProgressPanel({
   scoreLabel,
   feedbackText,
   modelAnswer,
+  isMarked,
 }: ActivityProgressPanelProps) {
   const { currentVisible } = useFeedbackVisibility()
 
   if (!show) {
     return null
   }
+
+  const showResults = currentVisible && isMarked
 
   return (
     <div className="mt-4 rounded-lg border border-border bg-background/80 p-4 text-sm shadow-xs">
@@ -42,15 +46,15 @@ export function ActivityProgressPanel({
             Your progress
           </Badge>
           <span className="text-xs text-muted-foreground">
-            {currentVisible ? "Feedback released" : "Feedback not yet released"}
+            {showResults ? "Feedback released" : "Feedback not yet released"}
           </span>
         </div>
         <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-          {currentVisible ? scoreLabel : "In progress"}
+          {showResults ? scoreLabel : "In progress"}
         </span>
       </div>
 
-      {currentVisible ? (
+      {showResults ? (
         <dl className="mt-3 space-y-3">
           <div className="rounded-md bg-muted/50 px-3 py-2">
             <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Feedback</dt>

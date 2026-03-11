@@ -9,7 +9,6 @@ import { RichTextEditor } from "@/components/ui/rich-text-editor"
 import { getLongTextBody, getRichTextMarkup } from "@/components/lessons/activity-view/utils"
 import { saveLongTextAnswerAction } from "@/lib/server-updates"
 import { triggerFeedbackRefresh } from "@/lib/feedback-events"
-import { ActivityProgressPanel } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/activity-progress-panel"
 
 interface PupilLongTextActivityProps {
   lessonId: string
@@ -170,15 +169,6 @@ export function PupilLongTextActivity({
         </div>
       ) : null}
 
-      <ActivityProgressPanel
-        assignmentIds={feedbackAssignmentIds}
-        lessonId={lessonId}
-        initialVisible={feedbackInitiallyVisible}
-        show={true}
-        scoreLabel={scoreLabel}
-        feedbackText={feedbackText}
-        modelAnswer={modelAnswer}
-      />
     </div>
   )
 }

@@ -23,7 +23,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { ActivityProgressPanel } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/activity-progress-panel"
 
 type ActivityFileInfo = {
   name: string
@@ -524,15 +523,6 @@ export function PupilUploadActivity({
       </div>
 
 
-      <ActivityProgressPanel
-        assignmentIds={feedbackAssignmentIds}
-        lessonId={lessonId}
-        initialVisible={feedbackInitiallyVisible}
-        show={true}
-        scoreLabel={scoreLabel}
-        feedbackText={feedbackText}
-        modelAnswer={modelAnswer}
-      />
     </div>
   )
 }

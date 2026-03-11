@@ -1103,6 +1103,7 @@ export default async function PupilLessonFriendlyPage({
                     scoreLabel={formatScoreLabel(rawScore)}
                     feedbackText={feedbackText}
                     modelAnswer={modelAnswer}
+                    isMarked={typeof rawScore === "number"}
                   />
                 </li>
               )

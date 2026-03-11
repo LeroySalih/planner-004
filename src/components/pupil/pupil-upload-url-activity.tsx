@@ -14,7 +14,6 @@ import {
 } from "@/components/lessons/activity-view/utils"
 import { saveUploadUrlAnswerAction, toggleSubmissionFlagAction } from "@/lib/server-updates"
 import { triggerFeedbackRefresh } from "@/lib/feedback-events"
-import { ActivityProgressPanel } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/activity-progress-panel"
 
 interface PupilUploadUrlActivityProps {
   lessonId: string
@@ -284,15 +283,6 @@ export function PupilUploadUrlActivity({
 
 
 
-      <ActivityProgressPanel
-        assignmentIds={feedbackAssignmentIds}
-        lessonId={lessonId}
-        initialVisible={feedbackInitiallyVisible}
-        show={true}
-        scoreLabel={scoreLabel}
-        feedbackText={feedbackText}
-        modelAnswer={modelAnswer}
-      />
     </div>
   )
 }

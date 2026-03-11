@@ -20,7 +20,6 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { triggerFeedbackRefresh } from "@/lib/feedback-events"
-import { ActivityProgressPanel } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/activity-progress-panel"
 
 interface PupilMcqActivityProps {
   lessonId: string
@@ -291,15 +290,6 @@ export function PupilMcqActivity({
         ) : null}
       </footer>
 
-      <ActivityProgressPanel
-        assignmentIds={feedbackAssignmentIds}
-        lessonId={lessonId}
-        initialVisible={feedbackInitiallyVisible}
-        show={true}
-        scoreLabel={scoreLabel}
-        feedbackText={feedbackText}
-        modelAnswer={modelAnswer}
-      />
     </div>
   )
 }
