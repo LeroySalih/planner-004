@@ -398,7 +398,7 @@ export async function readPupilUnitsBootstrapAction(
           }>(
             `
               WITH scorable_activities AS (
-                SELECT activity_id, lesson_id
+                SELECT activity_id, lesson_id, type AS activity_type
                 FROM activities
                 WHERE lesson_id = ANY($1::text[])
                   AND type = ANY($2::text[])
