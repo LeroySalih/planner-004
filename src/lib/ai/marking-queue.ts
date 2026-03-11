@@ -19,31 +19,47 @@ export async function logQueueEvent(
 export async function enqueueMarkingTasks(
   assignmentId: string,
   tasks: Array<{ submissionId: string }>,
+  options?: { processAfterSeconds?: number },
 ) {
   if (tasks.length === 0) return;
 
+  const delaySecs = options?.processAfterSeconds ?? 0;
+
   await logQueueEvent(
     "info",
-    `Enqueueing ${tasks.length} tasks for assignment ${assignmentId}`,
+    `Enqueueing ${tasks.length} tasks for assignment ${assignmentId}` +
+      (delaySecs > 0 ? ` (debounced ${delaySecs}s)` : ""),
   );
 
-  // Build bulk insert
-  // We use ON CONFLICT DO NOTHING because of the unique index on submission_id for active tasks
-  const values = tasks.map((_, i) =>
-    `($${i * 3 + 1}, $${i * 3 + 2}, $${i * 3 + 3})`
-  ).join(", ");
-  const params = tasks.flatMap(
-    (t) => [t.submissionId, assignmentId, "pending"],
-  );
-
-  await query(
-    `
-    INSERT INTO ai_marking_queue (submission_id, assignment_id, status)
-    VALUES ${values}
-    ON CONFLICT (submission_id) WHERE status IN ('pending', 'processing') DO NOTHING
-    `,
-    params,
-  );
+  for (const task of tasks) {
+    if (delaySecs > 0) {
+      // Debounced path: upsert — reset process_after on conflict with pending row
+      await query(
+        `
+        INSERT INTO ai_marking_queue (submission_id, assignment_id, status, process_after)
+        VALUES ($1, $2, 'pending', now() + make_interval(secs => $3))
+        ON CONFLICT (submission_id) WHERE status IN ('pending', 'processing')
+        DO UPDATE SET
+          process_after = CASE
+            WHEN ai_marking_queue.status = 'pending'
+              THEN now() + make_interval(secs => $3)
+            ELSE ai_marking_queue.process_after
+          END
+        `,
+        [task.submissionId, assignmentId, delaySecs],
+      );
+    } else {
+      // Immediate path (manual/bulk): original behaviour
+      await query(
+        `
+        INSERT INTO ai_marking_queue (submission_id, assignment_id, status, process_after)
+        VALUES ($1, $2, 'pending', now())
+        ON CONFLICT (submission_id) WHERE status IN ('pending', 'processing') DO NOTHING
+        `,
+        [task.submissionId, assignmentId],
+      );
+    }
+  }
 }
 
 export async function processNextQueueItem() {
@@ -64,7 +80,8 @@ export async function processNextQueueItem() {
       FROM ai_marking_queue
       WHERE status = 'pending'
         AND attempts < 3
-      ORDER BY created_at ASC
+        AND process_after <= now()
+      ORDER BY process_after ASC
       LIMIT $1
       FOR UPDATE SKIP LOCKED
     )
@@ -89,7 +106,7 @@ export async function processNextQueueItem() {
 
   // 3. Check remaining
   const { rows: countRows } = await query(
-    "SELECT count(*) FROM ai_marking_queue WHERE status = 'pending' AND attempts < 3",
+    "SELECT count(*) FROM ai_marking_queue WHERE status = 'pending' AND attempts < 3 AND process_after <= now()",
   );
   const remainingCount = parseInt((countRows[0] as any).count, 10);
 
