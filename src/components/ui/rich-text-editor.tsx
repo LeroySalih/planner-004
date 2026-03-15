@@ -100,7 +100,7 @@ export function RichTextEditor({
         className={cn(
           "min-h-[150px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
           disabled && "pointer-events-none opacity-60",
-          "prose prose-sm max-w-none",
+          "prose prose-sm max-w-none dark:prose-invert",
           className,
         )}
         contentEditable={!disabled}
