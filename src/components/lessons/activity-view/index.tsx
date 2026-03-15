@@ -236,7 +236,7 @@ function ActivityShortView({
     const markup = getRichTextMarkup(text)
     if (markup) {
       content = (
-        <div className="prose prose-sm max-w-none text-muted-foreground" dangerouslySetInnerHTML={{ __html: markup }} />
+        <div className="prose prose-sm max-w-none dark:prose-invert text-muted-foreground" dangerouslySetInnerHTML={{ __html: markup }} />
       )
     }
   } else if (activity.type === "upload-file") {
@@ -244,7 +244,7 @@ function ActivityShortView({
     const markup = getRichTextMarkup(text)
     if (markup) {
       content = (
-        <div className="prose prose-sm max-w-none text-muted-foreground" dangerouslySetInnerHTML={{ __html: markup }} />
+        <div className="prose prose-sm max-w-none dark:prose-invert text-muted-foreground" dangerouslySetInnerHTML={{ __html: markup }} />
       )
     }
   } else if (activity.type === "multiple-choice-question") {
@@ -254,7 +254,7 @@ function ActivityShortView({
       <div className="space-y-1">
         <p className="text-xs font-semibold uppercase tracking-wide text-primary">Multiple choice</p>
         <div
-          className="prose prose-sm line-clamp-3 max-w-none text-muted-foreground"
+          className="prose prose-sm line-clamp-3 max-w-none dark:prose-invert text-muted-foreground"
           dangerouslySetInnerHTML={{ __html: markup }}
         />
       </div>
@@ -268,7 +268,7 @@ function ActivityShortView({
       <div className="space-y-1">
         <p className="text-xs font-semibold uppercase tracking-wide text-primary">Long text question</p>
         <div
-          className="prose prose-sm line-clamp-3 max-w-none text-muted-foreground"
+          className="prose prose-sm line-clamp-3 max-w-none dark:prose-invert text-muted-foreground"
           dangerouslySetInnerHTML={{ __html: markup }}
         />
       </div>
@@ -282,7 +282,7 @@ function ActivityShortView({
       <div className="space-y-1">
         <p className="text-xs font-semibold uppercase tracking-wide text-primary">Short text question</p>
         <div
-          className="prose prose-sm line-clamp-3 max-w-none text-muted-foreground"
+          className="prose prose-sm line-clamp-3 max-w-none dark:prose-invert text-muted-foreground"
           dangerouslySetInnerHTML={{ __html: markup }}
         />
       </div>
@@ -721,7 +721,7 @@ function McqPresentView({
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-4">
           {questionMarkup ? (
             <div
-              className="prose prose-lg max-w-none text-foreground"
+              className="prose prose-lg max-w-none dark:prose-invert text-foreground"
               dangerouslySetInnerHTML={{ __html: questionMarkup }}
             />
           ) : (
@@ -841,7 +841,7 @@ function ActivityPresentView({
     }
     return wrap(
       <div
-        className="prose prose-lg max-w-none text-foreground"
+        className="prose prose-lg max-w-none dark:prose-invert text-foreground"
         dangerouslySetInnerHTML={{ __html: markup }}
       />
     )
@@ -855,7 +855,7 @@ function ActivityPresentView({
     }
     return wrap(
       <div
-        className="prose prose-lg max-w-none text-foreground"
+        className="prose prose-lg max-w-none dark:prose-invert text-foreground"
         dangerouslySetInnerHTML={{ __html: markup }}
       />
     )
@@ -873,7 +873,7 @@ function ActivityPresentView({
     }
     return wrap(
       <div
-        className="prose prose-lg max-w-none text-foreground"
+        className="prose prose-lg max-w-none dark:prose-invert text-foreground"
         dangerouslySetInnerHTML={{ __html: markup }}
       />
     )
@@ -887,7 +887,7 @@ function ActivityPresentView({
     }
     return wrap(
       <div
-        className="prose prose-lg max-w-none text-foreground"
+        className="prose prose-lg max-w-none dark:prose-invert text-foreground"
         dangerouslySetInnerHTML={{ __html: markup }}
       />
     )
@@ -940,7 +940,7 @@ function ActivityPresentView({
       <div className="space-y-4">
         {markup ? (
           <div
-            className="prose prose-lg max-w-none text-foreground"
+            className="prose prose-lg max-w-none dark:prose-invert text-foreground"
             dangerouslySetInnerHTML={{ __html: markup }}
           />
         ) : (
@@ -1067,7 +1067,7 @@ function ActivityPresentView({
       <div className="space-y-4">
         {markup ? (
           <div
-            className="prose prose-lg max-w-none text-foreground"
+            className="prose prose-lg max-w-none dark:prose-invert text-foreground"
             dangerouslySetInnerHTML={{ __html: markup }}
           />
         ) : (
@@ -1138,7 +1138,7 @@ function ActivityEditView({ activity, resolvedImageUrl }: LessonActivityEditView
     if (!markup) return null
     return (
       <div
-        className="prose prose-sm max-w-none text-muted-foreground"
+        className="prose prose-sm max-w-none dark:prose-invert text-muted-foreground"
         dangerouslySetInnerHTML={{ __html: markup }}
       />
     )
@@ -1150,7 +1150,7 @@ function ActivityEditView({ activity, resolvedImageUrl }: LessonActivityEditView
     if (!markup) return null
     return (
       <div
-        className="prose prose-sm max-w-none text-muted-foreground"
+        className="prose prose-sm max-w-none dark:prose-invert text-muted-foreground"
         dangerouslySetInnerHTML={{ __html: markup }}
       />
     )
@@ -1162,7 +1162,7 @@ function ActivityEditView({ activity, resolvedImageUrl }: LessonActivityEditView
     if (!markup) return null
     return (
       <div
-        className="prose prose-sm max-w-none text-muted-foreground"
+        className="prose prose-sm max-w-none dark:prose-invert text-muted-foreground"
         dangerouslySetInnerHTML={{ __html: markup }}
       />
     )
@@ -1192,7 +1192,7 @@ function ActivityEditView({ activity, resolvedImageUrl }: LessonActivityEditView
       <div className="space-y-2 text-sm text-muted-foreground">
         {questionMarkup ? (
           <div
-            className="prose prose-sm max-w-none text-foreground"
+            className="prose prose-sm max-w-none dark:prose-invert text-foreground"
             dangerouslySetInnerHTML={{ __html: questionMarkup }}
           />
         ) : (
@@ -1233,7 +1233,7 @@ function ActivityEditView({ activity, resolvedImageUrl }: LessonActivityEditView
           <p className="text-xs font-semibold uppercase tracking-wide text-primary">Question</p>
           {questionMarkup ? (
             <div
-              className="prose prose-sm max-w-none text-foreground"
+              className="prose prose-sm max-w-none dark:prose-invert text-foreground"
               dangerouslySetInnerHTML={{ __html: questionMarkup }}
             />
           ) : (
@@ -1952,7 +1952,7 @@ function ShortTextPresentView({ activity, lessonId }: { activity: LessonActivity
         <p className="text-xs font-semibold uppercase tracking-wide text-primary">Question</p>
         {questionMarkup ? (
           <div
-            className="prose prose-lg max-w-none text-foreground"
+            className="prose prose-lg max-w-none dark:prose-invert text-foreground"
             dangerouslySetInnerHTML={{ __html: questionMarkup }}
           />
         ) : (
