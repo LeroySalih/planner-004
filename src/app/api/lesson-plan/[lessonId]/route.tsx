@@ -182,8 +182,13 @@ export async function GET(
         }
 
         case "text": {
-          const content = (body?.content as string | undefined) ?? ""
+          const content = (body?.text as string | undefined) ?? ""
           return { ...base, kind: "text" as const, content }
+        }
+
+        case "upload-file": {
+          const instructions = (body?.instructions as string | undefined) ?? ""
+          return { ...base, kind: "text" as const, content: instructions }
         }
 
         default:

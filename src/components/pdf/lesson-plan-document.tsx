@@ -273,6 +273,11 @@ const styles = StyleSheet.create({
     marginTop: 3,
     textAlign: "center",
   },
+  videoUrl: {
+    fontSize: 8,
+    color: "#3b82f6",
+    marginTop: 6,
+  },
   plainText: {
     fontSize: 9,
     color: "#374151",
@@ -437,6 +442,7 @@ function VideoActivity({ activity }: { activity: PdfVideoActivity }) {
           </View>
         ) : null}
       </View>
+      <Text style={styles.videoUrl}>{activity.videoUrl}</Text>
     </View>
   )
 }
