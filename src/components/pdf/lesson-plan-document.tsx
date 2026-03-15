@@ -1,5 +1,7 @@
 // src/components/pdf/lesson-plan-document.tsx
-import { Document, Image, Page, StyleSheet, Text, View } from "@react-pdf/renderer"
+import { Document, Image, Link, Page, StyleSheet, Text, View } from "@react-pdf/renderer"
+import { parseHtmlToNodes } from "@/lib/html-to-pdf"
+import type { HtmlNode, TextRun } from "@/lib/html-to-pdf"
 
 // ---- Types ----------------------------------------------------------------
 
@@ -283,6 +285,42 @@ const styles = StyleSheet.create({
     color: "#374151",
     lineHeight: 1.6,
   },
+  htmlPara: {
+    fontSize: 9,
+    color: "#374151",
+    lineHeight: 1.6,
+    marginBottom: 4,
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+  htmlListItem: {
+    flexDirection: "row",
+    marginBottom: 3,
+    paddingLeft: 4,
+  },
+  htmlListMarker: {
+    fontSize: 9,
+    color: "#374151",
+    width: 20,
+    flexShrink: 0,
+  },
+  htmlListItemText: {
+    fontSize: 9,
+    color: "#374151",
+    lineHeight: 1.6,
+    flex: 1,
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+  htmlBold: {
+    fontFamily: "Helvetica-Bold",
+  },
+  htmlItalic: {
+    fontFamily: "Helvetica-Oblique",
+  },
+  htmlLink: {
+    color: "#3b82f6",
+  },
   // Key terms table
   termTable: {
     marginTop: 4,
@@ -383,6 +421,68 @@ const styles = StyleSheet.create({
   },
 })
 
+// ---- HTML rendering helpers -----------------------------------------------
+
+function TextRunView({ run }: { run: TextRun }) {
+  const base = { fontSize: 9, color: run.link ? "#3b82f6" : "#374151" }
+  const textStyle = [
+    base,
+    ...(run.bold ? [styles.htmlBold] : []),
+    ...(run.italic ? [styles.htmlItalic] : []),
+  ]
+
+  if (run.link) {
+    return (
+      <Link src={run.link} style={textStyle}>
+        {run.text}
+      </Link>
+    )
+  }
+  return <Text style={textStyle}>{run.text}</Text>
+}
+
+function HtmlNodeView({ node, index }: { node: HtmlNode; index: number }) {
+  if (node.type === "para") {
+    return (
+      <View key={index} style={styles.htmlPara}>
+        {node.runs.map((run, i) => (
+          <TextRunView key={i} run={run} />
+        ))}
+      </View>
+    )
+  }
+
+  // ol or ul
+  return (
+    <View key={index}>
+      {node.items.map((item, itemIdx) => (
+        <View key={itemIdx} style={styles.htmlListItem}>
+          <Text style={styles.htmlListMarker}>
+            {node.type === "ol" ? `${itemIdx + 1}.` : "•"}
+          </Text>
+          <View style={styles.htmlListItemText}>
+            {item.runs.map((run, runIdx) => (
+              <TextRunView key={runIdx} run={run} />
+            ))}
+          </View>
+        </View>
+      ))}
+    </View>
+  )
+}
+
+function HtmlContent({ html }: { html: string }) {
+  const nodes = parseHtmlToNodes(html)
+  if (nodes.length === 0) return null
+  return (
+    <View>
+      {nodes.map((node, i) => (
+        <HtmlNodeView key={i} node={node} index={i} />
+      ))}
+    </View>
+  )
+}
+
 // ---- Sub-components -------------------------------------------------------
 
 function McqActivity({ activity }: { activity: PdfMcqActivity }) {
@@ -448,10 +548,15 @@ function VideoActivity({ activity }: { activity: PdfVideoActivity }) {
 }
 
 function TextActivity({ activity }: { activity: PdfTextActivity }) {
+  const isHtml = /<[a-z][\s\S]*>/i.test(activity.content)
   return (
     <View style={styles.activityBlock} wrap={false}>
       <Text style={styles.activityTitle}>{activity.title}</Text>
-      <Text style={styles.plainText}>{activity.content}</Text>
+      {isHtml ? (
+        <HtmlContent html={activity.content} />
+      ) : (
+        <Text style={styles.plainText}>{activity.content}</Text>
+      )}
     </View>
   )
 }
