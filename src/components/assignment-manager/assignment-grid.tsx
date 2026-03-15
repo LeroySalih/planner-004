@@ -615,7 +615,7 @@ export function AssignmentGrid({
                                           })
                                         }
                                       }}
-                                      className="font-medium text-sm text-slate-900 truncate hover:text-slate-700 transition-colors text-left w-full cursor-pointer"
+                                      className="font-medium text-sm text-slate-900 dark:text-emerald-400 truncate hover:text-slate-700 dark:hover:text-emerald-300 transition-colors text-left w-full cursor-pointer"
                                     >
                                       {cell.assignment.unit.title}
                                     </button>
