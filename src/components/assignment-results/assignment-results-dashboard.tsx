@@ -3514,9 +3514,55 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                               })}
                             </div>
                           ) : (
-                            <p className="text-xs text-muted-foreground">
-                              No success criteria linked to this activity.
-                            </p>
+                            <div className="space-y-2">
+                              <p className="text-xs font-semibold text-muted-foreground">Overall Score</p>
+                              <div className="flex flex-wrap items-center gap-2">
+                                {[
+                                  { label: "0", percent: 0 },
+                                  { label: "Partial", percent: 50 },
+                                  { label: "Full", percent: 100 },
+                                ].map((option) => {
+                                  const draftVal = Number.parseFloat(overallScoreDraft)
+                                  const isActive = !Number.isNaN(draftVal) && Math.abs(draftVal - option.percent) < 0.0001
+                                  return (
+                                    <Button
+                                      key={option.label}
+                                      type="button"
+                                      size="sm"
+                                      variant={isActive ? "default" : "outline"}
+                                      aria-pressed={isActive}
+                                      className="h-8 px-2 text-xs"
+                                      onClick={() => {
+                                        const val = formatPercentValue(option.percent)
+                                        setOverallScoreDraft(val)
+                                        handleOverrideSubmit(undefined, undefined, val)
+                                      }}
+                                    >
+                                      {option.label}
+                                    </Button>
+                                  )
+                                })}
+                                <Input
+                                  type="number"
+                                  inputMode="decimal"
+                                  min="0"
+                                  max="100"
+                                  step="0.1"
+                                  value={overallScoreDraft}
+                                  onChange={(event) => setOverallScoreDraft(event.target.value)}
+                                  onBlur={() => {
+                                    handleOverallScoreInputBlur()
+                                    handleOverrideSubmit()
+                                  }}
+                                  placeholder="Exact percent (0-100)"
+                                  aria-label="Exact overall percent"
+                                  className="h-8 w-24"
+                                />
+                              </div>
+                              <p className="text-xs text-muted-foreground">
+                                No success criteria linked to this activity. You can assign an overall score directly.
+                              </p>
+                            </div>
                           )}
 
                           <div className="grid gap-2">
