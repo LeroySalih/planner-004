@@ -178,10 +178,13 @@ function ParentEmailCell({
     })
   }
 
+  const label = field === 'father_email' ? "Father's email" : "Mother's email"
+
   return (
     <input
       type="email"
       autoComplete="off"
+      aria-label={label}
       value={value}
       onChange={(e) => setValue(e.target.value)}
       onBlur={handleBlur}
