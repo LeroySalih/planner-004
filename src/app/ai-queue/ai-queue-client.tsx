@@ -241,7 +241,7 @@ export default function AiQueuePage() {
                       <TableCell className="text-xs whitespace-nowrap">
                         {new Date(item.created_at).toLocaleString()}
                       </TableCell>
-                      <TableCell className="text-xs text-destructive">
+                      <TableCell className="text-xs text-destructive max-w-[300px] break-words whitespace-normal">
                         {item.last_error || "—"}
                       </TableCell>
                       <TableCell className="text-right">
