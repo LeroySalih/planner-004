@@ -13,7 +13,7 @@ import {
   getShortTextBody,
 } from "@/components/lessons/activity-view/utils"
 import { saveShortTextAnswerAction, toggleSubmissionFlagAction } from "@/lib/server-updates"
-import { triggerFeedbackRefresh } from "@/lib/feedback-events"
+import { addMarkingCompleteListener, triggerFeedbackRefresh } from "@/lib/feedback-events"
 import { ActivityProgressPanel } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/activity-progress-panel"
 
 interface PupilShortTextActivityProps {
@@ -84,22 +84,13 @@ export function PupilShortTextActivity({
     setFeedback(nextAnswer ? { type: "success", message: "Answer saved" } : null)
   }, [initialAnswer, initialSubmissionId, initialIsFlagged, activity.activity_id])
 
-  // Listen for marking results via SSE — reset pending state and refresh when this activity is marked
+  // Listen for marking complete DOM events dispatched by FeedbackVisibilityProvider's single SSE connection
   useEffect(() => {
-    const source = new EventSource("/sse?topics=assignments")
-    source.onmessage = (event) => {
-      try {
-        const envelope = JSON.parse(event.data) as { topic?: string; type?: string; payload?: unknown }
-        if (envelope.topic !== "assignments" || envelope.type !== "assignment.results.updated") return
-        const payload = envelope.payload as { activityId?: string; pupilId?: string } | null
-        if (payload?.activityId !== activity.activity_id || payload?.pupilId !== pupilId) return
-        setIsPendingMarking(false)
-        router.refresh()
-      } catch {
-        // ignore parse errors
-      }
-    }
-    return () => source.close()
+    return addMarkingCompleteListener((activityId, markedPupilId) => {
+      if (activityId !== activity.activity_id || markedPupilId !== pupilId) return
+      setIsPendingMarking(false)
+      router.refresh()
+    })
   }, [activity.activity_id, pupilId, router])
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)

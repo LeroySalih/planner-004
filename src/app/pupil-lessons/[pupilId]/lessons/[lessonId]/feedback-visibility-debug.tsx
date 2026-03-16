@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react"
 import { createContext, useContext, useEffect, useMemo, useState } from "react"
+import { triggerMarkingComplete } from "@/lib/feedback-events"
 
 type VisibilityState = {
   channels: string[]
@@ -57,10 +58,19 @@ export function FeedbackVisibilityProvider({
         typeof envelope.payload === "object" && envelope.payload && "payload" in envelope.payload
           ? (envelope.payload as { payload?: unknown }).payload
           : envelope.payload
+      // Dispatch marking complete event for individual activity results
+      if (envelope.type === "assignment.results.updated") {
+        const p = payload as { activityId?: string; pupilId?: string }
+        if (typeof p?.activityId === "string" && typeof p?.pupilId === "string") {
+          triggerMarkingComplete(p.activityId, p.pupilId)
+        }
+        return
+      }
+
       const nextVisible =
         (payload as { feedbackVisible?: boolean })?.feedbackVisible ??
         (payload as { payload?: { feedbackVisible?: boolean } })?.payload?.feedbackVisible
-      
+
       if (typeof nextVisible !== "boolean") return
 
       const targetAssignmentId =
