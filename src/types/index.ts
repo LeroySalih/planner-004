@@ -103,6 +103,8 @@ export const ReportsPupilListingSchema = z.object({
     pupilEmail: z.string().email().nullable().optional(),
     isTeacher: z.boolean().default(false),
     groups: z.array(ReportsPupilGroupSchema),
+    fatherEmail: z.string().email().nullable().optional(),
+    motherEmail: z.string().email().nullable().optional(),
 });
 
 export const ReportsPupilListingsSchema = z.array(ReportsPupilListingSchema);
