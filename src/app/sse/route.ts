@@ -1,6 +1,6 @@
 import { performance } from "node:perf_hooks"
 
-import { requireTeacherProfile } from "@/lib/auth"
+import { requireAuthenticatedProfile } from "@/lib/auth"
 import { fetchRecentSseEvents } from "@/lib/sse/persistence"
 import { registerSseClient } from "@/lib/sse/hub"
 import { SSE_TOPICS, type SseTopic } from "@/lib/sse/types"
@@ -29,7 +29,7 @@ export async function GET(request: Request) {
   }
 
   const authStart = performance.now()
-  const profile = await requireTeacherProfile({ refreshSessionCookie: true })
+  const profile = await requireAuthenticatedProfile({ refreshSessionCookie: true })
   const authEnd = performance.now()
 
   const history = await fetchRecentSseEvents(topics)
