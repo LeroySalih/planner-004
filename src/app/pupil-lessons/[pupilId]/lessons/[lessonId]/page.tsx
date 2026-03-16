@@ -63,7 +63,7 @@ import {
   getRichTextMarkup,
   getYouTubeThumbnailUrl,
 } from "@/components/lessons/activity-view/utils"
-import { FeedbackVisibilityProvider } from "./feedback-visibility-debug"
+import { FeedbackVisibilityProvider, SseStatusIndicator } from "./feedback-visibility-debug"
 
 type McqOption = { id: string; text: string }
 
@@ -714,6 +714,7 @@ export default async function PupilLessonFriendlyPage({
                   <span className="line-clamp-2">{activity.title ?? formatActivityType(activity.type)}</span>
                 </a>
               ))}
+              <SseStatusIndicator />
             </div>
           </aside>
         )}
