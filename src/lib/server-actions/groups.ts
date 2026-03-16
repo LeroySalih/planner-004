@@ -382,19 +382,23 @@ export async function listPupilsWithGroupsAction(): Promise<PupilListing[]> {
     try {
       const pupilIds = rawData.map((p: any) => p.pupilId).filter(Boolean);
       const { rows: profileRows } = await query<
-        { user_id: string; email: string | null; is_teacher: boolean | null }
+        { user_id: string; email: string | null; is_teacher: boolean | null; father_email: string | null; mother_email: string | null }
       >(
-        "select user_id, email, is_teacher from profiles where user_id = any($1::text[])",
+        "select user_id, email, is_teacher, father_email, mother_email from profiles where user_id = any($1::text[])",
         [pupilIds],
       );
       const emailMap = new Map(profileRows.map((r) => [r.user_id, r.email]));
       const teacherMap = new Map(
         profileRows.map((r) => [r.user_id, r.is_teacher]),
       );
+      const fatherEmailMap = new Map(profileRows.map((r) => [r.user_id, r.father_email]));
+      const motherEmailMap = new Map(profileRows.map((r) => [r.user_id, r.mother_email]));
 
       rawData.forEach((p: any) => {
         p.pupilEmail = emailMap.get(p.pupilId) ?? null;
         p.isTeacher = teacherMap.get(p.pupilId) ?? false;
+        p.fatherEmail = fatherEmailMap.get(p.pupilId) ?? null;
+        p.motherEmail = motherEmailMap.get(p.pupilId) ?? null;
       });
     } catch (enrichError) {
       console.error(
