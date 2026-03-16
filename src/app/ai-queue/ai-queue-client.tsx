@@ -241,7 +241,7 @@ export default function AiQueuePage() {
                       <TableCell className="text-xs whitespace-nowrap">
                         {new Date(item.created_at).toLocaleString()}
                       </TableCell>
-                      <TableCell className="max-w-[300px] text-xs text-destructive truncate" title={item.last_error}>
+                      <TableCell className="text-xs text-destructive">
                         {item.last_error || "—"}
                       </TableCell>
                       <TableCell className="text-right">
