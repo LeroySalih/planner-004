@@ -180,12 +180,13 @@ export async function saveShortTextAnswerAction(input: z.infer<typeof ShortTextA
 
       // Auto-enqueue for AI marking on every save
       if (payload.assignmentId) {
+        const DEBOUNCE_SECS = 10;
         void enqueueMarkingTasks(
           payload.assignmentId,
           [{ submissionId: savedSubmission.submission_id }],
-          { processAfterSeconds: 30 },
+          { processAfterSeconds: DEBOUNCE_SECS },
         )
-          .then(() => triggerQueueProcessor())
+          .then(() => setTimeout(() => void triggerQueueProcessor(), DEBOUNCE_SECS * 1000))
           .catch((err) => console.error("[short-text] Failed to enqueue AI marking:", err))
       }
 

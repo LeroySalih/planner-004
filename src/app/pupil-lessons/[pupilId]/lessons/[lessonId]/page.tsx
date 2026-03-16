@@ -854,6 +854,7 @@ export default async function PupilLessonFriendlyPage({
                           scoreLabel={formatScoreLabel(rawScore)}
                           feedbackText={feedbackText}
                           modelAnswer={modelAnswer}
+                          initialIsPendingMarking={rawScore === null}
                         />
                       ) : activity.type === "long-text-question" || activity.type === "text-question" ? (
                         <PupilLongTextActivity
@@ -1099,11 +1100,12 @@ export default async function PupilLessonFriendlyPage({
                     assignmentIds={assignmentIds}
                     lessonId={lesson.lesson_id}
                     initialVisible={initialFeedbackVisible}
-                    show={showProgress}
+                    show={showProgress && activity.type !== "short-text-question"}
                     scoreLabel={formatScoreLabel(rawScore)}
                     feedbackText={feedbackText}
                     modelAnswer={modelAnswer}
                     isMarked={typeof rawScore === "number"}
+                    isPendingMarking={rawScore === null}
                   />
                 </li>
               )

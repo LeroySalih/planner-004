@@ -14,7 +14,9 @@ type ActivityProgressPanelProps = {
   feedbackText: string | null | undefined
   modelAnswer: string | null | undefined
   isMarked: boolean
+  isPendingMarking?: boolean
   lockedMessage?: string
+  flagSlot?: ReactNode
 }
 
 export function ActivityProgressPanel({
@@ -26,6 +28,8 @@ export function ActivityProgressPanel({
   feedbackText,
   modelAnswer,
   isMarked,
+  isPendingMarking,
+  flagSlot,
 }: ActivityProgressPanelProps) {
   const { currentVisible } = useFeedbackVisibility()
 
@@ -33,7 +37,7 @@ export function ActivityProgressPanel({
     return null
   }
 
-  const showResults = currentVisible && isMarked
+  const showResults = currentVisible && isMarked && !isPendingMarking
 
   return (
     <div className="mt-4 rounded-lg border border-border bg-background/80 p-4 text-sm shadow-xs">
@@ -46,27 +50,32 @@ export function ActivityProgressPanel({
             Your progress
           </Badge>
           <span className="text-xs text-muted-foreground">
-            {showResults ? "Feedback released" : "Feedback not yet released"}
+            {isPendingMarking ? "Awaiting marking" : showResults ? "Feedback released" : "Feedback not yet released"}
           </span>
         </div>
         <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-          {showResults ? scoreLabel : "In progress"}
+          {showResults ? scoreLabel : isPendingMarking ? "Waiting for marking" : "In progress"}
         </span>
       </div>
 
       {showResults ? (
-        <dl className="mt-3 space-y-3">
-          <div className="rounded-md bg-muted/50 px-3 py-2">
-            <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Feedback</dt>
-            <dd className="mt-1 text-sm text-foreground">{feedbackText || "No feedback yet."}</dd>
-          </div>
-          <div className="rounded-md bg-muted/50 px-3 py-2">
-            <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Model answer</dt>
-            <dd className="mt-1 text-sm text-foreground">
-              {modelAnswer || "Your teacher hasn’t shared a model answer yet."}
-            </dd>
-          </div>
-        </dl>
+        <>
+          <dl className="mt-3 space-y-3">
+            <div className="rounded-md bg-muted/50 px-3 py-2">
+              <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Feedback</dt>
+              <dd className="mt-1 text-sm text-foreground">{feedbackText || "No feedback yet."}</dd>
+            </div>
+            <div className="rounded-md bg-muted/50 px-3 py-2">
+              <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Model answer</dt>
+              <dd className="mt-1 text-sm text-foreground">
+                {modelAnswer || "Your teacher hasn’t shared a model answer yet."}
+              </dd>
+            </div>
+          </dl>
+          {flagSlot && <div className="mt-3 border-t border-border pt-3">{flagSlot}</div>}
+        </>
+      ) : isPendingMarking ? (
+        <p className="mt-3 text-xs text-muted-foreground">Your answer has been saved and is being marked. Results will appear here shortly.</p>
       ) : (
         <p className="mt-3 text-xs text-muted-foreground">Your teacher will release the score and feedback after marking. You can continue to refine your answer until then.</p>
       )}

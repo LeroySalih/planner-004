@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
+import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { Flag, Loader2, RotateCcw } from "lucide-react"
 
@@ -13,7 +14,7 @@ import {
 } from "@/components/lessons/activity-view/utils"
 import { saveShortTextAnswerAction, toggleSubmissionFlagAction } from "@/lib/server-updates"
 import { triggerFeedbackRefresh } from "@/lib/feedback-events"
-import { useFeedbackVisibility } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/feedback-visibility-debug"
+import { ActivityProgressPanel } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/activity-progress-panel"
 
 interface PupilShortTextActivityProps {
   lessonId: string
@@ -32,6 +33,7 @@ interface PupilShortTextActivityProps {
   scoreLabel?: string
   feedbackText?: string | null
   modelAnswer?: string | null
+  initialIsPendingMarking?: boolean
 }
 
 type FeedbackState = { type: "success" | "error"; message: string } | null
@@ -53,16 +55,18 @@ export function PupilShortTextActivity({
   scoreLabel = "In progress",
   feedbackText,
   modelAnswer,
+  initialIsPendingMarking = false,
 }: PupilShortTextActivityProps) {
   const shortTextBody = useMemo(() => getShortTextBody(activity), [activity])
   const questionMarkup = getRichTextMarkup(shortTextBody.question)
-  const { currentVisible } = useFeedbackVisibility()
   const canAnswerEffective = canAnswer
+  const router = useRouter()
 
   const [answer, setAnswer] = useState(initialAnswer ?? "")
   const [lastSaved, setLastSaved] = useState(initialAnswer ?? "")
   const [submissionId, setSubmissionId] = useState(initialSubmissionId ?? null)
   const [isFlagged, setIsFlagged] = useState(initialIsFlagged ?? false)
+  const [isPendingMarking, setIsPendingMarking] = useState(initialIsPendingMarking)
   const [feedback, setFeedback] = useState<FeedbackState>(
     initialAnswer ? { type: "success", message: "Answer saved" } : null,
   )
@@ -80,9 +84,23 @@ export function PupilShortTextActivity({
     setFeedback(nextAnswer ? { type: "success", message: "Answer saved" } : null)
   }, [initialAnswer, initialSubmissionId, initialIsFlagged, activity.activity_id])
 
+  // Listen for marking results via SSE — reset pending state and refresh when this activity is marked
   useEffect(() => {
-    console.log(`[PupilShortTextActivity] Feedback visibility changed: ${currentVisible}`)
-  }, [currentVisible])
+    const source = new EventSource("/sse?topics=assignments")
+    source.onmessage = (event) => {
+      try {
+        const envelope = JSON.parse(event.data) as { topic?: string; type?: string; payload?: unknown }
+        if (envelope.topic !== "assignments" || envelope.type !== "assignment.results.updated") return
+        const payload = envelope.payload as { activityId?: string; pupilId?: string } | null
+        if (payload?.activityId !== activity.activity_id || payload?.pupilId !== pupilId) return
+        setIsPendingMarking(false)
+        router.refresh()
+      } catch {
+        // ignore parse errors
+      }
+    }
+    return () => source.close()
+  }, [activity.activity_id, pupilId, router])
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -144,6 +162,7 @@ export function PupilShortTextActivity({
 
         setLastSaved(answer)
         setFeedback({ type: "success", message: "Answer saved" })
+        setIsPendingMarking(true)
         triggerFeedbackRefresh(lessonId)
       } finally {
         isSavingRef.current = false
@@ -265,25 +284,36 @@ export function PupilShortTextActivity({
         </div>
       ) : null}
 
-      {currentVisible && submissionId ? (
-        <div className="mt-4 flex flex-col gap-2 border-t border-border pt-4 sm:flex-row sm:items-center">
-          <Button
-            variant={isFlagged ? "destructive" : "outline"}
-            size="sm"
-            onClick={handleToggleFlag}
-            disabled={flagPending}
-            className="gap-2 self-start sm:self-auto"
-          >
-            <Flag className="h-4 w-4" />
-            {isFlagged ? "Unflag for review" : "Flag for review"}
-          </Button>
-          <p className="text-xs text-muted-foreground">
-            {isFlagged
-              ? "You have flagged this answer for your teacher to review."
-              : "Flag this answer if you want your teacher to check it again."}
-          </p>
-        </div>
-      ) : null}
+      <ActivityProgressPanel
+        assignmentIds={feedbackAssignmentIds}
+        lessonId={feedbackLessonId ?? lessonId}
+        initialVisible={feedbackInitiallyVisible}
+        show={true}
+        scoreLabel={scoreLabel}
+        feedbackText={feedbackText}
+        modelAnswer={modelAnswer}
+        isMarked={!isPendingMarking && scoreLabel !== "In progress" && scoreLabel !== "No score yet"}
+        isPendingMarking={isPendingMarking}
+        flagSlot={submissionId ? (
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Button
+              variant={isFlagged ? "destructive" : "outline"}
+              size="sm"
+              onClick={handleToggleFlag}
+              disabled={flagPending}
+              className="gap-2 self-start sm:self-auto"
+            >
+              <Flag className="h-4 w-4" />
+              {isFlagged ? "Unflag for review" : "Flag for review"}
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              {isFlagged
+                ? "You have flagged this answer for your teacher to review."
+                : "Flag this answer if you want your teacher to check it again."}
+            </p>
+          </div>
+        ) : undefined}
+      />
 
     </div>
   )

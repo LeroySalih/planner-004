@@ -407,7 +407,7 @@ export async function readLessonSubmissionSummariesAction(
               fillValue: effectiveScore ?? 0,
             });
             const averagedScore =
-              computeAverageSuccessCriteriaScore(successCriteriaScores) ?? 0;
+              computeAverageSuccessCriteriaScore(successCriteriaScores) ?? effectiveScore ?? null;
 
             return {
               userId: submission.user_id,
@@ -419,7 +419,7 @@ export async function readLessonSubmissionSummariesAction(
           .filter(
             (entry): entry is {
               userId: string;
-              score: number;
+              score: number | null;
               isCorrect: boolean;
               successCriteriaScores: Record<string, number | null>;
             } => entry !== null,
