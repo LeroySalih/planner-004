@@ -3,7 +3,7 @@ import {
   ShortTextActivityBodySchema,
   ShortTextSubmissionBodySchema,
 } from "@/types";
-import { invokeDoAiMarking } from "./do-ai-marking";
+import { invokeAiMarking } from "./ai-marking-client";
 
 export async function logQueueEvent(
   level: "info" | "warn" | "error",
@@ -233,11 +233,11 @@ async function processSingleItem(
 
     await logQueueEvent(
       "info",
-      `Triggering DO function for submission ${item.submission_id}`,
+      `Triggering n8n workflow for submission ${item.submission_id}`,
       doParams,
     );
 
-    await invokeDoAiMarking(doParams);
+    await invokeAiMarking(doParams);
 
     // Note: We don't mark as 'completed' here.
     // The webhook callback will do that.

@@ -1,6 +1,6 @@
 import { query } from "@/lib/db";
 import { ShortTextSubmissionBodySchema, ShortTextActivityBodySchema } from "@/types";
-import { invokeDoAiMarking } from "./do-ai-marking";
+import { invokeAiMarking } from "./ai-marking-client";
 import { clampScore, fetchActivitySuccessCriteriaIds, normaliseSuccessCriteriaScores } from "@/lib/scoring/success-criteria";
 import { insertPupilActivityFeedbackEntry } from "@/lib/feedback/pupil-activity-feedback";
 import { publishAssignmentResultsEvents, type AssignmentResultsRealtimePayload } from "@/lib/results-sse";
@@ -47,7 +47,7 @@ export async function runAiMarkingFlow(request: AiMarkingRequest): Promise<void>
     }
 
     // 3. Invoke AI Marking
-    const result = await invokeDoAiMarking({
+    const result = await invokeAiMarking({
       question: parsedActivity.data.question,
       model_answer: parsedActivity.data.modelAnswer,
       pupil_answer: pupilAnswer,
