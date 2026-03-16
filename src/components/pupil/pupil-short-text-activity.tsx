@@ -67,6 +67,7 @@ export function PupilShortTextActivity({
   const [submissionId, setSubmissionId] = useState(initialSubmissionId ?? null)
   const [isFlagged, setIsFlagged] = useState(initialIsFlagged ?? false)
   const [isPendingMarking, setIsPendingMarking] = useState(initialIsPendingMarking)
+  const isPendingMarkingRef = useRef(initialIsPendingMarking)
   const [feedback, setFeedback] = useState<FeedbackState>(
     initialAnswer ? { type: "success", message: "Answer saved" } : null,
   )
@@ -84,12 +85,20 @@ export function PupilShortTextActivity({
     setFeedback(nextAnswer ? { type: "success", message: "Answer saved" } : null)
   }, [initialAnswer, initialSubmissionId, initialIsFlagged, activity.activity_id])
 
+  // Sync isPendingMarking from server when props update (e.g. after router.refresh())
+  useEffect(() => {
+    setIsPendingMarking(initialIsPendingMarking)
+    isPendingMarkingRef.current = initialIsPendingMarking
+  }, [initialIsPendingMarking])
+
   // Listen for marking complete DOM events dispatched by FeedbackVisibilityProvider's single SSE connection
   useEffect(() => {
     return addMarkingCompleteListener((activityId, markedPupilId) => {
       if (activityId !== activity.activity_id || markedPupilId !== pupilId) return
-      setIsPendingMarking(false)
+      // Ignore stale SSE replays — only act if we're genuinely waiting for marking
+      if (!isPendingMarkingRef.current) return
       router.refresh()
+      // isPendingMarking resets via the useEffect above once initialIsPendingMarking updates
     })
   }, [activity.activity_id, pupilId, router])
 
@@ -154,6 +163,7 @@ export function PupilShortTextActivity({
         setLastSaved(answer)
         setFeedback({ type: "success", message: "Answer saved" })
         setIsPendingMarking(true)
+        isPendingMarkingRef.current = true
         triggerFeedbackRefresh(lessonId)
       } finally {
         isSavingRef.current = false
