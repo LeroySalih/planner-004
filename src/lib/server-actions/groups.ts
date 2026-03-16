@@ -20,6 +20,7 @@ import {
   getAuthenticatedProfile,
   hashPassword,
   requireAuthenticatedProfile,
+  requireTeacherProfile,
 } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { withTelemetry } from "@/lib/telemetry";
@@ -382,19 +383,23 @@ export async function listPupilsWithGroupsAction(): Promise<PupilListing[]> {
     try {
       const pupilIds = rawData.map((p: any) => p.pupilId).filter(Boolean);
       const { rows: profileRows } = await query<
-        { user_id: string; email: string | null; is_teacher: boolean | null }
+        { user_id: string; email: string | null; is_teacher: boolean | null; father_email: string | null; mother_email: string | null }
       >(
-        "select user_id, email, is_teacher from profiles where user_id = any($1::text[])",
+        "select user_id, email, is_teacher, father_email, mother_email from profiles where user_id = any($1::text[])",
         [pupilIds],
       );
       const emailMap = new Map(profileRows.map((r) => [r.user_id, r.email]));
       const teacherMap = new Map(
         profileRows.map((r) => [r.user_id, r.is_teacher]),
       );
+      const fatherEmailMap = new Map(profileRows.map((r) => [r.user_id, r.father_email]));
+      const motherEmailMap = new Map(profileRows.map((r) => [r.user_id, r.mother_email]));
 
       rawData.forEach((p: any) => {
         p.pupilEmail = emailMap.get(p.pupilId) ?? null;
         p.isTeacher = teacherMap.get(p.pupilId) ?? false;
+        p.fatherEmail = fatherEmailMap.get(p.pupilId) ?? null;
+        p.motherEmail = motherEmailMap.get(p.pupilId) ?? null;
       });
     } catch (enrichError) {
       console.error(
@@ -415,6 +420,38 @@ export async function listPupilsWithGroupsAction(): Promise<PupilListing[]> {
   }
 
   return parsed.data;
+}
+
+export async function updatePupilParentEmailAction(
+  pupilId: string,
+  field: 'father_email' | 'mother_email',
+  value: string | null,
+): Promise<{ data: null; error: string | null }> {
+  await requireTeacherProfile();
+  // Note: requireTeacherProfile() calls redirect() internally when the user is
+  // not authenticated or lacks the teacher role. Do NOT wrap this in try/catch —
+  // Next.js redirect() throws a special error that must propagate to the framework.
+
+  const parsed = z.string().email().nullable().safeParse(value);
+  if (!parsed.success) {
+    return { data: null, error: "Invalid email address." };
+  }
+
+  const sql =
+    field === 'father_email'
+      ? 'UPDATE profiles SET father_email = $2 WHERE user_id = $1 AND is_teacher = false'
+      : 'UPDATE profiles SET mother_email = $2 WHERE user_id = $1 AND is_teacher = false';
+
+  try {
+    const result = await query(sql, [pupilId, parsed.data]);
+    if (result.rowCount === 0) {
+      return { data: null, error: "Pupil not found." };
+    }
+    return { data: null, error: null };
+  } catch (error) {
+    console.error("[reports] Failed to update parent email", error);
+    return { data: null, error: "Failed to save." };
+  }
 }
 
 export async function updateGroupAction(

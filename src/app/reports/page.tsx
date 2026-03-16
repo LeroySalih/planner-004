@@ -25,6 +25,8 @@ export default async function ReportsLandingPage() {
     email: listing.pupilEmail,
     isTeacher: listing.isTeacher,
     groups: listing.groups.map((group) => group.group_id).sort((a, b) => a.localeCompare(b)),
+    fatherEmail: listing.fatherEmail,
+    motherEmail: listing.motherEmail,
   }))
 
   return (

@@ -1,12 +1,12 @@
 "use client"
 
-import { useMemo, useState, useTransition } from "react"
+import { useMemo, useRef, useState, useTransition } from "react"
 import Link from "next/link"
 import { toast } from "sonner"
 
 import { createWildcardRegex } from "@/lib/search"
 import { Switch } from "@/components/ui/switch"
-import { toggleUserTeacherStatusAction } from "@/lib/server-updates"
+import { toggleUserTeacherStatusAction, updatePupilParentEmailAction } from "@/lib/server-updates"
 
 export type ReportsTablePupil = {
   pupilId: string
@@ -14,6 +14,8 @@ export type ReportsTablePupil = {
   email?: string | null
   isTeacher: boolean
   groups: string[]
+  fatherEmail?: string | null
+  motherEmail?: string | null
 }
 
 export function ReportsTable({ pupils }: { pupils: ReportsTablePupil[] }) {
@@ -52,6 +54,8 @@ export function ReportsTable({ pupils }: { pupils: ReportsTablePupil[] }) {
             <tr>
               <th className="border border-border px-4 py-2 text-left">Pupil</th>
               <th className="border border-border px-4 py-2 text-left">Email</th>
+              <th className="border border-border px-4 py-2 text-left">Father&apos;s Email</th>
+              <th className="border border-border px-4 py-2 text-left">Mother&apos;s Email</th>
               <th className="border border-border px-4 py-2 text-left">Is Teacher</th>
               <th className="border border-border px-4 py-2 text-left">Groups</th>
             </tr>
@@ -59,7 +63,7 @@ export function ReportsTable({ pupils }: { pupils: ReportsTablePupil[] }) {
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-sm text-muted-foreground">
+                <td colSpan={6} className="px-4 py-6 text-center text-sm text-muted-foreground">
                   No pupils match this filter.
                 </td>
               </tr>
@@ -73,6 +77,20 @@ export function ReportsTable({ pupils }: { pupils: ReportsTablePupil[] }) {
                   </td>
                   <td className="border border-border px-4 py-2 align-top text-muted-foreground">
                     {pupil.email ? <span className="font-mono text-xs">{pupil.email}</span> : "—"}
+                  </td>
+                  <td className="border border-border px-4 py-2 align-top text-muted-foreground">
+                    <ParentEmailCell
+                      pupilId={pupil.pupilId}
+                      field="father_email"
+                      initialValue={pupil.fatherEmail}
+                    />
+                  </td>
+                  <td className="border border-border px-4 py-2 align-top text-muted-foreground">
+                    <ParentEmailCell
+                      pupilId={pupil.pupilId}
+                      field="mother_email"
+                      initialValue={pupil.motherEmail}
+                    />
                   </td>
                   <td className="border border-border px-4 py-2 align-top text-muted-foreground">
                     <TeacherToggle pupil={pupil} />
@@ -127,6 +145,51 @@ function TeacherToggle({ pupil }: { pupil: ReportsTablePupil }) {
       onCheckedChange={handleToggle}
       disabled={isPending}
       aria-label={`Toggle teacher status for ${pupil.name}`}
+    />
+  )
+}
+
+function ParentEmailCell({
+  pupilId,
+  field,
+  initialValue,
+}: {
+  pupilId: string
+  field: 'father_email' | 'mother_email'
+  initialValue: string | null | undefined
+}) {
+  const [value, setValue] = useState(initialValue ?? "")
+  const savedValue = useRef(initialValue ?? "")
+  const [isPending, startTransition] = useTransition()
+
+  const handleBlur = () => {
+    const trimmed = value.trim()
+    if (trimmed === savedValue.current) return
+    const valueOrNull = trimmed === "" ? null : trimmed
+    startTransition(async () => {
+      const result = await updatePupilParentEmailAction(pupilId, field, valueOrNull)
+      if (!result.error) {
+        savedValue.current = trimmed
+        toast.success("Saved")
+      } else {
+        setValue(savedValue.current)
+        toast.error(result.error ?? "Failed to save")
+      }
+    })
+  }
+
+  const label = field === 'father_email' ? "Father's email" : "Mother's email"
+
+  return (
+    <input
+      type="email"
+      autoComplete="off"
+      aria-label={label}
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={handleBlur}
+      disabled={isPending}
+      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-mono"
     />
   )
 }
