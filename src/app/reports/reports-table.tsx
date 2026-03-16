@@ -14,6 +14,8 @@ export type ReportsTablePupil = {
   email?: string | null
   isTeacher: boolean
   groups: string[]
+  fatherEmail?: string | null
+  motherEmail?: string | null
 }
 
 export function ReportsTable({ pupils }: { pupils: ReportsTablePupil[] }) {
