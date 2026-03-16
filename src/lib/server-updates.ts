@@ -16,6 +16,7 @@ export {
   resetPupilPasswordAction,
   updateGroupAction,
   updateGroupMemberRoleAction,
+  updatePupilParentEmailAction,
 } from "./server-actions/groups";
 
 export {
