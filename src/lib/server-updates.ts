@@ -315,4 +315,17 @@ export {
   deleteWeeklyPlanNoteAction,
   createWeeklyPlanQuestionAction,
   createWeeklyPlanReplyAction,
-} from "./server-actions/weekly-planner";
+} from "./server-actions/weekly-planner"
+
+export {
+  readMarkingQueueAction,
+  readFlaggedSubmissionsAction,
+  readMentionsAction,
+  type MarkingQueueItem,
+  type FlaggedItem,
+  type MentionItem,
+} from "./server-actions/dashboard"
+
+export {
+  addSubmissionCommentAction,
+} from "./server-actions/submission-comments"
