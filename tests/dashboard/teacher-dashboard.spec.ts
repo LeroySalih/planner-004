@@ -44,6 +44,6 @@ test.describe("Teacher dashboard", () => {
     test.skip(count === 0, "No items in marking queue in test environment")
     if (count === 0) return
     const href = await firstLink.getAttribute("href")
-    expect(href).toMatch(/\/feedback\/groups\/.+\/lessons\/.+/)
+    expect(href).toMatch(/\/results\/assignments\/.+/)
   })
 })

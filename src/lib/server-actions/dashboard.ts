@@ -47,18 +47,18 @@ export async function readMarkingQueueAction() {
               g.group_id,
               g.subject                      AS group_name,
               u.title                        AS unit_title,
-              COUNT(DISTINCT s.user_id)::int AS submission_count
+              COUNT(DISTINCT s.submission_id)::int AS submission_count
             FROM submissions s
             JOIN activities          a  ON a.activity_id  = s.activity_id
             JOIN lessons             l  ON l.lesson_id    = a.lesson_id
             JOIN lesson_assignments  la ON la.lesson_id   = l.lesson_id
             JOIN groups              g  ON g.group_id     = la.group_id
+            JOIN group_membership    gm ON gm.group_id    = g.group_id AND gm.user_id = s.user_id
             JOIN units               u  ON u.unit_id      = l.unit_id
             WHERE a.type = 'short-text-question'
-              AND (s.body->>'ai_model_score')       IS NOT NULL
-              AND (s.body->>'teacher_override_score') IS NULL
+              AND compute_submission_base_score(s.body, a.type) IS NULL
             GROUP BY l.lesson_id, l.title, g.group_id, g.subject, u.title
-            ORDER BY COUNT(DISTINCT s.user_id) DESC
+            ORDER BY COUNT(DISTINCT s.submission_id) DESC
           `,
         )
 

@@ -18,7 +18,7 @@ export async function MarkingQueuePanel() {
             {totalSubmissions}
           </span>
         </div>
-        <span className="text-xs text-slate-500">AI-marked · awaiting teacher review</span>
+        <span className="text-xs text-slate-500">Submitted · awaiting marking</span>
       </div>
 
       {error ? (
@@ -34,18 +34,18 @@ export async function MarkingQueuePanel() {
             >
               <div>
                 <Link
-                  href={`/feedback/groups/${encodeURIComponent(item.groupId)}/lessons/${encodeURIComponent(item.lessonId)}`}
+                  href={`/results/assignments/${encodeURIComponent(`${item.groupId}__${item.lessonId}`)}`}
                   className="text-sm font-semibold text-amber-300 underline decoration-amber-400/50 underline-offset-2 hover:decoration-amber-400"
                 >
                   {item.lessonTitle} ↗
                 </Link>
                 <p className="mt-0.5 text-xs text-slate-500">
-                  {item.groupName} · {item.unitTitle}
+                  {item.groupName} · {item.unitTitle} · {item.groupId}
                 </p>
               </div>
               <div className="ml-4 shrink-0 text-right">
                 <p className="text-base font-bold text-amber-400">{item.submissionCount}</p>
-                <p className="text-xs text-slate-500">pupils</p>
+                <p className="text-xs text-slate-500">activities</p>
               </div>
             </li>
           ))}

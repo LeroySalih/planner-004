@@ -2,12 +2,12 @@
   "cookies": [
     {
       "name": "planner_csrf_token",
-      "value": "46e9c3ca1df86990636ee609b0d4f8b05818d3fdb4bfc5568fd7ccb697add1a0",
+      "value": "26a09acb393307fdf3dd4deccb2f1ade9cd52557bae83466cdf9b2fecc20cf17",
       "domain": "localhost",
       "path": "/",
       "expires": -1,
       "httpOnly": false,
-      "secure": true,
+      "secure": false,
       "sameSite": "Lax"
     }
   ],
