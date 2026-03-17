@@ -75,7 +75,7 @@ Submissions where `is_flagged = true`. The `submissions` table has an `is_flagge
 **Join chain required:**
 ```
 submissions
-  → profiles         ON submissions.user_id = profiles.user_id        (→ profiles.full_name as pupil_name)
+  → profiles         ON submissions.user_id = profiles.user_id        (→ TRIM(first_name || ' ' || last_name) as pupil_name)
   → activities       ON submissions.activity_id = activities.activity_id  (→ activities.title as activity_title)
   → lessons          ON activities.lesson_id = lessons.lesson_id
   → lesson_assignments ON lessons.lesson_id = lesson_assignments.lesson_id
