@@ -141,6 +141,7 @@ export function AssignmentManager({
             start_date: normalizedDate,
             hidden: existing?.hidden ?? false,
             locked: existing?.locked ?? false,
+            feedback_visible: existing?.feedback_visible ?? null,
           })
         } else {
           map.delete(key)
@@ -684,6 +685,7 @@ export function AssignmentManager({
         start_date: normalizedDate,
         hidden: existing?.hidden ?? false,
         locked: existing?.locked ?? false,
+        feedback_visible: existing?.feedback_visible ?? null,
       })
       return next
     })
