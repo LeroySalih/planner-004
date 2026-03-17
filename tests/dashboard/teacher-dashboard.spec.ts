@@ -20,9 +20,9 @@ test.describe("Teacher dashboard", () => {
   test("teacher sees dashboard at root after sign-in", async ({ page }) => {
     await expect(page).toHaveURL("/")
     await expect(page.getByText("Teacher Dashboard")).toBeVisible()
-    await expect(page.getByText("Needs Review")).toBeVisible()
-    await expect(page.getByText("Flagged")).toBeVisible()
-    await expect(page.getByText("Mentions")).toBeVisible()
+    await expect(page.getByText("Needs Review", { exact: true })).toBeVisible()
+    await expect(page.getByText("Flagged", { exact: true })).toBeVisible()
+    await expect(page.getByText("Mentions", { exact: true })).toBeVisible()
   })
 
   test("Assignments link navigates to assignment manager", async ({ page }) => {
