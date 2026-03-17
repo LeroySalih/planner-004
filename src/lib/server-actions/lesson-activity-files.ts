@@ -877,6 +877,15 @@ export async function getPupilActivitySubmissionUrlAction(
 ) {
   const storage = createLocalStorageClient(LESSON_FILES_BUCKET);
   const pupilStorageKey = await resolvePupilStorageKey(pupilId);
+
+  // HEIC files cannot be rendered by browsers directly. Route them through the
+  // /api/files proxy which converts HEIC → JPEG on-the-fly.
+  if (fileName.toLowerCase().endsWith(".heic")) {
+    const primaryPath = buildSubmissionPath(lessonId, activityId, pupilStorageKey, fileName);
+    const url = `/api/files/${[LESSON_FILES_BUCKET, ...primaryPath.split("/")].map(encodeURIComponent).join("/")}`;
+    return { success: true, url };
+  }
+
   const paths = [
     buildSubmissionPath(lessonId, activityId, pupilStorageKey, fileName),
     buildLegacySubmissionPath(lessonId, activityId, pupilStorageKey, fileName),
