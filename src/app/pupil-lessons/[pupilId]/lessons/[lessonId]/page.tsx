@@ -1123,7 +1123,7 @@ export default async function PupilLessonFriendlyPage({
                   />
                   {(() => {
                     const submissionId = activitySubmissionIdMap.get(activity.activity_id)
-                    return submissionId ? (
+                    return isPupilViewer && submissionId ? (
                       <SubmissionCommentInput submissionId={submissionId} />
                     ) : null
                   })()}
