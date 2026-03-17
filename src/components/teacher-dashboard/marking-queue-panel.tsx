@@ -1,4 +1,5 @@
 import Link from "next/link"
+import { MarkAllButton } from "@/components/teacher-dashboard/mark-all-button"
 import { readMarkingQueueAction } from "@/lib/server-updates"
 
 export async function MarkingQueuePanel() {
@@ -46,6 +47,7 @@ export async function MarkingQueuePanel() {
               <div className="ml-4 shrink-0 text-right">
                 <p className="text-base font-bold text-amber-400">{item.submissionCount}</p>
                 <p className="text-xs text-slate-500">activities</p>
+                <MarkAllButton groupId={item.groupId} lessonId={item.lessonId} />
               </div>
             </li>
           ))}
