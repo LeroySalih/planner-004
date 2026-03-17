@@ -896,6 +896,7 @@ export default async function PupilLessonFriendlyPage({
                           feedbackText={feedbackText}
                           modelAnswer={modelAnswer}
                           initialIsPendingMarking={rawScore === null}
+                          submissionCount={submissionCountMap.get(activity.activity_id)}
                         />
                       ) : activity.type === "long-text-question" || activity.type === "text-question" ? (
                         <PupilLongTextActivity
