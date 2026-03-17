@@ -36,6 +36,11 @@ export async function persistSseEvent(input: SseEmitInput): Promise<SseEventEnve
   )
 }
 
+// Event types that should never be replayed to reconnecting clients.
+// Marking results are authoritative from the server render; replaying historical
+// marking events corrupts client state when n8n retried the same activity many times.
+const REPLAY_EXCLUDED_TYPES = ["assignment.results.updated"]
+
 export async function fetchRecentSseEvents(topics: SseTopic[], limit = DEFAULT_LIMIT) {
   if (topics.length === 0) {
     return []
@@ -55,9 +60,10 @@ export async function fetchRecentSseEvents(topics: SseTopic[], limit = DEFAULT_L
         `select id, created_at, topic, event_type, payload, emitted_by
          from sse_events
          where topic = any($1::text[])
+           and event_type != all($3::text[])
          order by created_at desc
         limit $2`,
-        [topics, Math.max(1, limit)],
+        [topics, Math.max(1, limit), REPLAY_EXCLUDED_TYPES],
       )
 
       return rows

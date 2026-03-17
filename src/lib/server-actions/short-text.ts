@@ -139,6 +139,12 @@ export async function saveShortTextAnswerAction(input: z.infer<typeof ShortTextA
         return { success: false, error: "Invalid submission data.", data: null as Submission | null }
       }
       savedSubmission = parsed.data
+      // Clear stale AI feedback so the pupil sees "pending marking" after resubmission,
+      // not the old AI feedback from the previous answer.
+      void query(
+        `delete from pupil_activity_feedback where activity_id = $1 and pupil_id = $2 and source = 'ai'`,
+        [payload.activityId, payload.userId],
+      ).catch((err) => console.error("[short-text] Failed to clear stale AI feedback:", err))
     } else {
       const { rows } = await query(
         `

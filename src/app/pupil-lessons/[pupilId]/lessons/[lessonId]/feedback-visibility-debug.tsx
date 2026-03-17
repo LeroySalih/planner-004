@@ -1,10 +1,16 @@
 "use client"
 
 import type { ReactNode } from "react"
-import { createContext, useContext, useEffect, useMemo, useState } from "react"
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
 import { triggerMarkingComplete } from "@/lib/feedback-events"
 
 type SseStatus = "idle" | "connecting" | "connected" | "error" | "disconnected"
+
+export type MarkingResult = {
+  score: number | null
+  feedbackText: string | null
+  receivedAt: string
+}
 
 type VisibilityState = {
   channels: string[]
@@ -12,6 +18,7 @@ type VisibilityState = {
   currentVisible: boolean
   sseStatus: SseStatus
   lastEventAt: string | null
+  markingResults: Map<string, MarkingResult>
 }
 
 const FeedbackVisibilityContext = createContext<VisibilityState | null>(null)
@@ -46,10 +53,36 @@ export function FeedbackVisibilityProvider({
   const [currentVisible, setCurrentVisible] = useState<boolean>(initialVisible)
   const [sseStatus, setSseStatus] = useState<SseStatus>("idle")
   const [lastEventAt, setLastEventAt] = useState<string | null>(null)
+  const [markingResults, setMarkingResults] = useState<Map<string, MarkingResult>>(new Map())
 
   useEffect(() => {
     setCurrentVisible(initialVisible)
   }, [initialVisible])
+
+  const handleMarkingResult = useCallback(
+    (activityId: string, pupilId: string, score: number | null, feedbackText: string | null) => {
+      const receivedAt = new Date().toISOString()
+      const result: MarkingResult = { score, feedbackText, receivedAt }
+
+      console.log("[MarkingResults] state updated", {
+        activityId,
+        pupilId,
+        score,
+        feedbackText,
+        receivedAt,
+      })
+
+      setMarkingResults((prev) => {
+        const next = new Map(prev)
+        next.set(activityId, result)
+        console.log("[MarkingResults] full map after update", Object.fromEntries(next))
+        return next
+      })
+
+      triggerMarkingComplete(activityId, pupilId, score, feedbackText)
+    },
+    [],
+  )
 
   useEffect(() => {
     if (!channelsKey) {
@@ -75,16 +108,41 @@ export function FeedbackVisibilityProvider({
     source.onmessage = (event) => {
       setLastEventAt(new Date().toISOString())
       const envelope = JSON.parse(event.data) as { topic?: string; type?: string; payload?: unknown }
+
+      console.log("[SSE] raw message received", {
+        topic: envelope.topic,
+        type: envelope.type,
+        payload: envelope.payload,
+      })
+
       if (envelope.topic !== "assignments" || !envelope.payload) return
+
       const payload =
         typeof envelope.payload === "object" && envelope.payload && "payload" in envelope.payload
           ? (envelope.payload as { payload?: unknown }).payload
           : envelope.payload
+
       // Dispatch marking complete event for individual activity results
       if (envelope.type === "assignment.results.updated") {
-        const p = payload as { activityId?: string; pupilId?: string }
+        const p = payload as {
+          activityId?: string
+          pupilId?: string
+          aiScore?: number | null
+          aiFeedback?: string | null
+        }
+        console.log("[SSE] assignment.results.updated", {
+          activityId: p?.activityId,
+          pupilId: p?.pupilId,
+          aiScore: p?.aiScore,
+          aiFeedback: p?.aiFeedback,
+        })
         if (typeof p?.activityId === "string" && typeof p?.pupilId === "string") {
-          triggerMarkingComplete(p.activityId, p.pupilId)
+          handleMarkingResult(
+            p.activityId,
+            p.pupilId,
+            typeof p.aiScore === "number" ? p.aiScore : null,
+            typeof p.aiFeedback === "string" ? p.aiFeedback : null,
+          )
         }
         return
       }
@@ -117,8 +175,8 @@ export function FeedbackVisibilityProvider({
   }, [channelsKey, lessonId])
 
   const value = useMemo(
-    () => ({ channels, events, currentVisible, sseStatus, lastEventAt }),
-    [channels, events, currentVisible, sseStatus, lastEventAt],
+    () => ({ channels, events, currentVisible, sseStatus, lastEventAt, markingResults }),
+    [channels, events, currentVisible, sseStatus, lastEventAt, markingResults],
   )
 
   return (
@@ -176,6 +234,8 @@ export function SseStatusIndicator() {
 
 export function FeedbackVisibilityDebugPanel() {
   const state = useFeedbackVisibility()
+  const markingResultEntries = Array.from(state.markingResults.entries())
+
   return (
     <div className="rounded-lg border border-dashed border-primary/40 bg-primary/5 p-3 text-xs text-primary">
       <div className="flex items-center justify-between gap-3">
@@ -186,11 +246,25 @@ export function FeedbackVisibilityDebugPanel() {
       </div>
       <p className="mt-1 text-[11px] text-primary/80">Assignments: {state.channels.join(", ")}</p>
       <ul className="mt-2 space-y-1 text-[11px] text-primary/80">
-        {state.events.length === 0 ? <li>No events yet.</li> : null}
+        {state.events.length === 0 ? <li>No visibility events yet.</li> : null}
         {state.events.map((entry, index) => (
           <li key={`${entry}-${index}`}>{entry}</li>
         ))}
       </ul>
+      {markingResultEntries.length > 0 && (
+        <div className="mt-3 border-t border-primary/20 pt-2">
+          <p className="font-semibold text-primary">Marking results (live)</p>
+          <ul className="mt-1 space-y-1 text-[11px] text-primary/80">
+            {markingResultEntries.map(([activityId, result]) => (
+              <li key={activityId}>
+                <span className="font-mono">{activityId.slice(0, 8)}…</span>
+                {" "}score: {result.score !== null ? `${Math.round((result.score ?? 0) * 100)}%` : "null"}
+                {result.feedbackText ? ` · "${result.feedbackText.slice(0, 40)}…"` : ""}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   )
 }

@@ -1,7 +1,6 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
-import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { Flag, Loader2, RotateCcw } from "lucide-react"
 
@@ -13,8 +12,9 @@ import {
   getShortTextBody,
 } from "@/components/lessons/activity-view/utils"
 import { saveShortTextAnswerAction, toggleSubmissionFlagAction } from "@/lib/server-updates"
-import { addMarkingCompleteListener, triggerFeedbackRefresh } from "@/lib/feedback-events"
+import { triggerFeedbackRefresh } from "@/lib/feedback-events"
 import { ActivityProgressPanel } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/activity-progress-panel"
+import { useFeedbackVisibility } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/feedback-visibility-debug"
 
 interface PupilShortTextActivityProps {
   lessonId: string
@@ -52,21 +52,37 @@ export function PupilShortTextActivity({
   feedbackAssignmentIds = [],
   feedbackLessonId,
   feedbackInitiallyVisible = false,
-  scoreLabel = "In progress",
-  feedbackText,
+  scoreLabel: scoreLabelProp = "In progress",
+  feedbackText: feedbackTextProp,
   modelAnswer,
   initialIsPendingMarking = false,
 }: PupilShortTextActivityProps) {
   const shortTextBody = useMemo(() => getShortTextBody(activity), [activity])
   const questionMarkup = getRichTextMarkup(shortTextBody.question)
   const canAnswerEffective = canAnswer
-  const router = useRouter()
+
+  // Read live marking results from the page-level SSE context.
+  // When n8n marks this activity, FeedbackVisibilityProvider stores the result here
+  // and the component re-renders with the new score/feedback — no router.refresh() needed.
+  const { markingResults } = useFeedbackVisibility()
+  const contextResult = markingResults.get(activity.activity_id)
+
+  // Merge server-initial props with live context result.
+  // Context result wins when present (it's fresher than the server render).
+  const effectiveScoreLabel = contextResult
+    ? (contextResult.score !== null ? `${Math.round(contextResult.score * 100)}%` : "—")
+    : scoreLabelProp
+  const effectiveFeedbackText = contextResult ? contextResult.feedbackText : feedbackTextProp
 
   const [answer, setAnswer] = useState(initialAnswer ?? "")
   const [lastSaved, setLastSaved] = useState(initialAnswer ?? "")
   const [submissionId, setSubmissionId] = useState(initialSubmissionId ?? null)
   const [isFlagged, setIsFlagged] = useState(initialIsFlagged ?? false)
+
+  // Local optimistic pending state — set to true immediately after the pupil saves an answer.
+  // Cleared when a marking result arrives in context (effectiveIsPendingMarkingFromProps → false).
   const [isPendingMarking, setIsPendingMarking] = useState(initialIsPendingMarking)
+
   const [feedback, setFeedback] = useState<FeedbackState>(
     initialAnswer ? { type: "success", message: "Answer saved" } : null,
   )
@@ -74,8 +90,8 @@ export function PupilShortTextActivity({
   const [flagPending, startFlagTransition] = useTransition()
   const isSavingRef = useRef(false)
 
+  // Sync from server props when the server re-renders (e.g. manual browser refresh).
   useEffect(() => {
-    console.log(`[PupilShortTextActivity] Mount/Update: ${activity.activity_id}`, { initialAnswer, initialSubmissionId, initialIsFlagged })
     const nextAnswer = initialAnswer ?? ""
     setAnswer(nextAnswer)
     setLastSaved(nextAnswer)
@@ -84,18 +100,33 @@ export function PupilShortTextActivity({
     setFeedback(nextAnswer ? { type: "success", message: "Answer saved" } : null)
   }, [initialAnswer, initialSubmissionId, initialIsFlagged, activity.activity_id])
 
-  // Sync isPendingMarking from server when props update (e.g. after router.refresh())
+  // Sync isPendingMarking when the server re-renders with fresh props (e.g. manual browser refresh).
   useEffect(() => {
     setIsPendingMarking(initialIsPendingMarking)
   }, [initialIsPendingMarking])
 
-  // Listen for marking complete DOM events dispatched by FeedbackVisibilityProvider's single SSE connection
+  // When a marking result arrives in context, clear the optimistic pending state.
+  // We depend on contextResult directly — NOT on effectiveIsPendingMarkingFromProps — because
+  // that derived value is false both before (no context result, already-marked activity) and
+  // after (context result present) for re-submissions, so its dependency never changes.
   useEffect(() => {
-    return addMarkingCompleteListener((activityId, markedPupilId) => {
-      if (activityId !== activity.activity_id || markedPupilId !== pupilId) return
-      router.refresh()
+    if (contextResult) {
+      console.log(`[PupilShortTextActivity ${activity.activity_id.slice(0, 8)}] context result received — clearing isPendingMarking`, contextResult)
+      setIsPendingMarking(false)
+    }
+  }, [contextResult, activity.activity_id])
+
+  // Debug: log effective state whenever it changes
+  useEffect(() => {
+    console.log(`[PupilShortTextActivity ${activity.activity_id.slice(0, 8)}] effective state`, {
+      fromContext: !!contextResult,
+      scoreLabel: effectiveScoreLabel,
+      feedbackText: effectiveFeedbackText,
+      isPendingMarking,
+      contextResult,
     })
-  }, [activity.activity_id, pupilId, router])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contextResult, isPendingMarking])
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -157,7 +188,9 @@ export function PupilShortTextActivity({
 
         setLastSaved(answer)
         setFeedback({ type: "success", message: "Answer saved" })
+        // Optimistic: show "awaiting marking" immediately — the SSE result will clear this
         setIsPendingMarking(true)
+        console.log(`[PupilShortTextActivity ${activity.activity_id.slice(0, 8)}] answer saved — isPendingMarking set to true (optimistic)`)
         triggerFeedbackRefresh(lessonId)
       } finally {
         isSavingRef.current = false
@@ -284,10 +317,10 @@ export function PupilShortTextActivity({
         lessonId={feedbackLessonId ?? lessonId}
         initialVisible={feedbackInitiallyVisible}
         show={true}
-        scoreLabel={scoreLabel}
-        feedbackText={feedbackText}
+        scoreLabel={effectiveScoreLabel}
+        feedbackText={effectiveFeedbackText}
         modelAnswer={modelAnswer}
-        isMarked={!isPendingMarking && scoreLabel !== "In progress" && scoreLabel !== "No score yet"}
+        isMarked={!isPendingMarking && effectiveScoreLabel !== "In progress" && effectiveScoreLabel !== "No score yet"}
         isPendingMarking={isPendingMarking}
         flagSlot={submissionId ? (
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
