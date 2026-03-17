@@ -5,6 +5,7 @@ import { z } from "zod"
 import { query } from "@/lib/db"
 import { requireTeacherProfile } from "@/lib/auth"
 import { withTelemetry } from "@/lib/telemetry"
+import { enqueueMarkingTasks, triggerQueueProcessor } from "@/lib/ai/marking-queue"
 
 // ── Marking Queue ────────────────────────────────────────────────────────────
 
@@ -242,6 +243,66 @@ export async function readMentionsAction() {
         const message = error instanceof Error ? error.message : "Unable to load mentions."
         console.error("[dashboard] readMentionsAction failed", error)
         return MentionsResultSchema.parse({ data: null, error: message })
+      }
+    },
+  )
+}
+
+// ── Mark All Unmarked ─────────────────────────────────────────────────────────
+
+const MarkAllUnmarkedInputSchema = z.object({
+  groupId: z.string().min(1),
+  lessonId: z.string().min(1),
+})
+
+const MarkAllUnmarkedResultSchema = z.object({
+  success: z.boolean(),
+  count: z.number(),
+  error: z.string().nullable(),
+})
+
+export async function markAllUnmarkedForLessonAction(input: z.infer<typeof MarkAllUnmarkedInputSchema>) {
+  await requireTeacherProfile()
+  const authEndTime = performance.now()
+
+  return withTelemetry(
+    { routeTag: "dashboard", functionName: "markAllUnmarkedForLessonAction", params: input, authEndTime },
+    async () => {
+      try {
+        const { groupId, lessonId } = MarkAllUnmarkedInputSchema.parse(input)
+
+        const { rows } = await query<{ submission_id: string }>(
+          `
+            SELECT DISTINCT s.submission_id
+            FROM submissions s
+            JOIN activities         a  ON a.activity_id = s.activity_id
+            JOIN lessons            l  ON l.lesson_id   = a.lesson_id
+            JOIN lesson_assignments la ON la.lesson_id  = l.lesson_id
+                                      AND la.group_id   = $2
+            JOIN group_membership   gm ON gm.group_id   = la.group_id
+                                      AND gm.user_id    = s.user_id
+            WHERE l.lesson_id = $1
+              AND a.type = 'short-text-question'
+              AND compute_submission_base_score(s.body, a.type) IS NULL
+          `,
+          [lessonId, groupId],
+        )
+
+        const submissions = (rows ?? []).map((r) => ({ submissionId: r.submission_id }))
+
+        if (submissions.length === 0) {
+          return MarkAllUnmarkedResultSchema.parse({ success: true, count: 0, error: null })
+        }
+
+        const assignmentId = `${groupId}__${lessonId}`
+        await enqueueMarkingTasks(assignmentId, submissions)
+        void triggerQueueProcessor()
+
+        return MarkAllUnmarkedResultSchema.parse({ success: true, count: submissions.length, error: null })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to queue submissions for marking."
+        console.error("[dashboard] markAllUnmarkedForLessonAction failed", error)
+        return MarkAllUnmarkedResultSchema.parse({ success: false, count: 0, error: message })
       }
     },
   )

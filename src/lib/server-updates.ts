@@ -321,6 +321,7 @@ export {
   readMarkingQueueAction,
   readFlaggedSubmissionsAction,
   readMentionsAction,
+  markAllUnmarkedForLessonAction,
   type MarkingQueueItem,
   type FlaggedItem,
   type MentionItem,
