@@ -94,6 +94,7 @@ export {
   checkLessonAccessForPupilAction,
   deleteLessonAssignmentAction,
   readLessonAssignmentsAction,
+  toggleLessonAssignmentFeedbackVisibilityAction,
   toggleLessonAssignmentLockedAction,
   toggleLessonAssignmentVisibilityAction,
   upsertLessonAssignmentAction,

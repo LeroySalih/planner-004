@@ -6,7 +6,7 @@ import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type { Group, Unit, Assignment, Lesson, LessonAssignment, LessonAssignmentScoreSummary, DateComment } from "@/types"
 import { normalizeDateOnly } from "@/lib/utils"
-import { Eye, EyeOff, Lock, LockOpen } from "lucide-react"
+import { Eye, EyeOff, Lock, LockOpen, CheckSquare, Square } from "lucide-react"
 
 
 interface AssignmentGridProps {
@@ -22,6 +22,7 @@ interface AssignmentGridProps {
   onGroupTitleClick?: (groupId: string) => void // Added prop for group title click
   onToggleHidden?: (groupId: string, lessonId: string, currentHidden: boolean) => void
   onToggleLocked?: (groupId: string, lessonId: string, currentLocked: boolean) => void
+  onToggleFeedbackVisible?: (groupId: string, lessonId: string, currentFeedbackVisible: boolean) => void
   onDateClick?: (dateString: string) => void
   dateCommentsByDate?: Map<string, DateComment[]>
 }
@@ -75,6 +76,7 @@ export function AssignmentGrid({
   onGroupTitleClick, // Added onGroupTitleClick prop
   onToggleHidden,
   onToggleLocked,
+  onToggleFeedbackVisible,
   onDateClick,
   dateCommentsByDate,
 }: AssignmentGridProps) {
@@ -653,6 +655,7 @@ export function AssignmentGrid({
                                           const resultsAssignmentId = `${cell.assignment!.group_id}__${lesson.lesson_id}`
                                           const isHidden = lessonAssignment.hidden
                                           const isLocked = lessonAssignment.locked
+                                          const isFeedbackVisible = lessonAssignment.feedback_visible
                                           return (
                                             <div
                                               key={lesson.lesson_id}
@@ -663,52 +666,14 @@ export function AssignmentGrid({
                                               }}
                                             >
                                               <div className="flex flex-col gap-2">
-                                                <div className="flex justify-between items-start gap-1">
-                                                  <Link
-                                                    href={`/lessons/${lesson.lesson_id}/activities`}
-                                                    className={`truncate text-xs font-semibold hover:underline ${isHidden ? 'text-gray-500 line-through' : ''}`}
-                                                    style={{ color: isHidden ? undefined : LESSON_TITLE_COLOR }}
-                                                    title={`View activities for ${lesson.title}`}
-                                                  >
-                                                    {lesson.title}
-                                                  </Link>
-                                                  <div className="flex gap-0.5 flex-shrink-0">
-                                                    {onToggleHidden && (
-                                                      <button
-                                                        onClick={(e) => {
-                                                          e.stopPropagation()
-                                                          e.preventDefault()
-                                                          onToggleHidden(cell.assignment!.group_id, lesson.lesson_id, !!isHidden)
-                                                        }}
-                                                        className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 hover:bg-black/10 rounded"
-                                                        title={isHidden ? "Show lesson" : "Hide lesson from pupils"}
-                                                      >
-                                                        {isHidden ? (
-                                                          <EyeOff className="h-3 w-3 text-gray-500" />
-                                                        ) : (
-                                                          <Eye className="h-3 w-3 text-gray-400" />
-                                                        )}
-                                                      </button>
-                                                    )}
-                                                    {onToggleLocked && (
-                                                      <button
-                                                        onClick={(e) => {
-                                                          e.stopPropagation()
-                                                          e.preventDefault()
-                                                          onToggleLocked(cell.assignment!.group_id, lesson.lesson_id, !!isLocked)
-                                                        }}
-                                                        className={`${isLocked ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity p-0.5 hover:bg-black/10 rounded`}
-                                                        title={isLocked ? "Unlock lesson" : "Lock lesson for pupils"}
-                                                      >
-                                                        {isLocked ? (
-                                                          <Lock className="h-3 w-3 text-red-500" />
-                                                        ) : (
-                                                          <LockOpen className="h-3 w-3 text-gray-400" />
-                                                        )}
-                                                      </button>
-                                                    )}
-                                                  </div>
-                                                </div>
+                                                <Link
+                                                  href={`/lessons/${lesson.lesson_id}/activities`}
+                                                  className={`truncate text-xs font-semibold hover:underline ${isHidden ? 'text-gray-500 line-through' : ''}`}
+                                                  style={{ color: isHidden ? undefined : LESSON_TITLE_COLOR }}
+                                                  title={`View activities for ${lesson.title}`}
+                                                >
+                                                  {lesson.title}
+                                                </Link>
                                                 <Link
                                                   href={`/results/assignments/${encodeURIComponent(resultsAssignmentId)}`}
                                                   className="text-[10px] font-medium hover:underline"
@@ -717,6 +682,59 @@ export function AssignmentGrid({
                                                 >
                                                   {scoreLabel ? `Total score ${scoreLabel}` : "No score yet"}
                                                 </Link>
+                                                <div className="flex gap-0.5">
+                                                  {onToggleHidden && (
+                                                    <button
+                                                      onClick={(e) => {
+                                                        e.stopPropagation()
+                                                        e.preventDefault()
+                                                        onToggleHidden(cell.assignment!.group_id, lesson.lesson_id, !!isHidden)
+                                                      }}
+                                                      className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 hover:bg-black/10 rounded"
+                                                      title={isHidden ? "Show lesson" : "Hide lesson from pupils"}
+                                                    >
+                                                      {isHidden ? (
+                                                        <EyeOff className="h-3 w-3 text-gray-500" />
+                                                      ) : (
+                                                        <Eye className="h-3 w-3 text-gray-400" />
+                                                      )}
+                                                    </button>
+                                                  )}
+                                                  {onToggleLocked && (
+                                                    <button
+                                                      onClick={(e) => {
+                                                        e.stopPropagation()
+                                                        e.preventDefault()
+                                                        onToggleLocked(cell.assignment!.group_id, lesson.lesson_id, !!isLocked)
+                                                      }}
+                                                      className={`${isLocked ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity p-0.5 hover:bg-black/10 rounded`}
+                                                      title={isLocked ? "Unlock lesson" : "Lock lesson for pupils"}
+                                                    >
+                                                      {isLocked ? (
+                                                        <Lock className="h-3 w-3 text-red-500" />
+                                                      ) : (
+                                                        <LockOpen className="h-3 w-3 text-gray-400" />
+                                                      )}
+                                                    </button>
+                                                  )}
+                                                  {onToggleFeedbackVisible && (
+                                                    <button
+                                                      onClick={(e) => {
+                                                        e.stopPropagation()
+                                                        e.preventDefault()
+                                                        onToggleFeedbackVisible(cell.assignment!.group_id, lesson.lesson_id, !!isFeedbackVisible)
+                                                      }}
+                                                      className={`${isFeedbackVisible ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity p-0.5 hover:bg-black/10 rounded`}
+                                                      title={isFeedbackVisible ? "Hide feedback from pupils" : "Show feedback to pupils"}
+                                                    >
+                                                      {isFeedbackVisible ? (
+                                                        <CheckSquare className="h-3 w-3 text-green-500" />
+                                                      ) : (
+                                                        <Square className="h-3 w-3 text-gray-400" />
+                                                      )}
+                                                    </button>
+                                                  )}
+                                                </div>
                                               </div>
                                             </div>
                                           )
