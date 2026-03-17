@@ -64,6 +64,7 @@ import {
   getYouTubeThumbnailUrl,
 } from "@/components/lessons/activity-view/utils"
 import { FeedbackVisibilityProvider, SseStatusIndicator } from "./feedback-visibility-debug"
+import { SubmissionCommentInput } from "@/components/submission-comment-input"
 
 type McqOption = { id: string; text: string }
 
@@ -630,8 +631,20 @@ export default async function PupilLessonFriendlyPage({
   )
   const sketchRenderSubmissionMap = new Map(sketchRenderSubmissionEntries.map((entry) => [entry.activityId, entry.submission]))
 
-
-
+  // Unified map of activityId -> submissionId for activities where a submission exists
+  const activitySubmissionIdMap = new Map<string, string>()
+  for (const [activityId, data] of shortTextDataMap) {
+    if (data.submissionId) activitySubmissionIdMap.set(activityId, data.submissionId)
+  }
+  for (const [activityId, data] of uploadUrlDataMap) {
+    if (data.submissionId) activitySubmissionIdMap.set(activityId, data.submissionId)
+  }
+  for (const [activityId, data] of shareMyWorkDataMap) {
+    if (data.submissionId) activitySubmissionIdMap.set(activityId, data.submissionId)
+  }
+  for (const [activityId, submission] of sketchRenderSubmissionMap) {
+    if (submission?.submission_id) activitySubmissionIdMap.set(activityId, submission.submission_id)
+  }
 
 
   const isPupilViewer = profile.userId === pupilId
@@ -1108,6 +1121,12 @@ export default async function PupilLessonFriendlyPage({
                     isMarked={typeof rawScore === "number"}
                     isPendingMarking={rawScore === null}
                   />
+                  {(() => {
+                    const submissionId = activitySubmissionIdMap.get(activity.activity_id)
+                    return isPupilViewer && submissionId ? (
+                      <SubmissionCommentInput submissionId={submissionId} />
+                    ) : null
+                  })()}
                 </li>
               )
             })}

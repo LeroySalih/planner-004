@@ -53,7 +53,7 @@ export function SigninForm({ returnTo }: { returnTo?: string }) {
       const result = await signinAction({ email, password, csrfToken })
 
       const defaultDestination = result.isTeacher
-        ? "/assignments"
+        ? "/"
         : "/my-actions"
 
       const destination = result.success
