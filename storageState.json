@@ -2,13 +2,23 @@
   "cookies": [
     {
       "name": "planner_csrf_token",
-      "value": "26a09acb393307fdf3dd4deccb2f1ade9cd52557bae83466cdf9b2fecc20cf17",
+      "value": "db44ba7481519b0a7ccc1fba4bd5606a5f6629f32dc6f674e968a6024808ff92",
       "domain": "localhost",
       "path": "/",
       "expires": -1,
       "httpOnly": false,
       "secure": false,
       "sameSite": "Lax"
+    },
+    {
+      "name": "planner_session",
+      "value": "a09566ec-6491-4811-bd2e-fa69acb65b98.0U4kpXaUUCwdmeRqPAq2sJ_QxiOHvGlBajYi4NQRV_Q",
+      "domain": "localhost",
+      "path": "/",
+      "expires": 1773757660.147838,
+      "httpOnly": true,
+      "secure": false,
+      "sameSite": "Strict"
     }
   ],
   "origins": []
