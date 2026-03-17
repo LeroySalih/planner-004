@@ -17,6 +17,7 @@ type ActivityProgressPanelProps = {
   isPendingMarking?: boolean
   lockedMessage?: string
   flagSlot?: ReactNode
+  submissionCount?: number
 }
 
 export function ActivityProgressPanel({
@@ -30,6 +31,7 @@ export function ActivityProgressPanel({
   isMarked,
   isPendingMarking,
   flagSlot,
+  submissionCount,
 }: ActivityProgressPanelProps) {
   const { currentVisible } = useFeedbackVisibility()
 
@@ -53,9 +55,16 @@ export function ActivityProgressPanel({
             {isPendingMarking ? "Awaiting marking" : showResults ? "Feedback released" : "Feedback not yet released"}
           </span>
         </div>
-        <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-          {showResults ? scoreLabel : isPendingMarking ? "Waiting for marking" : "In progress"}
-        </span>
+        <div className="flex items-center gap-2">
+          {typeof submissionCount === "number" && submissionCount >= 1 && (
+            <span className="inline-flex shrink-0 items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 ring-1 ring-inset ring-slate-500/20 dark:bg-slate-800 dark:text-slate-300">
+              {submissionCount === 1 ? "1 attempt" : `${submissionCount} attempts`}
+            </span>
+          )}
+          <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+            {showResults ? scoreLabel : isPendingMarking ? "Waiting for marking" : "In progress"}
+          </span>
+        </div>
       </div>
 
       {showResults ? (

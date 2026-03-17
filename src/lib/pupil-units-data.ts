@@ -40,6 +40,7 @@ export type PupilUnitLesson = {
   lessonScore: number | null;
   lessonMaxScore: number | null;
   resubmitCount: number;
+  avgSubmissionsPerActivity: number | null;
 };
 
 export type PupilUnitEntry = {

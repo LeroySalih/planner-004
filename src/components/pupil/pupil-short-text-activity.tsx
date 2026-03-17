@@ -34,6 +34,7 @@ interface PupilShortTextActivityProps {
   feedbackText?: string | null
   modelAnswer?: string | null
   initialIsPendingMarking?: boolean
+  submissionCount?: number
 }
 
 type FeedbackState = { type: "success" | "error"; message: string } | null
@@ -56,6 +57,7 @@ export function PupilShortTextActivity({
   feedbackText: feedbackTextProp,
   modelAnswer,
   initialIsPendingMarking = false,
+  submissionCount,
 }: PupilShortTextActivityProps) {
   const shortTextBody = useMemo(() => getShortTextBody(activity), [activity])
   const questionMarkup = getRichTextMarkup(shortTextBody.question)
@@ -322,6 +324,7 @@ export function PupilShortTextActivity({
         modelAnswer={modelAnswer}
         isMarked={!isPendingMarking && effectiveScoreLabel !== "In progress" && effectiveScoreLabel !== "No score yet"}
         isPendingMarking={isPendingMarking}
+        submissionCount={submissionCount}
         flagSlot={submissionId ? (
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <Button
