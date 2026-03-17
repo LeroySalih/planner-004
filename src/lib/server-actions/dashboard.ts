@@ -117,7 +117,7 @@ export async function readFlaggedSubmissionsAction() {
           lesson_title: string
           group_id: string
           group_name: string
-          submitted_at: string | null
+          submitted_at: Date | null
         }>(
           `
             SELECT DISTINCT ON (s.submission_id)
@@ -148,7 +148,7 @@ export async function readFlaggedSubmissionsAction() {
           lessonTitle: row.lesson_title,
           groupId: row.group_id,
           groupName: row.group_name,
-          submittedAt: row.submitted_at ?? null,
+          submittedAt: row.submitted_at ? row.submitted_at.toISOString() : null,
         }))
 
         return FlaggedResultSchema.parse({ data, error: null })
@@ -199,7 +199,7 @@ export async function readMentionsAction() {
           lesson_title: string
           group_id: string
           group_name: string
-          created_at: string
+          created_at: Date
         }>(
           `
             SELECT
@@ -234,7 +234,7 @@ export async function readMentionsAction() {
           lessonTitle: row.lesson_title,
           groupId: row.group_id,
           groupName: row.group_name,
-          createdAt: row.created_at,
+          createdAt: row.created_at.toISOString(),
         }))
 
         return MentionsResultSchema.parse({ data, error: null })
