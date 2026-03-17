@@ -253,6 +253,16 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
                                 {Math.round(lesson.lessonScore * 10) / 10}/{lesson.lessonMaxScore} ({Math.round((lesson.lessonScore / lesson.lessonMaxScore) * 100)}%)
                               </span>
                             )}
+                            {typeof lesson.avgSubmissionsPerActivity === "number" && lesson.avgSubmissionsPerActivity > 0 && (
+                              <span
+                                className="inline-flex shrink-0 items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 ring-1 ring-inset ring-slate-500/20 dark:bg-slate-800 dark:text-slate-300"
+                                title="Average submissions per activity"
+                              >
+                                {lesson.avgSubmissionsPerActivity === 1
+                                  ? "avg 1 attempt"
+                                  : `avg ${lesson.avgSubmissionsPerActivity} attempts`}
+                              </span>
+                            )}
                           </div>
                         </div>
 

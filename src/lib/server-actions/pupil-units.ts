@@ -110,6 +110,7 @@ const SubjectUnitsSchema = z.object({
               lessonScore: z.number().nullable(),
               lessonMaxScore: z.number().nullable(),
               resubmitCount: z.number().int().default(0),
+              avgSubmissionsPerActivity: z.number().nullable().default(null),
             }),
           ),
         }),
@@ -460,6 +461,41 @@ export async function readPupilUnitsBootstrapAction(
           );
         });
 
+        // Fetch average submission event count per scorable activity, per lesson
+        const avgSubmissionsResult = lessonIds.length === 0
+          ? { rows: [] as { lesson_id: string; avg_submissions: string }[] }
+          : await query<{ lesson_id: string; avg_submissions: string }>(
+            `
+              SELECT
+                a.lesson_id,
+                COALESCE(SUM(ase_counts.cnt), 0)::numeric / NULLIF(COUNT(a.activity_id), 0) AS avg_submissions
+              FROM activities a
+              LEFT JOIN (
+                SELECT activity_id, COUNT(*) AS cnt
+                FROM activity_submission_events
+                WHERE pupil_id = $2
+                GROUP BY activity_id
+              ) ase_counts ON ase_counts.activity_id = a.activity_id
+              WHERE a.lesson_id = ANY($1::text[])
+                AND a.type = ANY($3::text[])
+                AND coalesce(a.active, true) = true
+              GROUP BY a.lesson_id
+            `,
+            [
+              lessonIds,
+              normalizedPupilId,
+              ["multiple-choice-question", "short-text-question", "text-question", "upload-url", "upload-file"],
+            ],
+          );
+
+        const avgSubmissionsByLesson = new Map<string, number>()
+        for (const row of avgSubmissionsResult.rows) {
+          const val = parseFloat(row.avg_submissions)
+          if (!Number.isNaN(val)) {
+            avgSubmissionsByLesson.set(row.lesson_id, Math.round(val * 10) / 10)
+          }
+        }
+
         const objectives = objectivesResult.rows.map((row) =>
           LessonObjectiveSchema.parse({
             lesson_id: row.lesson_id,
@@ -665,6 +701,8 @@ export async function readPupilUnitsBootstrapAction(
                   null,
               resubmitCount:
                 resubmitByLesson.get(assignment.lesson_id) ?? 0,
+              avgSubmissionsPerActivity:
+                avgSubmissionsByLesson.get(assignment.lesson_id) ?? null,
             });
           }
 
