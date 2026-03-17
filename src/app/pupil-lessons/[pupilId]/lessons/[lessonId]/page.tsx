@@ -17,6 +17,7 @@ import {
 } from "lucide-react"
 
 import { requireAuthenticatedProfile } from "@/lib/auth"
+import { query } from "@/lib/db"
 import { resolveActivityImageUrl } from "@/lib/activity-assets"
 import { loadPupilLessonsSummaries } from "@/lib/pupil-lessons-data"
 import {
@@ -646,6 +647,32 @@ export default async function PupilLessonFriendlyPage({
     if (submission?.submission_id) activitySubmissionIdMap.set(activityId, submission.submission_id)
   }
 
+  // Submission event counts per activity for this pupil
+  const scorableActivityIds = activities
+    .filter((a) => ["multiple-choice-question", "short-text-question", "text-question", "upload-url", "upload-file"].includes(a.type ?? ""))
+    .map((a) => a.activity_id)
+
+  const submissionCountMap = new Map<string, number>()
+  if (scorableActivityIds.length > 0) {
+    try {
+      const { rows: submissionCountRows } = await query<{ activity_id: string; event_count: string }>(
+        `
+          SELECT activity_id, COUNT(*) as event_count
+          FROM activity_submission_events
+          WHERE lesson_id = $1
+            AND pupil_id = $2
+            AND activity_id = ANY($3::text[])
+          GROUP BY activity_id
+        `,
+        [lesson.lesson_id, pupilId, scorableActivityIds],
+      )
+      for (const row of submissionCountRows) {
+        submissionCountMap.set(row.activity_id, parseInt(row.event_count, 10))
+      }
+    } catch (err) {
+      console.error("[lesson-page] Failed to load submission event counts:", err)
+    }
+  }
 
   const isPupilViewer = profile.userId === pupilId
   const isTeacher = profile.isTeacher
@@ -1120,6 +1147,7 @@ export default async function PupilLessonFriendlyPage({
                     modelAnswer={modelAnswer}
                     isMarked={typeof rawScore === "number"}
                     isPendingMarking={rawScore === null}
+                    submissionCount={submissionCountMap.get(activity.activity_id)}
                   />
                   {(() => {
                     const submissionId = activitySubmissionIdMap.get(activity.activity_id)
