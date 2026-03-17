@@ -45,7 +45,7 @@ export async function readMarkingQueueAction() {
               l.lesson_id,
               l.title                        AS lesson_title,
               g.group_id,
-              g.name                         AS group_name,
+              g.subject                      AS group_name,
               u.title                        AS unit_title,
               COUNT(DISTINCT s.user_id)::int AS submission_count
             FROM submissions s
@@ -57,7 +57,7 @@ export async function readMarkingQueueAction() {
             WHERE a.type = 'short-text-question'
               AND (s.body->>'ai_model_score')       IS NOT NULL
               AND (s.body->>'teacher_override_score') IS NULL
-            GROUP BY l.lesson_id, l.title, g.group_id, g.name, u.title
+            GROUP BY l.lesson_id, l.title, g.group_id, g.subject, u.title
             ORDER BY COUNT(DISTINCT s.user_id) DESC
           `,
         )
@@ -127,7 +127,7 @@ export async function readFlaggedSubmissionsAction() {
               l.lesson_id,
               l.title                                                                 AS lesson_title,
               g.group_id,
-              g.name                                                                  AS group_name,
+              g.subject                                                               AS group_name,
               s.submitted_at
             FROM submissions         s
             JOIN profiles            p  ON p.user_id     = s.user_id
@@ -210,7 +210,7 @@ export async function readMentionsAction() {
               l.lesson_id,
               l.title                                                                  AS lesson_title,
               la.group_id,
-              g.name                                                                   AS group_name,
+              g.subject                                                                AS group_name,
               sc.created_at
             FROM submission_comments  sc
             JOIN submissions          s   ON s.submission_id  = sc.submission_id
