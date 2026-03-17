@@ -36,6 +36,7 @@ import {
   deleteGroupAction,
   upsertLessonAssignmentAction,
   deleteLessonAssignmentAction,
+  toggleLessonAssignmentFeedbackVisibilityAction,
   toggleLessonAssignmentLockedAction,
   toggleLessonAssignmentVisibilityAction,
   createDateCommentAction,
@@ -498,6 +499,53 @@ export function AssignmentManager({
     })
   }
 
+  const handleToggleFeedbackVisible = (groupId: string, lessonId: string, currentFeedbackVisible: boolean) => {
+    const key = lessonAssignmentKey(groupId, lessonId)
+    const newFeedbackVisible = !currentFeedbackVisible
+
+    // Optimistic update
+    setLessonAssignments((prev) =>
+      prev.map((entry) =>
+        entry.group_id === groupId && entry.lesson_id === lessonId
+          ? { ...entry, feedback_visible: newFeedbackVisible }
+          : entry
+      )
+    )
+
+    setPendingLessonAssignmentKeys((prev) => ({ ...prev, [key]: true }))
+
+    startTransition(async () => {
+      try {
+        const result = await toggleLessonAssignmentFeedbackVisibilityAction(groupId, lessonId, newFeedbackVisible)
+
+        if (!result.success) {
+          throw new Error(result.error ?? "Unknown error")
+        }
+
+        toast.success(`Feedback is now ${newFeedbackVisible ? 'visible' : 'hidden'} for pupils.`)
+      } catch (error) {
+        console.error("[v0] Failed to toggle lesson feedback visibility:", error)
+        // Revert optimistic update
+        setLessonAssignments((prev) =>
+          prev.map((entry) =>
+            entry.group_id === groupId && entry.lesson_id === lessonId
+              ? { ...entry, feedback_visible: currentFeedbackVisible }
+              : entry
+          )
+        )
+        toast.error("Failed to update feedback visibility", {
+          description: "We couldn't update the feedback setting. Please try again.",
+        })
+      } finally {
+        setPendingLessonAssignmentKeys((prev) => {
+          const updated = { ...prev }
+          delete updated[key]
+          return updated
+        })
+      }
+    })
+  }
+
   const handleDateClick = (dateString: string) => {
     setSelectedCommentDate(dateString)
     setIsDateCommentsSidebarOpen(true)
@@ -877,6 +925,7 @@ export function AssignmentManager({
           onGroupTitleClick={handleGroupTitleClick}
           onToggleHidden={handleToggleHidden}
           onToggleLocked={handleToggleLocked}
+          onToggleFeedbackVisible={handleToggleFeedbackVisible}
           onDateClick={handleDateClick}
           dateCommentsByDate={dateCommentsByDate}
         />

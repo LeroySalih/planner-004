@@ -411,6 +411,7 @@ export const LessonAssignmentSchema = z.object({
     }),
     hidden: z.boolean().nullable().optional().default(false),
     locked: z.boolean().nullable().optional().default(false),
+    feedback_visible: z.boolean().nullable().optional().default(false),
 });
 
 export const LessonAssignmentsSchema = z.array(LessonAssignmentSchema);

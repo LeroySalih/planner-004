@@ -243,6 +243,30 @@ export async function toggleLessonAssignmentLockedAction(
   return { success: true };
 }
 
+export async function toggleLessonAssignmentFeedbackVisibilityAction(
+  groupId: string,
+  lessonId: string,
+  feedbackVisible: boolean,
+) {
+  try {
+    const { rowCount } = await query(
+      "update lesson_assignments set feedback_visible = $1 where group_id = $2 and lesson_id = $3",
+      [feedbackVisible, groupId, lessonId],
+    );
+
+    if (rowCount === 0) {
+      return { success: false, error: "Lesson assignment not found." };
+    }
+  } catch (error) {
+    const message = error instanceof Error
+      ? error.message
+      : "Unable to update feedback visibility.";
+    return { success: false, error: message };
+  }
+
+  return { success: true };
+}
+
 export async function checkLessonAccessForPupilAction(
   pupilId: string,
   lessonId: string,

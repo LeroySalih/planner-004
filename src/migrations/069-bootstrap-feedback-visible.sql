@@ -1,0 +1,63 @@
+-- Add feedback_visible to the lessonAssignments section of assignments_bootstrap()
+
+create or replace function public.assignments_bootstrap() returns jsonb
+  language plpgsql security definer
+  set search_path to 'public'
+  as $$
+declare
+  result jsonb;
+begin
+  result := jsonb_build_object(
+    'groups', coalesce((
+      select jsonb_agg(row_to_json(row_data) order by row_data.group_id)
+      from (
+        select group_id, subject, join_code, coalesce(active, true) as active
+        from groups
+        where coalesce(active, true) = true
+      ) as row_data
+    ), '[]'::jsonb),
+    'subjects', coalesce((
+      select jsonb_agg(row_to_json(row_data) order by row_data.subject)
+      from (
+        select subject, coalesce(active, true) as active
+        from subjects
+        where coalesce(active, true) = true
+      ) as row_data
+    ), '[]'::jsonb),
+    'assignments', coalesce((
+      select jsonb_agg(row_to_json(row_data) order by row_data.group_id, row_data.unit_id, row_data.start_date)
+      from (
+        select group_id, unit_id, start_date, end_date, coalesce(active, true) as active
+        from assignments
+        where coalesce(active, true) = true
+      ) as row_data
+    ), '[]'::jsonb),
+    'units', coalesce((
+      select jsonb_agg(row_to_json(row_data) order by row_data.title, row_data.unit_id)
+      from (
+        select unit_id, title, subject, description, year, coalesce(active, true) as active
+        from units
+      ) as row_data
+    ), '[]'::jsonb),
+    'lessons', coalesce((
+      select jsonb_agg(row_to_json(row_data) order by row_data.unit_id, row_data.order_by nulls first, row_data.title)
+      from (
+        select lesson_id, unit_id, title, coalesce(order_by, 0) as order_by, coalesce(active, true) as active
+        from lessons
+      ) as row_data
+    ), '[]'::jsonb),
+    'lessonAssignments', coalesce((
+      select jsonb_agg(row_to_json(row_data) order by row_data.group_id, row_data.lesson_id)
+      from (
+        select group_id, lesson_id, start_date,
+          coalesce(hidden, false) as hidden,
+          coalesce(locked, false) as locked,
+          coalesce(feedback_visible, false) as feedback_visible
+        from lesson_assignments
+      ) as row_data
+    ), '[]'::jsonb)
+  );
+
+  return result;
+end;
+$$;
