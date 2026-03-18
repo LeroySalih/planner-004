@@ -53,7 +53,7 @@ export function RecentSubmissionsPanel() {
 
       {error ? (
         <p className="text-xs text-destructive">{error}</p>
-      ) : items.length === 0 && !isPending ? (
+      ) : items.length === 0 ? (
         <p className="text-xs text-slate-500">No submissions in the last {hours}h.</p>
       ) : (
         <div className={`flex flex-wrap gap-1.5 ${isPending ? "opacity-60" : ""}`}>
