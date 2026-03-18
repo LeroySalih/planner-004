@@ -58,7 +58,6 @@ export async function readMarkingQueueAction() {
             JOIN units               u  ON u.unit_id      = l.unit_id
             JOIN group_membership gm_teacher ON gm_teacher.group_id = g.group_id
                                             AND gm_teacher.user_id = $1
-                                            AND gm_teacher.role = 'teacher'
             WHERE a.type = 'short-text-question'
               AND compute_submission_base_score(s.body, a.type) IS NULL
             GROUP BY l.lesson_id, l.title, g.group_id, g.subject, u.title
@@ -145,7 +144,6 @@ export async function readFlaggedSubmissionsAction() {
             JOIN groups              g  ON g.group_id    = la.group_id
             JOIN group_membership gm_teacher ON gm_teacher.group_id = g.group_id
                                             AND gm_teacher.user_id = $1
-                                            AND gm_teacher.role = 'teacher'
             WHERE s.is_flagged = true
             ORDER BY s.submission_id, s.submitted_at DESC NULLS LAST
           `,
@@ -236,7 +234,6 @@ export async function readMentionsAction() {
             JOIN groups               g   ON g.group_id       = la.group_id
             JOIN group_membership gm_teacher ON gm_teacher.group_id = g.group_id
                                             AND gm_teacher.user_id = $1
-                                            AND gm_teacher.role = 'teacher'
             ORDER BY sc.created_at DESC
           `,
           [teacherUserId],
@@ -318,7 +315,6 @@ export async function readRecentSubmissionsAction(hours: 1 | 24 | 48 | 72) {
                                         AND gm.user_id     = s.user_id
             JOIN group_membership gm_teacher ON gm_teacher.group_id = g.group_id
                                             AND gm_teacher.user_id = $2
-                                            AND gm_teacher.role = 'teacher'
             WHERE s.submitted_at >= NOW() - ($1 * interval '1 hour')
             GROUP BY l.lesson_id, l.title, g.group_id, g.subject
             ORDER BY submission_count DESC
