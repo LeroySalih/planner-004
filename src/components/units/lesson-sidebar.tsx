@@ -1912,7 +1912,13 @@ export function LessonSidebar({
                                     bodyData: newBody,
                                     type: activity.type,
                                   })
-                                  if (!result.success || !result.data) {
+                                  if (result.success && result.data) {
+                                    setActivities((prev) =>
+                                      prev.map((entry) =>
+                                        entry.activity_id === activity.activity_id ? result.data! : entry,
+                                      ),
+                                    )
+                                  } else {
                                     toast.error("Failed to update flashcard set", {
                                       description: result.error ?? "Please try again later.",
                                     })
