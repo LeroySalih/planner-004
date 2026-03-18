@@ -4,6 +4,7 @@ import Link from "next/link"
 import { Suspense } from "react"
 import { requireTeacherProfile } from "@/lib/auth"
 import { readMarkingQueueAction, readFlaggedSubmissionsAction, readMentionsAction } from "@/lib/server-updates"
+import { RecentSubmissionsPanel } from "@/components/teacher-dashboard/recent-submissions-panel"
 import { MarkingQueuePanel } from "@/components/teacher-dashboard/marking-queue-panel"
 import { FlaggedPanel } from "@/components/teacher-dashboard/flagged-panel"
 import { MentionsPanel } from "@/components/teacher-dashboard/mentions-panel"
@@ -12,7 +13,6 @@ import { DashboardClient } from "@/components/teacher-dashboard/dashboard-client
 export default async function TeacherDashboardPage() {
   const profile = await requireTeacherProfile()
 
-  // Fetch initial counts for DashboardClient (panels fetch their own full data)
   const [markingResult, flaggedResult, mentionsResult] = await Promise.all([
     readMarkingQueueAction(),
     readFlaggedSubmissionsAction(),
@@ -28,7 +28,6 @@ export default async function TeacherDashboardPage() {
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-200">
-      {/* Top bar */}
       <div className="flex items-center justify-between border-b border-slate-800 bg-slate-900 px-5 py-3">
         <div className="flex items-center gap-3">
           <span className="text-sm font-semibold text-slate-100">{displayName}</span>
@@ -47,17 +46,30 @@ export default async function TeacherDashboardPage() {
         initialFlaggedCount={initialFlaggedCount}
         initialMentionsCount={initialMentionsCount}
       >
-        {/* Panel layout: wide left + stacked right */}
-        <div className="flex min-h-[calc(100vh-88px)]">
-          <Suspense fallback={<PanelSkeleton className="flex-[2] border-r border-slate-800" />}>
-            <MarkingQueuePanel />
-          </Suspense>
+        {/* 2×2 quad grid */}
+        <div className="grid min-h-[calc(100vh-88px)] grid-cols-2 grid-rows-2">
+          {/* Top-left: Recent Submissions (client component) */}
+          <div className="max-h-[50vh] overflow-y-auto border-b border-r border-slate-800">
+            <RecentSubmissionsPanel />
+          </div>
 
-          <div className="flex flex-1 flex-col">
-            <Suspense fallback={<PanelSkeleton className="flex-1 border-b border-slate-800" />}>
+          {/* Top-right: Needs Review */}
+          <div className="max-h-[50vh] overflow-y-auto border-b border-slate-800">
+            <Suspense fallback={<PanelSkeleton />}>
+              <MarkingQueuePanel />
+            </Suspense>
+          </div>
+
+          {/* Bottom-left: Flagged by Pupil */}
+          <div className="max-h-[50vh] overflow-y-auto border-r border-slate-800">
+            <Suspense fallback={<PanelSkeleton />}>
               <FlaggedPanel />
             </Suspense>
-            <Suspense fallback={<PanelSkeleton className="flex-1" />}>
+          </div>
+
+          {/* Bottom-right: Mentions */}
+          <div className="max-h-[50vh] overflow-y-auto">
+            <Suspense fallback={<PanelSkeleton />}>
               <MentionsPanel />
             </Suspense>
           </div>
@@ -67,14 +79,14 @@ export default async function TeacherDashboardPage() {
   )
 }
 
-function PanelSkeleton({ className }: { className?: string }) {
+function PanelSkeleton() {
   return (
-    <div className={`animate-pulse p-4 ${className ?? ""}`}>
+    <div className="animate-pulse p-4">
       <div className="mb-3 h-3 w-24 rounded bg-slate-800" />
-      <div className="space-y-2">
-        <div className="h-10 rounded bg-slate-800" />
-        <div className="h-10 rounded bg-slate-800" />
-        <div className="h-10 rounded bg-slate-800" />
+      <div className="flex flex-wrap gap-1.5">
+        <div className="h-16 w-28 rounded bg-slate-800" />
+        <div className="h-16 w-28 rounded bg-slate-800" />
+        <div className="h-16 w-28 rounded bg-slate-800" />
       </div>
     </div>
   )
