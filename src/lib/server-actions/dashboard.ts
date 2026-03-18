@@ -248,6 +248,83 @@ export async function readMentionsAction() {
   )
 }
 
+// ── Recent Submissions ────────────────────────────────────────────────────────
+
+const RecentSubmissionsInputSchema = z.object({
+  hours: z.union([z.literal(1), z.literal(24), z.literal(48), z.literal(72)]),
+})
+
+const RecentSubmissionsItemSchema = z.object({
+  lessonId: z.string(),
+  lessonTitle: z.string(),
+  groupId: z.string(),
+  groupName: z.string(),
+  submissionCount: z.number(),
+})
+
+const RecentSubmissionsResultSchema = z.object({
+  data: RecentSubmissionsItemSchema.array().nullable(),
+  error: z.string().nullable(),
+})
+
+export type RecentSubmissionsItem = z.infer<typeof RecentSubmissionsItemSchema>
+
+export async function readRecentSubmissionsAction(hours: 1 | 24 | 48 | 72) {
+  await requireTeacherProfile()
+  const authEndTime = performance.now()
+
+  return withTelemetry(
+    { routeTag: "dashboard", functionName: "readRecentSubmissionsAction", params: { hours }, authEndTime },
+    async () => {
+      try {
+        const { hours: validHours } = RecentSubmissionsInputSchema.parse({ hours })
+
+        const { rows } = await query<{
+          lesson_id: string
+          lesson_title: string
+          group_id: string
+          group_name: string
+          submission_count: number
+        }>(
+          `
+            SELECT
+              l.lesson_id,
+              l.title                                 AS lesson_title,
+              g.group_id,
+              g.subject                               AS group_name,
+              COUNT(DISTINCT s.submission_id)::int    AS submission_count
+            FROM submissions         s
+            JOIN activities          a   ON a.activity_id  = s.activity_id
+            JOIN lessons             l   ON l.lesson_id    = a.lesson_id
+            JOIN lesson_assignments  la  ON la.lesson_id   = l.lesson_id
+            JOIN groups              g   ON g.group_id     = la.group_id
+            JOIN group_membership    gm  ON gm.group_id    = g.group_id
+                                        AND gm.user_id     = s.user_id
+            WHERE s.submitted_at >= NOW() - ($1 * interval '1 hour')
+            GROUP BY l.lesson_id, l.title, g.group_id, g.subject
+            ORDER BY submission_count DESC
+          `,
+          [validHours],
+        )
+
+        const data = (rows ?? []).map((row) => ({
+          lessonId: row.lesson_id,
+          lessonTitle: row.lesson_title,
+          groupId: row.group_id,
+          groupName: row.group_name,
+          submissionCount: row.submission_count,
+        }))
+
+        return RecentSubmissionsResultSchema.parse({ data, error: null })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to load recent submissions."
+        console.error("[dashboard] readRecentSubmissionsAction failed", error)
+        return RecentSubmissionsResultSchema.parse({ data: null, error: message })
+      }
+    },
+  )
+}
+
 // ── Mark All Unmarked ─────────────────────────────────────────────────────────
 
 const MarkAllUnmarkedInputSchema = z.object({
