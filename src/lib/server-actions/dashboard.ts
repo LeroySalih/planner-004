@@ -86,6 +86,7 @@ export async function readMarkingQueueAction() {
 
 const FlaggedItemSchema = z.object({
   submissionId: z.string(),
+  userId: z.string(),
   pupilName: z.string(),
   activityTitle: z.string(),
   lessonId: z.string(),
@@ -112,6 +113,7 @@ export async function readFlaggedSubmissionsAction() {
       try {
         const { rows } = await query<{
           submission_id: string
+          user_id: string
           pupil_name: string
           activity_title: string
           lesson_id: string
@@ -123,6 +125,7 @@ export async function readFlaggedSubmissionsAction() {
           `
             SELECT DISTINCT ON (s.submission_id)
               s.submission_id,
+              s.user_id,
               TRIM(COALESCE(p.first_name, '') || ' ' || COALESCE(p.last_name, ''))  AS pupil_name,
               a.title                                                                 AS activity_title,
               l.lesson_id,
@@ -143,6 +146,7 @@ export async function readFlaggedSubmissionsAction() {
 
         const data = (rows ?? []).map((row) => ({
           submissionId: row.submission_id,
+          userId: row.user_id,
           pupilName: row.pupil_name,
           activityTitle: row.activity_title,
           lessonId: row.lesson_id,

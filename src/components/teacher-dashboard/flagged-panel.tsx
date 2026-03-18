@@ -6,14 +6,15 @@ export async function FlaggedPanel() {
 
   const flagged = items ?? []
 
-  // Group by pupil name, accumulate flag count and lesson links
-  const byPupil = new Map<string, { pupilName: string; groupId: string; groupName: string; lessonId: string; count: number }>()
+  // Group by userId, accumulate flag count and lesson links
+  const byPupil = new Map<string, { userId: string; pupilName: string; groupId: string; groupName: string; lessonId: string; count: number }>()
   for (const item of flagged) {
-    const existing = byPupil.get(item.pupilName)
+    const existing = byPupil.get(item.userId)
     if (existing) {
       existing.count += 1
     } else {
-      byPupil.set(item.pupilName, {
+      byPupil.set(item.userId, {
+        userId: item.userId,
         pupilName: item.pupilName,
         groupId: item.groupId,
         groupName: item.groupName,
@@ -44,7 +45,7 @@ export async function FlaggedPanel() {
         <div className="flex flex-wrap gap-1.5">
           {top5.map((pupil) => (
             <Link
-              key={pupil.pupilName}
+              key={pupil.userId}
               href={`/feedback/groups/${encodeURIComponent(pupil.groupId)}/lessons/${encodeURIComponent(pupil.lessonId)}`}
               className="flex flex-col rounded-md border border-red-900 bg-red-950/40 px-2.5 py-2 hover:border-red-700"
             >
