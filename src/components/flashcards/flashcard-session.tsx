@@ -187,7 +187,7 @@ export function FlashcardSession({ deck, pupilId, doActivityId, onScoreUpdate }:
             activityId: deck.activityId,
             totalCards: pile.length,
           })
-          if (doActivityId && submissionIdRef.current) {
+          if (doActivityId) {
             void upsertDoFlashcardsSubmissionAction({
               doActivityId,
               pupilId,
