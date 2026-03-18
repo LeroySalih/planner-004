@@ -3,6 +3,7 @@
 import { useState, useEffect, useTransition } from "react"
 import Link from "next/link"
 import { readRecentSubmissionsAction, type RecentSubmissionsItem } from "@/lib/server-updates"
+import { cn } from "@/lib/utils"
 
 const HOURS_OPTIONS = [1, 24, 48, 72] as const
 type Hours = typeof HOURS_OPTIONS[number]
@@ -39,6 +40,7 @@ export function RecentSubmissionsPanel() {
         {HOURS_OPTIONS.map((h) => (
           <button
             key={h}
+            type="button"
             onClick={() => setHours(h)}
             className={`rounded border px-2 py-0.5 text-xs transition-colors ${
               hours === h
@@ -53,10 +55,12 @@ export function RecentSubmissionsPanel() {
 
       {error ? (
         <p className="text-xs text-destructive">{error}</p>
+      ) : isPending && items.length === 0 ? (
+        <p className="text-xs text-slate-500">Loading...</p>
       ) : items.length === 0 ? (
         <p className="text-xs text-slate-500">No submissions in the last {hours}h.</p>
       ) : (
-        <div className={`flex flex-wrap gap-1.5 ${isPending ? "opacity-60" : ""}`}>
+        <div className={cn("flex flex-wrap gap-1.5", isPending && "opacity-60")}>
           {items.map((item) => (
             <Link
               key={`${item.lessonId}-${item.groupId}`}
