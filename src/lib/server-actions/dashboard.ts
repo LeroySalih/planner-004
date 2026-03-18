@@ -26,7 +26,7 @@ const MarkingQueueResultSchema = z.object({
 export type MarkingQueueItem = z.infer<typeof MarkingQueueItemSchema>
 
 export async function readMarkingQueueAction() {
-  await requireTeacherProfile()
+  const { userId: teacherUserId } = await requireTeacherProfile()
   const authEndTime = performance.now()
 
   return withTelemetry(
@@ -56,11 +56,15 @@ export async function readMarkingQueueAction() {
             JOIN groups              g  ON g.group_id     = la.group_id
             JOIN group_membership    gm ON gm.group_id    = g.group_id AND gm.user_id = s.user_id
             JOIN units               u  ON u.unit_id      = l.unit_id
+            JOIN group_membership gm_teacher ON gm_teacher.group_id = g.group_id
+                                            AND gm_teacher.user_id = $1
+                                            AND gm_teacher.role = 'teacher'
             WHERE a.type = 'short-text-question'
               AND compute_submission_base_score(s.body, a.type) IS NULL
             GROUP BY l.lesson_id, l.title, g.group_id, g.subject, u.title
             ORDER BY COUNT(DISTINCT s.submission_id) DESC
           `,
+          [teacherUserId],
         )
 
         const data = (rows ?? []).map((row) => ({
@@ -104,7 +108,7 @@ const FlaggedResultSchema = z.object({
 export type FlaggedItem = z.infer<typeof FlaggedItemSchema>
 
 export async function readFlaggedSubmissionsAction() {
-  await requireTeacherProfile()
+  const { userId: teacherUserId } = await requireTeacherProfile()
   const authEndTime = performance.now()
 
   return withTelemetry(
@@ -139,9 +143,13 @@ export async function readFlaggedSubmissionsAction() {
             JOIN lessons             l  ON l.lesson_id   = a.lesson_id
             JOIN lesson_assignments  la ON la.lesson_id  = l.lesson_id
             JOIN groups              g  ON g.group_id    = la.group_id
+            JOIN group_membership gm_teacher ON gm_teacher.group_id = g.group_id
+                                            AND gm_teacher.user_id = $1
+                                            AND gm_teacher.role = 'teacher'
             WHERE s.is_flagged = true
             ORDER BY s.submission_id, s.submitted_at DESC NULLS LAST
           `,
+          [teacherUserId],
         )
 
         const data = (rows ?? []).map((row) => ({
@@ -188,7 +196,7 @@ const MentionsResultSchema = z.object({
 export type MentionItem = z.infer<typeof MentionItemSchema>
 
 export async function readMentionsAction() {
-  await requireTeacherProfile()
+  const { userId: teacherUserId } = await requireTeacherProfile()
   const authEndTime = performance.now()
 
   return withTelemetry(
@@ -226,8 +234,12 @@ export async function readMentionsAction() {
               SELECT group_id FROM lesson_assignments WHERE lesson_id = l.lesson_id LIMIT 1
             ) la ON true
             JOIN groups               g   ON g.group_id       = la.group_id
+            JOIN group_membership gm_teacher ON gm_teacher.group_id = g.group_id
+                                            AND gm_teacher.user_id = $1
+                                            AND gm_teacher.role = 'teacher'
             ORDER BY sc.created_at DESC
           `,
+          [teacherUserId],
         )
 
         const data = (rows ?? []).map((row) => ({
@@ -274,7 +286,7 @@ const RecentSubmissionsResultSchema = z.object({
 export type RecentSubmissionsItem = z.infer<typeof RecentSubmissionsItemSchema>
 
 export async function readRecentSubmissionsAction(hours: 1 | 24 | 48 | 72) {
-  await requireTeacherProfile()
+  const { userId: teacherUserId } = await requireTeacherProfile()
   const authEndTime = performance.now()
 
   return withTelemetry(
@@ -304,11 +316,14 @@ export async function readRecentSubmissionsAction(hours: 1 | 24 | 48 | 72) {
             JOIN groups              g   ON g.group_id     = la.group_id
             JOIN group_membership    gm  ON gm.group_id    = g.group_id
                                         AND gm.user_id     = s.user_id
+            JOIN group_membership gm_teacher ON gm_teacher.group_id = g.group_id
+                                            AND gm_teacher.user_id = $2
+                                            AND gm_teacher.role = 'teacher'
             WHERE s.submitted_at >= NOW() - ($1 * interval '1 hour')
             GROUP BY l.lesson_id, l.title, g.group_id, g.subject
             ORDER BY submission_count DESC
           `,
-          [validHours],
+          [validHours, teacherUserId],
         )
 
         const data = (rows ?? []).map((row) => ({
