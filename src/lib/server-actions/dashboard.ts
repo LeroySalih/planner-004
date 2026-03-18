@@ -26,7 +26,7 @@ const MarkingQueueResultSchema = z.object({
 export type MarkingQueueItem = z.infer<typeof MarkingQueueItemSchema>
 
 export async function readMarkingQueueAction() {
-  await requireTeacherProfile()
+  const { userId: teacherUserId } = await requireTeacherProfile()
   const authEndTime = performance.now()
 
   return withTelemetry(
@@ -56,11 +56,15 @@ export async function readMarkingQueueAction() {
             JOIN groups              g  ON g.group_id     = la.group_id
             JOIN group_membership    gm ON gm.group_id    = g.group_id AND gm.user_id = s.user_id
             JOIN units               u  ON u.unit_id      = l.unit_id
+            JOIN group_membership gm_teacher ON gm_teacher.group_id = g.group_id
+                                            AND gm_teacher.user_id = $1
+                                            AND gm_teacher.role = 'teacher'
             WHERE a.type = 'short-text-question'
               AND compute_submission_base_score(s.body, a.type) IS NULL
             GROUP BY l.lesson_id, l.title, g.group_id, g.subject, u.title
             ORDER BY COUNT(DISTINCT s.submission_id) DESC
           `,
+          [teacherUserId],
         )
 
         const data = (rows ?? []).map((row) => ({
@@ -86,6 +90,7 @@ export async function readMarkingQueueAction() {
 
 const FlaggedItemSchema = z.object({
   submissionId: z.string(),
+  userId: z.string(),
   pupilName: z.string(),
   activityTitle: z.string(),
   lessonId: z.string(),
@@ -103,7 +108,7 @@ const FlaggedResultSchema = z.object({
 export type FlaggedItem = z.infer<typeof FlaggedItemSchema>
 
 export async function readFlaggedSubmissionsAction() {
-  await requireTeacherProfile()
+  const { userId: teacherUserId } = await requireTeacherProfile()
   const authEndTime = performance.now()
 
   return withTelemetry(
@@ -112,6 +117,7 @@ export async function readFlaggedSubmissionsAction() {
       try {
         const { rows } = await query<{
           submission_id: string
+          user_id: string
           pupil_name: string
           activity_title: string
           lesson_id: string
@@ -123,6 +129,7 @@ export async function readFlaggedSubmissionsAction() {
           `
             SELECT DISTINCT ON (s.submission_id)
               s.submission_id,
+              s.user_id,
               TRIM(COALESCE(p.first_name, '') || ' ' || COALESCE(p.last_name, ''))  AS pupil_name,
               a.title                                                                 AS activity_title,
               l.lesson_id,
@@ -136,13 +143,18 @@ export async function readFlaggedSubmissionsAction() {
             JOIN lessons             l  ON l.lesson_id   = a.lesson_id
             JOIN lesson_assignments  la ON la.lesson_id  = l.lesson_id
             JOIN groups              g  ON g.group_id    = la.group_id
+            JOIN group_membership gm_teacher ON gm_teacher.group_id = g.group_id
+                                            AND gm_teacher.user_id = $1
+                                            AND gm_teacher.role = 'teacher'
             WHERE s.is_flagged = true
             ORDER BY s.submission_id, s.submitted_at DESC NULLS LAST
           `,
+          [teacherUserId],
         )
 
         const data = (rows ?? []).map((row) => ({
           submissionId: row.submission_id,
+          userId: row.user_id,
           pupilName: row.pupil_name,
           activityTitle: row.activity_title,
           lessonId: row.lesson_id,
@@ -184,7 +196,7 @@ const MentionsResultSchema = z.object({
 export type MentionItem = z.infer<typeof MentionItemSchema>
 
 export async function readMentionsAction() {
-  await requireTeacherProfile()
+  const { userId: teacherUserId } = await requireTeacherProfile()
   const authEndTime = performance.now()
 
   return withTelemetry(
@@ -222,8 +234,12 @@ export async function readMentionsAction() {
               SELECT group_id FROM lesson_assignments WHERE lesson_id = l.lesson_id LIMIT 1
             ) la ON true
             JOIN groups               g   ON g.group_id       = la.group_id
+            JOIN group_membership gm_teacher ON gm_teacher.group_id = g.group_id
+                                            AND gm_teacher.user_id = $1
+                                            AND gm_teacher.role = 'teacher'
             ORDER BY sc.created_at DESC
           `,
+          [teacherUserId],
         )
 
         const data = (rows ?? []).map((row) => ({
@@ -243,6 +259,86 @@ export async function readMentionsAction() {
         const message = error instanceof Error ? error.message : "Unable to load mentions."
         console.error("[dashboard] readMentionsAction failed", error)
         return MentionsResultSchema.parse({ data: null, error: message })
+      }
+    },
+  )
+}
+
+// ── Recent Submissions ────────────────────────────────────────────────────────
+
+const RecentSubmissionsInputSchema = z.object({
+  hours: z.union([z.literal(1), z.literal(24), z.literal(48), z.literal(72)]),
+})
+
+const RecentSubmissionsItemSchema = z.object({
+  lessonId: z.string(),
+  lessonTitle: z.string(),
+  groupId: z.string(),
+  groupName: z.string(),
+  submissionCount: z.number(),
+})
+
+const RecentSubmissionsResultSchema = z.object({
+  data: RecentSubmissionsItemSchema.array().nullable(),
+  error: z.string().nullable(),
+})
+
+export type RecentSubmissionsItem = z.infer<typeof RecentSubmissionsItemSchema>
+
+export async function readRecentSubmissionsAction(hours: 1 | 24 | 48 | 72) {
+  const { userId: teacherUserId } = await requireTeacherProfile()
+  const authEndTime = performance.now()
+
+  return withTelemetry(
+    { routeTag: "dashboard", functionName: "readRecentSubmissionsAction", params: { hours }, authEndTime },
+    async () => {
+      try {
+        const { hours: validHours } = RecentSubmissionsInputSchema.parse({ hours })
+
+        const { rows } = await query<{
+          lesson_id: string
+          lesson_title: string
+          group_id: string
+          group_name: string
+          submission_count: number
+        }>(
+          `
+            SELECT
+              l.lesson_id,
+              l.title                                 AS lesson_title,
+              g.group_id,
+              g.subject                               AS group_name,
+              COUNT(DISTINCT s.submission_id)::int    AS submission_count
+            FROM submissions         s
+            JOIN activities          a   ON a.activity_id  = s.activity_id
+            JOIN lessons             l   ON l.lesson_id    = a.lesson_id
+            JOIN lesson_assignments  la  ON la.lesson_id   = l.lesson_id
+            JOIN groups              g   ON g.group_id     = la.group_id
+            JOIN group_membership    gm  ON gm.group_id    = g.group_id
+                                        AND gm.user_id     = s.user_id
+            JOIN group_membership gm_teacher ON gm_teacher.group_id = g.group_id
+                                            AND gm_teacher.user_id = $2
+                                            AND gm_teacher.role = 'teacher'
+            WHERE s.submitted_at >= NOW() - ($1 * interval '1 hour')
+            GROUP BY l.lesson_id, l.title, g.group_id, g.subject
+            ORDER BY submission_count DESC
+          `,
+          [validHours, teacherUserId],
+        )
+
+        const data = (rows ?? []).map((row) => ({
+          lessonId: row.lesson_id,
+          lessonTitle: row.lesson_title,
+          groupId: row.group_id,
+          groupName: row.group_name,
+          submissionCount: row.submission_count,
+        }))
+
+        return RecentSubmissionsResultSchema.parse({ data, error: null })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to load recent submissions."
+        console.error("[dashboard] readRecentSubmissionsAction failed", error)
+        return RecentSubmissionsResultSchema.parse({ data: null, error: message })
       }
     },
   )

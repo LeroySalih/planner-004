@@ -17,8 +17,8 @@ export async function MentionsPanel() {
   const mentions = items ?? []
 
   return (
-    <section className="flex-1 p-4">
-      <div className="mb-3 flex items-center gap-2">
+    <section className="flex flex-col gap-3 p-4">
+      <div className="flex items-center gap-2">
         <span className="text-xs font-bold uppercase tracking-wide text-blue-400">Mentions</span>
         <span className="rounded-full bg-blue-400/10 px-2 py-0.5 text-xs font-bold text-blue-400">
           {mentions.length}
@@ -30,30 +30,24 @@ export async function MentionsPanel() {
       ) : mentions.length === 0 ? (
         <p className="text-xs text-slate-500">No pupil mentions.</p>
       ) : (
-        <ul className="flex flex-col gap-1.5">
+        <div className="flex flex-wrap gap-1.5">
           {mentions.map((item) => (
-            <li
+            <Link
               key={item.commentId}
-              className="rounded-md border-l-2 border-blue-400 bg-slate-800 px-3 py-2"
+              href={`/feedback/groups/${encodeURIComponent(item.groupId)}/lessons/${encodeURIComponent(item.lessonId)}`}
+              className="flex flex-col rounded-md border border-blue-900 bg-blue-950/40 px-2.5 py-2 hover:border-blue-700"
             >
-              <Link
-                href={`/feedback/groups/${encodeURIComponent(item.groupId)}/lessons/${encodeURIComponent(item.lessonId)}`}
-                className="block"
-              >
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold text-blue-300 hover:underline">
-                    {item.pupilName}
-                  </p>
-                  <p className="text-xs text-slate-500">{timeAgo(item.createdAt)}</p>
-                </div>
-                <p className="mt-1 text-xs italic text-slate-400 line-clamp-2">
-                  &ldquo;{item.comment}&rdquo;
-                </p>
-                <p className="mt-0.5 text-xs text-slate-500">{item.groupName}</p>
-              </Link>
-            </li>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-xs font-semibold text-blue-300">{item.pupilName}</span>
+                <span className="text-xs text-slate-500">{timeAgo(item.createdAt)}</span>
+              </div>
+              <p className="mt-1 max-w-[160px] truncate text-xs italic text-slate-400">
+                &ldquo;{item.comment}&rdquo;
+              </p>
+              <span className="text-xs text-slate-500">{item.groupName}</span>
+            </Link>
           ))}
-        </ul>
+        </div>
       )}
     </section>
   )

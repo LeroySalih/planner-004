@@ -322,10 +322,12 @@ export {
   readMarkingQueueAction,
   readFlaggedSubmissionsAction,
   readMentionsAction,
+  readRecentSubmissionsAction,
   markAllUnmarkedForLessonAction,
   type MarkingQueueItem,
   type FlaggedItem,
   type MentionItem,
+  type RecentSubmissionsItem,
 } from "./server-actions/dashboard"
 
 export {
