@@ -78,6 +78,7 @@ const ACTIVITY_TYPES = [
   { value: "upload-url", label: "Upload URL" },
   { value: "display-image", label: "Display image" },
   { value: "display-flashcards", label: "Flashcards" },
+  { value: "do-flashcards", label: "Do Flashcards" },
   { value: "show-video", label: "Show video" },
   { value: "multiple-choice-question", label: "Multiple choice question" },
   { value: "short-text-question", label: "Short text question" },
@@ -1786,6 +1787,7 @@ function LessonActivityEditorSheet({
   const [selectedSuccessCriteriaIds, setSelectedSuccessCriteriaIds] = useState<string[]>([])
   const [shareMyWorkName, setShareMyWorkName] = useState("")
   const [reviewShareActivityId, setReviewShareActivityId] = useState("")
+  const [doFlashcardsActivityId, setDoFlashcardsActivityId] = useState("")
 
   const normalizedShortTextBody = useMemo(() => normalizeShortTextBody(shortTextBody), [shortTextBody])
   const shortTextValidationMessage = useMemo(
@@ -2602,6 +2604,13 @@ function LessonActivityEditorSheet({
         return
       }
 
+      if (type === "do-flashcards") {
+        setText("")
+        setRawBody("")
+        setDoFlashcardsActivityId("")
+        return
+      }
+
       if (type === "voice") {
         const defaultVoice: VoiceBody = { audioFile: null }
         setVoiceBody(defaultVoice)
@@ -2678,6 +2687,12 @@ function LessonActivityEditorSheet({
       } else {
         setText("")
       }
+      return
+    }
+
+    if (type === "do-flashcards") {
+      const record = (activity?.body_data ?? {}) as Record<string, unknown>
+      setDoFlashcardsActivityId(typeof record.flashcardActivityId === "string" ? record.flashcardActivityId : "")
       return
     }
 
@@ -3143,6 +3158,12 @@ function LessonActivityEditorSheet({
         return
       }
       bodyData = { shareActivityId: reviewShareActivityId }
+    } else if (type === "do-flashcards") {
+      if (!doFlashcardsActivityId) {
+        toast.error("Please select a flashcard set")
+        return
+      }
+      bodyData = { flashcardActivityId: doFlashcardsActivityId }
     } else {
       let fallbackBody: unknown = !isCreateMode && activity ? activity.body_data ?? null : null
       if (!isCreateMode && type !== "text" && type !== "show-video") {
@@ -3649,6 +3670,41 @@ function LessonActivityEditorSheet({
                   <p className="text-xs text-muted-foreground">
                     Select which &quot;Share my work&quot; activity pupils will review.
                   </p>
+                </div>
+              </div>
+            )
+          })() : null}
+
+          {type === "do-flashcards" ? (() => {
+            const flashcardActivities = allActivities.filter((a) => a.type === "display-flashcards")
+            return (
+              <div className="space-y-3 rounded-md border border-border bg-muted/20 p-4">
+                <div className="space-y-2">
+                  <Label className="text-xs font-medium text-muted-foreground">
+                    Flashcard set
+                  </Label>
+                  {flashcardActivities.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No flashcard sets in this lesson — add a Flashcards activity first.
+                    </p>
+                  ) : (
+                    <Select
+                      value={doFlashcardsActivityId}
+                      onValueChange={setDoFlashcardsActivityId}
+                      disabled={isPending}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a flashcard set" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {flashcardActivities.map((fa) => (
+                          <SelectItem key={fa.activity_id} value={fa.activity_id}>
+                            {fa.title || "Untitled"}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
               </div>
             )

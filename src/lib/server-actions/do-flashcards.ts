@@ -28,7 +28,7 @@ export async function upsertDoFlashcardsSubmissionAction(input: {
       // CRITICAL: The body MUST include a `score` field (0-1 float).
       // compute_submission_base_score reads body->>'score' for this activity type.
       // If `score` is absent, the activity will show as unscored in all grids.
-      const score = totalCards > 0 ? correctCount / totalCards : 0
+      const score = totalCards > 0 ? Math.min(1, correctCount / totalCards) : 0
       const body = JSON.stringify({ score, correctCount, totalCards, sessionId })
 
       try {
