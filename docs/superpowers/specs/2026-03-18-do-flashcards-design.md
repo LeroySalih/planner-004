@@ -9,7 +9,7 @@
 
 Introduce a new `do-flashcards` scorable activity type that allows teachers to assign flashcard practice as a graded activity within a lesson. The pupil completes the flashcard set inside a modal dialog using the existing flashcard engine, and their score is recorded progressively in the standard `submissions` table — giving the activity full parity with all other scorable activity types.
 
-Existing `display-flashcards` functionality is unchanged.
+Existing `display-flashcards` functionality and its database tables (`flashcard_sessions`, `flashcard_attempts`) are unchanged in structure. The server actions that write to those tables are extended to also write to `submissions`.
 
 ---
 
@@ -19,7 +19,7 @@ Existing `display-flashcards` functionality is unchanged.
 
 `do-flashcards` is added to `SCORABLE_ACTIVITY_TYPES` in `src/dino.config.ts`.
 
-### `activities.body_data` shape
+### `activities.body_data` shape — `do-flashcards`
 
 ```json
 {
@@ -27,7 +27,17 @@ Existing `display-flashcards` functionality is unchanged.
 }
 ```
 
-`flashcardActivityId` references the `activity_id` of a `display-flashcards` activity in the same unit. This is the card deck the pupil will practise.
+`flashcardActivityId` references the `activity_id` of a `display-flashcards` activity in the same unit. This is the card deck the pupil will practise. Validated at save time in the server action (must exist in same unit). No database foreign key constraint — if the referenced activity is deleted, the pupil card shows a "Flashcard set unavailable" error state and no session can be started.
+
+### `display-flashcards` body_data (reference — unchanged)
+
+```json
+{
+  "lines": "Line with **answer**\nAnother line **answer2**"
+}
+```
+
+Parsed by `src/lib/flashcards/parse-flashcards.ts` into individual cards.
 
 ### Submission body shape
 
@@ -36,29 +46,50 @@ Existing `display-flashcards` functionality is unchanged.
   "score": 0.75,
   "correctCount": 9,
   "totalCards": 12,
-  "sessionId": "sess_xyz"
+  "sessionId": "sess_<nanoid>"
 }
 ```
 
 - `score` is a 0–1 decimal (`correctCount / totalCards`), compatible with `compute_submission_base_score` via the `score` field — no SQL changes required.
-- `sessionId` links back to `flashcard_sessions` for full attempt history.
+- `sessionId` uses the same ID generation pattern as other entities in the app (nanoid prefixed with `sess_`).
+- If `totalCards = 0`, the session cannot be started (pupil card shows "No cards in this set").
 
 ### Multiple attempts
 
-Each flashcard session produces one `submissions` row. Assignment grid and lesson progress display the latest `submitted_at`. Full session history remains accessible via `flashcard_sessions` and `flashcard_attempts`.
+Each flashcard session produces one `submissions` row (identified by `submission_id`). The submission is created on the first card attempt, not on modal open, so the assignment grid never shows `0%` for an untouched session. Latest `submitted_at` is shown in assignment grids and progress views. Full session history accessible via `flashcard_sessions`.
 
 ---
 
 ## 2. Score Update Flow
 
-Score is written progressively so no progress is lost if the modal is closed mid-session:
+Score is written via a dedicated `upsertDoFlashcardsSubmissionAction` — separate from `recordFlashcardAttemptAction` — to keep responsibilities clean and avoid silent failure from a lost `submissionId`.
 
-1. Pupil opens modal → `startFlashcardSessionAction()` creates a `flashcard_sessions` row and upserts an initial `submissions` row with `score: 0`.
-2. Each card attempt → `recordFlashcardAttemptAction()` upserts the submission with the current running score (`correctSoFar / totalCards`).
-3. Pupil closes modal (at any point) → `completeFlashcardSessionAction()` marks the session complete and performs a final upsert with the definitive score.
-4. Lesson page reflects the new score immediately via optimistic update.
+1. **Modal opens** → `startFlashcardSessionAction(activityId, totalCards, pupilId, activityTitle?, doActivityId?)` — `activityId` is the `display-flashcards` ID (card source); new optional `doActivityId` is the `do-flashcards` activity ID. Stores `do_activity_id` in the new `flashcard_sessions` column. Returns `session_id`. No submission row yet.
+2. **First card attempt** → `recordFlashcardAttemptAction(...)` records the attempt (unchanged). In parallel, the client calls `upsertDoFlashcardsSubmissionAction({ doActivityId, pupilId, sessionId, correctCount, totalCards, submissionId: null })` → INSERTs a `submissions` row, returns `submissionId`. Client stores `submissionId` in component state.
+3. **Subsequent card attempts** → `recordFlashcardAttemptAction(...)` + `upsertDoFlashcardsSubmissionAction({ ..., submissionId })` → UPDATEs the existing submission by `submission_id`.
+4. **Modal closes** → `completeFlashcardSessionAction(sessionId, correctCount, progress?)` marks the session complete (unchanged). Client calls `upsertDoFlashcardsSubmissionAction({ ..., submissionId, isFinal: true })` → final UPDATE setting `submitted_at = now()`.
+5. **Lesson page** applies an optimistic update using the score computed locally from the final `correctCount / totalCards`.
 
-The upsert key is `(activity_id, user_id, session_id)` — one submission row per session.
+**`upsertDoFlashcardsSubmissionAction` signature:**
+```typescript
+upsertDoFlashcardsSubmissionAction(input: {
+  doActivityId: string
+  pupilId: string
+  sessionId: string
+  correctCount: number
+  totalCards: number
+  submissionId: string | null   // null → INSERT and return new id; non-null → UPDATE
+  isFinal?: boolean             // true → set submitted_at = now()
+}): Promise<{ data: { submissionId: string } | null, error: string | null }>
+```
+
+**Error handling:** If the upsert fails on attempt 2+, the client retries with the same `submissionId`. If it fails on attempt 1 (INSERT), the client retries with `submissionId: null` — the INSERT is idempotent enough for this use case since duplicate sessions are unlikely and the score is always current.
+
+**Backwards compatibility:** `startFlashcardSessionAction`, `recordFlashcardAttemptAction`, and `completeFlashcardSessionAction` are extended with optional new params only. When called from the existing `display-flashcards` flow (no `doActivityId`), they behave identically to today.
+
+**`flashcard_sessions` column note:** `activity_id` continues to store the `display-flashcards` activity ID. A new nullable `do_activity_id text` column records the `do-flashcards` activity that initiated the session (added in migration Step 1).
+
+**`submissions` insert note:** The `replication_pk` column has a sequence default — do not set it explicitly; the database provides it automatically.
 
 ---
 
@@ -69,6 +100,7 @@ The upsert key is `(activity_id, user_id, session_id)` — one submission row pe
 In the lesson sidebar activity configuration panel, a `do-flashcards` activity shows a single **"Flashcard set"** dropdown. The dropdown is populated with all `display-flashcards` activities from the same unit, identified by title.
 
 - Selecting a set saves `flashcardActivityId` to `body_data`.
+- Saving validates that the selected activity exists in the same unit (server action check).
 - If the unit has no `display-flashcards` activities, the dropdown shows: *"No flashcard sets in this unit — add a Flashcards activity first."*
 
 ### Adding the activity type
@@ -85,50 +117,83 @@ The existing flashcard content editor is untouched.
 
 ### Activity card
 
-The `do-flashcards` activity renders in the lesson view like all other activities. If the pupil has a prior submission, their latest score is shown as a percentage. A **"Start Flashcards"** button is present.
+The `do-flashcards` activity renders in the lesson view like all other scorable activities:
+- If no submission exists: shows "Not started" / no score
+- If a submission exists: shows latest score as a percentage (e.g. "75%")
+- If the referenced flashcard set is missing: shows "Flashcard set unavailable"
+- A **"Start Flashcards"** button opens the modal (disabled if set unavailable or `totalCards = 0`)
+
+### Pupil score history
+
+Pupils see only the latest score on the lesson page. History (multiple sessions) is not exposed in the pupil UI — it is available to teachers through the standard submission history view.
 
 ### Modal dialog
 
-- Clicking "Start Flashcards" opens a large modal containing the existing `FlashcardSession` component, loaded with the card deck from the linked `display-flashcards` activity.
-- Ordering, scoring, and feedback mechanics are identical to the current flashcard experience — no changes to `FlashcardSession`.
+- Opens a large modal containing the existing `FlashcardSession` component, loaded with the card deck from the linked `display-flashcards` activity.
+- Ordering, scoring, and feedback mechanics are identical to the current flashcard experience — no changes to `FlashcardSession` internals.
 - A visible close button allows the pupil to exit at any time.
-- On close, the modal dismisses and the activity card updates to reflect the new score.
+- On close: `completeFlashcardSessionAction()` is called, then the modal dismisses and the activity card updates with the score returned from the action.
+- If close fails (network error): modal dismisses with a toast error; the running score already written by prior attempts is preserved.
 
 ---
 
-## 5. Migration
+## 5. Teacher View — Multiple Attempts
 
-Runs as a single numbered SQL migration in `src/migrations/applied/`.
+- Assignment grid shows the latest submission score (standard behaviour, no special-casing).
+- The teacher feedback/mark panel shows only the latest submission.
+- No attempt limit or cooldown — pupils may redo as many times as they wish.
 
-### Step 1 — Inject `do-flashcards` activities
+---
 
-For every existing `display-flashcards` activity:
+## 6. Migration
 
-- Insert a new `activities` row:
-  - `type = 'do-flashcards'`
-  - `lesson_id` = same as source
-  - `title` = `'Do: ' || source.title`
-  - `order_by` = source `order_by + 1`
-  - `body_data = jsonb_build_object('flashcardActivityId', source.activity_id)`
-  - `active = true`
+Runs as a single numbered SQL migration in `src/migrations/applied/`. This migration is intentional — any existing lesson with a `display-flashcards` activity should automatically have a corresponding `do-flashcards` activity injected so teachers do not need to manually add them, and historical pupil scores are preserved.
 
-### Step 2 — Migrate pupil scores
+### Step 1 — Add `do_activity_id` column to `flashcard_sessions`
 
-For every **completed** `flashcard_session` linked to a `display-flashcards` activity:
+```sql
+ALTER TABLE flashcard_sessions
+  ADD COLUMN do_activity_id text;
+```
+
+Nullable — existing sessions (before migration) have no associated `do-flashcards` activity.
+
+### Step 2 — Inject `do-flashcards` activities
+
+For every existing `display-flashcards` activity, insert a new `activities` row:
+
+| Column | Value |
+|--------|-------|
+| `activity_id` | generated nanoid |
+| `lesson_id` | same as source `display-flashcards` |
+| `type` | `'do-flashcards'` |
+| `title` | `'Do: ' \|\| source.title` |
+| `order_by` | `source.order_by + 1` |
+| `body_data` | `jsonb_build_object('flashcardActivityId', source.activity_id)` |
+| `active` | `true` |
+| `is_summative` | `false` |
+
+### Step 3 — Migrate pupil scores
+
+For every **completed** `flashcard_session` linked to a `display-flashcards` activity that was processed in Step 2:
 
 - Insert a `submissions` row:
-  - `activity_id` = the newly created `do-flashcards` activity for that lesson
+  - `submission_id` = generated nanoid
+  - `activity_id` = the `do-flashcards` activity created in Step 2 for that lesson
   - `user_id` = `flashcard_sessions.pupil_id`
   - `submitted_at` = `flashcard_sessions.completed_at`
-  - `body` = `{ "score": correct_count::float / total_cards, "correctCount": correct_count, "totalCards": total_cards, "sessionId": session_id }`
+  - `body` = `jsonb_build_object('score', correct_count::float / total_cards, 'correctCount', correct_count, 'totalCards', total_cards, 'sessionId', session_id)`
+  - `is_flagged` = `false`
+- Update `flashcard_sessions.do_activity_id` = the new `do-flashcards` activity id
 
-In-progress sessions (never completed) are skipped.
+Sessions where `total_cards = 0` or `status != 'completed'` are explicitly excluded via `WHERE total_cards > 0 AND status = 'completed'` — not via NULLIF (which would insert a NULL-score row rather than skip).
 
 ---
 
-## 6. Out of Scope
+## 7. Out of Scope
 
-- No changes to `display-flashcards` activity or its existing UI, server actions, or monitoring views.
-- No changes to `flashcard_sessions` or `flashcard_attempts` tables.
-- No changes to the flashcard monitoring pages (`/flashcard-monitor`).
-- `do-flashcards` is not included in the flashcard monitor — it surfaces through the standard assignment/progress views like all other scorable activities.
+- No changes to `display-flashcards` activity UI or content editor.
+- No changes to `flashcard_attempts` table.
+- No changes to flashcard monitor pages (`/flashcard-monitor`).
+- `do-flashcards` surfaces through standard assignment/progress views, not the flashcard monitor.
+- No per-criterion success criteria scoring for `do-flashcards` in this iteration.
