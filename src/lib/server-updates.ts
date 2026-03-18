@@ -253,6 +253,11 @@ export {
 } from "./server-actions/flashcard-monitor";
 
 export {
+  readUnitFlashcardActivitiesAction,
+  upsertDoFlashcardsSubmissionAction,
+} from "./server-actions/do-flashcards";
+
+export {
   readCurrentProfileAction,
   type ReadCurrentProfileResult,
   readProfileDetailAction,

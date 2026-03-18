@@ -53,6 +53,7 @@ import {
   deleteLessonActivityAction,
   triggerLessonCreateJobAction,
   LESSON_MUTATION_INITIAL_STATE,
+  readUnitFlashcardActivitiesAction,
 } from "@/lib/server-updates"
 
 const ACTIVITY_TYPES = [
@@ -65,6 +66,7 @@ const ACTIVITY_TYPES = [
   { value: "short-text-question", label: "Short text question" },
   { value: "text-question", label: "Text question" },
   { value: "voice", label: "Voice recording" },
+  { value: "do-flashcards", label: "Do Flashcards" },
 ] as const
 
 type ActivityTypeValue = (typeof ACTIVITY_TYPES)[number]["value"]
@@ -1896,6 +1898,37 @@ export function LessonSidebar({
                               }
                             />
                           ) : null}
+                          {activity.type === "do-flashcards" ? (
+                            <DoFlashcardsConfig
+                              activity={activity}
+                              lessonId={lesson.lesson_id}
+                              onBodyChange={(newBody) => {
+                                // Optimistic local update
+                                updateActivityBodyLocally(activity.activity_id, newBody)
+                                // Save directly with the new value — do NOT call handleActivityBodySubmit
+                                // because that reads body_data from React state which is stale at this point.
+                                startTransition(async () => {
+                                  const result = await updateLessonActivityAction(unitId, lesson.lesson_id, activity.activity_id, {
+                                    bodyData: newBody,
+                                    type: activity.type,
+                                  })
+                                  if (result.success && result.data) {
+                                    setActivities((prev) =>
+                                      prev.map((entry) =>
+                                        entry.activity_id === activity.activity_id ? result.data! : entry,
+                                      ),
+                                    )
+                                  } else {
+                                    toast.error("Failed to update flashcard set", {
+                                      description: result.error ?? "Please try again later.",
+                                    })
+                                    await refreshActivities()
+                                  }
+                                })
+                              }}
+                              disabled={isPending}
+                            />
+                          ) : null}
                         </div>
                       )
                     })}
@@ -2295,7 +2328,71 @@ function getDefaultBodyDataForType(type: ActivityTypeValue): LessonActivity["bod
       correctOptionId: "option-a",
     }
   }
+  if (type === "do-flashcards") {
+    return { flashcardActivityId: "" }
+  }
   return null
+}
+
+function DoFlashcardsConfig({
+  activity,
+  lessonId,
+  onBodyChange,
+  disabled,
+}: {
+  activity: LessonActivity
+  lessonId: string
+  onBodyChange: (body: Record<string, unknown>) => void
+  disabled: boolean
+}) {
+  const [options, setOptions] = useState<Array<{ activityId: string; title: string }>>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    readUnitFlashcardActivitiesAction(lessonId).then((result) => {
+      setOptions(result.data ?? [])
+      setLoading(false)
+    })
+  }, [lessonId])
+
+  const currentId =
+    typeof activity.body_data === "object" && activity.body_data !== null
+      ? ((activity.body_data as Record<string, unknown>).flashcardActivityId as string | undefined) ?? ""
+      : ""
+
+  if (loading) {
+    return <p className="mt-3 text-xs text-muted-foreground">Loading flashcard sets…</p>
+  }
+
+  if (options.length === 0) {
+    return (
+      <p className="mt-3 text-xs text-muted-foreground">
+        No flashcard sets in this unit — add a Flashcards activity first.
+      </p>
+    )
+  }
+
+  return (
+    <div className="mt-3 space-y-1.5">
+      <Label className="text-xs font-medium text-muted-foreground">Flashcard set</Label>
+      <Select
+        value={currentId}
+        onValueChange={(value) => onBodyChange({ flashcardActivityId: value })}
+        disabled={disabled}
+      >
+        <SelectTrigger size="sm" className="w-full">
+          <SelectValue placeholder="Select a flashcard set…" />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((opt) => (
+            <SelectItem key={opt.activityId} value={opt.activityId}>
+              {opt.title}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  )
 }
 
 export interface LessonPresentationProps {

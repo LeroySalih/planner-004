@@ -211,6 +211,7 @@ export async function startFlashcardSessionAction(
   totalCards: number,
   pupilId: string,
   activityTitle?: string,
+  doActivityId?: string,
 ) {
   return withTelemetry(
     {
@@ -222,11 +223,11 @@ export async function startFlashcardSessionAction(
       try {
         const result = await query<{ session_id: string }>(
           `
-          INSERT INTO flashcard_sessions (pupil_id, activity_id, total_cards)
-          VALUES ($1, $2, $3)
+          INSERT INTO flashcard_sessions (pupil_id, activity_id, total_cards, do_activity_id)
+          VALUES ($1, $2, $3, $4)
           RETURNING session_id
           `,
-          [pupilId, activityId, totalCards],
+          [pupilId, activityId, totalCards, doActivityId ?? null],
         )
 
         const sessionId = result.rows[0].session_id

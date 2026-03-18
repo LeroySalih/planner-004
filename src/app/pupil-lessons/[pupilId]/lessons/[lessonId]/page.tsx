@@ -38,6 +38,7 @@ import { PupilUploadActivity } from "@/components/pupil/pupil-upload-activity"
 
 
 import { PupilMcqActivity } from "@/components/pupil/pupil-mcq-activity"
+import { PupilDoFlashcardsActivity } from "@/components/pupil/pupil-do-flashcards-activity"
 import { PupilFeedbackActivity } from "@/components/pupil/pupil-feedback-activity"
 import { PupilShortTextActivity } from "@/components/pupil/pupil-short-text-activity"
 import { PupilLongTextActivity } from "@/components/pupil/pupil-long-text-activity"
@@ -728,6 +729,7 @@ export default async function PupilLessonFriendlyPage({
     "text-question",
     "upload-url",
     "upload-file",
+    "do-flashcards",
   ])
 
   return (
@@ -925,6 +927,12 @@ export default async function PupilLessonFriendlyPage({
                           scoreLabel={formatScoreLabel(rawScore)}
                           feedbackText={feedbackText}
                           modelAnswer={modelAnswer}
+                        />
+                      ) : activity.type === "do-flashcards" ? (
+                        <PupilDoFlashcardsActivity
+                          activity={activity}
+                          pupilId={pupilId}
+                          initialScore={rawScore ?? null}
                         />
                       ) : activity.type === "feedback" ? (
                         <PupilFeedbackActivity

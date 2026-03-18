@@ -11,6 +11,7 @@ import {
   startFlashcardSessionAction,
   recordFlashcardAttemptAction,
   completeFlashcardSessionAction,
+  upsertDoFlashcardsSubmissionAction,
 } from "@/lib/server-updates"
 
 type FlashCard = {
@@ -47,9 +48,11 @@ function shuffleArray<T>(arr: T[]): T[] {
 type FlashcardSessionProps = {
   deck: Deck
   pupilId: string
+  doActivityId?: string           // present when used from do-flashcards activity
+  onScoreUpdate?: (score: number) => void  // called after each upsert with latest 0-1 score
 }
 
-export function FlashcardSession({ deck, pupilId }: FlashcardSessionProps) {
+export function FlashcardSession({ deck, pupilId, doActivityId, onScoreUpdate }: FlashcardSessionProps) {
   const [pile, setPile] = useState<FlashCard[]>([])
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [phase, setPhase] = useState<Phase>("ready")
@@ -61,6 +64,7 @@ export function FlashcardSession({ deck, pupilId }: FlashcardSessionProps) {
   const [totalCorrectAnswers, setTotalCorrectAnswers] = useState(0)
   const [totalAttempts, setTotalAttempts] = useState(0)
   const sessionStarted = useRef(false)
+  const submissionIdRef = useRef<string | null>(null)
 
   const startSession = useCallback(async () => {
     if (sessionStarted.current) return
@@ -80,11 +84,12 @@ export function FlashcardSession({ deck, pupilId }: FlashcardSessionProps) {
       deck.cards.length,
       pupilId,
       deck.activityTitle,
+      doActivityId,
     )
     if (result.data) {
       setSessionId(result.data.sessionId)
     }
-  }, [deck, pupilId])
+  }, [deck, pupilId, doActivityId])
 
   useEffect(() => {
     startSession()
@@ -142,9 +147,26 @@ export function FlashcardSession({ deck, pupilId }: FlashcardSessionProps) {
         })
       }
 
+      // Write progressive score to submissions when used as do-flashcards
+      if (doActivityId && sessionId) {
+        void upsertDoFlashcardsSubmissionAction({
+          doActivityId,
+          pupilId,
+          sessionId,
+          correctCount: newCorrectCount,
+          totalCards: deck.cards.length,
+          submissionId: submissionIdRef.current,
+        }).then((result) => {
+          if (result.data) {
+            submissionIdRef.current = result.data.submissionId
+            onScoreUpdate?.(deck.cards.length > 0 ? newCorrectCount / deck.cards.length : 0)
+          }
+        })
+      }
+
       // Both correct and incorrect wait for user to click "Next" (handled by handleNext)
     },
-    [phase, pile, sessionId, consecutiveCorrect, attemptCounts, deck.activityId, totalCorrectAnswers, totalAttempts, pupilId],
+    [phase, pile, sessionId, consecutiveCorrect, attemptCounts, deck.activityId, deck.cards.length, totalCorrectAnswers, totalAttempts, pupilId, doActivityId, onScoreUpdate],
   )
 
   const handleNext = useCallback(() => {
@@ -165,6 +187,21 @@ export function FlashcardSession({ deck, pupilId }: FlashcardSessionProps) {
             activityId: deck.activityId,
             totalCards: pile.length,
           })
+          if (doActivityId) {
+            void upsertDoFlashcardsSubmissionAction({
+              doActivityId,
+              pupilId,
+              sessionId,
+              correctCount: totalCorrectAnswers,
+              totalCards: pile.length,
+              submissionId: submissionIdRef.current,
+              isFinal: true,
+            }).then((result) => {
+              if (result.data) {
+                onScoreUpdate?.(pile.length > 0 ? totalCorrectAnswers / pile.length : 0)
+              }
+            })
+          }
         }
         return
       }
@@ -187,10 +224,11 @@ export function FlashcardSession({ deck, pupilId }: FlashcardSessionProps) {
 
     setFeedbackState(null)
     setPhase("question")
-  }, [phase, pile, feedbackState, consecutiveCorrect, sessionId, totalCorrectAnswers, pupilId, deck.activityId])
+  }, [phase, pile, feedbackState, consecutiveCorrect, sessionId, totalCorrectAnswers, pupilId, deck.activityId, doActivityId, onScoreUpdate])
 
   const handleRestart = useCallback(() => {
     sessionStarted.current = false
+    submissionIdRef.current = null
     setSessionId(null)
     startSession()
   }, [startSession])
