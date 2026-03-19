@@ -74,26 +74,25 @@ const robotoCondensed = Roboto_Condensed({
 })
 
 export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
-  const [selectedSubject, setSelectedSubject] = useState("All Subjects")
+  const subjectList = detail.subjects
+    .map((s) => s.subject ?? "Subject not set")
+    .filter((s, i, arr) => arr.indexOf(s) === i)
+    .sort()
 
-  const subjects = useMemo(() => {
-    const subjectList = detail.subjects
-      .map((s) => s.subject ?? "Subject not set")
-      .filter((s, i, arr) => arr.indexOf(s) === i)
-      .sort()
-    return ["All Subjects", ...subjectList]
-  }, [detail])
+  const [selectedSubject, setSelectedSubject] = useState(() => subjectList[0] ?? "")
 
-  const filteredSubjects = useMemo(() => {
-    if (selectedSubject === "All Subjects") {
-      return detail.subjects
-    }
-    return detail.subjects.filter((s) => (s.subject ?? "Subject not set") === selectedSubject)
-  }, [detail, selectedSubject])
+  const filteredSubjects = useMemo(
+    () => detail.subjects.filter((s) => (s.subject ?? "Subject not set") === selectedSubject),
+    [detail, selectedSubject]
+  )
 
   const allUnits = useMemo(() => filteredSubjects.flatMap((s) => s.units), [filteredSubjects])
 
-  const [selectedUnitId, setSelectedUnitId] = useState<string | null>(() => allUnits[0]?.unitId ?? null)
+  const [selectedUnitId, setSelectedUnitId] = useState<string | null>(() =>
+    detail.subjects
+      .find((s) => (s.subject ?? "Subject not set") === (subjectList[0] ?? ""))
+      ?.units[0]?.unitId ?? null
+  )
 
   // Keep selectedUnitId valid when subject filter changes
   const selectedUnit = useMemo(() => {
@@ -117,16 +116,45 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
           <select
             id="subject-select"
             value={selectedSubject}
-            onChange={(event) => setSelectedSubject(event.target.value)}
+            onChange={(event) => {
+              const newSubject = event.target.value
+              setSelectedSubject(newSubject)
+              const firstUnit = detail.subjects
+                .find((s) => (s.subject ?? "Subject not set") === newSubject)
+                ?.units[0]?.unitId ?? null
+              setSelectedUnitId(firstUnit)
+            }}
             className="cursor-pointer appearance-none bg-transparent pr-8 text-2xl font-semibold text-foreground focus:outline-none sm:text-3xl"
           >
-            {subjects.map((subject) => (
+            {subjectList.map((subject) => (
               <option key={subject} value={subject}>
                 {subject}
               </option>
             ))}
           </select>
           <ChevronDown className="pointer-events-none absolute right-0 top-1/2 h-6 w-6 -translate-y-1/2 text-muted-foreground" />
+        </div>
+
+        {/* Mobile unit selector — hidden on desktop where sidebar handles unit selection */}
+        <div className="relative flex w-fit items-center md:hidden">
+          <select
+            id="unit-select"
+            aria-label="Select unit"
+            value={selectedUnitId ?? ""}
+            onChange={(event) => setSelectedUnitId(event.target.value || null)}
+            className="cursor-pointer appearance-none bg-transparent pr-8 text-xl font-semibold text-foreground focus:outline-none"
+          >
+            {allUnits.length === 0 ? (
+              <option value="" disabled>No units</option>
+            ) : (
+              allUnits.map((unit) => (
+                <option key={unit.unitId} value={unit.unitId}>
+                  {unit.unitTitle}
+                </option>
+              ))
+            )}
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-0 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
         </div>
 
         <div className="grid grid-cols-1 gap-8 md:grid-cols-[250px_1fr]">
