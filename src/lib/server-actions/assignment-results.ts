@@ -20,6 +20,7 @@ import { query } from "@/lib/db";
 import { createLocalStorageClient } from "@/lib/storage/local-storage";
 import { requireTeacherProfile } from "@/lib/auth";
 import {
+  clampScore,
   computeAverageSuccessCriteriaScore,
   fetchActivitySuccessCriteriaIds,
   normaliseSuccessCriteriaScores,
@@ -768,9 +769,10 @@ export async function readAssignmentResultsAction(
             ? "auto"
             : "missing";
 
-          const finalScore = computeAverageSuccessCriteriaScore(
+          const rawFinalScore = computeAverageSuccessCriteriaScore(
             extracted.successCriteriaScores,
           ) ?? extracted.effectiveScore ?? 0;
+          const finalScore = clampScore(rawFinalScore);
 
           const feedbackRows = feedbackLookupMap.get(key);
           const latestTeacherFeedback = selectLatestFeedbackEntry(
@@ -801,8 +803,8 @@ export async function readAssignmentResultsAction(
               pupilId,
               submissionId: submission.submission_id ?? null,
               score: finalScore,
-              autoScore: extracted.autoScore ?? finalScore,
-              overrideScore: extracted.overrideScore,
+              autoScore: typeof extracted.autoScore === "number" ? clampScore(extracted.autoScore) : finalScore,
+              overrideScore: typeof extracted.overrideScore === "number" ? clampScore(extracted.overrideScore) : null,
               status,
               submittedAt,
               feedback: resolvedFeedback,

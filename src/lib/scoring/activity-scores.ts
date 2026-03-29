@@ -5,7 +5,7 @@ import {
   ShortTextSubmissionBodySchema,
   UploadUrlSubmissionBodySchema,
 } from "@/types";
-import { normaliseSuccessCriteriaScores } from "@/lib/scoring/client-success-criteria";
+import { clampScore, normaliseSuccessCriteriaScores } from "@/lib/scoring/client-success-criteria";
 
 export const TEACHER_OVERRIDE_PLACEHOLDER = "__teacher_override__";
 
@@ -348,8 +348,10 @@ export function extractScoreFromSubmission(
       return null;
     };
 
-    const auto = toNumber(autoRaw);
-    const override = toNumber(overrideRaw);
+    const autoRawNum = toNumber(autoRaw);
+    const overrideRawNum = toNumber(overrideRaw);
+    const auto = typeof autoRawNum === "number" ? clampScore(autoRawNum) : null;
+    const override = typeof overrideRawNum === "number" ? clampScore(overrideRawNum) : null;
     const feedback = typeof record.teacher_feedback === "string" &&
         record.teacher_feedback.trim().length > 0
       ? record.teacher_feedback.trim()
