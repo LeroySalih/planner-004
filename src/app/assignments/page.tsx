@@ -1,17 +1,64 @@
 export const dynamic = "force-dynamic"
 
 import AssignmentManager from "@/components/assignment-manager"
+import { ClassFilter } from "@/components/assignment-manager/class-filter"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { BookOpen } from "lucide-react"
-import { readAssignmentsBootstrapAction, readLessonAssignmentScoreSummariesAction, listDateCommentsAction } from "@/lib/server-updates"
+import { readAssignmentsBootstrapForGroupsAction, readLessonAssignmentScoreSummariesAction, listDateCommentsAction, readGroupsAction } from "@/lib/server-updates"
 import { requireTeacherProfile } from "@/lib/auth"
 import type { Assignments, AssignmentsBootstrapPayload, DateComments, Groups, LessonAssignments, Lessons, Subjects, Units } from "@/types"
 
-export default async function Home() {
+const DEFAULT_CLASSES = ["25-11-DT"]
+
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<{ classes?: string }>
+}) {
   const teacherProfile = await requireTeacherProfile()
 
-  const { data: bootstrapData, error: bootstrapError } = await readAssignmentsBootstrapAction()
+  // Load all active groups for the class filter dropdown
+  const { data: allGroupsData } = await readGroupsAction({ currentProfile: teacherProfile })
+  const allGroups = (allGroupsData ?? []).map((g) => ({
+    group_id: g.group_id,
+    subject: g.subject,
+  }))
+
+  // Determine selected classes from query params
+  const params = await searchParams
+  const classesParam = params.classes
+  const selectedGroupIds = classesParam
+    ? classesParam.split(",").map((c) => c.trim()).filter(Boolean)
+    : DEFAULT_CLASSES
+
+  // Resolve group IDs case-insensitively against known groups
+  const groupIdMap = new Map(allGroups.map((g) => [g.group_id.toLowerCase(), g.group_id]))
+  const resolvedGroupIds = selectedGroupIds
+    .map((id) => groupIdMap.get(id.toLowerCase()))
+    .filter((id): id is string => id != null)
+
+  if (resolvedGroupIds.length === 0) {
+    return (
+      <main className="container mx-auto p-6">
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-bold">Assignment Manager</h1>
+          <Link href="/units">
+            <Button variant="outline">
+              <BookOpen className="h-4 w-4 mr-2" />
+              View All Units
+            </Button>
+          </Link>
+        </div>
+        <div className="mb-4">
+          <ClassFilter allGroups={allGroups} selectedGroupIds={[]} />
+        </div>
+        <p className="text-muted-foreground">Select one or more classes to view assignments.</p>
+      </main>
+    )
+  }
+
+  const { data: bootstrapData, error: bootstrapError } = await readAssignmentsBootstrapForGroupsAction(resolvedGroupIds)
 
   if (bootstrapError || !bootstrapData) {
     return (
@@ -81,6 +128,9 @@ export default async function Home() {
             View All Units
           </Button>
         </Link>
+      </div>
+      <div className="mb-4">
+        <ClassFilter allGroups={allGroups} selectedGroupIds={resolvedGroupIds} />
       </div>
       <AssignmentManager
         groups={groups}

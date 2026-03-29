@@ -40,3 +40,44 @@ export async function readAssignmentsBootstrapAction(options?: { authEndTime?: n
     },
   )
 }
+
+export async function readAssignmentsBootstrapForGroupsAction(
+  groupIds: string[],
+  options?: { authEndTime?: number | null; routeTag?: string },
+) {
+  const routeTag = options?.routeTag ?? "/assignments:bootstrap-for-groups"
+
+  return withTelemetry(
+    {
+      routeTag,
+      functionName: "readAssignmentsBootstrapForGroupsAction",
+      params: { groupIds },
+      authEndTime: options?.authEndTime ?? null,
+    },
+    async () => {
+      try {
+        const { rows } = await query<{ payload: AssignmentsBootstrapPayload }>(
+          "select assignments_bootstrap_for_groups($1::text[]) as payload",
+          [groupIds],
+        )
+
+        const payload = rows[0]?.payload ?? null
+        if (!payload) {
+          return { data: null, error: "Unable to load assignments bootstrap data." }
+        }
+
+        const parsed = AssignmentsBootstrapPayloadSchema.safeParse(payload)
+        if (!parsed.success) {
+          console.error("[assignments-bootstrap] Invalid bootstrap payload for groups", parsed.error)
+          return { data: null, error: "Received malformed assignments bootstrap data." }
+        }
+
+        return { data: parsed.data, error: null }
+      } catch (error) {
+        console.error("[assignments-bootstrap] Failed to load bootstrap data for groups", error)
+        const message = error instanceof Error ? error.message : "Unable to load assignments bootstrap."
+        return { data: null, error: message }
+      }
+    },
+  )
+}

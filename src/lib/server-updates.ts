@@ -76,7 +76,7 @@ export {
   readAssignmentsForGroupAction,
   updateAssignmentAction,
 } from "./server-actions/assignments";
-export { readAssignmentsBootstrapAction } from "./server-actions/assignments-bootstrap";
+export { readAssignmentsBootstrapAction, readAssignmentsBootstrapForGroupsAction } from "./server-actions/assignments-bootstrap";
 
 export {
   clearActivityAiMarksAction,
