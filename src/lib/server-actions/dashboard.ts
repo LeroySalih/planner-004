@@ -25,14 +25,21 @@ const MarkingQueueResultSchema = z.object({
 
 export type MarkingQueueItem = z.infer<typeof MarkingQueueItemSchema>
 
-export async function readMarkingQueueAction() {
+export async function readMarkingQueueAction(groupId?: string) {
   const { userId: teacherUserId } = await requireTeacherProfile()
   const authEndTime = performance.now()
 
   return withTelemetry(
-    { routeTag: "dashboard", functionName: "readMarkingQueueAction", params: {}, authEndTime },
+    { routeTag: "dashboard", functionName: "readMarkingQueueAction", params: { groupId }, authEndTime },
     async () => {
       try {
+        const params: unknown[] = [teacherUserId]
+        let groupFilter = ""
+        if (groupId) {
+          params.push(groupId)
+          groupFilter = `AND g.group_id = $${params.length}`
+        }
+
         const { rows } = await query<{
           lesson_id: string
           lesson_title: string
@@ -60,10 +67,11 @@ export async function readMarkingQueueAction() {
                                             AND gm_teacher.user_id = $1
             WHERE a.type = 'short-text-question'
               AND compute_submission_base_score(s.body, a.type) IS NULL
+              ${groupFilter}
             GROUP BY l.lesson_id, l.title, g.group_id, g.subject, u.title
             ORDER BY COUNT(DISTINCT s.submission_id) DESC
           `,
-          [teacherUserId],
+          params,
         )
 
         const data = (rows ?? []).map((row) => ({
@@ -106,14 +114,21 @@ const FlaggedResultSchema = z.object({
 
 export type FlaggedItem = z.infer<typeof FlaggedItemSchema>
 
-export async function readFlaggedSubmissionsAction() {
+export async function readFlaggedSubmissionsAction(groupId?: string) {
   const { userId: teacherUserId } = await requireTeacherProfile()
   const authEndTime = performance.now()
 
   return withTelemetry(
-    { routeTag: "dashboard", functionName: "readFlaggedSubmissionsAction", params: {}, authEndTime },
+    { routeTag: "dashboard", functionName: "readFlaggedSubmissionsAction", params: { groupId }, authEndTime },
     async () => {
       try {
+        const params: unknown[] = [teacherUserId]
+        let groupFilter = ""
+        if (groupId) {
+          params.push(groupId)
+          groupFilter = `AND g.group_id = $${params.length}`
+        }
+
         const { rows } = await query<{
           submission_id: string
           user_id: string
@@ -142,12 +157,15 @@ export async function readFlaggedSubmissionsAction() {
             JOIN lessons             l  ON l.lesson_id   = a.lesson_id
             JOIN lesson_assignments  la ON la.lesson_id  = l.lesson_id
             JOIN groups              g  ON g.group_id    = la.group_id
+            JOIN group_membership    gm ON gm.group_id   = g.group_id
+                                        AND gm.user_id    = s.user_id
             JOIN group_membership gm_teacher ON gm_teacher.group_id = g.group_id
                                             AND gm_teacher.user_id = $1
             WHERE s.is_flagged = true
+              ${groupFilter}
             ORDER BY s.submission_id, s.submitted_at DESC NULLS LAST
           `,
-          [teacherUserId],
+          params,
         )
 
         const data = (rows ?? []).map((row) => ({
@@ -193,14 +211,21 @@ const MentionsResultSchema = z.object({
 
 export type MentionItem = z.infer<typeof MentionItemSchema>
 
-export async function readMentionsAction() {
+export async function readMentionsAction(groupId?: string) {
   const { userId: teacherUserId } = await requireTeacherProfile()
   const authEndTime = performance.now()
 
   return withTelemetry(
-    { routeTag: "dashboard", functionName: "readMentionsAction", params: {}, authEndTime },
+    { routeTag: "dashboard", functionName: "readMentionsAction", params: { groupId }, authEndTime },
     async () => {
       try {
+        const params: unknown[] = [teacherUserId]
+        let groupFilter = ""
+        if (groupId) {
+          params.push(groupId)
+          groupFilter = `AND g.group_id = $${params.length}`
+        }
+
         const { rows } = await query<{
           comment_id: string
           submission_id: string
@@ -234,9 +259,11 @@ export async function readMentionsAction() {
             JOIN groups               g   ON g.group_id       = la.group_id
             JOIN group_membership gm_teacher ON gm_teacher.group_id = g.group_id
                                             AND gm_teacher.user_id = $1
+            WHERE true
+              ${groupFilter}
             ORDER BY sc.created_at DESC
           `,
-          [teacherUserId],
+          params,
         )
 
         const data = (rows ?? []).map((row) => ({
@@ -282,15 +309,22 @@ const RecentSubmissionsResultSchema = z.object({
 
 export type RecentSubmissionsItem = z.infer<typeof RecentSubmissionsItemSchema>
 
-export async function readRecentSubmissionsAction(hours: 1 | 24 | 48 | 72) {
+export async function readRecentSubmissionsAction(hours: 1 | 24 | 48 | 72, groupId?: string) {
   const { userId: teacherUserId } = await requireTeacherProfile()
   const authEndTime = performance.now()
 
   return withTelemetry(
-    { routeTag: "dashboard", functionName: "readRecentSubmissionsAction", params: { hours }, authEndTime },
+    { routeTag: "dashboard", functionName: "readRecentSubmissionsAction", params: { hours, groupId }, authEndTime },
     async () => {
       try {
         const { hours: validHours } = RecentSubmissionsInputSchema.parse({ hours })
+
+        const params: unknown[] = [validHours, teacherUserId]
+        let groupFilter = ""
+        if (groupId) {
+          params.push(groupId)
+          groupFilter = `AND g.group_id = $${params.length}`
+        }
 
         const { rows } = await query<{
           lesson_id: string
@@ -316,10 +350,11 @@ export async function readRecentSubmissionsAction(hours: 1 | 24 | 48 | 72) {
             JOIN group_membership gm_teacher ON gm_teacher.group_id = g.group_id
                                             AND gm_teacher.user_id = $2
             WHERE s.submitted_at >= NOW() - ($1 * interval '1 hour')
+              ${groupFilter}
             GROUP BY l.lesson_id, l.title, g.group_id, g.subject
             ORDER BY submission_count DESC
           `,
-          [validHours, teacherUserId],
+          params,
         )
 
         const data = (rows ?? []).map((row) => ({

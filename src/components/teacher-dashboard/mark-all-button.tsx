@@ -38,7 +38,7 @@ export function MarkAllButton({ groupId, lessonId }: MarkAllButtonProps) {
     <Button
       size="sm"
       variant="outline"
-      className="mt-1.5 h-6 border-amber-400/30 px-2 text-xs text-amber-400 hover:border-amber-400 hover:bg-amber-400/10"
+      className="mt-1.5 h-6 border-amber-300 px-2 text-xs text-amber-700 hover:border-amber-500 hover:bg-amber-100 dark:border-amber-400/30 dark:text-amber-400 dark:hover:border-amber-400 dark:hover:bg-amber-400/10"
       disabled={isPending}
       onClick={handleClick}
     >

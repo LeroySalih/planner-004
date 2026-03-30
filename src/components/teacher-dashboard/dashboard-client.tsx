@@ -12,6 +12,7 @@ type Props = {
   initialMarkingCount: number
   initialFlaggedCount: number
   initialMentionsCount: number
+  groupId?: string
   children: React.ReactNode
 }
 
@@ -21,6 +22,7 @@ export function DashboardClient({
   initialMarkingCount,
   initialFlaggedCount,
   initialMentionsCount,
+  groupId,
   children,
 }: Props) {
   const [markingCount, setMarkingCount] = useState(initialMarkingCount)
@@ -31,14 +33,14 @@ export function DashboardClient({
 
   const refetchCounts = useCallback(async () => {
     const [markingResult, flaggedResult, mentionsResult] = await Promise.all([
-      readMarkingQueueAction(),
-      readFlaggedSubmissionsAction(),
-      readMentionsAction(),
+      readMarkingQueueAction(groupId),
+      readFlaggedSubmissionsAction(groupId),
+      readMentionsAction(groupId),
     ])
     if (markingResult.data)  setMarkingCount(markingResult.data.reduce((s, i) => s + i.submissionCount, 0))
     if (flaggedResult.data)  setFlaggedCount(flaggedResult.data.length)
     if (mentionsResult.data) setMentionsCount(mentionsResult.data.length)
-  }, [])
+  }, [groupId])
 
   useEffect(() => {
     const source = new EventSource("/sse?topics=submissions,assignments")
@@ -98,20 +100,20 @@ export function DashboardClient({
       data-live-status={liveStatus}
     >
       {/* Live status bar */}
-      <div className="flex items-center gap-2 border-b border-slate-800 bg-slate-900 px-5 py-3">
+      <div className="flex items-center gap-2 border-b border-border bg-card px-5 py-3">
         <div className={`h-2 w-2 rounded-full ${dotColor}`} />
-        <span className="text-xs text-slate-500">
+        <span className="text-xs text-muted-foreground">
           {liveStatus === "connected" ? "Live" : liveStatus === "reconnecting" ? "Reconnecting..." : "Offline"}
         </span>
-        <span className="ml-auto text-xs text-slate-500">
+        <span className="ml-auto text-xs text-muted-foreground">
           {markingCount > 0 && (
-            <span className="mr-3 font-semibold text-amber-400">{markingCount} to review</span>
+            <span className="mr-3 font-semibold text-amber-600 dark:text-amber-400">{markingCount} to review</span>
           )}
           {flaggedCount > 0 && (
-            <span className="mr-3 font-semibold text-red-400">{flaggedCount} flagged</span>
+            <span className="mr-3 font-semibold text-red-600 dark:text-red-400">{flaggedCount} flagged</span>
           )}
           {mentionsCount > 0 && (
-            <span className="font-semibold text-blue-400">{mentionsCount} mentions</span>
+            <span className="font-semibold text-blue-600 dark:text-blue-400">{mentionsCount} mentions</span>
           )}
         </span>
       </div>
