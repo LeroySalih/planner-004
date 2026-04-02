@@ -64,7 +64,7 @@ export function RecentSubmissionsPanel({ groupId }: { groupId?: string }) {
           {items.map((item) => (
             <Link
               key={`${item.lessonId}-${item.groupId}`}
-              href={`/feedback/groups/${encodeURIComponent(item.groupId)}/lessons/${encodeURIComponent(item.lessonId)}`}
+              href={`/results/assignments/${encodeURIComponent(`${item.groupId}__${item.lessonId}`)}`}
               className="flex flex-col rounded-md border border-green-200 bg-green-50 px-2.5 py-2 hover:border-green-400 dark:border-green-900 dark:bg-green-950/40 dark:hover:border-green-700"
             >
               <span className="text-xs font-semibold text-green-700 dark:text-green-300">{item.lessonTitle}</span>
