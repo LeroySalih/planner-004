@@ -329,6 +329,8 @@ export {
   readMentionsAction,
   readRecentSubmissionsAction,
   markAllUnmarkedForLessonAction,
+  readDashboardProgressAction,
+  type DashboardProgressItem,
   type MarkingQueueItem,
   type FlaggedItem,
   type MentionItem,

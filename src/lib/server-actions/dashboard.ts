@@ -375,6 +375,63 @@ export async function readRecentSubmissionsAction(hours: 1 | 24 | 48 | 72, group
   )
 }
 
+// ── Dashboard Progress ──────────────────────────────────────────────────────
+
+const DashboardProgressItemSchema = z.object({
+  groupId: z.string(),
+  groupSubject: z.string(),
+  totalPupils: z.number(),
+  greenCount: z.number(),
+  amberCount: z.number(),
+  redCount: z.number(),
+})
+
+const DashboardProgressResultSchema = z.object({
+  data: DashboardProgressItemSchema.array().nullable(),
+  error: z.string().nullable(),
+})
+
+export type DashboardProgressItem = z.infer<typeof DashboardProgressItemSchema>
+
+export async function readDashboardProgressAction() {
+  const { userId: teacherUserId } = await requireTeacherProfile()
+  const authEndTime = performance.now()
+
+  return withTelemetry(
+    { routeTag: "dashboard", functionName: "readDashboardProgressAction", params: {}, authEndTime },
+    async () => {
+      try {
+        const { rows } = await query<{
+          group_id: string
+          group_subject: string
+          total_pupils: string
+          green_count: string
+          amber_count: string
+          red_count: string
+        }>(
+          `SELECT * FROM dashboard_class_progress_summary($1)`,
+          [teacherUserId],
+        )
+
+        const data = (rows ?? []).map((row) => ({
+          groupId: row.group_id,
+          groupSubject: row.group_subject,
+          totalPupils: Number(row.total_pupils),
+          greenCount: Number(row.green_count),
+          amberCount: Number(row.amber_count),
+          redCount: Number(row.red_count),
+        }))
+
+        return DashboardProgressResultSchema.parse({ data, error: null })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to load dashboard progress."
+        console.error("[dashboard] readDashboardProgressAction failed", error)
+        return DashboardProgressResultSchema.parse({ data: null, error: message })
+      }
+    },
+  )
+}
+
 // ── Mark All Unmarked ─────────────────────────────────────────────────────────
 
 const MarkAllUnmarkedInputSchema = z.object({
