@@ -1,0 +1,161 @@
+<h2>Teacher Dashboard — Updated</h2>
+<p class="subtitle">Lesson titles are now direct links to assignment results. Review button removed.</p>
+
+<div class="mockup" style="max-width: 900px; margin: 0 auto;">
+  <div class="mockup-header">/ — Teacher Dashboard</div>
+  <div class="mockup-body" style="padding: 0; background: #0f172a; border-radius: 0 0 8px 8px; overflow: hidden;">
+
+    <!-- Top bar -->
+    <div style="background: #1e293b; border-bottom: 1px solid #334155; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between;">
+      <div style="display:flex; align-items:center; gap: 12px;">
+        <div style="color:#f8fafc; font-size:14px; font-weight:600;">Mr Salih</div>
+        <div style="color:#64748b; font-size:11px;">Teacher Dashboard</div>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <div style="width:7px; height:7px; background:#22c55e; border-radius:50%;"></div>
+        <div style="color:#64748b; font-size:10px;">Live</div>
+        <div style="background:#1e3a5f; color:#93c5fd; font-size:10px; padding: 3px 8px; border-radius: 4px; margin-left:8px;">Assignments →</div>
+      </div>
+    </div>
+
+    <!-- Main content -->
+    <div style="display: flex; gap: 0; min-height: 480px;">
+
+      <!-- LEFT: Marking Queue (wide) -->
+      <div style="flex: 2; border-right: 1px solid #1e293b; padding: 16px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 12px;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <div style="color:#f59e0b; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">Needs Review</div>
+            <div style="background:#f59e0b22; color:#f59e0b; font-size:10px; font-weight:700; padding: 1px 6px; border-radius:9px;">12</div>
+          </div>
+          <div style="color:#475569; font-size:9px;">AI-marked · awaiting teacher review</div>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:6px;">
+
+          <div style="background:#1e293b; border-radius:6px; padding:10px 12px; display:flex; align-items:center; justify-content:space-between; border-left: 3px solid #f59e0b;">
+            <div>
+              <div style="margin-bottom:3px;">
+                <span style="color:#fbbf24; font-size:11px; font-weight:600; text-decoration: underline; text-decoration-color:#f59e0b88; text-underline-offset:2px; cursor:pointer;">
+                  Lesson 4 — Short Text Questions ↗
+                </span>
+              </div>
+              <div style="color:#64748b; font-size:9px;">Year 10 · Group A · Unit 3: Conflict Poetry</div>
+            </div>
+            <div style="text-align:right; flex-shrink:0; margin-left:12px;">
+              <div style="color:#f59e0b; font-size:15px; font-weight:700;">8</div>
+              <div style="color:#64748b; font-size:8px;">pupils</div>
+            </div>
+          </div>
+
+          <div style="background:#1e293b; border-radius:6px; padding:10px 12px; display:flex; align-items:center; justify-content:space-between; border-left: 3px solid #f59e0b;">
+            <div>
+              <div style="margin-bottom:3px;">
+                <span style="color:#fbbf24; font-size:11px; font-weight:600; text-decoration: underline; text-decoration-color:#f59e0b88; text-underline-offset:2px; cursor:pointer;">
+                  Lesson 2 — Short Text Questions ↗
+                </span>
+              </div>
+              <div style="color:#64748b; font-size:9px;">Year 9 · Group B · Unit 1: Power & Conflict</div>
+            </div>
+            <div style="text-align:right; flex-shrink:0; margin-left:12px;">
+              <div style="color:#f59e0b; font-size:15px; font-weight:700;">6</div>
+              <div style="color:#64748b; font-size:8px;">pupils</div>
+            </div>
+          </div>
+
+          <div style="background:#1e293b; border-radius:6px; padding:10px 12px; display:flex; align-items:center; justify-content:space-between; border-left: 3px solid #f59e0b;">
+            <div>
+              <div style="margin-bottom:3px;">
+                <span style="color:#fbbf24; font-size:11px; font-weight:600; text-decoration: underline; text-decoration-color:#f59e0b88; text-underline-offset:2px; cursor:pointer;">
+                  Lesson 7 — Short Text Questions ↗
+                </span>
+              </div>
+              <div style="color:#64748b; font-size:9px;">Year 11 · Group A · Unit 2: Modern Prose</div>
+            </div>
+            <div style="text-align:right; flex-shrink:0; margin-left:12px;">
+              <div style="color:#f59e0b; font-size:15px; font-weight:700;">4</div>
+              <div style="color:#64748b; font-size:8px;">pupils</div>
+            </div>
+          </div>
+
+          <div style="background:#1e293b; border-radius:6px; padding:10px 12px; display:flex; align-items:center; justify-content:space-between; border-left: 3px solid #334155; opacity:0.5;">
+            <div>
+              <div style="margin-bottom:3px;">
+                <span style="color:#64748b; font-size:11px; font-weight:600;">Lesson 1 — Short Text Questions</span>
+              </div>
+              <div style="color:#475569; font-size:9px;">Year 10 · Group B · Unit 2</div>
+            </div>
+            <div style="text-align:right; flex-shrink:0; margin-left:12px;">
+              <div style="color:#475569; font-size:9px;">No submissions</div>
+            </div>
+          </div>
+
+          <div style="color:#475569; font-size:9px; text-align:center; padding:6px;">+ 8 more lessons</div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Flagged + Mentions -->
+      <div style="flex: 1; display:flex; flex-direction:column;">
+
+        <div style="flex:1; border-bottom: 1px solid #1e293b; padding: 14px;">
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom: 10px;">
+            <div style="color:#ef4444; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">Flagged</div>
+            <div style="background:#ef444422; color:#ef4444; font-size:10px; font-weight:700; padding: 1px 6px; border-radius:9px;">3</div>
+          </div>
+
+          <div style="display:flex; flex-direction:column; gap:5px;">
+            <div style="background:#1e293b; border-radius:5px; padding:8px 10px; border-left: 2px solid #ef4444;">
+              <div style="color:#fca5a5; font-size:10px; font-weight:600; margin-bottom:2px;">Sara K.</div>
+              <div style="color:#94a3b8; font-size:9px;">Lesson 4 · MCQ Question 3</div>
+              <div style="color:#64748b; font-size:8px; margin-top:2px;">Year 10 · Group A</div>
+            </div>
+            <div style="background:#1e293b; border-radius:5px; padding:8px 10px; border-left: 2px solid #ef4444;">
+              <div style="color:#fca5a5; font-size:10px; font-weight:600; margin-bottom:2px;">Tom R.</div>
+              <div style="color:#94a3b8; font-size:9px;">Lesson 2 · Short Text</div>
+              <div style="color:#64748b; font-size:8px; margin-top:2px;">Year 9 · Group B</div>
+            </div>
+            <div style="background:#1e293b; border-radius:5px; padding:8px 10px; border-left: 2px solid #ef4444;">
+              <div style="color:#fca5a5; font-size:10px; font-weight:600; margin-bottom:2px;">Priya S.</div>
+              <div style="color:#94a3b8; font-size:9px;">Lesson 7 · File Upload</div>
+              <div style="color:#64748b; font-size:8px; margin-top:2px;">Year 11 · Group A</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="flex:1; padding: 14px;">
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom: 10px;">
+            <div style="color:#3b82f6; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">Mentions</div>
+            <div style="background:#3b82f622; color:#3b82f6; font-size:10px; font-weight:700; padding: 1px 6px; border-radius:9px;">5</div>
+          </div>
+
+          <div style="display:flex; flex-direction:column; gap:5px;">
+            <div style="background:#1e293b; border-radius:5px; padding:8px 10px; border-left: 2px solid #3b82f6;">
+              <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:3px;">
+                <div style="color:#93c5fd; font-size:10px; font-weight:600;">Aisha M.</div>
+                <div style="color:#475569; font-size:8px;">2m ago</div>
+              </div>
+              <div style="color:#94a3b8; font-size:9px; font-style:italic;">"Can you check my answer for Q2?..."</div>
+              <div style="color:#64748b; font-size:8px; margin-top:3px;">Lesson 4 · Year 10 A</div>
+            </div>
+            <div style="background:#1e293b; border-radius:5px; padding:8px 10px; border-left: 2px solid #3b82f6;">
+              <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:3px;">
+                <div style="color:#93c5fd; font-size:10px; font-weight:600;">Jake T.</div>
+                <div style="color:#475569; font-size:8px;">14m ago</div>
+              </div>
+              <div style="color:#94a3b8; font-size:9px; font-style:italic;">"I don't understand what the question..."</div>
+              <div style="color:#64748b; font-size:8px; margin-top:3px;">Lesson 2 · Year 9 B</div>
+            </div>
+            <div style="color:#475569; font-size:9px; text-align:center; padding:4px;">+ 3 more</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="section" style="margin-top: 24px;">
+  <h3>Does this look right?</h3>
+  <p class="subtitle">Lesson title is now the link (amber, underlined, with ↗ arrow). No separate Review button. Clicking the title takes the teacher directly to that lesson's assignment results.</p>
+</div>

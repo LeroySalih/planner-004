@@ -23,11 +23,13 @@ The Needs Review panel already queries for lessons with unscored short-text subm
 - Queries DB for all `submission_id` values where:
   - `a.type = 'short-text-question'`
   - `compute_submission_base_score(s.body, a.type) IS NULL`
+  - `la.group_id = groupId` (must be explicit to avoid cross-group leakage when a lesson is assigned to multiple groups)
   - Pupil belongs to `groupId` via `group_membership`
   - Activity belongs to `lessonId`
-- Constructs `assignmentId = groupId + "__" + lessonId`
-- Calls `enqueueMarkingTasks(assignmentId, submissions)` then `triggerQueueProcessor()`
-- Returns `{ success: boolean, count: number, error: string | null }`
+- Constructs `assignmentId = groupId + "__" + lessonId` (matches the separator used throughout the codebase; routes the queue processor to `/webhooks/ai-mark`)
+- Calls `enqueueMarkingTasks(assignmentId, submissions)` and `triggerQueueProcessor()` **directly** — must NOT delegate to `triggerBulkAiMarkingAction`, which has no auth guard
+- Does **not** call `revalidatePath`; client-side `router.refresh()` is the correct invalidation mechanism
+- Returns `{ success: boolean, count: number, error: string | null }` — intentional deviation from the `{ data, error }` pattern used by read actions; `count` is needed for the toast message
 - Wrapped in `withTelemetry`
 
 **Re-exported** via `src/lib/server-updates.ts`.
@@ -48,6 +50,8 @@ The Needs Review panel already queries for lessons with unscored short-text subm
 ### 3. UI — `MarkingQueuePanel`
 
 **File:** `src/components/teacher-dashboard/marking-queue-panel.tsx`
+
+`MarkingQueuePanel` remains a **server component** — do not add `"use client"`. The client boundary starts at `MarkAllButton`. Server components can render client components; no structural change to the panel is needed beyond importing and rendering `MarkAllButton`.
 
 Each lesson card currently shows:
 ```

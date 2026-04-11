@@ -1,0 +1,298 @@
+<style>
+  .dashboard-shell {
+    background: #020617;
+    color: #cbd5e1;
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    font-size: 13px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #1e293b;
+  }
+  .topbar {
+    background: #0f172a;
+    border-bottom: 1px solid #1e293b;
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .topbar-left { display: flex; align-items: center; gap: 12px; }
+  .topbar-name { font-weight: 600; color: #f1f5f9; font-size: 13px; }
+  .topbar-label { color: #64748b; font-size: 12px; }
+  .live-bar {
+    background: #0f172a;
+    border-bottom: 1px solid #1e293b;
+    padding: 8px 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #64748b;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; }
+  .live-bar .badges { margin-left: auto; display: flex; gap: 12px; }
+  .badge-amber { color: #fbbf24; font-weight: 600; }
+  .badge-red { color: #f87171; font-weight: 600; }
+  .badge-blue { color: #60a5fa; font-weight: 600; }
+  .panels {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr;
+    min-height: 420px;
+  }
+  .panel {
+    border-right: 1px solid #1e293b;
+    padding: 16px;
+    overflow-y: auto;
+  }
+  .panel:last-child { border-right: none; }
+  .panel-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .panel-title .count {
+    border-radius: 9999px;
+    padding: 1px 8px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .amber { color: #fbbf24; }
+  .amber .count { background: rgba(251,191,36,0.1); color: #fbbf24; }
+  .red { color: #f87171; }
+  .red .count { background: rgba(248,113,113,0.1); color: #f87171; }
+  .blue { color: #60a5fa; }
+  .blue .count { background: rgba(96,165,250,0.1); color: #60a5fa; }
+  .green { color: #4ade80; }
+  .green .count { background: rgba(74,222,128,0.1); color: #4ade80; }
+
+  /* Marking queue items */
+  .queue-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #1e293b;
+    border-left: 3px solid #fbbf24;
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 6px;
+  }
+  .queue-item-title { color: #fcd34d; font-weight: 600; font-size: 13px; }
+  .queue-item-sub { color: #64748b; font-size: 11px; margin-top: 2px; }
+  .queue-count { text-align: right; }
+  .queue-count .num { color: #fbbf24; font-size: 18px; font-weight: 700; }
+  .queue-count .lbl { color: #64748b; font-size: 11px; }
+
+  /* Flagged by pupil */
+  .pupil-flag-item {
+    background: #1e293b;
+    border-left: 2px solid #f87171;
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+  }
+  .pupil-row { display: flex; justify-content: space-between; align-items: center; }
+  .pupil-name { color: #fca5a5; font-weight: 600; font-size: 12px; }
+  .pupil-flag-count {
+    background: rgba(248,113,113,0.15);
+    color: #f87171;
+    border-radius: 9999px;
+    padding: 1px 7px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .pupil-flags-detail { color: #64748b; font-size: 11px; margin-top: 3px; }
+  .pupil-group { color: #475569; font-size: 10px; margin-top: 1px; }
+
+  /* Recent submissions */
+  .time-filter {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 10px;
+  }
+  .tf-btn {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 4px;
+    color: #94a3b8;
+    padding: 3px 8px;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .tf-btn.active {
+    background: rgba(74,222,128,0.1);
+    border-color: #4ade80;
+    color: #4ade80;
+  }
+  .recent-item {
+    background: #1e293b;
+    border-left: 2px solid #4ade80;
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+  }
+  .recent-title { color: #86efac; font-weight: 600; font-size: 12px; }
+  .recent-sub { color: #64748b; font-size: 11px; margin-top: 2px; }
+  .recent-count {
+    display: inline-block;
+    background: rgba(74,222,128,0.1);
+    color: #4ade80;
+    border-radius: 9999px;
+    padding: 1px 6px;
+    font-size: 10px;
+    font-weight: 700;
+    margin-top: 3px;
+  }
+
+  .new-badge {
+    display: inline-block;
+    background: #4ade80;
+    color: #020617;
+    font-size: 9px;
+    font-weight: 800;
+    text-transform: uppercase;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-left: 6px;
+    vertical-align: middle;
+  }
+  .panel-sub { color: #475569; font-size: 11px; margin-left: auto; }
+</style>
+
+<h2>Dashboard Mockup</h2>
+<p class="subtitle">Proposed changes: (1) Flagged grouped by pupil (top 5) &nbsp;·&nbsp; (2) Recent submissions panel with time filter</p>
+
+<div class="dashboard-shell">
+  <!-- Top bar -->
+  <div class="topbar">
+    <div class="topbar-left">
+      <span class="topbar-name">Mr Salih</span>
+      <span class="topbar-label">Teacher Dashboard</span>
+    </div>
+    <span style="color:#60a5fa;font-size:12px;background:#1e293b;padding:4px 10px;border-radius:4px;">Assignments →</span>
+  </div>
+
+  <!-- Live bar -->
+  <div class="live-bar">
+    <div class="dot"></div>
+    <span>Live</span>
+    <div class="badges">
+      <span class="badge-amber">8 to review</span>
+      <span class="badge-red">5 flagged</span>
+      <span class="badge-blue">3 mentions</span>
+    </div>
+  </div>
+
+  <!-- 4-panel layout -->
+  <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;min-height:400px;">
+
+    <!-- Panel 1: Marking Queue (unchanged) -->
+    <div class="panel">
+      <div class="panel-title amber">
+        Needs Review <span class="count">8</span>
+        <span class="panel-sub">awaiting marking</span>
+      </div>
+      <div class="queue-item">
+        <div>
+          <div class="queue-item-title">Introduction to Forces ↗</div>
+          <div class="queue-item-sub">9A · Physics · G1</div>
+        </div>
+        <div class="queue-count">
+          <div class="num">5</div>
+          <div class="lbl">activities</div>
+        </div>
+      </div>
+      <div class="queue-item">
+        <div>
+          <div class="queue-item-title">Cell Biology Review ↗</div>
+          <div class="queue-item-sub">10B · Biology · G2</div>
+        </div>
+        <div class="queue-count">
+          <div class="num">3</div>
+          <div class="lbl">activities</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel 2: Flagged — CHANGED (grouped by pupil, top 5) -->
+    <div class="panel">
+      <div class="panel-title red">
+        Flagged <span class="count">5</span>
+        <span class="new-badge">changed</span>
+      </div>
+      <div class="pupil-flag-item">
+        <div class="pupil-row">
+          <span class="pupil-name">Aisha Patel</span>
+          <span class="pupil-flag-count">3 flags</span>
+        </div>
+        <div class="pupil-flags-detail">Forces Q2, Forces Q4, Cells Q1</div>
+        <div class="pupil-group">9A · Physics</div>
+      </div>
+      <div class="pupil-flag-item">
+        <div class="pupil-row">
+          <span class="pupil-name">Daniel Osei</span>
+          <span class="pupil-flag-count">2 flags</span>
+        </div>
+        <div class="pupil-flags-detail">Cells Q3, Cells Q5</div>
+        <div class="pupil-group">10B · Biology</div>
+      </div>
+      <div style="color:#475569;font-size:11px;margin-top:8px;text-align:center;">
+        + 0 more pupils
+      </div>
+    </div>
+
+    <!-- Panel 3: Mentions (unchanged) -->
+    <div class="panel">
+      <div class="panel-title blue">Mentions <span class="count">3</span></div>
+      <div style="background:#1e293b;border-left:2px solid #60a5fa;border-radius:6px;padding:8px 10px;margin-bottom:6px;">
+        <div style="display:flex;justify-content:space-between;">
+          <span style="color:#93c5fd;font-weight:600;font-size:12px;">Jamie Liu</span>
+          <span style="color:#475569;font-size:11px;">2m ago</span>
+        </div>
+        <p style="color:#94a3b8;font-size:11px;margin:4px 0 2px;font-style:italic;">"I'm not sure I understand this…"</p>
+        <span style="color:#475569;font-size:10px;">9A · Physics</span>
+      </div>
+      <div style="background:#1e293b;border-left:2px solid #60a5fa;border-radius:6px;padding:8px 10px;">
+        <div style="display:flex;justify-content:space-between;">
+          <span style="color:#93c5fd;font-weight:600;font-size:12px;">Sam K.</span>
+          <span style="color:#475569;font-size:11px;">18m ago</span>
+        </div>
+        <p style="color:#94a3b8;font-size:11px;margin:4px 0 2px;font-style:italic;">"Can we go over Q3 please?"</p>
+        <span style="color:#475569;font-size:10px;">10B · Biology</span>
+      </div>
+    </div>
+
+    <!-- Panel 4: Recent Submissions — NEW -->
+    <div class="panel">
+      <div class="panel-title green">
+        Recent Subs <span class="count">7</span>
+        <span class="new-badge">new</span>
+      </div>
+      <div class="time-filter">
+        <span class="tf-btn">1h</span>
+        <span class="tf-btn active">24h</span>
+        <span class="tf-btn">48h</span>
+        <span class="tf-btn">72h</span>
+      </div>
+      <div class="recent-item">
+        <div class="recent-title">Introduction to Forces</div>
+        <div class="recent-sub">9A · Physics</div>
+        <span class="recent-count">4 submissions</span>
+      </div>
+      <div class="recent-item">
+        <div class="recent-title">Cell Biology Review</div>
+        <div class="recent-sub">10B · Biology</div>
+        <span class="recent-count">3 submissions</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:16px;">
+  The layout adds a 4th panel on the right for recent submissions. The flagged panel now shows pupils ranked by flag count with a summary of which activities were flagged.
+</p>

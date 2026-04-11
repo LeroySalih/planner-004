@@ -1,0 +1,211 @@
+<style>
+  .dashboard-shell {
+    background: #020617;
+    color: #cbd5e1;
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    font-size: 13px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #1e293b;
+  }
+  .topbar {
+    background: #0f172a;
+    border-bottom: 1px solid #1e293b;
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .topbar-name { font-weight: 600; color: #f1f5f9; font-size: 13px; }
+  .topbar-label { color: #64748b; font-size: 12px; margin-left: 12px; }
+  .live-bar {
+    background: #0f172a;
+    border-bottom: 1px solid #1e293b;
+    padding: 8px 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #64748b;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; flex-shrink: 0; }
+  .live-badges { margin-left: auto; display: flex; gap: 12px; }
+
+  .quad-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto auto;
+  }
+  .panel {
+    padding: 14px;
+    max-height: 260px;
+    overflow-y: auto;
+  }
+  .panel-tl { border-right: 1px solid #1e293b; border-bottom: 1px solid #1e293b; }
+  .panel-tr { border-bottom: 1px solid #1e293b; }
+  .panel-bl { border-right: 1px solid #1e293b; }
+
+  .panel-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    position: sticky;
+    top: 0;
+    padding-bottom: 6px;
+  }
+  .panel-tl .panel-title { background: #020617; }
+  .panel-tr .panel-title { background: #020617; }
+  .panel-bl .panel-title { background: #020617; }
+  .panel-br .panel-title { background: #020617; }
+
+  .pill {
+    border-radius: 9999px;
+    padding: 1px 8px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .card-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+
+  .card {
+    border-radius: 6px;
+    padding: 8px 10px;
+    min-width: 90px;
+    flex: 0 1 auto;
+    cursor: pointer;
+  }
+  .card-title { font-weight: 600; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; }
+  .card-sub { font-size: 10px; margin-top: 2px; color: #64748b; }
+  .card-badge {
+    display: inline-block;
+    border-radius: 9999px;
+    padding: 1px 6px;
+    font-size: 10px;
+    font-weight: 700;
+    margin-top: 4px;
+  }
+
+  .card-recent { background: #0f2418; border: 1px solid #166534; }
+  .card-recent .card-title { color: #86efac; }
+  .card-recent .card-badge { background: rgba(74,222,128,0.15); color: #4ade80; }
+
+  .card-queue { background: #1c1506; border: 1px solid #854d0e; }
+  .card-queue .card-title { color: #fcd34d; }
+  .card-queue .card-badge { background: rgba(251,191,36,0.15); color: #fbbf24; }
+
+  .card-flagged { background: #1c0808; border: 1px solid #991b1b; }
+  .card-flagged .card-title { color: #fca5a5; }
+  .card-flagged .card-badge { background: rgba(248,113,113,0.15); color: #f87171; }
+
+  .card-mention { background: #060f1e; border: 1px solid #1e3a5f; }
+  .card-mention .card-title { color: #93c5fd; }
+  .card-mention .card-sub-quote { font-size: 10px; margin-top: 3px; color: #64748b; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; }
+  .card-mention .card-time { font-size: 10px; color: #475569; margin-top: 2px; }
+
+  .time-filter { display: flex; gap: 4px; margin-bottom: 10px; }
+  .tf-btn { background: #1e293b; border: 1px solid #334155; border-radius: 4px; color: #94a3b8; padding: 2px 7px; font-size: 11px; }
+  .tf-btn.active { background: rgba(74,222,128,0.1); border-color: #4ade80; color: #4ade80; }
+
+  .green { color: #4ade80; } .green .pill { background: rgba(74,222,128,0.1); color: #4ade80; }
+  .amber { color: #fbbf24; } .amber .pill { background: rgba(251,191,36,0.1); color: #fbbf24; }
+  .red   { color: #f87171; } .red   .pill { background: rgba(248,113,113,0.1); color: #f87171; }
+  .blue  { color: #60a5fa; } .blue  .pill { background: rgba(96,165,250,0.1);  color: #60a5fa; }
+</style>
+
+<h2>Dashboard — 10 Cards Per Section</h2>
+<p class="subtitle">Panels scroll vertically when cards overflow. Sticky section headers stay visible.</p>
+
+<div class="dashboard-shell">
+  <div class="topbar">
+    <div><span class="topbar-name">Mr Salih</span><span class="topbar-label">Teacher Dashboard</span></div>
+    <span style="color:#60a5fa;font-size:12px;background:#1e293b;padding:4px 10px;border-radius:4px;">Assignments →</span>
+  </div>
+  <div class="live-bar">
+    <div class="dot"></div><span>Live</span>
+    <div class="live-badges">
+      <span style="color:#fbbf24;font-weight:600;">28 to review</span>
+      <span style="color:#f87171;font-weight:600;">19 flagged</span>
+      <span style="color:#60a5fa;font-weight:600;">10 mentions</span>
+    </div>
+  </div>
+
+  <div class="quad-grid">
+
+    <!-- TL: Recent Submissions -->
+    <div class="panel panel-tl">
+      <div class="panel-title green">Recent Submissions <span class="pill">10</span></div>
+      <div class="time-filter">
+        <span class="tf-btn">1h</span><span class="tf-btn active">24h</span><span class="tf-btn">48h</span><span class="tf-btn">72h</span>
+      </div>
+      <div class="card-grid">
+        <div class="card card-recent"><div class="card-title">Forces Intro</div><div class="card-sub">9A · Physics</div><span class="card-badge">6 subs</span></div>
+        <div class="card card-recent"><div class="card-title">Cell Biology</div><div class="card-sub">10B · Biology</div><span class="card-badge">5 subs</span></div>
+        <div class="card card-recent"><div class="card-title">Atomic Structure</div><div class="card-sub">9B · Chem</div><span class="card-badge">4 subs</span></div>
+        <div class="card card-recent"><div class="card-title">Wave Properties</div><div class="card-sub">11A · Physics</div><span class="card-badge">4 subs</span></div>
+        <div class="card card-recent"><div class="card-title">Genetics Basics</div><div class="card-sub">10A · Biology</div><span class="card-badge">3 subs</span></div>
+        <div class="card card-recent"><div class="card-title">Periodic Table</div><div class="card-sub">9A · Chem</div><span class="card-badge">3 subs</span></div>
+        <div class="card card-recent"><div class="card-title">Electricity</div><div class="card-sub">11B · Physics</div><span class="card-badge">2 subs</span></div>
+        <div class="card card-recent"><div class="card-title">Ecosystems</div><div class="card-sub">10C · Biology</div><span class="card-badge">2 subs</span></div>
+        <div class="card card-recent"><div class="card-title">Acids & Bases</div><div class="card-sub">9C · Chem</div><span class="card-badge">1 sub</span></div>
+        <div class="card card-recent"><div class="card-title">Newton's Laws</div><div class="card-sub">10A · Physics</div><span class="card-badge">1 sub</span></div>
+      </div>
+    </div>
+
+    <!-- TR: Marking Queue -->
+    <div class="panel panel-tr">
+      <div class="panel-title amber">Needs Review <span class="pill">10</span></div>
+      <div class="card-grid">
+        <div class="card card-queue"><div class="card-title">Forces Intro ↗</div><div class="card-sub">9A · Physics</div><span class="card-badge">7 activities</span></div>
+        <div class="card card-queue"><div class="card-title">Cell Biology ↗</div><div class="card-sub">10B · Biology</div><span class="card-badge">5 activities</span></div>
+        <div class="card card-queue"><div class="card-title">Atomic Structure ↗</div><div class="card-sub">9B · Chem</div><span class="card-badge">4 activities</span></div>
+        <div class="card card-queue"><div class="card-title">Wave Properties ↗</div><div class="card-sub">11A · Physics</div><span class="card-badge">3 activities</span></div>
+        <div class="card card-queue"><div class="card-title">Genetics Basics ↗</div><div class="card-sub">10A · Biology</div><span class="card-badge">3 activities</span></div>
+        <div class="card card-queue"><div class="card-title">Periodic Table ↗</div><div class="card-sub">9A · Chem</div><span class="card-badge">2 activities</span></div>
+        <div class="card card-queue"><div class="card-title">Electricity ↗</div><div class="card-sub">11B · Physics</div><span class="card-badge">2 activities</span></div>
+        <div class="card card-queue"><div class="card-title">Ecosystems ↗</div><div class="card-sub">10C · Biology</div><span class="card-badge">1 activity</span></div>
+        <div class="card card-queue"><div class="card-title">Acids & Bases ↗</div><div class="card-sub">9C · Chem</div><span class="card-badge">1 activity</span></div>
+        <div class="card card-queue"><div class="card-title">Newton's Laws ↗</div><div class="card-sub">10A · Physics</div><span class="card-badge">1 activity</span></div>
+      </div>
+    </div>
+
+    <!-- BL: Flagged by Pupil -->
+    <div class="panel panel-bl">
+      <div class="panel-title red">Flagged <span class="pill">10</span></div>
+      <div class="card-grid">
+        <div class="card card-flagged"><div class="card-title">Aisha Patel</div><div class="card-sub">9A · Physics</div><span class="card-badge">5 flags</span></div>
+        <div class="card card-flagged"><div class="card-title">Daniel Osei</div><div class="card-sub">10B · Biology</div><span class="card-badge">4 flags</span></div>
+        <div class="card card-flagged"><div class="card-title">Priya Shah</div><div class="card-sub">9B · Chem</div><span class="card-badge">3 flags</span></div>
+        <div class="card card-flagged"><div class="card-title">Tom Reeves</div><div class="card-sub">11A · Physics</div><span class="card-badge">3 flags</span></div>
+        <div class="card card-flagged"><div class="card-title">Cleo Martin</div><div class="card-sub">10B · Biology</div><span class="card-badge">2 flags</span></div>
+        <div class="card card-flagged"><div class="card-title">Yusuf Ali</div><div class="card-sub">9A · Physics</div><span class="card-badge">2 flags</span></div>
+        <div class="card card-flagged"><div class="card-title">Sofia Russo</div><div class="card-sub">10A · Biology</div><span class="card-badge">2 flags</span></div>
+        <div class="card card-flagged"><div class="card-title">Ben Clarke</div><div class="card-sub">9C · Chem</div><span class="card-badge">1 flag</span></div>
+        <div class="card card-flagged"><div class="card-title">Mei Wong</div><div class="card-sub">11B · Physics</div><span class="card-badge">1 flag</span></div>
+        <div class="card card-flagged"><div class="card-title">Ryan Byrne</div><div class="card-sub">9B · Chem</div><span class="card-badge">1 flag</span></div>
+      </div>
+    </div>
+
+    <!-- BR: Mentions -->
+    <div class="panel panel-br">
+      <div class="panel-title blue">Mentions <span class="pill">10</span></div>
+      <div class="card-grid">
+        <div class="card card-mention"><div class="card-title">Jamie Liu</div><div class="card-sub-quote">"I don't understand this…"</div><div class="card-sub">9A · Physics</div><div class="card-time">2m ago</div></div>
+        <div class="card card-mention"><div class="card-title">Sam K.</div><div class="card-sub-quote">"Can we go over Q3?"</div><div class="card-sub">10B · Biology</div><div class="card-time">18m ago</div></div>
+        <div class="card card-mention"><div class="card-title">Priya Shah</div><div class="card-sub-quote">"This makes no sense"</div><div class="card-sub">9B · Chem</div><div class="card-time">34m ago</div></div>
+        <div class="card card-mention"><div class="card-title">Tom Reeves</div><div class="card-sub-quote">"Help with Q5 please"</div><div class="card-sub">11A · Physics</div><div class="card-time">1h ago</div></div>
+        <div class="card card-mention"><div class="card-title">Cleo Martin</div><div class="card-sub-quote">"Is this answer correct?"</div><div class="card-sub">10B · Biology</div><div class="card-time">1h ago</div></div>
+        <div class="card card-mention"><div class="card-title">Yusuf Ali</div><div class="card-sub-quote">"Confused on the last part"</div><div class="card-sub">9A · Physics</div><div class="card-time">2h ago</div></div>
+        <div class="card card-mention"><div class="card-title">Sofia Russo</div><div class="card-sub-quote">"Not sure about Q2"</div><div class="card-sub">10A · Biology</div><div class="card-time">2h ago</div></div>
+        <div class="card card-mention"><div class="card-title">Ben Clarke</div><div class="card-sub-quote">"Can you check my answer?"</div><div class="card-sub">9C · Chem</div><div class="card-time">3h ago</div></div>
+        <div class="card card-mention"><div class="card-title">Mei Wong</div><div class="card-sub-quote">"I got a different answer"</div><div class="card-sub">11B · Physics</div><div class="card-time">4h ago</div></div>
+        <div class="card card-mention"><div class="card-title">Ryan Byrne</div><div class="card-sub-quote">"Please explain step 3"</div><div class="card-sub">9B · Chem</div><div class="card-time">5h ago</div></div>
+      </div>
+    </div>
+
+  </div>
+</div>

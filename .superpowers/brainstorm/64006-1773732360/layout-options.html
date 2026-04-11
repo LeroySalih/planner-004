@@ -1,0 +1,141 @@
+<h2>Teacher Dashboard — Layout Direction</h2>
+<p class="subtitle">Which layout feels right for the dashboard? Each handles the three panels differently.</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 16px; background: #0f172a; border-radius: 6px; font-family: monospace; font-size: 11px; color: #94a3b8;">
+      <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+        <div style="background:#1e293b; border-radius:4px; padding:8px; border-left: 3px solid #f59e0b;">
+          <div style="color:#f59e0b; font-size:10px; font-weight:bold; margin-bottom:4px;">TO MARK</div>
+          <div style="color:#e2e8f0; font-size:18px; font-weight:bold;">12</div>
+          <div style="color:#64748b; font-size:9px;">lessons pending</div>
+        </div>
+        <div style="background:#1e293b; border-radius:4px; padding:8px; border-left: 3px solid #ef4444;">
+          <div style="color:#ef4444; font-size:10px; font-weight:bold; margin-bottom:4px;">FLAGGED</div>
+          <div style="color:#e2e8f0; font-size:18px; font-weight:bold;">3</div>
+          <div style="color:#64748b; font-size:9px;">activities</div>
+        </div>
+        <div style="background:#1e293b; border-radius:4px; padding:8px; border-left: 3px solid #3b82f6;">
+          <div style="color:#3b82f6; font-size:10px; font-weight:bold; margin-bottom:4px;">MENTIONS</div>
+          <div style="color:#e2e8f0; font-size:18px; font-weight:bold;">5</div>
+          <div style="color:#64748b; font-size:9px;">unread</div>
+        </div>
+      </div>
+      <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
+        <div style="background:#1e293b; border-radius:4px; padding:6px;">
+          <div style="color:#64748b; font-size:9px; margin-bottom:4px;">Year 10 • Unit 3</div>
+          <div style="color:#cbd5e1; font-size:9px;">Lesson 4 — 8 pupils</div>
+          <div style="color:#cbd5e1; font-size:9px; margin-top:2px;">Lesson 5 — 6 pupils</div>
+          <div style="color:#cbd5e1; font-size:9px; margin-top:2px;">Lesson 6 — 11 pupils</div>
+        </div>
+        <div style="background:#1e293b; border-radius:4px; padding:6px;">
+          <div style="color:#64748b; font-size:9px; margin-bottom:4px;">Flagged items</div>
+          <div style="background:#7f1d1d; border-radius:2px; padding:3px 4px; margin-bottom:3px;">
+            <div style="color:#fca5a5; font-size:9px;">Sara K. — MCQ Q3</div>
+          </div>
+          <div style="background:#7f1d1d; border-radius:2px; padding:3px 4px;">
+            <div style="color:#fca5a5; font-size:9px;">Tom R. — Short text</div>
+          </div>
+        </div>
+        <div style="background:#1e293b; border-radius:4px; padding:6px;">
+          <div style="color:#64748b; font-size:9px; margin-bottom:4px;">Recent mentions</div>
+          <div style="color:#93c5fd; font-size:9px; margin-bottom:3px;">Aisha: "can you check..."</div>
+          <div style="color:#93c5fd; font-size:9px;">Jake: "I don't understand..."</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Three-Column Grid</h3>
+      <p>All three panels side by side with summary counts up top. Immediate overview of everything at once. Works best on wide screens.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 16px; background: #0f172a; border-radius: 6px; font-family: monospace; font-size: 11px; color: #94a3b8;">
+      <div style="display:flex; gap: 8px;">
+        <div style="flex: 2; background:#1e293b; border-radius:4px; padding:8px;">
+          <div style="color:#f59e0b; font-size:10px; font-weight:bold; margin-bottom:6px;">⚡ TO MARK (12)</div>
+          <div style="background:#0f172a; border-radius:3px; padding:5px; margin-bottom:3px; display:flex; justify-content:space-between; align-items:center;">
+            <div>
+              <div style="color:#e2e8f0; font-size:9px;">Year 10 • Lesson 4</div>
+              <div style="color:#64748b; font-size:8px;">8 submissions</div>
+            </div>
+            <div style="background:#f59e0b; color:#0f172a; font-size:8px; padding:2px 5px; border-radius:2px; font-weight:bold;">Mark</div>
+          </div>
+          <div style="background:#0f172a; border-radius:3px; padding:5px; margin-bottom:3px; display:flex; justify-content:space-between; align-items:center;">
+            <div>
+              <div style="color:#e2e8f0; font-size:9px;">Year 9 • Lesson 2</div>
+              <div style="color:#64748b; font-size:8px;">6 submissions</div>
+            </div>
+            <div style="background:#f59e0b; color:#0f172a; font-size:8px; padding:2px 5px; border-radius:2px; font-weight:bold;">Mark</div>
+          </div>
+          <div style="background:#0f172a; border-radius:3px; padding:5px; margin-bottom:3px; display:flex; justify-content:space-between; align-items:center;">
+            <div>
+              <div style="color:#e2e8f0; font-size:9px;">Year 11 • Lesson 7</div>
+              <div style="color:#64748b; font-size:8px;">11 submissions</div>
+            </div>
+            <div style="background:#f59e0b; color:#0f172a; font-size:8px; padding:2px 5px; border-radius:2px; font-weight:bold;">Mark</div>
+          </div>
+        </div>
+        <div style="flex: 1; display:flex; flex-direction:column; gap:8px;">
+          <div style="background:#1e293b; border-radius:4px; padding:8px; flex:1;">
+            <div style="color:#ef4444; font-size:10px; font-weight:bold; margin-bottom:4px;">🚩 FLAGGED (3)</div>
+            <div style="color:#fca5a5; font-size:9px; margin-bottom:2px;">Sara K. — MCQ Q3</div>
+            <div style="color:#fca5a5; font-size:9px; margin-bottom:2px;">Tom R. — Short text</div>
+            <div style="color:#fca5a5; font-size:9px;">Priya S. — Upload</div>
+          </div>
+          <div style="background:#1e293b; border-radius:4px; padding:8px; flex:1;">
+            <div style="color:#3b82f6; font-size:10px; font-weight:bold; margin-bottom:4px;">💬 MENTIONS (5)</div>
+            <div style="color:#93c5fd; font-size:9px; margin-bottom:2px;">Aisha: "can you check..."</div>
+            <div style="color:#93c5fd; font-size:9px; margin-bottom:2px;">Jake: "I don't understand..."</div>
+            <div style="color:#93c5fd; font-size:9px;">+3 more</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Wide Left + Stacked Right</h3>
+      <p>Marking takes priority on the left (most common task), with flagged and mentions stacked on the right. Mirrors a natural workflow: mark first, check issues second.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 16px; background: #0f172a; border-radius: 6px; font-family: monospace; font-size: 11px; color: #94a3b8;">
+      <div style="display:flex; gap:8px; margin-bottom:8px;">
+        <div style="background:#1e293b; border-radius:4px; padding:6px 10px; flex:1; text-align:center; border-bottom: 2px solid #f59e0b;">
+          <div style="color:#f59e0b; font-size:16px; font-weight:bold;">12</div>
+          <div style="color:#94a3b8; font-size:8px;">TO MARK</div>
+        </div>
+        <div style="background:#1e293b; border-radius:4px; padding:6px 10px; flex:1; text-align:center;">
+          <div style="color:#e2e8f0; font-size:16px; font-weight:bold;">3</div>
+          <div style="color:#94a3b8; font-size:8px;">FLAGGED</div>
+        </div>
+        <div style="background:#1e293b; border-radius:4px; padding:6px 10px; flex:1; text-align:center;">
+          <div style="color:#e2e8f0; font-size:16px; font-weight:bold;">5</div>
+          <div style="color:#94a3b8; font-size:8px;">MENTIONS</div>
+        </div>
+      </div>
+      <div style="background:#1e293b; border-radius:4px; padding:8px;">
+        <div style="color:#64748b; font-size:8px; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px;">Lessons to Mark</div>
+        <div style="background:#0f172a; border-radius:3px; padding:5px 6px; margin-bottom:3px; display:flex; justify-content:space-between;">
+          <div style="color:#e2e8f0; font-size:9px;">Year 10 • Lesson 4 — Short Text</div>
+          <div style="color:#f59e0b; font-size:9px;">8 pupils</div>
+        </div>
+        <div style="background:#0f172a; border-radius:3px; padding:5px 6px; margin-bottom:3px; display:flex; justify-content:space-between;">
+          <div style="color:#e2e8f0; font-size:9px;">Year 9 • Lesson 2 — Short Text</div>
+          <div style="color:#f59e0b; font-size:9px;">6 pupils</div>
+        </div>
+        <div style="background:#ef444422; border:1px solid #ef444444; border-radius:3px; padding:5px 6px; display:flex; justify-content:space-between;">
+          <div style="color:#fca5a5; font-size:9px;">🚩 Sara K. — MCQ flagged</div>
+          <div style="color:#ef4444; font-size:9px;">Review</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Tabbed / Single Focused View</h3>
+      <p>Summary counts act as tabs — click to switch between marking queue, flagged, and mentions. One focused list at a time, less cognitive load. Active tab is highlighted.</p>
+    </div>
+  </div>
+
+</div>

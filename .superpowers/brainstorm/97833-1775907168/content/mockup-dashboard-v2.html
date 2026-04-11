@@ -1,0 +1,101 @@
+<h2>Dashboard Design — Progress Tab (v2)</h2>
+<p class="subtitle">Full class set with filter box</p>
+
+<div class="mockup">
+  <div class="mockup-header">Teacher Dashboard — Progress</div>
+  <div class="mockup-body" style="background:#f8f9fa;padding:0;">
+
+    <!-- Top bar -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid #e5e7eb;background:#fff;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span style="font-weight:600;font-size:14px;">Mr Salih</span>
+        <span style="font-size:12px;color:#888;">Teacher Dashboard</span>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <div style="padding:6px 16px;border-bottom:2px solid #2563eb;font-size:13px;font-weight:600;color:#2563eb;cursor:pointer;">Progress</div>
+      </div>
+    </div>
+
+    <!-- Filter bar -->
+    <div style="padding:16px 24px 0 24px;">
+      <input type="text" id="classFilter" placeholder="Filter classes… e.g. &quot;9A&quot; or &quot;Computer Science&quot;"
+        style="width:100%;max-width:400px;padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;outline:none;"
+        oninput="filterCards(this.value)"
+        onfocus="this.style.borderColor='#2563eb';this.style.boxShadow='0 0 0 2px rgba(37,99,235,0.1)'"
+        onblur="this.style.borderColor='#d1d5db';this.style.boxShadow='none'">
+    </div>
+
+    <!-- Cards grid -->
+    <div id="cardsGrid" style="padding:16px 24px 24px 24px;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;">
+    </div>
+  </div>
+</div>
+
+<p style="margin-top:16px;font-size:13px;color:#666;">Each card is clickable → navigates to <code>/unit-progress-reports/[groupId]</code></p>
+
+<script>
+const classes = [
+  { id: "25-7A-IT", subject: "Information Technology", pupils: 28, green: 10, amber: 12, red: 6 },
+  { id: "25-7B-IT", subject: "Information Technology", pupils: 25, green: 5, amber: 12, red: 8 },
+  { id: "25-7C-CS", subject: "Computer Science", pupils: 30, green: 14, amber: 11, red: 5 },
+  { id: "25-8A-CS", subject: "Computer Science", pupils: 29, green: 16, amber: 9, red: 4 },
+  { id: "25-8B-CS", subject: "Computer Science", pupils: 27, green: 8, amber: 13, red: 6 },
+  { id: "25-8C-IT", subject: "Information Technology", pupils: 26, green: 7, amber: 10, red: 9 },
+  { id: "25-9A-CS", subject: "Computer Science", pupils: 30, green: 18, amber: 9, red: 3 },
+  { id: "25-9B-CS", subject: "Computer Science", pupils: 31, green: 12, amber: 14, red: 5 },
+  { id: "25-9C-DT", subject: "Design Technology", pupils: 24, green: 9, amber: 10, red: 5 },
+  { id: "25-10A-CS", subject: "Computer Science", pupils: 28, green: 15, amber: 8, red: 5 },
+  { id: "25-10B-IT", subject: "Information Technology", pupils: 26, green: 6, amber: 11, red: 9 },
+  { id: "25-10C-DT", subject: "Design Technology", pupils: 22, green: 11, amber: 7, red: 4 },
+  { id: "25-11-DT", subject: "Design Technology", pupils: 28, green: 12, amber: 11, red: 5 },
+  { id: "25-11-CS", subject: "Computer Science", pupils: 32, green: 20, amber: 8, red: 4 },
+  { id: "25-11-IT", subject: "Information Technology", pupils: 27, green: 9, amber: 12, red: 6 },
+  { id: "25-12-CS", subject: "Computer Science", pupils: 18, green: 10, amber: 5, red: 3 },
+  { id: "25-12-IT", subject: "Information Technology", pupils: 15, green: 4, amber: 7, red: 4 },
+  { id: "25-13-CS", subject: "Computer Science", pupils: 14, green: 8, amber: 4, red: 2 },
+];
+
+function renderCard(c) {
+  return `
+    <div class="class-card" data-id="${c.id}" data-subject="${c.subject}"
+      style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:20px;cursor:pointer;transition:box-shadow 0.15s;"
+      onmouseover="this.style.boxShadow='0 2px 8px rgba(0,0,0,0.08)'"
+      onmouseout="this.style.boxShadow='none'">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <div>
+          <div style="font-weight:600;font-size:15px;">${c.id}</div>
+          <div style="font-size:12px;color:#888;">${c.subject}</div>
+        </div>
+        <div style="font-size:12px;color:#888;">${c.pupils} pupils</div>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <div style="flex:1;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:10px;text-align:center;">
+          <div style="font-size:22px;font-weight:700;color:#16a34a;">${c.green}</div>
+          <div style="font-size:10px;color:#16a34a;margin-top:2px;">≥70%</div>
+        </div>
+        <div style="flex:1;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:10px;text-align:center;">
+          <div style="font-size:22px;font-weight:700;color:#d97706;">${c.amber}</div>
+          <div style="font-size:10px;color:#d97706;margin-top:2px;">40–69%</div>
+        </div>
+        <div style="flex:1;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:10px;text-align:center;">
+          <div style="font-size:22px;font-weight:700;color:#dc2626;">${c.red}</div>
+          <div style="font-size:10px;color:#dc2626;margin-top:2px;">&lt;40%</div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderAll(filter) {
+  const q = (filter || "").toLowerCase();
+  const filtered = classes.filter(c =>
+    !q || c.id.toLowerCase().includes(q) || c.subject.toLowerCase().includes(q)
+  );
+  document.getElementById("cardsGrid").innerHTML = filtered.map(renderCard).join("");
+}
+
+function filterCards(value) {
+  renderAll(value);
+}
+
+renderAll("");
+</script>

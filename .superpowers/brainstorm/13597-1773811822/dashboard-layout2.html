@@ -1,0 +1,275 @@
+<style>
+  .dashboard-shell {
+    background: #020617;
+    color: #cbd5e1;
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    font-size: 13px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #1e293b;
+  }
+  .topbar {
+    background: #0f172a;
+    border-bottom: 1px solid #1e293b;
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .topbar-name { font-weight: 600; color: #f1f5f9; font-size: 13px; }
+  .topbar-label { color: #64748b; font-size: 12px; margin-left: 12px; }
+  .live-bar {
+    background: #0f172a;
+    border-bottom: 1px solid #1e293b;
+    padding: 8px 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #64748b;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; flex-shrink: 0; }
+  .live-badges { margin-left: auto; display: flex; gap: 12px; }
+
+  /* 2x2 grid */
+  .quad-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    min-height: 480px;
+  }
+  .panel {
+    padding: 16px;
+    overflow-y: auto;
+    max-height: 240px;
+  }
+  .panel-tl { border-right: 1px solid #1e293b; border-bottom: 1px solid #1e293b; }
+  .panel-tr { border-bottom: 1px solid #1e293b; }
+  .panel-bl { border-right: 1px solid #1e293b; }
+  .panel-br { }
+
+  .panel-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .count {
+    border-radius: 9999px;
+    padding: 1px 8px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .green { color: #4ade80; }
+  .green .count { background: rgba(74,222,128,0.1); color: #4ade80; }
+  .amber { color: #fbbf24; }
+  .amber .count { background: rgba(251,191,36,0.1); color: #fbbf24; }
+  .red { color: #f87171; }
+  .red .count { background: rgba(248,113,113,0.1); color: #f87171; }
+  .blue { color: #60a5fa; }
+  .blue .count { background: rgba(96,165,250,0.1); color: #60a5fa; }
+
+  /* Time filter */
+  .time-filter { display: flex; gap: 4px; margin-bottom: 10px; }
+  .tf-btn {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 4px;
+    color: #94a3b8;
+    padding: 3px 8px;
+    font-size: 11px;
+  }
+  .tf-btn.active {
+    background: rgba(74,222,128,0.1);
+    border-color: #4ade80;
+    color: #4ade80;
+  }
+
+  /* Items */
+  .recent-item {
+    background: #1e293b;
+    border-left: 2px solid #4ade80;
+    border-radius: 6px;
+    padding: 7px 10px;
+    margin-bottom: 5px;
+  }
+  .recent-title { color: #86efac; font-weight: 600; font-size: 12px; }
+  .recent-sub { color: #64748b; font-size: 11px; margin-top: 1px; }
+  .recent-count {
+    display: inline-block;
+    background: rgba(74,222,128,0.1);
+    color: #4ade80;
+    border-radius: 9999px;
+    padding: 1px 6px;
+    font-size: 10px;
+    font-weight: 700;
+    margin-top: 3px;
+  }
+
+  .queue-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #1e293b;
+    border-left: 3px solid #fbbf24;
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-bottom: 5px;
+  }
+  .queue-title { color: #fcd34d; font-weight: 600; font-size: 12px; }
+  .queue-sub { color: #64748b; font-size: 11px; margin-top: 1px; }
+  .queue-num { color: #fbbf24; font-size: 16px; font-weight: 700; text-align: right; }
+  .queue-lbl { color: #64748b; font-size: 10px; }
+
+  .pupil-item {
+    background: #1e293b;
+    border-left: 2px solid #f87171;
+    border-radius: 6px;
+    padding: 7px 10px;
+    margin-bottom: 5px;
+  }
+  .pupil-row { display: flex; justify-content: space-between; align-items: center; }
+  .pupil-name { color: #fca5a5; font-weight: 600; font-size: 12px; }
+  .pupil-badge {
+    background: rgba(248,113,113,0.15);
+    color: #f87171;
+    border-radius: 9999px;
+    padding: 1px 7px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .pupil-detail { color: #64748b; font-size: 11px; margin-top: 2px; }
+  .pupil-group { color: #475569; font-size: 10px; margin-top: 1px; }
+
+  .mention-item {
+    background: #1e293b;
+    border-left: 2px solid #60a5fa;
+    border-radius: 6px;
+    padding: 7px 10px;
+    margin-bottom: 5px;
+  }
+  .mention-row { display: flex; justify-content: space-between; }
+  .mention-name { color: #93c5fd; font-weight: 600; font-size: 12px; }
+  .mention-time { color: #475569; font-size: 11px; }
+  .mention-text { color: #94a3b8; font-size: 11px; margin: 3px 0 2px; font-style: italic; }
+  .mention-group { color: #475569; font-size: 10px; }
+</style>
+
+<h2>Dashboard — 4-Quarter Layout</h2>
+<p class="subtitle">Recent Submissions top-left · Marking Queue top-right · Flagged by Pupil bottom-left · Mentions bottom-right</p>
+
+<div class="dashboard-shell">
+  <div class="topbar">
+    <div>
+      <span class="topbar-name">Mr Salih</span>
+      <span class="topbar-label">Teacher Dashboard</span>
+    </div>
+    <span style="color:#60a5fa;font-size:12px;background:#1e293b;padding:4px 10px;border-radius:4px;">Assignments →</span>
+  </div>
+  <div class="live-bar">
+    <div class="dot"></div>
+    <span>Live</span>
+    <div class="live-badges">
+      <span style="color:#fbbf24;font-weight:600;">8 to review</span>
+      <span style="color:#f87171;font-weight:600;">5 flagged</span>
+      <span style="color:#60a5fa;font-weight:600;">3 mentions</span>
+    </div>
+  </div>
+
+  <div class="quad-grid">
+
+    <!-- TL: Recent Submissions -->
+    <div class="panel panel-tl">
+      <div class="panel-title green">Recent Submissions <span class="count">7</span></div>
+      <div class="time-filter">
+        <span class="tf-btn">1h</span>
+        <span class="tf-btn active">24h</span>
+        <span class="tf-btn">48h</span>
+        <span class="tf-btn">72h</span>
+      </div>
+      <div class="recent-item">
+        <div class="recent-title">Introduction to Forces</div>
+        <div class="recent-sub">9A · Physics</div>
+        <span class="recent-count">4 submissions</span>
+      </div>
+      <div class="recent-item">
+        <div class="recent-title">Cell Biology Review</div>
+        <div class="recent-sub">10B · Biology</div>
+        <span class="recent-count">3 submissions</span>
+      </div>
+    </div>
+
+    <!-- TR: Marking Queue -->
+    <div class="panel panel-tr">
+      <div class="panel-title amber">Needs Review <span class="count">8</span></div>
+      <div class="queue-item">
+        <div>
+          <div class="queue-title">Introduction to Forces ↗</div>
+          <div class="queue-sub">9A · Physics · G1</div>
+        </div>
+        <div>
+          <div class="queue-num">5</div>
+          <div class="queue-lbl">activities</div>
+        </div>
+      </div>
+      <div class="queue-item">
+        <div>
+          <div class="queue-title">Cell Biology Review ↗</div>
+          <div class="queue-sub">10B · Biology · G2</div>
+        </div>
+        <div>
+          <div class="queue-num">3</div>
+          <div class="queue-lbl">activities</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BL: Flagged by Pupil -->
+    <div class="panel panel-bl">
+      <div class="panel-title red">Flagged <span class="count">5</span></div>
+      <div class="pupil-item">
+        <div class="pupil-row">
+          <span class="pupil-name">Aisha Patel</span>
+          <span class="pupil-badge">3 flags</span>
+        </div>
+        <div class="pupil-detail">Forces Q2, Forces Q4, Cells Q1</div>
+        <div class="pupil-group">9A · Physics</div>
+      </div>
+      <div class="pupil-item">
+        <div class="pupil-row">
+          <span class="pupil-name">Daniel Osei</span>
+          <span class="pupil-badge">2 flags</span>
+        </div>
+        <div class="pupil-detail">Cells Q3, Cells Q5</div>
+        <div class="pupil-group">10B · Biology</div>
+      </div>
+      <div style="color:#475569;font-size:11px;margin-top:6px;text-align:center;">top 5 by flag count</div>
+    </div>
+
+    <!-- BR: Mentions -->
+    <div class="panel panel-br">
+      <div class="panel-title blue">Mentions <span class="count">3</span></div>
+      <div class="mention-item">
+        <div class="mention-row">
+          <span class="mention-name">Jamie Liu</span>
+          <span class="mention-time">2m ago</span>
+        </div>
+        <p class="mention-text">"I'm not sure I understand this…"</p>
+        <span class="mention-group">9A · Physics</span>
+      </div>
+      <div class="mention-item">
+        <div class="mention-row">
+          <span class="mention-name">Sam K.</span>
+          <span class="mention-time">18m ago</span>
+        </div>
+        <p class="mention-text">"Can we go over Q3 please?"</p>
+        <span class="mention-group">10B · Biology</span>
+      </div>
+    </div>
+
+  </div>
+</div>
