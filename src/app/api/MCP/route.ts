@@ -18,301 +18,306 @@ import { listLessonsForUnit } from '@/lib/mcp/lessons'
 export const runtime = 'nodejs'
 
 // ---------------------------------------------------------------------------
-// McpServer singleton — tools registered once at module load.
+// McpServer factory — creates a fresh server instance per request.
 //
-// The singleton is required so that initialization state (from the JSON-RPC
-// `initialize` handshake) persists across requests. Claude Code sends
-// `initialize` once on first connection; subsequent requests are tool calls
-// and expect the server to already be initialized.
+// A module-level singleton throws "Already connected to a transport. Call
+// close() before connecting to a new transport" on every second request
+// because the MCP SDK v1.29 prevents calling connect() more than once on the
+// same instance. Tool registration is pure in-memory JS with negligible
+// overhead, so creating a new server per request is safe.
 // ---------------------------------------------------------------------------
 
-const server = new McpServer(
-  { name: 'planner-mcp-server', version: '0.1.0' },
-  {
-    capabilities: {
-      resources: {},
-      tools: { listChanged: true },
-      prompts: {},
-      logging: {},
+function createMcpServer(): McpServer {
+  const srv = new McpServer(
+    { name: 'planner-mcp-server', version: '0.1.0' },
+    {
+      capabilities: {
+        resources: {},
+        tools: { listChanged: true },
+        prompts: {},
+        logging: {},
+      },
     },
-  },
-)
+  )
 
-server.registerTool(
-  'get_all_curriculum',
-  {
-    title: 'List curricula',
-    description: 'Return all curriculum summaries (id, title, active).',
-    outputSchema: {
-      curricula: z.array(
-        z.object({
-          curriculum_id: z.string(),
-          title: z.string(),
-          is_active: z.boolean(),
-        }),
-      ),
+  srv.registerTool(
+    'get_all_curriculum',
+    {
+      title: 'List curricula',
+      description: 'Return all curriculum summaries (id, title, active).',
+      outputSchema: {
+        curricula: z.array(
+          z.object({
+            curriculum_id: z.string(),
+            title: z.string(),
+            is_active: z.boolean(),
+          }),
+        ),
+      },
     },
-  },
-  async () => {
-    const curricula = await listCurriculumSummaries()
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text:
-            curricula.length > 0
-              ? curricula.map((c) => `${c.curriculum_id} • ${c.title}`).join('\n')
-              : 'No curricula available.',
-        },
-      ],
-      structuredContent: { curricula },
-    }
-  },
-)
-
-server.registerTool(
-  'get_curriculum',
-  {
-    title: 'Get curriculum summary',
-    description: 'Return { curriculum_id, title, is_active } for a specific curriculum.',
-    inputSchema: {
-      curriculum_id: z.string().min(1).describe('Curriculum identifier.'),
-    },
-    outputSchema: {
-      curriculum: z
-        .object({
-          curriculum_id: z.string(),
-          title: z.string(),
-          is_active: z.boolean(),
-        })
-        .nullable(),
-    },
-  },
-  async ({ curriculum_id }) => {
-    const curriculum = await getCurriculumSummary(curriculum_id)
-    if (!curriculum) {
+    async () => {
+      const curricula = await listCurriculumSummaries()
       return {
-        content: [{ type: 'text' as const, text: `Curriculum ${curriculum_id} was not found.` }],
-        structuredContent: { curriculum: null },
+        content: [
+          {
+            type: 'text' as const,
+            text:
+              curricula.length > 0
+                ? curricula.map((c) => `${c.curriculum_id} • ${c.title}`).join('\n')
+                : 'No curricula available.',
+          },
+        ],
+        structuredContent: { curricula },
       }
-    }
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: `${curriculum.curriculum_id} • ${curriculum.title} (active=${curriculum.is_active})`,
-        },
-      ],
-      structuredContent: { curriculum },
-    }
-  },
-)
+    },
+  )
 
-server.registerTool(
-  'get_curriculum_id_from_title',
-  {
-    title: 'Find curriculum IDs by title',
-    description:
-      'Search curricula by title using wildcards (*, ?) or JavaScript-style /regex/ patterns.',
-    inputSchema: {
-      curriculum_title: z
-        .string()
-        .min(1)
-        .describe('Title pattern, e.g. "Math*" or "/Math.+/" (case-insensitive).'),
+  srv.registerTool(
+    'get_curriculum',
+    {
+      title: 'Get curriculum summary',
+      description: 'Return { curriculum_id, title, is_active } for a specific curriculum.',
+      inputSchema: {
+        curriculum_id: z.string().min(1).describe('Curriculum identifier.'),
+      },
+      outputSchema: {
+        curriculum: z
+          .object({
+            curriculum_id: z.string(),
+            title: z.string(),
+            is_active: z.boolean(),
+          })
+          .nullable(),
+      },
     },
-    outputSchema: {
-      matches: z.array(
-        z.object({
-          curriculum_id: z.string(),
-          curriculum_title: z.string(),
-        }),
-      ),
-    },
-  },
-  async ({ curriculum_title }) => {
-    const matches = await findCurriculumIdsByTitle(curriculum_title)
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text:
-            matches.length > 0
-              ? matches.map((m) => `${m.curriculum_id} • ${m.curriculum_title}`).join('\n')
-              : 'No curricula matched the provided title.',
-        },
-      ],
-      structuredContent: { matches },
-    }
-  },
-)
-
-server.registerTool(
-  'get_all_los_and_scs_for_curriculum',
-  {
-    title: 'Learning objectives + success criteria',
-    description: 'Return the LO/SC tree for a curriculum.',
-    inputSchema: {
-      curriculum_id: z.string().min(1).describe('ID of the curriculum to inspect.'),
-    },
-    outputSchema: {
-      learning_objectives: z.array(
-        z.object({
-          learning_objective_id: z.string(),
-          title: z.string(),
-          active: z.boolean(),
-          spec_ref: z.string().nullable(),
-          order_index: z.number(),
-          scs: z.array(
-            z.object({
-              success_criteria_id: z.string(),
-              title: z.string(),
-              active: z.boolean(),
-              order_index: z.number(),
-            }),
-          ),
-        }),
-      ),
-    },
-  },
-  async ({ curriculum_id }) => {
-    const curriculum = await fetchCurriculumLosc(curriculum_id)
-    if (!curriculum) {
+    async ({ curriculum_id }) => {
+      const curriculum = await getCurriculumSummary(curriculum_id)
+      if (!curriculum) {
+        return {
+          content: [{ type: 'text' as const, text: `Curriculum ${curriculum_id} was not found.` }],
+          structuredContent: { curriculum: null },
+        }
+      }
       return {
-        content: [{ type: 'text' as const, text: `No curriculum found for id ${curriculum_id}.` }],
-        structuredContent: { learning_objectives: [] },
+        content: [
+          {
+            type: 'text' as const,
+            text: `${curriculum.curriculum_id} • ${curriculum.title} (active=${curriculum.is_active})`,
+          },
+        ],
+        structuredContent: { curriculum },
       }
-    }
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: `${curriculum.title} (${curriculum.curriculum_id}) • ${curriculum.learning_objectives.length} learning objectives.`,
-        },
-      ],
-      structuredContent: { learning_objectives: curriculum.learning_objectives },
-    }
-  },
-)
+    },
+  )
 
-server.registerTool(
-  'get_all_units',
-  {
-    title: 'List units',
-    description: 'Return all unit summaries (id, title, active).',
-    outputSchema: {
-      units: z.array(
-        z.object({
-          unit_id: z.string(),
-          title: z.string(),
-          is_active: z.boolean(),
-        }),
-      ),
+  srv.registerTool(
+    'get_curriculum_id_from_title',
+    {
+      title: 'Find curriculum IDs by title',
+      description:
+        'Search curricula by title using wildcards (*, ?) or JavaScript-style /regex/ patterns.',
+      inputSchema: {
+        curriculum_title: z
+          .string()
+          .min(1)
+          .describe('Title pattern, e.g. "Math*" or "/Math.+/" (case-insensitive).'),
+      },
+      outputSchema: {
+        matches: z.array(
+          z.object({
+            curriculum_id: z.string(),
+            curriculum_title: z.string(),
+          }),
+        ),
+      },
     },
-  },
-  async () => {
-    const units = await listUnits()
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text:
-            units.length > 0
-              ? units.map((u) => `${u.unit_id} • ${u.title}`).join('\n')
-              : 'No units available.',
-        },
-      ],
-      structuredContent: { units },
-    }
-  },
-)
+    async ({ curriculum_title }) => {
+      const matches = await findCurriculumIdsByTitle(curriculum_title)
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text:
+              matches.length > 0
+                ? matches.map((m) => `${m.curriculum_id} • ${m.curriculum_title}`).join('\n')
+                : 'No curricula matched the provided title.',
+          },
+        ],
+        structuredContent: { matches },
+      }
+    },
+  )
 
-server.registerTool(
-  'get_unit_by_title',
-  {
-    title: 'Find units by title',
-    description: 'Search units by title using wildcards (*, ?) or /regex/ patterns.',
-    inputSchema: {
-      unit_title: z
-        .string()
-        .min(1)
-        .describe('Title pattern, e.g. "Design*" or "/Design.+/" (case-insensitive).'),
+  srv.registerTool(
+    'get_all_los_and_scs_for_curriculum',
+    {
+      title: 'Learning objectives + success criteria',
+      description: 'Return the LO/SC tree for a curriculum.',
+      inputSchema: {
+        curriculum_id: z.string().min(1).describe('ID of the curriculum to inspect.'),
+      },
+      outputSchema: {
+        learning_objectives: z.array(
+          z.object({
+            learning_objective_id: z.string(),
+            title: z.string(),
+            active: z.boolean(),
+            spec_ref: z.string().nullable(),
+            order_index: z.number(),
+            scs: z.array(
+              z.object({
+                success_criteria_id: z.string(),
+                title: z.string(),
+                active: z.boolean(),
+                order_index: z.number(),
+              }),
+            ),
+          }),
+        ),
+      },
     },
-    outputSchema: {
-      matches: z.array(
-        z.object({
-          unit_id: z.string(),
-          unit_title: z.string(),
-        }),
-      ),
+    async ({ curriculum_id }) => {
+      const curriculum = await fetchCurriculumLosc(curriculum_id)
+      if (!curriculum) {
+        return {
+          content: [{ type: 'text' as const, text: `No curriculum found for id ${curriculum_id}.` }],
+          structuredContent: { learning_objectives: [] },
+        }
+      }
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `${curriculum.title} (${curriculum.curriculum_id}) • ${curriculum.learning_objectives.length} learning objectives.`,
+          },
+        ],
+        structuredContent: { learning_objectives: curriculum.learning_objectives },
+      }
     },
-  },
-  async ({ unit_title }) => {
-    const matches = await findUnitsByTitle(unit_title)
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text:
-            matches.length > 0
-              ? matches.map((m) => `${m.unit_id} • ${m.unit_title}`).join('\n')
-              : 'No units matched the provided title.',
-        },
-      ],
-      structuredContent: { matches },
-    }
-  },
-)
+  )
 
-server.registerTool(
-  'get_lessons_for_unit',
-  {
-    title: 'List lessons for a unit',
-    description: 'Return the lessons associated with a given unit.',
-    inputSchema: {
-      unit_id: z.string().min(1).describe('Unit identifier.'),
+  srv.registerTool(
+    'get_all_units',
+    {
+      title: 'List units',
+      description: 'Return all unit summaries (id, title, active).',
+      outputSchema: {
+        units: z.array(
+          z.object({
+            unit_id: z.string(),
+            title: z.string(),
+            is_active: z.boolean(),
+          }),
+        ),
+      },
     },
-    outputSchema: {
-      lessons: z.array(
-        z.object({
-          lesson_id: z.string(),
-          unit_id: z.string(),
-          title: z.string(),
-          is_active: z.boolean(),
-          order_index: z.number(),
-        }),
-      ),
+    async () => {
+      const units = await listUnits()
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text:
+              units.length > 0
+                ? units.map((u) => `${u.unit_id} • ${u.title}`).join('\n')
+                : 'No units available.',
+          },
+        ],
+        structuredContent: { units },
+      }
     },
-  },
-  async ({ unit_id }) => {
-    const lessons = await listLessonsForUnit(unit_id)
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text:
-            lessons.length > 0
-              ? lessons
-                  .map((l) => `${l.lesson_id} • ${l.title} (order=${l.order_index})`)
-                  .join('\n')
-              : `No lessons found for unit ${unit_id}.`,
-        },
-      ],
-      structuredContent: { lessons },
-    }
-  },
-)
+  )
 
-server.registerTool(
-  'status',
-  {
-    title: 'Server status',
-    description: 'Quick health probe that always returns "ok".',
-  },
-  async () => ({
-    content: [{ type: 'text' as const, text: 'ok' }],
-    structuredContent: { status: 'ok', timestamp: new Date().toISOString() },
-  }),
-)
+  srv.registerTool(
+    'get_unit_by_title',
+    {
+      title: 'Find units by title',
+      description: 'Search units by title using wildcards (*, ?) or /regex/ patterns.',
+      inputSchema: {
+        unit_title: z
+          .string()
+          .min(1)
+          .describe('Title pattern, e.g. "Design*" or "/Design.+/" (case-insensitive).'),
+      },
+      outputSchema: {
+        matches: z.array(
+          z.object({
+            unit_id: z.string(),
+            unit_title: z.string(),
+          }),
+        ),
+      },
+    },
+    async ({ unit_title }) => {
+      const matches = await findUnitsByTitle(unit_title)
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text:
+              matches.length > 0
+                ? matches.map((m) => `${m.unit_id} • ${m.unit_title}`).join('\n')
+                : 'No units matched the provided title.',
+          },
+        ],
+        structuredContent: { matches },
+      }
+    },
+  )
+
+  srv.registerTool(
+    'get_lessons_for_unit',
+    {
+      title: 'List lessons for a unit',
+      description: 'Return the lessons associated with a given unit.',
+      inputSchema: {
+        unit_id: z.string().min(1).describe('Unit identifier.'),
+      },
+      outputSchema: {
+        lessons: z.array(
+          z.object({
+            lesson_id: z.string(),
+            unit_id: z.string(),
+            title: z.string(),
+            is_active: z.boolean(),
+            order_index: z.number(),
+          }),
+        ),
+      },
+    },
+    async ({ unit_id }) => {
+      const lessons = await listLessonsForUnit(unit_id)
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text:
+              lessons.length > 0
+                ? lessons
+                    .map((l) => `${l.lesson_id} • ${l.title} (order=${l.order_index})`)
+                    .join('\n')
+                : `No lessons found for unit ${unit_id}.`,
+          },
+        ],
+        structuredContent: { lessons },
+      }
+    },
+  )
+
+  srv.registerTool(
+    'status',
+    {
+      title: 'Server status',
+      description: 'Quick health probe that always returns "ok".',
+    },
+    async () => ({
+      content: [{ type: 'text' as const, text: 'ok' }],
+      structuredContent: { status: 'ok', timestamp: new Date().toISOString() },
+    }),
+  )
+
+  return srv
+}
 
 // ---------------------------------------------------------------------------
 // Route handlers
@@ -341,10 +346,13 @@ async function handlePost(request: NextRequest): Promise<Response> {
     )
   }
 
+  const srv = createMcpServer()
   const transport = new SingleRequestTransport()
+  // Suppress unhandled rejection if connect() throws before send() is called
+  transport.response().catch(() => {})
 
   try {
-    await server.connect(transport)
+    await srv.connect(transport)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     transport.dispatch(body as any)
     const response = await transport.response()
