@@ -1,5 +1,5 @@
-import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js'
-import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
+import type { JSONRPCMessage, MessageExtraInfo } from '@modelcontextprotocol/sdk/types.js'
+import type { Transport, TransportSendOptions } from '@modelcontextprotocol/sdk/shared/transport.js'
 
 /**
  * Single-request transport for Next.js Route Handlers.
@@ -8,18 +8,13 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
  * IncomingMessage / ServerResponse, which Next.js App Router Route Handlers
  * don't expose. This transport implements the Transport interface using
  * a promise-based request/response cycle compatible with the Fetch API.
- *
- * Concurrency note: the module-level McpServer singleton sets _transport per
- * request. Concurrent requests can cause _transport to point to the wrong
- * transport when the server calls send(). This is acceptable for a
- * single-user dev tool where concurrent MCP requests are extremely unlikely.
  */
 export class SingleRequestTransport implements Transport {
   private readonly _responsePromise: Promise<JSONRPCMessage>
   private _resolveResponse!: (msg: JSONRPCMessage) => void
   private _rejectResponse!: (err: Error) => void
 
-  onmessage?: (message: JSONRPCMessage) => void
+  onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void
   onclose?: () => void
   onerror?: (error: Error) => void
 
@@ -28,6 +23,9 @@ export class SingleRequestTransport implements Transport {
       this._resolveResponse = resolve
       this._rejectResponse = reject
     })
+    this.onerror = (err) => {
+      this._rejectResponse(err)
+    }
   }
 
   async start(): Promise<void> {
@@ -35,11 +33,12 @@ export class SingleRequestTransport implements Transport {
   }
 
   async close(): Promise<void> {
+    this._rejectResponse(new Error('Transport closed before response was sent'))
     this.onclose?.()
   }
 
   /** Called by McpServer to send a response back to the client. */
-  async send(message: JSONRPCMessage): Promise<void> {
+  async send(message: JSONRPCMessage, _options?: TransportSendOptions): Promise<void> {
     this._resolveResponse(message)
   }
 
