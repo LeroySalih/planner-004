@@ -13,6 +13,7 @@ export class SingleRequestTransport implements Transport {
   private readonly _responsePromise: Promise<JSONRPCMessage>
   private _resolveResponse!: (msg: JSONRPCMessage) => void
   private _rejectResponse!: (err: Error) => void
+  private _sent = false
 
   onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void
   onclose?: () => void
@@ -33,12 +34,15 @@ export class SingleRequestTransport implements Transport {
   }
 
   async close(): Promise<void> {
-    this._rejectResponse(new Error('Transport closed before response was sent'))
-    this.onclose?.()
+    if (!this._sent) {
+      this._rejectResponse(new Error('Transport closed before response was sent'))
+      this.onclose?.()
+    }
   }
 
   /** Called by McpServer to send a response back to the client. */
   async send(message: JSONRPCMessage, _options?: TransportSendOptions): Promise<void> {
+    this._sent = true
     this._resolveResponse(message)
   }
 

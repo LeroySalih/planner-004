@@ -94,7 +94,6 @@ server.registerTool(
       return {
         content: [{ type: 'text' as const, text: `Curriculum ${curriculum_id} was not found.` }],
         structuredContent: { curriculum: null },
-        isError: true,
       }
     }
     return {
@@ -181,14 +180,13 @@ server.registerTool(
       return {
         content: [{ type: 'text' as const, text: `No curriculum found for id ${curriculum_id}.` }],
         structuredContent: { learning_objectives: [] },
-        isError: true,
       }
     }
     return {
       content: [
         {
           type: 'text' as const,
-          text: `${curriculum.title} (${curriculum.curriculum_id}) • ${curriculum.learning_objectives.length} learning objectives.\n${JSON.stringify(curriculum, null, 2)}`,
+          text: `${curriculum.title} (${curriculum.curriculum_id}) • ${curriculum.learning_objectives.length} learning objectives.`,
         },
       ],
       structuredContent: { learning_objectives: curriculum.learning_objectives },
