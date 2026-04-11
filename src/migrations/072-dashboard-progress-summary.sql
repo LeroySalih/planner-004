@@ -1,7 +1,8 @@
 -- 072-dashboard-progress-summary.sql
 -- Returns per-class pupil counts in three score bands (green ≥70%, amber 40-69%, red <40%)
 -- for all classes where the given teacher is a member.
--- Note: in this schema group_membership contains pupils only; teachers access all active groups.
+-- Note: group_membership has no role column; teachers and pupils both appear as rows.
+-- We identify the teacher's groups by their user_id, then exclude them from pupil counts.
 
 CREATE OR REPLACE FUNCTION dashboard_class_progress_summary(p_teacher_id text)
 RETURNS TABLE (
@@ -13,18 +14,16 @@ RETURNS TABLE (
   red_count bigint
 ) AS $$
   WITH teacher_groups AS (
-    SELECT g.group_id
-    FROM groups g
-    WHERE coalesce(g.active, true) = true
-      AND EXISTS (
-        SELECT 1 FROM user_roles ur
-        WHERE ur.user_id = p_teacher_id AND ur.role_id = 'teacher'
-      )
+    SELECT gm.group_id
+    FROM group_membership gm
+    JOIN groups g ON g.group_id = gm.group_id AND coalesce(g.active, true) = true
+    WHERE gm.user_id = p_teacher_id
   ),
   pupil_members AS (
     SELECT gm.group_id, gm.user_id AS pupil_id
     FROM group_membership gm
     JOIN teacher_groups tg ON tg.group_id = gm.group_id
+    WHERE gm.user_id != p_teacher_id
   ),
   latest_submissions AS (
     SELECT DISTINCT ON (s.activity_id, s.user_id)
