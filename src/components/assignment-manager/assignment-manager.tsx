@@ -8,9 +8,8 @@ import { AssignmentGroupSelectorSidebar } from "./assignment-group-selector-side
 import { DateCommentsSidebar } from "./date-comments-sidebar"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Search, X, Eye, EyeOff } from "lucide-react"
-import { createWildcardRegExp, normalizeAssignmentWeek, normalizeDateOnly } from "@/lib/utils"
+import { Eye, EyeOff } from "lucide-react"
+import { normalizeAssignmentWeek, normalizeDateOnly } from "@/lib/utils"
 import type {
   Assignment,
   AssignmentChangeEvent,
@@ -153,48 +152,11 @@ export function AssignmentManager({
     [],
   )
 
-  const [searchFilter, setSearchFilter] = useState<string>("")
-
   const sidebarGroupId = selectedAssignment?.group_id ?? newAssignmentData?.groupId
   const sidebarGroupSubject = useMemo(() => {
     if (!sidebarGroupId) return undefined
     return groups.find((group:Group) => group.group_id === sidebarGroupId)?.subject
   }, [groups, sidebarGroupId])
-
-  const getFilteredAssignments = () => {
-    const term = searchFilter.trim()
-    if (!term) {
-      return assignments
-    }
-
-    const searchRegex = createWildcardRegExp(term)
-    if (!searchRegex) {
-      return assignments
-    }
-
-    return assignments.filter((assignment: Assignment) => {
-      const groupIdMatch = searchRegex.test(assignment.group_id)
-
-      const unit = units.find((u: Unit) => u.unit_id === assignment.unit_id)
-      const unitMatch = unit ? searchRegex.test(unit.title) : false
-
-      const startDateMatch = searchRegex.test(assignment.start_date)
-      const endDateMatch = searchRegex.test(assignment.end_date)
-
-      const group = groups.find((g) => g.group_id === assignment.group_id)
-      const subjectMatch = group ? searchRegex.test(group.subject) : false
-
-      return groupIdMatch || unitMatch || startDateMatch || endDateMatch || subjectMatch
-    })
-  }
-
-  const clearFilter = () => {
-    setSearchFilter("")
-  }
-
-  const hasActiveFilter = () => {
-    return searchFilter.trim() !== ""
-  }
 
   const isSameAssignment = (a: Assignment, b: Assignment) =>
     a.group_id === b.group_id && a.unit_id === b.unit_id && a.start_date === b.start_date
@@ -859,60 +821,12 @@ export function AssignmentManager({
     setEditingGroup(null)
   }
 
-  const getFilteredGroups = () => {
-    const term = searchFilter.trim()
-    if (!term) {
-      return groups
-    }
-
-    const filteredAssignments = getFilteredAssignments()
-    const groupsWithMatchingAssignments = new Set(filteredAssignments.map((a) => a.group_id))
-
-    const searchRegex = createWildcardRegExp(term)
-    if (!searchRegex) {
-      return groups
-    }
-
-    return groups.filter((group) => {
-      const hasMatchingAssignments = groupsWithMatchingAssignments.has(group.group_id)
-      const groupIdMatch = searchRegex.test(group.group_id)
-      const subjectMatch = searchRegex.test(group.subject)
-
-      return hasMatchingAssignments || groupIdMatch || subjectMatch
-    })
-  }
-
-  const filteredAssignments = getFilteredAssignments()
-  const filteredGroups = getFilteredGroups()
+  const filteredAssignments = assignments
+  const filteredGroups = groups
 
   return (
     <div className="space-y-6">
       
-
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            id="search-filter"
-            type="text"
-            value={searchFilter}
-            onChange={(e) => setSearchFilter(e.target.value)}
-            placeholder="Search by group name, unit title, date, or subject..."
-            className="pl-10"
-          />
-        </div>
-        {hasActiveFilter() && (
-          <Button
-            onClick={clearFilter}
-            variant="ghost"
-            size="sm"
-            className="h-9 px-3 hover:bg-muted"
-          >
-            <X className="h-4 w-4 mr-2" />
-            Clear
-          </Button>
-        )}
-      </div>
 
         <AssignmentGrid
           groups={filteredGroups}
