@@ -323,6 +323,16 @@ function createMcpServer(): McpServer {
 // Route handlers
 // ---------------------------------------------------------------------------
 
+/** JSON-RPC notifications have no `id` field and expect no response. */
+function isJsonRpcNotification(body: unknown): boolean {
+  return (
+    typeof body === 'object' &&
+    body !== null &&
+    !Array.isArray(body) &&
+    !('id' in body)
+  )
+}
+
 async function handlePost(request: NextRequest): Promise<Response> {
   const auth = verifyMcpAuthorization(request)
   if (!auth.authorized) {
@@ -344,6 +354,13 @@ async function handlePost(request: NextRequest): Promise<Response> {
       { jsonrpc: '2.0', error: { code: -32700, message: 'Parse error' }, id: null },
       { status: 400 },
     )
+  }
+
+  // Notifications (no `id` field) must return 202 Accepted with no body.
+  // Awaiting transport.response() for a notification hangs indefinitely
+  // because the SDK never calls send() for fire-and-forget messages.
+  if (isJsonRpcNotification(body)) {
+    return new NextResponse(null, { status: 202 })
   }
 
   const srv = createMcpServer()
@@ -373,10 +390,11 @@ export async function POST(request: NextRequest): Promise<Response> {
 }
 
 /**
- * Claude Code may send a GET request to establish an SSE stream for
- * server-to-client push notifications. We don't use server push, so we
- * return an empty SSE stream that closes immediately — signalling to the
- * client to fall back to request/response mode for all communication.
+ * Claude Code establishes a GET SSE stream before sending POST requests.
+ * If we close the stream immediately, Claude Code interprets it as a dropped
+ * connection and retries endlessly instead of falling through to POST.
+ * We keep the stream alive with periodic comment pings and let the client
+ * drive the MCP protocol via POST requests as normal.
  */
 export async function GET(request: NextRequest): Promise<Response> {
   const auth = verifyMcpAuthorization(request)
@@ -384,9 +402,27 @@ export async function GET(request: NextRequest): Promise<Response> {
     return new NextResponse(null, { status: 401 })
   }
 
+  const encoder = new TextEncoder()
+
   const stream = new ReadableStream({
     start(controller) {
-      controller.close()
+      // Acknowledge the SSE connection.
+      controller.enqueue(encoder.encode(': connected\n\n'))
+
+      // Keepalive ping every 15 s to prevent proxy/client timeouts.
+      const interval = setInterval(() => {
+        try {
+          controller.enqueue(encoder.encode(': ping\n\n'))
+        } catch {
+          clearInterval(interval)
+        }
+      }, 15_000)
+
+      // Clean up when the client disconnects.
+      request.signal.addEventListener('abort', () => {
+        clearInterval(interval)
+        try { controller.close() } catch { /* already closed */ }
+      })
     },
   })
 
