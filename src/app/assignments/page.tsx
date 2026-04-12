@@ -116,6 +116,7 @@ export default async function Home({
         <ClassFilter allGroups={allGroups} selectedGroupIds={resolvedGroupIds} />
       </div>
       <AssignmentManager
+        key={bootstrapGroupIds.join(",")}
         groups={groups}
         subjects={subjects}
         assignments={assignments}
