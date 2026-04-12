@@ -16,6 +16,7 @@ export function ClassFilter({ allGroups, selectedGroupIds: initialSelectedGroupI
   const [selectedGroupIds, setSelectedGroupIds] = useState(initialSelectedGroupIds)
   const [inputValue, setInputValue] = useState("")
   const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [highlightedIndex, setHighlightedIndex] = useState(-1)
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const navigate = useCallback(
@@ -39,6 +40,7 @@ export function ClassFilter({ allGroups, selectedGroupIds: initialSelectedGroupI
       navigate([...selectedGroupIds, groupId])
     }
     setInputValue("")
+    setHighlightedIndex(-1)
   }
 
   const removeGroup = (groupId: string) => {
@@ -52,8 +54,26 @@ export function ClassFilter({ allGroups, selectedGroupIds: initialSelectedGroupI
     return g.group_id.toLowerCase().includes(term) || g.subject.toLowerCase().includes(term)
   })
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!dropdownOpen || filteredGroups.length === 0) return
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault()
+      setHighlightedIndex((i) => (i + 1) % filteredGroups.length)
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault()
+      setHighlightedIndex((i) => (i <= 0 ? filteredGroups.length - 1 : i - 1))
+    } else if (e.key === "Tab" && highlightedIndex >= 0) {
+      e.preventDefault()
+      addGroup(filteredGroups[highlightedIndex].group_id)
+    }
+  }
+
   const handleBlur = () => {
-    closeTimerRef.current = setTimeout(() => setDropdownOpen(false), 150)
+    closeTimerRef.current = setTimeout(() => {
+      setDropdownOpen(false)
+      setHighlightedIndex(-1)
+    }, 150)
   }
 
   const handleDropdownMouseDown = () => {
@@ -92,9 +112,11 @@ export function ClassFilter({ allGroups, selectedGroupIds: initialSelectedGroupI
           onChange={(e) => {
             setInputValue(e.target.value)
             setDropdownOpen(true)
+            setHighlightedIndex(-1)
           }}
           onFocus={() => setDropdownOpen(true)}
           onBlur={handleBlur}
+          onKeyDown={handleKeyDown}
           placeholder="Filter classes…"
           className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
         />
@@ -105,12 +127,14 @@ export function ClassFilter({ allGroups, selectedGroupIds: initialSelectedGroupI
             onMouseDown={handleDropdownMouseDown}
             className="absolute z-50 mt-1 w-full rounded-md border bg-popover shadow-md max-h-[260px] overflow-y-auto"
           >
-            {filteredGroups.map((group) => (
+            {filteredGroups.map((group, index) => (
               <button
                 key={group.group_id}
                 type="button"
                 onClick={() => addGroup(group.group_id)}
-                className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-accent text-left"
+                className={`flex w-full items-center justify-between px-3 py-2 text-sm text-left ${
+                  index === highlightedIndex ? "bg-accent" : "hover:bg-accent"
+                }`}
               >
                 <span>{group.group_id}</span>
                 <span className="text-muted-foreground text-xs">{group.subject}</span>
