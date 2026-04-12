@@ -29,7 +29,6 @@ export function ClassFilter({ allGroups, selectedGroupIds: initialSelectedGroupI
         }
         const url = params.toString() ? `${pathname}?${params.toString()}` : pathname
         router.replace(url)
-        router.refresh()
       })
     },
     [router, pathname],

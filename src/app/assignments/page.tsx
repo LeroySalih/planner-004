@@ -23,20 +23,25 @@ export default async function Home({
     subject: g.subject,
   }))
 
-  // Determine selected classes from query params; default to all active groups
+  // Determine explicitly selected classes from query params
   const params = await searchParams
   const classesParam = params.classes
-  const selectedGroupIds = classesParam
+  const explicitGroupIds = classesParam
     ? classesParam.split(",").map((c) => c.trim()).filter(Boolean)
-    : allGroups.map((g) => g.group_id)
+    : []
 
-  // Resolve group IDs case-insensitively against known groups
+  // Resolve explicit IDs case-insensitively against known groups
   const groupIdMap = new Map(allGroups.map((g) => [g.group_id.toLowerCase(), g.group_id]))
-  const resolvedGroupIds = selectedGroupIds
+  const resolvedGroupIds = explicitGroupIds
     .map((id) => groupIdMap.get(id.toLowerCase()))
     .filter((id): id is string => id != null)
 
-  const { data: bootstrapData, error: bootstrapError } = await readAssignmentsBootstrapForGroupsAction(resolvedGroupIds)
+  // Bootstrap uses explicit selection, or all active groups when none selected
+  const bootstrapGroupIds = resolvedGroupIds.length > 0
+    ? resolvedGroupIds
+    : allGroups.map((g) => g.group_id)
+
+  const { data: bootstrapData, error: bootstrapError } = await readAssignmentsBootstrapForGroupsAction(bootstrapGroupIds)
 
   if (bootstrapError || !bootstrapData) {
     return (
