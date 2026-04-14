@@ -94,33 +94,38 @@ export async function GET(
 
   // Convert HEIC to JPEG for browser compatibility
   if (contentType === "image/heic" || fileName.toLowerCase().endsWith(".heic")) {
+    // Buffer the stream first — we need the bytes whether conversion succeeds or fails.
+    // If conversion fails we cannot re-use the consumed stream, so we always fall back
+    // to serving the buffered HEIC directly rather than the original stream object.
+    const chunks: Buffer[] = []
+    for await (const chunk of stream as any) {
+      chunks.push(Buffer.from(chunk))
+    }
+    const heicBuffer = Buffer.concat(chunks)
+
     try {
-      // Read stream into buffer
-      const chunks: Buffer[] = []
-
-      for await (const chunk of stream as any) {
-        chunks.push(Buffer.from(chunk))
-      }
-
-      const heicBuffer = Buffer.concat(chunks)
-
-      // Convert HEIC to JPEG
+      const inputBuffer = new Uint8Array(heicBuffer).buffer
       const jpegBuffer = await heicConvert({
-        buffer: heicBuffer.buffer.slice(heicBuffer.byteOffset, heicBuffer.byteOffset + heicBuffer.byteLength),
+        buffer: inputBuffer,
         format: "JPEG",
         quality: 0.92,
       })
 
-      // Set JPEG headers
       headers.set("Content-Type", "image/jpeg")
-      headers.set("Content-Length", String(jpegBuffer.byteLength))
+      headers.set("Content-Length", String((jpegBuffer as ArrayBuffer).byteLength))
       const jpegFileName = fileName.replace(/\.heic$/i, ".jpg")
       headers.set("Content-Disposition", `${shouldInline ? "inline" : "attachment"}; filename="${jpegFileName}"`)
 
       return new Response(jpegBuffer as any, { headers })
     } catch (conversionError) {
       console.error("[files] HEIC conversion failed", { fileName, error: conversionError })
-      // Fall back to serving original file
+      // Serve original HEIC from the buffer we already read (stream is consumed)
+      headers.set("Content-Type", "image/heic")
+      if (typeof typedMetadata.size_bytes === "number") {
+        headers.set("Content-Length", String(typedMetadata.size_bytes))
+      }
+      headers.set("Content-Disposition", `attachment; filename="${fileName}"`)
+      return new Response(heicBuffer, { headers })
     }
   }
 
