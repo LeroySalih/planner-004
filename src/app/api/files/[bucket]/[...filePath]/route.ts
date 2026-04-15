@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
-import heicConvert from "heic-convert"
+import sharp from "sharp"
 
 import { getAuthenticatedProfile } from "@/lib/auth"
 import { query } from "@/lib/db"
@@ -104,19 +104,14 @@ export async function GET(
     const heicBuffer = Buffer.concat(chunks)
 
     try {
-      const inputBuffer = new Uint8Array(heicBuffer).buffer
-      const jpegBuffer = await heicConvert({
-        buffer: inputBuffer,
-        format: "JPEG",
-        quality: 0.92,
-      })
+      const jpegBuffer = await sharp(heicBuffer).jpeg({ quality: 92 }).toBuffer()
 
       headers.set("Content-Type", "image/jpeg")
-      headers.set("Content-Length", String((jpegBuffer as ArrayBuffer).byteLength))
+      headers.set("Content-Length", String(jpegBuffer.byteLength))
       const jpegFileName = fileName.replace(/\.heic$/i, ".jpg")
       headers.set("Content-Disposition", `${shouldInline ? "inline" : "attachment"}; filename="${jpegFileName}"`)
 
-      return new Response(jpegBuffer as any, { headers })
+      return new Response(jpegBuffer, { headers })
     } catch (conversionError) {
       console.error("[files] HEIC conversion failed", { fileName, error: conversionError })
       // Serve original HEIC from the buffer we already read (stream is consumed)
