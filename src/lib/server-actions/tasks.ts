@@ -110,7 +110,7 @@ export async function readPupilTasksAction(userId: string): Promise<{
           and (la.start_date::date + interval '7 days') < now()
       ),
       scorable_activities as (
-        select a.activity_id, a.lesson_id
+        select a.activity_id, a.lesson_id, a.type as activity_type
         from activities a
         where a.lesson_id in (select lesson_id from pupil_lessons)
           and a.type = any($2::text[])
