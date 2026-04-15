@@ -65,6 +65,7 @@
     "embla-carousel-react": "8.6.0",
     "exceljs": "^4.4.0",
     "geist": "^1.5.1",
+    "heic2any": "^0.0.4",
     "input-otp": "1.4.2",
     "isomorphic-dompurify": "^3.1.0",
     "lucide-react": "^0.556.0",

@@ -111,7 +111,7 @@ export async function GET(
       const jpegFileName = fileName.replace(/\.heic$/i, ".jpg")
       headers.set("Content-Disposition", `${shouldInline ? "inline" : "attachment"}; filename="${jpegFileName}"`)
 
-      return new Response(jpegBuffer, { headers })
+      return new Response(new Uint8Array(jpegBuffer), { headers })
     } catch (conversionError) {
       console.error("[files] HEIC conversion failed", { fileName, error: conversionError })
       // Serve original HEIC from the buffer we already read (stream is consumed)
@@ -120,7 +120,7 @@ export async function GET(
         headers.set("Content-Length", String(typedMetadata.size_bytes))
       }
       headers.set("Content-Disposition", `attachment; filename="${fileName}"`)
-      return new Response(heicBuffer, { headers })
+      return new Response(new Uint8Array(heicBuffer), { headers })
     }
   }
 
