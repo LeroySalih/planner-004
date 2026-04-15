@@ -1,7 +1,7 @@
 "use server"
 
 import { GoogleGenerativeAI } from "@google/generative-ai"
-import heicConvert from "heic-convert"
+import sharp from "sharp"
 import { requireAuthenticatedProfile } from "@/lib/auth"
 import { query } from "@/lib/db"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
@@ -31,11 +31,8 @@ async function toJpegIfHeic(
   mimeType: string,
 ): Promise<{ buffer: Buffer; mimeType: string }> {
   if (mimeType === "image/heic" || mimeType === "image/heif") {
-    // heic-convert types say ArrayBufferLike but the underlying heic-decode
-    // spreads the buffer (String.fromCharCode(...array.slice(...))), so it
-    // needs an iterable Buffer/Uint8Array, not a raw ArrayBuffer.
-    const output = await heicConvert({ buffer: buffer as unknown as ArrayBuffer, format: "JPEG", quality: 0.8 })
-    return { buffer: Buffer.from(output), mimeType: "image/jpeg" }
+    const output = await sharp(buffer).jpeg({ quality: 80 }).toBuffer()
+    return { buffer: output, mimeType: "image/jpeg" }
   }
   return { buffer, mimeType }
 }
