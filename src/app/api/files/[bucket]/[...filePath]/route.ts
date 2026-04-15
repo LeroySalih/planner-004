@@ -15,7 +15,7 @@ async function heicToJpeg(input: Buffer): Promise<Buffer> {
   const outPath = join(tmpdir(), `${id}.jpg`)
   try {
     await writeFile(inPath, input)
-    await execFileAsync("ffmpeg", ["-y", "-i", inPath, "-q:v", "2", outPath])
+    await execFileAsync("heif-convert", ["-q", "92", inPath, outPath])
     return await readFile(outPath)
   } finally {
     await unlink(inPath).catch(() => {})

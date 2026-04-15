@@ -30,8 +30,9 @@ ENV NODE_ENV production
 # Uncomment the following line in case you want to disable telemetry during runtime.
 # ENV NEXT_TELEMETRY_DISABLED 1
 
-# ffmpeg: used to convert HEIC/HEIF images to JPEG at runtime
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+# libheif-examples: provides heif-convert for HEIC/HEIF → JPEG conversion
+# libde265-0: H.265/HEVC decoder required by libheif to read iPhone HEIC files
+RUN apt-get update && apt-get install -y --no-install-recommends libheif-examples libde265-0 && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system --gid 1001 nodejs
 RUN useradd --system --uid 1001 nextjs

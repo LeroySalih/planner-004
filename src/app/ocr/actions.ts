@@ -43,7 +43,7 @@ async function toJpegIfHeic(
     const outPath = join(tmpdir(), `${id}.jpg`)
     try {
       await writeFile(inPath, buffer)
-      await execFileAsync("ffmpeg", ["-y", "-i", inPath, "-q:v", "2", outPath])
+      await execFileAsync("heif-convert", ["-q", "80", inPath, outPath])
       const output = await readFile(outPath)
       return { buffer: output, mimeType: "image/jpeg" }
     } finally {
