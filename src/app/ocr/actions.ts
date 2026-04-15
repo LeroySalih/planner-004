@@ -1,7 +1,14 @@
 "use server"
 
 import { GoogleGenerativeAI } from "@google/generative-ai"
-import sharp from "sharp"
+import { execFile } from "node:child_process"
+import { writeFile, readFile, unlink } from "node:fs/promises"
+import { join } from "node:path"
+import { tmpdir } from "node:os"
+import { randomUUID } from "node:crypto"
+import { promisify } from "node:util"
+
+const execFileAsync = promisify(execFile)
 import { requireAuthenticatedProfile } from "@/lib/auth"
 import { query } from "@/lib/db"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
@@ -31,8 +38,18 @@ async function toJpegIfHeic(
   mimeType: string,
 ): Promise<{ buffer: Buffer; mimeType: string }> {
   if (mimeType === "image/heic" || mimeType === "image/heif") {
-    const output = await sharp(buffer).jpeg({ quality: 80 }).toBuffer()
-    return { buffer: output, mimeType: "image/jpeg" }
+    const id = randomUUID()
+    const inPath = join(tmpdir(), `${id}.heic`)
+    const outPath = join(tmpdir(), `${id}.jpg`)
+    try {
+      await writeFile(inPath, buffer)
+      await execFileAsync("ffmpeg", ["-y", "-i", inPath, "-q:v", "2", outPath])
+      const output = await readFile(outPath)
+      return { buffer: output, mimeType: "image/jpeg" }
+    } finally {
+      await unlink(inPath).catch(() => {})
+      await unlink(outPath).catch(() => {})
+    }
   }
   return { buffer, mimeType }
 }

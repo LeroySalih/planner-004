@@ -1,6 +1,27 @@
 import { createHash } from "node:crypto"
+import { execFile } from "node:child_process"
+import { writeFile, readFile, unlink } from "node:fs/promises"
+import { join } from "node:path"
+import { tmpdir } from "node:os"
+import { randomUUID } from "node:crypto"
+import { promisify } from "node:util"
 import { NextRequest, NextResponse } from "next/server"
-import sharp from "sharp"
+
+const execFileAsync = promisify(execFile)
+
+async function heicToJpeg(input: Buffer): Promise<Buffer> {
+  const id = randomUUID()
+  const inPath = join(tmpdir(), `${id}.heic`)
+  const outPath = join(tmpdir(), `${id}.jpg`)
+  try {
+    await writeFile(inPath, input)
+    await execFileAsync("ffmpeg", ["-y", "-i", inPath, "-q:v", "2", outPath])
+    return await readFile(outPath)
+  } finally {
+    await unlink(inPath).catch(() => {})
+    await unlink(outPath).catch(() => {})
+  }
+}
 
 import { getAuthenticatedProfile } from "@/lib/auth"
 import { query } from "@/lib/db"
@@ -104,7 +125,7 @@ export async function GET(
     const heicBuffer = Buffer.concat(chunks)
 
     try {
-      const jpegBuffer = await sharp(heicBuffer).jpeg({ quality: 92 }).toBuffer()
+      const jpegBuffer = await heicToJpeg(heicBuffer)
 
       headers.set("Content-Type", "image/jpeg")
       headers.set("Content-Length", String(jpegBuffer.byteLength))
