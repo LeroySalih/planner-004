@@ -52,7 +52,6 @@ export function TopBar() {
           variant="ghost"
           size="icon"
           aria-label="Open navigation menu"
-          className="md:hidden"
           onClick={() => setMobileOpen(true)}
         >
           <Menu className="size-5" />

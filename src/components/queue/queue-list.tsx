@@ -31,6 +31,13 @@ type QueueListProps = {
 }
 
 type StatusFilter = SubmissionStatus | "all"
+type FileTypeFilter = "lightburn" | "3dprint" | "all"
+
+const fileTypeOptions: Array<{ value: FileTypeFilter; label: string; extensions: string[] }> = [
+  { value: "lightburn", label: "Lightburn (.lbrn2, .dxf)", extensions: [".lbrn2", ".dxf"] },
+  { value: "3dprint", label: "3D Print (.stl)", extensions: [".stl"] },
+  { value: "all", label: "All (*)", extensions: [] },
+]
 
 const statusOptions: Array<{ value: SubmissionStatus; label: string }> = [
   { value: "inprogress", label: "In progress" },
@@ -56,6 +63,7 @@ export function QueueList({ items }: QueueListProps) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("submitted")
   const [ownerFilter, setOwnerFilter] = useState<string>("all")
   const [lessonActivityFilter, setLessonActivityFilter] = useState("")
+  const [fileTypeFilter, setFileTypeFilter] = useState<FileTypeFilter>("lightburn")
 
   useEffect(() => {
     setQueueItems(items)
@@ -122,6 +130,8 @@ export function QueueList({ items }: QueueListProps) {
       return !query || haystack.includes(query)
     }
 
+    const fileTypeExtensions = fileTypeOptions.find((o) => o.value === fileTypeFilter)?.extensions ?? []
+
     return queueItems.filter((item) => {
       const statusMatch = statusFilter === "all" ? true : item.status === statusFilter
       const ownerMatch = ownerFilter === "all" ? true : item.pupilId === ownerFilter
@@ -131,9 +141,12 @@ export function QueueList({ items }: QueueListProps) {
           .filter(Boolean)
           .some((value) => value?.toLowerCase().includes(lessonActivityQuery))
       const queryMatch = matchesQuery(item)
-      return statusMatch && ownerMatch && lessonActivityMatch && queryMatch
+      const fileTypeMatch =
+        fileTypeFilter === "all" ||
+        fileTypeExtensions.some((ext) => item.fileName?.toLowerCase().endsWith(ext))
+      return statusMatch && ownerMatch && lessonActivityMatch && queryMatch && fileTypeMatch
     })
-  }, [filterText, lessonActivityFilter, ownerFilter, queueItems, statusFilter])
+  }, [filterText, fileTypeFilter, lessonActivityFilter, ownerFilter, queueItems, statusFilter])
 
   const groupedItems = useMemo(() => {
     const compareSubmittedAt = (a: UploadSubmissionFile, b: UploadSubmissionFile) => {
@@ -339,6 +352,18 @@ export function QueueList({ items }: QueueListProps) {
           <SelectContent>
             <SelectItem value="all">All statuses</SelectItem>
             {statusOptions.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={fileTypeFilter} onValueChange={(value) => setFileTypeFilter(value as FileTypeFilter)}>
+          <SelectTrigger className="w-52">
+            <SelectValue placeholder="File type" />
+          </SelectTrigger>
+          <SelectContent>
+            {fileTypeOptions.map((option) => (
               <SelectItem key={option.value} value={option.value}>
                 {option.label}
               </SelectItem>

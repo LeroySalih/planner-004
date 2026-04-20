@@ -201,11 +201,11 @@ export function SideNav({ onNavigate }: SideNavProps) {
                       <NavLink href="/groups" onNavigate={onNavigate}>Groups</NavLink>
                       <NavLink href="/ai-queue" onNavigate={onNavigate}>AI Queue</NavLink>
                       <NavLink href="/admin/safety-logs" onNavigate={onNavigate}>Safety Logs</NavLink>
-                      <NavLink href="/queue" onNavigate={onNavigate}>Queue</NavLink>
+                      <NavLink href="/queue" onNavigate={onNavigate}>File Queue</NavLink>
                     </>
                   )}
                   {isTechnician && !isAdmin && (
-                    <NavLink href="/queue" onNavigate={onNavigate}>Queue</NavLink>
+                    <NavLink href="/queue" onNavigate={onNavigate}>File Queue</NavLink>
                   )}
                 </div>
               </AccordionContent>
