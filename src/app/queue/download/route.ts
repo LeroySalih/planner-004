@@ -43,6 +43,7 @@ const DownloadItemSchema = z.object({
   activityId: z.string().min(1),
   pupilId: z.string().min(1),
   fileName: z.string().min(1),
+  pupilName: z.string().optional(),
 })
 
 async function streamToBuffer(readable: NodeJS.ReadableStream): Promise<Buffer> {
@@ -182,7 +183,14 @@ export async function POST(request: Request) {
   const stream = new PassThrough()
   archive.pipe(stream)
 
-  await appendFilesToArchive(parsed.data.items, storage, archive)
+  await appendFilesToArchive(
+    parsed.data.items.map((item) => ({
+      ...item,
+      folderName: item.pupilName ?? item.pupilId,
+    })),
+    storage,
+    archive,
+  )
 
   void archive.finalize()
 

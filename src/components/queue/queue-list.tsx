@@ -302,6 +302,7 @@ export function QueueList({ items }: QueueListProps) {
               activityId: item.activityId,
               pupilId: item.pupilId,
               fileName: item.fileName,
+              pupilName: item.pupilName ?? undefined,
             })),
           }),
         })
