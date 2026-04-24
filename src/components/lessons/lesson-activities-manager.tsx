@@ -35,6 +35,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Switch } from "@/components/ui/switch"
 import {
   getImageBody,
+  computeSectionIndexMap,
   getFeedbackBody,
   getMcqBody,
   getShortTextBody,
@@ -78,6 +79,7 @@ const ACTIVITY_TYPES = [
   { value: "upload-url", label: "Upload URL" },
   { value: "display-image", label: "Display image" },
   { value: "display-flashcards", label: "Flashcards" },
+  { value: "display-section", label: "Display Section" },
   { value: "do-flashcards", label: "Do Flashcards" },
   { value: "show-video", label: "Show video" },
   { value: "multiple-choice-question", label: "Multiple choice question" },
@@ -238,6 +240,11 @@ export function LessonActivitiesManager({
       return acc
     }, {})
   }, [])
+
+  const sectionIndexMap = useMemo(
+    () => computeSectionIndexMap(activities),
+    [activities],
+  )
 
   useEffect(() => {
     const targets = activities
@@ -1289,6 +1296,7 @@ ${scs[0] ? `SC: ${scs[0].title}` : ""}
                   summativeDisabled,
                   onImageClick: (url, title) => openImageModal(url, title ?? activity.title ?? "Activity image"),
                   onDownloadFile: canDownloadFiles ? () => handleFileDownload(activity) : undefined,
+                  sectionIndex: sectionIndexMap.get(activity.activity_id),
                 })
                 const inlinePreview = (() => {
                   if (isDisplayImage) return preview
@@ -1628,6 +1636,14 @@ function extractUploadInstructions(activity: LessonActivity): string {
   return typeof value === "string" ? value : ""
 }
 
+function extractDescription(activity: LessonActivity): string {
+  if (!activity.body_data || typeof activity.body_data !== "object") {
+    return ""
+  }
+  const value = (activity.body_data as Record<string, unknown>).description
+  return typeof value === "string" ? value : ""
+}
+
 function extractFlashcardsText(activity: LessonActivity): string {
   if (!activity.body_data || typeof activity.body_data !== "object") {
     return ""
@@ -1680,6 +1696,9 @@ function buildBodyData(
   if (type === "display-flashcards") {
     return { lines: text }
   }
+  if (type === "display-section") {
+    return { description: text }
+  }
   return fallback ?? null
 }
 
@@ -1692,6 +1711,7 @@ function renderActivityPreview(
     summativeDisabled?: boolean
     onImageClick?: (url: string, title: string | null) => void
     onDownloadFile?: () => void
+    sectionIndex?: number
   },
 ) {
   return (
@@ -1705,6 +1725,7 @@ function renderActivityPreview(
       summativeDisabled={options?.summativeDisabled}
       onImageClick={options?.onImageClick}
       onDownloadFile={options?.onDownloadFile}
+      sectionIndex={options?.sectionIndex}
     />
   )
 }
@@ -2547,7 +2568,15 @@ function LessonActivityEditorSheet({
   useEffect(() => {
     setRawBodyError(null)
     if (isCreateMode) {
-      if (type === "text" || type === "text-question" || type === "long-text-question" || type === "upload-file" || type === "sketch-render" || type === "display-flashcards") {
+      if (
+        type === "text" ||
+        type === "text-question" ||
+        type === "long-text-question" ||
+        type === "upload-file" ||
+        type === "sketch-render" ||
+        type === "display-flashcards" ||
+        type === "display-section"
+      ) {
         setVideoUrl("")
         setText("")
         setRawBody("")
@@ -2650,6 +2679,13 @@ function LessonActivityEditorSheet({
     if (type === "sketch-render") {
       setVideoUrl("")
       setText(activity ? extractUploadInstructions(activity) : "")
+      setRawBody("")
+      return
+    }
+
+    if (type === "display-section") {
+      setVideoUrl("")
+      setText(activity ? extractDescription(activity) : "")
       setRawBody("")
       return
     }
@@ -3294,10 +3330,14 @@ function LessonActivityEditorSheet({
             )}
           </div>
 
-          {type === "text" || type === "text-question" || type === "long-text-question" || type === "upload-file" || type === "sketch-render" ? (
+          {type === "text" || type === "text-question" || type === "long-text-question" || type === "upload-file" || type === "sketch-render" || type === "display-section" ? (
             <div className="space-y-2">
               <Label>
-                {type === "upload-file" ? "Instructions for pupils" : "Instructions"}
+                {type === "upload-file"
+                  ? "Instructions for pupils"
+                  : type === "display-section"
+                  ? "Section description"
+                  : "Instructions"}
               </Label>
               <RichTextEditor
                 id="activity-text"
@@ -3306,6 +3346,8 @@ function LessonActivityEditorSheet({
                 placeholder={
                   type === "upload-file"
                     ? "Explain what pupils should upload"
+                    : type === "display-section"
+                    ? "Describe what this section covers"
                     : "Enter the activity instructions"
                 }
                 disabled={isPending}
