@@ -1103,6 +1103,12 @@ export const ReviewOthersWorkActivityBodySchema = z.object({
 
 export type ReviewOthersWorkActivityBody = z.infer<typeof ReviewOthersWorkActivityBodySchema>;
 
+export const DisplaySectionActivityBodySchema = z.object({
+    description: z.string().default(""),
+});
+
+export type DisplaySectionActivityBody = z.infer<typeof DisplaySectionActivityBodySchema>;
+
 export const PeerReviewCommentSchema = z.object({
     comment_id: z.string(),
     review_activity_id: z.string(),
