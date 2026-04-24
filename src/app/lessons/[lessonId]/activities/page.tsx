@@ -4,6 +4,7 @@ import { ArrowLeft, ChevronRight } from "lucide-react"
 
 import { ActivityShareButton } from "@/components/activity-share-dialog"
 import { LessonActivityView } from "@/components/lessons/activity-view"
+import { computeSectionIndexMap } from "@/components/lessons/activity-view/utils"
 import { LessonPlanDownloadButton } from "@/components/pdf/lesson-plan-download-button"
 import { Button } from "@/components/ui/button"
 import { resolveActivityAssets } from "@/lib/activity-assets"
@@ -58,6 +59,8 @@ export default async function LessonActivitiesOverviewPage({
   }))
 
   const { activitiesWithPreview } = await resolveActivityAssets(lesson.lesson_id, orderedActivities)
+
+  const sectionIndexMap = computeSectionIndexMap(orderedActivities)
 
   const unitTitle = unitResult.data?.title ?? lesson.unit_id
 
@@ -173,6 +176,7 @@ export default async function LessonActivitiesOverviewPage({
                             activity={activity}
                             lessonId={lesson.lesson_id}
                             resolvedImageUrl={imageUrl}
+                            sectionIndex={sectionIndexMap.get(activity.activity_id)}
                           />
                         </div>
                         <div className="flex shrink-0 items-center gap-1">
