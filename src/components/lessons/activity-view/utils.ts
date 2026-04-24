@@ -333,7 +333,7 @@ export function getRichTextMarkup(value: string): string | null {
     // Usually it returns string if no async options are on).
     // We force it to be treated as string for safety or handle promise if needed.
     // Standard basic usage:
-    const parsed = marked.parse(cleaned, { async: false }) as string;
+    const parsed = marked.parse(cleaned, { async: false, breaks: true }) as string;
     return parsed;
   } catch (error) {
     console.error("Failed to parse markdown:", error);
