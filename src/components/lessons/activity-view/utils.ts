@@ -382,3 +382,37 @@ export function getYouTubeThumbnailUrl(
   }
   return `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
 }
+
+export interface DisplaySectionBody {
+  description: string;
+}
+
+export function getDisplaySectionBody(
+  activity: LessonActivity,
+): DisplaySectionBody {
+  if (!activity.body_data || typeof activity.body_data !== "object") {
+    return { description: "" };
+  }
+  const record = activity.body_data as Record<string, unknown>;
+  const description = typeof record.description === "string"
+    ? record.description
+    : "";
+  return { description };
+}
+
+export function computeSectionIndexMap(
+  activities: LessonActivity[],
+): Map<string, number> {
+  const sorted = [...activities].sort(
+    (a, b) => (a.order_by ?? 0) - (b.order_by ?? 0),
+  );
+  const map = new Map<string, number>();
+  let index = 0;
+  for (const activity of sorted) {
+    if (activity.type === "display-section" && typeof activity.activity_id === "string") {
+      index += 1;
+      map.set(activity.activity_id, index);
+    }
+  }
+  return map;
+}

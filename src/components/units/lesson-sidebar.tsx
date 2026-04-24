@@ -26,6 +26,7 @@ import {
 import { Download, ExternalLink, GripVertical, Trash2, X } from "lucide-react"
 import { LessonActivityView } from "@/components/lessons/activity-view"
 import {
+  computeSectionIndexMap,
   getActivityFileUrlValue,
   getActivityTextValue,
   getMcqBody,
@@ -2474,6 +2475,11 @@ export function LessonPresentation({
     }
   }, [activity, fetchActivityFileUrl])
 
+  const sectionIndexMap = useMemo(
+    () => computeSectionIndexMap(activities),
+    [activities],
+  )
+
   const canGoPrevious = currentIndex >= 0
   const canGoNext = activities.length > 0 && (isOverview || currentIndex < activities.length - 1)
   const nextButtonLabel = isOverview ? "Start Lesson" : "Next"
@@ -2519,6 +2525,7 @@ export function LessonPresentation({
               voicePlayback={{ url: voicePlayback.url, isLoading: voicePlayback.loading }}
               fetchActivityFileUrl={fetchActivityFileUrl}
               viewerCanReveal
+              sectionIndex={sectionIndexMap.get(activity.activity_id)}
             />
           </div>
         ) : null}
@@ -2636,6 +2643,7 @@ export function LessonPresentation({
                   voicePlayback={{ url: voicePlayback.url, isLoading: voicePlayback.loading }}
                   fetchActivityFileUrl={fetchActivityFileUrl}
                   viewerCanReveal
+                  sectionIndex={sectionIndexMap.get(activity.activity_id)}
                 />
               </div>
             </div>

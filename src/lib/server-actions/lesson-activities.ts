@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import {
+  DisplaySectionActivityBodySchema,
   FeedbackActivityBodySchema,
   type FeedbackActivityGroupSettings,
   LessonActivitiesSchema,
@@ -964,6 +965,16 @@ function normalizeActivityBody(
         return {
           success: false,
           error: "Invalid review-others-work activity body.",
+        };
+      }
+      return { success: true, bodyData: parsed.data };
+    }
+    case "display-section": {
+      const parsed = DisplaySectionActivityBodySchema.safeParse(bodyData);
+      if (!parsed.success) {
+        return {
+          success: false,
+          error: "Invalid display-section activity body.",
         };
       }
       return { success: true, bodyData: parsed.data };
