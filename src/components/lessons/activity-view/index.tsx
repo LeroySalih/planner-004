@@ -238,9 +238,12 @@ function ActivityShortView({
   if (activity.type === "display-section") {
     const { description } = getDisplaySectionBody(activity)
     const markup = getRichTextMarkup(description)
+    const titleText = activity.title?.trim() ?? ""
     const heading = typeof sectionIndex === "number"
-      ? `Section ${sectionIndex}: ${activity.title ?? ""}`.trim()
-      : activity.title ?? "Section"
+      ? titleText
+        ? `Section ${sectionIndex}: ${titleText}`
+        : `Section ${sectionIndex}`
+      : titleText || "Section"
     content = (
       <div className="rounded-lg border-l-4 border-primary bg-primary/5 px-4 py-3">
         <h3 className="text-lg font-semibold text-foreground">{heading}</h3>

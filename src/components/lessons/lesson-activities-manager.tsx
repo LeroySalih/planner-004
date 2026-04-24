@@ -37,6 +37,7 @@ import {
   getImageBody,
   computeSectionIndexMap,
   getFeedbackBody,
+  getDisplaySectionBody,
   getMcqBody,
   getShortTextBody,
   getVoiceBody,
@@ -1636,13 +1637,6 @@ function extractUploadInstructions(activity: LessonActivity): string {
   return typeof value === "string" ? value : ""
 }
 
-function extractDescription(activity: LessonActivity): string {
-  if (!activity.body_data || typeof activity.body_data !== "object") {
-    return ""
-  }
-  const value = (activity.body_data as Record<string, unknown>).description
-  return typeof value === "string" ? value : ""
-}
 
 function extractFlashcardsText(activity: LessonActivity): string {
   if (!activity.body_data || typeof activity.body_data !== "object") {
@@ -2685,7 +2679,7 @@ function LessonActivityEditorSheet({
 
     if (type === "display-section") {
       setVideoUrl("")
-      setText(activity ? extractDescription(activity) : "")
+      setText(activity ? getDisplaySectionBody(activity).description : "")
       setRawBody("")
       return
     }
