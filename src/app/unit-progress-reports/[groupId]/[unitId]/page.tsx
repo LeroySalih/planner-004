@@ -8,7 +8,8 @@ type PageProps = {
 }
 
 export default async function UnitLessonProgressPage({ params, searchParams }: PageProps) {
-  const { groupId, unitId } = await params
+  const { groupId, unitId: rawUnitId } = await params
+  const unitId = decodeURIComponent(rawUnitId)
   const sp = await searchParams
   const summativeOnly = sp.summative === 'true'
   const result = await getUnitLessonMatrixAction(groupId, unitId, summativeOnly)

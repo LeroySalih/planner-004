@@ -7,7 +7,8 @@ type PageProps = {
 }
 
 export default async function StudyTrackerPage({ params }: PageProps) {
-  const { groupId, unitId } = await params
+  const { groupId, unitId: rawUnitId } = await params
+  const unitId = decodeURIComponent(rawUnitId)
   const result = await readStudyTrackerAction(groupId, unitId)
 
   if (result.error || !result.data) {

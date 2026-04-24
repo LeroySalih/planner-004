@@ -39,7 +39,8 @@ export default async function UnitReportPage({
 }) {
   const profile = await requireAuthenticatedProfile()
   const authEnd = performance.now()
-  const { pupilId, unitId } = await params
+  const { pupilId, unitId: rawUnitId } = await params
+  const unitId = decodeURIComponent(rawUnitId)
 
   if (!profile.isTeacher && profile.userId !== pupilId) {
     redirect(`/reports/${encodeURIComponent(profile.userId)}`)

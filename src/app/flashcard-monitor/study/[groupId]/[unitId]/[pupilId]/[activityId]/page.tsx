@@ -7,7 +7,8 @@ type PageProps = {
 }
 
 export default async function FlashcardSessionDetailPage({ params }: PageProps) {
-  const { groupId, unitId, pupilId } = await params
+  const { groupId, unitId: rawUnitId, pupilId } = await params
+  const unitId = decodeURIComponent(rawUnitId)
   const result = await readFlashcardSessionDetailAction(pupilId, unitId)
 
   if (result.error || !result.data) {

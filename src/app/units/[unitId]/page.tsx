@@ -28,7 +28,8 @@ export default async function UnitDetailPage({
 }) {
   const teacherProfile = await requireTeacherProfile()
   const authEnd = performance.now()
-  const { unitId } = await params
+  const { unitId: rawUnitId } = await params
+  const unitId = decodeURIComponent(rawUnitId)
 
   const [
     unitResult,
