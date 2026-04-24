@@ -833,6 +833,7 @@ function ActivityPresentView({
   viewerCanReveal,
   lessonId,
   forceEnableFeedback,
+  sectionIndex,
 }: LessonActivityPresentViewProps) {
   const hasSuccessCriteria = Array.isArray(activity.success_criteria) && activity.success_criteria.length > 0
 
@@ -845,6 +846,29 @@ function ActivityPresentView({
         <ActivitySuccessCriteria activity={activity} variant="default" />
         {node}
       </div>
+    )
+  }
+
+  if (activity.type === "display-section") {
+    const { description } = getDisplaySectionBody(activity)
+    const markup = getRichTextMarkup(description)
+    return wrap(
+      <div className="space-y-4">
+        {typeof sectionIndex === "number" ? (
+          <p className="text-sm font-semibold uppercase tracking-wide text-primary">
+            Section {sectionIndex}
+          </p>
+        ) : null}
+        <h1 className="text-4xl font-bold text-foreground">
+          {activity.title ?? ""}
+        </h1>
+        {markup ? (
+          <div
+            className="prose prose-lg max-w-none dark:prose-invert text-foreground"
+            dangerouslySetInnerHTML={{ __html: markup }}
+          />
+        ) : null}
+      </div>,
     )
   }
 
