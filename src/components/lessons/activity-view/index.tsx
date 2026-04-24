@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils"
 import {
   getActivityFileUrlValue,
   getActivityTextValue,
+  getDisplaySectionBody,
   getFeedbackBody,
   getImageBody,
   getFlashcardsText,
@@ -84,6 +85,7 @@ export interface LessonActivityShortViewProps extends LessonActivityViewBaseProp
   summativeDisabled?: boolean
   onImageClick?: (url: string, title: string | null) => void
   onDownloadFile?: () => void
+  sectionIndex?: number
 }
 
 export interface LessonActivityPresentViewProps extends LessonActivityViewBaseProps {
@@ -94,6 +96,7 @@ export interface LessonActivityPresentViewProps extends LessonActivityViewBasePr
   fetchActivityFileUrl?: (activityId: string, fileName: string) => Promise<string | null>
   viewerCanReveal?: boolean
   forceEnableFeedback?: boolean
+  sectionIndex?: number
 }
 
 export interface LessonActivityEditViewProps extends LessonActivityViewBaseProps {
@@ -176,6 +179,7 @@ function ActivityShortView({
   summativeDisabled = false,
   onImageClick,
   onDownloadFile,
+  sectionIndex,
 }: LessonActivityShortViewProps) {
   const hasSuccessCriteria = Array.isArray(activity.success_criteria) && activity.success_criteria.length > 0
   const isSummative = activity.is_summative ?? false
@@ -231,7 +235,24 @@ function ActivityShortView({
 
   let content: ReactNode = null
 
-  if (activity.type === "text" || activity.type === "text-question") {
+  if (activity.type === "display-section") {
+    const { description } = getDisplaySectionBody(activity)
+    const markup = getRichTextMarkup(description)
+    const heading = typeof sectionIndex === "number"
+      ? `Section ${sectionIndex}: ${activity.title ?? ""}`.trim()
+      : activity.title ?? "Section"
+    content = (
+      <div className="rounded-lg border-l-4 border-primary bg-primary/5 px-4 py-3">
+        <h3 className="text-lg font-semibold text-foreground">{heading}</h3>
+        {markup ? (
+          <div
+            className="prose prose-sm mt-2 max-w-none dark:prose-invert text-muted-foreground"
+            dangerouslySetInnerHTML={{ __html: markup }}
+          />
+        ) : null}
+      </div>
+    )
+  } else if (activity.type === "text" || activity.type === "text-question") {
     const text = getActivityTextValue(activity)
     const markup = getRichTextMarkup(text)
     if (markup) {
