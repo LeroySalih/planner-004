@@ -34,7 +34,7 @@ import {
   overrideShortTextSubmissionScoreAction,
   readProfileGroupsForCurrentUserAction,
 } from "@/lib/server-updates"
-import { CheckCircle2, Download, Eye, EyeOff, Loader2 } from "lucide-react"
+import { CheckCircle2, Download, Eye, EyeOff, Loader2, Pencil } from "lucide-react"
 import type { LessonSubmissionSummary } from "@/types"
 import { addFeedbackRefreshListener, triggerFeedbackRefresh } from "@/lib/feedback-events"
 import { toast } from "sonner"
@@ -234,10 +234,21 @@ function ActivityShortView({
   if (activity.type === "text" || activity.type === "text-question") {
     const text = getActivityTextValue(activity)
     const markup = getRichTextMarkup(text)
+    const record = (activity.body_data ?? {}) as Record<string, unknown>
+    const displayType = typeof record.displayType === "string" ? record.displayType : ""
     if (markup) {
-      content = (
-        <div className="prose prose-sm max-w-none dark:prose-invert text-muted-foreground" dangerouslySetInnerHTML={{ __html: markup }} />
-      )
+      if (displayType === "exam-tip") {
+        content = (
+          <div className="flex items-start gap-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 dark:border-yellow-800 dark:bg-yellow-900/20">
+            <Pencil className="mt-0.5 h-4 w-4 shrink-0 text-yellow-600 dark:text-yellow-400" />
+            <div className="prose prose-sm max-w-none dark:prose-invert text-yellow-900 dark:text-yellow-100" dangerouslySetInnerHTML={{ __html: markup }} />
+          </div>
+        )
+      } else {
+        content = (
+          <div className="prose prose-sm max-w-none dark:prose-invert text-muted-foreground" dangerouslySetInnerHTML={{ __html: markup }} />
+        )
+      }
     }
   } else if (activity.type === "upload-file") {
     const text = getActivityTextValue(activity)
@@ -838,6 +849,19 @@ function ActivityPresentView({
     const markup = getRichTextMarkup(text)
     if (!markup) {
       return wrap(<p className="text-muted-foreground">No text content provided for this activity.</p>)
+    }
+    const record = (activity.body_data ?? {}) as Record<string, unknown>
+    const displayType = typeof record.displayType === "string" ? record.displayType : ""
+    if (displayType === "exam-tip") {
+      return wrap(
+        <div className="flex items-start gap-3 rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 dark:border-yellow-800 dark:bg-yellow-900/20">
+          <Pencil className="mt-1 h-5 w-5 shrink-0 text-yellow-600 dark:text-yellow-400" />
+          <div
+            className="prose prose-lg max-w-none dark:prose-invert text-yellow-900 dark:text-yellow-100"
+            dangerouslySetInnerHTML={{ __html: markup }}
+          />
+        </div>
+      )
     }
     return wrap(
       <div

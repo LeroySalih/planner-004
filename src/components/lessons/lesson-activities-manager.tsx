@@ -1646,11 +1646,13 @@ function extractVideoUrl(activity: LessonActivity): string {
 
 function buildBodyData(
   type: ActivityTypeValue,
-  options: { text?: string; videoUrl?: string; fallback?: unknown },
+  options: { text?: string; videoUrl?: string; fallback?: unknown; displayType?: string },
 ): unknown {
-  const { text = "", videoUrl = "", fallback = null } = options
+  const { text = "", videoUrl = "", fallback = null, displayType = "" } = options
   if (type === "text") {
-    return { text }
+    const body: Record<string, unknown> = { text }
+    if (displayType) body.displayType = displayType
+    return body
   }
   if (type === "text-question") {
     return { question: text, text }
@@ -1788,6 +1790,7 @@ function LessonActivityEditorSheet({
   const [shareMyWorkName, setShareMyWorkName] = useState("")
   const [reviewShareActivityId, setReviewShareActivityId] = useState("")
   const [doFlashcardsActivityId, setDoFlashcardsActivityId] = useState("")
+  const [displayType, setDisplayType] = useState("")
 
   const normalizedShortTextBody = useMemo(() => normalizeShortTextBody(shortTextBody), [shortTextBody])
   const shortTextValidationMessage = useMemo(
@@ -2414,6 +2417,7 @@ function LessonActivityEditorSheet({
       setShortTextBody(createDefaultShortTextBody())
       setFeedbackBody(createDefaultFeedbackBody())
       setSelectedSuccessCriteriaIds([])
+      setDisplayType("")
       return
     }
 
@@ -2481,6 +2485,12 @@ function LessonActivityEditorSheet({
         .filter((id) => activitySuccessCriteriaIds.includes(id))
 
       setSelectedSuccessCriteriaIds(orderedSelection)
+      if (ensuredType === "text") {
+        const record = (activity.body_data ?? {}) as Record<string, unknown>
+        setDisplayType(typeof record.displayType === "string" ? record.displayType : "")
+      } else {
+        setDisplayType("")
+      }
       return
     }
 
@@ -2547,6 +2557,7 @@ function LessonActivityEditorSheet({
   useEffect(() => {
     setRawBodyError(null)
     if (isCreateMode) {
+      if (type !== "text") setDisplayType("")
       if (type === "text" || type === "text-question" || type === "long-text-question" || type === "upload-file" || type === "sketch-render" || type === "display-flashcards") {
         setVideoUrl("")
         setText("")
@@ -3185,6 +3196,7 @@ function LessonActivityEditorSheet({
         text,
         videoUrl,
         fallback: fallbackBody,
+        displayType,
       })
     }
 
@@ -3293,6 +3305,27 @@ function LessonActivityEditorSheet({
               </div>
             )}
           </div>
+
+          {type === "text" ? (
+            <div className="space-y-2">
+              <Label>Display style</Label>
+              <RadioGroup
+                value={displayType || "default"}
+                onValueChange={(v) => setDisplayType(v === "default" ? "" : v)}
+                className="flex gap-4"
+                disabled={isPending}
+              >
+                <div className="flex items-center gap-1.5">
+                  <RadioGroupItem id="display-default" value="default" />
+                  <Label htmlFor="display-default" className="font-normal">Text</Label>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <RadioGroupItem id="display-exam-tip" value="exam-tip" />
+                  <Label htmlFor="display-exam-tip" className="font-normal">Exam tip</Label>
+                </div>
+              </RadioGroup>
+            </div>
+          ) : null}
 
           {type === "text" || type === "text-question" || type === "long-text-question" || type === "upload-file" || type === "sketch-render" ? (
             <div className="space-y-2">
