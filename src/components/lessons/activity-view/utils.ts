@@ -319,14 +319,15 @@ export function getRichTextMarkup(value: string): string | null {
     // 1. Replace &nbsp; with space
     let cleaned = trimmed.replace(/&nbsp;/g, " ");
 
-    // 2. Replace block ending tags and breaks with newlines
-    cleaned = cleaned.replace(/<\/div>/g, "\n")
-      .replace(/<\/p>/g, "\n")
-      .replace(/<br\s*\/?>/g, "\n");
-
-    // 3. Remove start tags for blocks
-    cleaned = cleaned.replace(/<div>/g, "")
-      .replace(/<p>/g, "");
+    // 2. Convert block-level tags (opening and closing) to newlines.
+    //    Opening tags use \n so that content immediately after them starts on a new line
+    //    (Chrome's contentEditable wraps subsequent lines in <div> with no preceding \n).
+    cleaned = cleaned
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/(div|p)>/gi, "\n")
+      .replace(/<(div|p)[^>]*>/gi, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
 
     // Parse markdown (synchronous by default in newer marked versions,
     // but marked.parse can be async if extensions are used.
