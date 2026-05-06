@@ -7,7 +7,6 @@ import { Download, Loader2, Trash2, Upload } from "lucide-react"
 import type { LessonActivity, SubmissionStatus } from "@/types"
 import {
   listPupilActivitySubmissionsAction,
-  uploadPupilActivitySubmissionAction,
   deletePupilActivitySubmissionAction,
   getPupilActivitySubmissionUrlAction,
   updatePupilSubmissionStatusAction,
@@ -154,7 +153,18 @@ export function PupilUploadActivity({
           formData.append("pupilId", pupilId)
           formData.append("file", file)
 
-          const result = await uploadPupilActivitySubmissionAction(formData)
+          let result: { success: boolean; error?: string }
+          try {
+            const response = await fetch("/api/pupil-submission/upload", {
+              method: "POST",
+              body: formData,
+            })
+            result = await response.json()
+          } catch (err) {
+            console.error("[pupil-upload] Network error during upload", err)
+            result = { success: false, error: "Network error, please try again." }
+          }
+
           if (!result.success) {
             toast.error(`Upload failed for ${file.name}`, {
               description: result.error ?? "Please try again later.",
