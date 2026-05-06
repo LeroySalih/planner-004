@@ -608,11 +608,10 @@ export async function uploadPupilActivitySubmissionAction(formData: FormData) {
             // Generate versioned name
             const pad = (n: number) => n.toString().padStart(2, "0");
             const now = new Date();
-            const timestamp = `${pad(now.getDate())}-${
-              pad(now.getMonth() + 1)
-            }-${now.getFullYear()}_${pad(now.getHours())}-${
-              pad(now.getMinutes())
-            }-${pad(now.getSeconds())}`;
+            // Include milliseconds so that two concurrent uploads within the same second
+            // produce different archive names, preventing a unique-constraint collision on
+            // stored_files_bucket_scope_name_idx.
+            const timestamp = `${pad(now.getDate())}-${pad(now.getMonth() + 1)}-${now.getFullYear()}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}-${now.getMilliseconds().toString().padStart(3, "0")}`;
 
             const dotIndex = oldFile.name.lastIndexOf(".");
             const versionedName = dotIndex === -1
