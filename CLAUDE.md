@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Agent Workflow
+
+When implementing multi-step tasks, always use **subagent-driven development** (`superpowers:subagent-driven-development`) without waiting for confirmation. Dispatch a fresh subagent per task, run spec compliance review then code quality review after each, and proceed automatically through all tasks.
+
 ## Project Overview
 
 Planner 004 is a Next.js 15 education planning application for managing curricula, lessons, units, assignments, and pupil feedback. The app uses the App Router with React 19, TypeScript, and PostgreSQL for data persistence.
@@ -195,6 +199,11 @@ All server functions should use `withTelemetry` wrapper for performance tracking
 4. **Avoid over-engineering**: Don't add features, helpers, or abstractions beyond current requirements
 5. **Dates**: Display as DD-MM-YYYY format. Weeks start Sunday, Friday-Saturday are non-working days
 6. **No backwards-compatibility hacks**: Delete unused code completely instead of commenting or renaming with underscore prefixes
+
+## Security
+
+- **All secrets and tokens must live in `.env` only** — never hardcode them in `.mcp.json`, config files, or source code. Both `.env` and `.mcp.json` are gitignored, but `.env` is the single source of truth for credentials. Reference tokens in `.mcp.json` via `${ENV_VAR}` syntax.
+- Generate new tokens with `openssl rand -hex 20`.
 
 ## Important Notes from AGENTS.md
 
