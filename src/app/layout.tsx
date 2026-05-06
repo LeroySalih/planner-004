@@ -9,6 +9,7 @@ import { Toaster } from "@/components/ui/sonner"
 
 import { TopBar } from "@/components/navigation/top-bar"
 import { ThemeProvider } from "@/components/theme-provider"
+import { StaleDeploymentDetector } from "@/components/stale-deployment-detector"
 
 export const metadata: Metadata = {
   title: "Dino",
@@ -33,6 +34,7 @@ export default async function RootLayout({
           </div>
           <Analytics />
           <Toaster />
+          <StaleDeploymentDetector />
         </ThemeProvider>
       </body>
     </html>
