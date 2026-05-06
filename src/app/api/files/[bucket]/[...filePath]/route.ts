@@ -37,7 +37,8 @@ import { createLocalStorageClient } from "@/lib/storage/local-storage"
  *   - `filename*` = percent-encoded UTF-8 name for modern clients
  */
 function buildContentDisposition(disposition: "inline" | "attachment", fileName: string): string {
-  const asciiFallback = fileName.replace(/[^\x20-\x7e]/g, "_")
+  // Fall back to "document" if the entire filename is non-ASCII (e.g. pure Arabic).
+  const asciiFallback = fileName.replace(/[^\x20-\x7e]/g, "_") || "document"
   const encoded = encodeURIComponent(fileName)
   return `${disposition}; filename="${asciiFallback}"; filename*=UTF-8''${encoded}`
 }
