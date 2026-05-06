@@ -27,6 +27,21 @@ import { getAuthenticatedProfile } from "@/lib/auth"
 import { query } from "@/lib/db"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 
+/**
+ * Build a Content-Disposition header value that is safe for all HTTP clients.
+ *
+ * HTTP headers are Latin-1 only (0–255). Filenames containing non-ASCII
+ * characters (Arabic, Unicode spaces, emoji, etc.) throw a ByteString error
+ * when placed raw into a header. RFC 5987 solves this:
+ *   - `filename` = ASCII-safe fallback (non-ASCII replaced with "_")
+ *   - `filename*` = percent-encoded UTF-8 name for modern clients
+ */
+function buildContentDisposition(disposition: "inline" | "attachment", fileName: string): string {
+  const asciiFallback = fileName.replace(/[^\x20-\x7e]/g, "_")
+  const encoded = encodeURIComponent(fileName)
+  return `${disposition}; filename="${asciiFallback}"; filename*=UTF-8''${encoded}`
+}
+
 function shortTokenHash(value: string | null | undefined) {
   if (!value) return null
   return createHash("sha256").update(value).digest("hex").slice(0, 8)
@@ -130,7 +145,7 @@ export async function GET(
       headers.set("Content-Type", "image/jpeg")
       headers.set("Content-Length", String(jpegBuffer.byteLength))
       const jpegFileName = fileName.replace(/\.heic$/i, ".jpg")
-      headers.set("Content-Disposition", `${shouldInline ? "inline" : "attachment"}; filename="${jpegFileName}"`)
+      headers.set("Content-Disposition", buildContentDisposition(shouldInline ? "inline" : "attachment", jpegFileName))
 
       return new Response(new Uint8Array(jpegBuffer), { headers })
     } catch (conversionError) {
@@ -140,7 +155,7 @@ export async function GET(
       if (typeof typedMetadata.size_bytes === "number") {
         headers.set("Content-Length", String(typedMetadata.size_bytes))
       }
-      headers.set("Content-Disposition", `attachment; filename="${fileName}"`)
+      headers.set("Content-Disposition", buildContentDisposition("attachment", fileName))
       return new Response(new Uint8Array(heicBuffer), { headers })
     }
   }
@@ -149,7 +164,7 @@ export async function GET(
   if (typeof typedMetadata.size_bytes === "number") {
     headers.set("Content-Length", String(typedMetadata.size_bytes))
   }
-  headers.set("Content-Disposition", `${shouldInline ? "inline" : "attachment"}; filename="${fileName}"`)
+  headers.set("Content-Disposition", buildContentDisposition(shouldInline ? "inline" : "attachment", fileName))
 
   return new Response(stream as any, { headers })
 }
