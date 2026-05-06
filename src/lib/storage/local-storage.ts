@@ -256,17 +256,33 @@ async function moveFile(bucket: string, fromPath: string, toPath: string) {
       await fs.rename(sourceDiskPath, targetDiskPath)
     }
 
-    await query(
-      `
-        update stored_files
-        set scope_path = $1,
-            file_name = $2,
-            stored_path = $3,
-            updated_at = timezone('utc', now())
-        where id = $4
-      `,
-      [toScope, toName, targetRelative, row.id],
-    )
+    try {
+      await query(
+        `
+          update stored_files
+          set scope_path = $1,
+              file_name = $2,
+              stored_path = $3,
+              updated_at = timezone('utc', now())
+          where id = $4
+        `,
+        [toScope, toName, targetRelative, row.id],
+      )
+    } catch (err: any) {
+      if (err?.code === "23505") {
+        // A concurrent request already archived this file under the same name.
+        // The disk file has already been replaced by the new upload, so the source
+        // DB row is now stale. Delete it to keep stored_files consistent.
+        await query(`delete from stored_files where id = $1`, [row.id])
+        console.warn("[storage] Duplicate archive name detected — source row removed", {
+          bucket,
+          fromPath,
+          toPath,
+        })
+      } else {
+        throw err
+      }
+    }
 
     return { error: null as StorageError | null }
   } catch (error) {
