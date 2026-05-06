@@ -87,7 +87,10 @@ export function PupilUploadActivity({
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null)
   const [isDragActive, setIsDragActive] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
-
+  // Guards against concurrent uploads caused by rapid double-tap or duplicate
+  // onChange events. useTransition's isPending is not synchronous enough to
+  // block a second call before React re-renders with isPending = true.
+  const uploadInProgress = useRef(false)
 
   const hasInstructions = instructions.trim().length > 0
 
@@ -127,24 +130,29 @@ export function PupilUploadActivity({
 
   const beginUpload = useCallback(
     (incoming: FileList | File[]) => {
+      // Synchronous guard: prevent a second upload starting before React
+      // re-renders with isPending = true (e.g. rapid double-tap or duplicate
+      // onChange events from the file input).
+      if (uploadInProgress.current) return
+      uploadInProgress.current = true
+
       const files = Array.from(incoming ?? []).filter((file) => file.size > 0)
       if (files.length === 0) {
+        uploadInProgress.current = false
         return
       }
 
       const file = files[0]
 
       startTransition(async () => {
-        setSelectedFileName(file.name)
-
-        const formData = new FormData()
-        formData.append("lessonId", lessonId)
-        formData.append("activityId", activity.activity_id)
-        formData.append("pupilId", pupilId)
-        formData.append("file", file)
-
         try {
+          setSelectedFileName(file.name)
 
+          const formData = new FormData()
+          formData.append("lessonId", lessonId)
+          formData.append("activityId", activity.activity_id)
+          formData.append("pupilId", pupilId)
+          formData.append("file", file)
 
           const result = await uploadPupilActivitySubmissionAction(formData)
           if (!result.success) {
@@ -154,38 +162,40 @@ export function PupilUploadActivity({
             setSelectedFileName(null)
             return
           }
-        } catch (error) {
-          console.error("[pupil-upload] Upload failed", error)
-          toast.error(`Upload failed for ${file.name}`, {
-            description: "Network error, please try again later.",
-          })
+
+          toast.success(`Uploaded ${file.name}`)
+
+          const optimisticEntry: ActivityFileInfo = {
+            name: file.name,
+            path: `${lessonId}/activities/${activity.activity_id}/${pupilId}/${file.name}`,
+            size: file.size,
+            status: "inprogress",
+            submissionId: null,
+            submittedAt: new Date().toISOString(),
+          }
+
+          setSubmissions([optimisticEntry])
+          onSubmissionsChange?.([optimisticEntry])
+
           setSelectedFileName(null)
-          return
+          await refreshSubmissions()
+        } finally {
+          uploadInProgress.current = false
         }
-
-        toast.success(`Uploaded ${file.name}`)
-
-        const optimisticEntry: ActivityFileInfo = {
-          name: file.name,
-          path: `${lessonId}/activities/${activity.activity_id}/${pupilId}/${file.name}`,
-          size: file.size,
-          status: "inprogress",
-          submissionId: null,
-          submittedAt: new Date().toISOString(),
-        }
-
-        setSubmissions([optimisticEntry])
-        onSubmissionsChange?.([optimisticEntry])
-
-        setSelectedFileName(null)
-        await refreshSubmissions()
       })
     },
-    [activity.activity_id, lessonId, onSubmissionsChange, pupilId, refreshSubmissions, startTransition, submissions],
+    [activity.activity_id, lessonId, onSubmissionsChange, pupilId, refreshSubmissions],
   )
 
   const handleFileChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
+      // Prevent duplicate uploads if the input somehow fires twice (mobile browsers,
+      // rapid re-selection). The ref guard in beginUpload is the primary protection;
+      // this is a secondary check.
+      if (isPending) {
+        event.target.value = ""
+        return
+      }
       const files = event.target.files
       if (!files || files.length === 0) {
         setSelectedFileName(null)
@@ -194,7 +204,7 @@ export function PupilUploadActivity({
       beginUpload(files)
       event.target.value = ""
     },
-    [beginUpload],
+    [beginUpload, isPending],
   )
 
   const handleDownloadSubmission = useCallback(
