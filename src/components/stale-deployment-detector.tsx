@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import { toast } from "sonner"
 
 /**
@@ -13,18 +13,25 @@ import { toast } from "sonner"
  *
  * This component attaches a global unhandledrejection listener, detects that
  * specific error, and shows a persistent toast prompting the user to refresh.
+ * The toast is shown at most once — subsequent stale rejections are suppressed
+ * so rapid button-clicks don't stack duplicate toasts.
  */
 export function StaleDeploymentDetector() {
+  const hasShown = useRef(false)
+
   useEffect(() => {
     function handleRejection(event: PromiseRejectionEvent) {
       const message: string =
         event.reason?.message ?? event.reason?.toString() ?? ""
 
       if (message.includes("Failed to find Server Action")) {
-        // Prevent the error from appearing in the browser console as an
-        // uncaught rejection — we are handling it with the toast below.
+        // Prevent the error appearing in the browser console as an uncaught
+        // rejection regardless of whether we show the toast again.
         event.preventDefault()
 
+        if (hasShown.current) return
+
+        hasShown.current = true
         toast.error("This page has been updated.", {
           description: "Refresh to continue using the latest version.",
           duration: Infinity,
