@@ -27,7 +27,8 @@ async function resolvePupilStorageKey(userId: string): Promise<string> {
     `select email from profiles where user_id = $1 limit 1`,
     [userId],
   )
-  return rows[0]?.email?.trim() ?? userId
+  const email = rows[0]?.email?.trim()
+  return email && email.length > 0 ? email : userId
 }
 
 export async function POST(request: Request) {
@@ -56,9 +57,11 @@ export async function POST(request: Request) {
   const file = formData.get("file")
 
   if (typeof lessonId !== "string" || lessonId.trim() === "") {
+    console.warn(`${tag} Missing lessonId`)
     return NextResponse.json({ success: false, error: "Missing lessonId" }, { status: 400 })
   }
   if (typeof activityId !== "string" || activityId.trim() === "") {
+    console.warn(`${tag} Missing activityId`)
     return NextResponse.json({ success: false, error: "Missing activityId" }, { status: 400 })
   }
   if (!(file instanceof File)) {
@@ -85,7 +88,13 @@ export async function POST(request: Request) {
   const path = buildSubmissionPath(lessonId, activityId, pupilStorageKey, fileName)
   const storage = createLocalStorageClient(LESSON_FILES_BUCKET)
 
-  const arrayBuffer = await file.arrayBuffer()
+  let arrayBuffer: ArrayBuffer
+  try {
+    arrayBuffer = await file.arrayBuffer()
+  } catch (err) {
+    console.error(`${tag} Failed to read file buffer`, err)
+    return NextResponse.json({ success: false, error: "Failed to read file." }, { status: 500 })
+  }
   const { error: uploadError } = await storage.upload(path, arrayBuffer, {
     contentType: file.type,
     uploadedBy: userId,
