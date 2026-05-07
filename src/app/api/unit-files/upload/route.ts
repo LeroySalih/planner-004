@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 
-import { requireTeacherProfile } from "@/lib/auth"
+import { getAuthenticatedProfile, hasRole } from "@/lib/auth"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 
 const UNIT_FILES_BUCKET = "units"
@@ -17,9 +17,13 @@ export async function POST(request: Request) {
 
   console.log(`${tag} Request received`)
 
-  const profile = await requireTeacherProfile()
+  const profile = await getAuthenticatedProfile()
   if (!profile) {
-    console.warn(`${tag} Rejected: not a teacher`)
+    console.warn(`${tag} Rejected: unauthenticated`)
+    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+  }
+  if (!hasRole(profile, "teacher") && !hasRole(profile, "technician")) {
+    console.warn(`${tag} Rejected: insufficient role`, { userId: profile.userId })
     return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 })
   }
 
