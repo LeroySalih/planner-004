@@ -6,7 +6,6 @@ import { AlertTriangle, Flag, GripVertical, Loader2, MessageSquare, Trash2, Uplo
 
 import type { LessonActivity } from "@/types"
 import {
-  uploadShareMyWorkImageAction,
   removeShareMyWorkImageAction,
   reorderShareMyWorkImagesAction,
   readReceivedCommentsAction,
@@ -131,7 +130,14 @@ export function PupilShareMyWorkActivity({
           formData.append("activityId", activity.activity_id)
           formData.append("file", file)
 
-          const result = await uploadShareMyWorkImageAction(formData)
+          let result: { success: boolean; error?: string; data?: { fileId: string; fileName: string; submissionId: string } }
+          try {
+            const response = await fetch("/api/share-my-work/upload", { method: "POST", body: formData })
+            result = await response.json()
+          } catch (err) {
+            console.error("[share-my-work] Network error during upload", err)
+            result = { success: false, error: "Network error, please try again." }
+          }
           if (!result.success) {
             toast.error(`Failed to upload ${file.name}`, {
               description: result.error ?? "Please try again.",
