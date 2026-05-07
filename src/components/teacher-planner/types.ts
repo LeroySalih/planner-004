@@ -34,16 +34,24 @@ export function slotKey(day: Day, period: number): string {
   return `${day}-${period}`
 }
 
+function localDateStr(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 export function getTodaySunday(): string {
   const d = new Date()
   d.setDate(d.getDate() - d.getDay())
-  return d.toISOString().slice(0, 10)
+  return localDateStr(d)
 }
 
 export function shiftWeek(weekKey: string, delta: number): string {
-  const d = new Date(weekKey + 'T00:00:00')
+  const [y, m, day] = weekKey.split('-').map(Number)
+  const d = new Date(y, m - 1, day)
   d.setDate(d.getDate() + delta * 7)
-  return d.toISOString().slice(0, 10)
+  return localDateStr(d)
 }
 
 export function formatWeekRange(weekKey: string): string {
