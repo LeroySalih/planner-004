@@ -69,10 +69,10 @@ export async function upsertPlannerAssignmentAction(
        ON CONFLICT (group_id, week_start_date, day, period)
        DO UPDATE SET
          lesson_id        = EXCLUDED.lesson_id,
-         feedback_visible = COALESCE(EXCLUDED.feedback_visible, planner_assignments.feedback_visible),
-         issue_flag       = COALESCE(EXCLUDED.issue_flag, planner_assignments.issue_flag),
-         issue_note       = COALESCE(EXCLUDED.issue_note, planner_assignments.issue_note),
-         notes            = COALESCE(EXCLUDED.notes, planner_assignments.notes),
+         feedback_visible = EXCLUDED.feedback_visible,
+         issue_flag       = EXCLUDED.issue_flag,
+         issue_note       = EXCLUDED.issue_note,
+         notes            = EXCLUDED.notes,
          updated_at       = now()
        RETURNING *`,
       [
@@ -103,6 +103,9 @@ export async function deletePlannerAssignmentAction(
 ): Promise<z.infer<typeof NullResult>> {
   try {
     await requireTeacherProfile()
+    if (!weekStartDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      return NullResult.parse({ data: null, error: 'weekStartDate must be ISO YYYY-MM-DD' })
+    }
     await query(
       `DELETE FROM planner_assignments
        WHERE group_id = $1 AND week_start_date = $2 AND day = $3 AND period = $4`,
@@ -120,6 +123,9 @@ export async function readPlannerAssignmentsForWeekAction(
 ): Promise<z.infer<typeof AssignmentsWithUnitResult>> {
   try {
     const profile = await requireTeacherProfile()
+    if (!weekStartDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      return AssignmentsWithUnitResult.parse({ data: null, error: 'weekStartDate must be ISO YYYY-MM-DD' })
+    }
     const { rows } = await query<Record<string, unknown>>(
       `SELECT pa.*, l.unit_id
        FROM planner_assignments pa
@@ -148,6 +154,9 @@ export async function updatePlannerAssignmentExtrasAction(
 ): Promise<z.infer<typeof AssignmentResult>> {
   try {
     await requireTeacherProfile()
+    if (Object.keys(patch).filter(k => patch[k as keyof typeof patch] !== undefined).length === 0) {
+      return AssignmentResult.parse({ data: null, error: 'No fields to update' })
+    }
     const setClauses: string[] = ['updated_at = now()']
     const params: unknown[] = [id]
     let idx = 2
