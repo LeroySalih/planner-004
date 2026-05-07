@@ -44,7 +44,6 @@ import {
   createLessonLinkAction,
   deleteLessonLinkAction,
   listActivityFilesAction,
-  uploadActivityFileAction,
   deleteActivityFileAction,
   getActivityFileDownloadUrlAction,
   listLessonActivitiesAction,
@@ -736,7 +735,14 @@ export function LessonSidebar({
         formData.append("activityId", activityId)
         formData.append("file", file)
 
-        const uploadResult = await uploadActivityFileAction(formData)
+        let uploadResult: { success: boolean; error?: string }
+        try {
+          const response = await fetch("/api/activity-files/upload", { method: "POST", body: formData })
+          uploadResult = await response.json()
+        } catch (err) {
+          console.error("[lesson-sidebar] Network error during activity file upload", err)
+          uploadResult = { success: false, error: "Network error, please try again." }
+        }
         if (!uploadResult.success) {
           toast.error("Failed to upload recording", {
             description: uploadResult.error ?? "Please try again later.",
@@ -885,7 +891,14 @@ export function LessonSidebar({
           formData.append("activityId", activityId)
           formData.append("file", file)
 
-          const result = await uploadActivityFileAction(formData)
+          let result: { success: boolean; error?: string }
+          try {
+            const response = await fetch("/api/activity-files/upload", { method: "POST", body: formData })
+            result = await response.json()
+          } catch (err) {
+            console.error("[lesson-sidebar] Network error during activity file upload", err)
+            result = { success: false, error: "Network error, please try again." }
+          }
           if (!result.success) {
             console.error("[lesson-sidebar] Activity file upload failed", {
               activityId,

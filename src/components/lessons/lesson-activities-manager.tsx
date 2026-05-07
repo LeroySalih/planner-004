@@ -18,7 +18,6 @@ import {
   reorderLessonActivitiesAction,
   updateLessonActivityAction,
   uploadActivitiesFromMarkdownAction,
-  uploadActivityFileAction,
 } from "@/lib/server-updates"
 import { parseActivitiesMarkdown } from "@/lib/parse-activities-markdown"
 import { Badge } from "@/components/ui/badge"
@@ -470,7 +469,14 @@ useEffect(() => {
         formData.append("activityId", activityId)
         formData.append("file", file)
 
-        const result = await uploadActivityFileAction(formData)
+        let result: { success: boolean; error?: string }
+        try {
+          const response = await fetch("/api/activity-files/upload", { method: "POST", body: formData })
+          result = await response.json()
+        } catch (err) {
+          console.error("[activity-files] Network error during upload", err)
+          result = { success: false, error: "Network error, please try again." }
+        }
         if (!result.success) {
           hadError = true
           toast.error(`Failed to upload ${file.name}`, {
@@ -537,7 +543,14 @@ useEffect(() => {
             formData.append("activityId", createdActivity.activity_id)
             formData.append("file", imageSubmission.pendingFile)
 
-            const uploadResult = await uploadActivityFileAction(formData)
+            let uploadResult: { success: boolean; error?: string }
+            try {
+              const response = await fetch("/api/activity-files/upload", { method: "POST", body: formData })
+              uploadResult = await response.json()
+            } catch (err) {
+              console.error("[activity-files] Network error during upload", err)
+              uploadResult = { success: false, error: "Network error, please try again." }
+            }
             if (!uploadResult.success) {
               toast.error("Failed to upload image", {
                 description: uploadResult.error ?? "Please try again later.",
@@ -646,7 +659,14 @@ useEffect(() => {
           formData.append("activityId", activityId)
           formData.append("file", pendingFile)
 
-          const uploadResult = await uploadActivityFileAction(formData)
+          let uploadResult: { success: boolean; error?: string }
+          try {
+            const response = await fetch("/api/activity-files/upload", { method: "POST", body: formData })
+            uploadResult = await response.json()
+          } catch (err) {
+            console.error("[activity-files] Network error during upload", err)
+            uploadResult = { success: false, error: "Network error, please try again." }
+          }
           if (!uploadResult.success) {
             toast.error("Failed to upload image", {
               description: uploadResult.error ?? "Please try again later.",
@@ -1866,19 +1886,18 @@ function LessonActivityEditorSheet({
       formData.append("activityId", targetActivityId)
       formData.append("file", file)
 
+      let result: { success: boolean; error?: string }
       try {
-        const result = await uploadActivityFileAction(formData)
-        if (!result.success) {
-          hadError = true
-          toast.error(`Failed to upload ${file.name}`, {
-            description: result.error ?? "Please try again later.",
-          })
-        }
-      } catch (error) {
+        const response = await fetch("/api/activity-files/upload", { method: "POST", body: formData })
+        result = await response.json()
+      } catch (err) {
+        console.error("[activity-files] Network error during upload", err)
+        result = { success: false, error: "Network error, please try again." }
+      }
+      if (!result.success) {
         hadError = true
-        console.error("[activities] Failed to upload file:", error)
         toast.error(`Failed to upload ${file.name}`, {
-          description: error instanceof Error ? error.message : "Please try again later.",
+          description: result.error ?? "Please try again later.",
         })
       }
     }
@@ -2996,7 +3015,14 @@ function LessonActivityEditorSheet({
         formData.append("activityId", activity.activity_id)
         formData.append("file", file, file.name)
 
-        const uploadResult = await uploadActivityFileAction(formData)
+        let uploadResult: { success: boolean; error?: string }
+        try {
+          const response = await fetch("/api/activity-files/upload", { method: "POST", body: formData })
+          uploadResult = await response.json()
+        } catch (err) {
+          console.error("[activity-files] Network error during upload", err)
+          uploadResult = { success: false, error: "Network error, please try again." }
+        }
         if (!uploadResult.success) {
           toast.error("Failed to upload recording", {
             description: uploadResult.error ?? "Please try again later.",
