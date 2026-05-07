@@ -8,6 +8,7 @@ import {
   readPlannerAssignmentsForWeekAction,
   updatePlannerAssignmentExtrasAction,
   readTimetableSlotGroupsAction,
+  upsertTimetableSlotGroupAction,
 } from '@/lib/server-updates'
 import { PlannerGrid } from './PlannerGrid'
 import { SidePanel } from './SidePanel'
@@ -228,10 +229,14 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
         updateSlot(day, period, (s) => ({ ...s, assignmentId: data.id }))
       }
     }
+    // Update this week's cell state
     updateSlot(day, period, (s) => ({ ...s, groupId: resolvedGroupId }))
     if (groupId === '__free__') {
       updateSlot(day, period, (s) => ({ ...s, unitId: null, lessonId: null, assignmentId: null }))
     }
+    // Persist as the default for future unvisited weeks (does not affect already-loaded weeks)
+    classDefaultsRef.current.set(key, resolvedGroupId)
+    await upsertTimetableSlotGroupAction(day, period, resolvedGroupId)
   }, [updateSlot, plannerState])
 
   const handlePrevWeek = useCallback(() => {
