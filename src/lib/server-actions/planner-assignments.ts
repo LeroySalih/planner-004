@@ -7,7 +7,6 @@ import {
   PlannerAssignmentSchema,
   PlannerAssignmentWithUnitSchema,
   type PlannerAssignment,
-  type PlannerAssignmentWithUnit,
 } from '@/types'
 
 const AssignmentResult = z.object({

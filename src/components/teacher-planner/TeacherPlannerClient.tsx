@@ -69,8 +69,11 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
 
   // Hydrate on mount
   useEffect(() => {
-    readTimetableSlotGroupsAction().then(({ data }) => {
-      if (!data) return
+    readTimetableSlotGroupsAction().then(({ data, error }) => {
+      if (error || !data) {
+        console.error('[hydration] Failed to load timetable slot groups:', error)
+        return
+      }
       const overrides = new Map<string, string | null>()
       for (const tsg of data) {
         overrides.set(slotKey(tsg.day as Day, tsg.period), tsg.group_id)
@@ -208,6 +211,26 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
       const week = currentWeekRef.current
       await deletePlannerAssignmentAction(existing.groupId, week, day, period)
       updateSlot(day, period, (s) => ({ ...s, assignmentId: null }))
+    }
+    // If a lesson was already selected, create a new assignment for the incoming group
+    if (resolvedGroupId && resolvedGroupId !== '__free__' && existing?.lessonId) {
+      const week = currentWeekRef.current
+      const { data } = await upsertPlannerAssignmentAction(
+        resolvedGroupId,
+        existing.lessonId,
+        week,
+        day,
+        period,
+        {
+          feedbackVisible: existing.feedbackVisible,
+          issueFlag: existing.issueFlag,
+          issueNote: existing.issueNote,
+          notes: existing.lessonNotes,
+        },
+      )
+      if (data) {
+        updateSlot(day, period, (s) => ({ ...s, assignmentId: data.id }))
+      }
     }
     setClassOverrides((prev) => {
       const next = new Map(prev)
