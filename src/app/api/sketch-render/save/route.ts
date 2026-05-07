@@ -70,7 +70,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: "Configuration error: Lesson ID missing", data: null }, { status: 500 })
   }
 
-  const storageKey = profile.email?.trim() ?? (await resolvePupilStorageKey(userId))
+  const rawEmail = profile.email?.trim()
+  const storageKey = rawEmail && rawEmail.length > 0 ? rawEmail : await resolvePupilStorageKey(userId)
   const successCriteriaIds = await fetchActivitySuccessCriteriaIds(activityId)
   const initialScores = normaliseSuccessCriteriaScores({ successCriteriaIds, fillValue: 0 })
 
