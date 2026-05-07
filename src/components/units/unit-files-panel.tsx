@@ -7,7 +7,6 @@ import { toast } from "sonner"
 import {
   deleteUnitFileAction,
   getUnitFileDownloadUrlAction,
-  uploadUnitFileAction,
   listUnitFilesAction,
 } from "@/lib/server-updates"
 import { Button } from "@/components/ui/button"
@@ -68,7 +67,14 @@ export function UnitFilesPanel({ unitId, initialFiles }: UnitFilesPanelProps) {
             formData.append("unitId", unitId)
             formData.append("file", file)
 
-            const result = await uploadUnitFileAction(formData)
+            let result: { success: boolean; error?: string }
+            try {
+              const response = await fetch("/api/unit-files/upload", { method: "POST", body: formData })
+              result = await response.json()
+            } catch (err) {
+              console.error("[unit-files] Network error during upload", err)
+              result = { success: false, error: "Network error, please try again." }
+            }
 
             if (!result.success) {
               failed.push({ name: file.name, error: result.error ?? undefined })
