@@ -1,13 +1,12 @@
 'use client'
 
-import { useState, useCallback, useRef, useMemo, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import {
   readLessonsByUnitAction,
   upsertPlannerAssignmentAction,
   deletePlannerAssignmentAction,
   readPlannerAssignmentsForWeekAction,
   updatePlannerAssignmentExtrasAction,
-  upsertTimetableSlotGroupAction,
   readTimetableSlotGroupsAction,
 } from '@/lib/server-updates'
 import { PlannerGrid } from './PlannerGrid'
@@ -16,7 +15,7 @@ import { WeekNavigator } from './WeekNavigator'
 import { WeekNotes } from './WeekNotes'
 import { TIMETABLE_SLOTS } from './timetable-config'
 import { slotKey, emptyCellState, getTodaySunday, shiftWeek } from './types'
-import type { WeeklyPlannerState, PlannerState, CellState, Day } from './types'
+import type { WeeklyPlannerState, CellState, Day } from './types'
 import type { Unit, Group, LessonWithObjectives } from '@/types'
 
 type TeacherPlannerClientProps = {
@@ -25,7 +24,6 @@ type TeacherPlannerClientProps = {
 }
 
 export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProps) {
-  const [classOverrides, setClassOverrides] = useState<Map<string, string | null>>(new Map())
   const [weeklyStates, setWeeklyStates] = useState<WeeklyPlannerState>(new Map())
   const [currentWeek, setCurrentWeek] = useState<string>(getTodaySunday)
   const [weekNotes, setWeekNotesMap] = useState<Map<string, string>>(new Map())
@@ -34,6 +32,9 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
 
   const currentWeekRef = useRef(currentWeek)
   currentWeekRef.current = currentWeek
+
+  // Permanent default class per slot from timetable_slot_groups (used to seed new weeks)
+  const classDefaultsRef = useRef<Map<string, string | null>>(new Map())
 
   // Track which weeks have been fetched from DB to avoid redundant calls
   const loadedWeeks = useRef<Set<string>>(new Set())
@@ -47,7 +48,11 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
     }
     loadedWeeks.current.add(week)
     setWeeklyStates((prev) => {
-      const weekState = new Map(prev.get(week) ?? new Map())
+      // Start with defaults for every known slot, then overlay DB assignments
+      const weekState = new Map<string, CellState>()
+      for (const [key, groupId] of classDefaultsRef.current) {
+        weekState.set(key, { ...emptyCellState(), groupId })
+      }
       for (const pa of data) {
         const key = slotKey(pa.day as Day, pa.period)
         weekState.set(key, {
@@ -67,33 +72,24 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
     })
   }, [])
 
-  // Hydrate on mount
+  // Hydrate on mount: load defaults first, then current week's assignments
   useEffect(() => {
-    readTimetableSlotGroupsAction().then(({ data, error }) => {
+    const init = async () => {
+      const { data, error } = await readTimetableSlotGroupsAction()
       if (error || !data) {
         console.error('[hydration] Failed to load timetable slot groups:', error)
-        return
+      } else {
+        for (const tsg of data) {
+          classDefaultsRef.current.set(slotKey(tsg.day as Day, tsg.period), tsg.group_id)
+        }
       }
-      const overrides = new Map<string, string | null>()
-      for (const tsg of data) {
-        overrides.set(slotKey(tsg.day as Day, tsg.period), tsg.group_id)
-      }
-      setClassOverrides(overrides)
-    })
-    loadWeekAssignments(getTodaySunday())
+      await loadWeekAssignments(getTodaySunday())
+    }
+    init()
   }, [loadWeekAssignments])
 
-  // Merge class overrides into the current week's state for display
-  const rawWeekState = weeklyStates.get(currentWeek) ?? new Map<string, CellState>()
-  const plannerState = useMemo<PlannerState>(() => {
-    if (classOverrides.size === 0) return rawWeekState
-    const merged = new Map(rawWeekState)
-    for (const [key, groupId] of classOverrides) {
-      const base = rawWeekState.get(key) ?? emptyCellState()
-      merged.set(key, { ...base, groupId })
-    }
-    return merged
-  }, [rawWeekState, classOverrides])
+  // Per-week state for the current week — no global merge
+  const plannerState = weeklyStates.get(currentWeek) ?? new Map<string, CellState>()
 
   const updateSlot = useCallback(
     (day: Day, period: number, update: (s: CellState) => CellState) => {
@@ -232,15 +228,10 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
         updateSlot(day, period, (s) => ({ ...s, assignmentId: data.id }))
       }
     }
-    setClassOverrides((prev) => {
-      const next = new Map(prev)
-      next.set(key, resolvedGroupId)
-      return next
-    })
+    updateSlot(day, period, (s) => ({ ...s, groupId: resolvedGroupId }))
     if (groupId === '__free__') {
       updateSlot(day, period, (s) => ({ ...s, unitId: null, lessonId: null, assignmentId: null }))
     }
-    await upsertTimetableSlotGroupAction(day, period, resolvedGroupId)
   }, [updateSlot, plannerState])
 
   const handlePrevWeek = useCallback(() => {
