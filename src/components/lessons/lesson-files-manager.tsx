@@ -8,7 +8,6 @@ import {
   deleteLessonFileAction,
   getLessonFileDownloadUrlAction,
   listLessonFilesAction,
-  uploadLessonFileAction,
 } from "@/lib/server-updates"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
@@ -94,7 +93,14 @@ export function LessonFilesManager({ unitId, lessonId, initialFiles }: LessonFil
           formData.append("lessonId", lessonId)
           formData.append("file", file)
 
-          const result = await uploadLessonFileAction(formData)
+          let result: { success: boolean; error?: string | null; files?: any[] | null }
+          try {
+            const response = await fetch("/api/lesson-files/upload", { method: "POST", body: formData })
+            result = await response.json()
+          } catch (err) {
+            console.error("[lesson-files] Network error during upload", err)
+            result = { success: false, error: "Network error, please try again." }
+          }
           if (!result.success) {
             toast.error(`Failed to upload ${file.name}`, {
               description: result.error ?? "Please try again later.",

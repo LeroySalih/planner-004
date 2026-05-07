@@ -37,7 +37,6 @@ import {
   deactivateLessonAction,
   updateLessonAction,
   listLessonFilesAction,
-  uploadLessonFileAction,
   deleteLessonFileAction,
   getLessonFileDownloadUrlAction,
   listLessonLinksAction,
@@ -1155,7 +1154,14 @@ export function LessonSidebar({
         formData.append("file", file)
 
         try {
-          const result = await uploadLessonFileAction(formData)
+          let result: { success: boolean; error?: string | null; files?: any[] | null }
+          try {
+            const response = await fetch("/api/lesson-files/upload", { method: "POST", body: formData })
+            result = await response.json()
+          } catch (err) {
+            console.error("[lesson-sidebar] Network error during lesson file upload", err)
+            result = { success: false, error: "Network error, please try again." }
+          }
 
           if (intervalId !== undefined) {
             window.clearInterval(intervalId)
