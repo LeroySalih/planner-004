@@ -244,21 +244,17 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
   }, [updateSlot, plannerState])
 
   const handlePrevWeek = useCallback(() => {
-    setCurrentWeek((w) => {
-      const next = shiftWeek(w, -1)
-      loadWeekAssignments(next)
-      return next
-    })
+    const next = shiftWeek(currentWeekRef.current, -1)
+    setCurrentWeek(next)
     setSelectedSlot(null)
+    loadWeekAssignments(next)
   }, [loadWeekAssignments])
 
   const handleNextWeek = useCallback(() => {
-    setCurrentWeek((w) => {
-      const next = shiftWeek(w, 1)
-      loadWeekAssignments(next)
-      return next
-    })
+    const next = shiftWeek(currentWeekRef.current, 1)
+    setCurrentWeek(next)
     setSelectedSlot(null)
+    loadWeekAssignments(next)
   }, [loadWeekAssignments])
 
   const weekNote = weekNotes.get(currentWeek) ?? ''
