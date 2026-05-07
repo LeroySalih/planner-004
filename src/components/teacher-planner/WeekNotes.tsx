@@ -1,5 +1,3 @@
-'use client'
-
 type WeekNotesProps = {
   value: string
   onChange: (val: string) => void

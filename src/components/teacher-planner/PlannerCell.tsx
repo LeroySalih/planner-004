@@ -2,14 +2,14 @@
 
 import { cn } from '@/lib/utils'
 import type { TimetableSlot, CellState } from './types'
-import type { Unit, Lesson } from '@/types'
+import type { Unit, LessonWithObjectives } from '@/types'
 
 type PlannerCellProps = {
   slot: TimetableSlot
   state: CellState
   isSelected: boolean
   units: Unit[]
-  lessons: Lesson[]
+  lessons: LessonWithObjectives[]
   onCellClick: () => void
   onUnitChange: (unitId: string) => void
   onLessonChange: (lessonId: string) => void

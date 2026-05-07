@@ -5,9 +5,10 @@ import { readLessonsByUnitAction } from '@/lib/server-updates'
 import { PlannerGrid } from './PlannerGrid'
 import { SidePanel } from './SidePanel'
 import { WeekNotes } from './WeekNotes'
+import { TIMETABLE_SLOTS } from './timetable-config'
 import { slotKey, emptyCellState } from './types'
-import type { PlannerState, Day, CellState } from './types'
-import type { Unit, Group, Lesson } from '@/types'
+import type { PlannerState, Day } from './types'
+import type { Unit, Group, LessonWithObjectives } from '@/types'
 
 type TeacherPlannerClientProps = {
   units: Unit[]
@@ -18,20 +19,7 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
   const [plannerState, setPlannerState] = useState<PlannerState>(new Map())
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
   const [weekNotes, setWeekNotes] = useState('')
-  const [lessonCache, setLessonCache] = useState<Map<string, Lesson[]>>(new Map())
-
-  function getCellState(day: Day, period: number): CellState {
-    return plannerState.get(slotKey(day, period)) ?? emptyCellState()
-  }
-
-  function updateCellState(day: Day, period: number, patch: Partial<CellState>) {
-    const key = slotKey(day, period)
-    setPlannerState((prev) => {
-      const next = new Map(prev)
-      next.set(key, { ...(prev.get(key) ?? emptyCellState()), ...patch })
-      return next
-    })
-  }
+  const [lessonCache, setLessonCache] = useState<Map<string, LessonWithObjectives[]>>(new Map())
 
   const handleCellClick = useCallback((day: Day, period: number) => {
     const key = slotKey(day, period)
@@ -39,48 +27,94 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
   }, [])
 
   const handleUnitChange = useCallback(async (day: Day, period: number, unitId: string) => {
-    updateCellState(day, period, { unitId: unitId || null, lessonId: null })
+    const key = slotKey(day, period)
+    setPlannerState((prev) => {
+      const current = prev.get(key) ?? emptyCellState()
+      const next = new Map(prev)
+      next.set(key, { ...current, unitId: unitId || null, lessonId: null })
+      return next
+    })
 
     if (!unitId) return
-    if (lessonCache.has(unitId)) return
 
     const result = await readLessonsByUnitAction(unitId)
     if (result.data) {
       setLessonCache((prev) => {
+        if (prev.has(unitId)) return prev  // already cached (race condition guard)
         const next = new Map(prev)
-        next.set(unitId, result.data as Lesson[])
+        next.set(unitId, result.data!)
         return next
       })
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lessonCache])
+  }, [])
 
   const handleLessonChange = useCallback((day: Day, period: number, lessonId: string) => {
-    updateCellState(day, period, { lessonId: lessonId || null })
+    const key = slotKey(day, period)
+    setPlannerState((prev) => {
+      const current = prev.get(key) ?? emptyCellState()
+      const next = new Map(prev)
+      next.set(key, { ...current, lessonId: lessonId || null })
+      return next
+    })
   }, [])
 
   const handleFeedbackToggle = useCallback((day: Day, period: number) => {
-    const current = getCellState(day, period)
-    updateCellState(day, period, { feedbackVisible: !current.feedbackVisible })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plannerState])
+    const key = slotKey(day, period)
+    setPlannerState((prev) => {
+      const current = prev.get(key) ?? emptyCellState()
+      const next = new Map(prev)
+      next.set(key, { ...current, feedbackVisible: !current.feedbackVisible })
+      return next
+    })
+  }, [])
 
   const handleIssueToggle = useCallback((day: Day, period: number) => {
-    const current = getCellState(day, period)
-    updateCellState(day, period, {
-      issueFlag: !current.issueFlag,
-      issueNote: current.issueFlag ? '' : current.issueNote,
+    const key = slotKey(day, period)
+    setPlannerState((prev) => {
+      const current = prev.get(key) ?? emptyCellState()
+      const next = new Map(prev)
+      next.set(key, {
+        ...current,
+        issueFlag: !current.issueFlag,
+        issueNote: current.issueFlag ? '' : current.issueNote,
+      })
+      return next
     })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plannerState])
+  }, [])
 
   const handleIssueNoteChange = useCallback((day: Day, period: number, note: string) => {
-    updateCellState(day, period, { issueNote: note })
+    const key = slotKey(day, period)
+    setPlannerState((prev) => {
+      const current = prev.get(key) ?? emptyCellState()
+      const next = new Map(prev)
+      next.set(key, { ...current, issueNote: note })
+      return next
+    })
   }, [])
 
   const handleLessonNotesChange = useCallback((day: Day, period: number, notes: string) => {
-    updateCellState(day, period, { lessonNotes: notes })
+    const key = slotKey(day, period)
+    setPlannerState((prev) => {
+      const current = prev.get(key) ?? emptyCellState()
+      const next = new Map(prev)
+      next.set(key, { ...current, lessonNotes: notes })
+      return next
+    })
   }, [])
+
+  // Derive selected slot info for SidePanel
+  const selectedParsed = selectedSlot ? (() => {
+    const idx = selectedSlot.lastIndexOf('-')
+    return {
+      day: selectedSlot.slice(0, idx) as Day,
+      period: Number(selectedSlot.slice(idx + 1)),
+    }
+  })() : null
+
+  const selectedCellState = selectedSlot ? (plannerState.get(selectedSlot) ?? emptyCellState()) : null
+  const selectedTimetableSlot = selectedParsed
+    ? TIMETABLE_SLOTS.find((s) => s.day === selectedParsed.day && s.period === selectedParsed.period) ?? null
+    : null
 
   return (
     <div className="relative max-w-[760px] mx-auto rounded-[12px] bg-[var(--color-background-tertiary)] p-4">
@@ -96,8 +130,10 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
       />
 
       <SidePanel
-        selectedSlot={selectedSlot}
-        plannerState={plannerState}
+        day={selectedParsed?.day ?? null}
+        period={selectedParsed?.period ?? null}
+        cellState={selectedCellState}
+        slot={selectedTimetableSlot}
         units={units}
         lessonCache={lessonCache}
         groups={groups}

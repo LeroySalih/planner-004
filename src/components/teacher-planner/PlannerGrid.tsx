@@ -5,13 +5,13 @@ import { PlannerCell } from './PlannerCell'
 import { PERIOD_LAYOUT, TIMETABLE_SLOTS, DAYS, DAY_LABELS } from './timetable-config'
 import { slotKey, emptyCellState } from './types'
 import type { PlannerState, Day, CellState } from './types'
-import type { Unit, Lesson } from '@/types'
+import type { Unit, LessonWithObjectives } from '@/types'
 
 type PlannerGridProps = {
   units: Unit[]
   plannerState: PlannerState
   selectedSlot: string | null
-  lessonCache: Map<string, Lesson[]>
+  lessonCache: Map<string, LessonWithObjectives[]>
   onCellClick: (day: Day, period: number) => void
   onUnitChange: (day: Day, period: number, unitId: string) => void
   onLessonChange: (day: Day, period: number, lessonId: string) => void
@@ -49,7 +49,7 @@ export function PlannerGrid({
           if (row.type === 'break') {
             return (
               <div
-                key={`break-${idx}`}
+                key={`break-${row.label}`}
                 className="grid gap-[4px]"
                 style={{ gridTemplateColumns: '70px repeat(5, minmax(0, 1fr))' }}
               >

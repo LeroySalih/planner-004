@@ -1,15 +1,17 @@
 'use client'
 
 import { cn } from '@/lib/utils'
-import { TIMETABLE_SLOTS, DAY_LABELS, PERIOD_LAYOUT } from './timetable-config'
-import type { Day, CellState } from './types'
-import type { Unit, Lesson, Group } from '@/types'
+import { DAY_LABELS, PERIOD_LAYOUT } from './timetable-config'
+import type { Day, CellState, TimetableSlot } from './types'
+import type { Unit, LessonWithObjectives, Group } from '@/types'
 
 type SidePanelProps = {
-  selectedSlot: string | null
-  plannerState: Map<string, CellState>
+  day: Day | null
+  period: number | null
+  cellState: CellState | null
+  slot: TimetableSlot | null
   units: Unit[]
-  lessonCache: Map<string, Lesson[]>
+  lessonCache: Map<string, LessonWithObjectives[]>
   groups: Group[]
   onClose: () => void
   onIssueToggle: (day: Day, period: number) => void
@@ -17,15 +19,11 @@ type SidePanelProps = {
   onLessonNotesChange: (day: Day, period: number, notes: string) => void
 }
 
-function parseDayPeriod(key: string): { day: Day; period: number } | null {
-  const idx = key.lastIndexOf('-')
-  if (idx === -1) return null
-  return { day: key.slice(0, idx) as Day, period: Number(key.slice(idx + 1)) }
-}
-
 export function SidePanel({
-  selectedSlot,
-  plannerState,
+  day,
+  period,
+  cellState,
+  slot,
   units,
   lessonCache,
   groups,
@@ -34,20 +32,11 @@ export function SidePanel({
   onIssueNoteChange,
   onLessonNotesChange,
 }: SidePanelProps) {
-  if (!selectedSlot) return null
+  if (!day || !period || !cellState || !slot) return null
 
-  const parsed = parseDayPeriod(selectedSlot)
-  if (!parsed) return null
-  const { day, period } = parsed
-
-  const slot = TIMETABLE_SLOTS.find((s) => s.day === day && s.period === period)
-  const state = plannerState.get(selectedSlot)
-
-  if (!slot || !state) return null
-
-  const selectedUnit = units.find((u) => u.unit_id === state.unitId) ?? null
-  const lessons = lessonCache.get(state.unitId ?? '') ?? []
-  const selectedLesson = lessons.find((l) => l.lesson_id === state.lessonId) ?? null
+  const selectedUnit = units.find((u) => u.unit_id === cellState.unitId) ?? null
+  const lessons = lessonCache.get(cellState.unitId ?? '') ?? []
+  const selectedLesson: LessonWithObjectives | null = lessons.find((l) => l.lesson_id === cellState.lessonId) ?? null
   const group = groups.find((g) => g.subject === slot.classCode) ?? null
 
   const periodRow = PERIOD_LAYOUT.find(
@@ -55,8 +44,7 @@ export function SidePanel({
   )
   const periodLabel = periodRow?.type === 'lesson' ? periodRow.label : `L${period}`
 
-  const lessonWithObjectives = selectedLesson as (Lesson & { lesson_objectives?: Array<{ title: string }> }) | null
-  const objectives = lessonWithObjectives?.lesson_objectives
+  const objectives = selectedLesson?.lesson_objectives
     ?.map((lo) => lo.title)
     .join('. ')
 
@@ -128,7 +116,7 @@ export function SidePanel({
           <div
             className={cn(
               'flex justify-between items-center px-2.5 py-2 rounded-[8px] border text-[12px] cursor-pointer select-none',
-              state.issueFlag
+              cellState.issueFlag
                 ? 'bg-[#FCEBEB] border-[#F09595] text-[#791F1F]'
                 : 'border-[var(--color-border-tertiary)] text-[var(--color-text-primary)]',
             )}
@@ -141,22 +129,22 @@ export function SidePanel({
             <div
               className={cn(
                 'w-7 h-4 rounded-full relative flex-shrink-0 transition-colors',
-                state.issueFlag ? 'bg-[#E24B4A]' : 'bg-[var(--color-border-secondary)]',
+                cellState.issueFlag ? 'bg-[#E24B4A]' : 'bg-[var(--color-border-secondary)]',
               )}
             >
               <div
                 className={cn(
                   'w-3 h-3 rounded-full bg-white absolute top-0.5 transition-[left] duration-150',
-                  state.issueFlag ? 'left-[14px]' : 'left-0.5',
+                  cellState.issueFlag ? 'left-[14px]' : 'left-0.5',
                 )}
               />
             </div>
           </div>
-          {state.issueFlag && (
+          {cellState.issueFlag && (
             <textarea
               className="mt-1.5 w-full text-[12px] bg-[var(--color-background-secondary)] border border-[#F09595] rounded-[8px] px-2.5 py-2 resize-y min-h-[56px] text-[#791F1F] focus:outline-none focus:border-[#E24B4A] box-border"
               placeholder="Describe the issue…"
-              value={state.issueNote}
+              value={cellState.issueNote}
               onChange={(e) => onIssueNoteChange(day, period, e.target.value)}
             />
           )}
@@ -176,7 +164,7 @@ export function SidePanel({
           <textarea
             className="w-full text-[12px] bg-[var(--color-background-secondary)] border border-[var(--color-border-tertiary)] rounded-[8px] px-2.5 py-2 resize-y min-h-[56px] text-[var(--color-text-primary)] focus:outline-none focus:border-[var(--color-border-info)] box-border"
             placeholder="Differentiation, starters, exit tickets…"
-            value={state.lessonNotes}
+            value={cellState.lessonNotes}
             onChange={(e) => onLessonNotesChange(day, period, e.target.value)}
           />
         </div>
