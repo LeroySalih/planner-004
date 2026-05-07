@@ -107,6 +107,7 @@
   --color-text-tertiary: #6e6e6a;
   --color-border-tertiary: rgba(255,255,255,0.08);
   --color-border-secondary: rgba(255,255,255,0.18);
+  --color-border-info: #5b9fd4;
 }
 
 @theme inline {

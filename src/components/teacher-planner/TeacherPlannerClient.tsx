@@ -67,7 +67,10 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
 
   const handleIssueToggle = useCallback((day: Day, period: number) => {
     const current = getCellState(day, period)
-    updateCellState(day, period, { issueFlag: !current.issueFlag, issueNote: '' })
+    updateCellState(day, period, {
+      issueFlag: !current.issueFlag,
+      issueNote: current.issueFlag ? '' : current.issueNote,
+    })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plannerState])
 
