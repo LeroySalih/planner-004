@@ -8,10 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, Upload, Sparkles, RefreshCcw } from "lucide-react";
-import { 
-    saveSketchRenderAnswerAction, 
-    renderSketchServerAction 
-} from "@/lib/server-actions/sketch-render-activity";
+import { renderSketchServerAction } from "@/lib/server-actions/sketch-render-activity";
 import type { LessonActivity } from "@/types";
 
 
@@ -125,7 +122,14 @@ export function PupilSketchRenderActivity({
         if (originalFile) formData.append("originalFile", originalFile);
 
         startTransition(async () => {
-            const result = await saveSketchRenderAnswerAction(formData);
+            let result: { success: boolean; error?: string; data: Record<string, unknown> | null }
+            try {
+                const response = await fetch("/api/sketch-render/save", { method: "POST", body: formData })
+                result = await response.json()
+            } catch (err) {
+                console.error("[sketch-render] Network error during save", err)
+                result = { success: false, error: "Network error, please try again.", data: null }
+            }
             if (result.success) {
                 toast.success("Saved successfully");
             } else {
@@ -149,7 +153,14 @@ export function PupilSketchRenderActivity({
                 formData.append("prompt", prompt);
                 if (originalFile) formData.append("originalFile", originalFile);
                 
-                const saveResult = await saveSketchRenderAnswerAction(formData);
+                let saveResult: { success: boolean; error?: string; data: Record<string, unknown> | null }
+                try {
+                    const response = await fetch("/api/sketch-render/save", { method: "POST", body: formData })
+                    saveResult = await response.json()
+                } catch (err) {
+                    console.error("[sketch-render] Network error during save", err)
+                    saveResult = { success: false, error: "Network error, please try again.", data: null }
+                }
                 if (!saveResult.success) {
                     toast.error(saveResult.error || "Failed to save before rendering");
                     return;
