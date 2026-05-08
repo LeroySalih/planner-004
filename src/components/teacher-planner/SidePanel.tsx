@@ -70,23 +70,13 @@ export function SidePanel({
   const addUnitLessons = lessonCache.get(addUnitId) ?? []
 
   return (
-    <>
-      {/* Dim overlay */}
-      <div
-        className="absolute inset-0 bg-black/[0.18] z-[5] rounded-[12px]"
-        onClick={onClose}
-      />
-
-      {/* Panel */}
-      <div className="absolute top-0 right-0 w-[320px] h-full bg-[var(--color-background-primary)] border-l border-[var(--color-border-tertiary)] rounded-r-[12px] p-5 overflow-y-auto z-[6] flex flex-col gap-3.5">
+    <div className="w-[300px] shrink-0 rounded-[12px] bg-[var(--color-background-secondary)] p-4 flex flex-col gap-3 self-start">
 
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h3 className="font-semibold text-[15px] m-0">
-            {`Period ${period}`}{slot?.startTime ? ` · ${slot.startTime}` : ''}
-          </h3>
-        </div>
+        <h3 className="font-semibold text-[14px] m-0">
+          {`Period ${period}`}{slot?.startTime ? ` · ${slot.startTime}` : ''}
+        </h3>
         <button
           type="button"
           className="text-[16px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] bg-transparent border-none cursor-pointer p-0 leading-none"
@@ -170,8 +160,7 @@ export function SidePanel({
           </div>
         </div>
       )}
-      </div>
-    </>
+    </div>
   )
 }
 

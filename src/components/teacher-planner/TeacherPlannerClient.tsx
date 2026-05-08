@@ -336,17 +336,19 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
         onNext={handleNextWeek}
       />
 
-      <div className="relative">
-        <PlannerGrid
-          units={units}
-          plannerState={plannerState}
-          selectedSlot={selectedSlot}
-          lessonCache={lessonCache}
-          onCellClick={handleCellClick}
-          onUnitSelect={handleUnitSelect}
-          onLessonChange={handleLessonChange}
-          onFeedbackToggle={handleFeedbackToggle}
-        />
+      <div className="flex gap-4 items-start">
+        <div className="flex-1 min-w-0">
+          <PlannerGrid
+            units={units}
+            plannerState={plannerState}
+            selectedSlot={selectedSlot}
+            lessonCache={lessonCache}
+            onCellClick={handleCellClick}
+            onUnitSelect={handleUnitSelect}
+            onLessonChange={handleLessonChange}
+            onFeedbackToggle={handleFeedbackToggle}
+          />
+        </div>
 
         <SidePanel
           day={selectedParsed?.day ?? null}
