@@ -1,4 +1,5 @@
--- Step 1: Seed timetable defaults for leroy@mr-salih.org
+-- Step 1: Seed timetable defaults for Leroy Salih.
+-- Matches on both dev (leroy@mr-salih.org) and production (leroysalih@bisak.org) emails.
 -- These are the canonical timetable slots as of 24 May 2026.
 -- ON CONFLICT DO NOTHING — safe to re-run; won't overwrite teacher's own changes.
 INSERT INTO timetable_slot_groups (teacher_id, day, period, group_id)
