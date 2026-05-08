@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import type { CellState, SlotLesson, Day, TimetableSlot } from './types'
 import type { Unit, Group, LessonWithObjectives } from '@/types'
 
@@ -135,6 +136,7 @@ export function SidePanel({
             <LessonCard
               key={lesson.lessonId}
               lesson={lesson}
+              groupId={groupId!}
               day={day}
               period={period}
               onFeedbackToggle={onFeedbackToggle}
@@ -190,6 +192,7 @@ export function SidePanel({
 
 type LessonCardProps = {
   lesson: SlotLesson
+  groupId: string
   day: Day
   period: number
   onFeedbackToggle: (day: Day, period: number, lessonId: string) => void
@@ -199,6 +202,7 @@ type LessonCardProps = {
 
 function LessonCard({
   lesson,
+  groupId,
   day,
   period,
   onFeedbackToggle,
@@ -209,12 +213,21 @@ function LessonCard({
     <div className="rounded-[8px] bg-[var(--color-background-secondary)] p-3">
       <div className="flex items-start justify-between gap-2 mb-2">
         <p className="text-xs font-medium leading-tight flex-1">{lesson.lessonTitle}</p>
-        <button
-          className="text-[10px] text-[var(--color-text-tertiary)] hover:text-red-500 shrink-0"
-          onClick={() => onRemove(day, period, lesson.lessonId)}
-        >
-          Remove
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <Link
+            href={`/feedback/groups/${groupId}/lessons/${lesson.lessonId}`}
+            className="text-[10px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] font-medium"
+            title="View grades / feedback"
+          >
+            %
+          </Link>
+          <button
+            className="text-[10px] text-[var(--color-text-tertiary)] hover:text-red-500"
+            onClick={() => onRemove(day, period, lesson.lessonId)}
+          >
+            Remove
+          </button>
+        </div>
       </div>
 
       {/* Feedback toggle */}

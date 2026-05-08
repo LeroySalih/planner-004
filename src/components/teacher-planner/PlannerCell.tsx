@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import type { CellState, Day } from './types'
 import type { Unit, LessonWithObjectives } from '@/types'
@@ -173,18 +174,29 @@ export function PlannerCell({
             >
               ✓
             </button>
-            {/* Grades placeholder */}
-            <button
-              type="button"
-              className={cn(
-                'w-[16px] h-[16px] flex items-center justify-center rounded-[2px] border-none bg-transparent text-[9px] font-medium opacity-20 cursor-default',
-                anyIssue ? 'text-[#A32D2D]' : 'text-[var(--color-text-tertiary)]',
-              )}
-              disabled
-              title="Grades (not configured)"
-            >
-              %
-            </button>
+            {/* Grades — links to feedback page if a lesson is assigned */}
+            {currentLesson && groupId ? (
+              <Link
+                href={`/feedback/groups/${groupId}/lessons/${currentLesson.lessonId}`}
+                className={cn(
+                  'w-[16px] h-[16px] flex items-center justify-center rounded-[2px] text-[9px] font-medium opacity-60 hover:opacity-100 transition-opacity',
+                  anyIssue ? 'text-[#A32D2D]' : 'text-[var(--color-text-tertiary)]',
+                )}
+                title="View grades / feedback"
+                onClick={(e) => e.stopPropagation()}
+              >
+                %
+              </Link>
+            ) : (
+              <span
+                className={cn(
+                  'w-[16px] h-[16px] flex items-center justify-center text-[9px] font-medium opacity-20',
+                  anyIssue ? 'text-[#A32D2D]' : 'text-[var(--color-text-tertiary)]',
+                )}
+              >
+                %
+              </span>
+            )}
             {/* Slide deck placeholder */}
             <button
               type="button"
