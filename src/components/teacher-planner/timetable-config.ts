@@ -2,15 +2,15 @@
 import type { PeriodRow, TimetableSlot } from './types'
 
 export const PERIOD_LAYOUT: PeriodRow[] = [
-  { type: 'lesson', period: 1, label: 'L1', startTime: '07:15', endTime: '07:25' },
-  { type: 'lesson', period: 2, label: 'L2', startTime: '07:25', endTime: '08:25' },
-  { type: 'lesson', period: 3, label: 'L3', startTime: '08:25', endTime: '09:25' },
+  { type: 'lesson', period: 1, label: 'L1', startTime: '07:15', endTime: '08:15' },
+  { type: 'lesson', period: 2, label: 'L2', startTime: '08:15', endTime: '09:15' },
   { type: 'break',  label: 'Break' },
-  { type: 'lesson', period: 4, label: 'L4', startTime: '09:40', endTime: '10:40' },
-  { type: 'lesson', period: 5, label: 'L5', startTime: '10:40', endTime: '11:40' },
+  { type: 'lesson', period: 3, label: 'L3', startTime: '09:30', endTime: '10:30' },
+  { type: 'lesson', period: 4, label: 'L4', startTime: '10:30', endTime: '11:30' },
   { type: 'break',  label: 'Lunch' },
-  { type: 'lesson', period: 6, label: 'L6', startTime: '12:00', endTime: '13:00' },
-  { type: 'lesson', period: 7, label: 'L7', startTime: '13:00', endTime: '14:00' },
+  { type: 'lesson', period: 5, label: 'L5', startTime: '12:15', endTime: '13:15' },
+  { type: 'lesson', period: 6, label: 'L6', startTime: '13:15', endTime: '14:15' },
+  { type: 'lesson', period: 7, label: 'L7', startTime: '14:15', endTime: '15:15' },
 ]
 
 export const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday'] as const
