@@ -1,119 +1,152 @@
 'use client'
 
-import { cn } from '@/lib/utils'
 import { PlannerCell } from './PlannerCell'
 import { PERIOD_LAYOUT, TIMETABLE_SLOTS, DAYS, DAY_LABELS } from './timetable-config'
 import { slotKey, emptyCellState } from './types'
-import type { PlannerState, Day, CellState } from './types'
-import type { Unit, LessonWithObjectives } from '@/types'
+import type { PlannerState, Day, CellState, PeriodRow } from './types'
+import type { Unit, LessonWithObjectives, Group } from '@/types'
 
 type PlannerGridProps = {
   units: Unit[]
+  groups: Group[]
   plannerState: PlannerState
   selectedSlot: string | null
   lessonCache: Map<string, LessonWithObjectives[]>
   onCellClick: (day: Day, period: number) => void
-  onUnitChange: (day: Day, period: number, unitId: string) => void
+  onUnitSelect: (day: Day, period: number, unitId: string) => void
   onLessonChange: (day: Day, period: number, lessonId: string) => void
-  onFeedbackToggle: (day: Day, period: number) => void
+  onFeedbackToggle: (day: Day, period: number, lessonId: string) => void
 }
+
+type LessonRow = Extract<PeriodRow, { type: 'lesson' }>
+type BreakRow = Extract<PeriodRow, { type: 'break' }>
+
+// Interleave lesson periods with break dividers for column rendering
+type Col = { kind: 'lesson'; row: LessonRow } | { kind: 'break'; row: BreakRow }
+
+function buildColumns(): Col[] {
+  const cols: Col[] = []
+  for (const row of PERIOD_LAYOUT) {
+    if (row.type === 'lesson') {
+      cols.push({ kind: 'lesson', row })
+    } else {
+      cols.push({ kind: 'break', row })
+    }
+  }
+  return cols
+}
+
+const COLUMNS = buildColumns()
+// Grid: day-label col + one col per entry in COLUMNS
+const GRID_TEMPLATE =
+  '64px ' +
+  COLUMNS.map((c) => (c.kind === 'break' ? '36px' : 'minmax(0, 1fr)')).join(' ')
 
 export function PlannerGrid({
   units,
+  groups,
   plannerState,
   selectedSlot,
   lessonCache,
   onCellClick,
-  onUnitChange,
+  onUnitSelect,
   onLessonChange,
   onFeedbackToggle,
 }: PlannerGridProps) {
   return (
     <div className="text-[13px]">
-      {/* Day headers */}
-      <div className="grid gap-[4px]" style={{ gridTemplateColumns: '70px repeat(5, minmax(0, 1fr))' }}>
+      {/* Period header row */}
+      <div className="grid gap-[4px] mb-[4px]" style={{ gridTemplateColumns: GRID_TEMPLATE }}>
         <div />
-        {DAYS.map((day) => (
-          <div
-            key={day}
-            className="text-[12px] font-medium text-[var(--color-text-secondary)] text-center px-1 py-1.5"
-          >
-            {DAY_LABELS[day]}
-          </div>
-        ))}
-      </div>
-
-      {/* Period rows */}
-      <div className="flex flex-col gap-[4px] mt-[4px]">
-        {PERIOD_LAYOUT.map((row, idx) => {
-          if (row.type === 'break') {
+        {COLUMNS.map((col, i) => {
+          if (col.kind === 'break') {
             return (
               <div
-                key={`break-${row.label}`}
-                className="grid gap-[4px]"
-                style={{ gridTemplateColumns: '70px repeat(5, minmax(0, 1fr))' }}
+                key={`hbreak-${i}`}
+                className="flex items-end justify-center pb-1 text-[9px] text-[var(--color-text-tertiary)] opacity-60 tracking-wide leading-tight text-center"
               >
-                <div />
-                <div
-                  className="col-span-5 rounded-[8px] bg-[var(--color-background-secondary)] px-2.5 py-1 text-[11px] text-[var(--color-text-secondary)] text-center tracking-wide"
-                >
-                  {row.label}
-                </div>
+                {col.row.label}
               </div>
             )
           }
-
           return (
             <div
-              key={`period-${row.period}`}
-              className="grid gap-[4px]"
-              style={{ gridTemplateColumns: '70px repeat(5, minmax(0, 1fr))' }}
+              key={`hperiod-${col.row.period}`}
+              className="text-center px-1 py-1.5"
             >
-              {/* Row label */}
-              <div className="flex flex-col items-end justify-center pr-2 text-right">
-                <span className="font-medium text-[13px] text-[var(--color-text-primary)]">{row.label}</span>
-                {row.startTime && (
-                  <span className="text-[10px] text-[var(--color-text-secondary)] leading-tight">{row.startTime}</span>
-                )}
+              <div className="text-[12px] font-medium text-[var(--color-text-secondary)]">
+                {col.row.label}
               </div>
-
-              {/* Cells for each day */}
-              {DAYS.map((day) => {
-                const slot = TIMETABLE_SLOTS.find(
-                  (s) => s.day === day && s.period === row.period,
-                )
-
-                if (!slot) {
-                  return (
-                    <div
-                      key={day}
-                      className="rounded-[8px] border border-[var(--color-border-tertiary)] min-h-[86px] bg-[var(--color-background-secondary)] opacity-30"
-                    />
-                  )
-                }
-
-                const key = slotKey(day, row.period)
-                const state: CellState = plannerState.get(key) ?? emptyCellState()
-                const lessons = lessonCache.get(state.unitId ?? '') ?? []
-
-                return (
-                  <PlannerCell
-                    key={day}
-                    slot={slot}
-                    state={state}
-                    isSelected={selectedSlot === key}
-                    units={units}
-                    lessons={lessons}
-                    onCellClick={() => onCellClick(day, row.period)}
-                    onUnitChange={(unitId) => onUnitChange(day, row.period, unitId)}
-                    onLessonChange={(lessonId) => onLessonChange(day, row.period, lessonId)}
-                    onFeedbackToggle={() => onFeedbackToggle(day, row.period)}
-                  />
-                )
-              })}
+              {col.row.startTime && (
+                <div className="text-[10px] text-[var(--color-text-tertiary)] leading-tight">
+                  {col.row.startTime}
+                </div>
+              )}
             </div>
           )
         })}
+      </div>
+
+      {/* Day rows */}
+      <div className="flex flex-col gap-[4px]">
+        {DAYS.map((day) => (
+          <div
+            key={day}
+            className="grid gap-[4px]"
+            style={{ gridTemplateColumns: GRID_TEMPLATE }}
+          >
+            {/* Day label */}
+            <div className="flex items-center justify-end pr-2">
+              <span className="font-medium text-[12px] text-[var(--color-text-secondary)]">
+                {DAY_LABELS[day]}
+              </span>
+            </div>
+
+            {/* Period cells */}
+            {COLUMNS.map((col, i) => {
+              if (col.kind === 'break') {
+                return (
+                  <div
+                    key={`break-${day}-${i}`}
+                    className="rounded-[6px] bg-[var(--color-background-secondary)] opacity-40"
+                  />
+                )
+              }
+
+              const slot = TIMETABLE_SLOTS.find(
+                (s) => s.day === day && s.period === col.row.period,
+              )
+
+              if (!slot) {
+                return (
+                  <div
+                    key={`empty-${day}-${col.row.period}`}
+                    className="rounded-[8px] border border-[var(--color-border-tertiary)] min-h-[86px] bg-[var(--color-background-secondary)] opacity-30"
+                  />
+                )
+              }
+
+              const key = slotKey(day, col.row.period)
+              const state: CellState = plannerState.get(key) ?? emptyCellState()
+
+              return (
+                <PlannerCell
+                  key={key}
+                  slot={slot}
+                  state={state}
+                  isSelected={selectedSlot === key}
+                  units={units}
+                  lessonCache={lessonCache}
+                  groups={groups}
+                  onCellClick={() => onCellClick(day, col.row.period)}
+                  onUnitSelect={(unitId) => onUnitSelect(day, col.row.period, unitId)}
+                  onLessonChange={(lessonId) => onLessonChange(day, col.row.period, lessonId)}
+                  onFeedbackToggle={(lessonId) => onFeedbackToggle(day, col.row.period, lessonId)}
+                />
+              )
+            })}
+          </div>
+        ))}
       </div>
     </div>
   )
