@@ -336,35 +336,37 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
         onNext={handleNextWeek}
       />
 
-      <PlannerGrid
-        units={units}
-        plannerState={plannerState}
-        selectedSlot={selectedSlot}
-        lessonCache={lessonCache}
-        onCellClick={handleCellClick}
-        onUnitSelect={handleUnitSelect}
-        onLessonChange={handleLessonChange}
-        onFeedbackToggle={handleFeedbackToggle}
-      />
+      <div className="relative">
+        <PlannerGrid
+          units={units}
+          plannerState={plannerState}
+          selectedSlot={selectedSlot}
+          lessonCache={lessonCache}
+          onCellClick={handleCellClick}
+          onUnitSelect={handleUnitSelect}
+          onLessonChange={handleLessonChange}
+          onFeedbackToggle={handleFeedbackToggle}
+        />
 
-      <SidePanel
-        day={selectedParsed?.day ?? null}
-        period={selectedParsed?.period ?? null}
-        cellState={selectedCellState}
-        slot={selectedTimetableSlot}
-        units={units}
-        lessonCache={lessonCache}
-        groups={groups}
-        onClose={() => setSelectedSlot(null)}
-        onGroupChange={handleGroupChange}
-        onUnitSelect={handleUnitSelect}
-        onAddLesson={handleAddLesson}
-        onRemoveLesson={handleRemoveLesson}
-        onFeedbackToggle={handleFeedbackToggle}
-        onIssueToggle={handleIssueToggle}
-        onIssueNoteChange={handleIssueNoteChange}
-        onLessonNotesChange={handleLessonNotesChange}
-      />
+        <SidePanel
+          day={selectedParsed?.day ?? null}
+          period={selectedParsed?.period ?? null}
+          cellState={selectedCellState}
+          slot={selectedTimetableSlot}
+          units={units}
+          lessonCache={lessonCache}
+          groups={groups}
+          onClose={() => setSelectedSlot(null)}
+          onGroupChange={handleGroupChange}
+          onUnitSelect={handleUnitSelect}
+          onAddLesson={handleAddLesson}
+          onRemoveLesson={handleRemoveLesson}
+          onFeedbackToggle={handleFeedbackToggle}
+          onIssueToggle={handleIssueToggle}
+          onIssueNoteChange={handleIssueNoteChange}
+          onLessonNotesChange={handleLessonNotesChange}
+        />
+      </div>
 
       <WeekNotes value={weekNote} onChange={handleWeekNoteChange} />
     </div>
