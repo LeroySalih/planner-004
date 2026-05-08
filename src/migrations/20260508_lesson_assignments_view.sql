@@ -1,5 +1,4 @@
--- Step 1: Seed timetable defaults for Leroy Salih.
--- Matches on both dev (leroy@mr-salih.org) and production (leroysalih@bisak.org) emails.
+-- Step 1: Seed timetable defaults for leroysalih@bisak.org.
 -- These are the canonical timetable slots as of 24 May 2026.
 -- ON CONFLICT DO NOTHING — safe to re-run; won't overwrite teacher's own changes.
 INSERT INTO timetable_slot_groups (teacher_id, day, period, group_id)
@@ -25,7 +24,7 @@ FROM (VALUES
   ('thursday',  4, '25-9B-DT'),
   ('thursday',  5, '25-8A-DT')
 ) AS v(day, period, group_id)
-JOIN profiles p ON lower(p.email) IN ('leroy@mr-salih.org', 'leroysalih@bisak.org')
+JOIN profiles p ON lower(p.email) = 'leroysalih@bisak.org'
 ON CONFLICT (teacher_id, day, period) DO NOTHING;
 
 -- Step 2: Replace UNIQUE constraint on planner_assignments
