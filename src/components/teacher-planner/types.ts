@@ -16,15 +16,20 @@ export type PeriodRow =
   | { type: 'lesson'; period: number; label: string; startTime?: string; endTime?: string }
   | { type: 'break'; label: string }
 
-export type CellState = {
-  unitId: string | null
-  lessonId: string | null
-  groupId: string | null   // '__free__' = explicitly marked as free period
+export type SlotLesson = {
+  lessonId: string
+  unitId: string
+  lessonTitle: string
+  assignmentId: string
   feedbackVisible: boolean
   issueFlag: boolean
   issueNote: string
   lessonNotes: string
-  assignmentId: string | null  // UUID of the corresponding planner_assignments row, null if not yet saved
+}
+
+export type CellState = {
+  groupId: string | null
+  lessons: SlotLesson[]
 }
 
 export type PlannerState = Map<string, CellState>       // key: `${day}-${period}`
@@ -64,14 +69,5 @@ export function formatWeekRange(weekKey: string): string {
 }
 
 export function emptyCellState(): CellState {
-  return {
-    unitId: null,
-    lessonId: null,
-    groupId: null,
-    feedbackVisible: false,
-    issueFlag: false,
-    issueNote: '',
-    lessonNotes: '',
-    assignmentId: null,
-  }
+  return { groupId: null, lessons: [] }
 }
