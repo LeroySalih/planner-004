@@ -65,6 +65,13 @@ export function PlannerCell({
       }`}
       onClick={() => onCellClick(day, period)}
     >
+      {/* Class label — always shown when a group is assigned */}
+      {hasGroup && (
+        <p className="text-[10px] font-semibold text-[var(--color-text-secondary)] mb-1 truncate">
+          {groupId}
+        </p>
+      )}
+
       {!hasGroup && (
         <span className="text-xs text-[var(--color-text-tertiary)]">Free period</span>
       )}
