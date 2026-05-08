@@ -4,10 +4,11 @@ import { PlannerCell } from './PlannerCell'
 import { PERIOD_LAYOUT, DAYS, DAY_LABELS } from './timetable-config'
 import { slotKey, emptyCellState } from './types'
 import type { PlannerState, Day, CellState, PeriodRow } from './types'
-import type { Unit, LessonWithObjectives } from '@/types'
+import type { Unit, Group, LessonWithObjectives } from '@/types'
 
 type PlannerGridProps = {
   units: Unit[]
+  groups: Group[]
   plannerState: PlannerState
   selectedSlot: string | null
   lessonCache: Map<string, LessonWithObjectives[]>
@@ -43,6 +44,7 @@ const GRID_TEMPLATE =
 
 export function PlannerGrid({
   units,
+  groups,
   plannerState,
   selectedSlot,
   lessonCache,
@@ -51,6 +53,8 @@ export function PlannerGrid({
   onLessonChange,
   onFeedbackToggle,
 }: PlannerGridProps) {
+  // Build a map from group_id → subject for fast lookup
+  const groupSubjectMap = new Map(groups.map((g) => [g.group_id, g.subject]))
   return (
     <div className="text-[13px]">
       {/* Period header row */}
@@ -113,6 +117,10 @@ export function PlannerGrid({
 
               const key = slotKey(day, col.row.period)
               const state: CellState = plannerState.get(key) ?? emptyCellState()
+              const groupSubject = state.groupId ? groupSubjectMap.get(state.groupId) : undefined
+              const cellUnits = groupSubject
+                ? units.filter((u) => u.subject === groupSubject && u.active !== false)
+                : []
 
               return (
                 <PlannerCell
@@ -121,7 +129,7 @@ export function PlannerGrid({
                   period={col.row.period}
                   cellState={state}
                   isSelected={selectedSlot === key}
-                  units={units}
+                  units={cellUnits}
                   lessonCache={lessonCache}
                   onCellClick={onCellClick}
                   onUnitSelect={onUnitSelect}

@@ -52,6 +52,10 @@ export function SidePanel({
   const { groupId, lessons, issueFlag, issueNote } = cellState
   const hasGroup = !!groupId && groupId !== '__free__'
 
+  // Filter units to those matching the group's subject
+  const groupSubject = groupId ? groups.find((g) => g.group_id === groupId)?.subject : undefined
+  const filteredUnits = groupSubject ? units.filter((u) => u.subject === groupSubject && u.active !== false) : units
+
   const handleGroupChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     onGroupChange(day, period, e.target.value)
   }
@@ -141,7 +145,7 @@ export function SidePanel({
               groupId={groupId!}
               day={day}
               period={period}
-              units={units}
+              units={filteredUnits}
               lessonCache={lessonCache}
               onUnitSelect={onUnitSelect}
               onSwapLesson={onSwapLesson}
@@ -164,7 +168,7 @@ export function SidePanel({
               onChange={handleAddUnitChange}
             >
               <option value="">Unit…</option>
-              {units.map((u) => (
+              {filteredUnits.map((u) => (
                 <option key={u.unit_id} value={u.unit_id}>{u.title}</option>
               ))}
             </select>
