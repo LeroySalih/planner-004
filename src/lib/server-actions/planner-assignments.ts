@@ -65,9 +65,8 @@ export async function upsertPlannerAssignmentAction(
          (group_id, lesson_id, week_start_date, day, period,
           feedback_visible, issue_flag, issue_note, notes, created_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       ON CONFLICT (group_id, week_start_date, day, period)
+       ON CONFLICT (group_id, week_start_date, day, period, lesson_id)
        DO UPDATE SET
-         lesson_id        = EXCLUDED.lesson_id,
          feedback_visible = EXCLUDED.feedback_visible,
          issue_flag       = EXCLUDED.issue_flag,
          issue_note       = EXCLUDED.issue_note,
@@ -96,6 +95,7 @@ export async function upsertPlannerAssignmentAction(
 
 export async function deletePlannerAssignmentAction(
   groupId: string,
+  lessonId: string,
   weekStartDate: string,
   day: string,
   period: number,
@@ -107,8 +107,8 @@ export async function deletePlannerAssignmentAction(
     }
     await query(
       `DELETE FROM planner_assignments
-       WHERE group_id = $1 AND week_start_date = $2 AND day = $3 AND period = $4`,
-      [groupId, weekStartDate, day, period],
+       WHERE group_id = $1 AND lesson_id = $2 AND week_start_date = $3 AND day = $4 AND period = $5`,
+      [groupId, lessonId, weekStartDate, day, period],
     )
     return NullResult.parse({ data: null, error: null })
   } catch (error) {
@@ -126,7 +126,7 @@ export async function readPlannerAssignmentsForWeekAction(
       return AssignmentsWithUnitResult.parse({ data: null, error: 'weekStartDate must be ISO YYYY-MM-DD' })
     }
     const { rows } = await query<Record<string, unknown>>(
-      `SELECT pa.*, l.unit_id
+      `SELECT pa.*, l.unit_id, l.title AS lesson_title
        FROM planner_assignments pa
        JOIN lessons l ON l.lesson_id = pa.lesson_id
        JOIN timetable_slot_groups tsg
@@ -138,6 +138,7 @@ export async function readPlannerAssignmentsForWeekAction(
       PlannerAssignmentWithUnitSchema.parse({
         ...toAssignment(row),
         unit_id: row.unit_id,
+        lesson_title: row.lesson_title,
       }),
     )
     return AssignmentsWithUnitResult.parse({ data, error: null })
