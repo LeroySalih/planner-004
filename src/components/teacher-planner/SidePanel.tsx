@@ -75,7 +75,7 @@ export function SidePanel({
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="font-semibold text-sm">
-            {slot?.label ?? `Period ${period}`}
+            {`Period ${period}`}
           </h3>
           <p className="text-xs text-[var(--color-text-tertiary)]">{slot?.startTime}</p>
         </div>
@@ -98,7 +98,7 @@ export function SidePanel({
           <option value="">No class</option>
           <option value="__free__">Free period</option>
           {groups.map((g) => (
-            <option key={g.group_id} value={g.group_id}>{g.name}</option>
+            <option key={g.group_id} value={g.group_id}>{g.subject}</option>
           ))}
         </select>
       </div>
