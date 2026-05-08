@@ -210,14 +210,15 @@ function LessonCard({
           Feedback {lesson.feedbackVisible ? 'on' : 'off'}
         </button>
         <button
-          className={`text-[10px] px-2 py-0.5 rounded ${
+          className={`text-[10px] px-2 py-0.5 rounded border ${
             lesson.issueFlag
-              ? 'bg-red-500 text-white'
-              : 'bg-[var(--color-background-secondary)] text-[var(--color-text-secondary)]'
+              ? 'bg-red-500 text-white border-red-600'
+              : 'bg-[var(--color-background-secondary)] text-[var(--color-text-secondary)] border-[var(--color-border)] hover:border-red-400 hover:text-red-500'
           }`}
           onClick={() => onIssueToggle(day, period, lesson.lessonId)}
+          title={lesson.issueFlag ? 'Clear warning flag' : 'Flag this lesson with a warning'}
         >
-          {lesson.issueFlag ? '⚠ Issue' : 'No issue'}
+          {lesson.issueFlag ? '⚠ Warning flagged' : '⚠ Flag warning'}
         </button>
       </div>
 
