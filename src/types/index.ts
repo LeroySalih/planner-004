@@ -1206,3 +1206,34 @@ export const WeeklyPlanWeekSchema = z.object({
 });
 export type WeeklyPlanWeek = z.infer<typeof WeeklyPlanWeekSchema>;
 export type PeerReviewComments = z.infer<typeof PeerReviewCommentsSchema>;
+
+export const PlannerAssignmentSchema = z.object({
+  id:               z.string().uuid(),
+  group_id:         z.string(),
+  lesson_id:        z.string(),
+  week_start_date:  z.string(),
+  day:              z.string(),
+  period:           z.number().int(),
+  feedback_visible: z.boolean(),
+  issue_flag:       z.boolean(),
+  issue_note:       z.string(),
+  notes:            z.string(),
+  created_by:       z.string().nullable(),
+  created_at:       z.string(),
+  updated_at:       z.string(),
+});
+export type PlannerAssignment = z.infer<typeof PlannerAssignmentSchema>;
+
+export const PlannerAssignmentWithUnitSchema = PlannerAssignmentSchema.extend({
+  unit_id: z.string(),
+  lesson_title: z.string(),
+});
+export type PlannerAssignmentWithUnit = z.infer<typeof PlannerAssignmentWithUnitSchema>;
+
+export const TimetableSlotGroupSchema = z.object({
+  teacher_id: z.string(),
+  day:        z.string(),
+  period:     z.number().int(),
+  group_id:   z.string().nullable(),
+});
+export type TimetableSlotGroup = z.infer<typeof TimetableSlotGroupSchema>;

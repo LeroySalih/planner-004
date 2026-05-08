@@ -33,11 +33,6 @@ import {
   createGroupAction,
   updateGroupAction,
   deleteGroupAction,
-  upsertLessonAssignmentAction,
-  deleteLessonAssignmentAction,
-  toggleLessonAssignmentFeedbackVisibilityAction,
-  toggleLessonAssignmentLockedAction,
-  toggleLessonAssignmentVisibilityAction,
   createDateCommentAction,
   updateDateCommentAction,
   deleteDateCommentAction,
@@ -119,7 +114,7 @@ export function AssignmentManager({
   )
   const [editingGroup, setEditingGroup] = useState<Group | null>(null)
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([])
-  const [pendingLessonAssignmentKeys, setPendingLessonAssignmentKeys] = useState<Record<string, boolean>>({})
+  const [pendingLessonAssignmentKeys] = useState<Record<string, boolean>>({})
   const [dateComments, setDateComments] = useState<DateComments>(initialDateComments ?? [])
   const [isDateCommentsSidebarOpen, setIsDateCommentsSidebarOpen] = useState(false)
   const [selectedCommentDate, setSelectedCommentDate] = useState<string | null>(null)
@@ -294,38 +289,7 @@ export function AssignmentManager({
 
   const upsertLessonAssignment = (groupId: string, lessonId: string, startDate: string) => {
     const normalizedStartDate = normalizeDateOnly(startDate) ?? startDate
-    const previousLessonAssignments = lessonAssignments.map((entry) => ({ ...entry }))
-    const key = lessonAssignmentKey(groupId, lessonId)
-
     updateLessonAssignmentState(groupId, lessonId, normalizedStartDate)
-
-    setPendingLessonAssignmentKeys((prev) => ({ ...prev, [key]: true }))
-
-    startTransition(async () => {
-      try {
-        const result = await upsertLessonAssignmentAction(groupId, lessonId, normalizedStartDate)
-
-        if (result.error || !result.data) {
-          throw new Error(result.error ?? "Unknown error")
-        }
-
-        updateLessonAssignmentState(groupId, lessonId, result.data.start_date)
-
-        toast.success("Lesson schedule saved to the database.")
-      } catch (error) {
-        console.error("[v0] Failed to upsert lesson assignment:", error)
-        setLessonAssignments(previousLessonAssignments)
-        toast.error("Lesson scheduling failed", {
-          description: "We couldn't save the lesson date. Please try again.",
-        })
-      } finally {
-        setPendingLessonAssignmentKeys((prev) => {
-          const updated = { ...prev }
-          delete updated[key]
-          return updated
-        })
-      }
-    })
   }
 
   const deleteLessonAssignment = (groupId: string, lessonId: string) => {
@@ -337,89 +301,22 @@ export function AssignmentManager({
       return
     }
 
-    const previousLessonAssignments = lessonAssignments.map((entry) => ({ ...entry }))
-    const key = lessonAssignmentKey(groupId, lessonId)
-
     updateLessonAssignmentState(groupId, lessonId, null)
-    setPendingLessonAssignmentKeys((prev) => ({ ...prev, [key]: true }))
-
-    startTransition(async () => {
-      try {
-        const result = await deleteLessonAssignmentAction(groupId, lessonId)
-
-        if (!result.success) {
-          throw new Error(result.error ?? "Unknown error")
-        }
-
-        toast.success("Lesson date removed from the database.")
-      } catch (error) {
-        console.error("[v0] Failed to delete lesson assignment:", error)
-        setLessonAssignments(previousLessonAssignments)
-        toast.error("Lesson date removal failed", {
-          description: "We couldn't remove the lesson date. Please try again.",
-        })
-      } finally {
-        setPendingLessonAssignmentKeys((prev) => {
-          const updated = { ...prev }
-          delete updated[key]
-          return updated
-        })
-      }
-    })
   }
 
   const handleToggleHidden = (groupId: string, lessonId: string, currentHidden: boolean) => {
-    const key = lessonAssignmentKey(groupId, lessonId)
     const newHidden = !currentHidden
-    
-    // Optimistic update
-    setLessonAssignments((prev) => 
-      prev.map((entry) => 
+    setLessonAssignments((prev) =>
+      prev.map((entry) =>
         entry.group_id === groupId && entry.lesson_id === lessonId
           ? { ...entry, hidden: newHidden }
           : entry
       )
     )
-
-    setPendingLessonAssignmentKeys((prev) => ({ ...prev, [key]: true }))
-
-    startTransition(async () => {
-      try {
-        const result = await toggleLessonAssignmentVisibilityAction(groupId, lessonId, newHidden)
-
-        if (!result.success) {
-          throw new Error(result.error ?? "Unknown error")
-        }
-
-        toast.success(`Lesson is now ${newHidden ? 'hidden' : 'visible'}.`)
-      } catch (error) {
-        console.error("[v0] Failed to toggle lesson visibility:", error)
-        // Revert optimistic update
-        setLessonAssignments((prev) => 
-          prev.map((entry) => 
-            entry.group_id === groupId && entry.lesson_id === lessonId
-              ? { ...entry, hidden: currentHidden }
-              : entry
-          )
-        )
-        toast.error("Failed to update visibility", {
-          description: "We couldn't update the lesson visibility. Please try again.",
-        })
-      } finally {
-        setPendingLessonAssignmentKeys((prev) => {
-          const updated = { ...prev }
-          delete updated[key]
-          return updated
-        })
-      }
-    })
   }
 
   const handleToggleLocked = (groupId: string, lessonId: string, currentLocked: boolean) => {
-    const key = lessonAssignmentKey(groupId, lessonId)
     const newLocked = !currentLocked
-
-    // Optimistic update
     setLessonAssignments((prev) =>
       prev.map((entry) =>
         entry.group_id === groupId && entry.lesson_id === lessonId
@@ -427,46 +324,10 @@ export function AssignmentManager({
           : entry
       )
     )
-
-    setPendingLessonAssignmentKeys((prev) => ({ ...prev, [key]: true }))
-
-    startTransition(async () => {
-      try {
-        const result = await toggleLessonAssignmentLockedAction(groupId, lessonId, newLocked)
-
-        if (!result.success) {
-          throw new Error(result.error ?? "Unknown error")
-        }
-
-        toast.success(`Lesson is now ${newLocked ? 'locked' : 'unlocked'}.`)
-      } catch (error) {
-        console.error("[v0] Failed to toggle lesson locked:", error)
-        // Revert optimistic update
-        setLessonAssignments((prev) =>
-          prev.map((entry) =>
-            entry.group_id === groupId && entry.lesson_id === lessonId
-              ? { ...entry, locked: currentLocked }
-              : entry
-          )
-        )
-        toast.error("Failed to update locked status", {
-          description: "We couldn't update the lesson lock. Please try again.",
-        })
-      } finally {
-        setPendingLessonAssignmentKeys((prev) => {
-          const updated = { ...prev }
-          delete updated[key]
-          return updated
-        })
-      }
-    })
   }
 
   const handleToggleFeedbackVisible = (groupId: string, lessonId: string, currentFeedbackVisible: boolean) => {
-    const key = lessonAssignmentKey(groupId, lessonId)
     const newFeedbackVisible = !currentFeedbackVisible
-
-    // Optimistic update
     setLessonAssignments((prev) =>
       prev.map((entry) =>
         entry.group_id === groupId && entry.lesson_id === lessonId
@@ -474,39 +335,6 @@ export function AssignmentManager({
           : entry
       )
     )
-
-    setPendingLessonAssignmentKeys((prev) => ({ ...prev, [key]: true }))
-
-    startTransition(async () => {
-      try {
-        const result = await toggleLessonAssignmentFeedbackVisibilityAction(groupId, lessonId, newFeedbackVisible)
-
-        if (!result.success) {
-          throw new Error(result.error ?? "Unknown error")
-        }
-
-        toast.success(`Feedback is now ${newFeedbackVisible ? 'visible' : 'hidden'} for pupils.`)
-      } catch (error) {
-        console.error("[v0] Failed to toggle lesson feedback visibility:", error)
-        // Revert optimistic update
-        setLessonAssignments((prev) =>
-          prev.map((entry) =>
-            entry.group_id === groupId && entry.lesson_id === lessonId
-              ? { ...entry, feedback_visible: currentFeedbackVisible }
-              : entry
-          )
-        )
-        toast.error("Failed to update feedback visibility", {
-          description: "We couldn't update the feedback setting. Please try again.",
-        })
-      } finally {
-        setPendingLessonAssignmentKeys((prev) => {
-          const updated = { ...prev }
-          delete updated[key]
-          return updated
-        })
-      }
-    })
   }
 
   const handleDateClick = (dateString: string) => {

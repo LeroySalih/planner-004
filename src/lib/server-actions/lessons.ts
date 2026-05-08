@@ -237,7 +237,7 @@ export async function readLessonsByUnitAction(
             from lessons l
             left join lessons_learning_objective ll on ll.lesson_id = l.lesson_id
             left join lesson_links links on links.lesson_id = l.lesson_id
-            where l.unit_id = $1
+            where l.unit_id = $1 AND l.active = true
             group by l.lesson_id
             order by l.order_by asc, l.title asc
           `,

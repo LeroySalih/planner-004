@@ -55,6 +55,15 @@
   --sidebar-ring: oklch(0.708 0 0); /* Emerald sidebar focus ring */
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
+  --color-background-primary: #ffffff;
+  --color-background-secondary: #f5f4ef;
+  --color-background-tertiary: #faf9f5;
+  --color-text-primary: #1a1a1a;
+  --color-text-secondary: #6b6b6b;
+  --color-text-tertiary: #999999;
+  --color-border-tertiary: rgba(0,0,0,0.08);
+  --color-border-secondary: rgba(0,0,0,0.18);
+  --color-border-info: #378ADD;
 }
 
 .dark {
@@ -90,6 +99,15 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+  --color-background-primary: #1f1f1e;
+  --color-background-secondary: #2a2a28;
+  --color-background-tertiary: #181817;
+  --color-text-primary: #f0f0ee;
+  --color-text-secondary: #a8a8a3;
+  --color-text-tertiary: #6e6e6a;
+  --color-border-tertiary: rgba(255,255,255,0.08);
+  --color-border-secondary: rgba(255,255,255,0.18);
+  --color-border-info: #5b9fd4;
 }
 
 @theme inline {

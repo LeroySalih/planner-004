@@ -92,12 +92,7 @@ export type { PupilTask, PupilTaskGroup } from "./server-actions/tasks";
 
 export {
   checkLessonAccessForPupilAction,
-  deleteLessonAssignmentAction,
   readLessonAssignmentsAction,
-  toggleLessonAssignmentFeedbackVisibilityAction,
-  toggleLessonAssignmentLockedAction,
-  toggleLessonAssignmentVisibilityAction,
-  upsertLessonAssignmentAction,
 } from "./server-actions/lesson-assignments";
 
 export { readLessonAssignmentScoreSummariesAction } from "./server-actions/lesson-assignment-scores";
@@ -340,3 +335,20 @@ export {
 export {
   addSubmissionCommentAction,
 } from "./server-actions/submission-comments"
+
+export {
+  deletePlannerAssignmentAction,
+  readPlannerAssignmentsForWeekAction,
+  updatePlannerAssignmentExtrasAction,
+  upsertPlannerAssignmentAction,
+} from './server-actions/planner-assignments'
+
+export {
+  readTimetableSlotGroupsAction,
+  upsertTimetableSlotGroupAction,
+} from './server-actions/timetable-slot-groups'
+
+export {
+  readPlannerPeriodFlagsForWeekAction,
+  upsertPlannerPeriodFlagAction,
+} from './server-actions/planner-period-flags'
