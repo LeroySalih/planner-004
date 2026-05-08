@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { cn } from '@/lib/utils'
 import type { CellState, Day } from './types'
 import type { Unit, LessonWithObjectives } from '@/types'
 
@@ -35,6 +36,15 @@ export function PlannerCell({
   const hasGroup = !!groupId && groupId !== '__free__'
   const lessonCount = lessons.length
 
+  // Aggregate state from all lessons for cell-level indicators
+  const anyFeedback = lessons.some((l) => l.feedbackVisible)
+  const anyIssue = lessons.some((l) => l.issueFlag)
+
+  const currentLesson = lessons[0] ?? null
+  const currentUnitId = currentLesson?.unitId ?? ''
+  const currentUnitLessons = lessonCache.get(currentUnitId) ?? []
+  const availableLessons = lessonCache.get(pendingUnitId) ?? []
+
   const handleUnitChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const uid = e.target.value
     setPendingUnitId(uid)
@@ -45,29 +55,24 @@ export function PlannerCell({
     onLessonChange(day, period, e.target.value)
   }
 
-  const handleFeedback = (lessonId: string) => {
-    onFeedbackToggle(day, period, lessonId)
-  }
-
-  const availableLessons = lessonCache.get(pendingUnitId) ?? []
-  const currentLesson = lessons[0] ?? null
-
-  // Determine what unit is currently selected for the 1-lesson state
-  const currentUnitId = currentLesson?.unitId ?? ''
-  const currentUnitLessons = lessonCache.get(currentUnitId) ?? []
-
   return (
     <div
-      className={`relative p-2 rounded-[8px] min-h-[80px] cursor-pointer transition-colors ${
-        isSelected
-          ? 'bg-[var(--color-background-secondary)] ring-2 ring-[var(--color-primary)]'
-          : 'bg-[var(--color-background-primary)] hover:bg-[var(--color-background-secondary)]'
-      }`}
+      className={cn(
+        'relative flex flex-col gap-[3px] rounded-[8px] border px-[7px] py-[6px] min-h-[86px] cursor-pointer transition-colors',
+        anyIssue
+          ? 'bg-[#FCEBEB] border-[#F09595] hover:border-[#E24B4A]'
+          : 'bg-[var(--color-background-primary)] border-[var(--color-border-tertiary)] hover:border-[var(--color-border-secondary)]',
+        isSelected && !anyIssue && 'border-[1.5px] border-[var(--color-border-info)]',
+        isSelected && anyIssue && 'border-[1.5px] border-[#E24B4A]',
+      )}
       onClick={() => onCellClick(day, period)}
     >
-      {/* Class label — always shown when a group is assigned */}
+      {/* Class label */}
       {hasGroup && (
-        <p className="text-[10px] font-semibold text-[var(--color-text-secondary)] mb-1 truncate">
+        <p className={cn(
+          'font-medium text-[12px] mb-0.5 truncate',
+          anyIssue ? 'text-[#791F1F]' : 'text-[var(--color-text-primary)]',
+        )}>
           {groupId}
         </p>
       )}
@@ -76,6 +81,7 @@ export function PlannerCell({
         <span className="text-xs text-[var(--color-text-tertiary)]">Free period</span>
       )}
 
+      {/* 0 lessons — unit + lesson pickers */}
       {hasGroup && lessonCount === 0 && (
         <div className="flex flex-col gap-1" onClick={(e) => e.stopPropagation()}>
           <select
@@ -103,21 +109,15 @@ export function PlannerCell({
         </div>
       )}
 
+      {/* 1 lesson — title + swap dropdown */}
       {hasGroup && lessonCount === 1 && (
         <div className="flex flex-col gap-1" onClick={(e) => e.stopPropagation()}>
-          <div className="flex items-center justify-between gap-1">
-            <span className="text-xs font-medium truncate flex-1">{currentLesson!.lessonTitle}</span>
-            <button
-              className={`text-[10px] px-1 py-0.5 rounded ${
-                currentLesson!.feedbackVisible
-                  ? 'bg-green-500 text-white'
-                  : 'bg-[var(--color-background-tertiary)] text-[var(--color-text-secondary)]'
-              }`}
-              onClick={() => handleFeedback(currentLesson!.lessonId)}
-            >
-              FB
-            </button>
-          </div>
+          <span className={cn(
+            'text-[11px] truncate',
+            anyIssue ? 'text-[#791F1F]' : 'text-[var(--color-text-primary)]',
+          )}>
+            {currentLesson!.lessonTitle}
+          </span>
           <select
             className="text-xs w-full rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-1 py-0.5"
             value={currentLesson!.lessonId}
@@ -133,10 +133,76 @@ export function PlannerCell({
         </div>
       )}
 
+      {/* 2+ lessons */}
       {hasGroup && lessonCount >= 2 && (
-        <div className="flex items-center gap-1">
-          <span className="text-xs font-medium">Lesson plan ({lessonCount})</span>
-        </div>
+        <span className={cn(
+          'text-[11px]',
+          anyIssue ? 'text-[#791F1F]' : 'text-[var(--color-text-secondary)]',
+        )}>
+          Lesson plan ({lessonCount})
+        </span>
+      )}
+
+      {/* Icon row — shown when a group + at least one lesson assigned */}
+      {hasGroup && lessonCount > 0 && (
+        <>
+          <hr
+            className={cn(
+              'border-none mt-auto',
+              anyIssue ? 'border-t-[rgba(162,45,45,0.2)]' : 'border-t-[var(--color-border-tertiary)]',
+            )}
+            style={{ borderTopWidth: '0.5px' }}
+          />
+          <div
+            className="flex items-center gap-0.5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Feedback toggle */}
+            <button
+              type="button"
+              className={cn(
+                'w-[16px] h-[16px] flex items-center justify-center rounded-[2px] border-none bg-transparent text-[9px] transition-opacity',
+                anyFeedback
+                  ? 'opacity-100 text-[#1D9E75]'
+                  : anyIssue
+                  ? 'text-[#A32D2D] opacity-50 hover:opacity-100'
+                  : 'text-[var(--color-text-tertiary)] opacity-50 hover:opacity-100',
+              )}
+              onClick={() => currentLesson && onFeedbackToggle(day, period, currentLesson.lessonId)}
+              title="Toggle feedback visible"
+            >
+              ✓
+            </button>
+            {/* Grades placeholder */}
+            <button
+              type="button"
+              className={cn(
+                'w-[16px] h-[16px] flex items-center justify-center rounded-[2px] border-none bg-transparent text-[9px] font-medium opacity-20 cursor-default',
+                anyIssue ? 'text-[#A32D2D]' : 'text-[var(--color-text-tertiary)]',
+              )}
+              disabled
+              title="Grades (not configured)"
+            >
+              %
+            </button>
+            {/* Slide deck placeholder */}
+            <button
+              type="button"
+              className={cn(
+                'w-[16px] h-[16px] flex items-center justify-center rounded-[2px] border-none bg-transparent text-[9px] opacity-20 cursor-default',
+                anyIssue ? 'text-[#A32D2D]' : 'text-[var(--color-text-tertiary)]',
+              )}
+              disabled
+              title="Slide deck (not configured)"
+            >
+              ▶
+            </button>
+            {/* Issue indicator */}
+            {anyIssue && (
+              <span className="ml-auto text-[9px] text-[#A32D2D] font-medium">⚠</span>
+            )}
+          </div>
+        </>
       )}
     </div>
   )
