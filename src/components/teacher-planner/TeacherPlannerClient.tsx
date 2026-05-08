@@ -329,48 +329,49 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
     : null
 
   return (
-    <div className="max-w-[1200px] mx-auto rounded-[12px] bg-[var(--color-background-tertiary)] p-4">
-      <WeekNavigator
-        currentWeek={currentWeek}
-        onPrev={handlePrevWeek}
-        onNext={handleNextWeek}
-      />
-
-      <div className="flex gap-4 items-start">
-        <div className="flex-1 min-w-0">
-          <PlannerGrid
-            units={units}
-            plannerState={plannerState}
-            selectedSlot={selectedSlot}
-            lessonCache={lessonCache}
-            onCellClick={handleCellClick}
-            onUnitSelect={handleUnitSelect}
-            onLessonChange={handleLessonChange}
-            onFeedbackToggle={handleFeedbackToggle}
-          />
-        </div>
-
-        <SidePanel
-          day={selectedParsed?.day ?? null}
-          period={selectedParsed?.period ?? null}
-          cellState={selectedCellState}
-          slot={selectedTimetableSlot}
-          units={units}
-          lessonCache={lessonCache}
-          groups={groups}
-          onClose={() => setSelectedSlot(null)}
-          onGroupChange={handleGroupChange}
-          onUnitSelect={handleUnitSelect}
-          onAddLesson={handleAddLesson}
-          onRemoveLesson={handleRemoveLesson}
-          onFeedbackToggle={handleFeedbackToggle}
-          onIssueToggle={handleIssueToggle}
-          onIssueNoteChange={handleIssueNoteChange}
-          onLessonNotesChange={handleLessonNotesChange}
+    <>
+      <div
+        className="max-w-[1200px] mx-auto rounded-[12px] bg-[var(--color-background-tertiary)] p-4 transition-[padding-right] duration-200"
+        style={{ paddingRight: selectedSlot ? 'calc(320px + 1rem)' : undefined }}
+      >
+        <WeekNavigator
+          currentWeek={currentWeek}
+          onPrev={handlePrevWeek}
+          onNext={handleNextWeek}
         />
+
+        <PlannerGrid
+          units={units}
+          plannerState={plannerState}
+          selectedSlot={selectedSlot}
+          lessonCache={lessonCache}
+          onCellClick={handleCellClick}
+          onUnitSelect={handleUnitSelect}
+          onLessonChange={handleLessonChange}
+          onFeedbackToggle={handleFeedbackToggle}
+        />
+
+        <WeekNotes value={weekNote} onChange={handleWeekNoteChange} />
       </div>
 
-      <WeekNotes value={weekNote} onChange={handleWeekNoteChange} />
-    </div>
+      <SidePanel
+        day={selectedParsed?.day ?? null}
+        period={selectedParsed?.period ?? null}
+        cellState={selectedCellState}
+        slot={selectedTimetableSlot}
+        units={units}
+        lessonCache={lessonCache}
+        groups={groups}
+        onClose={() => setSelectedSlot(null)}
+        onGroupChange={handleGroupChange}
+        onUnitSelect={handleUnitSelect}
+        onAddLesson={handleAddLesson}
+        onRemoveLesson={handleRemoveLesson}
+        onFeedbackToggle={handleFeedbackToggle}
+        onIssueToggle={handleIssueToggle}
+        onIssueNoteChange={handleIssueNoteChange}
+        onLessonNotesChange={handleLessonNotesChange}
+      />
+    </>
   )
 }
