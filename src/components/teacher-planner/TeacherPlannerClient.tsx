@@ -331,7 +331,7 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
   return (
     <>
       <div
-        className="w-[80%] mx-auto rounded-[12px] bg-[var(--color-background-tertiary)] p-4 transition-[padding-right] duration-200"
+        className="w-[95%] mx-auto rounded-[12px] bg-[var(--color-background-tertiary)] p-4 transition-[padding-right] duration-200"
         style={{ paddingRight: selectedSlot ? 'calc(320px + 1rem)' : undefined }}
       >
         <WeekNavigator
