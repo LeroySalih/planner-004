@@ -1,9 +1,8 @@
 'use client'
 
-import { cn } from '@/lib/utils'
-import { DAY_LABELS, PERIOD_LAYOUT } from './timetable-config'
-import type { Day, CellState, TimetableSlot } from './types'
-import type { Unit, LessonWithObjectives, Group } from '@/types'
+import { useState } from 'react'
+import type { CellState, SlotLesson, Day, TimetableSlot } from './types'
+import type { Unit, Group, LessonWithObjectives } from '@/types'
 
 type SidePanelProps = {
   day: Day | null
@@ -14,9 +13,14 @@ type SidePanelProps = {
   lessonCache: Map<string, LessonWithObjectives[]>
   groups: Group[]
   onClose: () => void
-  onIssueToggle: (day: Day, period: number) => void
-  onIssueNoteChange: (day: Day, period: number, note: string) => void
-  onLessonNotesChange: (day: Day, period: number, notes: string) => void
+  onGroupChange: (day: Day, period: number, groupId: string) => void
+  onUnitSelect: (unitId: string) => void
+  onAddLesson: (day: Day, period: number, lessonId: string) => void
+  onRemoveLesson: (day: Day, period: number, lessonId: string) => void
+  onFeedbackToggle: (day: Day, period: number, lessonId: string) => void
+  onIssueToggle: (day: Day, period: number, lessonId: string) => void
+  onIssueNoteChange: (day: Day, period: number, lessonId: string, note: string) => void
+  onLessonNotesChange: (day: Day, period: number, lessonId: string, notes: string) => void
 }
 
 export function SidePanel({
@@ -28,148 +32,215 @@ export function SidePanel({
   lessonCache,
   groups,
   onClose,
+  onGroupChange,
+  onUnitSelect,
+  onAddLesson,
+  onRemoveLesson,
+  onFeedbackToggle,
   onIssueToggle,
   onIssueNoteChange,
   onLessonNotesChange,
 }: SidePanelProps) {
-  if (!day || !period || !cellState || !slot) return null
+  const [addUnitId, setAddUnitId] = useState('')
+  const [addLessonId, setAddLessonId] = useState('')
 
-  const selectedUnit = units.find((u) => u.unit_id === cellState.unitId) ?? null
-  const lessons = lessonCache.get(cellState.unitId ?? '') ?? []
-  const selectedLesson: LessonWithObjectives | null = lessons.find((l) => l.lesson_id === cellState.lessonId) ?? null
-  const group = groups.find((g) => g.subject === slot.classCode) ?? null
+  if (!day || period === null || !cellState) return null
 
-  const periodRow = PERIOD_LAYOUT.find(
-    (r) => r.type === 'lesson' && r.period === period,
-  )
-  const periodLabel = periodRow?.type === 'lesson' ? periodRow.label : `L${period}`
+  const { groupId, lessons } = cellState
+  const hasGroup = !!groupId && groupId !== '__free__'
 
-  const objectives = selectedLesson?.lesson_objectives
-    ?.map((lo) => lo.title)
-    .join('. ')
+  const handleGroupChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    onGroupChange(day, period, e.target.value)
+  }
+
+  const handleAddUnitChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const uid = e.target.value
+    setAddUnitId(uid)
+    setAddLessonId('')
+    onUnitSelect(uid)
+  }
+
+  const handleAddLesson = () => {
+    if (!addLessonId) return
+    onAddLesson(day, period, addLessonId)
+    setAddUnitId('')
+    setAddLessonId('')
+  }
+
+  const addUnitLessons = lessonCache.get(addUnitId) ?? []
 
   return (
-    <>
-      {/* Overlay */}
-      <div
-        className="absolute inset-0 bg-black/[0.18] z-[5] rounded-[12px]"
-        onClick={onClose}
-      />
-
-      {/* Panel */}
-      <div className="absolute top-0 right-0 w-[320px] h-full bg-[var(--color-background-primary)] border-l border-[var(--color-border-tertiary)] rounded-r-[12px] p-5 overflow-y-auto z-[6] flex flex-col gap-3.5">
-
-        {/* Header */}
-        <div className="flex justify-between items-start">
-          <div>
-            <h2 className="font-medium text-[15px] text-[var(--color-text-primary)] m-0">
-              {slot.classCode} · {slot.subject}
-            </h2>
-            <p className="text-[12px] text-[var(--color-text-secondary)] mt-0.5 m-0">
-              {DAY_LABELS[day]} · {periodLabel}
-            </p>
-          </div>
-          <button
-            type="button"
-            className="text-[16px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] bg-transparent border-none cursor-pointer p-0 leading-none"
-            onClick={onClose}
-          >
-            ×
-          </button>
-        </div>
-
-        <hr style={{ borderTopWidth: '0.5px' }} className="border-none border-t border-[var(--color-border-tertiary)]" />
-
-        {/* Details */}
+    <div className="mt-4 rounded-[12px] bg-[var(--color-background-secondary)] p-4">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
         <div>
-          <p className="text-[11px] font-medium text-[var(--color-text-tertiary)] uppercase tracking-wide mb-1.5 m-0">Details</p>
-          <div className="flex flex-col">
-            {[
-              { key: 'Unit',   val: selectedUnit?.title ?? '—' },
-              { key: 'Lesson', val: selectedLesson?.title ?? '—' },
-              { key: 'Room',   val: slot.room || '—' },
-              { key: 'Pupils', val: group?.member_count != null ? String(group.member_count) : '—' },
-            ].map(({ key, val }) => (
-              <div
-                key={key}
-                className="flex justify-between py-[5px] border-b text-[12px]"
-                style={{ borderBottomWidth: '0.5px', borderColor: 'var(--color-border-tertiary)' }}
-              >
-                <span className="text-[var(--color-text-secondary)]">{key}</span>
-                <span className="font-medium text-[var(--color-text-primary)]">{val}</span>
-              </div>
-            ))}
-          </div>
+          <h3 className="font-semibold text-sm">
+            {slot?.label ?? `Period ${period}`}
+          </h3>
+          <p className="text-xs text-[var(--color-text-tertiary)]">{slot?.startTime}</p>
         </div>
-
-        {/* Previous lesson */}
-        <div>
-          <p className="text-[11px] font-medium text-[var(--color-text-tertiary)] uppercase tracking-wide mb-1.5 m-0">Previous lesson</p>
-          <div className="bg-[var(--color-background-secondary)] rounded-[8px] p-2.5 text-[12px] text-[var(--color-text-secondary)] italic">
-            No previous lesson recorded
-          </div>
-        </div>
-
-        {/* Issue */}
-        <div>
-          <p className="text-[11px] font-medium text-[var(--color-text-tertiary)] uppercase tracking-wide mb-1.5 m-0">Issue</p>
-          <div
-            className={cn(
-              'flex justify-between items-center px-2.5 py-2 rounded-[8px] border text-[12px] cursor-pointer select-none',
-              cellState.issueFlag
-                ? 'bg-[#FCEBEB] border-[#F09595] text-[#791F1F]'
-                : 'border-[var(--color-border-tertiary)] text-[var(--color-text-primary)]',
-            )}
-            onClick={() => onIssueToggle(day, period)}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') onIssueToggle(day, period) }}
-          >
-            <span>Flag this lesson</span>
-            <div
-              className={cn(
-                'w-7 h-4 rounded-full relative flex-shrink-0 transition-colors',
-                cellState.issueFlag ? 'bg-[#E24B4A]' : 'bg-[var(--color-border-secondary)]',
-              )}
-            >
-              <div
-                className={cn(
-                  'w-3 h-3 rounded-full bg-white absolute top-0.5 transition-[left] duration-150',
-                  cellState.issueFlag ? 'left-[14px]' : 'left-0.5',
-                )}
-              />
-            </div>
-          </div>
-          {cellState.issueFlag && (
-            <textarea
-              className="mt-1.5 w-full text-[12px] bg-[var(--color-background-secondary)] border border-[#F09595] rounded-[8px] px-2.5 py-2 resize-y min-h-[56px] text-[#791F1F] focus:outline-none focus:border-[#E24B4A] box-border"
-              placeholder="Describe the issue…"
-              value={cellState.issueNote}
-              onChange={(e) => onIssueNoteChange(day, period, e.target.value)}
-            />
-          )}
-        </div>
-
-        {/* Objectives */}
-        <div>
-          <p className="text-[11px] font-medium text-[var(--color-text-tertiary)] uppercase tracking-wide mb-1.5 m-0">Objectives</p>
-          <p className="text-[12px] text-[var(--color-text-secondary)] leading-relaxed m-0">
-            {objectives || (selectedLesson ? 'No objectives recorded for this lesson.' : 'Select a lesson to see objectives.')}
-          </p>
-        </div>
-
-        {/* Lesson notes */}
-        <div>
-          <p className="text-[11px] font-medium text-[var(--color-text-tertiary)] uppercase tracking-wide mb-1.5 m-0">Lesson notes</p>
-          <textarea
-            className="w-full text-[12px] bg-[var(--color-background-secondary)] border border-[var(--color-border-tertiary)] rounded-[8px] px-2.5 py-2 resize-y min-h-[56px] text-[var(--color-text-primary)] focus:outline-none focus:border-[var(--color-border-info)] box-border"
-            placeholder="Differentiation, starters, exit tickets…"
-            value={cellState.lessonNotes}
-            onChange={(e) => onLessonNotesChange(day, period, e.target.value)}
-          />
-        </div>
-
+        <button
+          className="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] px-2 py-1 rounded"
+          onClick={onClose}
+        >
+          Close
+        </button>
       </div>
-    </>
+
+      {/* Group selector */}
+      <div className="mb-4">
+        <label className="text-xs text-[var(--color-text-secondary)] block mb-1">Class</label>
+        <select
+          className="w-full text-sm rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-2 py-1.5"
+          value={groupId ?? ''}
+          onChange={handleGroupChange}
+        >
+          <option value="">No class</option>
+          <option value="__free__">Free period</option>
+          {groups.map((g) => (
+            <option key={g.group_id} value={g.group_id}>{g.name}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Lesson cards */}
+      {hasGroup && lessons.length > 0 && (
+        <div className="flex flex-col gap-3 mb-4">
+          {lessons.map((lesson) => (
+            <LessonCard
+              key={lesson.lessonId}
+              lesson={lesson}
+              day={day}
+              period={period}
+              onFeedbackToggle={onFeedbackToggle}
+              onIssueToggle={onIssueToggle}
+              onIssueNoteChange={onIssueNoteChange}
+              onLessonNotesChange={onLessonNotesChange}
+              onRemove={onRemoveLesson}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Add lesson section */}
+      {hasGroup && (
+        <div className="border-t border-[var(--color-border)] pt-3">
+          <p className="text-xs font-medium text-[var(--color-text-secondary)] mb-2">Add lesson</p>
+          <div className="flex flex-col gap-2">
+            <select
+              className="w-full text-xs rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-2 py-1"
+              value={addUnitId}
+              onChange={handleAddUnitChange}
+            >
+              <option value="">Unit…</option>
+              {units.map((u) => (
+                <option key={u.unit_id} value={u.unit_id}>{u.title}</option>
+              ))}
+            </select>
+            {addUnitId && (
+              <>
+                <select
+                  className="w-full text-xs rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-2 py-1"
+                  value={addLessonId}
+                  onChange={(e) => setAddLessonId(e.target.value)}
+                >
+                  <option value="">Lesson…</option>
+                  {addUnitLessons.map((l) => (
+                    <option key={l.lesson_id} value={l.lesson_id}>{l.title}</option>
+                  ))}
+                </select>
+                <button
+                  className="text-xs px-3 py-1 rounded bg-[var(--color-primary)] text-white disabled:opacity-40"
+                  disabled={!addLessonId}
+                  onClick={handleAddLesson}
+                >
+                  Add
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+type LessonCardProps = {
+  lesson: SlotLesson
+  day: Day
+  period: number
+  onFeedbackToggle: (day: Day, period: number, lessonId: string) => void
+  onIssueToggle: (day: Day, period: number, lessonId: string) => void
+  onIssueNoteChange: (day: Day, period: number, lessonId: string, note: string) => void
+  onLessonNotesChange: (day: Day, period: number, lessonId: string, notes: string) => void
+  onRemove: (day: Day, period: number, lessonId: string) => void
+}
+
+function LessonCard({
+  lesson,
+  day,
+  period,
+  onFeedbackToggle,
+  onIssueToggle,
+  onIssueNoteChange,
+  onLessonNotesChange,
+  onRemove,
+}: LessonCardProps) {
+  return (
+    <div className="rounded-[8px] bg-[var(--color-background-primary)] p-3">
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <p className="text-xs font-medium leading-tight flex-1">{lesson.lessonTitle}</p>
+        <button
+          className="text-[10px] text-[var(--color-text-tertiary)] hover:text-red-500 shrink-0"
+          onClick={() => onRemove(day, period, lesson.lessonId)}
+        >
+          Remove
+        </button>
+      </div>
+
+      {/* Toggles row */}
+      <div className="flex gap-2 mb-2">
+        <button
+          className={`text-[10px] px-2 py-0.5 rounded ${
+            lesson.feedbackVisible
+              ? 'bg-green-500 text-white'
+              : 'bg-[var(--color-background-secondary)] text-[var(--color-text-secondary)]'
+          }`}
+          onClick={() => onFeedbackToggle(day, period, lesson.lessonId)}
+        >
+          Feedback {lesson.feedbackVisible ? 'on' : 'off'}
+        </button>
+        <button
+          className={`text-[10px] px-2 py-0.5 rounded ${
+            lesson.issueFlag
+              ? 'bg-red-500 text-white'
+              : 'bg-[var(--color-background-secondary)] text-[var(--color-text-secondary)]'
+          }`}
+          onClick={() => onIssueToggle(day, period, lesson.lessonId)}
+        >
+          {lesson.issueFlag ? '⚠ Issue' : 'No issue'}
+        </button>
+      </div>
+
+      {/* Issue note */}
+      {lesson.issueFlag && (
+        <textarea
+          className="w-full text-xs rounded border border-[var(--color-border)] bg-[var(--color-background-secondary)] px-2 py-1 mb-2 resize-none"
+          rows={2}
+          placeholder="Issue note…"
+          value={lesson.issueNote}
+          onChange={(e) => onIssueNoteChange(day, period, lesson.lessonId, e.target.value)}
+        />
+      )}
+
+      {/* Lesson notes */}
+      <textarea
+        className="w-full text-xs rounded border border-[var(--color-border)] bg-[var(--color-background-secondary)] px-2 py-1 resize-none"
+        rows={2}
+        placeholder="Lesson notes…"
+        value={lesson.lessonNotes}
+        onChange={(e) => onLessonNotesChange(day, period, lesson.lessonId, e.target.value)}
+      />
+    </div>
   )
 }
