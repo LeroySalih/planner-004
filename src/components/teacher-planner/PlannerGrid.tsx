@@ -1,7 +1,7 @@
 'use client'
 
 import { PlannerCell } from './PlannerCell'
-import { PERIOD_LAYOUT, TIMETABLE_SLOTS, DAYS, DAY_LABELS } from './timetable-config'
+import { PERIOD_LAYOUT, DAYS, DAY_LABELS } from './timetable-config'
 import { slotKey, emptyCellState } from './types'
 import type { PlannerState, Day, CellState, PeriodRow } from './types'
 import type { Unit, LessonWithObjectives } from '@/types'
@@ -107,19 +107,6 @@ export function PlannerGrid({
                   <div
                     key={`break-${day}-${i}`}
                     className="rounded-[6px] bg-[var(--color-background-secondary)] opacity-40"
-                  />
-                )
-              }
-
-              const slot = TIMETABLE_SLOTS.find(
-                (s) => s.day === day && s.period === col.row.period,
-              )
-
-              if (!slot) {
-                return (
-                  <div
-                    key={`empty-${day}-${col.row.period}`}
-                    className="rounded-[8px] border border-[var(--color-border-tertiary)] min-h-[86px] bg-[var(--color-background-secondary)] opacity-30"
                   />
                 )
               }
