@@ -338,7 +338,6 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
 
       <PlannerGrid
         units={units}
-        groups={groups}
         plannerState={plannerState}
         selectedSlot={selectedSlot}
         lessonCache={lessonCache}

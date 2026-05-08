@@ -4,16 +4,15 @@ import { PlannerCell } from './PlannerCell'
 import { PERIOD_LAYOUT, TIMETABLE_SLOTS, DAYS, DAY_LABELS } from './timetable-config'
 import { slotKey, emptyCellState } from './types'
 import type { PlannerState, Day, CellState, PeriodRow } from './types'
-import type { Unit, LessonWithObjectives, Group } from '@/types'
+import type { Unit, LessonWithObjectives } from '@/types'
 
 type PlannerGridProps = {
   units: Unit[]
-  groups: Group[]
   plannerState: PlannerState
   selectedSlot: string | null
   lessonCache: Map<string, LessonWithObjectives[]>
   onCellClick: (day: Day, period: number) => void
-  onUnitSelect: (day: Day, period: number, unitId: string) => void
+  onUnitSelect: (unitId: string) => void
   onLessonChange: (day: Day, period: number, lessonId: string) => void
   onFeedbackToggle: (day: Day, period: number, lessonId: string) => void
 }
@@ -44,7 +43,6 @@ const GRID_TEMPLATE =
 
 export function PlannerGrid({
   units,
-  groups,
   plannerState,
   selectedSlot,
   lessonCache,
@@ -132,16 +130,16 @@ export function PlannerGrid({
               return (
                 <PlannerCell
                   key={key}
-                  slot={slot}
-                  state={state}
+                  day={day}
+                  period={col.row.period}
+                  cellState={state}
                   isSelected={selectedSlot === key}
                   units={units}
                   lessonCache={lessonCache}
-                  groups={groups}
-                  onCellClick={() => onCellClick(day, col.row.period)}
-                  onUnitSelect={(unitId) => onUnitSelect(day, col.row.period, unitId)}
-                  onLessonChange={(lessonId) => onLessonChange(day, col.row.period, lessonId)}
-                  onFeedbackToggle={(lessonId) => onFeedbackToggle(day, col.row.period, lessonId)}
+                  onCellClick={onCellClick}
+                  onUnitSelect={onUnitSelect}
+                  onLessonChange={onLessonChange}
+                  onFeedbackToggle={onFeedbackToggle}
                 />
               )
             })}
