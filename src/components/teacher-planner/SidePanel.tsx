@@ -18,6 +18,7 @@ type SidePanelProps = {
   onUnitSelect: (unitId: string) => void
   onAddLesson: (day: Day, period: number, lessonId: string) => void
   onRemoveLesson: (day: Day, period: number, lessonId: string) => void
+  onSwapLesson: (day: Day, period: number, oldLessonId: string, newLessonId: string) => void
   onFeedbackToggle: (day: Day, period: number, lessonId: string) => void
   onIssueToggle: (day: Day, period: number) => void
   onIssueNoteChange: (day: Day, period: number, note: string) => void
@@ -37,6 +38,7 @@ export function SidePanel({
   onUnitSelect,
   onAddLesson,
   onRemoveLesson,
+  onSwapLesson,
   onFeedbackToggle,
   onIssueToggle,
   onIssueNoteChange,
@@ -139,6 +141,10 @@ export function SidePanel({
               groupId={groupId!}
               day={day}
               period={period}
+              units={units}
+              lessonCache={lessonCache}
+              onUnitSelect={onUnitSelect}
+              onSwapLesson={onSwapLesson}
               onFeedbackToggle={onFeedbackToggle}
               onLessonNotesChange={onLessonNotesChange}
               onRemove={onRemoveLesson}
@@ -195,6 +201,10 @@ type LessonCardProps = {
   groupId: string
   day: Day
   period: number
+  units: Unit[]
+  lessonCache: Map<string, LessonWithObjectives[]>
+  onUnitSelect: (unitId: string) => void
+  onSwapLesson: (day: Day, period: number, oldLessonId: string, newLessonId: string) => void
   onFeedbackToggle: (day: Day, period: number, lessonId: string) => void
   onLessonNotesChange: (day: Day, period: number, lessonId: string, notes: string) => void
   onRemove: (day: Day, period: number, lessonId: string) => void
@@ -205,10 +215,34 @@ function LessonCard({
   groupId,
   day,
   period,
+  units,
+  lessonCache,
+  onUnitSelect,
+  onSwapLesson,
   onFeedbackToggle,
   onLessonNotesChange,
   onRemove,
 }: LessonCardProps) {
+  const [swapUnitId, setSwapUnitId] = useState(lesson.unitId)
+
+  const swapLessons = lessonCache.get(swapUnitId) ?? []
+
+  const handleSwapUnit = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const uid = e.target.value
+    setSwapUnitId(uid)
+    onUnitSelect(uid)
+  }
+
+  const handleSwapLesson = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newId = e.target.value
+    if (!newId || newId === lesson.lessonId) return
+    setSwapUnitId(lesson.unitId)
+    onSwapLesson(day, period, lesson.lessonId, newId)
+  }
+
+  const lessonDropdownValue =
+    swapUnitId !== lesson.unitId ? '' : lesson.lessonId
+
   return (
     <div className="rounded-[8px] bg-[var(--color-background-secondary)] p-3">
       <div className="flex items-start justify-between gap-2 mb-2">
@@ -228,6 +262,35 @@ function LessonCard({
             Remove
           </button>
         </div>
+      </div>
+
+      {/* Unit + lesson swap */}
+      <div className="flex flex-col gap-1 mb-2">
+        <select
+          className="w-full text-xs rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-2 py-1"
+          value={swapUnitId}
+          onChange={handleSwapUnit}
+        >
+          <option value="">Unit…</option>
+          {units.map((u) => (
+            <option key={u.unit_id} value={u.unit_id}>{u.title}</option>
+          ))}
+        </select>
+        {swapUnitId && (
+          <select
+            className="w-full text-xs rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-2 py-1"
+            value={lessonDropdownValue}
+            onChange={handleSwapLesson}
+          >
+            <option value="">Lesson…</option>
+            {swapLessons.length === 0 && swapUnitId === lesson.unitId && (
+              <option value={lesson.lessonId}>{lesson.lessonTitle}</option>
+            )}
+            {swapLessons.map((l) => (
+              <option key={l.lesson_id} value={l.lesson_id}>{l.title}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {/* Feedback toggle */}

@@ -204,6 +204,11 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
     updateSlot(day, period, (s) => ({ ...s, lessons: s.lessons.filter((l) => l.lessonId !== lessonId) }))
   }, [updateSlot, plannerState])
 
+  const handleSwapLesson = useCallback(async (day: Day, period: number, oldLessonId: string, newLessonId: string) => {
+    await handleRemoveLesson(day, period, oldLessonId)
+    await handleAddLesson(day, period, newLessonId)
+  }, [handleRemoveLesson, handleAddLesson])
+
   const handleFeedbackToggle = useCallback(async (day: Day, period: number, lessonId: string) => {
     const key = slotKey(day, period)
     const cell = plannerState.get(key) ?? emptyCellState()
@@ -358,6 +363,7 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
         onUnitSelect={handleUnitSelect}
         onAddLesson={handleAddLesson}
         onRemoveLesson={handleRemoveLesson}
+        onSwapLesson={handleSwapLesson}
         onFeedbackToggle={handleFeedbackToggle}
         onIssueToggle={handleIssueToggle}
         onIssueNoteChange={handleIssueNoteChange}

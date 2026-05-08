@@ -43,8 +43,13 @@ export function PlannerCell({
 
   const currentLesson = lessons[0] ?? null
   const currentUnitId = currentLesson?.unitId ?? ''
-  const currentUnitLessons = lessonCache.get(currentUnitId) ?? []
-  const availableLessons = lessonCache.get(pendingUnitId) ?? []
+
+  // effectiveUnitId: if user has manually changed unit, use that; else fall back to the assigned lesson's unit
+  const effectiveUnitId = pendingUnitId || currentUnitId
+  const effectiveLessons = lessonCache.get(effectiveUnitId) ?? []
+  // lesson dropdown value: blank when switching to a different unit (no lesson chosen yet)
+  const lessonDropdownValue =
+    pendingUnitId && pendingUnitId !== currentUnitId ? '' : (currentLesson?.lessonId ?? '')
 
   const handleUnitChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const uid = e.target.value
@@ -53,6 +58,8 @@ export function PlannerCell({
   }
 
   const handleLessonSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    if (!e.target.value) return
+    setPendingUnitId('')
     onLessonChange(day, period, e.target.value)
   }
 
@@ -82,12 +89,12 @@ export function PlannerCell({
         <span className="text-xs text-[var(--color-text-tertiary)]">Free period</span>
       )}
 
-      {/* 0 lessons — unit + lesson pickers */}
-      {hasGroup && lessonCount === 0 && (
+      {/* 0 or 1 lesson — unit + lesson pickers (unit always editable) */}
+      {hasGroup && lessonCount <= 1 && (
         <div className="flex flex-col gap-1" onClick={(e) => e.stopPropagation()}>
           <select
             className="text-xs w-full rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-1 py-0.5"
-            value={pendingUnitId}
+            value={effectiveUnitId}
             onChange={handleUnitChange}
           >
             <option value="">Unit…</option>
@@ -95,42 +102,21 @@ export function PlannerCell({
               <option key={u.unit_id} value={u.unit_id}>{u.title}</option>
             ))}
           </select>
-          {pendingUnitId && (
+          {effectiveUnitId && (
             <select
               className="text-xs w-full rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-1 py-0.5"
-              value=""
+              value={lessonDropdownValue}
               onChange={handleLessonSelect}
             >
               <option value="">Lesson…</option>
-              {availableLessons.map((l) => (
+              {effectiveLessons.length === 0 && currentLesson && effectiveUnitId === currentUnitId && (
+                <option value={currentLesson.lessonId}>{currentLesson.lessonTitle}</option>
+              )}
+              {effectiveLessons.map((l) => (
                 <option key={l.lesson_id} value={l.lesson_id}>{l.title}</option>
               ))}
             </select>
           )}
-        </div>
-      )}
-
-      {/* 1 lesson — title + swap dropdown */}
-      {hasGroup && lessonCount === 1 && (
-        <div className="flex flex-col gap-1" onClick={(e) => e.stopPropagation()}>
-          <span className={cn(
-            'text-[11px] truncate',
-            anyIssue ? 'text-[#791F1F]' : 'text-[var(--color-text-primary)]',
-          )}>
-            {currentLesson!.lessonTitle}
-          </span>
-          <select
-            className="text-xs w-full rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-1 py-0.5"
-            value={currentLesson!.lessonId}
-            onChange={handleLessonSelect}
-          >
-            {currentUnitLessons.length === 0 && (
-              <option value={currentLesson!.lessonId}>{currentLesson!.lessonTitle}</option>
-            )}
-            {currentUnitLessons.map((l) => (
-              <option key={l.lesson_id} value={l.lesson_id}>{l.title}</option>
-            ))}
-          </select>
         </div>
       )}
 
