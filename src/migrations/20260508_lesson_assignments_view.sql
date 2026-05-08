@@ -35,18 +35,19 @@ ALTER TABLE planner_assignments
   ADD CONSTRAINT planner_assignments_group_lesson_slot_unique
     UNIQUE (group_id, week_start_date, day, period, lesson_id);
 
--- Step 3: Migrate existing lesson_assignments rows into planner_assignments
--- Each row is placed in the first timetable slot of its week for that group.
--- Groups with no entry in timetable_slot_groups are silently skipped.
+-- Step 3: Migrate existing lesson_assignments rows into planner_assignments.
+-- Each row is placed in the earliest timetable slot for that group.
+-- Groups with no timetable_slot_groups entry fall back to sunday / period 1
+-- so no assignments are lost on re-run.
 INSERT INTO planner_assignments (group_id, lesson_id, week_start_date, day, period)
 SELECT
   la.group_id,
   la.lesson_id,
   (la.start_date - EXTRACT(DOW FROM la.start_date)::int * INTERVAL '1 day')::date AS week_start_date,
-  first_slot.day,
-  first_slot.period
+  COALESCE(first_slot.day,    'sunday') AS day,
+  COALESCE(first_slot.period, 1)        AS period
 FROM lesson_assignments la
-JOIN (
+LEFT JOIN (
   SELECT DISTINCT ON (group_id) group_id, day, period
   FROM timetable_slot_groups
   ORDER BY
