@@ -1226,6 +1226,7 @@ export type PlannerAssignment = z.infer<typeof PlannerAssignmentSchema>;
 
 export const PlannerAssignmentWithUnitSchema = PlannerAssignmentSchema.extend({
   unit_id: z.string(),
+  lesson_title: z.string(),
 });
 export type PlannerAssignmentWithUnit = z.infer<typeof PlannerAssignmentWithUnitSchema>;
 
