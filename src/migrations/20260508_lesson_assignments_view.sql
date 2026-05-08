@@ -24,7 +24,7 @@ FROM (VALUES
   ('thursday',  4, '25-9B-DT'),
   ('thursday',  5, '25-8A-DT')
 ) AS v(day, period, group_id)
-JOIN profiles p ON lower(p.email) = 'leroy@mr-salih.org'
+JOIN profiles p ON lower(p.email) IN ('leroy@mr-salih.org', 'leroysalih@bisak.org')
 ON CONFLICT (teacher_id, day, period) DO NOTHING;
 
 -- Step 2: Replace UNIQUE constraint on planner_assignments
