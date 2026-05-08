@@ -163,7 +163,7 @@ export function PlannerCell({
             {/* Grades — links to feedback page if a lesson is assigned */}
             {currentLesson && groupId ? (
               <Link
-                href={`/feedback/groups/${groupId}/lessons/${currentLesson.lessonId}`}
+                href={`/results/assignments/${groupId}__${currentLesson.lessonId}`}
                 className={cn(
                   'w-[16px] h-[16px] flex items-center justify-center rounded-[2px] text-[9px] font-medium opacity-60 hover:opacity-100 transition-opacity',
                   anyIssue ? 'text-[#A32D2D]' : 'text-[var(--color-text-tertiary)]',

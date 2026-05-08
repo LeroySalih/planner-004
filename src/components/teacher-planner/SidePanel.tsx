@@ -253,7 +253,7 @@ function LessonCard({
         <p className="text-xs font-medium leading-tight flex-1">{lesson.lessonTitle}</p>
         <div className="flex items-center gap-2 shrink-0">
           <Link
-            href={`/feedback/groups/${groupId}/lessons/${lesson.lessonId}`}
+            href={`/results/assignments/${groupId}__${lesson.lessonId}`}
             className="text-[10px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] font-medium"
             title="View grades / feedback"
           >
