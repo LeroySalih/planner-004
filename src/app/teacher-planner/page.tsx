@@ -12,7 +12,7 @@ export default async function TeacherPlannerPage() {
 
   if (groupsResult.error || unitsResult.error) {
     return (
-      <div className="max-w-[760px] mx-auto p-8 text-sm text-red-600">
+      <div className="max-w-[80%] mx-auto p-8 text-sm text-red-600">
         Failed to load planner data.
         {groupsResult.error && <p>{groupsResult.error}</p>}
         {unitsResult.error && <p>{unitsResult.error}</p>}
@@ -22,7 +22,7 @@ export default async function TeacherPlannerPage() {
 
   return (
     <main className="min-h-screen bg-[var(--color-background-tertiary)] p-8">
-      <div className="max-w-[760px] mx-auto mb-6">
+      <div className="max-w-[80%] mx-auto mb-6">
         <h1 className="text-xl font-medium text-[var(--color-text-primary)] m-0">
           Weekly planner
         </h1>
