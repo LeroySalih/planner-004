@@ -18,8 +18,8 @@ type SidePanelProps = {
   onAddLesson: (day: Day, period: number, lessonId: string) => void
   onRemoveLesson: (day: Day, period: number, lessonId: string) => void
   onFeedbackToggle: (day: Day, period: number, lessonId: string) => void
-  onIssueToggle: (day: Day, period: number, lessonId: string) => void
-  onIssueNoteChange: (day: Day, period: number, lessonId: string, note: string) => void
+  onIssueToggle: (day: Day, period: number) => void
+  onIssueNoteChange: (day: Day, period: number, note: string) => void
   onLessonNotesChange: (day: Day, period: number, lessonId: string, notes: string) => void
 }
 
@@ -46,7 +46,7 @@ export function SidePanel({
 
   if (!day || period === null || !cellState) return null
 
-  const { groupId, lessons } = cellState
+  const { groupId, lessons, issueFlag, issueNote } = cellState
   const hasGroup = !!groupId && groupId !== '__free__'
 
   const handleGroupChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -87,7 +87,7 @@ export function SidePanel({
       </div>
 
       {/* Group selector */}
-      <div className="mb-4">
+      <div>
         <label className="text-xs text-[var(--color-text-secondary)] block mb-1">Class</label>
         <select
           className="w-full text-sm rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-2 py-1.5"
@@ -102,9 +102,35 @@ export function SidePanel({
         </select>
       </div>
 
+      {/* Period warning flag — always visible */}
+      <div className="border rounded-[8px] p-3 flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium text-[var(--color-text-secondary)]">Period warning</span>
+          <button
+            className={`text-[10px] px-2 py-0.5 rounded border ${
+              issueFlag
+                ? 'bg-red-500 text-white border-red-600'
+                : 'bg-[var(--color-background-secondary)] text-[var(--color-text-secondary)] border-[var(--color-border)] hover:border-red-400 hover:text-red-500'
+            }`}
+            onClick={() => onIssueToggle(day, period)}
+          >
+            {issueFlag ? '⚠ Warning flagged' : '⚠ Flag warning'}
+          </button>
+        </div>
+        {issueFlag && (
+          <textarea
+            className="w-full text-xs rounded border border-[var(--color-border)] bg-[var(--color-background-secondary)] px-2 py-1 resize-none"
+            rows={2}
+            placeholder="Describe the issue…"
+            value={issueNote}
+            onChange={(e) => onIssueNoteChange(day, period, e.target.value)}
+          />
+        )}
+      </div>
+
       {/* Lesson cards */}
       {hasGroup && lessons.length > 0 && (
-        <div className="flex flex-col gap-3 mb-4">
+        <div className="flex flex-col gap-3">
           {lessons.map((lesson) => (
             <LessonCard
               key={lesson.lessonId}
@@ -112,8 +138,6 @@ export function SidePanel({
               day={day}
               period={period}
               onFeedbackToggle={onFeedbackToggle}
-              onIssueToggle={onIssueToggle}
-              onIssueNoteChange={onIssueNoteChange}
               onLessonNotesChange={onLessonNotesChange}
               onRemove={onRemoveLesson}
             />
@@ -169,8 +193,6 @@ type LessonCardProps = {
   day: Day
   period: number
   onFeedbackToggle: (day: Day, period: number, lessonId: string) => void
-  onIssueToggle: (day: Day, period: number, lessonId: string) => void
-  onIssueNoteChange: (day: Day, period: number, lessonId: string, note: string) => void
   onLessonNotesChange: (day: Day, period: number, lessonId: string, notes: string) => void
   onRemove: (day: Day, period: number, lessonId: string) => void
 }
@@ -180,13 +202,11 @@ function LessonCard({
   day,
   period,
   onFeedbackToggle,
-  onIssueToggle,
-  onIssueNoteChange,
   onLessonNotesChange,
   onRemove,
 }: LessonCardProps) {
   return (
-    <div className="rounded-[8px] bg-[var(--color-background-primary)] p-3">
+    <div className="rounded-[8px] bg-[var(--color-background-secondary)] p-3">
       <div className="flex items-start justify-between gap-2 mb-2">
         <p className="text-xs font-medium leading-tight flex-1">{lesson.lessonTitle}</p>
         <button
@@ -197,45 +217,23 @@ function LessonCard({
         </button>
       </div>
 
-      {/* Toggles row */}
+      {/* Feedback toggle */}
       <div className="flex gap-2 mb-2">
         <button
           className={`text-[10px] px-2 py-0.5 rounded ${
             lesson.feedbackVisible
               ? 'bg-green-500 text-white'
-              : 'bg-[var(--color-background-secondary)] text-[var(--color-text-secondary)]'
+              : 'bg-[var(--color-background-primary)] text-[var(--color-text-secondary)] border border-[var(--color-border)]'
           }`}
           onClick={() => onFeedbackToggle(day, period, lesson.lessonId)}
         >
           Feedback {lesson.feedbackVisible ? 'on' : 'off'}
         </button>
-        <button
-          className={`text-[10px] px-2 py-0.5 rounded border ${
-            lesson.issueFlag
-              ? 'bg-red-500 text-white border-red-600'
-              : 'bg-[var(--color-background-secondary)] text-[var(--color-text-secondary)] border-[var(--color-border)] hover:border-red-400 hover:text-red-500'
-          }`}
-          onClick={() => onIssueToggle(day, period, lesson.lessonId)}
-          title={lesson.issueFlag ? 'Clear warning flag' : 'Flag this lesson with a warning'}
-        >
-          {lesson.issueFlag ? '⚠ Warning flagged' : '⚠ Flag warning'}
-        </button>
       </div>
-
-      {/* Issue note */}
-      {lesson.issueFlag && (
-        <textarea
-          className="w-full text-xs rounded border border-[var(--color-border)] bg-[var(--color-background-secondary)] px-2 py-1 mb-2 resize-none"
-          rows={2}
-          placeholder="Issue note…"
-          value={lesson.issueNote}
-          onChange={(e) => onIssueNoteChange(day, period, lesson.lessonId, e.target.value)}
-        />
-      )}
 
       {/* Lesson notes */}
       <textarea
-        className="w-full text-xs rounded border border-[var(--color-border)] bg-[var(--color-background-secondary)] px-2 py-1 resize-none"
+        className="w-full text-xs rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-2 py-1 resize-none"
         rows={2}
         placeholder="Lesson notes…"
         value={lesson.lessonNotes}

@@ -22,14 +22,14 @@ export type SlotLesson = {
   lessonTitle: string
   assignmentId: string
   feedbackVisible: boolean
-  issueFlag: boolean
-  issueNote: string
   lessonNotes: string
 }
 
 export type CellState = {
   groupId: string | null
   lessons: SlotLesson[]
+  issueFlag: boolean
+  issueNote: string
 }
 
 export type PlannerState = Map<string, CellState>       // key: `${day}-${period}`
@@ -69,5 +69,5 @@ export function formatWeekRange(weekKey: string): string {
 }
 
 export function emptyCellState(): CellState {
-  return { groupId: null, lessons: [] }
+  return { groupId: null, lessons: [], issueFlag: false, issueNote: '' }
 }

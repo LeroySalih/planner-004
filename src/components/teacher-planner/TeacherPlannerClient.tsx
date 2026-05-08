@@ -9,6 +9,8 @@ import {
   updatePlannerAssignmentExtrasAction,
   readTimetableSlotGroupsAction,
   upsertTimetableSlotGroupAction,
+  readPlannerPeriodFlagsForWeekAction,
+  upsertPlannerPeriodFlagAction,
 } from '@/lib/server-updates'
 import { PlannerGrid } from './PlannerGrid'
 import { SidePanel } from './SidePanel'
@@ -39,28 +41,35 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
 
   const loadWeekAssignments = useCallback(async (week: string) => {
     if (loadedWeeks.current.has(week)) return
-    const { data, error } = await readPlannerAssignmentsForWeekAction(week)
-    if (error || !data) {
-      console.error('[loadWeekAssignments] Failed to load week:', week, error)
+    const [assignmentsResult, flagsResult] = await Promise.all([
+      readPlannerAssignmentsForWeekAction(week),
+      readPlannerPeriodFlagsForWeekAction(week),
+    ])
+    if (assignmentsResult.error || !assignmentsResult.data) {
+      console.error('[loadWeekAssignments] Failed to load week:', week, assignmentsResult.error)
       return
     }
     loadedWeeks.current.add(week)
+    const flagsByKey = new Map<string, { issueFlag: boolean; issueNote: string }>()
+    for (const f of flagsResult.data ?? []) {
+      flagsByKey.set(slotKey(f.day as Day, f.period), { issueFlag: f.issue_flag, issueNote: f.issue_note })
+    }
     setWeeklyStates((prev) => {
       const weekState = new Map<string, CellState>()
       for (const [key, groupId] of classDefaultsRef.current) {
-        weekState.set(key, { groupId, lessons: [] })
+        const flag = flagsByKey.get(key) ?? { issueFlag: false, issueNote: '' }
+        weekState.set(key, { groupId, lessons: [], ...flag })
       }
-      for (const pa of data) {
+      for (const pa of assignmentsResult.data!) {
         const key = slotKey(pa.day as Day, pa.period)
-        const existing = weekState.get(key) ?? { groupId: pa.group_id, lessons: [] }
+        const flag = flagsByKey.get(key) ?? { issueFlag: false, issueNote: '' }
+        const existing = weekState.get(key) ?? { groupId: pa.group_id, lessons: [], ...flag }
         existing.lessons.push({
           lessonId: pa.lesson_id,
           unitId: pa.unit_id,
           lessonTitle: pa.lesson_title,
           assignmentId: pa.id,
           feedbackVisible: pa.feedback_visible,
-          issueFlag: pa.issue_flag,
-          issueNote: pa.issue_note,
           lessonNotes: pa.notes,
         })
         weekState.set(key, existing)
@@ -152,8 +161,6 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
         lessonTitle,
         assignmentId: data.id,
         feedbackVisible: false,
-        issueFlag: false,
-        issueNote: '',
         lessonNotes: '',
       }
       updateSlot(day, period, (s) => ({ ...s, lessons: [newLesson] }))
@@ -182,8 +189,6 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
         lessonTitle,
         assignmentId: data.id,
         feedbackVisible: false,
-        issueFlag: false,
-        issueNote: '',
         lessonNotes: '',
       }
       updateSlot(day, period, (s) => ({ ...s, lessons: [...s.lessons, newLesson] }))
@@ -212,32 +217,20 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
     await updatePlannerAssignmentExtrasAction(lesson.assignmentId, { feedback_visible: next })
   }, [updateSlot, plannerState])
 
-  const handleIssueToggle = useCallback(async (day: Day, period: number, lessonId: string) => {
+  const handleIssueToggle = useCallback(async (day: Day, period: number) => {
     const key = slotKey(day, period)
     const cell = plannerState.get(key) ?? emptyCellState()
-    const lesson = cell.lessons.find((l) => l.lessonId === lessonId)
-    if (!lesson) return
-    const nextFlag = !lesson.issueFlag
-    const nextNote = nextFlag ? lesson.issueNote : ''
-    updateSlot(day, period, (s) => ({
-      ...s,
-      lessons: s.lessons.map((l) =>
-        l.lessonId === lessonId ? { ...l, issueFlag: nextFlag, issueNote: nextNote } : l
-      ),
-    }))
-    await updatePlannerAssignmentExtrasAction(lesson.assignmentId, { issue_flag: nextFlag, issue_note: nextNote })
+    const nextFlag = !cell.issueFlag
+    const nextNote = nextFlag ? cell.issueNote : ''
+    updateSlot(day, period, (s) => ({ ...s, issueFlag: nextFlag, issueNote: nextNote }))
+    await upsertPlannerPeriodFlagAction(currentWeekRef.current, day, period, nextFlag, nextNote)
   }, [updateSlot, plannerState])
 
-  const handleIssueNoteChange = useCallback(async (day: Day, period: number, lessonId: string, note: string) => {
+  const handleIssueNoteChange = useCallback(async (day: Day, period: number, note: string) => {
     const key = slotKey(day, period)
     const cell = plannerState.get(key) ?? emptyCellState()
-    const lesson = cell.lessons.find((l) => l.lessonId === lessonId)
-    if (!lesson) return
-    updateSlot(day, period, (s) => ({
-      ...s,
-      lessons: s.lessons.map((l) => l.lessonId === lessonId ? { ...l, issueNote: note } : l),
-    }))
-    await updatePlannerAssignmentExtrasAction(lesson.assignmentId, { issue_note: note })
+    updateSlot(day, period, (s) => ({ ...s, issueNote: note }))
+    await upsertPlannerPeriodFlagAction(currentWeekRef.current, day, period, cell.issueFlag, note)
   }, [updateSlot, plannerState])
 
   const handleLessonNotesChange = useCallback(async (day: Day, period: number, lessonId: string, notes: string) => {
@@ -270,8 +263,6 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
       for (const lesson of existing.lessons) {
         await upsertPlannerAssignmentAction(resolvedGroupId, lesson.lessonId, week, day, period, {
           feedbackVisible: lesson.feedbackVisible,
-          issueFlag: lesson.issueFlag,
-          issueNote: lesson.issueNote,
           notes: lesson.lessonNotes,
         })
       }

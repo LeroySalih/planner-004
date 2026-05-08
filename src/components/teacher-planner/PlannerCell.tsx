@@ -32,13 +32,13 @@ export function PlannerCell({
 }: PlannerCellProps) {
   const [pendingUnitId, setPendingUnitId] = useState<string>('')
 
-  const { groupId, lessons } = cellState
+  const { groupId, lessons, issueFlag, issueNote: _issueNote } = cellState
   const hasGroup = !!groupId && groupId !== '__free__'
   const lessonCount = lessons.length
 
-  // Aggregate state from all lessons for cell-level indicators
+  // Period-level indicators
   const anyFeedback = lessons.some((l) => l.feedbackVisible)
-  const anyIssue = lessons.some((l) => l.issueFlag)
+  const anyIssue = issueFlag
 
   const currentLesson = lessons[0] ?? null
   const currentUnitId = currentLesson?.unitId ?? ''
