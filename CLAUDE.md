@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 When implementing multi-step tasks, always use **subagent-driven development** (`superpowers:subagent-driven-development`) without waiting for confirmation. Dispatch a fresh subagent per task, run spec compliance review then code quality review after each, and proceed automatically through all tasks.
 
+After writing a plan with `superpowers:writing-plans`, **always** proceed immediately with subagent-driven execution — never offer an execution choice or wait for the user to select an approach.
+
 ## Project Overview
 
 Planner 004 is a Next.js 15 education planning application for managing curricula, lessons, units, assignments, and pupil feedback. The app uses the App Router with React 19, TypeScript, and PostgreSQL for data persistence.
@@ -77,6 +79,8 @@ psql -U postgres -c "DROP DATABASE \"postgres-feature-name\";"
 **Database Isolation**: Each worktree gets its own `postgres-<worktree-name>` database cloned from the main `postgres` database. This prevents development work from interfering across branches.
 
 **Tmux Sessions**: The `--start-server` flag automatically starts the dev server in a detached tmux session, allowing parallel development across multiple worktrees without terminal window management.
+
+**Before merging a worktree**, always run `git status` inside the worktree and commit any untracked files that belong to the feature. Untracked files are invisible to git and will not be included in a merge, causing build failures on production. Every new file created during development must be explicitly `git add`-ed before committing.
 
 ## Core Architecture
 
