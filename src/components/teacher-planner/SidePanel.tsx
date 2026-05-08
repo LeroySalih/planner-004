@@ -97,7 +97,7 @@ export function SidePanel({
           <option value="">No class</option>
           <option value="__free__">Free period</option>
           {groups.map((g) => (
-            <option key={g.group_id} value={g.group_id}>{g.subject}</option>
+            <option key={g.group_id} value={g.group_id}>{g.group_id}</option>
           ))}
         </select>
       </div>
