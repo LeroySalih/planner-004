@@ -2468,7 +2468,7 @@ export async function readActivitiesByUnitAction(
   try {
     const { rows } = await query(
       `
-      SELECT a.activity_id, a.lesson_id, a.title, a.type, a.order_by, a.body
+      SELECT a.activity_id, a.lesson_id, a.title, a.type, a.order_by, a.body_data AS body
       FROM activities a
       JOIN lessons l ON l.lesson_id = a.lesson_id
       WHERE l.unit_id = $1 AND l.active = true AND a.active = true
