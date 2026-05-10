@@ -473,7 +473,7 @@ export function UnitReportDocument({
                     (sc) => sc.learning_objective_id === lo.learning_objective_id,
                   )
                   const displayScs =
-                    matchingScs.length > 0 ? matchingScs : lesson.lesson_success_criteria
+                    matchingScs.length > 0 ? matchingScs : []
 
                   return (
                     <View
@@ -482,7 +482,7 @@ export function UnitReportDocument({
                     >
                       <View style={s.colLeft}>
                         <Text style={s.loRef}>
-                          {lo.spec_ref ?? lo.learning_objective_id.slice(0, 8)}
+                          {lo.spec_ref ?? "—"}
                         </Text>
                         <Text style={s.loTitle}>{lo.title}</Text>
                       </View>
