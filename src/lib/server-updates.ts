@@ -48,6 +48,7 @@ export {
   createLessonSuccessCriterionFormAction,
   deactivateLessonAction,
   type LessonHeaderUpdateState,
+  readFileDownloadActivitiesByUnitAction,
   readLessonAction,
   readLessonDetailBootstrapAction,
   readLessonReferenceDataAction,

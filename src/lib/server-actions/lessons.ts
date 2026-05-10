@@ -6,6 +6,8 @@ import { performance } from "node:perf_hooks";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
+import { createLocalStorageClient } from "@/lib/storage/local-storage";
+
 import {
   AssessmentObjectivesSchema,
   CurriculaSchema,
@@ -2406,4 +2408,49 @@ export async function toggleLessonActiveAction(
 
   revalidatePath(`/units/${unitId}`);
   return { success: true, error: null };
+}
+
+export async function readFileDownloadActivitiesByUnitAction(
+  unitId: string,
+): Promise<{ lessonId: string; fileName: string }[]> {
+  const { rows } = await query(
+    `
+    SELECT a.activity_id, a.lesson_id
+    FROM activities a
+    JOIN lessons l ON l.lesson_id = a.lesson_id
+    WHERE l.unit_id = $1 AND l.active = true AND a.type = 'file-download'
+    `,
+    [unitId],
+  )
+
+  const storage = createLocalStorageClient("lessons")
+  const results: { lessonId: string; fileName: string }[] = []
+
+  await Promise.all(
+    rows.map(async (row) => {
+      const rowObj = row as Record<string, unknown>
+      const activityId = typeof rowObj.activity_id === "string"
+        ? rowObj.activity_id
+        : null
+      const lessonId = typeof rowObj.lesson_id === "string"
+        ? rowObj.lesson_id
+        : null
+
+      if (!activityId || !lessonId) return
+
+      const dir = `${lessonId}/${activityId}`
+      const { data } = await storage.list(dir, { limit: 100 })
+      for (const file of data ?? []) {
+        const fileObj = file as Record<string, unknown>
+        const fileName = typeof fileObj.name === "string"
+          ? fileObj.name
+          : null
+        if (fileName) {
+          results.push({ lessonId: lessonId as string, fileName })
+        }
+      }
+    }),
+  )
+
+  return results
 }
