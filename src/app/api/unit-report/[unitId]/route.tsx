@@ -9,10 +9,13 @@ import {
   readLearningObjectivesByUnitAction,
   readLessonsByUnitAction,
   readFileDownloadActivitiesByUnitAction,
+  readActivitiesByUnitAction,
 } from "@/lib/server-updates"
+import { fetchActivityImageAsDataUri, fetchAsDataUri } from "@/lib/pdf-helpers"
 import { UnitReportDocument } from "@/components/pdf/unit-report-document"
 import type {
   UnitReportDocumentProps,
+  UnitReportActivity,
   UnitReportLo,
   UnitReportLesson,
   UnitReportSc,
@@ -31,7 +34,7 @@ export async function GET(
 
   const { unitId } = await params
 
-  const [unitResult, losResult, lessonsResult, fileActivities] =
+  const [unitResult, losResult, lessonsResult, fileActivities, rawActivities] =
     await Promise.all([
       readUnitAction(unitId, { routeTag: ROUTE_TAG, authEndTime: null }),
       readLearningObjectivesByUnitAction(unitId, {
@@ -43,6 +46,7 @@ export async function GET(
         authEndTime: null,
       }),
       readFileDownloadActivitiesByUnitAction(unitId),
+      readActivitiesByUnitAction(unitId),
     ])
 
   if (!unitResult.data) {
@@ -58,6 +62,55 @@ export async function GET(
   for (const { lessonId, fileName } of fileActivities) {
     if (!filesByLesson.has(lessonId)) filesByLesson.set(lessonId, [])
     filesByLesson.get(lessonId)!.push(fileName)
+  }
+
+  const SCORABLE_TYPES = new Set([
+    "multiple-choice-question",
+    "short-text-question",
+    "text-question",
+    "long-text-question",
+    "upload-file",
+    "upload-url",
+    "feedback",
+    "sketch-render",
+    "do-flashcards",
+  ])
+
+  // Resolve image data URIs for display-image activities
+  const activitiesWithImages = await Promise.allSettled(
+    rawActivities.map(async (activity) => {
+      let imageDataUri: string | null = null
+      if (activity.type === "display-image" && activity.body) {
+        const imageFile = activity.body.imageFile as string | undefined
+        const imageUrl = (activity.body.imageUrl as string | undefined) ?? (activity.body.fileUrl as string | undefined)
+        if (imageUrl && /^https?:\/\//i.test(imageUrl)) {
+          imageDataUri = await fetchAsDataUri(imageUrl, "http://localhost:3000").catch(() => null)
+        } else if (imageFile) {
+          imageDataUri = await fetchActivityImageAsDataUri(
+            activity.lesson_id,
+            activity.activity_id,
+            imageFile,
+          ).catch(() => null)
+        }
+      }
+      return { ...activity, imageDataUri }
+    })
+  )
+
+  const activitiesByLesson = new Map<string, UnitReportActivity[]>()
+  for (const result of activitiesWithImages) {
+    if (result.status !== "fulfilled") continue
+    const activity = result.value
+    if (!activitiesByLesson.has(activity.lesson_id)) {
+      activitiesByLesson.set(activity.lesson_id, [])
+    }
+    activitiesByLesson.get(activity.lesson_id)!.push({
+      activity_id: activity.activity_id,
+      title: activity.title ?? "Untitled activity",
+      type: activity.type,
+      isScorable: SCORABLE_TYPES.has(activity.type),
+      imageDataUri: activity.imageDataUri,
+    })
   }
 
   // If no unit-level LOs, aggregate from lesson objectives
@@ -173,6 +226,7 @@ export async function GET(
         description: link.description ?? null,
       })),
       file_names: filesByLesson.get(lesson.lesson_id) ?? [],
+      activities: activitiesByLesson.get(lesson.lesson_id) ?? [],
     }
   })
 

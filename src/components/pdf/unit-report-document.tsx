@@ -1,5 +1,5 @@
 // src/components/pdf/unit-report-document.tsx
-import { Document, Page, StyleSheet, Text, View, Link } from "@react-pdf/renderer"
+import { Document, Image, Page, StyleSheet, Text, View, Link } from "@react-pdf/renderer"
 
 // ---- Types ----------------------------------------------------------------
 
@@ -9,6 +9,14 @@ export interface UnitReportSc {
   level: number | null
   order_index: number | null
   learning_objective_id?: string
+}
+
+export interface UnitReportActivity {
+  activity_id: string
+  title: string
+  type: string
+  isScorable: boolean
+  imageDataUri: string | null
 }
 
 export interface UnitReportLo {
@@ -36,6 +44,7 @@ export interface UnitReportLesson {
   lesson_success_criteria: UnitReportSc[]
   lesson_links: { url: string; description: string | null }[]
   file_names: string[]
+  activities: UnitReportActivity[]
 }
 
 export interface UnitReportDocumentProps {
@@ -299,6 +308,69 @@ function FilesSection({
   )
 }
 
+const ASSESSMENT_AMBER = "#b45309"
+const ASSESSMENT_BG = "#fffbeb"
+const ASSESSMENT_BORDER = "#fcd34d"
+
+function ActivitiesSection({ activities }: { activities: UnitReportActivity[] }) {
+  if (activities.length === 0) return null
+  return (
+    <View style={[s.tableRow, { borderTopWidth: 0, flexDirection: "column", padding: 0 }]}>
+      {activities.map((activity) => (
+        <View
+          key={activity.activity_id}
+          style={{
+            flexDirection: "row",
+            alignItems: "flex-start",
+            paddingHorizontal: 8,
+            paddingVertical: 4,
+            borderBottomWidth: 1,
+            borderBottomColor: "#eeeeee",
+            backgroundColor: activity.isScorable ? ASSESSMENT_BG : "#ffffff",
+          }}
+        >
+          {/* Thumbnail for display-image */}
+          {activity.type === "display-image" && activity.imageDataUri && (
+            <View style={{ marginRight: 6, flexShrink: 0 }}>
+              {/* eslint-disable-next-line jsx-a11y/alt-text */}
+              <Image
+                src={activity.imageDataUri}
+                style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 2 }}
+              />
+            </View>
+          )}
+
+          {/* Activity title */}
+          <Text style={{ fontSize: 9, color: "#333333", flex: 1, marginTop: 2 }}>
+            {activity.title || "Untitled activity"}
+          </Text>
+
+          {/* Assessment badge */}
+          {activity.isScorable && (
+            <Text
+              style={{
+                fontSize: 7,
+                fontFamily: "Helvetica-Bold",
+                color: ASSESSMENT_AMBER,
+                borderWidth: 1,
+                borderColor: ASSESSMENT_BORDER,
+                backgroundColor: ASSESSMENT_BG,
+                paddingHorizontal: 4,
+                paddingVertical: 2,
+                borderRadius: 3,
+                marginLeft: 6,
+                flexShrink: 0,
+              }}
+            >
+              ASSESSMENT
+            </Text>
+          )}
+        </View>
+      ))}
+    </View>
+  )
+}
+
 // ---- Shared page header ---------------------------------------------------
 
 function PageHeader({ unitTitle, infoText, pageSubtitle }: { unitTitle: string; infoText: string; pageSubtitle: string }) {
@@ -499,6 +571,14 @@ export function UnitReportDocument({
                     links={lesson.lesson_links}
                   />
                 )}
+                {lesson.activities.length > 0 && (
+                  <View style={[s.tableRow, { borderTopWidth: 0 }]}>
+                    <View style={[s.colFull, { paddingBottom: 0 }]}>
+                      <Text style={s.filesLabel}>ACTIVITIES</Text>
+                    </View>
+                  </View>
+                )}
+                <ActivitiesSection activities={lesson.activities} />
               </View>
             </View>
           )

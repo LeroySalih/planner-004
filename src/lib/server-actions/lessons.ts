@@ -2461,3 +2461,31 @@ export async function readFileDownloadActivitiesByUnitAction(
 
   return results
 }
+
+export async function readActivitiesByUnitAction(
+  unitId: string,
+): Promise<{ lesson_id: string; activity_id: string; title: string | null; type: string; order_by: number | null; body: Record<string, unknown> | null }[]> {
+  try {
+    const { rows } = await query(
+      `
+      SELECT a.activity_id, a.lesson_id, a.title, a.type, a.order_by, a.body
+      FROM activities a
+      JOIN lessons l ON l.lesson_id = a.lesson_id
+      WHERE l.unit_id = $1 AND l.active = true AND a.active = true
+      ORDER BY a.order_by ASC NULLS LAST
+      `,
+      [unitId],
+    )
+    return rows.map((row: Record<string, unknown>) => ({
+      lesson_id: row.lesson_id as string,
+      activity_id: row.activity_id as string,
+      title: typeof row.title === "string" ? row.title : null,
+      type: typeof row.type === "string" ? row.type : "",
+      order_by: typeof row.order_by === "number" ? row.order_by : null,
+      body: row.body != null && typeof row.body === "object" ? row.body as Record<string, unknown> : null,
+    }))
+  } catch (error) {
+    console.error("[lessons] Failed to read activities by unit:", error)
+    return []
+  }
+}
