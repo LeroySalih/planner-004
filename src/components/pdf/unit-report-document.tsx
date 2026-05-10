@@ -330,13 +330,32 @@ function ActivitiesSection({ activities }: { activities: UnitReportActivity[] })
           }}
         >
           {/* Thumbnail for display-image */}
-          {activity.type === "display-image" && activity.imageDataUri && (
+          {activity.type === "display-image" && (
             <View style={{ marginRight: 6, flexShrink: 0 }}>
-              {/* eslint-disable-next-line jsx-a11y/alt-text */}
-              <Image
-                src={activity.imageDataUri}
-                style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 2 }}
-              />
+              {activity.imageDataUri ? (
+                // eslint-disable-next-line jsx-a11y/alt-text
+                <Image
+                  src={activity.imageDataUri}
+                  style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 2 }}
+                />
+              ) : (
+                <View
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 2,
+                    borderWidth: 1,
+                    borderColor: BORDER,
+                    backgroundColor: "#f5f7fa",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Text style={{ fontSize: 6, color: "#aaaaaa", textAlign: "center" }}>
+                    No{"\n"}image
+                  </Text>
+                </View>
+              )}
             </View>
           )}
 
