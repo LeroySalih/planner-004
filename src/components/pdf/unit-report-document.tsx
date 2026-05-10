@@ -299,8 +299,8 @@ function FilesSection({
           <Text key={`f-${i}`} style={s.fileRow}>{name}</Text>
         ))}
         {links.map((link, i) => (
-          <Link key={`l-${i}`} src={link.url} style={s.fileRow}>
-            {link.description ?? link.url}
+          <Link key={`l-${i}`} src={link.url}>
+            <Text style={s.fileRow}>{link.description ?? link.url}</Text>
           </Link>
         ))}
       </View>
