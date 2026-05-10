@@ -1146,7 +1146,7 @@ export async function updateAssignmentFeedbackVisibilityAction(
       try {
         const { rows } = await query(
           `
-            update lesson_assignments
+            update planner_assignments
             set feedback_visible = $1
             where group_id = $2 and lesson_id = $3
             returning feedback_visible
