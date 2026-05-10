@@ -60,23 +60,93 @@ export async function GET(
     filesByLesson.get(lessonId)!.push(fileName)
   }
 
-  const learningObjectives: UnitReportLo[] = rawLos.map((lo) => ({
-    learning_objective_id: lo.learning_objective_id,
-    title: lo.title,
-    order_index: lo.order_index ?? null,
-    spec_ref: lo.spec_ref ?? null,
-    assessment_objective_id: lo.assessment_objective_id ?? null,
-    assessment_objective_code: lo.assessment_objective_code ?? null,
-    assessment_objective_title: lo.assessment_objective_title ?? null,
-    assessment_objective_order_index: lo.assessment_objective_order_index ?? null,
-    success_criteria: (lo.success_criteria ?? []).map((sc): UnitReportSc => ({
-      success_criteria_id: sc.success_criteria_id,
-      description: sc.description,
-      level: typeof sc.level === "number" ? sc.level : null,
-      order_index: sc.order_index ?? null,
-      learning_objective_id: lo.learning_objective_id,
-    })),
-  }))
+  // If no unit-level LOs, aggregate from lesson objectives
+  const effectiveLos = rawLos.length > 0
+    ? rawLos
+    : (() => {
+        const loMap = new Map<string, {
+          learning_objective_id: string
+          title: string
+          order_index: number | null
+          seenScIds: Set<string>
+          success_criteria: UnitReportSc[]
+        }>()
+        for (const lesson of rawLessons) {
+          for (const lo of lesson.lesson_objectives ?? []) {
+            if (!loMap.has(lo.learning_objective_id)) {
+              loMap.set(lo.learning_objective_id, {
+                learning_objective_id: lo.learning_objective_id,
+                title: lo.title,
+                order_index: lo.order_by ?? null,
+                seenScIds: new Set(),
+                success_criteria: [],
+              })
+            }
+            const entry = loMap.get(lo.learning_objective_id)!
+            for (const sc of lesson.lesson_success_criteria ?? []) {
+              const scLoId = (sc as Record<string, unknown>).learning_objective_id as string | undefined
+              if (
+                (scLoId === lo.learning_objective_id || !scLoId) &&
+                !entry.seenScIds.has(sc.success_criteria_id)
+              ) {
+                entry.seenScIds.add(sc.success_criteria_id)
+                entry.success_criteria.push({
+                  success_criteria_id: sc.success_criteria_id,
+                  description: sc.description ?? (sc as Record<string, unknown>).title as string ?? "",
+                  level: typeof sc.level === "number" ? sc.level : null,
+                  order_index: ((sc as Record<string, unknown>).order_index as number | null | undefined) ?? null,
+                  learning_objective_id: lo.learning_objective_id,
+                })
+              }
+            }
+          }
+        }
+        return [...loMap.values()]
+      })()
+
+  const learningObjectives: UnitReportLo[] = effectiveLos.map((lo) => {
+    // Handle both full LO shape (from readLearningObjectivesByUnitAction)
+    // and synthetic shape (aggregated from lessons)
+    const isFullLo = "assessment_objective_id" in lo
+    if (isFullLo) {
+      const fullLo = lo as typeof rawLos[number]
+      return {
+        learning_objective_id: fullLo.learning_objective_id,
+        title: fullLo.title,
+        order_index: fullLo.order_index ?? null,
+        spec_ref: fullLo.spec_ref ?? null,
+        assessment_objective_id: fullLo.assessment_objective_id ?? null,
+        assessment_objective_code: fullLo.assessment_objective_code ?? null,
+        assessment_objective_title: fullLo.assessment_objective_title ?? null,
+        assessment_objective_order_index: fullLo.assessment_objective_order_index ?? null,
+        success_criteria: (fullLo.success_criteria ?? []).map((sc): UnitReportSc => ({
+          success_criteria_id: sc.success_criteria_id,
+          description: sc.description,
+          level: typeof sc.level === "number" ? sc.level : null,
+          order_index: sc.order_index ?? null,
+          learning_objective_id: fullLo.learning_objective_id,
+        })),
+      }
+    }
+    // Synthetic LO from lesson aggregation
+    const synthLo = lo as {
+      learning_objective_id: string
+      title: string
+      order_index: number | null
+      success_criteria: UnitReportSc[]
+    }
+    return {
+      learning_objective_id: synthLo.learning_objective_id,
+      title: synthLo.title,
+      order_index: synthLo.order_index,
+      spec_ref: null,
+      assessment_objective_id: null,
+      assessment_objective_code: null,
+      assessment_objective_title: null,
+      assessment_objective_order_index: null,
+      success_criteria: synthLo.success_criteria,
+    }
+  })
 
   const lessons: UnitReportLesson[] = rawLessons.map((lesson) => {
     const lessonScs: UnitReportSc[] = (lesson.lesson_success_criteria ?? []).map((sc): UnitReportSc => ({
