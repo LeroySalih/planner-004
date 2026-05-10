@@ -2413,20 +2413,27 @@ export async function toggleLessonActiveAction(
 export async function readFileDownloadActivitiesByUnitAction(
   unitId: string,
 ): Promise<{ lessonId: string; fileName: string }[]> {
-  const { rows } = await query(
-    `
-    SELECT a.activity_id, a.lesson_id
-    FROM activities a
-    JOIN lessons l ON l.lesson_id = a.lesson_id
-    WHERE l.unit_id = $1 AND l.active = true AND a.type = 'file-download'
-    `,
-    [unitId],
-  )
+  let rows: Array<Record<string, unknown>> = []
+  try {
+    const result = await query(
+      `
+      SELECT a.activity_id, a.lesson_id
+      FROM activities a
+      JOIN lessons l ON l.lesson_id = a.lesson_id
+      WHERE l.unit_id = $1 AND l.active = true AND a.type = 'file-download'
+      `,
+      [unitId],
+    )
+    rows = result.rows ?? []
+  } catch (error) {
+    console.error("[lessons] Failed to read file-download activities:", error)
+    return []
+  }
 
   const storage = createLocalStorageClient("lessons")
   const results: { lessonId: string; fileName: string }[] = []
 
-  await Promise.all(
+  await Promise.allSettled(
     rows.map(async (row) => {
       const rowObj = row as Record<string, unknown>
       const activityId = typeof rowObj.activity_id === "string"
