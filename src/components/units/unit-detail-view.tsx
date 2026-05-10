@@ -13,6 +13,7 @@ import type {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { UnitReportDownloadButton } from "@/components/pdf/unit-report-download-button"
 import { LessonsPanel } from "@/components/units/lessons-panel"
 import { UnitEditSidebar } from "@/components/units/unit-edit-sidebar"
 import { UnitFilesPanel } from "@/components/units/unit-files-panel"
@@ -307,10 +308,13 @@ export function UnitDetailView({
               <span className="text-sm">Unit ID: {currentUnit.unit_id}</span>
             </div>
           </div>
-          <Button onClick={() => setIsUnitSidebarOpen(true)} className="self-start">
-            <Edit2 className="mr-2 h-4 w-4" />
-            Edit Unit
-          </Button>
+          <div className="flex gap-2 self-start">
+            <UnitReportDownloadButton unitId={currentUnit.unit_id} />
+            <Button onClick={() => setIsUnitSidebarOpen(true)}>
+              <Edit2 className="mr-2 h-4 w-4" />
+              Edit Unit
+            </Button>
+          </div>
         </div>
 
         <Card>
