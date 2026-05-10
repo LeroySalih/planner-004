@@ -1299,9 +1299,10 @@ ${scs[0] ? `SC: ${scs[0].title}` : ""}
                 const voiceStatus = voicePreviewState[activity.activity_id]
                 const isFileResource = activity.type === "file-download" || activity.type === "upload-file"
                 const isUploadFile = activity.type === "upload-file"
+                const isFileDownload = activity.type === "file-download"
                 const fileStatus = isFileResource ? fileDownloadState[activity.activity_id] : null
                 const fileHasFiles = fileStatus?.hasFiles ?? false
-                const shouldShowDownloadButton = Boolean(isUploadFile && fileHasFiles)
+                const shouldShowDownloadButton = Boolean((isUploadFile || isFileDownload) && fileHasFiles)
                 const isDisplayImage = activity.type === "display-image"
                 const isShowVideo = activity.type === "show-video"
                 const imageBody = isDisplayImage ? getImageBody(activity) : null
@@ -1310,13 +1311,11 @@ ${scs[0] ? `SC: ${scs[0].title}` : ""}
                   : null
                 const summativeUpdating = summativePending[activity.activity_id] ?? false
                 const summativeDisabled = !isScorableActivityType(activity.type)
-                const canDownloadFiles = !isFileResource || fileHasFiles
                 const preview = renderActivityPreview(activity, imageThumbnail, {
                   onSummativeChange: (checked) => toggleSummative(activity, checked),
                   summativeUpdating,
                   summativeDisabled,
                   onImageClick: (url, title) => openImageModal(url, title ?? activity.title ?? "Activity image"),
-                  onDownloadFile: canDownloadFiles ? () => handleFileDownload(activity) : undefined,
                   sectionIndex: sectionIndexMap.get(activity.activity_id),
                 })
                 const inlinePreview = (() => {
@@ -1422,7 +1421,7 @@ ${scs[0] ? `SC: ${scs[0].title}` : ""}
                                         <span className="text-xs">Play</span>
                                       </Button>
                                     </div>
-                                  ) : isUploadFile ? (
+                                  ) : isUploadFile || isFileDownload ? (
                                     <div className="space-y-2">
                                       {inlinePreview}
                                       {shouldShowDownloadButton ? (
@@ -2256,6 +2255,32 @@ function LessonActivityEditorSheet({
       }
     },
     [activity, lessonId, refreshActivityFiles, unitId],
+  )
+
+  const handleDownloadFile = useCallback(
+    async (fileName: string) => {
+      if (!activity) return
+      try {
+        const result = await getActivityFileDownloadUrlAction(lessonId, activity.activity_id, fileName)
+        if (!result.success || !result.url) {
+          toast.error("Unable to download file", {
+            description: result.error ?? "Please try again later.",
+          })
+          return
+        }
+        const link = document.createElement("a")
+        link.href = result.url
+        link.target = "_blank"
+        link.rel = "noopener noreferrer"
+        link.click()
+      } catch (error) {
+        console.error("[activities] Failed to download activity file:", error)
+        toast.error("Unable to download file", {
+          description: error instanceof Error ? error.message : "Please try again later.",
+        })
+      }
+    },
+    [activity, lessonId],
   )
 
   const handleFileInputChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -3936,16 +3961,28 @@ function LessonActivityEditorSheet({
                           <span className="font-medium">{file.name}</span>
                           {sizeLabel ? <span className="text-xs text-muted-foreground">{sizeLabel}</span> : null}
                         </div>
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => handleDeleteFile(file.name)}
-                          disabled={isUploadingFiles}
-                          aria-label={`Remove ${file.name}`}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => void handleDownloadFile(file.name)}
+                            disabled={isUploadingFiles}
+                            aria-label={`Download ${file.name}`}
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => handleDeleteFile(file.name)}
+                            disabled={isUploadingFiles}
+                            aria-label={`Remove ${file.name}`}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
                       </li>
                     )
                   })}
