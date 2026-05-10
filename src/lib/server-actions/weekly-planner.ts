@@ -48,12 +48,6 @@ type ReplyRow = {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function weekEndStr(weekStart: string): string {
-  const d = new Date(weekStart);
-  d.setDate(d.getDate() + 6);
-  return d.toISOString().split("T")[0];
-}
-
 async function fetchActivitiesWithQA(lessonId: string) {
   const activitiesResult = await query<ActivityRow>(
     `SELECT activity_id, title, type AS activity_type, order_by
@@ -109,19 +103,17 @@ async function fetchActivitiesWithQA(lessonId: string) {
 }
 
 async function fetchLessonsWithQA(groupId: string, weekStart: string) {
-  const end = weekEndStr(weekStart);
-
   const lessonsResult = await query<LessonRow>(
-    `SELECT la.lesson_id, l.title, u.title AS unit_title, la.start_date::text AS start_date
-     FROM lesson_assignments la
-     JOIN lessons l ON l.lesson_id = la.lesson_id
+    `SELECT pa.lesson_id, l.title, u.title AS unit_title, pa.week_start_date::text AS start_date
+     FROM planner_assignments pa
+     JOIN lessons l ON l.lesson_id = pa.lesson_id
      JOIN units u ON u.unit_id = l.unit_id
-     WHERE la.group_id = $1
-       AND la.start_date >= $2
-       AND la.start_date <= $3
+     WHERE pa.group_id = $1
+       AND pa.week_start_date = $2
        AND l.active = true
-     ORDER BY la.start_date`,
-    [groupId, weekStart, end],
+     GROUP BY pa.lesson_id, l.title, u.title, pa.week_start_date
+     ORDER BY l.title`,
+    [groupId, weekStart],
   );
 
   const lessons = [];
