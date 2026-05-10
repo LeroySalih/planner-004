@@ -404,7 +404,6 @@ function PageHeader({ unitTitle, infoText, pageSubtitle }: { unitTitle: string; 
       <Text style={s.pageSubtitle}>{pageSubtitle}</Text>
       <View style={s.infoBar}>
         <Text style={s.infoBarText}>{infoText}</Text>
-        <Text style={s.infoBarText}>mr-salih.org</Text>
       </View>
     </>
   )
