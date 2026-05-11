@@ -239,6 +239,19 @@ const s = StyleSheet.create({
     fontSize: 9,
     color: "#c0c8d8",
   },
+  lessonSectionHeader: {
+    backgroundColor: "#e8ecf4",
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderColor: BORDER,
+  },
+  lessonSectionHeaderText: {
+    fontSize: 8,
+    fontFamily: "Helvetica-Bold",
+    color: NAVY,
+    textTransform: "uppercase",
+  },
   filesLabel: {
     fontSize: 9,
     fontFamily: "Helvetica-Bold",
@@ -353,9 +366,8 @@ function FilesSection({
 }) {
   if (fileNames.length === 0 && links.length === 0) return null
   return (
-    <View style={[s.tableRow, { borderTopWidth: 0 }]}>
+    <View style={[s.tableRow, s.tableRowFirst]}>
       <View style={s.colFull}>
-        <Text style={s.filesLabel}>DOWNLOADABLE FILES</Text>
         {fileNames.map((name, i) => (
           <Text key={`f-${i}`} style={s.fileRow}>{name}</Text>
         ))}
@@ -403,7 +415,7 @@ function FlashcardContent({ flashcard }: { flashcard: { title: string; lines: st
 function ActivitiesSection({ activities }: { activities: UnitReportActivity[] }) {
   if (activities.length === 0) return null
   return (
-    <View style={[s.tableRow, { borderTopWidth: 0, flexDirection: "column", padding: 0 }]}>
+    <View style={{ borderLeftWidth: 1, borderRightWidth: 1, borderBottomWidth: 1, borderColor: BORDER }}>
       {activities.map((activity) => (
         <View
           key={activity.activity_id}
@@ -591,7 +603,7 @@ export function UnitReportDocument({
                 </View>
 
                 {sortedLos.map((lo) => (
-                  <View key={lo.learning_objective_id} style={s.tableRow}>
+                  <View key={lo.learning_objective_id} style={s.tableRow} wrap={false}>
                     <View style={s.colLeft}>
                       <Text style={s.loRef}>
                         {lo.spec_ref ?? `LO ${(lo.order_index ?? 0) + 1}`}
@@ -689,7 +701,7 @@ export function UnitReportDocument({
             lesson.file_names.length > 0 || lesson.lesson_links.length > 0
 
           return (
-            <View key={lesson.lesson_id}>
+            <View key={lesson.lesson_id} wrap={false}>
               <View style={s.lessonBar}>
                 <Text style={s.lessonBarTitle}>{lesson.title}</Text>
                 <Text style={s.lessonBarNum}>
@@ -697,7 +709,11 @@ export function UnitReportDocument({
                 </Text>
               </View>
 
+              {/* Sub-section: Learning Objectives & Success Criteria */}
               <View style={s.table}>
+                <View style={s.lessonSectionHeader}>
+                  <Text style={s.lessonSectionHeaderText}>Learning Objectives &amp; Success Criteria</Text>
+                </View>
                 {sortedObjectives.length === 0 && (
                   <View style={[s.tableRow, s.tableRowFirst]}>
                     <View style={s.colFull}>
@@ -716,6 +732,7 @@ export function UnitReportDocument({
                     <View
                       key={lo.learning_objective_id}
                       style={[s.tableRow, loIdx === 0 ? s.tableRowFirst : {}]}
+                      wrap={false}
                     >
                       <View style={s.colLeft}>
                         <Text style={s.loRef}>
@@ -729,22 +746,30 @@ export function UnitReportDocument({
                     </View>
                   )
                 })}
+              </View>
 
-                {hasFiles && (
+              {/* Sub-section: Resources */}
+              {hasFiles && (
+                <View style={s.table} wrap={false}>
+                  <View style={s.lessonSectionHeader}>
+                    <Text style={s.lessonSectionHeaderText}>Resources</Text>
+                  </View>
                   <FilesSection
                     fileNames={lesson.file_names}
                     links={lesson.lesson_links}
                   />
-                )}
-                {lesson.activities.length > 0 && (
-                  <View style={[s.tableRow, { borderTopWidth: 0 }]}>
-                    <View style={[s.colFull, { paddingBottom: 0 }]}>
-                      <Text style={s.filesLabel}>ACTIVITIES</Text>
-                    </View>
+                </View>
+              )}
+
+              {/* Sub-section: Activities */}
+              {lesson.activities.length > 0 && (
+                <View style={s.table} wrap={false}>
+                  <View style={s.lessonSectionHeader}>
+                    <Text style={s.lessonSectionHeaderText}>Activities</Text>
                   </View>
-                )}
-                <ActivitiesSection activities={lesson.activities} />
-              </View>
+                  <ActivitiesSection activities={lesson.activities} />
+                </View>
+              )}
             </View>
           )
         })}
