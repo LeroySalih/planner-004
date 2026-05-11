@@ -394,7 +394,7 @@ function KeyTermsTable({ terms }: { terms: { term: string; definition: string }[
         <Text style={[s.ktHeaderText, { width: "70%" }]}>Definition</Text>
       </View>
       {terms.map((row, i) => (
-        <View key={i} style={s.ktRow}>
+        <View key={i} style={s.ktRow} wrap={false}>
           <Text style={s.ktCellTerm}>{row.term}</Text>
           <Text style={s.ktCellDef}>{row.definition}</Text>
         </View>
@@ -419,6 +419,7 @@ function ActivitiesSection({ activities }: { activities: UnitReportActivity[] })
       {activities.map((activity) => (
         <View
           key={activity.activity_id}
+          wrap={false}
           style={{
             paddingHorizontal: 8,
             paddingVertical: 4,
@@ -701,7 +702,7 @@ export function UnitReportDocument({
             lesson.file_names.length > 0 || lesson.lesson_links.length > 0
 
           return (
-            <View key={lesson.lesson_id} wrap={false}>
+            <View key={lesson.lesson_id}>
               <View style={s.lessonBar}>
                 <Text style={s.lessonBarTitle}>{lesson.title}</Text>
                 <Text style={s.lessonBarNum}>
@@ -763,8 +764,8 @@ export function UnitReportDocument({
 
               {/* Sub-section: Activities */}
               {lesson.activities.length > 0 && (
-                <View style={s.table} wrap={false}>
-                  <View style={s.lessonSectionHeader}>
+                <View style={s.table}>
+                  <View style={s.lessonSectionHeader} wrap={false}>
                     <Text style={s.lessonSectionHeaderText}>Activities</Text>
                   </View>
                   <ActivitiesSection activities={lesson.activities} />
