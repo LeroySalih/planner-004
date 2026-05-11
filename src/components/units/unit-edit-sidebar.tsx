@@ -293,6 +293,20 @@ export function UnitEditSidebar({
             </div>
 
             <div className="space-y-2">
+              <Label htmlFor="unit-description">Description (optional)</Label>
+              <Textarea
+                id="unit-description"
+                value={formState.description}
+                onChange={(event) =>
+                  setFormState((prev) => ({ ...prev, description: event.target.value }))
+                }
+                placeholder="Enter a description for this unit"
+                disabled={isPending}
+                rows={4}
+              />
+            </div>
+
+            <div className="space-y-2">
               <Label htmlFor="unit-year">Year (optional)</Label>
               <Input
                 id="unit-year"
