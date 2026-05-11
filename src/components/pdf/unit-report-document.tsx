@@ -1,4 +1,5 @@
 // src/components/pdf/unit-report-document.tsx
+import React from "react"
 import { Document, Image, Page, StyleSheet, Text, View, Link } from "@react-pdf/renderer"
 
 // ---- Types ----------------------------------------------------------------
@@ -389,12 +390,21 @@ function KeyTermsTable({ terms }: { terms: { term: string; definition: string }[
   if (terms.length === 0) return null
   return (
     <View style={s.ktTable}>
-      <View style={s.ktHeaderRow}>
-        <Text style={[s.ktHeaderText, { width: "30%", borderRightWidth: 1, borderRightColor: "rgba(255,255,255,0.3)" }]}>Term</Text>
-        <Text style={[s.ktHeaderText, { width: "70%" }]}>Definition</Text>
+      {/* Header glued to first data row so the header is never stranded at page bottom */}
+      <View wrap={false}>
+        <View style={s.ktHeaderRow}>
+          <Text style={[s.ktHeaderText, { width: "30%", borderRightWidth: 1, borderRightColor: "rgba(255,255,255,0.3)" }]}>Term</Text>
+          <Text style={[s.ktHeaderText, { width: "70%" }]}>Definition</Text>
+        </View>
+        {terms[0] && (
+          <View style={s.ktRow}>
+            <Text style={s.ktCellTerm}>{terms[0].term}</Text>
+            <Text style={s.ktCellDef}>{terms[0].definition}</Text>
+          </View>
+        )}
       </View>
-      {terms.map((row, i) => (
-        <View key={i} style={s.ktRow} wrap={false}>
+      {terms.slice(1).map((row, i) => (
+        <View key={i + 1} style={s.ktRow} wrap={false}>
           <Text style={s.ktCellTerm}>{row.term}</Text>
           <Text style={s.ktCellDef}>{row.definition}</Text>
         </View>
@@ -412,92 +422,116 @@ function FlashcardContent({ flashcard }: { flashcard: { title: string; lines: st
   )
 }
 
-function ActivitiesSection({ activities }: { activities: UnitReportActivity[] }) {
+function ActivityItem({ activity }: { activity: UnitReportActivity }) {
+  return (
+    <View
+      style={{
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderBottomWidth: 1,
+        borderBottomColor: "#eeeeee",
+        backgroundColor: activity.isScorable ? ASSESSMENT_BG : "#ffffff",
+      }}
+    >
+      {/* Title row */}
+      <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+        {/* Thumbnail for display-image */}
+        {activity.type === "display-image" && (
+          <View style={{ marginRight: 6, flexShrink: 0 }}>
+            {activity.imageDataUri ? (
+              // eslint-disable-next-line jsx-a11y/alt-text
+              <Image
+                src={activity.imageDataUri}
+                style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 2 }}
+              />
+            ) : (
+              <View
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 2,
+                  borderWidth: 1,
+                  borderColor: BORDER,
+                  backgroundColor: "#f5f7fa",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Text style={{ fontSize: 6, color: "#aaaaaa", textAlign: "center" }}>
+                  No{"\n"}image
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* Activity title */}
+        <Text style={{ fontSize: 9, color: "#333333", flex: 1, marginTop: 2 }}>
+          {activity.title || "Untitled activity"}
+        </Text>
+
+        {/* Assessment badge */}
+        {activity.isScorable && (
+          <Text
+            style={{
+              fontSize: 7,
+              fontFamily: "Helvetica-Bold",
+              color: ASSESSMENT_AMBER,
+              borderWidth: 1,
+              borderColor: ASSESSMENT_BORDER,
+              backgroundColor: ASSESSMENT_BG,
+              paddingHorizontal: 4,
+              paddingVertical: 2,
+              borderRadius: 3,
+              marginLeft: 6,
+              flexShrink: 0,
+            }}
+          >
+            ASSESSMENT
+          </Text>
+        )}
+      </View>
+
+      {/* Key terms table */}
+      {activity.keyTerms && activity.keyTerms.length > 0 && (
+        <KeyTermsTable terms={activity.keyTerms} />
+      )}
+
+      {/* Flashcard content */}
+      {activity.flashcard && (
+        <FlashcardContent flashcard={activity.flashcard} />
+      )}
+    </View>
+  )
+}
+
+function ActivitiesSection({
+  activities,
+  sectionHeader,
+}: {
+  activities: UnitReportActivity[]
+  sectionHeader?: React.ReactNode
+}) {
   if (activities.length === 0) return null
   return (
     <View style={{ borderLeftWidth: 1, borderRightWidth: 1, borderBottomWidth: 1, borderColor: BORDER }}>
-      {activities.map((activity) => (
-        <View
-          key={activity.activity_id}
-          wrap={false}
-          style={{
-            paddingHorizontal: 8,
-            paddingVertical: 4,
-            borderBottomWidth: 1,
-            borderBottomColor: "#eeeeee",
-            backgroundColor: activity.isScorable ? ASSESSMENT_BG : "#ffffff",
-          }}
-        >
-          {/* Title row */}
-          <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
-            {/* Thumbnail for display-image */}
-            {activity.type === "display-image" && (
-              <View style={{ marginRight: 6, flexShrink: 0 }}>
-                {activity.imageDataUri ? (
-                  // eslint-disable-next-line jsx-a11y/alt-text
-                  <Image
-                    src={activity.imageDataUri}
-                    style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 2 }}
-                  />
-                ) : (
-                  <View
-                    style={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: 2,
-                      borderWidth: 1,
-                      borderColor: BORDER,
-                      backgroundColor: "#f5f7fa",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <Text style={{ fontSize: 6, color: "#aaaaaa", textAlign: "center" }}>
-                      No{"\n"}image
-                    </Text>
-                  </View>
-                )}
-              </View>
-            )}
-
-            {/* Activity title */}
-            <Text style={{ fontSize: 9, color: "#333333", flex: 1, marginTop: 2 }}>
-              {activity.title || "Untitled activity"}
-            </Text>
-
-            {/* Assessment badge */}
-            {activity.isScorable && (
-              <Text
-                style={{
-                  fontSize: 7,
-                  fontFamily: "Helvetica-Bold",
-                  color: ASSESSMENT_AMBER,
-                  borderWidth: 1,
-                  borderColor: ASSESSMENT_BORDER,
-                  backgroundColor: ASSESSMENT_BG,
-                  paddingHorizontal: 4,
-                  paddingVertical: 2,
-                  borderRadius: 3,
-                  marginLeft: 6,
-                  flexShrink: 0,
-                }}
-              >
-                ASSESSMENT
-              </Text>
-            )}
+      {activities.map((activity, idx) => {
+        if (idx === 0 && sectionHeader) {
+          // Glue the section header to the first activity so the header
+          // is never stranded at the bottom of a page without content.
+          return (
+            <View key={activity.activity_id} wrap={false}>
+              {sectionHeader}
+              <ActivityItem activity={activity} />
+            </View>
+          )
+        }
+        return (
+          <View key={activity.activity_id} wrap={false}>
+            <ActivityItem activity={activity} />
           </View>
-
-          {/* Key terms table */}
-          {activity.keyTerms && activity.keyTerms.length > 0 && (
-            <KeyTermsTable terms={activity.keyTerms} />
-          )}
-
-          {/* Flashcard content */}
-          {activity.flashcard && (
-            <FlashcardContent flashcard={activity.flashcard} />
-          )}
-        </View>
-      ))}
+        )
+      })}
     </View>
   )
 }
@@ -712,44 +746,60 @@ export function UnitReportDocument({
 
               {/* Sub-section: Learning Objectives & Success Criteria */}
               <View style={s.table}>
-                <View style={s.lessonSectionHeader}>
-                  <Text style={s.lessonSectionHeaderText}>Learning Objectives &amp; Success Criteria</Text>
-                </View>
-                {sortedObjectives.length === 0 && (
-                  <View style={[s.tableRow, s.tableRowFirst]}>
-                    <View style={s.colFull}>
-                      <Text style={s.noContent}>No objectives assigned to this lesson.</Text>
+                {sortedObjectives.length === 0 ? (
+                  /* Header glued to "no objectives" message */
+                  <View wrap={false}>
+                    <View style={s.lessonSectionHeader}>
+                      <Text style={s.lessonSectionHeaderText}>Learning Objectives &amp; Success Criteria</Text>
+                    </View>
+                    <View style={[s.tableRow, s.tableRowFirst]}>
+                      <View style={s.colFull}>
+                        <Text style={s.noContent}>No objectives assigned to this lesson.</Text>
+                      </View>
                     </View>
                   </View>
+                ) : (
+                  <>
+                    {/* Header glued to first LO row */}
+                    {sortedObjectives.map((lo, loIdx) => {
+                      const matchingScs = lesson.lesson_success_criteria.filter(
+                        (sc) => sc.learning_objective_id === lo.learning_objective_id,
+                      )
+                      const displayScs = matchingScs.length > 0 ? matchingScs : []
+                      const row = (
+                        <View
+                          style={[s.tableRow, loIdx === 0 ? s.tableRowFirst : {}]}
+                        >
+                          <View style={s.colLeft}>
+                            <Text style={s.loRef}>{lo.spec_ref ?? "—"}</Text>
+                            <Text style={s.loTitle}>{lo.title}</Text>
+                          </View>
+                          <View style={s.colRight}>
+                            <ScList criteria={displayScs} />
+                          </View>
+                        </View>
+                      )
+                      if (loIdx === 0) {
+                        return (
+                          <View key={lo.learning_objective_id} wrap={false}>
+                            <View style={s.lessonSectionHeader}>
+                              <Text style={s.lessonSectionHeaderText}>Learning Objectives &amp; Success Criteria</Text>
+                            </View>
+                            {row}
+                          </View>
+                        )
+                      }
+                      return (
+                        <View key={lo.learning_objective_id} wrap={false}>
+                          {row}
+                        </View>
+                      )
+                    })}
+                  </>
                 )}
-                {sortedObjectives.map((lo, loIdx) => {
-                  const matchingScs = lesson.lesson_success_criteria.filter(
-                    (sc) => sc.learning_objective_id === lo.learning_objective_id,
-                  )
-                  const displayScs =
-                    matchingScs.length > 0 ? matchingScs : []
-
-                  return (
-                    <View
-                      key={lo.learning_objective_id}
-                      style={[s.tableRow, loIdx === 0 ? s.tableRowFirst : {}]}
-                      wrap={false}
-                    >
-                      <View style={s.colLeft}>
-                        <Text style={s.loRef}>
-                          {lo.spec_ref ?? "—"}
-                        </Text>
-                        <Text style={s.loTitle}>{lo.title}</Text>
-                      </View>
-                      <View style={s.colRight}>
-                        <ScList criteria={displayScs} />
-                      </View>
-                    </View>
-                  )
-                })}
               </View>
 
-              {/* Sub-section: Resources */}
+              {/* Sub-section: Resources — header glued to content (small, always fits) */}
               {hasFiles && (
                 <View style={s.table} wrap={false}>
                   <View style={s.lessonSectionHeader}>
@@ -762,13 +812,17 @@ export function UnitReportDocument({
                 </View>
               )}
 
-              {/* Sub-section: Activities */}
+              {/* Sub-section: Activities — header glued to first activity item */}
               {lesson.activities.length > 0 && (
                 <View style={s.table}>
-                  <View style={s.lessonSectionHeader} wrap={false}>
-                    <Text style={s.lessonSectionHeaderText}>Activities</Text>
-                  </View>
-                  <ActivitiesSection activities={lesson.activities} />
+                  <ActivitiesSection
+                    activities={lesson.activities}
+                    sectionHeader={
+                      <View style={s.lessonSectionHeader}>
+                        <Text style={s.lessonSectionHeaderText}>Activities</Text>
+                      </View>
+                    }
+                  />
                 </View>
               )}
             </View>
