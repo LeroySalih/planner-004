@@ -2489,3 +2489,24 @@ export async function readActivitiesByUnitAction(
     return []
   }
 }
+
+export async function readFlashcardActivitiesByIdsAction(
+  ids: string[],
+): Promise<{ activity_id: string; title: string | null; lines: string | null }[]> {
+  if (ids.length === 0) return []
+  try {
+    const placeholders = ids.map((_, i) => `$${i + 1}`).join(", ")
+    const { rows } = await query(
+      `SELECT activity_id, title, body_data FROM activities WHERE activity_id IN (${placeholders})`,
+      ids,
+    )
+    return rows.map((row: Record<string, unknown>) => ({
+      activity_id: row.activity_id as string,
+      title: typeof row.title === "string" ? row.title : null,
+      lines: (row.body_data as Record<string, unknown> | null)?.lines as string | null ?? null,
+    }))
+  } catch (error) {
+    console.error("[lessons] Failed to read flashcard activities by ids:", error)
+    return []
+  }
+}

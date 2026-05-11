@@ -10,6 +10,7 @@ import {
   readLessonsByUnitAction,
   readFileDownloadActivitiesByUnitAction,
   readActivitiesByUnitAction,
+  readFlashcardActivitiesByIdsAction,
 } from "@/lib/server-updates"
 import { fetchActivityImageAsDataUri, fetchAsDataUri } from "@/lib/pdf-helpers"
 import { UnitReportDocument } from "@/components/pdf/unit-report-document"
@@ -22,6 +23,24 @@ import type {
 } from "@/components/pdf/unit-report-document"
 
 const ROUTE_TAG = "/api/unit-report/[unitId]"
+
+function parseKeyTermsMarkdown(markdown: string): { term: string; definition: string }[] {
+  const rows: { term: string; definition: string }[] = []
+  for (const line of markdown.split("\n")) {
+    if (!line.trim().startsWith("|")) continue
+    const cells = line.split("|").map((c) => c.trim()).filter(Boolean)
+    if (cells.length < 2) continue
+    const term = cells[0].replace(/\*\*/g, "").trim()
+    const definition = cells[1].replace(/\*\*/g, "").trim()
+    if (term.toLowerCase() === "term" || /^:?-+:?$/.test(term)) continue
+    rows.push({ term, definition })
+  }
+  return rows
+}
+
+function stripMarkdown(text: string): string {
+  return text.replace(/\*\*/g, "").replace(/\*/g, "").trim()
+}
 
 export async function GET(
   _request: Request,
@@ -97,10 +116,34 @@ export async function GET(
     })
   )
 
+  // Resolve do-flashcards → display-flashcards content
+  const flashcardRefIds = rawActivities
+    .filter((a) => a.type === "do-flashcards" && typeof a.body?.flashcardActivityId === "string")
+    .map((a) => a.body!.flashcardActivityId as string)
+  const flashcardActivities = await readFlashcardActivitiesByIdsAction(flashcardRefIds)
+  const flashcardById = new Map(flashcardActivities.map((fc) => [fc.activity_id, fc]))
+
   const activitiesByLesson = new Map<string, UnitReportActivity[]>()
   for (const result of activitiesWithImages) {
     if (result.status !== "fulfilled") continue
     const activity = result.value
+
+    let keyTerms: { term: string; definition: string }[] | undefined
+    if (activity.type === "display-key-terms" && typeof activity.body?.markdown === "string") {
+      keyTerms = parseKeyTermsMarkdown(activity.body.markdown)
+    }
+
+    let flashcard: { title: string; lines: string } | undefined
+    if (activity.type === "do-flashcards" && typeof activity.body?.flashcardActivityId === "string") {
+      const fc = flashcardById.get(activity.body.flashcardActivityId)
+      if (fc) {
+        flashcard = {
+          title: fc.title ?? activity.title ?? "Flashcard",
+          lines: stripMarkdown(fc.lines ?? ""),
+        }
+      }
+    }
+
     if (!activitiesByLesson.has(activity.lesson_id)) {
       activitiesByLesson.set(activity.lesson_id, [])
     }
@@ -110,6 +153,8 @@ export async function GET(
       type: activity.type,
       isScorable: SCORABLE_TYPES.has(activity.type),
       imageDataUri: activity.imageDataUri,
+      keyTerms,
+      flashcard,
     })
   }
 

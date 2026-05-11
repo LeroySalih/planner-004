@@ -50,6 +50,7 @@ export {
   type LessonHeaderUpdateState,
   readActivitiesByUnitAction,
   readFileDownloadActivitiesByUnitAction,
+  readFlashcardActivitiesByIdsAction,
   readLessonAction,
   readLessonDetailBootstrapAction,
   readLessonReferenceDataAction,

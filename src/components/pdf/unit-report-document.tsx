@@ -17,6 +17,8 @@ export interface UnitReportActivity {
   type: string
   isScorable: boolean
   imageDataUri: string | null
+  keyTerms?: { term: string; definition: string }[]
+  flashcard?: { title: string; lines: string }
 }
 
 export interface UnitReportLo {
@@ -262,6 +264,65 @@ const s = StyleSheet.create({
     color: "#999999",
     padding: 6,
   },
+  // Key terms table inside a lesson
+  ktTable: {
+    marginTop: 4,
+    marginBottom: 2,
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
+  ktHeaderRow: {
+    flexDirection: "row",
+    backgroundColor: NAVY,
+  },
+  ktRow: {
+    flexDirection: "row",
+    borderTopWidth: 1,
+    borderTopColor: BORDER,
+  },
+  ktCellTerm: {
+    width: "30%",
+    padding: 4,
+    borderRightWidth: 1,
+    borderRightColor: BORDER,
+    fontSize: 8,
+    fontFamily: "Helvetica-Bold",
+    color: "#222222",
+  },
+  ktCellDef: {
+    width: "70%",
+    padding: 4,
+    fontSize: 8,
+    color: "#444444",
+    lineHeight: 1.4,
+  },
+  ktHeaderText: {
+    fontSize: 8,
+    fontFamily: "Helvetica-Bold",
+    color: "#ffffff",
+    padding: 4,
+  },
+  // Flashcard content
+  flashcardBox: {
+    marginTop: 4,
+    marginBottom: 2,
+    padding: 6,
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    backgroundColor: "#f9fafb",
+    borderRadius: 3,
+  },
+  flashcardTitle: {
+    fontSize: 9,
+    fontFamily: "Helvetica-Bold",
+    color: NAVY,
+    marginBottom: 3,
+  },
+  flashcardLines: {
+    fontSize: 8,
+    color: "#444444",
+    lineHeight: 1.5,
+  },
 })
 
 // ---- Sub-components -------------------------------------------------------
@@ -312,6 +373,33 @@ const ASSESSMENT_AMBER = "#b45309"
 const ASSESSMENT_BG = "#fffbeb"
 const ASSESSMENT_BORDER = "#fcd34d"
 
+function KeyTermsTable({ terms }: { terms: { term: string; definition: string }[] }) {
+  if (terms.length === 0) return null
+  return (
+    <View style={s.ktTable}>
+      <View style={s.ktHeaderRow}>
+        <Text style={[s.ktHeaderText, { width: "30%", borderRightWidth: 1, borderRightColor: "rgba(255,255,255,0.3)" }]}>Term</Text>
+        <Text style={[s.ktHeaderText, { width: "70%" }]}>Definition</Text>
+      </View>
+      {terms.map((row, i) => (
+        <View key={i} style={s.ktRow}>
+          <Text style={s.ktCellTerm}>{row.term}</Text>
+          <Text style={s.ktCellDef}>{row.definition}</Text>
+        </View>
+      ))}
+    </View>
+  )
+}
+
+function FlashcardContent({ flashcard }: { flashcard: { title: string; lines: string } }) {
+  return (
+    <View style={s.flashcardBox}>
+      <Text style={s.flashcardTitle}>{flashcard.title}</Text>
+      <Text style={s.flashcardLines}>{flashcard.lines}</Text>
+    </View>
+  )
+}
+
 function ActivitiesSection({ activities }: { activities: UnitReportActivity[] }) {
   if (activities.length === 0) return null
   return (
@@ -320,8 +408,6 @@ function ActivitiesSection({ activities }: { activities: UnitReportActivity[] })
         <View
           key={activity.activity_id}
           style={{
-            flexDirection: "row",
-            alignItems: "flex-start",
             paddingHorizontal: 8,
             paddingVertical: 4,
             borderBottomWidth: 1,
@@ -329,60 +415,73 @@ function ActivitiesSection({ activities }: { activities: UnitReportActivity[] })
             backgroundColor: activity.isScorable ? ASSESSMENT_BG : "#ffffff",
           }}
         >
-          {/* Thumbnail for display-image */}
-          {activity.type === "display-image" && (
-            <View style={{ marginRight: 6, flexShrink: 0 }}>
-              {activity.imageDataUri ? (
-                // eslint-disable-next-line jsx-a11y/alt-text
-                <Image
-                  src={activity.imageDataUri}
-                  style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 2 }}
-                />
-              ) : (
-                <View
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 2,
-                    borderWidth: 1,
-                    borderColor: BORDER,
-                    backgroundColor: "#f5f7fa",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <Text style={{ fontSize: 6, color: "#aaaaaa", textAlign: "center" }}>
-                    No{"\n"}image
-                  </Text>
-                </View>
-              )}
-            </View>
+          {/* Title row */}
+          <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+            {/* Thumbnail for display-image */}
+            {activity.type === "display-image" && (
+              <View style={{ marginRight: 6, flexShrink: 0 }}>
+                {activity.imageDataUri ? (
+                  // eslint-disable-next-line jsx-a11y/alt-text
+                  <Image
+                    src={activity.imageDataUri}
+                    style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 2 }}
+                  />
+                ) : (
+                  <View
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 2,
+                      borderWidth: 1,
+                      borderColor: BORDER,
+                      backgroundColor: "#f5f7fa",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Text style={{ fontSize: 6, color: "#aaaaaa", textAlign: "center" }}>
+                      No{"\n"}image
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* Activity title */}
+            <Text style={{ fontSize: 9, color: "#333333", flex: 1, marginTop: 2 }}>
+              {activity.title || "Untitled activity"}
+            </Text>
+
+            {/* Assessment badge */}
+            {activity.isScorable && (
+              <Text
+                style={{
+                  fontSize: 7,
+                  fontFamily: "Helvetica-Bold",
+                  color: ASSESSMENT_AMBER,
+                  borderWidth: 1,
+                  borderColor: ASSESSMENT_BORDER,
+                  backgroundColor: ASSESSMENT_BG,
+                  paddingHorizontal: 4,
+                  paddingVertical: 2,
+                  borderRadius: 3,
+                  marginLeft: 6,
+                  flexShrink: 0,
+                }}
+              >
+                ASSESSMENT
+              </Text>
+            )}
+          </View>
+
+          {/* Key terms table */}
+          {activity.keyTerms && activity.keyTerms.length > 0 && (
+            <KeyTermsTable terms={activity.keyTerms} />
           )}
 
-          {/* Activity title */}
-          <Text style={{ fontSize: 9, color: "#333333", flex: 1, marginTop: 2 }}>
-            {activity.title || "Untitled activity"}
-          </Text>
-
-          {/* Assessment badge */}
-          {activity.isScorable && (
-            <Text
-              style={{
-                fontSize: 7,
-                fontFamily: "Helvetica-Bold",
-                color: ASSESSMENT_AMBER,
-                borderWidth: 1,
-                borderColor: ASSESSMENT_BORDER,
-                backgroundColor: ASSESSMENT_BG,
-                paddingHorizontal: 4,
-                paddingVertical: 2,
-                borderRadius: 3,
-                marginLeft: 6,
-                flexShrink: 0,
-              }}
-            >
-              ASSESSMENT
-            </Text>
+          {/* Flashcard content */}
+          {activity.flashcard && (
+            <FlashcardContent flashcard={activity.flashcard} />
           )}
         </View>
       ))}
@@ -516,6 +615,54 @@ export function UnitReportDocument({
             </View>
           )}
         </View>
+
+        {/* Section: Key Terms lessons */}
+        {(() => {
+          const ktLessons = sortedLessons.filter((l) =>
+            l.activities.some((a) => a.type === "display-key-terms")
+          )
+          if (ktLessons.length === 0) return null
+          return (
+            <>
+              <View style={s.sectionHeader}>
+                <Text style={s.sectionHeaderText}>Key Terms</Text>
+              </View>
+              <View style={[s.table, { marginTop: 4 }]}>
+                {ktLessons.map((l, i) => (
+                  <View key={l.lesson_id} style={[s.tableRow, i === 0 ? s.tableRowFirst : {}]}>
+                    <View style={s.colFull}>
+                      <Text style={{ fontSize: 9, color: "#333333" }}>{l.title}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </>
+          )
+        })()}
+
+        {/* Section: Flashcard lessons */}
+        {(() => {
+          const fcLessons = sortedLessons.filter((l) =>
+            l.activities.some((a) => a.type === "do-flashcards")
+          )
+          if (fcLessons.length === 0) return null
+          return (
+            <>
+              <View style={s.sectionHeader}>
+                <Text style={s.sectionHeaderText}>Flashcards</Text>
+              </View>
+              <View style={[s.table, { marginTop: 4 }]}>
+                {fcLessons.map((l, i) => (
+                  <View key={l.lesson_id} style={[s.tableRow, i === 0 ? s.tableRowFirst : {}]}>
+                    <View style={s.colFull}>
+                      <Text style={{ fontSize: 9, color: "#333333" }}>{l.title}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </>
+          )
+        })()}
 
         <Text
           style={s.footer}
