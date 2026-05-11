@@ -519,7 +519,7 @@ export function UnitReportDocument({
 
         <Text
           style={s.footer}
-          render={({ pageNumber }) => `Page ${pageNumber} | mr-salih.org`}
+          render={({ pageNumber }) => `Page ${pageNumber}`}
           fixed
         />
       </Page>
@@ -604,7 +604,7 @@ export function UnitReportDocument({
 
         <Text
           style={s.footer}
-          render={({ pageNumber }) => `Page ${pageNumber} | mr-salih.org`}
+          render={({ pageNumber }) => `Page ${pageNumber}`}
           fixed
         />
       </Page>
