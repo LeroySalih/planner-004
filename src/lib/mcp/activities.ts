@@ -1,6 +1,7 @@
 import { query, withDbClient } from '@/lib/db'
 import { SCORABLE_ACTIVITY_TYPES, NON_SCORABLE_ACTIVITY_TYPES } from '@/dino.config'
 import { assertLessonUnitIsInactive } from '@/lib/mcp/guards'
+import { createLocalStorageClient } from '@/lib/storage/local-storage'
 
 export const ACTIVITY_TYPES = [...SCORABLE_ACTIVITY_TYPES, ...NON_SCORABLE_ACTIVITY_TYPES] as const
 export type ActivityType = typeof ACTIVITY_TYPES[number]
@@ -105,6 +106,73 @@ export async function createActivity(
 
   if (!result) throw new Error('Failed to create activity')
   return result
+}
+
+export type UploadedFileResult = {
+  activity_id: string
+  lesson_id: string
+  file_name: string
+  size_bytes: number
+  url: string
+}
+
+export async function uploadActivityFile(
+  lessonId: string,
+  activityId: string,
+  fileName: string,
+  base64Content: string,
+  contentType?: string | null,
+): Promise<UploadedFileResult> {
+  // Validate and decode before touching the DB
+  let buffer: Buffer
+  try {
+    buffer = Buffer.from(base64Content, 'base64')
+  } catch {
+    throw new Error('Invalid base64 content')
+  }
+  if (buffer.byteLength === 0) throw new Error('File content is empty')
+
+  // Validate activity exists, belongs to lesson, and is a file-download type
+  const { rows } = await query<{ activity_id: string; type: string; lesson_id: string }>(
+    `select activity_id, type, lesson_id
+     from activities
+     where activity_id = $1 and lesson_id = $2
+     limit 1`,
+    [activityId, lessonId],
+  )
+  const activity = rows[0]
+  if (!activity) throw new Error(`Activity ${activityId} not found in lesson ${lessonId}`)
+  if (activity.type !== 'file-download') {
+    throw new Error(`Activity ${activityId} is type "${activity.type}" — only file-download activities accept file uploads`)
+  }
+
+  // Safety guard — unit must be inactive
+  await withDbClient(async (client) => {
+    await assertLessonUnitIsInactive(client, lessonId)
+  })
+
+  // Upload using the same path convention as the app
+  const fullPath = `lessons/${lessonId}/activities/${activityId}/${fileName}`
+  const storage = createLocalStorageClient('lessons')
+  const { error } = await storage.upload(fullPath, buffer, {
+    contentType: contentType ?? undefined,
+    uploadedBy: 'mcp',
+    originalPath: fileName,
+  })
+  if (error) throw new Error(`Storage upload failed: ${error.message}`)
+
+  const urlParts = ['lessons', lessonId, 'activities', activityId, fileName]
+    .map(encodeURIComponent)
+    .join('/')
+  const url = `/api/files/${urlParts}`
+
+  return {
+    activity_id: activityId,
+    lesson_id: lessonId,
+    file_name: fileName,
+    size_bytes: buffer.byteLength,
+    url,
+  }
 }
 
 export async function removeActivity(
