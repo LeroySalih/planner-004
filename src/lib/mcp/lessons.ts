@@ -1,5 +1,6 @@
 import { query, withDbClient } from '@/lib/db'
 import { assertUnitIsInactive, assertLessonUnitIsInactive } from '@/lib/mcp/guards'
+import { createLocalStorageClient } from '@/lib/storage/local-storage'
 
 export type LessonSummary = {
   lesson_id: string
@@ -164,4 +165,59 @@ export async function addSuccessCriterionToLesson(
 
   if (!result) throw new Error('Failed to link success criterion to lesson')
   return result
+}
+
+const LESSON_FILES_BUCKET = 'lessons'
+const LESSON_FILES_MAX_BYTES = 5 * 1024 * 1024 // 5 MB
+
+export type LessonFileResult = {
+  lesson_id: string
+  file_name: string
+  size_bytes: number
+  url: string
+}
+
+export async function uploadLessonFile(
+  lessonId: string,
+  fileName: string,
+  base64Content: string,
+  contentType?: string | null,
+): Promise<LessonFileResult> {
+  // Decode before touching the DB
+  let buffer: Buffer
+  try {
+    buffer = Buffer.from(base64Content, 'base64')
+  } catch {
+    throw new Error('Invalid base64 content')
+  }
+  if (buffer.byteLength === 0) throw new Error('File content is empty')
+  if (buffer.byteLength > LESSON_FILES_MAX_BYTES) {
+    throw new Error(`File exceeds the 5 MB limit (${buffer.byteLength} bytes)`)
+  }
+
+  // Validate lesson exists and unit is inactive
+  await withDbClient(async (client) => {
+    const { rows } = await client.query<{ lesson_id: string }>(
+      'select lesson_id from lessons where lesson_id = $1 limit 1',
+      [lessonId],
+    )
+    if (!rows[0]) throw new Error(`Lesson ${lessonId} not found`)
+    await assertLessonUnitIsInactive(client, lessonId)
+  })
+
+  const fullPath = `${lessonId}/${fileName}`
+  const storage = createLocalStorageClient(LESSON_FILES_BUCKET)
+  const { error } = await storage.upload(fullPath, buffer, {
+    contentType: contentType ?? 'application/octet-stream',
+    originalPath: fullPath,
+  })
+  if (error) throw new Error(`Storage upload failed: ${error.message}`)
+
+  const urlParts = [LESSON_FILES_BUCKET, lessonId, fileName].map(encodeURIComponent).join('/')
+  return {
+    lesson_id: lessonId,
+    file_name: fileName,
+    size_bytes: buffer.byteLength,
+    url: `/api/files/${urlParts}`,
+  }
 }

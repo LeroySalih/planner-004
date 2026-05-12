@@ -18,7 +18,7 @@ import {
   createSuccessCriterion,
 } from '@/lib/mcp/losc'
 import { listUnits, findUnitsByTitle, createUnit } from '@/lib/mcp/units'
-import { listLessonsForUnit, createLesson, addSuccessCriterionToLesson } from '@/lib/mcp/lessons'
+import { listLessonsForUnit, createLesson, addSuccessCriterionToLesson, uploadLessonFile } from '@/lib/mcp/lessons'
 import { ACTIVITY_TYPES, listActivitiesForLesson, createActivity, removeActivity, uploadActivityFile } from '@/lib/mcp/activities'
 
 // Force Node.js runtime — MCP SDK is not compatible with the Edge runtime.
@@ -681,6 +681,43 @@ function createMcpServer(): McpServer {
         return {
           content: [{ type: 'text' as const, text: `Error: ${message}` }],
           structuredContent: { removed: null },
+        }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'upload_lesson_file',
+    {
+      title: 'Upload file to lesson (teacher storage)',
+      description: 'Uploads a base64-encoded file to the lesson\'s private teacher file store. Not visible to pupils. Max 5 MB. Unit must be inactive.',
+      inputSchema: z.object({
+        lesson_id: z.string().describe('UUID of the lesson'),
+        file_name: z.string().describe('File name including extension, e.g. "notes.pdf"'),
+        base64_content: z.string().describe('Base64-encoded file content'),
+        content_type: z.string().optional().describe('MIME type, e.g. "application/pdf"'),
+      }),
+      outputSchema: z.object({
+        file: z.object({
+          lesson_id: z.string(),
+          file_name: z.string(),
+          size_bytes: z.number(),
+          url: z.string(),
+        }).nullable(),
+      }),
+    },
+    async ({ lesson_id, file_name, base64_content, content_type }) => {
+      try {
+        const file = await uploadLessonFile(lesson_id, file_name, base64_content, content_type ?? null)
+        return {
+          content: [{ type: 'text' as const, text: `Uploaded "${file_name}" (${file.size_bytes} bytes) to lesson ${lesson_id} teacher files. Available at ${file.url}` }],
+          structuredContent: { file },
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${message}` }],
+          structuredContent: { file: null },
         }
       }
     },
