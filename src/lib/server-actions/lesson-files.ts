@@ -5,6 +5,7 @@ import { z } from "zod"
 
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 import { withTelemetry } from "@/lib/telemetry"
+import { query } from "@/lib/db"
 
 const LESSON_FILES_BUCKET = "lessons"
 
@@ -15,6 +16,9 @@ const LessonFileSchema = z.object({
   updated_at: z.string().optional(),
   last_accessed_at: z.string().optional(),
   size: z.number().optional(),
+  deletable: z.boolean().default(true),
+  file_url: z.string().optional(),
+  activity_title: z.string().optional(),
 })
 
 const LessonFilesReturnValue = z.object({
@@ -60,24 +64,75 @@ export async function listLessonFilesAction(
         return undefined
       }
 
-      const normalized = (data ?? [])
-        .map((file) =>
+      // Teacher-uploaded lesson files (deletable)
+      const lessonFiles = (data ?? []).map((file) =>
+        LessonFileSchema.parse({
+          name: file.name,
+          path: buildFilePath(lessonId, file.name),
+          created_at: toIsoOrUndefined(file.created_at),
+          updated_at: toIsoOrUndefined(file.updated_at),
+          last_accessed_at: toIsoOrUndefined(file.last_accessed_at),
+          size: file.metadata?.size ?? undefined,
+          deletable: true,
+          file_url: `/api/files/${[LESSON_FILES_BUCKET, lessonId, file.name].map(encodeURIComponent).join("/")}`,
+        }),
+      )
+
+      // Files attached to file-download activities (read-only in this panel)
+      let activityFiles: z.infer<typeof LessonFileSchema>[] = []
+      try {
+        const { rows } = await query<{
+          file_name: string
+          scope_path: string
+          created_at: string | null
+          updated_at: string | null
+          size_bytes: number | null
+          activity_title: string | null
+          activity_id: string
+        }>(
+          `
+          select
+            sf.file_name,
+            sf.scope_path,
+            sf.created_at,
+            sf.updated_at,
+            sf.size_bytes,
+            a.title as activity_title,
+            a.activity_id
+          from stored_files sf
+          join activities a
+            on sf.scope_path = ($1 || '/activities/' || a.activity_id)
+          where a.lesson_id = $1
+            and a.type = 'file-download'
+            and sf.bucket = $2
+          order by sf.updated_at desc nulls last
+          `,
+          [lessonId, LESSON_FILES_BUCKET],
+        )
+
+        activityFiles = rows.map((row) =>
           LessonFileSchema.parse({
-            name: file.name,
-            path: buildFilePath(lessonId, file.name),
-            created_at: toIsoOrUndefined(file.created_at),
-            updated_at: toIsoOrUndefined(file.updated_at),
-            last_accessed_at: toIsoOrUndefined(file.last_accessed_at),
-            size: file.metadata?.size ?? undefined,
+            name: row.file_name,
+            path: `${row.scope_path}/${row.file_name}`,
+            created_at: toIsoOrUndefined(row.created_at),
+            updated_at: toIsoOrUndefined(row.updated_at),
+            size: typeof row.size_bytes === "number" ? row.size_bytes : undefined,
+            deletable: false,
+            activity_title: row.activity_title ?? undefined,
+            file_url: `/api/files/${[LESSON_FILES_BUCKET, lessonId, "activities", row.activity_id, row.file_name].map(encodeURIComponent).join("/")}`,
           }),
         )
-        .sort((a, b) => {
-          const aTime = Date.parse(a.updated_at ?? a.created_at ?? "0")
-          const bTime = Date.parse(b.updated_at ?? b.created_at ?? "0")
-          return bTime - aTime
-        })
+      } catch (err) {
+        console.warn("[lesson-files] Failed to load activity files:", err)
+      }
 
-      return LessonFilesReturnValue.parse({ data: normalized, error: null })
+      const allFiles = [...lessonFiles, ...activityFiles].sort((a, b) => {
+        const aTime = Date.parse(a.updated_at ?? a.created_at ?? "0")
+        const bTime = Date.parse(b.updated_at ?? b.created_at ?? "0")
+        return bTime - aTime
+      })
+
+      return LessonFilesReturnValue.parse({ data: allFiles, error: null })
     },
   )
 }

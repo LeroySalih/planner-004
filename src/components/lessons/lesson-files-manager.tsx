@@ -19,6 +19,9 @@ interface LessonFileInfo {
   updated_at?: string | null
   last_accessed_at?: string | null
   size?: number | null
+  deletable?: boolean
+  file_url?: string
+  activity_title?: string
 }
 
 interface LessonFilesManagerProps {
@@ -164,9 +167,13 @@ export function LessonFilesManager({ unitId, lessonId, initialFiles }: LessonFil
     })
   }
 
-  const handleDownload = (fileName: string) => {
+  const handleDownload = (file: LessonFileInfo) => {
     startTransition(async () => {
-      const result = await getLessonFileDownloadUrlAction(lessonId, fileName)
+      if (file.file_url) {
+        window.open(file.file_url, "_blank")
+        return
+      }
+      const result = await getLessonFileDownloadUrlAction(lessonId, file.name)
       if (!result.success || !result.url) {
         toast.error("Failed to download file", {
           description: result.error ?? "Please try again later.",
@@ -264,22 +271,27 @@ export function LessonFilesManager({ unitId, lessonId, initialFiles }: LessonFil
               >
                 <div>
                   <p className="font-medium break-all">{file.name}</p>
+                  {file.activity_title && (
+                    <p className="text-xs text-muted-foreground">From activity: {file.activity_title}</p>
+                  )}
                   {formatTimestamp(file.updated_at) && (
                     <p className="text-xs text-muted-foreground">Updated {formatTimestamp(file.updated_at)}</p>
                   )}
                 </div>
                 <div className="flex items-center gap-2">
-                  <Button size="sm" variant="outline" onClick={() => handleDownload(file.name)} disabled={isPending}>
+                  <Button size="sm" variant="outline" onClick={() => handleDownload(file)} disabled={isPending}>
                     <Download className="mr-2 h-4 w-4" /> Download
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={() => handleDelete(file.name)}
-                    disabled={isPending}
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" /> Delete
-                  </Button>
+                  {(file.deletable ?? true) && (
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => handleDelete(file.name)}
+                      disabled={isPending}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" /> Delete
+                    </Button>
+                  )}
                 </div>
               </li>
             ))}
