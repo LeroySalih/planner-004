@@ -207,6 +207,14 @@ Setting `is_summative = true` on a non-scorable type returns an error without wr
 
 ---
 
+#### `add_success_criterion_to_activity`
+Links a success criterion to an activity via `activity_success_criteria`. Validates both exist. Silently skips if already linked. **Unit must be inactive.**
+
+**Input:** `{ activity_id: string, success_criteria_id: string }`  
+**Output:** `{ link: { activity_id, success_criteria_id, already_linked } | null }`
+
+---
+
 #### `remove_activity`
 Permanently deletes an activity and its `activity_success_criteria` links. **Unit must be inactive.**
 
