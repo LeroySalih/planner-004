@@ -13,7 +13,7 @@ import {
 } from '@/lib/mcp/curriculum'
 import { fetchCurriculumLosc } from '@/lib/mcp/losc'
 import { listUnits, findUnitsByTitle, createUnit } from '@/lib/mcp/units'
-import { listLessonsForUnit } from '@/lib/mcp/lessons'
+import { listLessonsForUnit, createLesson } from '@/lib/mcp/lessons'
 
 // Force Node.js runtime — MCP SDK is not compatible with the Edge runtime.
 export const runtime = 'nodejs'
@@ -376,6 +376,42 @@ function createMcpServer(): McpServer {
         return {
           content: [{ type: 'text' as const, text: message }],
           structuredContent: { unit: null },
+        }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'create_lesson',
+    {
+      title: 'Create lesson',
+      description: 'Create a new lesson under a unit. Appended at the end of the unit\'s lesson order.',
+      inputSchema: {
+        unit_id: z.string().min(1).describe('Unit identifier.'),
+        title: z.string().min(1).describe('Lesson title.'),
+      },
+      outputSchema: {
+        lesson: z.object({
+          lesson_id: z.string(),
+          unit_id: z.string(),
+          title: z.string(),
+          is_active: z.boolean(),
+          order_index: z.number(),
+        }).nullable(),
+      },
+    },
+    async ({ unit_id, title }) => {
+      try {
+        const lesson = await createLesson(unit_id, title)
+        return {
+          content: [{ type: 'text' as const, text: `Created lesson ${lesson.lesson_id} • ${lesson.title} in unit ${unit_id}` }],
+          structuredContent: { lesson },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to create lesson'
+        return {
+          content: [{ type: 'text' as const, text: message }],
+          structuredContent: { lesson: null },
         }
       }
     },
