@@ -12,7 +12,7 @@ import {
   createCurriculum,
 } from '@/lib/mcp/curriculum'
 import { fetchCurriculumLosc } from '@/lib/mcp/losc'
-import { listUnits, findUnitsByTitle } from '@/lib/mcp/units'
+import { listUnits, findUnitsByTitle, createUnit } from '@/lib/mcp/units'
 import { listLessonsForUnit } from '@/lib/mcp/lessons'
 
 // Force Node.js runtime — MCP SDK is not compatible with the Edge runtime.
@@ -337,6 +337,45 @@ function createMcpServer(): McpServer {
         return {
           content: [{ type: 'text' as const, text: message }],
           structuredContent: { curriculum: null },
+        }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'create_unit',
+    {
+      title: 'Create unit',
+      description: 'Create a new unit. Units are always created inactive so the teacher can review before activating.',
+      inputSchema: {
+        title: z.string().min(1).describe('Unit title.'),
+        subject: z.string().min(1).describe('Subject area (e.g. "Computer Science").'),
+        description: z.string().optional().describe('Optional description.'),
+        year: z.number().int().min(1).max(13).optional().describe('Year group (1–13).'),
+      },
+      outputSchema: {
+        unit: z.object({
+          unit_id: z.string(),
+          title: z.string(),
+          subject: z.string(),
+          description: z.string().nullable(),
+          year: z.number().nullable(),
+          is_active: z.boolean(),
+        }).nullable(),
+      },
+    },
+    async ({ title, subject, description, year }) => {
+      try {
+        const unit = await createUnit(title, subject, description ?? null, year ?? null)
+        return {
+          content: [{ type: 'text' as const, text: `Created unit ${unit.unit_id} • ${unit.title} (inactive — awaiting teacher review)` }],
+          structuredContent: { unit },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to create unit'
+        return {
+          content: [{ type: 'text' as const, text: message }],
+          structuredContent: { unit: null },
         }
       }
     },

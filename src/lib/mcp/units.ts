@@ -23,6 +23,51 @@ export async function listUnits(): Promise<UnitSummary[]> {
   }))
 }
 
+export type UnitRecord = {
+  unit_id: string
+  title: string
+  subject: string
+  description: string | null
+  year: number | null
+  is_active: boolean
+}
+
+export async function createUnit(
+  title: string,
+  subject: string,
+  description?: string | null,
+  year?: number | null,
+): Promise<UnitRecord> {
+  const sanitizedYear =
+    typeof year === 'number' && Number.isFinite(year)
+      ? Math.min(Math.max(Math.trunc(year), 1), 13)
+      : null
+
+  const { rows } = await query<{
+    unit_id: string
+    title: string
+    subject: string
+    description: string | null
+    year: number | null
+    active: boolean
+  }>(
+    `insert into units (title, subject, description, year, active)
+     values ($1, $2, $3, $4, false)
+     returning unit_id, title, subject, description, year, active`,
+    [title.trim(), subject.trim(), description?.trim() ?? null, sanitizedYear],
+  )
+  const row = rows[0]
+  if (!row) throw new Error('Failed to create unit')
+  return {
+    unit_id: row.unit_id,
+    title: row.title,
+    subject: row.subject,
+    description: row.description,
+    year: row.year,
+    is_active: row.active,
+  }
+}
+
 export async function findUnitsByTitle(queryStr: string): Promise<UnitTitleMatch[]> {
   const normalized = queryStr.trim()
   if (!normalized) return []
