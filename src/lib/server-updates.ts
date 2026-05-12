@@ -22,6 +22,7 @@ export {
 export {
   createUnitAction,
   deleteUnitAction,
+  duplicateUnitAction,
   readUnitAction,
   readUnitsAction,
   triggerUnitDeactivateJobAction,
