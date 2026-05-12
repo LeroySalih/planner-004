@@ -18,7 +18,7 @@ import {
   createSuccessCriterion,
 } from '@/lib/mcp/losc'
 import { listUnits, findUnitsByTitle, createUnit } from '@/lib/mcp/units'
-import { listLessonsForUnit, createLesson } from '@/lib/mcp/lessons'
+import { listLessonsForUnit, createLesson, addSuccessCriterionToLesson } from '@/lib/mcp/lessons'
 import { ACTIVITY_TYPES, listActivitiesForLesson, createActivity } from '@/lib/mcp/activities'
 
 // Force Node.js runtime — MCP SDK is not compatible with the Edge runtime.
@@ -418,6 +418,44 @@ function createMcpServer(): McpServer {
         return {
           content: [{ type: 'text' as const, text: message }],
           structuredContent: { lesson: null },
+        }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'add_success_criterion_to_lesson',
+    {
+      title: 'Add success criterion to lesson',
+      description: 'Links a success criterion to a lesson. The parent learning objective is automatically linked to the lesson too if not already present.',
+      inputSchema: z.object({
+        lesson_id: z.string().describe('UUID of the lesson'),
+        success_criteria_id: z.string().describe('UUID of the success criterion to link'),
+      }),
+      outputSchema: z.object({
+        link: z.object({
+          lesson_id: z.string(),
+          success_criteria_id: z.string(),
+          learning_objective_id: z.string(),
+          lo_already_linked: z.boolean(),
+          sc_already_linked: z.boolean(),
+        }).nullable(),
+      }),
+    },
+    async ({ lesson_id, success_criteria_id }) => {
+      try {
+        const link = await addSuccessCriterionToLesson(lesson_id, success_criteria_id)
+        const scNote = link.sc_already_linked ? ' (SC already linked)' : ''
+        const loNote = link.lo_already_linked ? ' (LO already linked)' : ' — LO auto-linked'
+        return {
+          content: [{ type: 'text' as const, text: `Linked SC ${success_criteria_id} to lesson ${lesson_id}${scNote}${loNote}` }],
+          structuredContent: { link },
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${message}` }],
+          structuredContent: { link: null },
         }
       }
     },
