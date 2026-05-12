@@ -46,7 +46,7 @@ Option A: extend existing MCP lib domain files with write helpers. All helpers c
 |---|---|
 | `src/lib/mcp/curriculum.ts` | Add `createCurriculum()` |
 | `src/lib/mcp/units.ts` | Add `createUnit()` |
-| `src/lib/mcp/lessons.ts` | New file — `createLesson()` (listLessonsForUnit already exists and stays in its current file) |
+| `src/lib/mcp/lessons.ts` | Existing file — add `createLesson()` |
 | `src/lib/mcp/losc.ts` | Add `createLearningObjective()`, `createSuccessCriterion()` |
 | `src/lib/mcp/activities.ts` | New file — `listActivitiesForLesson()`, `createActivity()` |
 | `src/app/api/MCP/route.ts` | Register all 8 new tools |
@@ -73,7 +73,7 @@ createUnit(
 // always inserts active = false
 ```
 
-### `src/lib/mcp/lessons.ts` (new file)
+### `src/lib/mcp/lessons.ts` (existing file — add write helper)
 ```ts
 createLesson(
   unitId: string,
