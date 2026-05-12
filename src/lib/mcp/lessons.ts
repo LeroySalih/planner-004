@@ -1,4 +1,5 @@
 import { query, withDbClient } from '@/lib/db'
+import { assertUnitIsInactive, assertLessonUnitIsInactive } from '@/lib/mcp/guards'
 
 export type LessonSummary = {
   lesson_id: string
@@ -48,6 +49,8 @@ export async function createLesson(unitId: string, title: string): Promise<Lesso
   let result: LessonRecord | null = null
 
   await withDbClient(async (client) => {
+    await assertUnitIsInactive(client, unitId)
+
     const { rows: maxRows } = await client.query<{ order_by: number }>(
       'select order_by from lessons where unit_id = $1 order by order_by desc nulls last limit 1',
       [unitId],
@@ -96,7 +99,9 @@ export async function addSuccessCriterionToLesson(
   let result: LessonScLinkResult | null = null
 
   await withDbClient(async (client) => {
-    // Validate lesson exists
+    await assertLessonUnitIsInactive(client, lessonId)
+
+    // Validate lesson exists (already confirmed by guard, but kept for clarity)
     const { rows: lessonRows } = await client.query<{ lesson_id: string }>(
       'select lesson_id from lessons where lesson_id = $1 limit 1',
       [lessonId],

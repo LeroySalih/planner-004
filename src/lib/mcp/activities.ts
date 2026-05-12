@@ -1,5 +1,6 @@
 import { query, withDbClient } from '@/lib/db'
 import { SCORABLE_ACTIVITY_TYPES, NON_SCORABLE_ACTIVITY_TYPES } from '@/dino.config'
+import { assertLessonUnitIsInactive } from '@/lib/mcp/guards'
 
 export const ACTIVITY_TYPES = [...SCORABLE_ACTIVITY_TYPES, ...NON_SCORABLE_ACTIVITY_TYPES] as const
 export type ActivityType = typeof ACTIVITY_TYPES[number]
@@ -60,6 +61,8 @@ export async function createActivity(
   let result: ActivitySummary | null = null
 
   await withDbClient(async (client) => {
+    await assertLessonUnitIsInactive(client, lessonId)
+
     const { rows: maxRows } = await client.query<{ order_by: number }>(
       'select order_by from activities where lesson_id = $1 order by order_by desc nulls last limit 1',
       [lessonId],
@@ -109,6 +112,8 @@ export async function removeActivity(
   lessonId: string,
 ): Promise<{ activity_id: string; lesson_id: string }> {
   await withDbClient(async (client) => {
+    await assertLessonUnitIsInactive(client, lessonId)
+
     const { rows } = await client.query<{ activity_id: string }>(
       'select activity_id from activities where activity_id = $1 and lesson_id = $2 limit 1',
       [activityId, lessonId],
