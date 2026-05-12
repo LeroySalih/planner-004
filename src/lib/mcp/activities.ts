@@ -103,3 +103,27 @@ export async function createActivity(
   if (!result) throw new Error('Failed to create activity')
   return result
 }
+
+export async function removeActivity(
+  activityId: string,
+  lessonId: string,
+): Promise<{ activity_id: string; lesson_id: string }> {
+  await withDbClient(async (client) => {
+    const { rows } = await client.query<{ activity_id: string }>(
+      'select activity_id from activities where activity_id = $1 and lesson_id = $2 limit 1',
+      [activityId, lessonId],
+    )
+    if (!rows[0]) throw new Error(`Activity ${activityId} not found in lesson ${lessonId}`)
+
+    await client.query(
+      'delete from activity_success_criteria where activity_id = $1',
+      [activityId],
+    )
+    await client.query(
+      'delete from activities where activity_id = $1 and lesson_id = $2',
+      [activityId, lessonId],
+    )
+  })
+
+  return { activity_id: activityId, lesson_id: lessonId }
+}

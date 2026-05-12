@@ -19,7 +19,7 @@ import {
 } from '@/lib/mcp/losc'
 import { listUnits, findUnitsByTitle, createUnit } from '@/lib/mcp/units'
 import { listLessonsForUnit, createLesson, addSuccessCriterionToLesson } from '@/lib/mcp/lessons'
-import { ACTIVITY_TYPES, listActivitiesForLesson, createActivity } from '@/lib/mcp/activities'
+import { ACTIVITY_TYPES, listActivitiesForLesson, createActivity, removeActivity } from '@/lib/mcp/activities'
 
 // Force Node.js runtime — MCP SDK is not compatible with the Edge runtime.
 export const runtime = 'nodejs'
@@ -648,6 +648,39 @@ function createMcpServer(): McpServer {
         return {
           content: [{ type: 'text' as const, text: message }],
           structuredContent: { activity: null },
+        }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'remove_activity',
+    {
+      title: 'Remove activity from lesson',
+      description: 'Permanently deletes an activity and its success criteria links from a lesson.',
+      inputSchema: z.object({
+        activity_id: z.string().describe('UUID of the activity to remove'),
+        lesson_id: z.string().describe('UUID of the lesson the activity belongs to'),
+      }),
+      outputSchema: z.object({
+        removed: z.object({
+          activity_id: z.string(),
+          lesson_id: z.string(),
+        }).nullable(),
+      }),
+    },
+    async ({ activity_id, lesson_id }) => {
+      try {
+        const removed = await removeActivity(activity_id, lesson_id)
+        return {
+          content: [{ type: 'text' as const, text: `Removed activity ${activity_id} from lesson ${lesson_id}` }],
+          structuredContent: { removed },
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${message}` }],
+          structuredContent: { removed: null },
         }
       }
     },
