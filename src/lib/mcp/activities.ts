@@ -175,6 +175,79 @@ export async function uploadActivityFile(
   }
 }
 
+export async function updateActivity(
+  activityId: string,
+  fields: {
+    title?: string | null
+    bodyData?: unknown
+    isSummative?: boolean
+  },
+): Promise<ActivitySummary> {
+  let result: ActivitySummary | null = null
+
+  await withDbClient(async (client) => {
+    const { rows: existing } = await client.query<{ activity_id: string; lesson_id: string; type: string }>(
+      'select activity_id, lesson_id, type from activities where activity_id = $1 limit 1',
+      [activityId],
+    )
+    if (!existing[0]) throw new Error(`Activity ${activityId} not found`)
+
+    await assertLessonUnitIsInactive(client, existing[0].lesson_id)
+
+    // Guard: can't mark a non-scorable type as summative
+    if (fields.isSummative === true) {
+      const isScorableType = SCORABLE_ACTIVITY_TYPES.includes(existing[0].type as typeof SCORABLE_ACTIVITY_TYPES[number])
+      if (!isScorableType) {
+        throw new Error(`Only scorable activity types can be marked as summative. "${existing[0].type}" is non-scorable.`)
+      }
+    }
+
+    // Build SET clause dynamically from provided fields
+    const setClauses: string[] = []
+    const values: unknown[] = []
+
+    if ('title' in fields) {
+      values.push(fields.title?.trim() ?? null)
+      setClauses.push(`title = $${values.length}`)
+    }
+    if ('bodyData' in fields) {
+      values.push(fields.bodyData !== undefined ? JSON.stringify(fields.bodyData) : null)
+      setClauses.push(`body_data = $${values.length}`)
+    }
+    if ('isSummative' in fields && fields.isSummative !== undefined) {
+      values.push(fields.isSummative)
+      setClauses.push(`is_summative = $${values.length}`)
+    }
+
+    if (setClauses.length === 0) throw new Error('No fields provided to update')
+
+    values.push(activityId)
+    const { rows } = await client.query<{
+      activity_id: string; lesson_id: string; title: string | null
+      type: string; order_by: number; is_summative: boolean; active: boolean
+    }>(
+      `update activities set ${setClauses.join(', ')}
+       where activity_id = $${values.length}
+       returning activity_id, lesson_id, title, type, order_by, is_summative, active`,
+      values,
+    )
+    const row = rows[0]
+    if (!row) throw new Error('Update failed')
+    result = {
+      activity_id: row.activity_id,
+      lesson_id: row.lesson_id,
+      title: row.title,
+      type: row.type,
+      order_index: row.order_by,
+      is_summative: row.is_summative ?? false,
+      active: row.active ?? true,
+    }
+  })
+
+  if (!result) throw new Error('Failed to update activity')
+  return result
+}
+
 export type ActivityScLinkResult = {
   activity_id: string
   success_criteria_id: string

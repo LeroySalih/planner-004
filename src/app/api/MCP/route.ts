@@ -19,7 +19,7 @@ import {
 } from '@/lib/mcp/losc'
 import { listUnits, findUnitsByTitle, createUnit } from '@/lib/mcp/units'
 import { listLessonsForUnit, createLesson, addSuccessCriterionToLesson, uploadLessonFile } from '@/lib/mcp/lessons'
-import { ACTIVITY_TYPES, listActivitiesForLesson, createActivity, addSuccessCriterionToActivity, removeActivity, uploadActivityFile } from '@/lib/mcp/activities'
+import { ACTIVITY_TYPES, listActivitiesForLesson, createActivity, updateActivity, addSuccessCriterionToActivity, removeActivity, uploadActivityFile } from '@/lib/mcp/activities'
 
 // Force Node.js runtime — MCP SDK is not compatible with the Edge runtime.
 export const runtime = 'nodejs'
@@ -647,6 +647,51 @@ function createMcpServer(baseUrl = ''): McpServer {
         const message = error instanceof Error ? error.message : 'Failed to create activity'
         return {
           content: [{ type: 'text' as const, text: message }],
+          structuredContent: { activity: null },
+        }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'update_activity',
+    {
+      title: 'Update activity',
+      description: 'Update title, body_data, or is_summative on an existing activity. Unit must be inactive. At least one field must be provided.',
+      inputSchema: z.object({
+        activity_id: z.string().describe('UUID of the activity to update'),
+        title: z.string().nullable().optional().describe('New title (pass null to clear)'),
+        body_data: z.record(z.string(), z.unknown()).nullable().optional().describe('New body data (pass null to clear)'),
+        is_summative: z.boolean().optional().describe('Mark or unmark as summative assessment (scorable types only)'),
+      }),
+      outputSchema: z.object({
+        activity: z.object({
+          activity_id: z.string(),
+          lesson_id: z.string(),
+          title: z.string().nullable(),
+          type: z.string(),
+          order_index: z.number(),
+          is_summative: z.boolean(),
+          active: z.boolean(),
+        }).nullable(),
+      }),
+    },
+    async ({ activity_id, title, body_data, is_summative }) => {
+      try {
+        const fields: Record<string, unknown> = {}
+        if (title !== undefined) fields.title = title
+        if (body_data !== undefined) fields.bodyData = body_data
+        if (is_summative !== undefined) fields.isSummative = is_summative
+
+        const activity = await updateActivity(activity_id, fields)
+        return {
+          content: [{ type: 'text' as const, text: `Updated activity ${activity_id}${activity.is_summative ? ' (summative)' : ''}` }],
+          structuredContent: { activity },
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${message}` }],
           structuredContent: { activity: null },
         }
       }
