@@ -1,8 +1,18 @@
 {
   "mcpServers": {
+    "plannerDev": {
+      "type": "http",
+      "url": "http://localhost:3000/api/MCP",
+      "headers": {
+        "Authorization": "Bearer ${MCP_SERVICE_KEY}"
+      }
+    },
     "planner": {
       "type": "http",
-      "url": "http://localhost:3000/api/MCP"
+      "url": "https://dino.mr-salih.org/api/MCP",
+      "headers": {
+        "Authorization": "Bearer ${MCP_PLANNER_TOKEN}"
+      }
     }
   }
 }
