@@ -18,6 +18,7 @@ import {
 } from '@/lib/mcp/losc'
 import { listUnits, findUnitsByTitle, createUnit } from '@/lib/mcp/units'
 import { listLessonsForUnit, createLesson } from '@/lib/mcp/lessons'
+import { ACTIVITY_TYPES, listActivitiesForLesson, createActivity } from '@/lib/mcp/activities'
 
 // Force Node.js runtime — MCP SDK is not compatible with the Edge runtime.
 export const runtime = 'nodejs'
@@ -492,6 +493,85 @@ function createMcpServer(): McpServer {
         return {
           content: [{ type: 'text' as const, text: message }],
           structuredContent: { success_criterion: null },
+        }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'get_activities_for_lesson',
+    {
+      title: 'List activities for a lesson',
+      description: 'Return all active activities for a given lesson.',
+      inputSchema: {
+        lesson_id: z.string().min(1).describe('Lesson identifier.'),
+      },
+      outputSchema: {
+        activities: z.array(z.object({
+          activity_id: z.string(),
+          lesson_id: z.string(),
+          title: z.string().nullable(),
+          type: z.string(),
+          order_index: z.number().nullable(),
+          is_summative: z.boolean(),
+          active: z.boolean(),
+        })),
+      },
+    },
+    async ({ lesson_id }) => {
+      const activities = await listActivitiesForLesson(lesson_id)
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: activities.length > 0
+              ? activities.map((a) => `${a.activity_id} • ${a.type}${a.title ? ` — ${a.title}` : ''}`).join('\n')
+              : `No activities found for lesson ${lesson_id}.`,
+          },
+        ],
+        structuredContent: { activities },
+      }
+    },
+  )
+
+  srv.registerTool(
+    'create_activity',
+    {
+      title: 'Create activity',
+      description: 'Create a new activity under a lesson.',
+      inputSchema: {
+        lesson_id: z.string().min(1).describe('Lesson identifier.'),
+        type: z.enum(ACTIVITY_TYPES).describe(
+          'Activity type. Scorable: multiple-choice-question, short-text-question, text-question, long-text-question, upload-file, upload-url, feedback, sketch-render, do-flashcards. Non-scorable: text, display-image, display-flashcards, file-download, show-video, voice, share-my-work, review-others-work, display-section.',
+        ),
+        title: z.string().optional().describe('Optional activity title.'),
+        body_data: z.record(z.string(), z.unknown()).optional().describe('Optional activity body JSON.'),
+        is_summative: z.boolean().optional().describe('Mark as summative assessment (scorable types only).'),
+      },
+      outputSchema: {
+        activity: z.object({
+          activity_id: z.string(),
+          lesson_id: z.string(),
+          title: z.string().nullable(),
+          type: z.string(),
+          order_index: z.number().nullable(),
+          is_summative: z.boolean(),
+          active: z.boolean(),
+        }).nullable(),
+      },
+    },
+    async ({ lesson_id, type, title, body_data, is_summative }) => {
+      try {
+        const activity = await createActivity(lesson_id, type, title ?? null, body_data ?? null, is_summative)
+        return {
+          content: [{ type: 'text' as const, text: `Created activity ${activity.activity_id} • ${activity.type}${activity.title ? ` — ${activity.title}` : ''}` }],
+          structuredContent: { activity },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to create activity'
+        return {
+          content: [{ type: 'text' as const, text: message }],
+          structuredContent: { activity: null },
         }
       }
     },
