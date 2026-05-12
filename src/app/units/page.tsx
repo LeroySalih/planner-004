@@ -13,6 +13,7 @@ import Link from "next/link"
 import { ArrowLeft, BookOpen } from "lucide-react"
 import { truncateText } from "@/lib/utils"
 import { AddUnitTrigger } from "./add-unit-trigger"
+import { DuplicateUnitTrigger } from "@/components/units/duplicate-unit-trigger"
 
 export default async function UnitsPage({
   searchParams,
@@ -139,9 +140,12 @@ function UnitCard({
       <CardContent className="space-y-2 text-sm text-muted-foreground">
         {unit.year ? <div className="text-xs font-medium text-slate-600">Year {unit.year}</div> : null}
         <p>{truncateText(unit.description ?? "", 140) || "No description provided."}</p>
-        <Link href={`/units/${unit.unit_id}`} className="text-sm font-medium text-primary hover:underline">
-          View unit →
-        </Link>
+        <div className="flex items-center justify-between">
+          <Link href={`/units/${unit.unit_id}`} className="text-sm font-medium text-primary hover:underline">
+            View unit →
+          </Link>
+          <DuplicateUnitTrigger unitId={unit.unit_id} unitTitle={unit.title} variant="ghost" size="sm" />
+        </div>
       </CardContent>
     </Card>
   )
