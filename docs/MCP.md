@@ -207,6 +207,14 @@ Setting `is_summative = true` on a non-scorable type returns an error without wr
 
 ---
 
+#### `update_activity`
+Updates `title`, `body_data`, and/or `is_summative` on an existing activity. Only provided fields are changed — omitted fields are left as-is. **Unit must be inactive.** Setting `is_summative = true` on a non-scorable type is rejected.
+
+**Input:** `{ activity_id: string, title?: string | null, body_data?: object | null, is_summative?: boolean }`  
+**Output:** `{ activity: { activity_id, lesson_id, title, type, order_index, is_summative, active } | null }`
+
+---
+
 #### `add_success_criterion_to_activity`
 Links a success criterion to an activity via `activity_success_criteria`. Validates both exist. Silently skips if already linked. **Unit must be inactive.**
 
