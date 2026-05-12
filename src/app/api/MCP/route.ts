@@ -11,7 +11,11 @@ import {
   findCurriculumIdsByTitle,
   createCurriculum,
 } from '@/lib/mcp/curriculum'
-import { fetchCurriculumLosc } from '@/lib/mcp/losc'
+import {
+  fetchCurriculumLosc,
+  createLearningObjective,
+  createSuccessCriterion,
+} from '@/lib/mcp/losc'
 import { listUnits, findUnitsByTitle, createUnit } from '@/lib/mcp/units'
 import { listLessonsForUnit, createLesson } from '@/lib/mcp/lessons'
 
@@ -412,6 +416,82 @@ function createMcpServer(): McpServer {
         return {
           content: [{ type: 'text' as const, text: message }],
           structuredContent: { lesson: null },
+        }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'create_learning_objective',
+    {
+      title: 'Create learning objective',
+      description: 'Create a new learning objective under an assessment objective.',
+      inputSchema: {
+        assessment_objective_id: z.string().min(1).describe('Assessment objective identifier.'),
+        title: z.string().min(1).describe('Learning objective title.'),
+        spec_ref: z.string().optional().describe('Optional specification reference.'),
+      },
+      outputSchema: {
+        learning_objective: z.object({
+          learning_objective_id: z.string(),
+          assessment_objective_id: z.string(),
+          title: z.string(),
+          spec_ref: z.string().nullable(),
+          active: z.boolean(),
+          order_index: z.number(),
+        }).nullable(),
+      },
+    },
+    async ({ assessment_objective_id, title, spec_ref }) => {
+      try {
+        const learning_objective = await createLearningObjective(assessment_objective_id, title, spec_ref ?? null)
+        return {
+          content: [{ type: 'text' as const, text: `Created learning objective ${learning_objective.learning_objective_id} • ${learning_objective.title}` }],
+          structuredContent: { learning_objective },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to create learning objective'
+        return {
+          content: [{ type: 'text' as const, text: message }],
+          structuredContent: { learning_objective: null },
+        }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'create_success_criterion',
+    {
+      title: 'Create success criterion',
+      description: 'Create a new success criterion under a learning objective.',
+      inputSchema: {
+        learning_objective_id: z.string().min(1).describe('Learning objective identifier.'),
+        description: z.string().min(1).describe('Success criterion description.'),
+        level: z.number().int().min(1).max(9).describe('Level (1–9).'),
+      },
+      outputSchema: {
+        success_criterion: z.object({
+          success_criteria_id: z.string(),
+          learning_objective_id: z.string(),
+          description: z.string(),
+          level: z.number(),
+          order_index: z.number(),
+          active: z.boolean(),
+        }).nullable(),
+      },
+    },
+    async ({ learning_objective_id, description, level }) => {
+      try {
+        const success_criterion = await createSuccessCriterion(learning_objective_id, description, level)
+        return {
+          content: [{ type: 'text' as const, text: `Created success criterion ${success_criterion.success_criteria_id} (level ${success_criterion.level})` }],
+          structuredContent: { success_criterion },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to create success criterion'
+        return {
+          content: [{ type: 'text' as const, text: message }],
+          structuredContent: { success_criterion: null },
         }
       }
     },
