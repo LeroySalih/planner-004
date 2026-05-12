@@ -9,6 +9,7 @@ import {
   listCurriculumSummaries,
   getCurriculumSummary,
   findCurriculumIdsByTitle,
+  createCurriculum,
 } from '@/lib/mcp/curriculum'
 import { fetchCurriculumLosc } from '@/lib/mcp/losc'
 import { listUnits, findUnitsByTitle } from '@/lib/mcp/units'
@@ -300,6 +301,43 @@ function createMcpServer(): McpServer {
           },
         ],
         structuredContent: { lessons },
+      }
+    },
+  )
+
+  srv.registerTool(
+    'create_curriculum',
+    {
+      title: 'Create curriculum',
+      description: 'Create a new curriculum. Returns the full created record.',
+      inputSchema: {
+        title: z.string().min(1).describe('Curriculum title.'),
+        subject: z.string().optional().describe('Subject area (e.g. "Computer Science").'),
+        description: z.string().optional().describe('Optional description.'),
+      },
+      outputSchema: {
+        curriculum: z.object({
+          curriculum_id: z.string(),
+          title: z.string(),
+          subject: z.string().nullable(),
+          description: z.string().nullable(),
+          is_active: z.boolean(),
+        }).nullable(),
+      },
+    },
+    async ({ title, subject, description }) => {
+      try {
+        const curriculum = await createCurriculum(title, subject ?? null, description ?? null)
+        return {
+          content: [{ type: 'text' as const, text: `Created curriculum ${curriculum.curriculum_id} • ${curriculum.title}` }],
+          structuredContent: { curriculum },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to create curriculum'
+        return {
+          content: [{ type: 'text' as const, text: message }],
+          structuredContent: { curriculum: null },
+        }
       }
     },
   )
