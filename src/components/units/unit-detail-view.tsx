@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { UnitReportDownloadButton } from "@/components/pdf/unit-report-download-button"
 import { UnitReportDocxDownloadButton } from "@/components/docx/unit-report-docx-download-button"
+import { DuplicateUnitTrigger } from "@/components/units/duplicate-unit-trigger"
 import { LessonsPanel } from "@/components/units/lessons-panel"
 import { UnitEditSidebar } from "@/components/units/unit-edit-sidebar"
 import { UnitFilesPanel } from "@/components/units/unit-files-panel"
@@ -312,6 +313,7 @@ export function UnitDetailView({
           <div className="flex gap-2 self-start">
             <UnitReportDownloadButton unitId={currentUnit.unit_id} />
             <UnitReportDocxDownloadButton unitId={currentUnit.unit_id} />
+            <DuplicateUnitTrigger unitId={currentUnit.unit_id} unitTitle={currentUnit.title} variant="outline" />
             <Button onClick={() => setIsUnitSidebarOpen(true)}>
               <Edit2 className="mr-2 h-4 w-4" />
               Edit Unit
