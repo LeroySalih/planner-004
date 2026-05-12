@@ -34,7 +34,7 @@ export const runtime = 'nodejs'
 // overhead, so creating a new server per request is safe.
 // ---------------------------------------------------------------------------
 
-function createMcpServer(): McpServer {
+function createMcpServer(baseUrl = ''): McpServer {
   const srv = new McpServer(
     { name: 'planner-mcp-server', version: '0.1.0' },
     {
@@ -687,6 +687,73 @@ function createMcpServer(): McpServer {
   )
 
   srv.registerTool(
+    'get_lesson_file_upload_info',
+    {
+      title: 'Get lesson file upload info',
+      description: 'Returns the URL, headers, and form fields needed to upload a file directly to the lesson teacher file store via multipart POST — no base64 encoding required.',
+      inputSchema: z.object({
+        lesson_id: z.string().describe('UUID of the lesson to upload the file to'),
+      }),
+      outputSchema: z.object({
+        upload_url: z.string(),
+        method: z.string(),
+        headers: z.record(z.string(), z.string()),
+        form_fields: z.record(z.string(), z.string()),
+        instructions: z.string(),
+      }),
+    },
+    async ({ lesson_id }) => {
+      const uploadUrl = `${baseUrl}/api/MCP/files/lesson`
+      const serviceKey = process.env.MCP_SERVICE_KEY ?? ''
+      const result = {
+        upload_url: uploadUrl,
+        method: 'POST',
+        headers: { Authorization: `Bearer ${serviceKey}` },
+        form_fields: { lesson_id },
+        instructions: `Send a multipart/form-data POST to upload_url. Include the Authorization header. Add the form_fields as form fields. Include the file under the field name "file". Max file size 5 MB. The unit must be inactive.`,
+      }
+      return {
+        content: [{ type: 'text' as const, text: `Upload to: POST ${uploadUrl}\nForm fields: lesson_id=${lesson_id}\nFile field name: file` }],
+        structuredContent: result,
+      }
+    },
+  )
+
+  srv.registerTool(
+    'get_activity_file_upload_info',
+    {
+      title: 'Get activity file upload info',
+      description: 'Returns the URL, headers, and form fields needed to upload a file directly to a file-download activity via multipart POST — no base64 encoding required.',
+      inputSchema: z.object({
+        lesson_id: z.string().describe('UUID of the lesson'),
+        activity_id: z.string().describe('UUID of the file-download activity'),
+      }),
+      outputSchema: z.object({
+        upload_url: z.string(),
+        method: z.string(),
+        headers: z.record(z.string(), z.string()),
+        form_fields: z.record(z.string(), z.string()),
+        instructions: z.string(),
+      }),
+    },
+    async ({ lesson_id, activity_id }) => {
+      const uploadUrl = `${baseUrl}/api/MCP/files/activity`
+      const serviceKey = process.env.MCP_SERVICE_KEY ?? ''
+      const result = {
+        upload_url: uploadUrl,
+        method: 'POST',
+        headers: { Authorization: `Bearer ${serviceKey}` },
+        form_fields: { lesson_id, activity_id },
+        instructions: `Send a multipart/form-data POST to upload_url. Include the Authorization header. Add the form_fields as form fields. Include the file under the field name "file". Max file size 5 MB. Activity must be type file-download and unit must be inactive.`,
+      }
+      return {
+        content: [{ type: 'text' as const, text: `Upload to: POST ${uploadUrl}\nForm fields: lesson_id=${lesson_id}, activity_id=${activity_id}\nFile field name: file` }],
+        structuredContent: result,
+      }
+    },
+  )
+
+  srv.registerTool(
     'upload_lesson_file',
     {
       title: 'Upload file to lesson (teacher storage)',
@@ -791,6 +858,12 @@ function isJsonRpcNotification(body: unknown): boolean {
   )
 }
 
+function deriveBaseUrl(request: NextRequest): string {
+  const proto = request.headers.get('x-forwarded-proto') ?? (request.nextUrl.protocol.replace(':', '') || 'https')
+  const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? request.nextUrl.host
+  return `${proto}://${host}`
+}
+
 async function handlePost(request: NextRequest): Promise<Response> {
   const auth = verifyMcpAuthorization(request)
   if (!auth.authorized) {
@@ -821,7 +894,7 @@ async function handlePost(request: NextRequest): Promise<Response> {
     return new NextResponse(null, { status: 202 })
   }
 
-  const srv = createMcpServer()
+  const srv = createMcpServer(deriveBaseUrl(request))
   const transport = new SingleRequestTransport()
   // Suppress unhandled rejection if connect() throws before send() is called
   transport.response().catch(() => {})
