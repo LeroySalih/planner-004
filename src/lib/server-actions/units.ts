@@ -1,7 +1,9 @@
 "use server"
 
 import { randomUUID } from "node:crypto"
+import { promises as fs } from "node:fs"
 import { performance } from "node:perf_hooks"
+import path from "node:path"
 
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
@@ -11,6 +13,7 @@ import { requireTeacherProfile, type AuthenticatedProfile } from "@/lib/auth"
 import { query, withDbClient } from "@/lib/db"
 import { emitUnitEvent } from "@/lib/sse/topics"
 import { withTelemetry } from "@/lib/telemetry"
+import { incrementUnitTitle } from "@/lib/unit-version"
 
 const UnitsReturnValue = z.object({
   data: UnitsSchema.nullable(),
@@ -36,6 +39,16 @@ const UnitUpdateFormSchema = z.object({
 
 const UnitDeactivateFormSchema = z.object({
   unitId: z.string(),
+})
+
+const DuplicateUnitReturnValue = z.object({
+  data: z
+    .object({
+      newUnitId: z.string(),
+      fileWarnings: z.array(z.string()),
+    })
+    .nullable(),
+  error: z.string().nullable(),
 })
 
 async function revalidateUnitPaths(unitId: string) {
@@ -573,4 +586,262 @@ export async function triggerUnitDeactivateJobAction(
       })
     },
   )
+}
+
+export async function duplicateUnitAction(unitId: string) {
+  await requireTeacherProfile()
+
+  // ── 1. Load source data ──────────────────────────────────────────────────
+  const { rows: unitRows } = await query<{
+    unit_id: string
+    title: string
+    subject: string
+    description: string | null
+    year: number | null
+    active: boolean
+  }>(
+    `select unit_id, title, subject, description, year, active
+     from units where unit_id = $1 limit 1`,
+    [unitId],
+  )
+
+  const sourceUnit = unitRows[0] ?? null
+  if (!sourceUnit) {
+    return DuplicateUnitReturnValue.parse({ data: null, error: "Unit not found." })
+  }
+
+  const { rows: lessons } = await query<{
+    lesson_id: string
+    title: string
+    order_by: number
+    active: boolean
+  }>(
+    `select lesson_id, title, order_by, active
+     from lessons where unit_id = $1`,
+    [unitId],
+  )
+
+  const oldLessonIds = lessons.map((l) => l.lesson_id)
+
+  const [loRows, scRows, linkRows, activityRows] = await Promise.all([
+    oldLessonIds.length > 0
+      ? query<{
+          lesson_id: string
+          learning_objective_id: string
+          title: string
+          order_index: number
+          order_by: number
+          active: boolean
+        }>(
+          `select lesson_id, learning_objective_id, title, order_index, order_by, active
+           from lessons_learning_objective
+           where lesson_id = any($1::text[])`,
+          [oldLessonIds],
+        )
+      : Promise.resolve({ rows: [] }),
+    oldLessonIds.length > 0
+      ? query<{ lesson_id: string; success_criteria_id: string }>(
+          `select lesson_id, success_criteria_id
+           from lesson_success_criteria
+           where lesson_id = any($1::text[])`,
+          [oldLessonIds],
+        )
+      : Promise.resolve({ rows: [] }),
+    oldLessonIds.length > 0
+      ? query<{ lesson_id: string; url: string; description: string | null }>(
+          `select lesson_id, url, description
+           from lesson_links
+           where lesson_id = any($1::text[])`,
+          [oldLessonIds],
+        )
+      : Promise.resolve({ rows: [] }),
+    oldLessonIds.length > 0
+      ? query<{
+          activity_id: string
+          lesson_id: string
+          title: string | null
+          type: string | null
+          body_data: unknown
+          order_by: number | null
+          active: boolean
+          is_summative: boolean
+          notes: string | null
+        }>(
+          `select activity_id, lesson_id, title, type, body_data, order_by, active, is_summative, notes
+           from activities
+           where lesson_id = any($1::text[])`,
+          [oldLessonIds],
+        )
+      : Promise.resolve({ rows: [] }),
+  ])
+
+  const oldActivityIds = activityRows.rows.map((a) => a.activity_id)
+
+  const { rows: actScRows } = oldActivityIds.length > 0
+    ? await query<{ activity_id: string; success_criteria_id: string }>(
+        `select activity_id, success_criteria_id
+         from activity_success_criteria
+         where activity_id = any($1::text[])`,
+        [oldActivityIds],
+      )
+    : { rows: [] }
+
+  // ── 2. DB transaction ────────────────────────────────────────────────────
+  const newUnitId = randomUUID()
+  const newTitle = incrementUnitTitle(sourceUnit.title)
+
+  const lessonIdMap = new Map<string, string>()
+  const activityIdMap = new Map<string, string>()
+
+  try {
+    await withDbClient(async (client) => {
+      await client.query("begin")
+
+      await client.query(
+        `insert into units (unit_id, title, subject, description, year, active)
+         values ($1, $2, $3, $4, $5, true)`,
+        [newUnitId, newTitle, sourceUnit.subject, sourceUnit.description, sourceUnit.year],
+      )
+
+      for (const lesson of lessons) {
+        const newLessonId = randomUUID()
+        lessonIdMap.set(lesson.lesson_id, newLessonId)
+        await client.query(
+          `insert into lessons (lesson_id, unit_id, title, order_by, active)
+           values ($1, $2, $3, $4, $5)`,
+          [newLessonId, newUnitId, lesson.title, lesson.order_by, lesson.active],
+        )
+      }
+
+      for (const lo of loRows.rows) {
+        const newLessonId = lessonIdMap.get(lo.lesson_id)
+        if (!newLessonId) continue
+        await client.query(
+          `insert into lessons_learning_objective
+             (lesson_id, learning_objective_id, title, order_index, order_by, active)
+           values ($1, $2, $3, $4, $5, $6)`,
+          [newLessonId, lo.learning_objective_id, lo.title, lo.order_index, lo.order_by, lo.active],
+        )
+      }
+
+      for (const sc of scRows.rows) {
+        const newLessonId = lessonIdMap.get(sc.lesson_id)
+        if (!newLessonId) continue
+        await client.query(
+          `insert into lesson_success_criteria (lesson_id, success_criteria_id)
+           values ($1, $2)`,
+          [newLessonId, sc.success_criteria_id],
+        )
+      }
+
+      for (const link of linkRows.rows) {
+        const newLessonId = lessonIdMap.get(link.lesson_id)
+        if (!newLessonId) continue
+        await client.query(
+          `insert into lesson_links (lesson_link_id, lesson_id, url, description)
+           values ($1, $2, $3, $4)`,
+          [randomUUID(), newLessonId, link.url, link.description],
+        )
+      }
+
+      for (const act of activityRows.rows) {
+        const newActivityId = randomUUID()
+        const newLessonId = lessonIdMap.get(act.lesson_id)
+        if (!newLessonId) continue
+        activityIdMap.set(act.activity_id, newActivityId)
+        await client.query(
+          `insert into activities
+             (activity_id, lesson_id, title, type, body_data, order_by, active, is_summative, notes)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [
+            newActivityId,
+            newLessonId,
+            act.title,
+            act.type,
+            act.body_data ?? null,
+            act.order_by,
+            act.active,
+            act.is_summative,
+            act.notes,
+          ],
+        )
+      }
+
+      for (const asc of actScRows) {
+        const newActivityId = activityIdMap.get(asc.activity_id)
+        if (!newActivityId) continue
+        await client.query(
+          `insert into activity_success_criteria (activity_id, success_criteria_id)
+           values ($1, $2)`,
+          [newActivityId, asc.success_criteria_id],
+        )
+      }
+
+      await client.query("commit")
+    })
+  } catch (error) {
+    console.error("[units] duplicateUnitAction transaction failed", { unitId, error })
+    const message = error instanceof Error ? error.message : "Failed to duplicate unit."
+    return DuplicateUnitReturnValue.parse({ data: null, error: message })
+  }
+
+  // ── 3. Copy lesson files ─────────────────────────────────────────────────
+  const fileWarnings: string[] = []
+  const BASE_DIR = path.join(process.cwd(), "files")
+
+  for (const [oldLessonId, newLessonId] of lessonIdMap) {
+    try {
+      const { rows: fileRows } = await query<{
+        file_name: string
+        stored_path: string
+        size_bytes: number | null
+        content_type: string | null
+        checksum: string | null
+      }>(
+        `select file_name, stored_path, size_bytes, content_type, checksum
+         from stored_files
+         where bucket = 'lessons' and scope_path = $1`,
+        [oldLessonId],
+      )
+
+      for (const file of fileRows) {
+        const newStoredPath = `lessons/${newLessonId}/${file.file_name}`
+        const srcDisk = path.join(BASE_DIR, file.stored_path)
+        const dstDisk = path.join(BASE_DIR, newStoredPath)
+
+        try {
+          await fs.mkdir(path.dirname(dstDisk), { recursive: true })
+          await fs.copyFile(srcDisk, dstDisk)
+          await query(
+            `insert into stored_files
+               (bucket, scope_path, file_name, stored_path, size_bytes, content_type, checksum, created_at, updated_at)
+             values ($1, $2, $3, $4, $5, $6, $7, timezone('utc', now()), timezone('utc', now()))
+             on conflict (bucket, scope_path, file_name) do nothing`,
+            [
+              "lessons",
+              newLessonId,
+              file.file_name,
+              newStoredPath,
+              file.size_bytes,
+              file.content_type,
+              file.checksum,
+            ],
+          )
+        } catch (fileError) {
+          console.error("[units] file copy failed", { oldLessonId, newLessonId, file: file.file_name, fileError })
+          fileWarnings.push(`Lesson ${newLessonId}: failed to copy ${file.file_name}`)
+        }
+      }
+    } catch (queryError) {
+      console.error("[units] failed to query files for lesson", { oldLessonId, queryError })
+      fileWarnings.push(`Lesson ${oldLessonId}: failed to read source files`)
+    }
+  }
+
+  revalidatePath("/units")
+
+  return DuplicateUnitReturnValue.parse({
+    data: { newUnitId, fileWarnings },
+    error: null,
+  })
 }
