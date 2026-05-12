@@ -19,7 +19,7 @@ import {
 } from '@/lib/mcp/losc'
 import { listUnits, findUnitsByTitle, createUnit } from '@/lib/mcp/units'
 import { listLessonsForUnit, createLesson, addSuccessCriterionToLesson, uploadLessonFile } from '@/lib/mcp/lessons'
-import { ACTIVITY_TYPES, listActivitiesForLesson, createActivity, removeActivity, uploadActivityFile } from '@/lib/mcp/activities'
+import { ACTIVITY_TYPES, listActivitiesForLesson, createActivity, addSuccessCriterionToActivity, removeActivity, uploadActivityFile } from '@/lib/mcp/activities'
 
 // Force Node.js runtime — MCP SDK is not compatible with the Edge runtime.
 export const runtime = 'nodejs'
@@ -648,6 +648,41 @@ function createMcpServer(baseUrl = ''): McpServer {
         return {
           content: [{ type: 'text' as const, text: message }],
           structuredContent: { activity: null },
+        }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'add_success_criterion_to_activity',
+    {
+      title: 'Add success criterion to activity',
+      description: 'Links a success criterion to an activity. Unit must be inactive.',
+      inputSchema: z.object({
+        activity_id: z.string().describe('UUID of the activity'),
+        success_criteria_id: z.string().describe('UUID of the success criterion to link'),
+      }),
+      outputSchema: z.object({
+        link: z.object({
+          activity_id: z.string(),
+          success_criteria_id: z.string(),
+          already_linked: z.boolean(),
+        }).nullable(),
+      }),
+    },
+    async ({ activity_id, success_criteria_id }) => {
+      try {
+        const link = await addSuccessCriterionToActivity(activity_id, success_criteria_id)
+        const note = link.already_linked ? ' (already linked)' : ''
+        return {
+          content: [{ type: 'text' as const, text: `Linked SC ${success_criteria_id} to activity ${activity_id}${note}` }],
+          structuredContent: { link },
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${message}` }],
+          structuredContent: { link: null },
         }
       }
     },

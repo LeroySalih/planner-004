@@ -175,6 +175,52 @@ export async function uploadActivityFile(
   }
 }
 
+export type ActivityScLinkResult = {
+  activity_id: string
+  success_criteria_id: string
+  already_linked: boolean
+}
+
+export async function addSuccessCriterionToActivity(
+  activityId: string,
+  successCriteriaId: string,
+): Promise<ActivityScLinkResult> {
+  let result: ActivityScLinkResult | null = null
+
+  await withDbClient(async (client) => {
+    // Validate activity exists and get its lesson_id for the guard
+    const { rows: actRows } = await client.query<{ activity_id: string; lesson_id: string }>(
+      'select activity_id, lesson_id from activities where activity_id = $1 limit 1',
+      [activityId],
+    )
+    if (!actRows[0]) throw new Error(`Activity ${activityId} not found`)
+    await assertLessonUnitIsInactive(client, actRows[0].lesson_id)
+
+    // Validate SC exists
+    const { rows: scRows } = await client.query<{ success_criteria_id: string }>(
+      'select success_criteria_id from success_criteria where success_criteria_id = $1 limit 1',
+      [successCriteriaId],
+    )
+    if (!scRows[0]) throw new Error(`Success criterion ${successCriteriaId} not found`)
+
+    const { rowCount } = await client.query(
+      `insert into activity_success_criteria (activity_id, success_criteria_id)
+       values ($1, $2)
+       on conflict do nothing`,
+      [activityId, successCriteriaId],
+    )
+
+    result = {
+      activity_id: activityId,
+      success_criteria_id: successCriteriaId,
+      already_linked: (rowCount ?? 0) === 0,
+    }
+  })
+
+  if (!result) throw new Error('Failed to link success criterion to activity')
+  return result
+}
+
 export async function removeActivity(
   activityId: string,
   lessonId: string,
