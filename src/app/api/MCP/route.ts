@@ -13,6 +13,7 @@ import {
 } from '@/lib/mcp/curriculum'
 import {
   fetchCurriculumLosc,
+  createAssessmentObjective,
   createLearningObjective,
   createSuccessCriterion,
 } from '@/lib/mcp/losc'
@@ -417,6 +418,43 @@ function createMcpServer(): McpServer {
         return {
           content: [{ type: 'text' as const, text: message }],
           structuredContent: { lesson: null },
+        }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'create_assessment_objective',
+    {
+      title: 'Create assessment objective',
+      description: 'Create a new assessment objective under a curriculum.',
+      inputSchema: z.object({
+        curriculum_id: z.string().describe('UUID of the curriculum'),
+        code: z.string().describe('Short code for the AO, e.g. "AO1"'),
+        title: z.string().describe('Title of the assessment objective'),
+      }),
+      outputSchema: z.object({
+        assessment_objective: z.object({
+          assessment_objective_id: z.string(),
+          curriculum_id: z.string(),
+          code: z.string(),
+          title: z.string(),
+          order_index: z.number(),
+        }).nullable(),
+      }),
+    },
+    async ({ curriculum_id, code, title }) => {
+      try {
+        const ao = await createAssessmentObjective(curriculum_id, code, title)
+        return {
+          content: [{ type: 'text' as const, text: `Created assessment objective "${ao.code}: ${ao.title}" (id: ${ao.assessment_objective_id})` }],
+          structuredContent: { assessment_objective: ao },
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${message}` }],
+          structuredContent: { assessment_objective: null },
         }
       }
     },

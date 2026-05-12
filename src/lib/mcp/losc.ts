@@ -175,6 +175,61 @@ export async function fetchCurriculumLosc(curriculumId: string): Promise<Curricu
   }
 }
 
+export type AssessmentObjectiveRecord = {
+  assessment_objective_id: string
+  curriculum_id: string
+  code: string
+  title: string
+  order_index: number
+}
+
+export async function createAssessmentObjective(
+  curriculumId: string,
+  code: string,
+  title: string,
+): Promise<AssessmentObjectiveRecord> {
+  let result: AssessmentObjectiveRecord | null = null
+
+  await withDbClient(async (client) => {
+    const { rows: existsRows } = await client.query<{ curriculum_id: string }>(
+      'select curriculum_id from curricula where curriculum_id = $1 limit 1',
+      [curriculumId],
+    )
+    if (!existsRows[0]) throw new Error(`Curriculum ${curriculumId} not found`)
+
+    const { rows: maxRows } = await client.query<{ order_index: number }>(
+      'select order_index from assessment_objectives where curriculum_id = $1 order by order_index desc nulls last limit 1',
+      [curriculumId],
+    )
+    const nextOrder = (maxRows[0]?.order_index ?? -1) + 1
+
+    const { rows } = await client.query<{
+      assessment_objective_id: string
+      curriculum_id: string
+      code: string
+      title: string
+      order_index: number
+    }>(
+      `insert into assessment_objectives (curriculum_id, code, title, order_index)
+       values ($1, $2, $3, $4)
+       returning assessment_objective_id, curriculum_id, code, title, order_index`,
+      [curriculumId, code.trim(), title.trim(), nextOrder],
+    )
+    const row = rows[0]
+    if (!row) throw new Error('Failed to create assessment objective')
+    result = {
+      assessment_objective_id: row.assessment_objective_id,
+      curriculum_id: row.curriculum_id,
+      code: row.code,
+      title: row.title,
+      order_index: row.order_index,
+    }
+  })
+
+  if (!result) throw new Error('Failed to create assessment objective')
+  return result
+}
+
 export type LearningObjectiveRecord = {
   learning_objective_id: string
   assessment_objective_id: string
