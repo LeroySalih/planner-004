@@ -1,4 +1,4 @@
-import { query } from "@/lib/db"
+import { query, withDbClient } from "@/lib/db"
 
 type RawSuccessCriterionRow = {
   success_criteria_id?: string | null
@@ -173,4 +173,120 @@ export async function fetchCurriculumLosc(curriculumId: string): Promise<Curricu
     is_active: typeof rawData.active === "boolean" ? rawData.active : false,
     learning_objectives: learningObjectives,
   }
+}
+
+export type LearningObjectiveRecord = {
+  learning_objective_id: string
+  assessment_objective_id: string
+  title: string
+  spec_ref: string | null
+  active: boolean
+  order_index: number
+}
+
+export async function createLearningObjective(
+  assessmentObjectiveId: string,
+  title: string,
+  specRef?: string | null,
+): Promise<LearningObjectiveRecord> {
+  let result: LearningObjectiveRecord | null = null
+
+  await withDbClient(async (client) => {
+    const { rows: existsRows } = await client.query<{ assessment_objective_id: string }>(
+      'select assessment_objective_id from assessment_objectives where assessment_objective_id = $1 limit 1',
+      [assessmentObjectiveId],
+    )
+    if (!existsRows[0]) throw new Error(`Assessment objective ${assessmentObjectiveId} not found`)
+
+    const { rows: maxRows } = await client.query<{ order_index: number }>(
+      'select order_index from learning_objectives where assessment_objective_id = $1 order by order_index desc nulls last limit 1',
+      [assessmentObjectiveId],
+    )
+    const nextOrder = (maxRows[0]?.order_index ?? -1) + 1
+
+    const { rows } = await client.query<{
+      learning_objective_id: string
+      assessment_objective_id: string
+      title: string
+      spec_ref: string | null
+      active: boolean
+      order_index: number
+    }>(
+      `insert into learning_objectives (assessment_objective_id, title, spec_ref, active, order_index)
+       values ($1, $2, $3, true, $4)
+       returning learning_objective_id, assessment_objective_id, title, spec_ref, active, order_index`,
+      [assessmentObjectiveId, title.trim(), specRef?.trim() ?? null, nextOrder],
+    )
+    const row = rows[0]
+    if (!row) throw new Error('Failed to create learning objective')
+    result = {
+      learning_objective_id: row.learning_objective_id,
+      assessment_objective_id: row.assessment_objective_id,
+      title: row.title,
+      spec_ref: row.spec_ref,
+      active: row.active,
+      order_index: row.order_index,
+    }
+  })
+
+  if (!result) throw new Error('Failed to create learning objective')
+  return result
+}
+
+export type SuccessCriterionRecord = {
+  success_criteria_id: string
+  learning_objective_id: string
+  description: string
+  level: number
+  order_index: number
+  active: boolean
+}
+
+export async function createSuccessCriterion(
+  learningObjectiveId: string,
+  description: string,
+  level: number,
+): Promise<SuccessCriterionRecord> {
+  let result: SuccessCriterionRecord | null = null
+
+  await withDbClient(async (client) => {
+    const { rows: existsRows } = await client.query<{ learning_objective_id: string }>(
+      'select learning_objective_id from learning_objectives where learning_objective_id = $1 limit 1',
+      [learningObjectiveId],
+    )
+    if (!existsRows[0]) throw new Error(`Learning objective ${learningObjectiveId} not found`)
+
+    const { rows: maxRows } = await client.query<{ order_index: number }>(
+      'select order_index from success_criteria where learning_objective_id = $1 order by order_index desc nulls last limit 1',
+      [learningObjectiveId],
+    )
+    const nextOrder = (maxRows[0]?.order_index ?? -1) + 1
+
+    const { rows } = await client.query<{
+      success_criteria_id: string
+      learning_objective_id: string
+      description: string
+      level: number
+      order_index: number
+      active: boolean
+    }>(
+      `insert into success_criteria (learning_objective_id, description, level, order_index, active)
+       values ($1, $2, $3, $4, true)
+       returning success_criteria_id, learning_objective_id, description, level, order_index, active`,
+      [learningObjectiveId, description.trim(), level, nextOrder],
+    )
+    const row = rows[0]
+    if (!row) throw new Error('Failed to create success criterion')
+    result = {
+      success_criteria_id: row.success_criteria_id,
+      learning_objective_id: row.learning_objective_id,
+      description: row.description,
+      level: row.level,
+      order_index: row.order_index,
+      active: row.active,
+    }
+  })
+
+  if (!result) throw new Error('Failed to create success criterion')
+  return result
 }

@@ -72,3 +72,39 @@ export async function findCurriculumIdsByTitle(queryStr: string): Promise<Curric
     curriculum_title: typeof row.title === 'string' ? row.title : '',
   }))
 }
+
+export type CurriculumRecord = {
+  curriculum_id: string
+  title: string
+  subject: string | null
+  description: string | null
+  is_active: boolean
+}
+
+export async function createCurriculum(
+  title: string,
+  subject?: string | null,
+  description?: string | null,
+): Promise<CurriculumRecord> {
+  const { rows } = await query<{
+    curriculum_id: string
+    title: string
+    subject: string | null
+    description: string | null
+    active: boolean
+  }>(
+    `insert into curricula (title, subject, description, active)
+     values ($1, $2, $3, true)
+     returning curriculum_id, title, subject, description, active`,
+    [title.trim(), subject?.trim() ?? null, description?.trim() ?? null],
+  )
+  const row = rows[0]
+  if (!row) throw new Error('Failed to create curriculum')
+  return {
+    curriculum_id: row.curriculum_id,
+    title: row.title,
+    subject: row.subject,
+    description: row.description,
+    is_active: row.active,
+  }
+}

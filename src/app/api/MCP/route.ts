@@ -9,10 +9,16 @@ import {
   listCurriculumSummaries,
   getCurriculumSummary,
   findCurriculumIdsByTitle,
+  createCurriculum,
 } from '@/lib/mcp/curriculum'
-import { fetchCurriculumLosc } from '@/lib/mcp/losc'
-import { listUnits, findUnitsByTitle } from '@/lib/mcp/units'
-import { listLessonsForUnit } from '@/lib/mcp/lessons'
+import {
+  fetchCurriculumLosc,
+  createLearningObjective,
+  createSuccessCriterion,
+} from '@/lib/mcp/losc'
+import { listUnits, findUnitsByTitle, createUnit } from '@/lib/mcp/units'
+import { listLessonsForUnit, createLesson } from '@/lib/mcp/lessons'
+import { ACTIVITY_TYPES, listActivitiesForLesson, createActivity } from '@/lib/mcp/activities'
 
 // Force Node.js runtime — MCP SDK is not compatible with the Edge runtime.
 export const runtime = 'nodejs'
@@ -300,6 +306,273 @@ function createMcpServer(): McpServer {
           },
         ],
         structuredContent: { lessons },
+      }
+    },
+  )
+
+  srv.registerTool(
+    'create_curriculum',
+    {
+      title: 'Create curriculum',
+      description: 'Create a new curriculum. Returns the full created record.',
+      inputSchema: {
+        title: z.string().min(1).describe('Curriculum title.'),
+        subject: z.string().optional().describe('Subject area (e.g. "Computer Science").'),
+        description: z.string().optional().describe('Optional description.'),
+      },
+      outputSchema: {
+        curriculum: z.object({
+          curriculum_id: z.string(),
+          title: z.string(),
+          subject: z.string().nullable(),
+          description: z.string().nullable(),
+          is_active: z.boolean(),
+        }).nullable(),
+      },
+    },
+    async ({ title, subject, description }) => {
+      try {
+        const curriculum = await createCurriculum(title, subject ?? null, description ?? null)
+        return {
+          content: [{ type: 'text' as const, text: `Created curriculum ${curriculum.curriculum_id} • ${curriculum.title}` }],
+          structuredContent: { curriculum },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to create curriculum'
+        return {
+          content: [{ type: 'text' as const, text: message }],
+          structuredContent: { curriculum: null },
+        }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'create_unit',
+    {
+      title: 'Create unit',
+      description: 'Create a new unit. Units are always created inactive so the teacher can review before activating.',
+      inputSchema: {
+        title: z.string().min(1).describe('Unit title.'),
+        subject: z.string().min(1).describe('Subject area (e.g. "Computer Science").'),
+        description: z.string().optional().describe('Optional description.'),
+        year: z.number().int().min(1).max(13).optional().describe('Year group (1–13).'),
+      },
+      outputSchema: {
+        unit: z.object({
+          unit_id: z.string(),
+          title: z.string(),
+          subject: z.string(),
+          description: z.string().nullable(),
+          year: z.number().nullable(),
+          is_active: z.boolean(),
+        }).nullable(),
+      },
+    },
+    async ({ title, subject, description, year }) => {
+      try {
+        const unit = await createUnit(title, subject, description ?? null, year ?? null)
+        return {
+          content: [{ type: 'text' as const, text: `Created unit ${unit.unit_id} • ${unit.title} (inactive — awaiting teacher review)` }],
+          structuredContent: { unit },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to create unit'
+        return {
+          content: [{ type: 'text' as const, text: message }],
+          structuredContent: { unit: null },
+        }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'create_lesson',
+    {
+      title: 'Create lesson',
+      description: 'Create a new lesson under a unit. Appended at the end of the unit\'s lesson order.',
+      inputSchema: {
+        unit_id: z.string().min(1).describe('Unit identifier.'),
+        title: z.string().min(1).describe('Lesson title.'),
+      },
+      outputSchema: {
+        lesson: z.object({
+          lesson_id: z.string(),
+          unit_id: z.string(),
+          title: z.string(),
+          is_active: z.boolean(),
+          order_index: z.number(),
+        }).nullable(),
+      },
+    },
+    async ({ unit_id, title }) => {
+      try {
+        const lesson = await createLesson(unit_id, title)
+        return {
+          content: [{ type: 'text' as const, text: `Created lesson ${lesson.lesson_id} • ${lesson.title} in unit ${unit_id}` }],
+          structuredContent: { lesson },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to create lesson'
+        return {
+          content: [{ type: 'text' as const, text: message }],
+          structuredContent: { lesson: null },
+        }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'create_learning_objective',
+    {
+      title: 'Create learning objective',
+      description: 'Create a new learning objective under an assessment objective.',
+      inputSchema: {
+        assessment_objective_id: z.string().min(1).describe('Assessment objective identifier.'),
+        title: z.string().min(1).describe('Learning objective title.'),
+        spec_ref: z.string().optional().describe('Optional specification reference.'),
+      },
+      outputSchema: {
+        learning_objective: z.object({
+          learning_objective_id: z.string(),
+          assessment_objective_id: z.string(),
+          title: z.string(),
+          spec_ref: z.string().nullable(),
+          active: z.boolean(),
+          order_index: z.number(),
+        }).nullable(),
+      },
+    },
+    async ({ assessment_objective_id, title, spec_ref }) => {
+      try {
+        const learning_objective = await createLearningObjective(assessment_objective_id, title, spec_ref ?? null)
+        return {
+          content: [{ type: 'text' as const, text: `Created learning objective ${learning_objective.learning_objective_id} • ${learning_objective.title}` }],
+          structuredContent: { learning_objective },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to create learning objective'
+        return {
+          content: [{ type: 'text' as const, text: message }],
+          structuredContent: { learning_objective: null },
+        }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'create_success_criterion',
+    {
+      title: 'Create success criterion',
+      description: 'Create a new success criterion under a learning objective.',
+      inputSchema: {
+        learning_objective_id: z.string().min(1).describe('Learning objective identifier.'),
+        description: z.string().min(1).describe('Success criterion description.'),
+        level: z.number().int().min(1).max(9).describe('Level (1–9).'),
+      },
+      outputSchema: {
+        success_criterion: z.object({
+          success_criteria_id: z.string(),
+          learning_objective_id: z.string(),
+          description: z.string(),
+          level: z.number(),
+          order_index: z.number(),
+          active: z.boolean(),
+        }).nullable(),
+      },
+    },
+    async ({ learning_objective_id, description, level }) => {
+      try {
+        const success_criterion = await createSuccessCriterion(learning_objective_id, description, level)
+        return {
+          content: [{ type: 'text' as const, text: `Created success criterion ${success_criterion.success_criteria_id} (level ${success_criterion.level})` }],
+          structuredContent: { success_criterion },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to create success criterion'
+        return {
+          content: [{ type: 'text' as const, text: message }],
+          structuredContent: { success_criterion: null },
+        }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'get_activities_for_lesson',
+    {
+      title: 'List activities for a lesson',
+      description: 'Return all active activities for a given lesson.',
+      inputSchema: {
+        lesson_id: z.string().min(1).describe('Lesson identifier.'),
+      },
+      outputSchema: {
+        activities: z.array(z.object({
+          activity_id: z.string(),
+          lesson_id: z.string(),
+          title: z.string().nullable(),
+          type: z.string(),
+          order_index: z.number().nullable(),
+          is_summative: z.boolean(),
+          active: z.boolean(),
+        })),
+      },
+    },
+    async ({ lesson_id }) => {
+      const activities = await listActivitiesForLesson(lesson_id)
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: activities.length > 0
+              ? activities.map((a) => `${a.activity_id} • ${a.type}${a.title ? ` — ${a.title}` : ''}`).join('\n')
+              : `No activities found for lesson ${lesson_id}.`,
+          },
+        ],
+        structuredContent: { activities },
+      }
+    },
+  )
+
+  srv.registerTool(
+    'create_activity',
+    {
+      title: 'Create activity',
+      description: 'Create a new activity under a lesson.',
+      inputSchema: {
+        lesson_id: z.string().min(1).describe('Lesson identifier.'),
+        type: z.enum(ACTIVITY_TYPES).describe(
+          'Activity type. Scorable: multiple-choice-question, short-text-question, text-question, long-text-question, upload-file, upload-url, feedback, sketch-render, do-flashcards. Non-scorable: text, display-image, display-flashcards, file-download, show-video, voice, share-my-work, review-others-work, display-section.',
+        ),
+        title: z.string().optional().describe('Optional activity title.'),
+        body_data: z.record(z.string(), z.unknown()).optional().describe('Optional activity body JSON.'),
+        is_summative: z.boolean().optional().describe('Mark as summative assessment (scorable types only).'),
+      },
+      outputSchema: {
+        activity: z.object({
+          activity_id: z.string(),
+          lesson_id: z.string(),
+          title: z.string().nullable(),
+          type: z.string(),
+          order_index: z.number().nullable(),
+          is_summative: z.boolean(),
+          active: z.boolean(),
+        }).nullable(),
+      },
+    },
+    async ({ lesson_id, type, title, body_data, is_summative }) => {
+      try {
+        const activity = await createActivity(lesson_id, type, title ?? null, body_data ?? null, is_summative)
+        return {
+          content: [{ type: 'text' as const, text: `Created activity ${activity.activity_id} • ${activity.type}${activity.title ? ` — ${activity.title}` : ''}` }],
+          structuredContent: { activity },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to create activity'
+        return {
+          content: [{ type: 'text' as const, text: message }],
+          structuredContent: { activity: null },
+        }
       }
     },
   )
