@@ -231,6 +231,48 @@ function buildKeyTermsTable(terms: { term: string; definition: string }[]) {
   })
 }
 
+// ---- Assessment summary table (MCQ / STQ counts) ----------------------------
+
+const QUESTION_TYPES: Record<string, string> = {
+  "multiple-choice-question": "MCQ",
+  "short-text-question": "STQ",
+  "text-question": "Text Q",
+  "long-text-question": "Long Q",
+}
+
+function buildAssessmentSummaryTable(activities: UnitReportActivity[]): Table | null {
+  const counts: { label: string; count: number }[] = []
+  for (const [type, label] of Object.entries(QUESTION_TYPES)) {
+    const n = activities.filter((a) => a.type === type).length
+    if (n > 0) counts.push({ label, count: n })
+  }
+  if (counts.length === 0) return null
+
+  const cellWidth = Math.floor(100 / counts.length)
+  const cells = counts.map(({ label, count }) =>
+    new TableCell({
+      width: { size: cellWidth, type: WidthType.PERCENTAGE },
+      borders: thinBorder(),
+      shading: { type: ShadingType.SOLID, color: ASSESSMENT_BG_HEX, fill: ASSESSMENT_BG_HEX },
+      children: [
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          children: [
+            new TextRun({ text: label, bold: true, size: 18, color: "b45309" }),
+            new TextRun({ text: ` — ${count}`, size: 18, color: "333333" }),
+          ],
+        }),
+      ],
+    }),
+  )
+
+  return new Table({
+    layout: TableLayoutType.FIXED,
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: [new TableRow({ children: cells })],
+  })
+}
+
 // ---- Activity block ---------------------------------------------------------
 
 function buildActivityBlock(activity: UnitReportActivity): (Paragraph | Table)[] {
@@ -345,7 +387,20 @@ function buildLessonBlock(lesson: UnitReportLesson, idx: number, total: number):
   // Activities
   if (lesson.activities.length > 0) {
     blocks.push(subSectionHeading("Activities"))
-    for (const activity of lesson.activities) {
+
+    // Question activities (MCQ, STQ, etc.) → summary count table
+    const questionTypes = new Set(Object.keys(QUESTION_TYPES))
+    const questionActivities = lesson.activities.filter((a) => questionTypes.has(a.type))
+    const otherActivities = lesson.activities.filter((a) => !questionTypes.has(a.type))
+
+    const summaryTable = buildAssessmentSummaryTable(questionActivities)
+    if (summaryTable) {
+      blocks.push(summaryTable)
+      blocks.push(emptyPara(60))
+    }
+
+    // All other activity types render normally
+    for (const activity of otherActivities) {
       blocks.push(...buildActivityBlock(activity))
     }
   }
