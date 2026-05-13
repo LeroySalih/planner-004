@@ -505,6 +505,28 @@ function ActivityItem({ activity }: { activity: UnitReportActivity }) {
   )
 }
 
+const ACTIVITY_LABELS: Record<string, string> = {
+  "multiple-choice-question": "MCQ",
+  "short-text-question": "STQ",
+  "text-question": "Text Q",
+  "long-text-question": "Long Q",
+  "upload-file": "File Upload",
+  "upload-url": "URL Upload",
+  "feedback": "Feedback",
+  "sketch-render": "Sketch",
+  "do-flashcards": "Flashcards",
+  "display-flashcards": "Flashcards",
+  "display-key-terms": "Key Terms",
+  "display-image": "Image",
+  "display-section": "Section",
+  "file-download": "Download",
+  "show-video": "Video",
+  "voice": "Voice",
+  "share-my-work": "Share Work",
+  "review-others-work": "Peer Review",
+  "text": "Text",
+}
+
 function ActivitiesSection({
   activities,
   sectionHeader,
@@ -513,25 +535,39 @@ function ActivitiesSection({
   sectionHeader?: React.ReactNode
 }) {
   if (activities.length === 0) return null
+
+  // Count by type
+  const counts = new Map<string, number>()
+  for (const a of activities) {
+    counts.set(a.type, (counts.get(a.type) ?? 0) + 1)
+  }
+  const entries = [...counts.entries()]
+
   return (
-    <View style={{ borderLeftWidth: 1, borderRightWidth: 1, borderBottomWidth: 1, borderColor: BORDER }}>
-      {activities.map((activity, idx) => {
-        if (idx === 0 && sectionHeader) {
-          // Glue the section header to the first activity so the header
-          // is never stranded at the bottom of a page without content.
-          return (
-            <View key={activity.activity_id} wrap={false}>
-              {sectionHeader}
-              <ActivityItem activity={activity} />
-            </View>
-          )
-        }
-        return (
-          <View key={activity.activity_id} wrap={false}>
-            <ActivityItem activity={activity} />
+    <View wrap={false} style={{ borderLeftWidth: 1, borderRightWidth: 1, borderBottomWidth: 1, borderColor: BORDER }}>
+      {sectionHeader}
+      <View style={{ flexDirection: "row", flexWrap: "wrap", padding: 6, gap: 4 }}>
+        {entries.map(([type, count]) => (
+          <View
+            key={type}
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              borderWidth: 1,
+              borderColor: BORDER,
+              borderRadius: 4,
+              paddingHorizontal: 7,
+              paddingVertical: 3,
+              backgroundColor: "#f5f7fa",
+            }}
+          >
+            <Text style={{ fontSize: 8, fontFamily: "Helvetica-Bold", color: "#333333" }}>
+              {ACTIVITY_LABELS[type] ?? type}
+            </Text>
+            <Text style={{ fontSize: 8, color: "#666666" }}>{`  —  ${count}`}</Text>
           </View>
-        )
-      })}
+        ))}
+      </View>
     </View>
   )
 }

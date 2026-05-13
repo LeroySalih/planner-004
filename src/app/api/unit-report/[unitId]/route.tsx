@@ -147,9 +147,14 @@ export async function GET(
     if (!activitiesByLesson.has(activity.lesson_id)) {
       activitiesByLesson.set(activity.lesson_id, [])
     }
+    const QUESTION_TYPES = new Set(["multiple-choice-question", "short-text-question", "text-question", "long-text-question"])
+    const displayTitle = QUESTION_TYPES.has(activity.type) && typeof activity.body?.question === "string"
+      ? activity.body.question
+      : (activity.title ?? "Untitled activity")
+
     activitiesByLesson.get(activity.lesson_id)!.push({
       activity_id: activity.activity_id,
-      title: activity.title ?? "Untitled activity",
+      title: displayTitle,
       type: activity.type,
       isScorable: SCORABLE_TYPES.has(activity.type),
       imageDataUri: activity.imageDataUri,
