@@ -219,6 +219,40 @@ All server functions should use `withTelemetry` wrapper for performance tracking
 - Scripts in `scripts/` and `bin/` directories for database sync and utilities
 - MCP server in `MCP/` directory (`npm run dev` for hot reload, exposes planner resources/tools)
 
+## MCP Server — Known Gotchas
+
+The MCP server lives at `src/app/api/MCP/route.ts`. Full tool reference: `docs/MCP.md`.
+
+### z.array() parameters must use z.preprocess
+
+The MCP SDK serialises **all** tool call parameters as strings before sending them to the server. Zod's `z.record()` coerces a JSON-object string automatically, but `z.array()` does **not**. Any tool input that is an array must be wrapped:
+
+```ts
+// WRONG — will throw "expected array, received string" at runtime
+mcq_options: z.array(z.object({ id: z.string(), text: z.string() })).optional()
+
+// CORRECT
+mcq_options: z.preprocess(
+  (v) => (typeof v === 'string' ? JSON.parse(v) : v),
+  z.array(z.object({ id: z.string(), text: z.string() })),
+).optional()
+```
+
+### short-text-question and multiple-choice-question body_data field names
+
+These types use **camelCase** field names inside `body_data` — matching the Zod schemas in `src/types/index.ts`:
+
+| Type | Required `body_data` fields |
+|---|---|
+| `short-text-question` | `{ question: string, modelAnswer: string }` |
+| `multiple-choice-question` | `{ question: string, options: [{id, text}], correctOptionId: string }` |
+
+**Do not use** `model_answer` or `correct_option_id` inside `body_data` — those are the MCP input parameter names only. The handler converts them to camelCase before writing to the DB.
+
+### STQ and MCQ use dedicated top-level params, not body_data
+
+When calling `create_activity` or `update_activity` for `short-text-question` or `multiple-choice-question`, pass the structured params (`question`, `model_answer`, `mcq_options`, `correct_option_id`) at the **top level** of the tool input. Do **not** pass `body_data` for these types — the handler ignores `body_data` and builds it from the structured params.
+
 ## Design History - Rejected Approaches
 
 ### Markdown-Based Curriculum Editor (Feb 2026)
