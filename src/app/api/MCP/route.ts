@@ -626,10 +626,13 @@ function createMcpServer(baseUrl = ''): McpServer {
         title: z.string().optional().describe('Optional activity title.'),
         question: z.string().optional().describe('Question text — required for short-text-question and multiple-choice-question.'),
         model_answer: z.string().optional().describe('Model answer — required for short-text-question.'),
-        mcq_options: z.array(z.object({
-          id: z.string().describe('Unique option identifier, e.g. "a", "b", "c".'),
-          text: z.string().describe('Option text shown to the pupil.'),
-        })).optional().describe('Answer options — required for multiple-choice-question. Provide 2–4 items.'),
+        mcq_options: z.preprocess(
+          (v) => (typeof v === 'string' ? JSON.parse(v) : v),
+          z.array(z.object({
+            id: z.string().describe('Unique option identifier, e.g. "a", "b", "c".'),
+            text: z.string().describe('Option text shown to the pupil.'),
+          })),
+        ).optional().describe('Answer options — required for multiple-choice-question. Provide 2–4 items.'),
         correct_option_id: z.string().optional().describe('id of the correct option — required for multiple-choice-question.'),
         body_data: z.record(z.string(), z.unknown()).optional().describe('Generic body JSON for other activity types.'),
         is_summative: z.boolean().optional().describe('Mark as summative assessment (scorable types only).'),
