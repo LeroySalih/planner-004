@@ -614,17 +614,27 @@ function createMcpServer(baseUrl = ''): McpServer {
     'create_activity',
     {
       title: 'Create activity',
-      description: 'Create a new activity under a lesson.',
-      inputSchema: {
+      description: `Create a new activity under a lesson. Type-specific requirements:
+- short-text-question: provide question and model_answer (required).
+- multiple-choice-question: provide question, mcq_options (2–4 items), and correct_option_id matching one option id (required).
+- All other types: use body_data for any extra JSON payload.`,
+      inputSchema: z.object({
         lesson_id: z.string().min(1).describe('Lesson identifier.'),
         type: z.enum(ACTIVITY_TYPES).describe(
           'Activity type. Scorable: multiple-choice-question, short-text-question, text-question, long-text-question, upload-file, upload-url, feedback, sketch-render, do-flashcards. Non-scorable: text, display-image, display-flashcards, file-download, show-video, voice, share-my-work, review-others-work, display-section.',
         ),
         title: z.string().optional().describe('Optional activity title.'),
-        body_data: z.record(z.string(), z.unknown()).optional().describe('Optional activity body JSON.'),
+        question: z.string().optional().describe('Question text — required for short-text-question and multiple-choice-question.'),
+        model_answer: z.string().optional().describe('Model answer — required for short-text-question.'),
+        mcq_options: z.array(z.object({
+          id: z.string().describe('Unique option identifier, e.g. "a", "b", "c".'),
+          text: z.string().describe('Option text shown to the pupil.'),
+        })).optional().describe('Answer options — required for multiple-choice-question. Provide 2–4 items.'),
+        correct_option_id: z.string().optional().describe('id of the correct option — required for multiple-choice-question.'),
+        body_data: z.record(z.string(), z.unknown()).optional().describe('Generic body JSON for other activity types.'),
         is_summative: z.boolean().optional().describe('Mark as summative assessment (scorable types only).'),
-      },
-      outputSchema: {
+      }),
+      outputSchema: z.object({
         activity: z.object({
           activity_id: z.string(),
           lesson_id: z.string(),
@@ -634,11 +644,26 @@ function createMcpServer(baseUrl = ''): McpServer {
           is_summative: z.boolean(),
           active: z.boolean(),
         }).nullable(),
-      },
+      }),
     },
-    async ({ lesson_id, type, title, body_data, is_summative }) => {
+    async ({ lesson_id, type, title, question, model_answer, mcq_options, correct_option_id, body_data, is_summative }) => {
       try {
-        const activity = await createActivity(lesson_id, type, title ?? null, body_data ?? null, is_summative)
+        let resolvedBodyData: Record<string, unknown> | null = body_data ?? null
+
+        if (type === 'short-text-question') {
+          if (!question?.trim()) return { content: [{ type: 'text' as const, text: 'Error: question is required for short-text-question' }], structuredContent: { activity: null } }
+          if (!model_answer?.trim()) return { content: [{ type: 'text' as const, text: 'Error: model_answer is required for short-text-question' }], structuredContent: { activity: null } }
+          resolvedBodyData = { question: question.trim(), modelAnswer: model_answer.trim() }
+        } else if (type === 'multiple-choice-question') {
+          if (!question?.trim()) return { content: [{ type: 'text' as const, text: 'Error: question is required for multiple-choice-question' }], structuredContent: { activity: null } }
+          if (!mcq_options || mcq_options.length < 2) return { content: [{ type: 'text' as const, text: 'Error: mcq_options must have at least 2 items' }], structuredContent: { activity: null } }
+          if (mcq_options.length > 4) return { content: [{ type: 'text' as const, text: 'Error: mcq_options must have at most 4 items' }], structuredContent: { activity: null } }
+          if (!correct_option_id?.trim()) return { content: [{ type: 'text' as const, text: 'Error: correct_option_id is required for multiple-choice-question' }], structuredContent: { activity: null } }
+          if (!mcq_options.some((o) => o.id === correct_option_id)) return { content: [{ type: 'text' as const, text: `Error: correct_option_id "${correct_option_id}" does not match any option id` }], structuredContent: { activity: null } }
+          resolvedBodyData = { question: question.trim(), options: mcq_options, correctOptionId: correct_option_id }
+        }
+
+        const activity = await createActivity(lesson_id, type, title ?? null, resolvedBodyData, is_summative)
         return {
           content: [{ type: 'text' as const, text: `Created activity ${activity.activity_id} • ${activity.type}${activity.title ? ` — ${activity.title}` : ''}` }],
           structuredContent: { activity },
