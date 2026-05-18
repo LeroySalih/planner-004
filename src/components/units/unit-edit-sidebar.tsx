@@ -11,8 +11,10 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { Switch } from "@/components/ui/switch"
 import {
   UNIT_MUTATION_INITIAL_STATE,
+  triggerUnitActivateJobAction,
   triggerUnitDeactivateJobAction,
   triggerUnitUpdateJobAction,
 } from "@/lib/server-updates"
@@ -46,8 +48,10 @@ export function UnitEditSidebar({
   const previousUnitRef = useRef<Unit | null>(null)
   const lastUpdateJobIdRef = useRef<string | null>(null)
   const lastDeactivateJobIdRef = useRef<string | null>(null)
+  const lastActivateJobIdRef = useRef<string | null>(null)
   const expectUpdateResponseRef = useRef(false)
   const expectDeactivateResponseRef = useRef(false)
+  const expectActivateResponseRef = useRef(false)
   const onCloseRef = useRef(onClose)
   const onOptimisticUpdateRef = useRef(onOptimisticUpdate)
   const onJobQueuedRef = useRef(onJobQueued)
@@ -70,6 +74,10 @@ export function UnitEditSidebar({
   )
   const [deactivateState, triggerDeactivateUnit, deactivatePending] = useActionState(
     triggerUnitDeactivateJobAction,
+    UNIT_MUTATION_INITIAL_STATE,
+  )
+  const [activateState, triggerActivateUnit, activatePending] = useActionState(
+    triggerUnitActivateJobAction,
     UNIT_MUTATION_INITIAL_STATE,
   )
   const [pendingTransition, startTransition] = useTransition()
@@ -153,7 +161,36 @@ export function UnitEditSidebar({
     }
   }, [deactivateState])
 
-  const isPending = updatePending || deactivatePending || pendingTransition
+  useEffect(() => {
+    if (activateState.status === "queued" && activateState.jobId) {
+      if (!expectActivateResponseRef.current || lastActivateJobIdRef.current === activateState.jobId) {
+        return
+      }
+
+      expectActivateResponseRef.current = false
+      lastActivateJobIdRef.current = activateState.jobId
+      toast.info("Unit activation queued", {
+        description: "The unit will be marked active shortly.",
+      })
+      onJobQueuedRef.current?.(activateState.jobId)
+      previousUnitRef.current = null
+      onCloseRef.current()
+    } else if (activateState.status === "error" && activateState.message) {
+      if (!expectActivateResponseRef.current) {
+        return
+      }
+
+      expectActivateResponseRef.current = false
+      toast.error(activateState.message)
+      if (previousUnitRef.current) {
+        onOptimisticUpdateRef.current?.(previousUnitRef.current)
+        previousUnitRef.current = null
+      }
+      lastActivateJobIdRef.current = null
+    }
+  }, [activateState])
+
+  const isPending = updatePending || deactivatePending || activatePending || pendingTransition
   const isSaveDisabled =
     isPending ||
     formState.title.trim().length === 0 ||
@@ -241,6 +278,29 @@ export function UnitEditSidebar({
     startTransition(() => {
       triggerDeactivateUnit(formData)
     })
+  }
+
+  const handleActivate = () => {
+    if (activatePending) return
+
+    const optimisticUnit: Unit = { ...unit, active: true }
+    previousUnitRef.current = unit
+    onOptimisticUpdate?.(optimisticUnit)
+
+    const formData = new FormData()
+    formData.set("unitId", unit.unit_id)
+    expectActivateResponseRef.current = true
+    startTransition(() => {
+      triggerActivateUnit(formData)
+    })
+  }
+
+  const handleToggleActive = (checked: boolean) => {
+    if (checked) {
+      handleActivate()
+    } else {
+      handleDeactivate()
+    }
   }
 
   if (!isOpen) {
@@ -337,31 +397,22 @@ export function UnitEditSidebar({
               </p>
             </div>
 
-            <div className="space-y-2">
-              <Label>Status</Label>
-              <div className="rounded-lg border border-dashed bg-muted/30 p-3 text-sm text-muted-foreground">
-                {isCreateMode
-                  ? "New units are created as active."
-                  : unit.active
-                    ? "This unit is currently active."
-                    : "This unit is currently inactive."}
+            {!isCreateMode && (
+              <div className="flex items-center justify-between">
+                <Label htmlFor="unit-active">Active</Label>
+                <Switch
+                  id="unit-active"
+                  checked={unit.active ?? false}
+                  onCheckedChange={handleToggleActive}
+                  disabled={isPending}
+                />
               </div>
-            </div>
+            )}
 
             <div className="flex flex-col gap-3 pt-2">
               <Button onClick={handleSave} disabled={isSaveDisabled}>
                 {isCreateMode ? "Create Unit" : "Save Changes"}
               </Button>
-              {isCreateMode ? null : (
-                <Button
-                  type="button"
-                  variant="destructive"
-                  onClick={handleDeactivate}
-                  disabled={isPending || unit.active === false}
-                >
-                  Mark as Inactive
-                </Button>
-              )}
               <Button variant="outline" className="bg-transparent" onClick={onClose} disabled={isPending}>
                 Cancel
               </Button>

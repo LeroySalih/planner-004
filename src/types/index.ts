@@ -50,7 +50,7 @@ export const FastUiActionStateSchema = z.object({
 
 export type FastUiActionState = z.infer<typeof FastUiActionStateSchema>;
 
-export const UnitJobOperationSchema = z.enum(["update", "deactivate"]);
+export const UnitJobOperationSchema = z.enum(["update", "deactivate", "activate"]);
 
 export const UnitJobStatusSchema = z.enum(["queued", "completed", "error"]);
 

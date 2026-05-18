@@ -25,6 +25,7 @@ export {
   duplicateUnitAction,
   readUnitAction,
   readUnitsAction,
+  triggerUnitActivateJobAction,
   triggerUnitDeactivateJobAction,
   triggerUnitUpdateJobAction,
   updateUnitAction,

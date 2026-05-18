@@ -28,6 +28,7 @@ const UnitReturnValue = z.object({
 const UNIT_ROUTE_TAG = "/units/[unitId]"
 const UNIT_UPDATE_EVENT = "unit:update"
 const UNIT_DEACTIVATE_EVENT = "unit:deactivate"
+const UNIT_ACTIVATE_EVENT = "unit:activate"
 
 const UnitUpdateFormSchema = z.object({
   unitId: z.string(),
@@ -583,6 +584,99 @@ export async function triggerUnitDeactivateJobAction(
         status: "queued",
         jobId,
         message: "Unit deactivation queued.",
+      })
+    },
+  )
+}
+
+async function runUnitActivateJob({ jobId, unitId }: UnitDeactivateJobArgs) {
+  try {
+    await query("update units set active = true where unit_id = $1", [unitId])
+
+    await revalidateUnitPaths(unitId)
+    await publishUnitJobEvent(UNIT_ACTIVATE_EVENT, {
+      job_id: jobId,
+      unit_id: unitId,
+      status: "completed",
+      operation: "activate",
+      message: "Unit activated successfully",
+      unit: null,
+    })
+  } catch (error) {
+    const message =
+      error && typeof error === "object" && "message" in error
+        ? String((error as { message?: string }).message ?? "Failed to activate unit")
+        : "Failed to activate unit"
+    console.error("[units] async activate job failed", { unitId, jobId, error })
+
+    try {
+      await publishUnitJobEvent(UNIT_ACTIVATE_EVENT, {
+        job_id: jobId,
+        unit_id: unitId,
+        status: "error",
+        operation: "activate",
+        message,
+        unit: null,
+      })
+    } catch (notifyError) {
+      console.error("[units] failed to publish activate error event", { jobId, notifyError })
+    }
+  }
+}
+
+export async function triggerUnitActivateJobAction(
+  _prevState: z.infer<typeof UnitMutationStateSchema>,
+  formData: FormData,
+) {
+  const profile = await requireTeacherProfile()
+  const authEnd = performance.now()
+
+  const rawUnitId = formData.get("unitId")
+  const unitId = typeof rawUnitId === "string" ? rawUnitId.trim() : ""
+
+  return withTelemetry(
+    {
+      routeTag: UNIT_ROUTE_TAG,
+      functionName: "triggerUnitActivateJobAction",
+      params: { unitId: unitId || null },
+      authEndTime: authEnd,
+    },
+    async () => {
+      const parsedForm = UnitDeactivateFormSchema.safeParse({ unitId })
+
+      if (!parsedForm.success) {
+        return UnitMutationStateSchema.parse({
+          status: "error",
+          jobId: null,
+          message: "Invalid unit selection.",
+        })
+      }
+
+      const trimmedUnitId = parsedForm.data.unitId.trim()
+      if (trimmedUnitId.length === 0) {
+        return UnitMutationStateSchema.parse({
+          status: "error",
+          jobId: null,
+          message: "Invalid unit selection.",
+        })
+      }
+
+      const jobId = randomUUID()
+
+      queueMicrotask(() => {
+        void runUnitActivateJob({ jobId, unitId: trimmedUnitId })
+      })
+
+      console.info("[units] queued unit activate job", {
+        jobId,
+        unitId: trimmedUnitId,
+        userId: profile.userId,
+      })
+
+      return UnitMutationStateSchema.parse({
+        status: "queued",
+        jobId,
+        message: "Unit activation queued.",
       })
     },
   )
