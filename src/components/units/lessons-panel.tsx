@@ -89,6 +89,7 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
           title: normalizedTitle,
           order_by: maxOrder + 0.5,
           active: true,
+          is_public: false,
           lesson_objectives: [],
           lesson_links: [],
           lesson_success_criteria: [],
