@@ -12,6 +12,7 @@ import {
   AssessmentObjectivesSchema,
   CurriculaSchema,
   LearningObjectiveWithCriteriaSchema,
+  LessonActivities,
   LessonJobPayloadSchema,
   LessonLearningObjective,
   LessonLink,
@@ -2565,7 +2566,7 @@ export async function readPublicLessonsAction(): Promise<{
 }
 
 export async function readPublicLessonActivitiesAction(lessonId: string): Promise<{
-  data: import("@/types").LessonActivities | null
+  data: LessonActivities | null
   error: string | null
 }> {
   try {
