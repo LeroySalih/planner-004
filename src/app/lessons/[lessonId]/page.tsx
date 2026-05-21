@@ -1,13 +1,16 @@
 export const dynamic = "force-dynamic"
 
-import { notFound } from "next/navigation"
-
+import { redirect, notFound } from "next/navigation"
 import { LessonDetailClient } from "@/components/lessons/lesson-detail-client"
+import { PublicLessonView } from "@/components/public/PublicLessonView"
+import { PublicLessonNav } from "@/components/public/PublicLessonNav"
 import {
   readAllLearningObjectivesAction,
   readLessonDetailBootstrapAction,
   readLessonReferenceDataAction,
+  readPublicLessonActivitiesAction,
 } from "@/lib/server-updates"
+import { getAuthenticatedProfile } from "@/lib/auth"
 import { withTelemetry } from "@/lib/telemetry"
 
 export default async function LessonDetailPage({
@@ -16,6 +19,65 @@ export default async function LessonDetailPage({
   params: Promise<{ lessonId: string }>
 }) {
   const { lessonId } = await params
+
+  const profile = await getAuthenticatedProfile()
+
+  if (!profile) {
+    // Unauthenticated: check if lesson is public
+    const publicResult = await readPublicLessonActivitiesAction(lessonId)
+
+    if (publicResult.error || !publicResult.data) {
+      // Not public or not found — redirect to sign-in
+      redirect(`/signin?returnTo=/lessons/${lessonId}`)
+    }
+
+    // Public lesson — fetch breadcrumb info from bootstrap (no auth required)
+    const lessonDetailResult = await readLessonDetailBootstrapAction(lessonId)
+    const lesson = lessonDetailResult.data?.lesson
+    if (!lesson) {
+      notFound()
+    }
+
+    const referenceResult = await readLessonReferenceDataAction(lessonId)
+    const curriculum = referenceResult.data?.curricula?.[0]
+
+    return (
+      <div className="flex flex-col min-h-screen">
+        <PublicLessonNav />
+        <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-8">
+          {/* Breadcrumb */}
+          <p className="mb-2 text-xs text-muted-foreground">
+            {curriculum?.title ? `${curriculum.title} › ` : ""}
+            {lessonDetailResult.data?.unit?.title ?? ""}
+          </p>
+          <h1 className="mb-8 text-3xl font-bold text-foreground">{lesson.title}</h1>
+
+          <PublicLessonView
+            activities={publicResult.data}
+            lessonId={lessonId}
+          />
+
+          {/* Bottom sign-in nudge */}
+          <div className="mt-12 flex items-center justify-between gap-4 rounded-lg border border-border bg-card px-6 py-5">
+            <div>
+              <p className="font-semibold text-foreground">Continue learning with Dino</p>
+              <p className="text-sm text-muted-foreground">
+                Attempt activities, track your progress, and access all lessons.
+              </p>
+            </div>
+            <a
+              href="/signin"
+              className="flex-shrink-0 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              Sign in →
+            </a>
+          </div>
+        </main>
+      </div>
+    )
+  }
+
+  // Authenticated: existing full lesson flow unchanged
   const authEnd: number | null = null
 
   const lessonDetailResult = await withTelemetry(
@@ -92,9 +154,7 @@ export default async function LessonDetailPage({
 
   const unitLessons = (lessonPayload?.unitLessons ?? []).slice().sort((a, b) => {
     const orderCompare = (a.order_by ?? 0) - (b.order_by ?? 0)
-    if (orderCompare !== 0) {
-      return orderCompare
-    }
+    if (orderCompare !== 0) return orderCompare
     return a.title.localeCompare(b.title)
   })
 
