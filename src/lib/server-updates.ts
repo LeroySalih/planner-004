@@ -357,3 +357,9 @@ export {
   readPlannerPeriodFlagsForWeekAction,
   upsertPlannerPeriodFlagAction,
 } from './server-actions/planner-period-flags'
+
+export {
+  readPublicLessonsAction,
+  readPublicLessonActivitiesAction,
+  toggleLessonPublicAction,
+} from "./server-actions/lessons"

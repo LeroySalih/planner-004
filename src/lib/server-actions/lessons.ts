@@ -68,6 +68,15 @@ export type LessonHeaderUpdateState = z.infer<
   typeof LessonHeaderUpdateStateSchema
 >;
 
+export type PublicLesson = {
+  curriculumId: string
+  curriculumTitle: string
+  unitId: string
+  unitTitle: string
+  lessonId: string
+  lessonTitle: string
+}
+
 const LessonReferencePayloadSchema = z.object({
   curricula: CurriculaSchema.default([]),
   assessmentObjectives: AssessmentObjectivesSchema.default([]),
@@ -2508,5 +2517,88 @@ export async function readFlashcardActivitiesByIdsAction(
   } catch (error) {
     console.error("[lessons] Failed to read flashcard activities by ids:", error)
     return []
+  }
+}
+
+export async function readPublicLessonsAction(): Promise<{
+  data: PublicLesson[] | null
+  error: string | null
+}> {
+  try {
+    const result = await query<{
+      curriculum_id: string
+      curriculum_title: string
+      unit_id: string
+      unit_title: string
+      lesson_id: string
+      lesson_title: string
+    }>(
+      `SELECT
+        c.curriculum_id,
+        c.title  AS curriculum_title,
+        u.unit_id,
+        u.title  AS unit_title,
+        l.lesson_id,
+        l.title  AS lesson_title
+       FROM lessons l
+       JOIN units u       ON u.unit_id       = l.unit_id
+       JOIN curricula c   ON c.curriculum_id = u.curriculum_id
+       WHERE l.is_public = true
+         AND l.active    = true
+         AND u.active    = true
+       ORDER BY c.title, u.order_by, l.order_by`,
+      [],
+    )
+    const data: PublicLesson[] = result.rows.map((row) => ({
+      curriculumId:    row.curriculum_id,
+      curriculumTitle: row.curriculum_title,
+      unitId:          row.unit_id,
+      unitTitle:       row.unit_title,
+      lessonId:        row.lesson_id,
+      lessonTitle:     row.lesson_title,
+    }))
+    return { data, error: null }
+  } catch (err) {
+    console.error("[lessons] readPublicLessonsAction error", err)
+    return { data: null, error: "Failed to load public lessons" }
+  }
+}
+
+export async function readPublicLessonActivitiesAction(lessonId: string): Promise<{
+  data: import("@/types").LessonActivities | null
+  error: string | null
+}> {
+  try {
+    const guardResult = await query<{ is_public: boolean; active: boolean }>(
+      "SELECT is_public, active FROM lessons WHERE lesson_id = $1",
+      [lessonId],
+    )
+    const row = guardResult.rows[0]
+    if (!row || !row.is_public || !row.active) {
+      return { data: null, error: "Lesson not found or not public" }
+    }
+    const payload = await loadLessonDetailBootstrapPayload(lessonId)
+    return { data: payload.data?.lessonActivities ?? [], error: null }
+  } catch (err) {
+    console.error("[lessons] readPublicLessonActivitiesAction error", err)
+    return { data: null, error: "Failed to load lesson activities" }
+  }
+}
+
+export async function toggleLessonPublicAction(
+  lessonId: string,
+  isPublic: boolean,
+): Promise<{ data: null; error: string | null }> {
+  try {
+    await requireTeacherProfile()
+    await query(
+      "UPDATE lessons SET is_public = $1 WHERE lesson_id = $2",
+      [isPublic, lessonId],
+    )
+    revalidatePath(`/lessons/${lessonId}`)
+    return { data: null, error: null }
+  } catch (err) {
+    console.error("[lessons] toggleLessonPublicAction error", err)
+    return { data: null, error: "Failed to update lesson visibility" }
   }
 }
