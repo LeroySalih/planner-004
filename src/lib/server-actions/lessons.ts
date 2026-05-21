@@ -2547,6 +2547,7 @@ export async function readPublicLessonsAction(): Promise<{
        WHERE l.is_public = true
          AND l.active    = true
          AND u.active    = true
+         AND c.active    = true
        ORDER BY c.title, u.order_by, l.order_by`,
       [],
     )
@@ -2597,6 +2598,7 @@ export async function toggleLessonPublicAction(
       [isPublic, lessonId],
     )
     revalidatePath(`/lessons/${lessonId}`)
+    revalidatePath("/signin")
     return { data: null, error: null }
   } catch (err) {
     console.error("[lessons] toggleLessonPublicAction error", err)

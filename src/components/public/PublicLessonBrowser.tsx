@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { Loader2 } from "lucide-react"
+import { toast } from "sonner"
 import type { PublicLesson } from "@/lib/server-actions/lessons"
 import type { LessonActivities } from "@/types"
 import { readPublicLessonActivitiesAction } from "@/lib/server-updates"
@@ -71,6 +72,8 @@ export function PublicLessonBrowser({ lessons, returnTo }: PublicLessonBrowserPr
         curriculumTitle: lesson.curriculumTitle,
         activities: result.data,
       })
+    } else {
+      toast.error(result.error ?? "Failed to load lesson. Please try again.")
     }
   }
 
