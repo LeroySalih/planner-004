@@ -9,6 +9,7 @@ import type { LessonWithObjectives } from "@/types"
 import {
   type LessonHeaderUpdateState,
   updateLessonHeaderAction,
+  toggleLessonPublicAction,
 } from "@/lib/server-updates"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -26,6 +27,8 @@ interface LessonHeaderSidebarProps {
 export function LessonHeaderSidebar({ lesson, isOpen, onClose, onUpdated }: LessonHeaderSidebarProps) {
   const [title, setTitle] = useState(lesson.title ?? "")
   const [isActive, setIsActive] = useState(lesson.active !== false)
+  const [isPublic, setIsPublic] = useState(lesson.is_public ?? false)
+  const [isPublicPending, startPublicTransition] = useTransition()
   const [state, formAction, pending] = useActionState<LessonHeaderUpdateState, FormData>(
     updateLessonHeaderAction,
     {
@@ -40,6 +43,7 @@ export function LessonHeaderSidebar({ lesson, isOpen, onClose, onUpdated }: Less
     if (!isOpen) return
     setTitle(lesson.title ?? "")
     setIsActive(lesson.active !== false)
+    setIsPublic(lesson.is_public ?? false)
   }, [isOpen, lesson])
 
   useEffect(() => {
@@ -59,6 +63,19 @@ export function LessonHeaderSidebar({ lesson, isOpen, onClose, onUpdated }: Less
 
   if (!isOpen) {
     return null
+  }
+
+  const handleTogglePublic = (checked: boolean) => {
+    setIsPublic(checked)
+    startPublicTransition(async () => {
+      const result = await toggleLessonPublicAction(lesson.lesson_id, checked)
+      if (result.error) {
+        setIsPublic(!checked) // revert on error
+        toast.error(result.error)
+      } else {
+        toast.success(checked ? "Lesson is now public." : "Lesson is now private.")
+      }
+    })
   }
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -122,6 +139,21 @@ export function LessonHeaderSidebar({ lesson, isOpen, onClose, onUpdated }: Less
                   onCheckedChange={setIsActive}
                   disabled={pending}
                 />
+              </div>
+
+              <div className="flex items-center gap-3">
+                <Switch
+                  id={`lesson-public-${lesson.lesson_id}`}
+                  checked={isPublic}
+                  disabled={isPublicPending}
+                  onCheckedChange={handleTogglePublic}
+                />
+                <Label htmlFor={`lesson-public-${lesson.lesson_id}`} className="text-sm font-medium">
+                  Public lesson
+                </Label>
+                {isPublicPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                ) : null}
               </div>
 
               {state.status === "error" && state.message ? (
