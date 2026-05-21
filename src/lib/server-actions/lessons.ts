@@ -2548,7 +2548,7 @@ export async function readPublicLessonsAction(): Promise<{
          AND l.active    IS NOT FALSE
          AND u.active    IS NOT FALSE
          AND c.active    IS NOT FALSE
-       ORDER BY c.title, u.order_by, l.order_by`,
+       ORDER BY c.title, u.title, l.order_by`,
       [],
     )
     const data: PublicLesson[] = result.rows.map((row) => ({
