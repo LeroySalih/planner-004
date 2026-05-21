@@ -2545,9 +2545,9 @@ export async function readPublicLessonsAction(): Promise<{
        JOIN units u       ON u.unit_id       = l.unit_id
        JOIN curricula c   ON c.curriculum_id = u.curriculum_id
        WHERE l.is_public = true
-         AND l.active    = true
-         AND u.active    = true
-         AND c.active IS NOT FALSE
+         AND l.active    IS NOT FALSE
+         AND u.active    IS NOT FALSE
+         AND c.active    IS NOT FALSE
        ORDER BY c.title, u.order_by, l.order_by`,
       [],
     )
