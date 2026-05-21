@@ -2547,7 +2547,7 @@ export async function readPublicLessonsAction(): Promise<{
        WHERE l.is_public = true
          AND l.active    = true
          AND u.active    = true
-         AND c.active    = true
+         AND c.active IS NOT FALSE
        ORDER BY c.title, u.order_by, l.order_by`,
       [],
     )
