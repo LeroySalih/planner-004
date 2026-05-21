@@ -2534,21 +2534,25 @@ export async function readPublicLessonsAction(): Promise<{
       lesson_id: string
       lesson_title: string
     }>(
-      `SELECT
-        c.curriculum_id,
-        c.title  AS curriculum_title,
-        u.unit_id,
-        u.title  AS unit_title,
-        l.lesson_id,
-        l.title  AS lesson_title
-       FROM lessons l
-       JOIN units u       ON u.unit_id  = l.unit_id
-       JOIN curricula c   ON c.subject  = u.subject
-       WHERE l.is_public = true
-         AND l.active    IS NOT FALSE
-         AND u.active    IS NOT FALSE
-         AND c.active    IS NOT FALSE
-       ORDER BY c.title, u.title, l.order_by`,
+      `SELECT curriculum_id, curriculum_title, unit_id, unit_title, lesson_id, lesson_title
+       FROM (
+         SELECT DISTINCT ON (l.lesson_id)
+           c.curriculum_id,
+           c.title  AS curriculum_title,
+           u.unit_id,
+           u.title  AS unit_title,
+           l.lesson_id,
+           l.title  AS lesson_title
+         FROM lessons l
+         JOIN units u     ON u.unit_id = l.unit_id
+         JOIN curricula c ON c.subject = u.subject
+         WHERE l.is_public = true
+           AND l.active    IS NOT FALSE
+           AND u.active    IS NOT FALSE
+           AND c.active    IS NOT FALSE
+         ORDER BY l.lesson_id, c.title
+       ) sub
+       ORDER BY curriculum_title, unit_title, lesson_title`,
       [],
     )
     const data: PublicLesson[] = result.rows.map((row) => ({
