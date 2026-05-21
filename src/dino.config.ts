@@ -56,3 +56,20 @@ export function assertSummativeEligibleActivityType(
     );
   }
 }
+
+// Activity types shown to unauthenticated public visitors.
+// Excludes interactive/pupil-specific types (file-download, share-my-work,
+// review-others-work, voice) even though they are non-scorable.
+export const PUBLIC_ACTIVITY_TYPES = [
+  "text",
+  "display-image",
+  "show-video",
+  "display-section",
+  "display-flashcards",
+] as const
+
+export type PublicActivityType = (typeof PUBLIC_ACTIVITY_TYPES)[number]
+
+export function isPublicActivityType(type: string): type is PublicActivityType {
+  return (PUBLIC_ACTIVITY_TYPES as readonly string[]).includes(type)
+}

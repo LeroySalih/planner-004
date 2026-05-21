@@ -396,6 +396,7 @@ export const LessonSchema = z.object({
     title: z.string().min(1).max(255),
     order_by: z.number().default(0),
     active: z.boolean().default(true),
+    is_public: z.boolean().default(false),
 });
 
 export const LessonsSchema = z.array(LessonSchema);
