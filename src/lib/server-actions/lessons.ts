@@ -74,6 +74,7 @@ export type PublicLesson = {
   curriculumTitle: string
   unitId: string
   unitTitle: string
+  unitDescription: string | null
   lessonId: string
   lessonTitle: string
 }
@@ -2531,18 +2532,20 @@ export async function readPublicLessonsAction(): Promise<{
       curriculum_title: string
       unit_id: string
       unit_title: string
+      unit_description: string | null
       lesson_id: string
       lesson_title: string
     }>(
-      `SELECT curriculum_id, curriculum_title, unit_id, unit_title, lesson_id, lesson_title
+      `SELECT curriculum_id, curriculum_title, unit_id, unit_title, unit_description, lesson_id, lesson_title
        FROM (
          SELECT DISTINCT ON (l.lesson_id)
            c.curriculum_id,
-           c.title  AS curriculum_title,
+           c.title        AS curriculum_title,
            u.unit_id,
-           u.title  AS unit_title,
+           u.title        AS unit_title,
+           u.description  AS unit_description,
            l.lesson_id,
-           l.title  AS lesson_title
+           l.title        AS lesson_title
          FROM lessons l
          JOIN units u     ON u.unit_id = l.unit_id
          JOIN curricula c ON c.subject = u.subject
@@ -2560,6 +2563,7 @@ export async function readPublicLessonsAction(): Promise<{
       curriculumTitle: row.curriculum_title,
       unitId:          row.unit_id,
       unitTitle:       row.unit_title,
+      unitDescription: row.unit_description ?? null,
       lessonId:        row.lesson_id,
       lessonTitle:     row.lesson_title,
     }))

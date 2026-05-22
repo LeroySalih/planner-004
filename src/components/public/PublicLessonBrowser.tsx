@@ -45,7 +45,7 @@ export function PublicLessonBrowser({ lessons, returnTo }: PublicLessonBrowserPr
 
     const unitMap = new Map<
       string,
-      { unitId: string; unitTitle: string; curriculumTitle: string; lessons: PublicLesson[] }
+      { unitId: string; unitTitle: string; curriculumTitle: string; unitDescription: string | null; lessons: PublicLesson[] }
     >()
     filtered.forEach((l) => {
       if (!unitMap.has(l.unitId)) {
@@ -53,6 +53,7 @@ export function PublicLessonBrowser({ lessons, returnTo }: PublicLessonBrowserPr
           unitId: l.unitId,
           unitTitle: l.unitTitle,
           curriculumTitle: l.curriculumTitle,
+          unitDescription: l.unitDescription ?? null,
           lessons: [],
         })
       }
@@ -113,28 +114,30 @@ export function PublicLessonBrowser({ lessons, returnTo }: PublicLessonBrowserPr
           /* State 1: hero + curriculum browser */
           <div className="flex flex-1 flex-col overflow-hidden">
 
-            {/* Hero section — fixed, does not scroll */}
-            <div className="flex-shrink-0 flex items-center gap-6 border-b border-border bg-amber-50 px-8 py-6 dark:bg-amber-950/20">
-              <div className="min-w-0 flex-1">
-                <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-amber-600 dark:text-amber-400">
+            {/* Hero section — 50vh, does not scroll */}
+            <div className="relative flex h-[50vh] flex-shrink-0 items-center overflow-hidden border-b border-border bg-amber-50 dark:bg-amber-950/20">
+              {/* Text content */}
+              <div className="relative z-10 flex h-full w-full flex-col justify-center px-10 sm:w-1/2">
+                <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-amber-600 dark:text-amber-400">
                   Free lessons
                 </p>
-                <h1 className="text-2xl font-extrabold leading-tight text-foreground sm:text-3xl">
+                <h1 className="text-3xl font-extrabold leading-tight text-foreground sm:text-4xl lg:text-5xl">
                   Explore our lessons —{" "}
                   <span className="italic text-amber-600 dark:text-amber-400">
                     one topic at a time.
                   </span>
                 </h1>
-                <p className="mt-2 text-sm text-muted-foreground">
+                <p className="mt-4 max-w-sm text-base text-muted-foreground">
                   Browse public lessons from our curriculum. Sign in to attempt activities and track your progress.
                 </p>
               </div>
-              <div className="relative hidden h-32 w-32 shrink-0 sm:block">
+              {/* Hero image — fills right half */}
+              <div className="absolute bottom-0 right-0 hidden h-full w-1/2 sm:block">
                 <Image
                   src="/hero-pupils.png"
                   alt="Students with subject crates"
                   fill
-                  className="object-contain drop-shadow-sm"
+                  className="object-contain object-bottom drop-shadow-sm"
                   priority
                 />
               </div>
@@ -183,12 +186,13 @@ export function PublicLessonBrowser({ lessons, returnTo }: PublicLessonBrowserPr
                   No public lessons available yet.
                 </p>
               ) : (
-                <div className="space-y-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {filteredUnits.map((unit) => (
                     <PublicUnitCard
                       key={unit.unitId}
                       unitTitle={unit.unitTitle}
                       curriculumTitle={unit.curriculumTitle}
+                      unitDescription={unit.unitDescription}
                       lessons={unit.lessons}
                       onSelectLesson={handleSelectLesson}
                     />
