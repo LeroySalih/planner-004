@@ -111,10 +111,10 @@ export function PublicLessonBrowser({ lessons, returnTo }: PublicLessonBrowserPr
             </div>
           </div>
         ) : (
-          /* State 1: hero + curriculum browser */
-          <div className="flex flex-1 flex-col overflow-hidden">
+          /* State 1: single scrollable panel — hero + filter chips + unit cards */
+          <div className="flex flex-1 flex-col overflow-y-auto">
 
-            {/* Hero section — 50vh, does not scroll */}
+            {/* Hero section — scrolls with the page */}
             <div className="relative flex h-[50vh] flex-shrink-0 items-center overflow-hidden border-b border-border bg-amber-50 dark:bg-amber-950/20">
               {/* Text content */}
               <div className="relative z-10 flex h-full w-full flex-col justify-center px-10 sm:w-1/2">
@@ -143,9 +143,9 @@ export function PublicLessonBrowser({ lessons, returnTo }: PublicLessonBrowserPr
               </div>
             </div>
 
-            {/* Filter chips — fixed, does not scroll */}
+            {/* Filter chips */}
             {curricula.length > 0 && (
-              <div className="flex-shrink-0 flex flex-wrap gap-2 border-b border-border px-6 py-3">
+              <div className="flex flex-wrap gap-2 border-b border-border px-6 py-3">
                 <button
                   type="button"
                   onClick={() => setActiveFilter("all")}
@@ -174,8 +174,8 @@ export function PublicLessonBrowser({ lessons, returnTo }: PublicLessonBrowserPr
               </div>
             )}
 
-            {/* Scrollable unit cards */}
-            <div className="flex-1 overflow-y-auto px-6 py-4">
+            {/* Unit cards */}
+            <div className="px-6 py-4">
               {isLoading ? (
                 <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
