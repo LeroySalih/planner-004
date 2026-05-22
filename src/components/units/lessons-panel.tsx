@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useCallback, useEffect, useRef, useState, useTransition } from "react"
-import { BookOpen, GripVertical, Plus } from "lucide-react"
+import { BookOpen, Globe, GripVertical, Plus } from "lucide-react"
 
 import type { LessonWithObjectives, LearningObjectiveWithCriteria } from "@/lib/server-updates"
 import { toggleLessonActiveAction } from "@/lib/server-updates"
@@ -299,15 +299,24 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
                         aria-hidden="true"
                       />
                       <div className="flex flex-col">
-                        <Link
-                          href={`/lessons/${encodeURIComponent(lesson.lesson_id)}`}
-                          className={cn(
-                            "truncate text-sm font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                            !isActive && "text-muted-foreground",
+                        <div className="flex items-center gap-1.5">
+                          <Link
+                            href={`/lessons/${encodeURIComponent(lesson.lesson_id)}`}
+                            className={cn(
+                              "truncate text-sm font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                              !isActive && "text-muted-foreground",
+                            )}
+                          >
+                            {lesson.title?.trim().length ? lesson.title : "Untitled lesson"}
+                          </Link>
+                          {lesson.is_public && (
+                            <Globe
+                              className="h-3.5 w-3.5 shrink-0 text-emerald-500"
+                              aria-label="Published"
+                              title="Public lesson"
+                            />
                           )}
-                        >
-                          {lesson.title?.trim().length ? lesson.title : "Untitled lesson"}
-                        </Link>
+                        </div>
                         {!isActive && <span className="text-xs text-muted-foreground">Inactive</span>}
                       </div>
 
@@ -320,11 +329,17 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
                     <div className="flex items-center gap-4">
                       <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                         <Switch
+                          id={`lesson-active-${lesson.lesson_id}`}
                           checked={isActive}
                           onCheckedChange={(checked) => handleToggleActive(lesson.lesson_id, checked)}
                           disabled={isPendingLesson}
-                          aria-label={`Toggle active status for ${lesson.title}`}
                         />
+                        <Label
+                          htmlFor={`lesson-active-${lesson.lesson_id}`}
+                          className="text-xs text-muted-foreground"
+                        >
+                          Active
+                        </Label>
                       </div>
                       {isPendingLesson ? (
                         <span className="text-sm text-muted-foreground">Waiting for creation…</span>
