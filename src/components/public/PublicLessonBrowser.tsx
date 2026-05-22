@@ -119,7 +119,7 @@ export function PublicLessonBrowser({ lessons, returnTo }: PublicLessonBrowserPr
               {/* Text content */}
               <div className="relative z-10 flex h-full w-full flex-col justify-center px-10 sm:w-1/2">
                 <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-amber-600 dark:text-amber-400">
-                  Free lessons
+                  Design and Technology
                 </p>
                 <h1 className="text-3xl font-extrabold leading-tight text-foreground sm:text-4xl lg:text-5xl">
                   Explore our lessons —{" "}
