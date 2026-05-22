@@ -1,5 +1,6 @@
 "use client"
 
+import Image from "next/image"
 import { useMemo, useState } from "react"
 import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
@@ -109,53 +110,77 @@ export function PublicLessonBrowser({ lessons, returnTo }: PublicLessonBrowserPr
             </div>
           </div>
         ) : (
-          /* State 1: curriculum browser */
+          /* State 1: hero + curriculum browser */
           <div className="flex flex-1 flex-col overflow-hidden">
-            {/* Fixed header */}
-            <div className="flex-shrink-0 border-b border-border px-6 py-5">
-              <h2 className="text-lg font-bold text-foreground">Browse Lessons</h2>
-              <p className="text-sm text-muted-foreground">
-                Public lessons from our curriculum
-              </p>
+
+            {/* Hero section — fixed, does not scroll */}
+            <div className="flex-shrink-0 flex items-center gap-6 border-b border-border bg-amber-50 px-8 py-6 dark:bg-amber-950/20">
+              <div className="min-w-0 flex-1">
+                <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-amber-600 dark:text-amber-400">
+                  Free lessons
+                </p>
+                <h1 className="text-2xl font-extrabold leading-tight text-foreground sm:text-3xl">
+                  Explore our lessons —{" "}
+                  <span className="italic text-amber-600 dark:text-amber-400">
+                    one topic at a time.
+                  </span>
+                </h1>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Browse public lessons from our curriculum. Sign in to attempt activities and track your progress.
+                </p>
+              </div>
+              <div className="relative hidden h-32 w-32 shrink-0 sm:block">
+                <Image
+                  src="/hero-pupils.png"
+                  alt="Students with subject crates"
+                  fill
+                  className="object-contain drop-shadow-sm"
+                  priority
+                />
+              </div>
             </div>
-            {/* Fixed filter chips */}
-            <div className="flex-shrink-0 flex flex-wrap gap-2 px-6 py-3 border-b border-border">
-              <button
-                type="button"
-                onClick={() => setActiveFilter("all")}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                  activeFilter === "all"
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground hover:bg-accent"
-                }`}
-              >
-                All
-              </button>
-              {curricula.map((c) => (
+
+            {/* Filter chips — fixed, does not scroll */}
+            {curricula.length > 0 && (
+              <div className="flex-shrink-0 flex flex-wrap gap-2 border-b border-border px-6 py-3">
                 <button
-                  key={c.id}
                   type="button"
-                  onClick={() => setActiveFilter(c.id)}
+                  onClick={() => setActiveFilter("all")}
                   className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                    activeFilter === c.id
+                    activeFilter === "all"
                       ? "bg-primary text-primary-foreground"
                       : "bg-muted text-muted-foreground hover:bg-accent"
                   }`}
                 >
-                  {c.title}
+                  All
                 </button>
-              ))}
-            </div>
+                {curricula.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => setActiveFilter(c.id)}
+                    className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                      activeFilter === c.id
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground hover:bg-accent"
+                    }`}
+                  >
+                    {c.title}
+                  </button>
+                ))}
+              </div>
+            )}
+
             {/* Scrollable unit cards */}
             <div className="flex-1 overflow-y-auto px-6 py-4">
               {isLoading ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
+                <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Loading lesson…
                 </div>
               ) : filteredUnits.length === 0 ? (
                 <p className="py-8 text-center text-sm text-muted-foreground">
-                  No public lessons available.
+                  No public lessons available yet.
                 </p>
               ) : (
                 <div className="space-y-4">
