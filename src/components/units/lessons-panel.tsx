@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState, useTransition } from "react"
 import { BookOpen, Globe, GripVertical, Plus } from "lucide-react"
 
 import type { LessonWithObjectives, LearningObjectiveWithCriteria } from "@/lib/server-updates"
-import { toggleLessonActiveAction } from "@/lib/server-updates"
+import { toggleLessonActiveAction, toggleLessonPublicAction } from "@/lib/server-updates"
 import { LessonJobPayloadSchema } from "@/types"
 import { reorderLessonsAction } from "@/lib/server-actions/lessons"
 import { cn } from "@/lib/utils"
@@ -102,6 +102,22 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
     },
     [unitId],
   )
+
+  const handleTogglePublic = (lessonId: string, currentValue: boolean) => {
+    const next = !currentValue
+    setLessons((prev) =>
+      prev.map((l) => (l.lesson_id === lessonId ? { ...l, is_public: next } : l)),
+    )
+    startTransition(async () => {
+      const result = await toggleLessonPublicAction(lessonId, next)
+      if (result.error) {
+        toast.error("Failed to update published status")
+        setLessons((prev) =>
+          prev.map((l) => (l.lesson_id === lessonId ? { ...l, is_public: currentValue } : l)),
+        )
+      }
+    })
+  }
 
   const handleToggleActive = (lessonId: string, checked: boolean) => {
     setLessons((prev) =>
@@ -309,13 +325,26 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
                           >
                             {lesson.title?.trim().length ? lesson.title : "Untitled lesson"}
                           </Link>
-                          {lesson.is_public && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              if (!isPendingLesson) handleTogglePublic(lesson.lesson_id, lesson.is_public ?? false)
+                            }}
+                            title={lesson.is_public ? "Published — click to unpublish" : "Not published — click to publish"}
+                            className="shrink-0 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            disabled={isPendingLesson}
+                          >
                             <Globe
-                              className="h-3.5 w-3.5 shrink-0 text-emerald-500"
-                              aria-label="Published"
-                              title="Public lesson"
+                              className={cn(
+                                "h-3.5 w-3.5 transition-colors",
+                                lesson.is_public
+                                  ? "text-emerald-500 hover:text-emerald-600"
+                                  : "text-muted-foreground/40 hover:text-muted-foreground",
+                              )}
                             />
-                          )}
+                          </button>
                         </div>
                         {!isActive && <span className="text-xs text-muted-foreground">Inactive</span>}
                       </div>
