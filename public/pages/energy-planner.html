@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chicken Farm — Energy Dispatch Planner</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; background: #F4F6F9; color: #1A3A5C; font-size: 14px; }
+
+  header { background: #1A3A5C; color: white; padding: 14px 24px; }
+  header h1 { font-size: 20px; font-weight: 700; }
+  header p  { font-size: 13px; opacity: 0.75; margin-top: 2px; }
+
+  main { max-width: 1200px; margin: 0 auto; padding: 20px; }
+
+  .controls {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 12px; margin-bottom: 16px; align-items: stretch;
+  }
+  .control-card {
+    background: white; border-radius: 10px; padding: 16px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  }
+  .control-card .icon { font-size: 22px; margin-bottom: 6px; }
+  .control-card label { font-size: 13px; font-weight: 700; color: #1A3A5C; display: block; margin-bottom: 8px; }
+  .slider-row { display: flex; align-items: center; gap: 10px; }
+  .slider-row input[type=range] { flex: 1; accent-color: #E8943A; cursor: pointer; }
+  .slider-row input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; }
+  .slider-row input[type=range]::-moz-range-track { height: 4px; border-radius: 2px; }
+  .slider-val { font-size: 15px; font-weight: 700; color: #E8943A; min-width: 64px; text-align: right; }
+  .control-card .sub { font-size: 11px; color: #6B7280; margin-top: 6px; }
+  .control-card .cost-label { font-size: 12px; color: #2E5F8A; font-weight: 700; margin-top: 4px; }
+
+  .setup-summary {
+    background: #1A3A5C; color: white; border-radius: 10px; padding: 16px;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    text-align: center; min-width: 130px; transition: background 0.3s;
+  }
+  .setup-summary .lbl  { font-size: 11px; opacity: 0.75; margin-bottom: 4px; }
+  .setup-summary .amt  { font-size: 22px; font-weight: 700; color: #E8943A; }
+  .setup-summary .plbl { font-size: 11px; opacity: 0.75; margin-top: 8px; }
+  .setup-summary .pval { font-size: 16px; font-weight: 700; color: #7DD3FC; }
+  .budget-track { width: 100%; background: rgba(255,255,255,0.2); border-radius: 4px; height: 7px; margin: 10px 0 4px; }
+  .budget-fill  { height: 7px; border-radius: 4px; transition: width 0.25s, background 0.25s; background: #34D399; }
+  .budget-lbl   { font-size: 10px; color: rgba(255,255,255,0.7); }
+
+  .chart-section {
+    background: white; border-radius: 10px; padding: 20px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08); margin-bottom: 12px;
+  }
+  .chart-title { font-size: 14px; font-weight: 700; color: #1A3A5C; margin-bottom: 10px; }
+
+  .tariff-strip {
+    display: grid; grid-template-columns: repeat(24, 1fr);
+    margin-top: 4px; border-radius: 4px; overflow: hidden; height: 20px;
+  }
+  .tariff-cell {
+    font-size: 9px; font-weight: 700; display: flex;
+    align-items: center; justify-content: center;
+  }
+  .t-night { background: #DBEAFE; color: #1E40AF; }
+  .t-day   { background: #FEF3C7; color: #92400E; }
+  .t-peak  { background: #FEE2E2; color: #991B1B; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #374151; }
+  .legend-swatch { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+
+  .stats-bar { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 12px; }
+  .stat-card {
+    background: white; border-radius: 10px; padding: 14px 16px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08); text-align: center;
+  }
+  .stat-card .slbl { font-size: 11px; color: #6B7280; margin-bottom: 4px; }
+  .stat-card .sval { font-size: 22px; font-weight: 700; color: #1A3A5C; }
+  .stat-card .ssub { font-size: 10px; color: #9CA3AF; margin-top: 2px; }
+  .stat-card.hl    { background: #1A3A5C; }
+  .stat-card.hl .slbl { color: #93C5FD; }
+  .stat-card.hl .sval { color: #E8943A; }
+  .stat-card.hl .ssub { color: #6B7280; }
+
+  details { margin-top: 12px; }
+  summary { cursor: pointer; font-size: 12px; color: #6B7280; padding: 8px 12px; background: white; border-radius: 6px; user-select: none; }
+  summary:hover { color: #1A3A5C; }
+  .data-table-wrap { overflow-x: auto; margin-top: 4px; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  th, td { padding: 5px 8px; text-align: right; border-bottom: 1px solid #F3F4F6; white-space: nowrap; }
+  th { background: #1A3A5C; color: white; font-weight: 700; }
+  td:first-child, th:first-child { text-align: center; }
+  tr:nth-child(even) td { background: #F9FAFB; }
+  .tr-peak { background: #FFF5F5 !important; }
+  .tr-day  { background: #FFFBEB !important; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🐔 Chicken Farm — Energy Dispatch Planner</h1>
+  <p>Choose your energy system. The planner calculates costs automatically.</p>
+</header>
+
+<main>
+
+  <div class="controls">
+    <div class="control-card">
+      <div class="icon">☀️</div>
+      <label for="solar">Solar farm capacity</label>
+      <div class="slider-row">
+        <input type="range" id="solar" min="0" max="400" step="50" value="0">
+        <span class="slider-val" id="solar-val">0 kW</span>
+      </div>
+      <div class="cost-label" id="solar-cost">Setup: £0</div>
+      <div class="sub">Generates 07:00–18:00 · free to run · peaks at midday</div>
+    </div>
+
+    <div class="control-card">
+      <div class="icon">💨</div>
+      <label for="wind">Wind turbine capacity</label>
+      <div class="slider-row">
+        <input type="range" id="wind" min="0" max="400" step="50" value="0">
+        <span class="slider-val" id="wind-val">0 kW</span>
+      </div>
+      <div class="cost-label" id="wind-cost">Setup: £0</div>
+      <div class="sub">25% capacity overnight · 75% capacity 14:00–21:00 · free to run</div>
+    </div>
+
+    <div class="control-card">
+      <div class="icon">🔋</div>
+      <label for="batt">Battery storage</label>
+      <div class="slider-row">
+        <input type="range" id="batt" min="0" max="1000" step="100" value="0">
+        <span class="slider-val" id="batt-val">0 kWh</span>
+      </div>
+      <div class="cost-label" id="batt-cost">Setup: £0</div>
+      <div class="sub">Charges from surplus solar/wind · discharges during 40p peak</div>
+    </div>
+
+    <div class="control-card">
+      <div class="icon">⛽</div>
+      <label for="diesel">Diesel generator</label>
+      <div class="slider-row">
+        <input type="range" id="diesel" min="0" max="400" step="100" value="0">
+        <span class="slider-val" id="diesel-val">0 kW</span>
+      </div>
+      <div class="cost-label" id="diesel-cost">Setup: £0</div>
+      <div class="sub">On demand · 50p/kWh to run · emergency backup only</div>
+    </div>
+
+    <div class="control-card">
+      <div class="icon">💧</div>
+      <label for="hydro">Hydro turbine</label>
+      <div class="slider-row">
+        <input type="range" id="hydro" min="0" max="200" step="50" value="0">
+        <span class="slider-val" id="hydro-val">0 kW</span>
+      </div>
+      <div class="cost-label" id="hydro-cost">Setup: £0</div>
+      <div class="sub">Constant generation 24 hrs · free to run · baseload renewable</div>
+    </div>
+
+    <div class="setup-summary" id="setup-summary">
+      <div class="lbl">Total setup cost</div>
+      <div class="amt" id="total-setup">£0</div>
+      <div class="budget-track"><div class="budget-fill" id="budget-fill" style="width:0%"></div></div>
+      <div class="budget-lbl" id="budget-lbl">£500,000 budget remaining</div>
+      <div class="plbl" id="payback-lbl">Payback period</div>
+      <div class="pval" id="payback-hero">—</div>
+    </div>
+  </div>
+
+  <!-- Main dispatch chart -->
+  <div class="chart-section">
+    <div class="chart-title">Hour-by-hour energy supply</div>
+
+    <!-- Tariff strip sits above the bars -->
+    <div class="tariff-strip" id="tariff-strip" style="margin-bottom:4px"></div>
+
+    <svg id="dispatchSvg"
+         viewBox="0 0 960 270"
+         preserveAspectRatio="none"
+         style="width:100%;height:260px;display:block;overflow:visible">
+      <!-- Gridlines -->
+      <line x1="0" y1="45"  x2="960" y2="45"  stroke="#F0F0F0" stroke-width="1"/>
+      <line x1="0" y1="90"  x2="960" y2="90"  stroke="#F0F0F0" stroke-width="1"/>
+      <line x1="0" y1="135" x2="960" y2="135" stroke="#F0F0F0" stroke-width="1"/>
+      <line x1="0" y1="180" x2="960" y2="180" stroke="#F0F0F0" stroke-width="1"/>
+      <line x1="0" y1="225" x2="960" y2="225" stroke="#F0F0F0" stroke-width="1"/>
+      <line x1="0" y1="270" x2="960" y2="270" stroke="#E0E0E0" stroke-width="1"/>
+      <!-- Dynamic bars go here -->
+      <g id="bars"></g>
+      <!-- Demand line drawn on top -->
+      <polyline id="demandLine" fill="none" stroke="#1A3A5C" stroke-width="2.5" stroke-dasharray="6,3" points=""/>
+    </svg>
+
+    <!-- Legend -->
+    <div class="legend">
+      <div class="legend-item"><div class="legend-swatch" style="background:#0EA5E9"></div>Hydro (0p)</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#F4A024"></div>Solar (0p)</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#0B7285"></div>Wind (0p)</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#2D6A4F"></div>Battery (0p)</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#EF4444"></div>Diesel (50p)</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#93C5FD"></div>Grid — night 10p</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#FCD34D"></div>Grid — day 20p</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#F87171"></div>Grid — peak 40p</div>
+      <div class="legend-item">
+        <svg width="22" height="12"><line x1="0" y1="6" x2="22" y2="6" stroke="#1A3A5C" stroke-width="2.5" stroke-dasharray="6,3"/></svg>
+        Demand
+      </div>
+    </div>
+  </div>
+
+  <!-- Battery chart -->
+  <div class="chart-section">
+    <div class="chart-title">🔋 Battery charge level across the day</div>
+    <svg id="battSvg"
+         viewBox="0 0 960 90"
+         preserveAspectRatio="none"
+         style="width:100%;height:90px;display:block">
+      <line id="battMaxLine" x1="0" y1="10" x2="960" y2="10" stroke="#D1FAE5" stroke-width="1.5" stroke-dasharray="4,4"/>
+      <polygon id="battFill" fill="rgba(45,106,79,0.15)" stroke="none" points=""/>
+      <polyline id="battLine" fill="none" stroke="#2D6A4F" stroke-width="2" points=""/>
+    </svg>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats-bar">
+    <div class="stat-card">
+      <div class="slbl">Your daily cost</div>
+      <div class="sval" id="stat-daily">£944</div>
+      <div class="ssub">your plan</div>
+    </div>
+    <div class="stat-card">
+      <div class="slbl">Grid-only cost</div>
+      <div class="sval" style="color:#DC2626">£944</div>
+      <div class="ssub">no renewables</div>
+    </div>
+    <div class="stat-card">
+      <div class="slbl">Daily saving</div>
+      <div class="sval" id="stat-saving" style="color:#059669">£0</div>
+      <div class="ssub">vs grid only</div>
+    </div>
+    <div class="stat-card">
+      <div class="slbl">Annual saving</div>
+      <div class="sval" id="stat-annual" style="color:#059669">£0</div>
+      <div class="ssub">× 365 days</div>
+    </div>
+    <div class="stat-card hl">
+      <div class="slbl">Payback period</div>
+      <div class="sval" id="stat-payback">—</div>
+      <div class="ssub" id="stat-payback-sub">setup ÷ annual saving</div>
+    </div>
+  </div>
+
+  <!-- Data table -->
+  <details>
+    <summary>▾ Show hour-by-hour data table</summary>
+    <div class="data-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Hour</th><th>Demand (kW)</th><th>Hydro (kW)</th><th>Solar (kW)</th>
+            <th>Wind (kW)</th><th>Battery (kW)</th><th>Diesel (kW)</th><th>Grid (kW)</th>
+            <th>Tariff</th><th>Hour cost (£)</th><th>Battery SOC (kWh)</th>
+          </tr>
+        </thead>
+        <tbody id="data-tbody"></tbody>
+      </table>
+    </div>
+  </details>
+
+</main>
+
+<script>
+// ── Constants ────────────────────────────────────────────────────────────────
+const DEMAND  = [80,80,80,80,80,100,140,180,200,220,240,260,260,260,260,240,220,200,180,160,140,120,100,80];
+const TARIFF  = [10,10,10,10,10,10,10,20,20,20,20,20,20,20,20,20,40,40,40,40,40,40,40,10];
+const SOLAR_F = [0,0,0,0,0,0,0,0.2,0.4,0.6,0.8,1,1,1,1,0.8,0.6,0.4,0.2,0,0,0,0,0];
+const HOURS   = Array.from({length:24}, (_,i) => String(i).padStart(2,'0')+':00');
+const GRID_ONLY = 944;
+
+// ── SVG geometry ─────────────────────────────────────────────────────────────
+const SVG_W  = 960;
+const SVG_H  = 270;
+const MAX_KW = 300;
+const BAR_W  = SVG_W / 24; // 40
+const NS     = 'http://www.w3.org/2000/svg';
+
+function kwToY(kw) { return SVG_H - (kw / MAX_KW) * SVG_H; }
+
+// ── Dispatch calculation ─────────────────────────────────────────────────────
+function calcDispatch(solarKW, windKW, battKWh, dieselKW, hydroKW) {
+  let soc = 0;
+  return DEMAND.map((demand, h) => {
+    const sAvail  = SOLAR_F[h] * solarKW;
+    const wAvail  = (h >= 14 && h <= 21 ? 0.75 : 0.25) * windKW;
+    const hAvail  = hydroKW;                        // constant every hour
+    const renew   = sAvail + wAvail + hAvail;
+    const tariff  = TARIFF[h];
+
+    // Step 1 — use all available renewables first
+    const renewUsed = Math.min(renew, demand);
+    let sUsed = 0, wUsed = 0, hUsed = 0;
+    if (renew > 0) {
+      sUsed = renewUsed * sAvail / renew;
+      wUsed = renewUsed * wAvail / renew;
+      hUsed = renewUsed * hAvail / renew;
+    }
+
+    let remaining = demand - renewUsed;
+
+    // Step 2 — charge battery from surplus renewable
+    const surplus = renew - renewUsed;
+    soc = Math.min(battKWh, soc + Math.min(surplus, battKWh - soc));
+
+    // Step 3 — discharge battery during peak hours
+    let battD = 0;
+    if (tariff === 40 && soc > 0 && remaining > 0) {
+      battD = Math.min(remaining, soc);
+      soc = Math.max(0, soc - battD);
+      remaining -= battD;
+    }
+
+    // Step 4 — diesel covers remaining demand; spare capacity charges the battery
+    let dieselDemand = 0; // portion covering demand (shown in chart)
+    let dieselBatt   = 0; // portion charging battery (hidden from chart)
+    if (dieselKW > 0 && remaining > 0) {
+      dieselDemand = Math.min(remaining, dieselKW);
+      const spare    = dieselKW - dieselDemand;
+      dieselBatt     = Math.min(spare, battKWh - soc);
+      remaining     -= dieselDemand;
+      soc            = Math.min(battKWh, soc + dieselBatt);
+    }
+    const dieselUsed = dieselDemand + dieselBatt; // total for cost calc
+
+    // Step 5 — grid covers whatever is left
+    const gridUsed = remaining;
+    const cost = dieselUsed * 0.50 + gridUsed * tariff / 100;
+
+    return { h, demand, hUsed, sUsed, wUsed, battD, dieselDemand, dieselUsed, gridUsed, soc, cost, tariff };
+  });
+}
+
+// ── Build tariff strip ───────────────────────────────────────────────────────
+const strip = document.getElementById('tariff-strip');
+TARIFF.forEach(t => {
+  const d = document.createElement('div');
+  d.className = 'tariff-cell ' + (t===10 ? 't-night' : t===20 ? 't-day' : 't-peak');
+  d.textContent = t + 'p';
+  strip.appendChild(d);
+});
+
+// ── Render dispatch SVG ──────────────────────────────────────────────────────
+function renderDispatch(rows) {
+  const barsG = document.getElementById('bars');
+  while (barsG.firstChild) barsG.removeChild(barsG.firstChild);
+
+  rows.forEach((r, h) => {
+    const x = h * BAR_W;
+    const gc = r.tariff===40 ? '#F87171' : r.tariff===20 ? '#FCD34D' : '#93C5FD';
+    const segs = [
+      { kw: r.hUsed,      color: '#0EA5E9' },   // hydro  — bottom
+      { kw: r.sUsed,      color: '#F4A024' },   // solar
+      { kw: r.wUsed,      color: '#0B7285' },   // wind
+      { kw: r.battD,      color: '#2D6A4F' },   // battery
+      { kw: r.dieselDemand, color: '#EF4444' },  // diesel demand portion only (batt charge is hidden)
+      { kw: r.gridUsed,   color: gc },          // grid   — top (tariff-coloured)
+    ];
+    let cumH = 0;
+    segs.forEach(seg => {
+      if (seg.kw < 0.05) return;
+      const segH = (seg.kw / MAX_KW) * SVG_H;
+      const rect = document.createElementNS(NS, 'rect');
+      rect.setAttribute('x',      (x + 1).toFixed(1));
+      rect.setAttribute('y',      (SVG_H - cumH - segH).toFixed(1));
+      rect.setAttribute('width',  (BAR_W - 2).toFixed(1));
+      rect.setAttribute('height', segH.toFixed(1));
+      rect.setAttribute('fill',   seg.color);
+      barsG.appendChild(rect);
+      cumH += segH;
+    });
+  });
+
+  // Demand line
+  const pts = rows.map((r, h) =>
+    `${(h * BAR_W + BAR_W / 2).toFixed(1)},${kwToY(r.demand).toFixed(1)}`
+  ).join(' ');
+  document.getElementById('demandLine').setAttribute('points', pts);
+}
+
+// ── Render battery SVG ───────────────────────────────────────────────────────
+function renderBatt(rows, battKWh) {
+  const maxKWh = Math.max(battKWh, 100);
+  const BSVG_H = 90;
+  const MARGIN = 10;
+
+  function socToY(soc) { return BSVG_H - MARGIN - (soc / maxKWh) * (BSVG_H - MARGIN * 2); }
+
+  const pts = rows.map((r, h) =>
+    `${(h * BAR_W + BAR_W / 2).toFixed(1)},${socToY(r.soc).toFixed(1)}`
+  ).join(' ');
+
+  document.getElementById('battLine').setAttribute('points', pts);
+
+  // Filled area
+  const lastX = ((rows.length - 1) * BAR_W + BAR_W / 2).toFixed(1);
+  const firstX = (BAR_W / 2).toFixed(1);
+  const bottom = (BSVG_H - MARGIN).toFixed(1);
+  document.getElementById('battFill').setAttribute('points', `${pts} ${lastX},${bottom} ${firstX},${bottom}`);
+
+  // Max capacity dashed line
+  const maxY = socToY(battKWh).toFixed(1);
+  const ml = document.getElementById('battMaxLine');
+  ml.setAttribute('y1', maxY);
+  ml.setAttribute('y2', maxY);
+}
+
+// ── Main update ──────────────────────────────────────────────────────────────
+function update() {
+  const solarKW  = +document.getElementById('solar').value;
+  const windKW   = +document.getElementById('wind').value;
+  const battKWh  = +document.getElementById('batt').value;
+  const dieselKW = +document.getElementById('diesel').value;
+  const hydroKW  = +document.getElementById('hydro').value;
+
+  const sc = solarKW * 1000, wc = windKW * 1500, bc = battKWh * 500;
+  const dc = dieselKW * 200, hc = hydroKW * 3000;
+  const setup = sc + wc + bc + dc + hc;
+
+  document.getElementById('solar-cost').textContent  = 'Setup: £' + sc.toLocaleString();
+  document.getElementById('wind-cost').textContent   = 'Setup: £' + wc.toLocaleString();
+  document.getElementById('batt-cost').textContent   = 'Setup: £' + bc.toLocaleString();
+  document.getElementById('diesel-cost').textContent = 'Setup: £' + dc.toLocaleString();
+  document.getElementById('hydro-cost').textContent  = 'Setup: £' + hc.toLocaleString();
+  document.getElementById('total-setup').textContent = '£' + Math.round(setup).toLocaleString();
+
+  // ── Budget constraint (£500,000) ──
+  const BUDGET = 500000;
+  const overBudget = setup > BUDGET;
+  const pct = Math.min(setup / BUDGET * 100, 100);
+  const fill = document.getElementById('budget-fill');
+  fill.style.width  = pct + '%';
+  fill.style.background = overBudget ? '#EF4444' : pct > 80 ? '#FCD34D' : '#34D399';
+  document.getElementById('setup-summary').style.background = overBudget ? '#7F1D1D' : '#1A3A5C';
+  const budgetLbl = document.getElementById('budget-lbl');
+  if (overBudget) {
+    budgetLbl.textContent = '⚠ Over budget by £' + (setup - BUDGET).toLocaleString();
+    budgetLbl.style.color = '#FCA5A5';
+  } else {
+    budgetLbl.textContent = '£' + (BUDGET - setup).toLocaleString() + ' remaining';
+    budgetLbl.style.color = 'rgba(255,255,255,0.7)';
+  }
+
+  const rows = calcDispatch(solarKW, windKW, battKWh, dieselKW, hydroKW);
+  const dailyCost  = rows.reduce((s, r) => s + r.cost, 0);
+  const saving     = GRID_ONLY - dailyCost;
+  const annSaving  = saving * 365;
+  const payback    = annSaving > 0 ? setup / annSaving : Infinity;
+
+  document.getElementById('stat-daily').textContent   = '£' + Math.round(dailyCost);
+  document.getElementById('stat-saving').textContent  = '£' + Math.round(saving);
+  document.getElementById('stat-annual').textContent  = '£' + Math.round(annSaving).toLocaleString();
+
+  const ph = document.getElementById('payback-hero');
+  const ps = document.getElementById('stat-payback');
+  const psub = document.getElementById('stat-payback-sub');
+
+  if (overBudget) {
+    ph.textContent = '—';
+    ps.textContent = '—';
+    ps.style.color = '#6B7280';
+    psub.textContent = 'fix budget first';
+  } else if (payback < 100) {
+    ph.textContent = payback.toFixed(1) + ' yrs';
+    ps.textContent = payback.toFixed(1) + ' years';
+    ps.style.color = payback < 5 ? '#34D399' : payback < 10 ? '#FCD34D' : '#F87171';
+    psub.textContent = '£' + Math.round(setup).toLocaleString() + ' ÷ £' + Math.round(annSaving).toLocaleString() + '/yr';
+  } else {
+    ph.textContent = '—';
+    ps.textContent = '—';
+    ps.style.color = '#6B7280';
+    psub.textContent = 'no saving yet';
+  }
+
+  renderDispatch(rows);
+  renderBatt(rows, battKWh);
+
+  // Data table
+  const tbody = document.getElementById('data-tbody');
+  tbody.innerHTML = '';
+  rows.forEach(r => {
+    const tr = document.createElement('tr');
+    if (r.tariff === 40) tr.className = 'tr-peak';
+    else if (r.tariff === 20) tr.className = 'tr-day';
+    tr.innerHTML = `
+      <td>${HOURS[r.h]}</td>
+      <td>${r.demand}</td>
+      <td>${r.hUsed.toFixed(1)}</td>
+      <td>${r.sUsed.toFixed(1)}</td>
+      <td>${r.wUsed.toFixed(1)}</td>
+      <td>${r.battD.toFixed(1)}</td>
+      <td>${r.dieselUsed.toFixed(1)} (${r.dieselDemand.toFixed(1)}+batt)</td>
+      <td>${r.gridUsed.toFixed(1)}</td>
+      <td>${r.tariff}p</td>
+      <td>£${r.cost.toFixed(2)}</td>
+      <td>${r.soc.toFixed(0)}</td>`;
+    tbody.appendChild(tr);
+  });
+  const tot = document.createElement('tr');
+  tot.style.cssText = 'font-weight:700;background:#F0F4F8';
+  tot.innerHTML = `
+    <td>Total</td>
+    <td>${DEMAND.reduce((a,b)=>a+b,0)}</td>
+    <td>${rows.reduce((s,r)=>s+r.hUsed,0).toFixed(0)}</td>
+    <td>${rows.reduce((s,r)=>s+r.sUsed,0).toFixed(0)}</td>
+    <td>${rows.reduce((s,r)=>s+r.wUsed,0).toFixed(0)}</td>
+    <td>${rows.reduce((s,r)=>s+r.battD,0).toFixed(0)}</td>
+    <td>${rows.reduce((s,r)=>s+r.dieselUsed,0).toFixed(0)}</td>
+    <td>${rows.reduce((s,r)=>s+r.gridUsed,0).toFixed(0)}</td>
+    <td>—</td>
+    <td>£${dailyCost.toFixed(2)}</td>
+    <td>—</td>`;
+  tbody.appendChild(tot);
+}
+
+// ── Sliders ──────────────────────────────────────────────────────────────────
+document.getElementById('solar').addEventListener('input', function() {
+  document.getElementById('solar-val').textContent = this.value + ' kW';
+  update();
+});
+document.getElementById('wind').addEventListener('input', function() {
+  document.getElementById('wind-val').textContent = this.value + ' kW';
+  update();
+});
+document.getElementById('batt').addEventListener('input', function() {
+  document.getElementById('batt-val').textContent = this.value + ' kWh';
+  update();
+});
+document.getElementById('diesel').addEventListener('input', function() {
+  document.getElementById('diesel-val').textContent = this.value + ' kW';
+  update();
+});
+document.getElementById('hydro').addEventListener('input', function() {
+  document.getElementById('hydro-val').textContent = this.value + ' kW';
+  update();
+});
+
+// ── Initial render ───────────────────────────────────────────────────────────
+update();
+</script>
+</body>
+</html>
