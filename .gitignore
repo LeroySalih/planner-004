@@ -67,3 +67,8 @@ node_modules/
 logs
 *.log
 .superpowers/
+.claude/
+
+# Local files that should never be committed
+dt.mr-salih.uk
+dino_schema_*.sql
