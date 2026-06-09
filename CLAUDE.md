@@ -139,6 +139,7 @@ src/
 ├── app/              # Routes, layouts, pages (App Router)
 ├── components/       # Reusable UI and feature-specific components
 │   ├── ui/          # Radix-wrapped primitives
+│   ├── public/      # Unauthenticated public lesson browser components
 │   └── */           # Feature bundles (e.g., assignment-manager/)
 ├── lib/
 │   ├── server-actions/  # Domain-specific server actions
@@ -149,6 +150,10 @@ src/
 ├── types/           # Zod schemas and inferred TypeScript types
 └── actions/         # Legacy ad-hoc helpers (prefer server-actions/)
 ```
+
+### Static File Serving
+
+Files placed in `public/` are served at the root URL with no auth — e.g. `public/pages/foo.html` → `https://dino.mr-salih.org/pages/foo.html`.
 
 ## Key Data Contracts
 
@@ -161,6 +166,16 @@ src/
 - Teacher summary: `pupil_lessons_summary_bootstrap(p_target_user_id)` via `readPupilLessonsSummaryBootstrapAction`
 - Pupil detail: `pupil_lessons_detail_bootstrap(p_target_user_id)` via `readPupilLessonsDetailBootstrapAction`
 - Always shape JSON on Next.js server, never expose raw RPC payloads to clients
+
+**Public Lessons**:
+- `lessons.is_public boolean DEFAULT false NOT NULL` — controls unauthenticated visibility
+- `readPublicLessonsAction()` — returns all public lessons grouped by curriculum/unit (no auth required)
+- `readPublicLessonActivitiesAction(lessonId)` — returns only `PUBLIC_ACTIVITY_TYPES` activities for a public lesson
+- `toggleLessonPublicAction(lessonId, isPublic)` — teacher-only toggle; revalidates both the lesson page and `/signin`
+- `PUBLIC_ACTIVITY_TYPES` in `src/dino.config.ts` — static display types only (`text`, `display-image`, `show-video`, `display-section`, `display-flashcards`); scorable and interactive types are hidden from public view
+- `/signin` is the public lesson browser — split layout: scrollable left panel (hero + filter chips + unit cards), fixed right panel (sign-in form)
+- Direct lesson links (`/lessons/[id]`) work without auth for public lessons; private lessons redirect to `/signin?returnTo=…`
+- Unit page (`/units/[id]`) shows a globe icon on every lesson — green = public, grey = private; clicking the icon toggles `is_public`
 
 **Report Levels**: Use boundary helper in `src/lib/levels/index.ts` for level lookups - update centrally if scale changes.
 
@@ -217,7 +232,29 @@ All server functions should use `withTelemetry` wrapper for performance tracking
 - Long-form feature components (e.g., Assignment Manager) separate stateful logic into subcomponents
 - SQL migrations in `src/migrations/` (note: no `supabase/` directory in this project)
 - Scripts in `scripts/` and `bin/` directories for database sync and utilities
-- MCP server in `MCP/` directory (`npm run dev` for hot reload, exposes planner resources/tools)
+- MCP server lives at `src/app/api/MCP/route.ts` — there is no separate `MCP/` directory
+
+## SQL Gotchas
+
+### units → curricula join is via subject, not a foreign key
+
+`units` has no `curriculum_id` column. Join curricula to units like this:
+
+```sql
+JOIN curricula c ON c.subject = u.subject
+```
+
+A single unit subject can match multiple curricula — use `DISTINCT ON (l.lesson_id)` when you need one row per lesson.
+
+### Nullable boolean columns — use IS NOT FALSE
+
+Several `active` columns default to `NULL` in production rows. `WHERE active = true` silently excludes those rows. Always write:
+
+```sql
+WHERE l.active IS NOT FALSE
+  AND u.active IS NOT FALSE
+  AND c.active IS NOT FALSE
+```
 
 ## MCP Server — Known Gotchas
 
