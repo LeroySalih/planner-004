@@ -16,6 +16,30 @@ export type ActivitySummary = {
   active: boolean
 }
 
+const TEXT_BODY_DATA_FORMAT = '{ "text": "<markdown content>", "displayType"?: "default" | "exam-tip" }'
+
+export function validateBodyDataForType(type: string, bodyData: unknown): void {
+  if (bodyData == null) return
+
+  if (type === 'text') {
+    if (typeof bodyData !== 'object' || Array.isArray(bodyData)) {
+      throw new Error(`Invalid body_data for type "text". Expected format: ${TEXT_BODY_DATA_FORMAT}`)
+    }
+    const record = bodyData as Record<string, unknown>
+    if (typeof record.text !== 'string' || !record.text.trim()) {
+      throw new Error(`Invalid body_data for type "text": "text" is required and must be a non-empty string. Expected format: ${TEXT_BODY_DATA_FORMAT}`)
+    }
+    if (record.displayType !== undefined && record.displayType !== 'default' && record.displayType !== 'exam-tip') {
+      throw new Error(`Invalid body_data for type "text": "displayType" must be "default" or "exam-tip". Expected format: ${TEXT_BODY_DATA_FORMAT}`)
+    }
+    const allowedKeys = new Set(['text', 'displayType'])
+    const unknownKeys = Object.keys(record).filter((key) => !allowedKeys.has(key))
+    if (unknownKeys.length > 0) {
+      throw new Error(`Invalid body_data for type "text": unexpected field(s) ${unknownKeys.join(', ')}. Expected format: ${TEXT_BODY_DATA_FORMAT}`)
+    }
+  }
+}
+
 export async function listActivitiesForLesson(lessonId: string): Promise<ActivitySummary[]> {
   const { rows } = await query<{
     activity_id: string
@@ -58,6 +82,8 @@ export async function createActivity(
   }
 
   const effectiveIsSummative = isScorableType ? (isSummative ?? false) : false
+
+  validateBodyDataForType(type, bodyData)
 
   let result: ActivitySummary | null = null
 
@@ -166,6 +192,13 @@ export async function uploadActivityFile(
     .join('/')
   const url = `/api/files/${urlParts}`
 
+  if (activity.type === 'display-image') {
+    await query(
+      'update activities set body_data = $1::jsonb where activity_id = $2',
+      [JSON.stringify({ imageFile: fileName, fileUrl: fileName }), activityId],
+    )
+  }
+
   return {
     activity_id: activityId,
     lesson_id: lessonId,
@@ -191,6 +224,10 @@ export async function updateActivity(
       [activityId],
     )
     if (!existing[0]) throw new Error(`Activity ${activityId} not found`)
+
+    if ('bodyData' in fields) {
+      validateBodyDataForType(existing[0].type, fields.bodyData)
+    }
 
     await assertLessonUnitIsInactive(client, existing[0].lesson_id)
 

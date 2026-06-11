@@ -39,8 +39,9 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
 
   // Validate activity exists, is file-download type, and unit is inactive
+  let activityType: string
   try {
-    await withDbClient(async (client) => {
+    activityType = await withDbClient(async (client) => {
       const { rows } = await client.query<{ activity_id: string; type: string }>(
         'select activity_id, type from activities where activity_id = $1 and lesson_id = $2 limit 1',
         [activityId, lessonId],
@@ -51,6 +52,7 @@ export async function POST(request: NextRequest): Promise<Response> {
         throw new Error(`Activity ${activityId} is type "${activity.type}" — only file-download and display-image activities accept file uploads`)
       }
       await assertLessonUnitIsInactive(client, lessonId)
+      return activity.type
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Validation failed'
@@ -68,6 +70,15 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   if (error) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 })
+  }
+
+  if (activityType === 'display-image') {
+    await withDbClient(async (client) => {
+      await client.query(
+        'update activities set body_data = $1::jsonb where activity_id = $2',
+        [JSON.stringify({ imageFile: file.name, fileUrl: file.name }), activityId],
+      )
+    })
   }
 
   const urlParts = [BUCKET, lessonId, 'activities', activityId, file.name].map(encodeURIComponent).join('/')

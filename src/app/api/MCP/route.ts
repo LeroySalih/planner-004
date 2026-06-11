@@ -617,6 +617,7 @@ function createMcpServer(baseUrl = ''): McpServer {
       description: `Create a new activity under a lesson. Type-specific requirements:
 - short-text-question: provide question and model_answer (required).
 - multiple-choice-question: provide question, mcq_options (2–4 items), and correct_option_id matching one option id (required).
+- text: body_data must be { "text": "<markdown content>", "displayType"?: "default" | "exam-tip" }.
 - All other types: use body_data for any extra JSON payload.`,
       inputSchema: z.object({
         lesson_id: z.string().min(1).describe('Lesson identifier.'),
