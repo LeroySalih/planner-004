@@ -244,7 +244,7 @@ Uploads a base64-encoded file to the lesson's private teacher file store. Not vi
 **Output:** `{ file: { lesson_id, file_name, size_bytes, url } | null }`
 
 ##### `upload_activity_file`
-Uploads a base64-encoded file to a `file-download` activity. **Unit must be inactive.** Max 5 MB.
+Uploads a base64-encoded file to a `file-download` activity (so pupils can download it) or a `display-image` activity (to set its image). **Unit must be inactive.** Max 5 MB.
 
 **Input:** `{ lesson_id: string, activity_id: string, file_name: string, base64_content: string, content_type?: string }`  
 **Output:** `{ file: { activity_id, lesson_id, file_name, size_bytes, url } | null }`
@@ -271,7 +271,7 @@ Returns everything needed to POST a file directly to the lesson teacher file sto
 ```
 
 ##### `get_activity_file_upload_info`
-Returns everything needed to POST a file directly to a `file-download` activity.
+Returns everything needed to POST a file directly to a `file-download` or `display-image` activity.
 
 **Input:** `{ lesson_id: string, activity_id: string }`  
 **Output:**
@@ -281,7 +281,7 @@ Returns everything needed to POST a file directly to a `file-download` activity.
   "method": "POST",
   "headers": { "Authorization": "Bearer <MCP_SERVICE_KEY>" },
   "form_fields": { "lesson_id": "<lesson_id>", "activity_id": "<activity_id>" },
-  "instructions": "Send a multipart/form-data POST. File field name: 'file'. Max 5 MB. Activity must be type file-download."
+  "instructions": "Send a multipart/form-data POST. File field name: 'file'. Max 5 MB. Activity must be type file-download or display-image."
 }
 ```
 
@@ -290,7 +290,7 @@ Returns everything needed to POST a file directly to a `file-download` activity.
 | Endpoint | Purpose |
 |---|---|
 | `POST /api/MCP/files/lesson` | Upload to lesson teacher file store |
-| `POST /api/MCP/files/activity` | Upload to a `file-download` activity |
+| `POST /api/MCP/files/activity` | Upload to a `file-download` or `display-image` activity |
 
 ---
 

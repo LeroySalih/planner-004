@@ -831,10 +831,10 @@ function createMcpServer(baseUrl = ''): McpServer {
     'get_activity_file_upload_info',
     {
       title: 'Get activity file upload info',
-      description: 'Returns the URL, headers, and form fields needed to upload a file directly to a file-download activity via multipart POST — no base64 encoding required.',
+      description: 'Returns the URL, headers, and form fields needed to upload a file directly to a file-download or display-image activity via multipart POST — no base64 encoding required.',
       inputSchema: z.object({
         lesson_id: z.string().describe('UUID of the lesson'),
-        activity_id: z.string().describe('UUID of the file-download activity'),
+        activity_id: z.string().describe('UUID of the file-download or display-image activity'),
       }),
       outputSchema: z.object({
         upload_url: z.string(),
@@ -852,7 +852,7 @@ function createMcpServer(baseUrl = ''): McpServer {
         method: 'POST',
         headers: { Authorization: `Bearer ${serviceKey}` },
         form_fields: { lesson_id, activity_id },
-        instructions: `Send a multipart/form-data POST to upload_url. Include the Authorization header. Add the form_fields as form fields. Include the file under the field name "file". Max file size 5 MB. Activity must be type file-download and unit must be inactive.`,
+        instructions: `Send a multipart/form-data POST to upload_url. Include the Authorization header. Add the form_fields as form fields. Include the file under the field name "file". Max file size 5 MB. Activity must be type file-download or display-image and unit must be inactive.`,
       }
       return {
         content: [{ type: 'text' as const, text: `Upload to: POST ${uploadUrl}\nForm fields: lesson_id=${lesson_id}, activity_id=${activity_id}\nFile field name: file` }],
@@ -901,11 +901,11 @@ function createMcpServer(baseUrl = ''): McpServer {
   srv.registerTool(
     'upload_activity_file',
     {
-      title: 'Upload file to file-download activity',
-      description: 'Uploads a base64-encoded file to a file-download activity so pupils can download it. The unit must be inactive.',
+      title: 'Upload file to file-download or display-image activity',
+      description: 'Uploads a base64-encoded file to a file-download activity (so pupils can download it) or a display-image activity (to set its image). The unit must be inactive.',
       inputSchema: z.object({
         lesson_id: z.string().describe('UUID of the lesson'),
-        activity_id: z.string().describe('UUID of the file-download activity'),
+        activity_id: z.string().describe('UUID of the file-download or display-image activity'),
         file_name: z.string().describe('File name including extension, e.g. "worksheet.pdf"'),
         base64_content: z.string().describe('Base64-encoded file content'),
         content_type: z.string().optional().describe('MIME type, e.g. "application/pdf" or "image/png"'),

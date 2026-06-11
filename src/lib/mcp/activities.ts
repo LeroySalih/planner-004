@@ -142,8 +142,8 @@ export async function uploadActivityFile(
   )
   const activity = rows[0]
   if (!activity) throw new Error(`Activity ${activityId} not found in lesson ${lessonId}`)
-  if (activity.type !== 'file-download') {
-    throw new Error(`Activity ${activityId} is type "${activity.type}" — only file-download activities accept file uploads`)
+  if (activity.type !== 'file-download' && activity.type !== 'display-image') {
+    throw new Error(`Activity ${activityId} is type "${activity.type}" — only file-download and display-image activities accept file uploads`)
   }
 
   // Safety guard — unit must be inactive
