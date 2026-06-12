@@ -637,6 +637,41 @@ export type SketchRenderSubmissionBody = z.infer<
     typeof SketchRenderSubmissionBodySchema
 >;
 
+export const MatcherPairSchema = z.object({
+    id: z.string().min(1),
+    term: z.string().min(1).max(500),
+    definition: z.string().min(1).max(1000),
+});
+
+export const MatcherActivityBodySchema = z
+    .object({
+        pairs: z.array(MatcherPairSchema).min(2).max(8),
+    })
+    .passthrough();
+
+export const MatcherLayoutEntrySchema = z.object({
+    pairId: z.string().min(1),
+    promptSide: z.enum(["term", "definition"]),
+});
+
+export const MatcherSubmissionBodySchema = z
+    .object({
+        layout: z.array(MatcherLayoutEntrySchema).default([]),
+        answers: z.record(z.string(), z.string().nullable()).default({}),
+        is_correct: z.boolean().default(false),
+        teacher_override_score: z.number().min(0).max(1).nullable().optional(),
+        teacher_feedback: z.string().nullable().optional(),
+        success_criteria_scores: z
+            .record(z.string(), z.number().min(0).max(1).nullable())
+            .default({}),
+    })
+    .passthrough();
+
+export type MatcherPair = z.infer<typeof MatcherPairSchema>;
+export type MatcherActivityBody = z.infer<typeof MatcherActivityBodySchema>;
+export type MatcherLayoutEntry = z.infer<typeof MatcherLayoutEntrySchema>;
+export type MatcherSubmissionBody = z.infer<typeof MatcherSubmissionBodySchema>;
+
 export const PupilActivityFeedbackRowSchema = z.object({
     feedback_id: z.string(),
     activity_id: z.string(),

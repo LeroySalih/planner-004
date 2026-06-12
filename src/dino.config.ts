@@ -8,6 +8,7 @@ export const SCORABLE_ACTIVITY_TYPES = Object.freeze([
   "feedback",
   "sketch-render",
   "do-flashcards",
+  "matcher",
 ]);
 
 export const NON_SCORABLE_ACTIVITY_TYPES = Object.freeze([
