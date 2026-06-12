@@ -37,12 +37,16 @@ import {
   computeSectionIndexMap,
   getFeedbackBody,
   getDisplaySectionBody,
+  getMatcherBody,
   getMcqBody,
   getShortTextBody,
   getVoiceBody,
   getYouTubeThumbnailUrl,
   isAbsoluteUrl,
+  createDefaultMatcherBody,
+  createMatcherPairId,
   type ImageBody,
+  type MatcherBody,
   type McqBody,
   type ShortTextBody,
   type VoiceBody,
@@ -83,6 +87,7 @@ const ACTIVITY_TYPES = [
   { value: "do-flashcards", label: "Do Flashcards" },
   { value: "show-video", label: "Show video" },
   { value: "multiple-choice-question", label: "Multiple choice question" },
+  { value: "matcher", label: "Matcher" },
   { value: "short-text-question", label: "Short text question" },
   { value: "feedback", label: "Feedback" },
   { value: "text-question", label: "Text question" },
@@ -1818,6 +1823,7 @@ function LessonActivityEditorSheet({
   const [isImageLoading, setIsImageLoading] = useState(false)
   const [isImageDragActive, setIsImageDragActive] = useState(false)
   const [mcqBody, setMcqBody] = useState<McqBody>(() => createDefaultMcqBody())
+  const [matcherBody, setMatcherBody] = useState<MatcherBody>(() => createDefaultMatcherBody())
   const [feedbackBody, setFeedbackBody] = useState<FeedbackActivityBody>(() => createDefaultFeedbackBody())
   const [shortTextBody, setShortTextBody] = useState<ShortTextBody>(() => createDefaultShortTextBody())
   const [selectedSuccessCriteriaIds, setSelectedSuccessCriteriaIds] = useState<string[]>([])
@@ -1963,6 +1969,48 @@ function LessonActivityEditorSheet({
     },
     [mcqOptionSlots, updateMcqBody],
   )
+
+  const matcherValidationMessage = useMemo(() => validateMatcherBody(matcherBody), [matcherBody])
+
+  const updateMatcherBody = useCallback((updater: (current: MatcherBody) => MatcherBody) => {
+    setMatcherBody((previous) => normalizeMatcherBody(updater(normalizeMatcherBody(previous))))
+  }, [])
+
+  const handleMatcherTermChange = useCallback((pairId: string, value: string) => {
+    updateMatcherBody((current) => ({
+      ...current,
+      pairs: current.pairs.map((pair) => (pair.id === pairId ? { ...pair, term: value } : pair)),
+    }))
+  }, [updateMatcherBody])
+
+  const handleMatcherDefinitionChange = useCallback((pairId: string, value: string) => {
+    updateMatcherBody((current) => ({
+      ...current,
+      pairs: current.pairs.map((pair) => (pair.id === pairId ? { ...pair, definition: value } : pair)),
+    }))
+  }, [updateMatcherBody])
+
+  const handleMatcherAddPair = useCallback(() => {
+    updateMatcherBody((current) => {
+      if (current.pairs.length >= 8) {
+        toast.error("You can add up to 8 pairs.")
+        return current
+      }
+      const used = new Set(current.pairs.map((pair) => pair.id))
+      const id = createMatcherPairId(used)
+      return { ...current, pairs: [...current.pairs, { id, term: "", definition: "" }] }
+    })
+  }, [updateMatcherBody])
+
+  const handleMatcherRemovePair = useCallback((pairId: string) => {
+    updateMatcherBody((current) => {
+      if (current.pairs.length <= 2) {
+        toast.error("Keep at least 2 pairs.")
+        return current
+      }
+      return { ...current, pairs: current.pairs.filter((pair) => pair.id !== pairId) }
+    })
+  }, [updateMatcherBody])
 
   const handleShortTextQuestionChange = useCallback((value: string) => {
     setShortTextBody((current) => ({ ...current, question: value }))
@@ -2473,6 +2521,7 @@ function LessonActivityEditorSheet({
       setIsFileDragActive(false)
       resetImageState()
       setMcqBody(createDefaultMcqBody())
+      setMatcherBody(createDefaultMatcherBody())
       setShortTextBody(createDefaultShortTextBody())
       setFeedbackBody(createDefaultFeedbackBody())
       setSelectedSuccessCriteriaIds([])
@@ -2518,6 +2567,11 @@ function LessonActivityEditorSheet({
         setMcqBody(normalizeMcqBody(getMcqBody(activity)))
       } else {
         setMcqBody(createDefaultMcqBody())
+      }
+      if (ensuredType === "matcher") {
+        setMatcherBody(normalizeMatcherBody(getMatcherBody(activity)))
+      } else {
+        setMatcherBody(createDefaultMatcherBody())
       }
       if (ensuredType === "short-text-question") {
         setShortTextBody(normalizeShortTextBody(getShortTextBody(activity)))
@@ -2579,6 +2633,7 @@ function LessonActivityEditorSheet({
       setIsUploadingFiles(false)
       setIsFileDragActive(false)
       setMcqBody(createDefaultMcqBody())
+      setMatcherBody(createDefaultMatcherBody())
       setShortTextBody(createDefaultShortTextBody())
       setFeedbackBody(createDefaultFeedbackBody())
       setSelectedSuccessCriteriaIds([])
@@ -2815,6 +2870,15 @@ function LessonActivityEditorSheet({
         setMcqBody(normalizeMcqBody(getMcqBody(activity)))
       } else {
         setMcqBody(createDefaultMcqBody())
+      }
+      return
+    }
+
+    if (type === "matcher") {
+      if (activity) {
+        setMatcherBody(normalizeMatcherBody(getMatcherBody(activity)))
+      } else {
+        setMatcherBody(createDefaultMatcherBody())
       }
       return
     }
@@ -3219,6 +3283,13 @@ function LessonActivityEditorSheet({
         return
       }
       bodyData = preparedMcqBody
+    } else if (type === "matcher") {
+      const { bodyData: preparedMatcherBody, error } = prepareMatcherBodyForSave(matcherBody)
+      if (error) {
+        toast.error(error)
+        return
+      }
+      bodyData = preparedMatcherBody
     } else if (type === "short-text-question") {
       if (shortTextValidationMessage) {
         toast.error(shortTextValidationMessage)
@@ -3308,6 +3379,7 @@ function LessonActivityEditorSheet({
     isRecording ||
     (type !== "voice" && rawBodyError !== null) ||
     (type === "multiple-choice-question" && mcqValidationMessage !== null) ||
+    (type === "matcher" && matcherValidationMessage !== null) ||
     (type === "short-text-question" && shortTextValidationMessage !== null)
 
   return (
@@ -3622,6 +3694,78 @@ function LessonActivityEditorSheet({
                 <p>Provide up to four answers; at least two must contain text before saving.</p>
                 {mcqValidationMessage ? (
                   <p className="text-destructive">{mcqValidationMessage}</p>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          {type === "matcher" ? (
+            <div className="rounded-md border border-border bg-muted/20 p-4">
+              <div className="space-y-3">
+                <Label className="text-xs font-medium text-muted-foreground">
+                  Term &amp; definition pairs
+                </Label>
+                <div className="space-y-3">
+                  {matcherBody.pairs.map((pair, index) => (
+                    <div key={pair.id} className="space-y-2 rounded-md border border-border bg-background p-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Pair {index + 1}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleMatcherRemovePair(pair.id)}
+                          disabled={isPending || matcherBody.pairs.length <= 2}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground" htmlFor={`matcher-term-${pair.id}`}>
+                          Term
+                        </Label>
+                        <Input
+                          id={`matcher-term-${pair.id}`}
+                          value={pair.term}
+                          onChange={(event) => handleMatcherTermChange(pair.id, event.target.value)}
+                          placeholder="Key term"
+                          disabled={isPending}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground" htmlFor={`matcher-definition-${pair.id}`}>
+                          Definition
+                        </Label>
+                        <Textarea
+                          id={`matcher-definition-${pair.id}`}
+                          value={pair.definition}
+                          onChange={(event) => handleMatcherDefinitionChange(pair.id, event.target.value)}
+                          placeholder="Definition for this term"
+                          disabled={isPending}
+                          rows={2}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleMatcherAddPair}
+                  disabled={isPending || matcherBody.pairs.length >= 8}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add pair
+                </Button>
+              </div>
+
+              <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+                <p>Add between 2 and 8 pairs. Every pair needs both a term and a definition.</p>
+                {matcherValidationMessage ? (
+                  <p className="text-destructive">{matcherValidationMessage}</p>
                 ) : null}
               </div>
             </div>
@@ -4273,5 +4417,53 @@ function prepareMcqBodyForSave(body: McqBody): { bodyData: McqBody; error: strin
     },
     error: null,
   }
+}
+
+function normalizeMatcherBody(body: MatcherBody): MatcherBody {
+  const used = new Set<string>()
+  const pairs = (body.pairs ?? []).slice(0, 8).map((pair) => {
+    let id = typeof pair.id === "string" && pair.id.trim().length > 0 ? pair.id.trim() : ""
+    if (!id || used.has(id)) {
+      id = createMatcherPairId(used)
+    }
+    used.add(id)
+    return {
+      id,
+      term: typeof pair.term === "string" ? pair.term : "",
+      definition: typeof pair.definition === "string" ? pair.definition : "",
+    }
+  })
+
+  if (pairs.length === 0) {
+    return createDefaultMatcherBody()
+  }
+
+  return { pairs }
+}
+
+function validateMatcherBody(body: MatcherBody): string | null {
+  const normalized = normalizeMatcherBody(body)
+
+  if (normalized.pairs.length < 2) {
+    return "Add at least two term/definition pairs."
+  }
+
+  const incomplete = normalized.pairs.some(
+    (pair) => pair.term.trim().length === 0 || pair.definition.trim().length === 0,
+  )
+  if (incomplete) {
+    return "Every pair needs both a term and a definition."
+  }
+
+  return null
+}
+
+function prepareMatcherBodyForSave(body: MatcherBody): { bodyData: MatcherBody; error: string | null } {
+  const normalized = normalizeMatcherBody(body)
+  const validation = validateMatcherBody(normalized)
+  if (validation) {
+    return { bodyData: normalized, error: validation }
+  }
+  return { bodyData: normalized, error: null }
 }
 
