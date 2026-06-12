@@ -208,6 +208,62 @@ export function getMcqBody(activity: LessonActivity): McqBody {
   };
 }
 
+export interface MatcherPairBody {
+  id: string;
+  term: string;
+  definition: string;
+}
+
+export interface MatcherBody {
+  pairs: MatcherPairBody[];
+}
+
+export function createMatcherPairId(used: Set<string>): string {
+  let index = 1;
+  let candidate = `pair-${index}`;
+  while (used.has(candidate)) {
+    index += 1;
+    candidate = `pair-${index}`;
+  }
+  return candidate;
+}
+
+export function createDefaultMatcherBody(): MatcherBody {
+  return {
+    pairs: [
+      { id: "pair-1", term: "", definition: "" },
+      { id: "pair-2", term: "", definition: "" },
+    ],
+  };
+}
+
+export function getMatcherBody(activity: LessonActivity): MatcherBody {
+  if (!activity.body_data || typeof activity.body_data !== "object") {
+    return createDefaultMatcherBody();
+  }
+
+  const record = activity.body_data as Record<string, unknown>;
+  const rawPairs = Array.isArray(record.pairs) ? record.pairs : [];
+
+  const used = new Set<string>();
+  const pairs = rawPairs
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const pair = item as Record<string, unknown>;
+      let id = typeof pair.id === "string" && pair.id.trim() !== "" ? pair.id.trim() : "";
+      if (!id || used.has(id)) {
+        id = createMatcherPairId(used);
+      }
+      used.add(id);
+      const term = typeof pair.term === "string" ? pair.term : "";
+      const definition = typeof pair.definition === "string" ? pair.definition : "";
+      return { id, term, definition };
+    })
+    .filter((pair): pair is MatcherPairBody => pair !== null);
+
+  return pairs.length > 0 ? { pairs } : createDefaultMatcherBody();
+}
+
 export function getShortTextBody(activity: LessonActivity): ShortTextBody {
   if (!activity.body_data || typeof activity.body_data !== "object") {
     return { question: "", modelAnswer: "" };
