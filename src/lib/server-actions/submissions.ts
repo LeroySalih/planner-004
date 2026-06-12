@@ -4,6 +4,8 @@ import { z } from "zod";
 
 import {
   type LessonSubmissionSummary,
+  MatcherActivityBodySchema,
+  MatcherSubmissionBodySchema,
   McqActivityBodySchema,
   McqSubmissionBodySchema,
   ShortTextActivityBodySchema,
@@ -33,6 +35,18 @@ const McqSubmissionInputSchema = z.object({
   activityId: z.string().min(1),
   userId: z.string().min(1),
   optionId: z.string().min(1),
+});
+
+const MatcherSubmissionInputSchema = z.object({
+  activityId: z.string().min(1),
+  userId: z.string().min(1),
+  layout: z.array(
+    z.object({
+      pairId: z.string().min(1),
+      promptSide: z.enum(["term", "definition"]),
+    }),
+  ).min(1),
+  answers: z.record(z.string(), z.string().nullable()),
 });
 
 const LessonActivitySummaryRowSchema = z.object({
@@ -841,6 +855,241 @@ export async function upsertMcqSubmissionAction(
       ? error.message
       : "Unable to insert submission.";
     return { success: false, error: message, data: null as Submission | null };
+  }
+}
+
+export async function upsertMatcherSubmissionAction(
+  input: z.infer<typeof MatcherSubmissionInputSchema>,
+) {
+  const payload = MatcherSubmissionInputSchema.parse(input);
+  let activity: { body_data: unknown; lesson_id: string | null } | null = null;
+  try {
+    const { rows } = await query<
+      { body_data: unknown; lesson_id: string | null }
+    >(
+      "select body_data, lesson_id from activities where activity_id = $1 limit 1",
+      [payload.activityId],
+    );
+    activity = rows[0] ?? null;
+  } catch (error) {
+    console.error(
+      "[submissions] Failed to load activity for matcher submission:",
+      error,
+    );
+    return {
+      success: false,
+      error: error instanceof Error
+        ? error.message
+        : "Unable to load activity.",
+      data: null as Submission | null,
+    };
+  }
+
+  if (!activity) {
+    return {
+      success: false,
+      error: "Activity not found for submission.",
+      data: null as Submission | null,
+    };
+  }
+
+  const parsedActivity = MatcherActivityBodySchema.safeParse(activity.body_data);
+  if (!parsedActivity.success) {
+    console.error(
+      "[submissions] Invalid matcher activity body:",
+      parsedActivity.error,
+    );
+    return {
+      success: false,
+      error: "Activity is not configured correctly.",
+      data: null as Submission | null,
+    };
+  }
+  const lessonId = activity.lesson_id ??
+    (await getActivityLessonId(payload.activityId));
+
+  const matcherBody = parsedActivity.data;
+  const pairIds = new Set(matcherBody.pairs.map((pair) => pair.id));
+
+  const layoutCoversAllPairs = matcherBody.pairs.every((pair) =>
+    payload.layout.some((entry) => entry.pairId === pair.id),
+  );
+  if (!layoutCoversAllPairs) {
+    return {
+      success: false,
+      error: "Activity layout is no longer valid for this submission.",
+      data: null as Submission | null,
+    };
+  }
+
+  const isCorrect = matcherBody.pairs.every(
+    (pair) => payload.answers[pair.id] === pair.id,
+  );
+
+  const successCriteriaIds = await fetchActivitySuccessCriteriaIds(
+    payload.activityId,
+  );
+  const successCriteriaScores = normaliseSuccessCriteriaScores({
+    successCriteriaIds,
+    fillValue: isCorrect ? 1 : 0,
+  });
+
+  const sanitizedAnswers: Record<string, string | null> = {};
+  for (const [pairId, value] of Object.entries(payload.answers)) {
+    if (pairIds.has(pairId)) {
+      sanitizedAnswers[pairId] = typeof value === "string" && pairIds.has(value) ? value : null;
+    }
+  }
+
+  const submissionBody = MatcherSubmissionBodySchema.parse({
+    layout: payload.layout,
+    answers: sanitizedAnswers,
+    is_correct: isCorrect,
+    success_criteria_scores: successCriteriaScores,
+    teacher_override_score: null,
+    teacher_feedback: null,
+  });
+
+  let existingSubmissionId: string | null = null;
+  try {
+    const { rows } = await query(
+      `
+        select submission_id
+        from submissions
+        where activity_id = $1
+          and user_id = $2
+        order by submitted_at desc nulls last
+        limit 1
+      `,
+      [payload.activityId, payload.userId],
+    );
+    const existingRow = rows?.[0] ?? null;
+    existingSubmissionId =
+      existingRow && typeof existingRow.submission_id === "string"
+        ? existingRow.submission_id
+        : null;
+  } catch (existingError) {
+    console.error(
+      "[submissions] Failed to check existing matcher submission:",
+      existingError,
+    );
+    const message = existingError instanceof Error
+      ? existingError.message
+      : "Unable to load submission.";
+    return { success: false, error: message, data: null as Submission | null };
+  }
+
+  const timestamp = new Date().toISOString();
+
+  if (existingSubmissionId) {
+    try {
+      const { rows } = await query(
+        `
+          update submissions
+          set body = $1, submitted_at = $2, is_flagged = false, resubmit_requested = false, resubmit_note = NULL
+          where submission_id = $3
+          returning *
+        `,
+        [submissionBody, timestamp, existingSubmissionId],
+      );
+
+      const parsed = SubmissionSchema.safeParse(rows?.[0]);
+      if (!parsed.success) {
+        console.error(
+          "[submissions] Failed to parse updated matcher submission:",
+          parsed.error,
+        );
+        return {
+          success: false,
+          error: "Invalid submission data.",
+          data: null as Submission | null,
+        };
+      }
+
+      await logActivitySubmissionEvent({
+        submissionId: parsed.data.submission_id,
+        activityId: payload.activityId,
+        lessonId,
+        pupilId: payload.userId,
+        fileName: null,
+        submittedAt: parsed.data.submitted_at ?? timestamp,
+      });
+
+      void emitSubmissionEvent("submission.updated", {
+        submissionId: parsed.data.submission_id,
+        activityId: payload.activityId,
+        pupilId: payload.userId,
+        submittedAt: parsed.data.submitted_at ?? timestamp,
+        submissionStatus: "inprogress",
+        isFlagged: false,
+      });
+
+      return { success: true, error: null, data: parsed.data };
+    } catch (error) {
+      console.error("[submissions] Failed to update matcher submission:", error);
+      const message = error instanceof Error
+        ? error.message
+        : "Unable to update submission.";
+      return {
+        success: false,
+        error: message,
+        data: null as Submission | null,
+      };
+    }
+  }
+
+  try {
+    const { rows } = await query(
+      `
+        insert into submissions (activity_id, user_id, body)
+        values ($1, $2, $3)
+        returning *
+      `,
+      [payload.activityId, payload.userId, submissionBody],
+    );
+
+    const parsed = SubmissionSchema.safeParse(rows?.[0]);
+    if (!parsed.success) {
+      console.error(
+        "[submissions] Failed to parse inserted matcher submission:",
+        parsed.error,
+      );
+      return {
+        success: false,
+        error: "Invalid submission data.",
+        data: null as Submission | null,
+      };
+    }
+
+    await logActivitySubmissionEvent({
+      submissionId: parsed.data.submission_id,
+      activityId: payload.activityId,
+      lessonId,
+      pupilId: payload.userId,
+      fileName: null,
+      submittedAt: parsed.data.submitted_at ?? timestamp,
+    });
+
+    void emitSubmissionEvent("submission.updated", {
+      submissionId: parsed.data.submission_id,
+      activityId: payload.activityId,
+      pupilId: payload.userId,
+      submittedAt: parsed.data.submitted_at ?? timestamp,
+      submissionStatus: "inprogress",
+      isFlagged: false,
+    });
+
+    return { success: true, error: null, data: parsed.data };
+  } catch (error) {
+    console.error("[submissions] Failed to insert matcher submission:", error);
+    const message = error instanceof Error
+      ? error.message
+      : "Unable to insert submission.";
+    return {
+      success: false,
+      error: message,
+      data: null as Submission | null,
+    };
   }
 }
 
