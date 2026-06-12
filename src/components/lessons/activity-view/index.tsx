@@ -841,6 +841,94 @@ function McqPresentView({
     </div>
   )
 }
+
+function MatcherPresentView({
+  activity,
+  canReveal = false,
+}: {
+  activity: LessonActivity
+  canReveal?: boolean
+}) {
+  const matcher = getMatcherBody(activity)
+  const [isRevealed, setIsRevealed] = useState(false)
+
+  useEffect(() => {
+    setIsRevealed(false)
+  }, [activity.activity_id])
+
+  const revealEnabled = canReveal && isRevealed
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-4">
+        <h3 className="text-2xl font-semibold text-foreground">
+          {activity.title?.trim() || "Match the key terms to their definitions"}
+        </h3>
+        {canReveal ? (
+          <Button
+            type="button"
+            size="sm"
+            variant={revealEnabled ? "default" : "outline"}
+            onClick={() => setIsRevealed((previous) => !previous)}
+            aria-pressed={revealEnabled}
+            className={cn("shrink-0", revealEnabled && "bg-green-600 text-white hover:bg-green-700")}
+          >
+            {revealEnabled ? (
+              <>
+                <EyeOff className="mr-2 h-4 w-4" aria-hidden="true" />
+                Hide answers
+              </>
+            ) : (
+              <>
+                <Eye className="mr-2 h-4 w-4" aria-hidden="true" />
+                Reveal answers
+              </>
+            )}
+          </Button>
+        ) : null}
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Pupils match each term to its definition on their devices. Use reveal when you are ready to discuss the answers.
+      </p>
+
+      <ul className="space-y-3">
+        {matcher.pairs.map((pair, index) => (
+          <li
+            key={pair.id}
+            className={cn(
+              "grid grid-cols-1 gap-2 rounded-lg border border-border bg-card p-3 sm:grid-cols-2",
+              revealEnabled && "border-green-600 bg-green-50 dark:bg-green-950/30",
+            )}
+          >
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Term {index + 1}
+              </p>
+              <p className="text-sm font-medium text-foreground">
+                {pair.term.trim() || `Term ${index + 1}`}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Definition
+              </p>
+              <p className="text-sm text-foreground">
+                {pair.definition.trim() || "No definition provided"}
+              </p>
+            </div>
+            {revealEnabled ? (
+              <span className="col-span-full inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-green-600">
+                <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                Correct match
+              </span>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 function ActivityPresentView({
   activity,
   files,
@@ -1136,6 +1224,15 @@ function ActivityPresentView({
       <McqPresentView
         activity={activity}
         fetchActivityFileUrl={fetchActivityFileUrl}
+        canReveal={previewMode ? false : viewerCanReveal}
+      />
+    )
+  }
+
+  if (activity.type === "matcher") {
+    return wrap(
+      <MatcherPresentView
+        activity={activity}
         canReveal={previewMode ? false : viewerCanReveal}
       />
     )
