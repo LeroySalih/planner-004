@@ -21,6 +21,7 @@ import {
   getImageBody,
   getFlashcardsText,
   getLongTextBody,
+  getMatcherBody,
   getMcqBody,
   getShortTextBody,
   getRichTextMarkup,
@@ -1297,6 +1298,30 @@ function ActivityEditView({ activity, resolvedImageUrl }: LessonActivityEditView
                   Correct
                 </span>
               ) : null}
+            </li>
+          ))}
+        </ul>
+      </div>
+    )
+  }
+
+  if (activity.type === "matcher") {
+    const matcher = getMatcherBody(activity)
+
+    return (
+      <div className="space-y-2 text-sm text-muted-foreground">
+        <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+          Term &amp; definition pairs
+        </p>
+        <ul className="space-y-2">
+          {matcher.pairs.map((pair, index) => (
+            <li key={pair.id} className="rounded-md border border-border/60 bg-muted/30 p-2">
+              <p className="font-medium text-foreground">
+                {pair.term.trim() || `Term ${index + 1}`}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {pair.definition.trim() || "No definition provided"}
+              </p>
             </li>
           ))}
         </ul>
