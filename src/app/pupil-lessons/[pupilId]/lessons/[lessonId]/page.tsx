@@ -500,7 +500,6 @@ export default async function PupilLessonFriendlyPage({
           activityId: activity.activity_id,
           layout: [] as { pairId: string; promptSide: "term" | "definition" }[],
           answers: {} as Record<string, string | null>,
-          isCorrect: false,
         }
       }
 
@@ -511,7 +510,6 @@ export default async function PupilLessonFriendlyPage({
           activityId: activity.activity_id,
           layout: [] as { pairId: string; promptSide: "term" | "definition" }[],
           answers: {} as Record<string, string | null>,
-          isCorrect: false,
         }
       }
 
@@ -519,7 +517,6 @@ export default async function PupilLessonFriendlyPage({
         activityId: activity.activity_id,
         layout: parsedBody.data.layout,
         answers: parsedBody.data.answers,
-        isCorrect: parsedBody.data.is_correct,
       }
     }),
   )
@@ -980,7 +977,6 @@ export default async function PupilLessonFriendlyPage({
                           canAnswer={isPupilViewer}
                           initialLayout={matcherDataMap.get(activity.activity_id)?.layout ?? []}
                           initialAnswers={matcherDataMap.get(activity.activity_id)?.answers ?? {}}
-                          initialIsCorrect={matcherDataMap.get(activity.activity_id)?.isCorrect ?? false}
                         />
                       ) : activity.type === "feedback" ? (
                         <PupilFeedbackActivity

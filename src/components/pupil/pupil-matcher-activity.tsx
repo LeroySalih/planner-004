@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react"
 import { toast } from "sonner"
-import { CheckCircle2, Loader2, XCircle } from "lucide-react"
+import { CheckCircle2, Loader2 } from "lucide-react"
 
 import type { LessonActivity, MatcherLayoutEntry } from "@/types"
 import {
@@ -26,7 +26,6 @@ interface PupilMatcherActivityProps {
   canAnswer: boolean
   initialLayout: MatcherLayoutEntry[]
   initialAnswers: Record<string, string | null>
-  initialIsCorrect: boolean
 }
 
 function shuffle<T>(items: T[]): T[] {
@@ -52,7 +51,6 @@ export function PupilMatcherActivity({
   canAnswer,
   initialLayout,
   initialAnswers,
-  initialIsCorrect,
 }: PupilMatcherActivityProps) {
   const matcherBody = useMemo(() => getMatcherBody(activity), [activity])
   const pairById = useMemo(
@@ -75,7 +73,10 @@ export function PupilMatcherActivity({
     })
     return next
   })
-  const [isCorrect, setIsCorrect] = useState(initialIsCorrect)
+  const initialAllAnswered = pairIds.length > 0 && pairIds.every((id) => Boolean(initialAnswers[id]))
+  const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(
+    initialAllAnswered ? { type: "success", message: "Answer saved" } : null,
+  )
   const [isPending, startTransition] = useTransition()
 
   useEffect(() => {
@@ -84,8 +85,9 @@ export function PupilMatcherActivity({
       next[id] = initialAnswers[id] ?? null
     })
     setAnswers(next)
-    setIsCorrect(initialIsCorrect)
-  }, [activity.activity_id, initialAnswers, initialIsCorrect, pairIds])
+    const allAnswered = pairIds.length > 0 && pairIds.every((id) => Boolean(next[id]))
+    setFeedback(allAnswered ? { type: "success", message: "Answer saved" } : null)
+  }, [activity.activity_id, initialAnswers, pairIds])
 
   const optionsBySide = useMemo(() => {
     const terms = shuffle(matcherBody.pairs.map((pair) => ({ id: pair.id, label: pair.term })))
@@ -99,6 +101,7 @@ export function PupilMatcherActivity({
 
       const nextAnswers = { ...answers, [pairId]: selectedPairId }
       setAnswers(nextAnswers)
+      setFeedback(null)
 
       startTransition(async () => {
         const result = await upsertMatcherSubmissionAction({
@@ -112,18 +115,19 @@ export function PupilMatcherActivity({
           toast.error("Unable to save your answer", {
             description: result.error ?? "Please try again later.",
           })
+          setFeedback({
+            type: "error",
+            message: result.error ?? "Unable to save your answer. Please try again.",
+          })
           return
         }
 
-        const body = result.data?.body as { is_correct?: boolean } | null
-        setIsCorrect(Boolean(body?.is_correct))
+        setFeedback({ type: "success", message: "Answer saved" })
         triggerFeedbackRefresh(lessonId)
       })
     },
     [activity.activity_id, answers, canAnswer, layout, lessonId, pupilId],
   )
-
-  const allAnswered = pairIds.every((id) => Boolean(answers[id]))
 
   return (
     <div className="space-y-4 rounded-md border border-border bg-card p-4 shadow-sm">
@@ -179,17 +183,15 @@ export function PupilMatcherActivity({
             <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
             Saving your answer…
           </span>
-        ) : allAnswered ? (
+        ) : feedback ? (
           <Badge
-            variant={isCorrect ? "default" : "destructive"}
+            variant={feedback.type === "success" ? "default" : "destructive"}
             className="inline-flex items-center gap-2"
           >
-            {isCorrect ? (
+            {feedback.type === "success" ? (
               <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
-            ) : (
-              <XCircle className="h-3.5 w-3.5" aria-hidden="true" />
-            )}
-            {isCorrect ? "All matches correct" : "Some matches are incorrect"}
+            ) : null}
+            {feedback.message}
           </Badge>
         ) : null}
       </footer>
