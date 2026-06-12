@@ -38,6 +38,7 @@ import { PupilUploadActivity } from "@/components/pupil/pupil-upload-activity"
 
 
 import { PupilMcqActivity } from "@/components/pupil/pupil-mcq-activity"
+import { PupilMatcherActivity } from "@/components/pupil/pupil-matcher-activity"
 import { PupilDoFlashcardsActivity } from "@/components/pupil/pupil-do-flashcards-activity"
 import { PupilFeedbackActivity } from "@/components/pupil/pupil-feedback-activity"
 import { PupilShortTextActivity } from "@/components/pupil/pupil-short-text-activity"
@@ -51,6 +52,7 @@ import { MediaImage } from "@/components/ui/media-image"
 import {
   LegacyMcqSubmissionBodySchema,
   LongTextSubmissionBodySchema,
+  MatcherSubmissionBodySchema,
   McqSubmissionBodySchema,
   ShortTextSubmissionBodySchema,
   UploadUrlSubmissionBodySchema,
@@ -487,6 +489,42 @@ export default async function PupilLessonFriendlyPage({
   )
 
   const mcqSelectionMap = new Map(mcqSubmissionEntries.map((entry) => [entry.activityId, entry.optionId]))
+
+  const matcherActivities = activities.filter((activity) => activity.type === "matcher")
+
+  const matcherSubmissionEntries = await Promise.all(
+    matcherActivities.map(async (activity) => {
+      const result = await getLatestSubmissionForActivityAction(activity.activity_id, pupilId)
+      if (result.error || !result.data) {
+        return {
+          activityId: activity.activity_id,
+          layout: [] as { pairId: string; promptSide: "term" | "definition" }[],
+          answers: {} as Record<string, string | null>,
+          isCorrect: false,
+        }
+      }
+
+      const parsedBody = MatcherSubmissionBodySchema.safeParse(result.data.body)
+      if (!parsedBody.success) {
+        console.warn("[pupil-lessons] Ignoring malformed matcher submission body", parsedBody.error)
+        return {
+          activityId: activity.activity_id,
+          layout: [] as { pairId: string; promptSide: "term" | "definition" }[],
+          answers: {} as Record<string, string | null>,
+          isCorrect: false,
+        }
+      }
+
+      return {
+        activityId: activity.activity_id,
+        layout: parsedBody.data.layout,
+        answers: parsedBody.data.answers,
+        isCorrect: parsedBody.data.is_correct,
+      }
+    }),
+  )
+
+  const matcherDataMap = new Map(matcherSubmissionEntries.map((entry) => [entry.activityId, entry]))
 
   const shortTextActivities = activities.filter((activity) => activity.type === "short-text-question")
   const longTextActivities = activities.filter(
@@ -933,6 +971,16 @@ export default async function PupilLessonFriendlyPage({
                           activity={activity}
                           pupilId={pupilId}
                           initialScore={rawScore ?? null}
+                        />
+                      ) : activity.type === "matcher" ? (
+                        <PupilMatcherActivity
+                          lessonId={lesson.lesson_id}
+                          activity={activity}
+                          pupilId={pupilId}
+                          canAnswer={isPupilViewer}
+                          initialLayout={matcherDataMap.get(activity.activity_id)?.layout ?? []}
+                          initialAnswers={matcherDataMap.get(activity.activity_id)?.answers ?? {}}
+                          initialIsCorrect={matcherDataMap.get(activity.activity_id)?.isCorrect ?? false}
                         />
                       ) : activity.type === "feedback" ? (
                         <PupilFeedbackActivity
