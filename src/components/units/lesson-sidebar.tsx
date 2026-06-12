@@ -8,6 +8,7 @@ import { toast } from "sonner"
 import type { LessonActivity, LessonLearningObjective } from "@/types"
 import type { LessonWithObjectives, LearningObjectiveWithCriteria } from "@/lib/server-updates"
 import { cn } from "@/lib/utils"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -2431,6 +2432,7 @@ export interface LessonPresentationProps {
   onDownloadFile: (fileName: string) => void
   onDownloadActivityFile: (activityId: string, fileName: string) => void
   fetchActivityFileUrl: (activityId: string, fileName: string) => Promise<string | null>
+  previewMode?: boolean
 }
 
 export function LessonPresentation({
@@ -2449,6 +2451,7 @@ export function LessonPresentation({
   onDownloadFile,
   onDownloadActivityFile,
   fetchActivityFileUrl,
+  previewMode = false,
 }: LessonPresentationProps) {
   const isOverview = currentIndex < 0
   const activity = !isOverview && currentIndex >= 0 ? activities[currentIndex] : null
@@ -2517,9 +2520,16 @@ export function LessonPresentation({
     <div className="fixed inset-0 z-[70] flex flex-col bg-background text-foreground">
       <header className="flex items-center justify-between border-b px-6 py-4">
         <div className="space-y-1">
-          <p className="text-sm text-muted-foreground">
-            {isOverview ? unitTitle : `Step ${currentIndex + 1} of ${activities.length}`}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className="text-sm text-muted-foreground">
+              {isOverview ? unitTitle : `Step ${currentIndex + 1} of ${activities.length}`}
+            </p>
+            {previewMode ? (
+              <Badge variant="secondary" className="bg-primary/10 text-primary">
+                Pupil preview
+              </Badge>
+            ) : null}
+          </div>
           <h2 className="text-xl font-semibold">
             {isOverview ? lessonTitle : activity?.title ?? "No activities"}
           </h2>
@@ -2543,7 +2553,8 @@ export function LessonPresentation({
               onDownloadFile={(fileName) => onDownloadActivityFile(activity.activity_id, fileName)}
               voicePlayback={{ url: voicePlayback.url, isLoading: voicePlayback.loading }}
               fetchActivityFileUrl={fetchActivityFileUrl}
-              viewerCanReveal
+              viewerCanReveal={!previewMode}
+              previewMode={previewMode}
               sectionIndex={sectionIndexMap.get(activity.activity_id)}
             />
           </div>
@@ -2661,7 +2672,8 @@ export function LessonPresentation({
                   onDownloadFile={(fileName) => onDownloadActivityFile(activity.activity_id, fileName)}
                   voicePlayback={{ url: voicePlayback.url, isLoading: voicePlayback.loading }}
                   fetchActivityFileUrl={fetchActivityFileUrl}
-                  viewerCanReveal
+                  viewerCanReveal={!previewMode}
+                  previewMode={previewMode}
                   sectionIndex={sectionIndexMap.get(activity.activity_id)}
                 />
               </div>

@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { Switch } from "@/components/ui/switch"
+import { Textarea } from "@/components/ui/textarea"
 import { MediaImage } from "@/components/ui/media-image"
 import { cn } from "@/lib/utils"
 import {
@@ -97,6 +98,7 @@ export interface LessonActivityPresentViewProps extends LessonActivityViewBasePr
   viewerCanReveal?: boolean
   forceEnableFeedback?: boolean
   sectionIndex?: number
+  previewMode?: boolean
 }
 
 export interface LessonActivityEditViewProps extends LessonActivityViewBaseProps {
@@ -768,10 +770,10 @@ function McqPresentView({
             <Button
               type="button"
               size="sm"
-              variant={revealEnabled ? "secondary" : "outline"}
+              variant={revealEnabled ? "default" : "outline"}
               onClick={() => setIsRevealed((previous) => !previous)}
               aria-pressed={revealEnabled}
-              className="shrink-0"
+              className={cn("shrink-0", revealEnabled && "bg-green-600 text-white hover:bg-green-700")}
             >
               {revealEnabled ? (
                 <>
@@ -814,7 +816,7 @@ function McqPresentView({
               key={option.id}
               className={cn(
                 "flex items-start justify-between rounded-lg border border-border bg-card p-3",
-                revealEnabled && isCorrect && "border-primary bg-primary/5",
+                revealEnabled && isCorrect && "border-green-600 bg-green-50 dark:bg-green-950/30",
               )}
             >
               <div className="space-y-1">
@@ -822,7 +824,7 @@ function McqPresentView({
                 <p className="text-xs text-muted-foreground">Choice {index + 1}</p>
               </div>
               {revealEnabled && isCorrect ? (
-                <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-primary">
+                <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-green-600">
                   <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
                   Correct answer
                 </span>
@@ -848,6 +850,7 @@ function ActivityPresentView({
   lessonId,
   forceEnableFeedback,
   sectionIndex,
+  previewMode,
 }: LessonActivityPresentViewProps) {
   const hasSuccessCriteria = Array.isArray(activity.success_criteria) && activity.success_criteria.length > 0
 
@@ -934,7 +937,14 @@ function ActivityPresentView({
   }
 
   if (activity.type === "short-text-question") {
-    return wrap(<ShortTextPresentView activity={activity} lessonId={lessonId} />)
+    return wrap(
+      <ShortTextPresentView
+        activity={activity}
+        lessonId={lessonId}
+        canReveal={previewMode ? false : viewerCanReveal}
+        previewMode={previewMode}
+      />,
+    )
   }
 
   if (activity.type === "long-text-question" || activity.type === "text-question") {
@@ -1125,7 +1135,7 @@ function ActivityPresentView({
       <McqPresentView
         activity={activity}
         fetchActivityFileUrl={fetchActivityFileUrl}
-        canReveal={viewerCanReveal}
+        canReveal={previewMode ? false : viewerCanReveal}
       />
     )
   }
@@ -1813,10 +1823,27 @@ function DisplayImagePresent({
   )
 }
 
-function ShortTextPresentView({ activity, lessonId }: { activity: LessonActivity; lessonId?: string }) {
+function ShortTextPresentView({
+  activity,
+  lessonId,
+  canReveal = false,
+  previewMode = false,
+}: {
+  activity: LessonActivity
+  lessonId?: string
+  canReveal?: boolean
+  previewMode?: boolean
+}) {
   const shortText = useMemo(() => getShortTextBody(activity), [activity])
   const questionMarkup = getRichTextMarkup(shortText.question)
   const modelAnswer = shortText.modelAnswer?.trim() ?? ""
+  const [isRevealed, setIsRevealed] = useState(false)
+
+  useEffect(() => {
+    setIsRevealed(false)
+  }, [activity.activity_id])
+
+  const revealEnabled = canReveal && isRevealed
 
   const [submissions, setSubmissions] = useState<ShortTextSubmissionRow[]>([])
   const [overrideDrafts, setOverrideDrafts] = useState<Record<string, string>>({})
@@ -1827,6 +1854,11 @@ function ShortTextPresentView({ activity, lessonId }: { activity: LessonActivity
   const [overrideSaving, setOverrideSaving] = useState<string | null>(null)
 
   useEffect(() => {
+    if (previewMode) {
+      setIsLoading(false)
+      return
+    }
+
     let cancelled = false
     setIsLoading(true)
 
@@ -2021,7 +2053,31 @@ function ShortTextPresentView({ activity, lessonId }: { activity: LessonActivity
   return (
     <div className="space-y-6">
       <section className="space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-primary">Question</p>
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-primary">Question</p>
+          {canReveal ? (
+            <Button
+              type="button"
+              size="sm"
+              variant={revealEnabled ? "secondary" : "outline"}
+              onClick={() => setIsRevealed((previous) => !previous)}
+              aria-pressed={revealEnabled}
+              className="shrink-0"
+            >
+              {revealEnabled ? (
+                <>
+                  <EyeOff className="mr-2 h-4 w-4" aria-hidden="true" />
+                  Hide answer
+                </>
+              ) : (
+                <>
+                  <Eye className="mr-2 h-4 w-4" aria-hidden="true" />
+                  Reveal answer
+                </>
+              )}
+            </Button>
+          ) : null}
+        </div>
         {questionMarkup ? (
           <div
             className="prose prose-lg max-w-none dark:prose-invert text-foreground"
@@ -2032,14 +2088,26 @@ function ShortTextPresentView({ activity, lessonId }: { activity: LessonActivity
             {shortText.question?.trim() || "Short text question"}
           </p>
         )}
-        <div className="rounded-md border border-dashed border-border/60 bg-muted/20 px-3 py-2">
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">Model answer</p>
-          <p className="text-sm font-medium text-foreground">
-            {modelAnswer || "Add a model answer so the AI can mark responses accurately."}
-          </p>
-        </div>
+        {revealEnabled ? (
+          <div className="rounded-md border border-dashed border-border/60 bg-muted/20 px-3 py-2">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Model answer</p>
+            <p className="text-sm font-medium text-foreground">
+              {modelAnswer || "Add a model answer so the AI can mark responses accurately."}
+            </p>
+          </div>
+        ) : null}
       </section>
 
+      {previewMode ? (
+        <section className="space-y-2 rounded-md border border-border bg-muted/10 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your answer</p>
+          <Textarea
+            placeholder="Pupils type their answer here…"
+            disabled
+            className="min-h-[100px] resize-none bg-background"
+          />
+        </section>
+      ) : (
       <section className="space-y-3 rounded-md border border-border bg-muted/10 p-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
@@ -2184,6 +2252,7 @@ function ShortTextPresentView({ activity, lessonId }: { activity: LessonActivity
           </div>
         )}
       </section>
+      )}
     </div>
   )
 }

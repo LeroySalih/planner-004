@@ -5,10 +5,18 @@ import { ArrowLeft, ChevronRight } from "lucide-react"
 import { ActivityShareButton } from "@/components/activity-share-dialog"
 import { LessonActivityView } from "@/components/lessons/activity-view"
 import { computeSectionIndexMap } from "@/components/lessons/activity-view/utils"
+import { LessonPreviewLauncher } from "@/components/lessons/lesson-preview-launcher"
 import { LessonPlanDownloadButton } from "@/components/pdf/lesson-plan-download-button"
 import { Button } from "@/components/ui/button"
+import type { LessonFileInfo } from "@/components/units/lesson-sidebar"
 import { resolveActivityAssets } from "@/lib/activity-assets"
-import { listLessonActivitiesAction, readLessonAction, readUnitAction } from "@/lib/server-updates"
+import {
+  listActivityFilesAction,
+  listLessonActivitiesAction,
+  listLessonFilesAction,
+  readLessonAction,
+  readUnitAction,
+} from "@/lib/server-updates"
 
 export default async function LessonActivitiesOverviewPage({
   params,
@@ -40,9 +48,10 @@ export default async function LessonActivitiesOverviewPage({
     notFound()
   }
 
-  const [unitResult, activitiesResult] = await Promise.all([
+  const [unitResult, activitiesResult, lessonFilesResult] = await Promise.all([
     readUnitAction(lesson.unit_id),
     listLessonActivitiesAction(lesson.lesson_id),
+    listLessonFilesAction(lesson.lesson_id),
   ])
 
   if (unitResult.error) {
@@ -53,6 +62,10 @@ export default async function LessonActivitiesOverviewPage({
     console.error("[activities] Failed to load activities for overview:", activitiesResult.error)
   }
 
+  if (lessonFilesResult.error) {
+    console.error("[activities] Failed to load lesson files for overview:", lessonFilesResult.error)
+  }
+
   const orderedActivities = (activitiesResult.data ?? []).map((activity, index) => ({
     ...activity,
     orderIndex: index,
@@ -61,6 +74,28 @@ export default async function LessonActivitiesOverviewPage({
   const { activitiesWithPreview } = await resolveActivityAssets(lesson.lesson_id, orderedActivities)
 
   const sectionIndexMap = computeSectionIndexMap(orderedActivities)
+
+  const activityFilesEntries = await Promise.all(
+    orderedActivities.map(async (activity) => {
+      const result = await listActivityFilesAction(lesson.lesson_id, activity.activity_id)
+      if (result.error) {
+        console.error(
+          "[activities] Failed to load activity files for overview:",
+          activity.activity_id,
+          result.error,
+        )
+      }
+      return [activity.activity_id, result.data ?? []] as const
+    }),
+  )
+
+  const activityFilesMap = activityFilesEntries.reduce<Record<string, LessonFileInfo[]>>((acc, [id, files]) => {
+    acc[id] = files
+    return acc
+  }, {})
+
+  const lessonFiles = lessonFilesResult.data ?? []
+  const lessonLinks = lesson.lesson_links ?? []
 
   const unitTitle = unitResult.data?.title ?? lesson.unit_id
 
@@ -88,6 +123,17 @@ export default async function LessonActivitiesOverviewPage({
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <LessonPreviewLauncher
+                lessonId={lesson.lesson_id}
+                lessonTitle={lesson.title}
+                unitTitle={unitTitle}
+                activities={orderedActivities}
+                activityFilesMap={activityFilesMap}
+                lessonFiles={lessonFiles}
+                lessonLinks={lessonLinks}
+                lessonObjectives={lesson.lesson_objectives ?? []}
+                className="bg-white/10 text-white hover:bg-white/20"
+              />
               <LessonPlanDownloadButton
                 lessonId={lesson.lesson_id}
                 variant="secondary"
