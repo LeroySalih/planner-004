@@ -156,7 +156,7 @@ begin
     return clamp_score(override);
   end if;
 
-  if normalized_type = 'multiple-choice-question' then
+  if normalized_type = 'multiple-choice-question' or normalized_type = 'matcher' then
     begin
       bool_value := (body->>'is_correct')::boolean;
     exception when others then
