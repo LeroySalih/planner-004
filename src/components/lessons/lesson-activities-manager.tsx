@@ -37,14 +37,19 @@ import {
   computeSectionIndexMap,
   getFeedbackBody,
   getDisplaySectionBody,
+  getGroupItemsBody,
   getMatcherBody,
   getMcqBody,
   getShortTextBody,
   getVoiceBody,
   getYouTubeThumbnailUrl,
   isAbsoluteUrl,
+  createDefaultGroupItemsBody,
   createDefaultMatcherBody,
+  createGroupItemsGroupId,
+  createGroupItemsItemId,
   createMatcherPairId,
+  type GroupItemsBody,
   type ImageBody,
   type MatcherBody,
   type McqBody,
@@ -88,6 +93,7 @@ const ACTIVITY_TYPES = [
   { value: "show-video", label: "Show video" },
   { value: "multiple-choice-question", label: "Multiple choice question" },
   { value: "matcher", label: "Matcher" },
+  { value: "group-items", label: "Group Items" },
   { value: "short-text-question", label: "Short text question" },
   { value: "feedback", label: "Feedback" },
   { value: "text-question", label: "Text question" },
@@ -1824,6 +1830,7 @@ function LessonActivityEditorSheet({
   const [isImageDragActive, setIsImageDragActive] = useState(false)
   const [mcqBody, setMcqBody] = useState<McqBody>(() => createDefaultMcqBody())
   const [matcherBody, setMatcherBody] = useState<MatcherBody>(() => createDefaultMatcherBody())
+  const [groupItemsBody, setGroupItemsBody] = useState<GroupItemsBody>(() => createDefaultGroupItemsBody())
   const [feedbackBody, setFeedbackBody] = useState<FeedbackActivityBody>(() => createDefaultFeedbackBody())
   const [shortTextBody, setShortTextBody] = useState<ShortTextBody>(() => createDefaultShortTextBody())
   const [selectedSuccessCriteriaIds, setSelectedSuccessCriteriaIds] = useState<string[]>([])
@@ -2011,6 +2018,94 @@ function LessonActivityEditorSheet({
       return { ...current, pairs: current.pairs.filter((pair) => pair.id !== pairId) }
     })
   }, [updateMatcherBody])
+
+  const groupItemsValidationMessage = useMemo(() => validateGroupItemsBody(groupItemsBody), [groupItemsBody])
+
+  const updateGroupItemsBody = useCallback((updater: (current: GroupItemsBody) => GroupItemsBody) => {
+    setGroupItemsBody((previous) => normalizeGroupItemsBody(updater(normalizeGroupItemsBody(previous))))
+  }, [])
+
+  const handleGroupItemsGroupNameChange = useCallback((groupId: string, value: string) => {
+    updateGroupItemsBody((current) => ({
+      ...current,
+      groups: current.groups.map((group) => (group.id === groupId ? { ...group, name: value } : group)),
+    }))
+  }, [updateGroupItemsBody])
+
+  const handleGroupItemsAddGroup = useCallback(() => {
+    updateGroupItemsBody((current) => {
+      if (current.groups.length >= 4) {
+        toast.error("You can add up to 4 groups.")
+        return current
+      }
+      const used = new Set(current.groups.map((group) => group.id))
+      const id = createGroupItemsGroupId(used)
+      return { ...current, groups: [...current.groups, { id, name: "" }] }
+    })
+  }, [updateGroupItemsBody])
+
+  const handleGroupItemsRemoveGroup = useCallback((groupId: string) => {
+    updateGroupItemsBody((current) => {
+      if (current.groups.length <= 2) {
+        toast.error("Keep at least 2 groups.")
+        return current
+      }
+      const groups = current.groups.filter((group) => group.id !== groupId)
+      const fallbackGroupId = groups[0].id
+      const items = current.items.map((item) =>
+        item.groupId === groupId ? { ...item, groupId: fallbackGroupId } : item,
+      )
+      return { groups, items }
+    })
+  }, [updateGroupItemsBody])
+
+  const handleGroupItemsItemTextChange = useCallback((itemId: string, value: string) => {
+    updateGroupItemsBody((current) => ({
+      ...current,
+      items: current.items.map((item) => (item.id === itemId ? { ...item, text: value } : item)),
+    }))
+  }, [updateGroupItemsBody])
+
+  const handleGroupItemsItemImageUrlChange = useCallback((itemId: string, value: string) => {
+    updateGroupItemsBody((current) => ({
+      ...current,
+      items: current.items.map((item) =>
+        item.id === itemId ? { ...item, imageUrl: value.trim().length > 0 ? value : null } : item,
+      ),
+    }))
+  }, [updateGroupItemsBody])
+
+  const handleGroupItemsItemGroupChange = useCallback((itemId: string, groupId: string) => {
+    updateGroupItemsBody((current) => ({
+      ...current,
+      items: current.items.map((item) => (item.id === itemId ? { ...item, groupId } : item)),
+    }))
+  }, [updateGroupItemsBody])
+
+  const handleGroupItemsAddItem = useCallback(() => {
+    updateGroupItemsBody((current) => {
+      if (current.items.length >= 12) {
+        toast.error("You can add up to 12 items.")
+        return current
+      }
+      const used = new Set(current.items.map((item) => item.id))
+      const id = createGroupItemsItemId(used)
+      return {
+        ...current,
+        items: [...current.items, { id, text: "", imageUrl: null, groupId: current.groups[0].id }],
+      }
+    })
+  }, [updateGroupItemsBody])
+
+  const handleGroupItemsRemoveItem = useCallback((itemId: string) => {
+    updateGroupItemsBody((current) => {
+      if (current.items.length <= 2) {
+        toast.error("Keep at least 2 items.")
+        return current
+      }
+      return { ...current, items: current.items.filter((item) => item.id !== itemId) }
+    })
+  }, [updateGroupItemsBody])
 
   const handleShortTextQuestionChange = useCallback((value: string) => {
     setShortTextBody((current) => ({ ...current, question: value }))
@@ -2522,6 +2617,7 @@ function LessonActivityEditorSheet({
       resetImageState()
       setMcqBody(createDefaultMcqBody())
       setMatcherBody(createDefaultMatcherBody())
+      setGroupItemsBody(createDefaultGroupItemsBody())
       setShortTextBody(createDefaultShortTextBody())
       setFeedbackBody(createDefaultFeedbackBody())
       setSelectedSuccessCriteriaIds([])
@@ -2572,6 +2668,11 @@ function LessonActivityEditorSheet({
         setMatcherBody(normalizeMatcherBody(getMatcherBody(activity)))
       } else {
         setMatcherBody(createDefaultMatcherBody())
+      }
+      if (ensuredType === "group-items") {
+        setGroupItemsBody(normalizeGroupItemsBody(getGroupItemsBody(activity)))
+      } else {
+        setGroupItemsBody(createDefaultGroupItemsBody())
       }
       if (ensuredType === "short-text-question") {
         setShortTextBody(normalizeShortTextBody(getShortTextBody(activity)))
@@ -2634,6 +2735,7 @@ function LessonActivityEditorSheet({
       setIsFileDragActive(false)
       setMcqBody(createDefaultMcqBody())
       setMatcherBody(createDefaultMatcherBody())
+      setGroupItemsBody(createDefaultGroupItemsBody())
       setShortTextBody(createDefaultShortTextBody())
       setFeedbackBody(createDefaultFeedbackBody())
       setSelectedSuccessCriteriaIds([])
@@ -2879,6 +2981,15 @@ function LessonActivityEditorSheet({
         setMatcherBody(normalizeMatcherBody(getMatcherBody(activity)))
       } else {
         setMatcherBody(createDefaultMatcherBody())
+      }
+      return
+    }
+
+    if (type === "group-items") {
+      if (activity) {
+        setGroupItemsBody(normalizeGroupItemsBody(getGroupItemsBody(activity)))
+      } else {
+        setGroupItemsBody(createDefaultGroupItemsBody())
       }
       return
     }
@@ -3290,6 +3401,13 @@ function LessonActivityEditorSheet({
         return
       }
       bodyData = preparedMatcherBody
+    } else if (type === "group-items") {
+      const { bodyData: preparedGroupItemsBody, error } = prepareGroupItemsBodyForSave(groupItemsBody)
+      if (error) {
+        toast.error(error)
+        return
+      }
+      bodyData = preparedGroupItemsBody
     } else if (type === "short-text-question") {
       if (shortTextValidationMessage) {
         toast.error(shortTextValidationMessage)
@@ -3380,6 +3498,7 @@ function LessonActivityEditorSheet({
     (type !== "voice" && rawBodyError !== null) ||
     (type === "multiple-choice-question" && mcqValidationMessage !== null) ||
     (type === "matcher" && matcherValidationMessage !== null) ||
+    (type === "group-items" && groupItemsValidationMessage !== null) ||
     (type === "short-text-question" && shortTextValidationMessage !== null)
 
   return (
@@ -3766,6 +3885,131 @@ function LessonActivityEditorSheet({
                 <p>Add between 2 and 8 pairs. Every pair needs both a term and a definition.</p>
                 {matcherValidationMessage ? (
                   <p className="text-destructive">{matcherValidationMessage}</p>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          {type === "group-items" ? (
+            <div className="rounded-md border border-border bg-muted/20 p-4 space-y-4">
+              <div className="space-y-3">
+                <Label className="text-xs font-medium text-muted-foreground">Groups</Label>
+                <div className="space-y-2">
+                  {groupItemsBody.groups.map((group, index) => (
+                    <div key={group.id} className="flex items-center gap-2">
+                      <Input
+                        value={group.name}
+                        onChange={(event) => handleGroupItemsGroupNameChange(group.id, event.target.value)}
+                        placeholder={`Group ${index + 1} name`}
+                        disabled={isPending}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleGroupItemsRemoveGroup(group.id)}
+                        disabled={isPending || groupItemsBody.groups.length <= 2}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleGroupItemsAddGroup}
+                  disabled={isPending || groupItemsBody.groups.length >= 4}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add group
+                </Button>
+              </div>
+
+              <div className="space-y-3">
+                <Label className="text-xs font-medium text-muted-foreground">Items</Label>
+                <div className="space-y-3">
+                  {groupItemsBody.items.map((item, index) => (
+                    <div key={item.id} className="space-y-2 rounded-md border border-border bg-background p-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Item {index + 1}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleGroupItemsRemoveItem(item.id)}
+                          disabled={isPending || groupItemsBody.items.length <= 2}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground" htmlFor={`group-items-text-${item.id}`}>
+                          Text
+                        </Label>
+                        <Input
+                          id={`group-items-text-${item.id}`}
+                          value={item.text}
+                          onChange={(event) => handleGroupItemsItemTextChange(item.id, event.target.value)}
+                          placeholder="Item text"
+                          disabled={isPending}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground" htmlFor={`group-items-image-${item.id}`}>
+                          Image URL (optional)
+                        </Label>
+                        <Input
+                          id={`group-items-image-${item.id}`}
+                          value={item.imageUrl ?? ""}
+                          onChange={(event) => handleGroupItemsItemImageUrlChange(item.id, event.target.value)}
+                          placeholder="https://example.com/image.png"
+                          disabled={isPending}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground" htmlFor={`group-items-group-${item.id}`}>
+                          Correct group
+                        </Label>
+                        <Select
+                          value={item.groupId}
+                          onValueChange={(value) => handleGroupItemsItemGroupChange(item.id, value)}
+                          disabled={isPending}
+                        >
+                          <SelectTrigger id={`group-items-group-${item.id}`} className="w-full">
+                            <SelectValue placeholder="Choose a group" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {groupItemsBody.groups.map((group, groupIndex) => (
+                              <SelectItem key={group.id} value={group.id}>
+                                {group.name.trim() || `Group ${groupIndex + 1}`}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleGroupItemsAddItem}
+                  disabled={isPending || groupItemsBody.items.length >= 12}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add item
+                </Button>
+              </div>
+
+              <div className="space-y-1 text-xs text-muted-foreground">
+                <p>Add 2-4 groups and 2-12 items. Every group needs a name and every item needs text and a correct group.</p>
+                {groupItemsValidationMessage ? (
+                  <p className="text-destructive">{groupItemsValidationMessage}</p>
                 ) : null}
               </div>
             </div>
@@ -4461,6 +4705,88 @@ function validateMatcherBody(body: MatcherBody): string | null {
 function prepareMatcherBodyForSave(body: MatcherBody): { bodyData: MatcherBody; error: string | null } {
   const normalized = normalizeMatcherBody(body)
   const validation = validateMatcherBody(normalized)
+  if (validation) {
+    return { bodyData: normalized, error: validation }
+  }
+  return { bodyData: normalized, error: null }
+}
+
+function normalizeGroupItemsBody(body: GroupItemsBody): GroupItemsBody {
+  const usedGroupIds = new Set<string>()
+  let groups = (body.groups ?? []).slice(0, 4).map((group) => {
+    let id = typeof group.id === "string" && group.id.trim().length > 0 ? group.id.trim() : ""
+    if (!id || usedGroupIds.has(id)) {
+      id = createGroupItemsGroupId(usedGroupIds)
+    }
+    usedGroupIds.add(id)
+    return { id, name: typeof group.name === "string" ? group.name : "" }
+  })
+
+  if (groups.length === 0) {
+    return createDefaultGroupItemsBody()
+  }
+
+  while (groups.length < 2) {
+    const id = createGroupItemsGroupId(usedGroupIds)
+    usedGroupIds.add(id)
+    groups.push({ id, name: "" })
+  }
+
+  const groupIds = new Set(groups.map((group) => group.id))
+  const usedItemIds = new Set<string>()
+  let items = (body.items ?? []).slice(0, 12).map((item) => {
+    let id = typeof item.id === "string" && item.id.trim().length > 0 ? item.id.trim() : ""
+    if (!id || usedItemIds.has(id)) {
+      id = createGroupItemsItemId(usedItemIds)
+    }
+    usedItemIds.add(id)
+    const text = typeof item.text === "string" ? item.text : ""
+    const imageUrl = typeof item.imageUrl === "string" && item.imageUrl.trim().length > 0
+      ? item.imageUrl
+      : null
+    const groupId = groupIds.has(item.groupId) ? item.groupId : groups[0].id
+    return { id, text, imageUrl, groupId }
+  })
+
+  while (items.length < 2) {
+    const id = createGroupItemsItemId(usedItemIds)
+    usedItemIds.add(id)
+    items.push({ id, text: "", imageUrl: null, groupId: groups[0].id })
+  }
+
+  return { groups, items }
+}
+
+function validateGroupItemsBody(body: GroupItemsBody): string | null {
+  const normalized = normalizeGroupItemsBody(body)
+
+  if (normalized.groups.length < 2) {
+    return "Add at least two groups."
+  }
+
+  const emptyGroupName = normalized.groups.some((group) => group.name.trim().length === 0)
+  if (emptyGroupName) {
+    return "Every group needs a name."
+  }
+
+  if (normalized.items.length < 2) {
+    return "Add at least two items."
+  }
+
+  const groupIds = new Set(normalized.groups.map((group) => group.id))
+  const invalidItem = normalized.items.some(
+    (item) => item.text.trim().length === 0 || !groupIds.has(item.groupId),
+  )
+  if (invalidItem) {
+    return "Every item needs text and a correct group."
+  }
+
+  return null
+}
+
+function prepareGroupItemsBodyForSave(body: GroupItemsBody): { bodyData: GroupItemsBody; error: string | null } {
+  const normalized = normalizeGroupItemsBody(body)
+  const validation = validateGroupItemsBody(normalized)
   if (validation) {
     return { bodyData: normalized, error: validation }
   }
