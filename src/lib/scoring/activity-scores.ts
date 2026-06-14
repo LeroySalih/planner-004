@@ -1,4 +1,5 @@
 import {
+  GroupItemsSubmissionBodySchema,
   LegacyMcqSubmissionBodySchema,
   LongTextSubmissionBodySchema,
   MatcherSubmissionBodySchema,
@@ -137,6 +138,67 @@ export function extractScoreFromSubmission(
         ? parsed.data.teacher_override_score
         : null;
       const auto = parsed.data.is_correct ? 1 : 0;
+      const successCriteriaScores = normaliseSuccessCriteriaScores({
+        successCriteriaIds,
+        existingScores: parsed.data.success_criteria_scores,
+        fillValue: override ?? auto,
+      });
+      const overrideScores = typeof override === "number"
+        ? normaliseSuccessCriteriaScores({
+          successCriteriaIds,
+          fillValue: override,
+        })
+        : null;
+      const autoScores = normaliseSuccessCriteriaScores({
+        successCriteriaIds,
+        fillValue: auto,
+      });
+      const feedback = typeof parsed.data.teacher_feedback === "string" &&
+          parsed.data.teacher_feedback.trim().length > 0
+        ? parsed.data.teacher_feedback.trim()
+        : null;
+      return {
+        autoScore: auto,
+        overrideScore: override,
+        effectiveScore: override ?? auto,
+        autoSuccessCriteriaScores: autoScores,
+        overrideSuccessCriteriaScores: overrideScores,
+        successCriteriaScores,
+        feedback,
+        autoFeedback: null,
+        question: metadata.question,
+        correctAnswer: metadata.correctAnswer,
+        pupilAnswer: null,
+      };
+    }
+
+    const fallbackScores = normaliseSuccessCriteriaScores({
+      successCriteriaIds,
+      fillValue: 0,
+    });
+
+    return {
+      autoScore: null,
+      overrideScore: null,
+      effectiveScore: null,
+      autoSuccessCriteriaScores: fallbackScores,
+      overrideSuccessCriteriaScores: null,
+      successCriteriaScores: fallbackScores,
+      question: metadata.question,
+      correctAnswer: metadata.correctAnswer,
+      pupilAnswer: null,
+      feedback: null,
+      autoFeedback: null,
+    };
+  }
+
+  if (activityType === "group-items") {
+    const parsed = GroupItemsSubmissionBodySchema.safeParse(submissionBody);
+    if (parsed.success) {
+      const override = typeof parsed.data.teacher_override_score === "number"
+        ? parsed.data.teacher_override_score
+        : null;
+      const auto = parsed.data.score ?? 0;
       const successCriteriaScores = normaliseSuccessCriteriaScores({
         successCriteriaIds,
         existingScores: parsed.data.success_criteria_scores,
