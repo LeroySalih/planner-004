@@ -3,6 +3,8 @@
 import { z } from "zod";
 
 import {
+  GroupItemsActivityBodySchema,
+  GroupItemsSubmissionBodySchema,
   type LessonSubmissionSummary,
   MatcherActivityBodySchema,
   MatcherSubmissionBodySchema,
@@ -47,6 +49,13 @@ const MatcherSubmissionInputSchema = z.object({
     }),
   ).min(1),
   answers: z.record(z.string(), z.string().nullable()),
+});
+
+const GroupItemsSubmissionInputSchema = z.object({
+  activityId: z.string().min(1),
+  userId: z.string().min(1),
+  itemOrder: z.array(z.string()).min(1),
+  placements: z.record(z.string(), z.string().nullable()),
 });
 
 const LessonActivitySummaryRowSchema = z.object({
@@ -1082,6 +1091,249 @@ export async function upsertMatcherSubmissionAction(
     return { success: true, error: null, data: parsed.data };
   } catch (error) {
     console.error("[submissions] Failed to insert matcher submission:", error);
+    const message = error instanceof Error
+      ? error.message
+      : "Unable to insert submission.";
+    return {
+      success: false,
+      error: message,
+      data: null as Submission | null,
+    };
+  }
+}
+
+export async function upsertGroupItemsSubmissionAction(
+  input: z.infer<typeof GroupItemsSubmissionInputSchema>,
+) {
+  const payload = GroupItemsSubmissionInputSchema.parse(input);
+  let activity: { body_data: unknown; lesson_id: string | null } | null = null;
+  try {
+    const { rows } = await query<
+      { body_data: unknown; lesson_id: string | null }
+    >(
+      "select body_data, lesson_id from activities where activity_id = $1 limit 1",
+      [payload.activityId],
+    );
+    activity = rows[0] ?? null;
+  } catch (error) {
+    console.error(
+      "[submissions] Failed to load activity for group-items submission:",
+      error,
+    );
+    return {
+      success: false,
+      error: error instanceof Error
+        ? error.message
+        : "Unable to load activity.",
+      data: null as Submission | null,
+    };
+  }
+
+  if (!activity) {
+    return {
+      success: false,
+      error: "Activity not found for submission.",
+      data: null as Submission | null,
+    };
+  }
+
+  const parsedActivity = GroupItemsActivityBodySchema.safeParse(activity.body_data);
+  if (!parsedActivity.success) {
+    console.error(
+      "[submissions] Invalid group-items activity body:",
+      parsedActivity.error,
+    );
+    return {
+      success: false,
+      error: "Activity is not configured correctly.",
+      data: null as Submission | null,
+    };
+  }
+  const lessonId = activity.lesson_id ??
+    (await getActivityLessonId(payload.activityId));
+
+  const groupItemsBody = parsedActivity.data;
+  const itemIds = new Set(groupItemsBody.items.map((item) => item.id));
+  const groupIds = new Set(groupItemsBody.groups.map((group) => group.id));
+
+  const itemOrderCoversAllItems =
+    payload.itemOrder.length === groupItemsBody.items.length &&
+    groupItemsBody.items.every((item) =>
+      payload.itemOrder.filter((id) => id === item.id).length === 1,
+    );
+  if (!itemOrderCoversAllItems) {
+    return {
+      success: false,
+      error: "Activity layout is no longer valid for this submission.",
+      data: null as Submission | null,
+    };
+  }
+
+  const sanitizedPlacements: Record<string, string | null> = {};
+  for (const item of groupItemsBody.items) {
+    const placement = payload.placements[item.id];
+    sanitizedPlacements[item.id] =
+      typeof placement === "string" && groupIds.has(placement) ? placement : null;
+  }
+
+  const correctCount = groupItemsBody.items.filter(
+    (item) => sanitizedPlacements[item.id] === item.groupId,
+  ).length;
+  const score = groupItemsBody.items.length > 0
+    ? correctCount / groupItemsBody.items.length
+    : 0;
+  const isCorrect = score === 1;
+
+  const successCriteriaIds = await fetchActivitySuccessCriteriaIds(
+    payload.activityId,
+  );
+  const successCriteriaScores = normaliseSuccessCriteriaScores({
+    successCriteriaIds,
+    fillValue: score,
+  });
+
+  const submissionBody = GroupItemsSubmissionBodySchema.parse({
+    itemOrder: payload.itemOrder,
+    placements: sanitizedPlacements,
+    score,
+    is_correct: isCorrect,
+    success_criteria_scores: successCriteriaScores,
+    teacher_override_score: null,
+    teacher_feedback: null,
+  });
+
+  let existingSubmissionId: string | null = null;
+  try {
+    const { rows } = await query(
+      `
+        select submission_id
+        from submissions
+        where activity_id = $1
+          and user_id = $2
+        order by submitted_at desc nulls last
+        limit 1
+      `,
+      [payload.activityId, payload.userId],
+    );
+    const existingRow = rows?.[0] ?? null;
+    existingSubmissionId =
+      existingRow && typeof existingRow.submission_id === "string"
+        ? existingRow.submission_id
+        : null;
+  } catch (existingError) {
+    console.error(
+      "[submissions] Failed to check existing group-items submission:",
+      existingError,
+    );
+    const message = existingError instanceof Error
+      ? existingError.message
+      : "Unable to load submission.";
+    return { success: false, error: message, data: null as Submission | null };
+  }
+
+  const timestamp = new Date().toISOString();
+
+  if (existingSubmissionId) {
+    try {
+      const { rows } = await query(
+        `
+          update submissions
+          set body = $1, submitted_at = $2, is_flagged = false, resubmit_requested = false, resubmit_note = NULL
+          where submission_id = $3
+          returning *
+        `,
+        [submissionBody, timestamp, existingSubmissionId],
+      );
+
+      const parsed = SubmissionSchema.safeParse(rows?.[0]);
+      if (!parsed.success) {
+        console.error(
+          "[submissions] Failed to parse updated group-items submission:",
+          parsed.error,
+        );
+        return {
+          success: false,
+          error: "Invalid submission data.",
+          data: null as Submission | null,
+        };
+      }
+
+      await logActivitySubmissionEvent({
+        submissionId: parsed.data.submission_id,
+        activityId: payload.activityId,
+        lessonId,
+        pupilId: payload.userId,
+        fileName: null,
+        submittedAt: parsed.data.submitted_at ?? timestamp,
+      });
+
+      void emitSubmissionEvent("submission.updated", {
+        submissionId: parsed.data.submission_id,
+        activityId: payload.activityId,
+        pupilId: payload.userId,
+        submittedAt: parsed.data.submitted_at ?? timestamp,
+        submissionStatus: "inprogress",
+        isFlagged: false,
+      });
+
+      return { success: true, error: null, data: parsed.data };
+    } catch (error) {
+      console.error("[submissions] Failed to update group-items submission:", error);
+      const message = error instanceof Error
+        ? error.message
+        : "Unable to update submission.";
+      return {
+        success: false,
+        error: message,
+        data: null as Submission | null,
+      };
+    }
+  }
+
+  try {
+    const { rows } = await query(
+      `
+        insert into submissions (activity_id, user_id, body)
+        values ($1, $2, $3)
+        returning *
+      `,
+      [payload.activityId, payload.userId, submissionBody],
+    );
+
+    const parsed = SubmissionSchema.safeParse(rows?.[0]);
+    if (!parsed.success) {
+      console.error(
+        "[submissions] Failed to parse inserted group-items submission:",
+        parsed.error,
+      );
+      return {
+        success: false,
+        error: "Invalid submission data.",
+        data: null as Submission | null,
+      };
+    }
+
+    await logActivitySubmissionEvent({
+      submissionId: parsed.data.submission_id,
+      activityId: payload.activityId,
+      lessonId,
+      pupilId: payload.userId,
+      fileName: null,
+      submittedAt: parsed.data.submitted_at ?? timestamp,
+    });
+
+    void emitSubmissionEvent("submission.updated", {
+      submissionId: parsed.data.submission_id,
+      activityId: payload.activityId,
+      pupilId: payload.userId,
+      submittedAt: parsed.data.submitted_at ?? timestamp,
+      submissionStatus: "inprogress",
+      isFlagged: false,
+    });
+
+    return { success: true, error: null, data: parsed.data };
+  } catch (error) {
+    console.error("[submissions] Failed to insert group-items submission:", error);
     const message = error instanceof Error
       ? error.message
       : "Unable to insert submission.";

@@ -170,6 +170,7 @@ export {
   getLatestSubmissionForActivityAction,
   readLessonSubmissionSummariesAction,
   readSubmissionByIdAction,
+  upsertGroupItemsSubmissionAction,
   upsertMatcherSubmissionAction,
   upsertMcqSubmissionAction,
 } from "./server-actions/submissions";
