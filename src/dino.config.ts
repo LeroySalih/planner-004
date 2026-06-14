@@ -9,6 +9,7 @@ export const SCORABLE_ACTIVITY_TYPES = Object.freeze([
   "sketch-render",
   "do-flashcards",
   "matcher",
+  "group-items",
 ]);
 
 export const NON_SCORABLE_ACTIVITY_TYPES = Object.freeze([

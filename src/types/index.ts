@@ -672,6 +672,44 @@ export type MatcherActivityBody = z.infer<typeof MatcherActivityBodySchema>;
 export type MatcherLayoutEntry = z.infer<typeof MatcherLayoutEntrySchema>;
 export type MatcherSubmissionBody = z.infer<typeof MatcherSubmissionBodySchema>;
 
+export const GroupItemsGroupSchema = z.object({
+    id: z.string().min(1),
+    name: z.string().min(1).max(100),
+});
+
+export const GroupItemsItemSchema = z.object({
+    id: z.string().min(1),
+    text: z.string().min(1).max(200),
+    imageUrl: z.string().nullable().optional(),
+    groupId: z.string().min(1),
+});
+
+export const GroupItemsActivityBodySchema = z
+    .object({
+        groups: z.array(GroupItemsGroupSchema).min(2).max(4),
+        items: z.array(GroupItemsItemSchema).min(2).max(12),
+    })
+    .passthrough();
+
+export const GroupItemsSubmissionBodySchema = z
+    .object({
+        itemOrder: z.array(z.string()).default([]),
+        placements: z.record(z.string(), z.string().nullable()).default({}),
+        score: z.number().min(0).max(1).nullable().default(null),
+        is_correct: z.boolean().default(false),
+        teacher_override_score: z.number().min(0).max(1).nullable().optional(),
+        teacher_feedback: z.string().nullable().optional(),
+        success_criteria_scores: z
+            .record(z.string(), z.number().min(0).max(1).nullable())
+            .default({}),
+    })
+    .passthrough();
+
+export type GroupItemsGroup = z.infer<typeof GroupItemsGroupSchema>;
+export type GroupItemsItem = z.infer<typeof GroupItemsItemSchema>;
+export type GroupItemsActivityBody = z.infer<typeof GroupItemsActivityBodySchema>;
+export type GroupItemsSubmissionBody = z.infer<typeof GroupItemsSubmissionBodySchema>;
+
 export const PupilActivityFeedbackRowSchema = z.object({
     feedback_id: z.string(),
     activity_id: z.string(),
