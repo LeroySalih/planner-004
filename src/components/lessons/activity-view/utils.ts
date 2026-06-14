@@ -264,6 +264,108 @@ export function getMatcherBody(activity: LessonActivity): MatcherBody {
   return pairs.length > 0 ? { pairs } : createDefaultMatcherBody();
 }
 
+export interface GroupItemsGroupBody {
+  id: string;
+  name: string;
+}
+
+export interface GroupItemsItemBody {
+  id: string;
+  text: string;
+  imageUrl: string | null;
+  groupId: string;
+}
+
+export interface GroupItemsBody {
+  groups: GroupItemsGroupBody[];
+  items: GroupItemsItemBody[];
+}
+
+export function createGroupItemsGroupId(used: Set<string>): string {
+  let index = 1;
+  let candidate = `group-${index}`;
+  while (used.has(candidate)) {
+    index += 1;
+    candidate = `group-${index}`;
+  }
+  return candidate;
+}
+
+export function createGroupItemsItemId(used: Set<string>): string {
+  let index = 1;
+  let candidate = `item-${index}`;
+  while (used.has(candidate)) {
+    index += 1;
+    candidate = `item-${index}`;
+  }
+  return candidate;
+}
+
+export function createDefaultGroupItemsBody(): GroupItemsBody {
+  return {
+    groups: [
+      { id: "group-1", name: "" },
+      { id: "group-2", name: "" },
+    ],
+    items: [
+      { id: "item-1", text: "", imageUrl: null, groupId: "group-1" },
+      { id: "item-2", text: "", imageUrl: null, groupId: "group-2" },
+    ],
+  };
+}
+
+export function getGroupItemsBody(activity: LessonActivity): GroupItemsBody {
+  if (!activity.body_data || typeof activity.body_data !== "object") {
+    return createDefaultGroupItemsBody();
+  }
+
+  const record = activity.body_data as Record<string, unknown>;
+  const rawGroups = Array.isArray(record.groups) ? record.groups : [];
+  const rawItems = Array.isArray(record.items) ? record.items : [];
+
+  const usedGroupIds = new Set<string>();
+  const groups = rawGroups
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const group = entry as Record<string, unknown>;
+      let id = typeof group.id === "string" && group.id.trim() !== "" ? group.id.trim() : "";
+      if (!id || usedGroupIds.has(id)) {
+        id = createGroupItemsGroupId(usedGroupIds);
+      }
+      usedGroupIds.add(id);
+      const name = typeof group.name === "string" ? group.name : "";
+      return { id, name };
+    })
+    .filter((group): group is GroupItemsGroupBody => group !== null);
+
+  if (groups.length === 0) {
+    return createDefaultGroupItemsBody();
+  }
+
+  const groupIds = new Set(groups.map((group) => group.id));
+  const usedItemIds = new Set<string>();
+  const items = rawItems
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const item = entry as Record<string, unknown>;
+      let id = typeof item.id === "string" && item.id.trim() !== "" ? item.id.trim() : "";
+      if (!id || usedItemIds.has(id)) {
+        id = createGroupItemsItemId(usedItemIds);
+      }
+      usedItemIds.add(id);
+      const text = typeof item.text === "string" ? item.text : "";
+      const imageUrl = typeof item.imageUrl === "string" && item.imageUrl.trim() !== ""
+        ? item.imageUrl
+        : null;
+      const rawGroupId = typeof item.groupId === "string" ? item.groupId : "";
+      const groupId = groupIds.has(rawGroupId) ? rawGroupId : groups[0].id;
+      return { id, text, imageUrl, groupId };
+    })
+    .filter((item): item is GroupItemsItemBody => item !== null);
+
+  return items.length > 0 ? { groups, items } : createDefaultGroupItemsBody();
+}
+
 export function getShortTextBody(activity: LessonActivity): ShortTextBody {
   if (!activity.body_data || typeof activity.body_data !== "object") {
     return { question: "", modelAnswer: "" };
