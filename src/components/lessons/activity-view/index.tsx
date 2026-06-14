@@ -20,6 +20,7 @@ import {
   getFeedbackBody,
   getImageBody,
   getFlashcardsText,
+  getGroupItemsBody,
   getLongTextBody,
   getMatcherBody,
   getMcqBody,
@@ -929,6 +930,43 @@ function MatcherPresentView({
   )
 }
 
+function GroupItemsPresentView({ activity }: { activity: LessonActivity }) {
+  const groupItems = getGroupItemsBody(activity)
+
+  return (
+    <div className="space-y-4">
+      <h3 className="text-2xl font-semibold text-foreground">
+        {activity.title?.trim() || "Group the items"}
+      </h3>
+      <p className="text-sm text-muted-foreground">
+        Pupils drag each item into the group they think it belongs to. This preview shows the correct groupings.
+      </p>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {groupItems.groups.map((group, index) => (
+          <div key={group.id} className="space-y-2 rounded-lg border border-border bg-card p-3">
+            <p className="text-sm font-semibold text-foreground">
+              {group.name.trim() || `Group ${index + 1}`}
+            </p>
+            <ul className="space-y-1">
+              {groupItems.items
+                .filter((item) => item.groupId === group.id)
+                .map((item) => (
+                  <li
+                    key={item.id}
+                    className="rounded-md border border-border/60 bg-muted/30 p-2 text-sm text-foreground"
+                  >
+                    {item.text.trim() || "(missing text)"}
+                  </li>
+                ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function ActivityPresentView({
   activity,
   files,
@@ -1238,6 +1276,10 @@ function ActivityPresentView({
     )
   }
 
+  if (activity.type === "group-items") {
+    return wrap(<GroupItemsPresentView activity={activity} />)
+  }
+
   if (activity.type === "sketch-render") {
     const rawBody = (activity.body_data ?? {}) as Record<string, unknown>
     const instructions = typeof rawBody.instructions === "string" ? rawBody.instructions : ""
@@ -1419,6 +1461,34 @@ function ActivityEditView({ activity, resolvedImageUrl }: LessonActivityEditView
               <p className="text-xs text-muted-foreground">
                 {pair.definition.trim() || "No definition provided"}
               </p>
+            </li>
+          ))}
+        </ul>
+      </div>
+    )
+  }
+
+  if (activity.type === "group-items") {
+    const groupItems = getGroupItemsBody(activity)
+
+    return (
+      <div className="space-y-2 text-sm text-muted-foreground">
+        <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+          Groups &amp; items
+        </p>
+        <ul className="space-y-2">
+          {groupItems.groups.map((group, index) => (
+            <li key={group.id} className="rounded-md border border-border/60 bg-muted/30 p-2">
+              <p className="font-medium text-foreground">
+                {group.name.trim() || `Group ${index + 1}`}
+              </p>
+              <ul className="mt-1 space-y-1 pl-3 text-xs text-muted-foreground">
+                {groupItems.items
+                  .filter((item) => item.groupId === group.id)
+                  .map((item) => (
+                    <li key={item.id}>{item.text.trim() || "(missing text)"}</li>
+                  ))}
+              </ul>
             </li>
           ))}
         </ul>
