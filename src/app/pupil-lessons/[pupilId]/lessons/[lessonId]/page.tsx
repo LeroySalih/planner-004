@@ -39,6 +39,7 @@ import { PupilUploadActivity } from "@/components/pupil/pupil-upload-activity"
 
 import { PupilMcqActivity } from "@/components/pupil/pupil-mcq-activity"
 import { PupilMatcherActivity } from "@/components/pupil/pupil-matcher-activity"
+import { PupilGroupItemsActivity } from "@/components/pupil/pupil-group-items-activity"
 import { PupilDoFlashcardsActivity } from "@/components/pupil/pupil-do-flashcards-activity"
 import { PupilFeedbackActivity } from "@/components/pupil/pupil-feedback-activity"
 import { PupilShortTextActivity } from "@/components/pupil/pupil-short-text-activity"
@@ -50,6 +51,8 @@ import { PupilReviewOthersWorkActivity } from "@/components/pupil/pupil-review-o
 
 import { MediaImage } from "@/components/ui/media-image"
 import {
+  GroupItemsActivityBodySchema,
+  GroupItemsSubmissionBodySchema,
   LegacyMcqSubmissionBodySchema,
   LongTextSubmissionBodySchema,
   MatcherSubmissionBodySchema,
@@ -523,6 +526,57 @@ export default async function PupilLessonFriendlyPage({
 
   const matcherDataMap = new Map(matcherSubmissionEntries.map((entry) => [entry.activityId, entry]))
 
+  const groupItemsActivities = activities.filter((activity) => activity.type === "group-items")
+
+  const groupItemsSubmissionEntries = await Promise.all(
+    groupItemsActivities.map(async (activity) => {
+      const parsedActivityBody = GroupItemsActivityBodySchema.safeParse(activity.body_data)
+      const groups = parsedActivityBody.success
+        ? parsedActivityBody.data.groups.map((group) => ({ id: group.id, name: group.name }))
+        : []
+      const items = parsedActivityBody.success
+        ? parsedActivityBody.data.items.map((item) => ({
+            id: item.id,
+            text: item.text,
+            imageUrl: item.imageUrl ?? null,
+          }))
+        : []
+
+      const result = await getLatestSubmissionForActivityAction(activity.activity_id, pupilId)
+      if (result.error || !result.data) {
+        return {
+          activityId: activity.activity_id,
+          groups,
+          items,
+          itemOrder: [] as string[],
+          placements: {} as Record<string, string | null>,
+        }
+      }
+
+      const parsedBody = GroupItemsSubmissionBodySchema.safeParse(result.data.body)
+      if (!parsedBody.success) {
+        console.warn("[pupil-lessons] Ignoring malformed group-items submission body", parsedBody.error)
+        return {
+          activityId: activity.activity_id,
+          groups,
+          items,
+          itemOrder: [] as string[],
+          placements: {} as Record<string, string | null>,
+        }
+      }
+
+      return {
+        activityId: activity.activity_id,
+        groups,
+        items,
+        itemOrder: parsedBody.data.itemOrder,
+        placements: parsedBody.data.placements,
+      }
+    }),
+  )
+
+  const groupItemsDataMap = new Map(groupItemsSubmissionEntries.map((entry) => [entry.activityId, entry]))
+
   const shortTextActivities = activities.filter((activity) => activity.type === "short-text-question")
   const longTextActivities = activities.filter(
     (activity) => activity.type === "long-text-question" || activity.type === "text-question",
@@ -977,6 +1031,18 @@ export default async function PupilLessonFriendlyPage({
                           canAnswer={isPupilViewer}
                           initialLayout={matcherDataMap.get(activity.activity_id)?.layout ?? []}
                           initialAnswers={matcherDataMap.get(activity.activity_id)?.answers ?? {}}
+                        />
+                      ) : activity.type === "group-items" ? (
+                        <PupilGroupItemsActivity
+                          lessonId={lesson.lesson_id}
+                          activityId={activity.activity_id}
+                          title={activity.title}
+                          pupilId={pupilId}
+                          canAnswer={isPupilViewer}
+                          groups={groupItemsDataMap.get(activity.activity_id)?.groups ?? []}
+                          items={groupItemsDataMap.get(activity.activity_id)?.items ?? []}
+                          initialItemOrder={groupItemsDataMap.get(activity.activity_id)?.itemOrder ?? []}
+                          initialPlacements={groupItemsDataMap.get(activity.activity_id)?.placements ?? {}}
                         />
                       ) : activity.type === "feedback" ? (
                         <PupilFeedbackActivity
