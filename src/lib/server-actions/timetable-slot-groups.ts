@@ -36,14 +36,15 @@ export async function upsertTimetableSlotGroupAction(
   }
 }
 
-export async function readTimetableSlotGroupsAction(): Promise<z.infer<typeof SlotGroupsResult>> {
+export async function readTimetableSlotGroupsAction(teacherId?: string): Promise<z.infer<typeof SlotGroupsResult>> {
   try {
     const profile = await requireTeacherProfile()
+    const targetTeacherId = teacherId ?? profile.userId
     const { rows } = await query<TimetableSlotGroup>(
       `SELECT teacher_id, day, period, group_id
        FROM timetable_slot_groups
        WHERE teacher_id = $1`,
-      [profile.userId],
+      [targetTeacherId],
     )
     const data = rows.map((row) => TimetableSlotGroupSchema.parse({ ...row, period: Number(row.period) }))
     return SlotGroupsResult.parse({ data, error: null })

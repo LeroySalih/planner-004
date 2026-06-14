@@ -24,39 +24,68 @@ import type { Unit, Group, LessonWithObjectives } from '@/types'
 type TeacherPlannerClientProps = {
   units: Unit[]
   groups: Group[]
+  teachers: { userId: string; firstName: string | null; lastName: string | null }[]
+  currentTeacherId: string
 }
 
-export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProps) {
+function cacheKey(teacherId: string, week: string) {
+  return `${teacherId}::${week}`
+}
+
+export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId }: TeacherPlannerClientProps) {
   const [weeklyStates, setWeeklyStates] = useState<WeeklyPlannerState>(new Map())
   const [currentWeek, setCurrentWeek] = useState<string>(getTodaySunday)
   const [weekNotes, setWeekNotesMap] = useState<Map<string, string>>(new Map())
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
   const [lessonCache, setLessonCache] = useState<Map<string, LessonWithObjectives[]>>(new Map())
+  const [selectedTeacherId, setSelectedTeacherId] = useState<string>(currentTeacherId)
+
+  const readOnly = selectedTeacherId !== currentTeacherId
 
   const currentWeekRef = useRef(currentWeek)
   currentWeekRef.current = currentWeek
 
-  const classDefaultsRef = useRef<Map<string, string | null>>(new Map())
-  const loadedWeeks = useRef<Set<string>>(new Set())
+  const selectedTeacherIdRef = useRef(selectedTeacherId)
+  selectedTeacherIdRef.current = selectedTeacherId
 
-  const loadWeekAssignments = useCallback(async (week: string) => {
-    if (loadedWeeks.current.has(week)) return
+  const classDefaultsByTeacherRef = useRef<Map<string, Map<string, string | null>>>(new Map())
+  const loadedWeeksByTeacherRef = useRef<Map<string, Set<string>>>(new Map())
+
+  const loadWeekAssignments = useCallback(async (teacherId: string, week: string) => {
+    const loadedWeeks = loadedWeeksByTeacherRef.current.get(teacherId) ?? new Set<string>()
+    loadedWeeksByTeacherRef.current.set(teacherId, loadedWeeks)
+    if (loadedWeeks.has(week)) return
+
+    let classDefaults = classDefaultsByTeacherRef.current.get(teacherId)
+    if (!classDefaults) {
+      classDefaults = new Map<string, string | null>()
+      classDefaultsByTeacherRef.current.set(teacherId, classDefaults)
+      const { data, error } = await readTimetableSlotGroupsAction(teacherId)
+      if (error || !data) {
+        console.error('[hydration] Failed to load timetable slot groups:', error)
+      } else {
+        for (const tsg of data) {
+          classDefaults.set(slotKey(tsg.day as Day, tsg.period), tsg.group_id)
+        }
+      }
+    }
+
     const [assignmentsResult, flagsResult] = await Promise.all([
-      readPlannerAssignmentsForWeekAction(week),
+      readPlannerAssignmentsForWeekAction(week, teacherId),
       readPlannerPeriodFlagsForWeekAction(week),
     ])
     if (assignmentsResult.error || !assignmentsResult.data) {
       console.error('[loadWeekAssignments] Failed to load week:', week, assignmentsResult.error)
       return
     }
-    loadedWeeks.current.add(week)
+    loadedWeeks.add(week)
     const flagsByKey = new Map<string, { issueFlag: boolean; issueNote: string }>()
     for (const f of flagsResult.data ?? []) {
       flagsByKey.set(slotKey(f.day as Day, f.period), { issueFlag: f.issue_flag, issueNote: f.issue_note })
     }
     setWeeklyStates((prev) => {
       const weekState = new Map<string, CellState>()
-      for (const [key, groupId] of classDefaultsRef.current) {
+      for (const [key, groupId] of classDefaults!) {
         const flag = flagsByKey.get(key) ?? { issueFlag: false, issueNote: '' }
         weekState.set(key, { groupId, lessons: [], ...flag })
       }
@@ -75,39 +104,35 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
         weekState.set(key, existing)
       }
       const next = new Map(prev)
-      next.set(week, weekState)
+      next.set(cacheKey(teacherId, week), weekState)
       return next
     })
   }, [])
 
   useEffect(() => {
-    const init = async () => {
-      const { data, error } = await readTimetableSlotGroupsAction()
-      if (error || !data) {
-        console.error('[hydration] Failed to load timetable slot groups:', error)
-      } else {
-        for (const tsg of data) {
-          classDefaultsRef.current.set(slotKey(tsg.day as Day, tsg.period), tsg.group_id)
-        }
-      }
-      await loadWeekAssignments(getTodaySunday())
-    }
-    init()
-  }, [loadWeekAssignments])
+    loadWeekAssignments(currentTeacherId, getTodaySunday())
+  }, [loadWeekAssignments, currentTeacherId])
 
-  const plannerState = weeklyStates.get(currentWeek) ?? new Map<string, CellState>()
+  useEffect(() => {
+    if (selectedTeacherId === currentTeacherId) return
+    loadWeekAssignments(selectedTeacherId, currentWeekRef.current)
+  }, [loadWeekAssignments, selectedTeacherId, currentTeacherId])
+
+  const plannerState = weeklyStates.get(cacheKey(selectedTeacherId, currentWeek)) ?? new Map<string, CellState>()
 
   const updateSlot = useCallback(
     (day: Day, period: number, update: (s: CellState) => CellState) => {
       const week = currentWeekRef.current
+      const teacherId = selectedTeacherIdRef.current
       const key = slotKey(day, period)
       setWeeklyStates((prev) => {
-        const weekState = prev.get(week) ?? new Map()
+        const mapKey = cacheKey(teacherId, week)
+        const weekState = prev.get(mapKey) ?? new Map()
         const current = weekState.get(key) ?? emptyCellState()
         const nextWeekState = new Map(weekState)
         nextWeekState.set(key, update(current))
         const next = new Map(prev)
-        next.set(week, nextWeekState)
+        next.set(mapKey, nextWeekState)
         return next
       })
     },
@@ -278,7 +303,8 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
       updateSlot(day, period, (s) => ({ ...s, lessons: [] }))
     }
 
-    classDefaultsRef.current.set(key, resolvedGroupId)
+    const classDefaults = classDefaultsByTeacherRef.current.get(selectedTeacherIdRef.current)
+    classDefaults?.set(key, resolvedGroupId)
     await upsertTimetableSlotGroupAction(day, period, resolvedGroupId)
   }, [updateSlot, plannerState])
 
@@ -286,14 +312,14 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
     const next = shiftWeek(currentWeekRef.current, -1)
     setCurrentWeek(next)
     setSelectedSlot(null)
-    loadWeekAssignments(next)
+    loadWeekAssignments(selectedTeacherIdRef.current, next)
   }, [loadWeekAssignments])
 
   const handleNextWeek = useCallback(() => {
     const next = shiftWeek(currentWeekRef.current, 1)
     setCurrentWeek(next)
     setSelectedSlot(null)
-    loadWeekAssignments(next)
+    loadWeekAssignments(selectedTeacherIdRef.current, next)
   }, [loadWeekAssignments])
 
   const weekNote = weekNotes.get(currentWeek) ?? ''
@@ -326,6 +352,27 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
 
   return (
     <>
+      <div className="max-w-[95%] mx-auto mb-6 flex items-center gap-4">
+        <h1 className="text-xl font-medium text-[var(--color-text-primary)] m-0">
+          Weekly planner
+        </h1>
+        <select
+          value={selectedTeacherId}
+          onChange={(e) => {
+            setSelectedTeacherId(e.target.value)
+            setSelectedSlot(null)
+          }}
+          className="text-sm rounded-md border border-[var(--color-border)] bg-[var(--color-background-secondary)] px-2 py-1 text-[var(--color-text-primary)]"
+        >
+          {teachers.map((t) => (
+            <option key={t.userId} value={t.userId}>
+              {[t.firstName, t.lastName].filter(Boolean).join(' ') || t.userId}
+              {t.userId === currentTeacherId ? ' (me)' : ''}
+            </option>
+          ))}
+        </select>
+      </div>
+
       <div
         className="w-[95%] mx-auto rounded-[12px] bg-[var(--color-background-tertiary)] p-4 transition-[padding-right] duration-200"
         style={{ paddingRight: selectedSlot ? 'calc(320px + 1rem)' : undefined }}
@@ -346,9 +393,10 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
           onUnitSelect={handleUnitSelect}
           onLessonChange={handleLessonChange}
           onFeedbackToggle={handleFeedbackToggle}
+          readOnly={readOnly}
         />
 
-        <WeekNotes value={weekNote} onChange={handleWeekNoteChange} />
+        <WeekNotes value={weekNote} onChange={handleWeekNoteChange} readOnly={readOnly} />
       </div>
 
       <SidePanel
@@ -369,6 +417,7 @@ export function TeacherPlannerClient({ units, groups }: TeacherPlannerClientProp
         onIssueToggle={handleIssueToggle}
         onIssueNoteChange={handleIssueNoteChange}
         onLessonNotesChange={handleLessonNotesChange}
+        readOnly={readOnly}
       />
     </>
   )

@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { CurrentProfileSchema } from "@/types";
 import { query } from "@/lib/db";
-import { hashPassword, requireAuthenticatedProfile } from "@/lib/auth";
+import { hashPassword, requireAuthenticatedProfile, requireTeacherProfile } from "@/lib/auth";
 
 const ReadCurrentProfileResultSchema = z.object({
   data: CurrentProfileSchema.nullable(),
@@ -437,5 +437,34 @@ export async function readAllProfilesAction() {
   } catch (error) {
     console.error("[profile] Failed to read all profiles", error);
     return { data: [], error: "Failed to load profiles" };
+  }
+}
+
+export async function readTeachersAction() {
+  await requireTeacherProfile();
+
+  try {
+    const { rows } = await query<{
+      user_id: string;
+      first_name: string | null;
+      last_name: string | null;
+    }>(`
+      select distinct p.user_id, p.first_name, p.last_name
+      from profiles p
+      left join user_roles ur on ur.user_id = p.user_id
+      where p.is_teacher is true or ur.role_id = 'teacher'
+      order by p.last_name, p.first_name
+    `);
+
+    const teachers = rows.map((row) => ({
+      userId: row.user_id,
+      firstName: row.first_name,
+      lastName: row.last_name,
+    }));
+
+    return { data: teachers, error: null };
+  } catch (error) {
+    console.error("[profile] Failed to read teachers", error);
+    return { data: [], error: "Failed to load teachers" };
   }
 }

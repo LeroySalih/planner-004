@@ -272,6 +272,7 @@ export {
   type UpdateProfileDetailResult,
   updateProfilePasswordAction,
   type UpdateProfilePasswordResult,
+  readTeachersAction,
 } from "./server-actions/profile";
 
 export { triggerFastUiUpdateAction } from "./server-actions/prototypes/fast-ui";

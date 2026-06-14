@@ -16,6 +16,7 @@ type PlannerGridProps = {
   onUnitSelect: (unitId: string) => void
   onLessonChange: (day: Day, period: number, lessonId: string) => void
   onFeedbackToggle: (day: Day, period: number, lessonId: string) => void
+  readOnly?: boolean
 }
 
 type LessonRow = Extract<PeriodRow, { type: 'lesson' }>
@@ -52,6 +53,7 @@ export function PlannerGrid({
   onUnitSelect,
   onLessonChange,
   onFeedbackToggle,
+  readOnly,
 }: PlannerGridProps) {
   // Build a map from group_id → subject for fast lookup
   const groupSubjectMap = new Map(groups.map((g) => [g.group_id, g.subject]))
@@ -135,6 +137,7 @@ export function PlannerGrid({
                   onUnitSelect={onUnitSelect}
                   onLessonChange={onLessonChange}
                   onFeedbackToggle={onFeedbackToggle}
+                  readOnly={readOnly}
                 />
               )
             })}

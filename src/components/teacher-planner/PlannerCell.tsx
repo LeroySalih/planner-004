@@ -17,6 +17,7 @@ type PlannerCellProps = {
   onUnitSelect: (unitId: string) => void
   onLessonChange: (day: Day, period: number, lessonId: string) => void
   onFeedbackToggle: (day: Day, period: number, lessonId: string) => void
+  readOnly?: boolean
 }
 
 export function PlannerCell({
@@ -30,6 +31,7 @@ export function PlannerCell({
   onUnitSelect,
   onLessonChange,
   onFeedbackToggle,
+  readOnly,
 }: PlannerCellProps) {
   const [pendingUnitId, setPendingUnitId] = useState<string>('')
 
@@ -93,9 +95,10 @@ export function PlannerCell({
       {hasGroup && lessonCount <= 1 && (
         <div className="flex flex-col gap-1" onClick={(e) => e.stopPropagation()}>
           <select
-            className="text-xs w-full rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-1 py-0.5"
+            className="text-xs w-full rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-1 py-0.5 disabled:opacity-60"
             value={effectiveUnitId}
             onChange={handleUnitChange}
+            disabled={readOnly}
           >
             <option value="">Unit…</option>
             {units.map((u) => (
@@ -104,9 +107,10 @@ export function PlannerCell({
           </select>
           {effectiveUnitId && (
             <select
-              className="text-xs w-full rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-1 py-0.5"
+              className="text-xs w-full rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-1 py-0.5 disabled:opacity-60"
               value={lessonDropdownValue}
               onChange={handleLessonSelect}
+              disabled={readOnly}
             >
               <option value="">Lesson…</option>
               {effectiveLessons.length === 0 && currentLesson && effectiveUnitId === currentUnitId && (
@@ -154,8 +158,10 @@ export function PlannerCell({
                   : anyIssue
                   ? 'text-[#A32D2D] opacity-50 hover:opacity-100'
                   : 'text-[var(--color-text-tertiary)] opacity-50 hover:opacity-100',
+                readOnly && 'cursor-default opacity-30',
               )}
-              onClick={() => currentLesson && onFeedbackToggle(day, period, currentLesson.lessonId)}
+              onClick={() => !readOnly && currentLesson && onFeedbackToggle(day, period, currentLesson.lessonId)}
+              disabled={readOnly}
               title="Toggle feedback visible"
             >
               ✓

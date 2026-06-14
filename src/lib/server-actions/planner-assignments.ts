@@ -119,9 +119,11 @@ export async function deletePlannerAssignmentAction(
 
 export async function readPlannerAssignmentsForWeekAction(
   weekStartDate: string,
+  teacherId?: string,
 ): Promise<z.infer<typeof AssignmentsWithUnitResult>> {
   try {
     const profile = await requireTeacherProfile()
+    const targetTeacherId = teacherId ?? profile.userId
     if (!weekStartDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
       return AssignmentsWithUnitResult.parse({ data: null, error: 'weekStartDate must be ISO YYYY-MM-DD' })
     }
@@ -132,7 +134,7 @@ export async function readPlannerAssignmentsForWeekAction(
        JOIN timetable_slot_groups tsg
          ON tsg.teacher_id = $1 AND tsg.day = pa.day AND tsg.period = pa.period
        WHERE pa.week_start_date = $2`,
-      [profile.userId, weekStartDate],
+      [targetTeacherId, weekStartDate],
     )
     const data = rows.map((row) =>
       PlannerAssignmentWithUnitSchema.parse({

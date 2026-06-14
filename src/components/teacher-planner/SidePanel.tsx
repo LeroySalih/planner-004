@@ -23,6 +23,7 @@ type SidePanelProps = {
   onIssueToggle: (day: Day, period: number) => void
   onIssueNoteChange: (day: Day, period: number, note: string) => void
   onLessonNotesChange: (day: Day, period: number, lessonId: string, notes: string) => void
+  readOnly?: boolean
 }
 
 export function SidePanel({
@@ -43,6 +44,7 @@ export function SidePanel({
   onIssueToggle,
   onIssueNoteChange,
   onLessonNotesChange,
+  readOnly,
 }: SidePanelProps) {
   const [addUnitId, setAddUnitId] = useState('')
   const [addLessonId, setAddLessonId] = useState('')
@@ -97,9 +99,10 @@ export function SidePanel({
       <div>
         <label className="text-xs text-[var(--color-text-secondary)] block mb-1">Class</label>
         <select
-          className="w-full text-sm rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-2 py-1.5"
+          className="w-full text-sm rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-2 py-1.5 disabled:opacity-60"
           value={groupId ?? ''}
           onChange={handleGroupChange}
+          disabled={readOnly}
         >
           <option value="">No class</option>
           <option value="__free__">Free period</option>
@@ -114,23 +117,25 @@ export function SidePanel({
         <div className="flex items-center justify-between">
           <span className="text-xs font-medium text-[var(--color-text-secondary)]">Period warning</span>
           <button
-            className={`text-[10px] px-2 py-0.5 rounded border ${
+            className={`text-[10px] px-2 py-0.5 rounded border disabled:opacity-60 ${
               issueFlag
                 ? 'bg-red-500 text-white border-red-600'
                 : 'bg-[var(--color-background-secondary)] text-[var(--color-text-secondary)] border-[var(--color-border)] hover:border-red-400 hover:text-red-500'
             }`}
             onClick={() => onIssueToggle(day, period)}
+            disabled={readOnly}
           >
             {issueFlag ? '⚠ Warning flagged' : '⚠ Flag warning'}
           </button>
         </div>
         {issueFlag && (
           <textarea
-            className="w-full text-xs rounded border border-[var(--color-border)] bg-[var(--color-background-secondary)] px-2 py-1 resize-none"
+            className="w-full text-xs rounded border border-[var(--color-border)] bg-[var(--color-background-secondary)] px-2 py-1 resize-none disabled:opacity-60"
             rows={2}
             placeholder="Describe the issue…"
             value={issueNote}
             onChange={(e) => onIssueNoteChange(day, period, e.target.value)}
+            disabled={readOnly}
           />
         )}
       </div>
@@ -152,13 +157,14 @@ export function SidePanel({
               onFeedbackToggle={onFeedbackToggle}
               onLessonNotesChange={onLessonNotesChange}
               onRemove={onRemoveLesson}
+              readOnly={readOnly}
             />
           ))}
         </div>
       )}
 
       {/* Add lesson section */}
-      {hasGroup && (
+      {hasGroup && !readOnly && (
         <div className="border-t border-[var(--color-border)] pt-3">
           <p className="text-xs font-medium text-[var(--color-text-secondary)] mb-2">Add lesson</p>
           <div className="flex flex-col gap-2">
@@ -212,6 +218,7 @@ type LessonCardProps = {
   onFeedbackToggle: (day: Day, period: number, lessonId: string) => void
   onLessonNotesChange: (day: Day, period: number, lessonId: string, notes: string) => void
   onRemove: (day: Day, period: number, lessonId: string) => void
+  readOnly?: boolean
 }
 
 function LessonCard({
@@ -226,6 +233,7 @@ function LessonCard({
   onFeedbackToggle,
   onLessonNotesChange,
   onRemove,
+  readOnly,
 }: LessonCardProps) {
   const [swapUnitId, setSwapUnitId] = useState(lesson.unitId)
 
@@ -259,21 +267,24 @@ function LessonCard({
           >
             %
           </Link>
-          <button
-            className="text-[10px] text-[var(--color-text-tertiary)] hover:text-red-500"
-            onClick={() => onRemove(day, period, lesson.lessonId)}
-          >
-            Remove
-          </button>
+          {!readOnly && (
+            <button
+              className="text-[10px] text-[var(--color-text-tertiary)] hover:text-red-500"
+              onClick={() => onRemove(day, period, lesson.lessonId)}
+            >
+              Remove
+            </button>
+          )}
         </div>
       </div>
 
       {/* Unit + lesson swap */}
       <div className="flex flex-col gap-1 mb-2">
         <select
-          className="w-full text-xs rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-2 py-1"
+          className="w-full text-xs rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-2 py-1 disabled:opacity-60"
           value={swapUnitId}
           onChange={handleSwapUnit}
+          disabled={readOnly}
         >
           <option value="">Unit…</option>
           {units.map((u) => (
@@ -282,9 +293,10 @@ function LessonCard({
         </select>
         {swapUnitId && (
           <select
-            className="w-full text-xs rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-2 py-1"
+            className="w-full text-xs rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-2 py-1 disabled:opacity-60"
             value={lessonDropdownValue}
             onChange={handleSwapLesson}
+            disabled={readOnly}
           >
             <option value="">Lesson…</option>
             {swapLessons.length === 0 && swapUnitId === lesson.unitId && (
@@ -300,12 +312,13 @@ function LessonCard({
       {/* Feedback toggle */}
       <div className="flex gap-2 mb-2">
         <button
-          className={`text-[10px] px-2 py-0.5 rounded ${
+          className={`text-[10px] px-2 py-0.5 rounded disabled:opacity-60 ${
             lesson.feedbackVisible
               ? 'bg-green-500 text-white'
               : 'bg-[var(--color-background-primary)] text-[var(--color-text-secondary)] border border-[var(--color-border)]'
           }`}
           onClick={() => onFeedbackToggle(day, period, lesson.lessonId)}
+          disabled={readOnly}
         >
           Feedback {lesson.feedbackVisible ? 'on' : 'off'}
         </button>
@@ -313,11 +326,12 @@ function LessonCard({
 
       {/* Lesson notes */}
       <textarea
-        className="w-full text-xs rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-2 py-1 resize-none"
+        className="w-full text-xs rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-2 py-1 resize-none disabled:opacity-60"
         rows={2}
         placeholder="Lesson notes…"
         value={lesson.lessonNotes}
         onChange={(e) => onLessonNotesChange(day, period, lesson.lessonId, e.target.value)}
+        disabled={readOnly}
       />
     </div>
   )

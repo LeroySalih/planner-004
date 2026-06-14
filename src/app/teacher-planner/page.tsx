@@ -1,13 +1,14 @@
-import { readGroupsAction, readUnitsAction } from '@/lib/server-updates'
+import { readGroupsAction, readUnitsAction, readTeachersAction } from '@/lib/server-updates'
 import { requireTeacherProfile } from '@/lib/auth'
 import { TeacherPlannerClient } from '@/components/teacher-planner/TeacherPlannerClient'
 
 export default async function TeacherPlannerPage() {
-  await requireTeacherProfile()
+  const profile = await requireTeacherProfile()
 
-  const [groupsResult, unitsResult] = await Promise.all([
+  const [groupsResult, unitsResult, teachersResult] = await Promise.all([
     readGroupsAction(),
     readUnitsAction(),
+    readTeachersAction(),
   ])
 
   if (groupsResult.error || unitsResult.error) {
@@ -22,14 +23,11 @@ export default async function TeacherPlannerPage() {
 
   return (
     <main className="min-h-screen bg-[var(--color-background-tertiary)] p-8">
-      <div className="max-w-[95%] mx-auto mb-6">
-        <h1 className="text-xl font-medium text-[var(--color-text-primary)] m-0">
-          Weekly planner
-        </h1>
-      </div>
       <TeacherPlannerClient
         units={unitsResult.data ?? []}
         groups={groupsResult.data ?? []}
+        teachers={teachersResult.data ?? []}
+        currentTeacherId={profile.userId}
       />
     </main>
   )

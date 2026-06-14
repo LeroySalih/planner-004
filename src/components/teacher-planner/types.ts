@@ -33,7 +33,7 @@ export type CellState = {
 }
 
 export type PlannerState = Map<string, CellState>       // key: `${day}-${period}`
-export type WeeklyPlannerState = Map<string, PlannerState> // key: ISO sunday date e.g. "2026-05-03"
+export type WeeklyPlannerState = Map<string, PlannerState> // key: `${teacherId}::${isoSundayDate}`
 
 export function slotKey(day: Day, period: number): string {
   return `${day}-${period}`
