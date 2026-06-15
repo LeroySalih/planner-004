@@ -10,6 +10,7 @@ import {
   AssignmentResultCriterionScoresSchema,
   AssignmentResultMatrixSchema,
   AssignmentResultRowSchema,
+  MatcherActivityBodySchema,
   McqActivityBodySchema,
   McqSubmissionBodySchema,
   ShortTextActivityBodySchema,
@@ -418,6 +419,7 @@ export async function readAssignmentResultsAction(
             question: string | null;
             correctAnswer: string | null;
             optionTextMap?: Record<string, string>;
+            matcherPairs?: import("@/types").MatcherPair[];
           }
         >();
 
@@ -530,8 +532,16 @@ export async function readAssignmentResultsAction(
           let question: string | null = null;
           let correctAnswer: string | null = null;
           let optionTextMap: Record<string, string> | undefined;
+          let matcherPairs: import("@/types").MatcherPair[] | undefined;
 
-          if (type === "multiple-choice-question") {
+          if (type === "matcher") {
+            const parsedBody = MatcherActivityBodySchema.safeParse(
+              activity.body_data,
+            );
+            if (parsedBody.success) {
+              matcherPairs = parsedBody.data.pairs;
+            }
+          } else if (type === "multiple-choice-question") {
             const parsedBody = McqActivityBodySchema.safeParse(
               activity.body_data,
             );
@@ -583,6 +593,7 @@ export async function readAssignmentResultsAction(
             question,
             correctAnswer,
             optionTextMap,
+            matcherPairs,
           });
         }
 
@@ -821,6 +832,7 @@ export async function readAssignmentResultsAction(
               question: extracted.question ?? metadata.question,
               correctAnswer: extracted.correctAnswer ?? metadata.correctAnswer,
               pupilAnswer: extracted.pupilAnswer ?? null,
+              matcherPairs: extracted.matcherPairs ?? null,
               needsMarking: Boolean(submission.submission_id) &&
                 status === "missing",
               isFlagged: (submission as any).is_flagged ?? false,

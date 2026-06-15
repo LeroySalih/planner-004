@@ -672,6 +672,16 @@ export type MatcherActivityBody = z.infer<typeof MatcherActivityBodySchema>;
 export type MatcherLayoutEntry = z.infer<typeof MatcherLayoutEntrySchema>;
 export type MatcherSubmissionBody = z.infer<typeof MatcherSubmissionBodySchema>;
 
+export const MatcherPairResultSchema = z.object({
+    id: z.string(),
+    term: z.string(),
+    definition: z.string(),
+    isCorrect: z.boolean(),
+    pupilMatchedText: z.string().nullable(),
+});
+
+export type MatcherPairResult = z.infer<typeof MatcherPairResultSchema>;
+
 export const GroupItemsGroupSchema = z.object({
     id: z.string().min(1),
     name: z.string().min(1).max(100),
@@ -1007,6 +1017,7 @@ export const AssignmentResultCellSchema = z.object({
     question: z.string().nullable().optional(),
     correctAnswer: z.string().nullable().optional(),
     pupilAnswer: z.string().nullable().optional(),
+    matcherPairs: z.array(MatcherPairResultSchema).nullable().optional(),
     needsMarking: z.boolean().default(false),
     isFlagged: z.boolean().default(false),
     resubmitRequested: z.boolean().default(false),

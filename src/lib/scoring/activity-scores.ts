@@ -2,6 +2,7 @@ import {
   GroupItemsSubmissionBodySchema,
   LegacyMcqSubmissionBodySchema,
   LongTextSubmissionBodySchema,
+  type MatcherPairResult,
   MatcherSubmissionBodySchema,
   McqSubmissionBodySchema,
   ShortTextSubmissionBodySchema,
@@ -10,6 +11,36 @@ import {
 import { clampScore, normaliseSuccessCriteriaScores } from "@/lib/scoring/client-success-criteria";
 
 export const TEACHER_OVERRIDE_PLACEHOLDER = "__teacher_override__";
+
+function buildMatcherPairResults(
+  pairs: import("@/types").MatcherPair[],
+  submission: import("@/types").MatcherSubmissionBody,
+): MatcherPairResult[] {
+  const pairsById = new Map(pairs.map((pair) => [pair.id, pair]));
+  const promptSideById = new Map(
+    submission.layout.map((entry) => [entry.pairId, entry.promptSide]),
+  );
+
+  return pairs.map((pair) => {
+    const selectedPairId = submission.answers[pair.id] ?? null;
+    const isCorrect = selectedPairId === pair.id;
+    const selectedPair = selectedPairId
+      ? pairsById.get(selectedPairId) ?? null
+      : null;
+    const promptSide = promptSideById.get(pair.id) ?? "term";
+    const pupilMatchedText = selectedPair
+      ? (promptSide === "term" ? selectedPair.definition : selectedPair.term)
+      : null;
+
+    return {
+      id: pair.id,
+      term: pair.term,
+      definition: pair.definition,
+      isCorrect,
+      pupilMatchedText,
+    };
+  });
+}
 
 export type SubmissionExtraction = {
   autoScore: number | null;
@@ -23,6 +54,7 @@ export type SubmissionExtraction = {
   question: string | null;
   correctAnswer: string | null;
   pupilAnswer: string | null;
+  matcherPairs?: MatcherPairResult[] | null;
 };
 
 export function extractScoreFromSubmission(
@@ -33,6 +65,7 @@ export function extractScoreFromSubmission(
     question: string | null;
     correctAnswer: string | null;
     optionTextMap?: Record<string, string>;
+    matcherPairs?: import("@/types").MatcherPair[];
   },
 ): SubmissionExtraction {
   if (activityType === "multiple-choice-question") {
@@ -157,6 +190,11 @@ export function extractScoreFromSubmission(
           parsed.data.teacher_feedback.trim().length > 0
         ? parsed.data.teacher_feedback.trim()
         : null;
+
+      const matcherPairs = metadata.matcherPairs
+        ? buildMatcherPairResults(metadata.matcherPairs, parsed.data)
+        : null;
+
       return {
         autoScore: auto,
         overrideScore: override,
@@ -169,6 +207,7 @@ export function extractScoreFromSubmission(
         question: metadata.question,
         correctAnswer: metadata.correctAnswer,
         pupilAnswer: null,
+        matcherPairs,
       };
     }
 
@@ -189,6 +228,7 @@ export function extractScoreFromSubmission(
       pupilAnswer: null,
       feedback: null,
       autoFeedback: null,
+      matcherPairs: null,
     };
   }
 
