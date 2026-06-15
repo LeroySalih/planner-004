@@ -2393,6 +2393,43 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                     </div>
                   ) : null}
 
+                  {selection.activity.type === "group-items" && selection.cell.groupItemsResults ? (
+                    <div className="rounded-md border border-border/60 bg-muted/40 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                        Grouping results
+                      </p>
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-xs text-muted-foreground">
+                            <th className="pb-1 pr-2">Item</th>
+                            <th className="pb-1 pr-2">Correct group</th>
+                            <th className="pb-1">Result</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selection.cell.groupItemsResults.map((item) => (
+                            <tr key={item.id} className="border-t border-border/40">
+                              <td className="py-1 pr-2 text-foreground">{item.text}</td>
+                              <td className="py-1 pr-2 text-foreground">{item.correctGroupName}</td>
+                              <td className="py-1">
+                                {item.isCorrect ? (
+                                  <span className="text-emerald-600">Correct</span>
+                                ) : (
+                                  <span className="text-destructive">
+                                    Incorrect
+                                    {item.pupilGroupName
+                                      ? ` (placed in: ${item.pupilGroupName})`
+                                      : " (not placed)"}
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : null}
+
                   <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
                     <p className="text-xs font-semibold uppercase tracking-wide text-primary">Pupil response</p>
                     {selection.activity.type === "upload-file" ? (
@@ -3345,6 +3382,43 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                                       {pair.pupilMatchedText
                                         ? ` (matched: ${pair.pupilMatchedText})`
                                         : ""}
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : null}
+
+                    {selection.activity.type === "group-items" && selection.cell.groupItemsResults ? (
+                      <div className="rounded-md border border-border/60 bg-muted/40 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                          Grouping results
+                        </p>
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-left text-xs text-muted-foreground">
+                              <th className="pb-1 pr-2">Item</th>
+                              <th className="pb-1 pr-2">Correct group</th>
+                              <th className="pb-1">Result</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {selection.cell.groupItemsResults.map((item) => (
+                              <tr key={item.id} className="border-t border-border/40">
+                                <td className="py-1 pr-2 text-foreground">{item.text}</td>
+                                <td className="py-1 pr-2 text-foreground">{item.correctGroupName}</td>
+                                <td className="py-1">
+                                  {item.isCorrect ? (
+                                    <span className="text-emerald-600">Correct</span>
+                                  ) : (
+                                    <span className="text-destructive">
+                                      Incorrect
+                                      {item.pupilGroupName
+                                        ? ` (placed in: ${item.pupilGroupName})`
+                                        : " (not placed)"}
                                     </span>
                                   )}
                                 </td>

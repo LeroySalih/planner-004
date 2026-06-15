@@ -1,4 +1,5 @@
 import {
+  type GroupItemsResult,
   GroupItemsSubmissionBodySchema,
   LegacyMcqSubmissionBodySchema,
   LongTextSubmissionBodySchema,
@@ -42,6 +43,31 @@ function buildMatcherPairResults(
   });
 }
 
+function buildGroupItemsResults(
+  groups: import("@/types").GroupItemsGroup[],
+  items: import("@/types").GroupItemsItem[],
+  submission: import("@/types").GroupItemsSubmissionBody,
+): GroupItemsResult[] {
+  const groupNameById = new Map(groups.map((group) => [group.id, group.name]));
+
+  return items.map((item) => {
+    const pupilGroupId = submission.placements[item.id] ?? null;
+    const correctGroupName = groupNameById.get(item.groupId) ?? item.groupId;
+    const pupilGroupName = pupilGroupId
+      ? groupNameById.get(pupilGroupId) ?? pupilGroupId
+      : null;
+    const isCorrect = pupilGroupId === item.groupId;
+
+    return {
+      id: item.id,
+      text: item.text,
+      correctGroupName,
+      pupilGroupName,
+      isCorrect,
+    };
+  });
+}
+
 export type SubmissionExtraction = {
   autoScore: number | null;
   overrideScore: number | null;
@@ -55,6 +81,7 @@ export type SubmissionExtraction = {
   correctAnswer: string | null;
   pupilAnswer: string | null;
   matcherPairs?: MatcherPairResult[] | null;
+  groupItemsResults?: GroupItemsResult[] | null;
 };
 
 export function extractScoreFromSubmission(
@@ -66,6 +93,8 @@ export function extractScoreFromSubmission(
     correctAnswer: string | null;
     optionTextMap?: Record<string, string>;
     matcherPairs?: import("@/types").MatcherPair[];
+    groupItemsGroups?: import("@/types").GroupItemsGroup[];
+    groupItemsItems?: import("@/types").GroupItemsItem[];
   },
 ): SubmissionExtraction {
   if (activityType === "multiple-choice-question") {
@@ -258,6 +287,11 @@ export function extractScoreFromSubmission(
           parsed.data.teacher_feedback.trim().length > 0
         ? parsed.data.teacher_feedback.trim()
         : null;
+
+      const groupItemsResults = metadata.groupItemsGroups && metadata.groupItemsItems
+        ? buildGroupItemsResults(metadata.groupItemsGroups, metadata.groupItemsItems, parsed.data)
+        : null;
+
       return {
         autoScore: auto,
         overrideScore: override,
@@ -270,6 +304,7 @@ export function extractScoreFromSubmission(
         question: metadata.question,
         correctAnswer: metadata.correctAnswer,
         pupilAnswer: null,
+        groupItemsResults,
       };
     }
 
@@ -290,6 +325,7 @@ export function extractScoreFromSubmission(
       pupilAnswer: null,
       feedback: null,
       autoFeedback: null,
+      groupItemsResults: null,
     };
   }
 

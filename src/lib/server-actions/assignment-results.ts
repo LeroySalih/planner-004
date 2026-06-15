@@ -10,6 +10,7 @@ import {
   AssignmentResultCriterionScoresSchema,
   AssignmentResultMatrixSchema,
   AssignmentResultRowSchema,
+  GroupItemsActivityBodySchema,
   MatcherActivityBodySchema,
   McqActivityBodySchema,
   McqSubmissionBodySchema,
@@ -420,6 +421,8 @@ export async function readAssignmentResultsAction(
             correctAnswer: string | null;
             optionTextMap?: Record<string, string>;
             matcherPairs?: import("@/types").MatcherPair[];
+            groupItemsGroups?: import("@/types").GroupItemsGroup[];
+            groupItemsItems?: import("@/types").GroupItemsItem[];
           }
         >();
 
@@ -533,6 +536,8 @@ export async function readAssignmentResultsAction(
           let correctAnswer: string | null = null;
           let optionTextMap: Record<string, string> | undefined;
           let matcherPairs: import("@/types").MatcherPair[] | undefined;
+          let groupItemsGroups: import("@/types").GroupItemsGroup[] | undefined;
+          let groupItemsItems: import("@/types").GroupItemsItem[] | undefined;
 
           if (type === "matcher") {
             const parsedBody = MatcherActivityBodySchema.safeParse(
@@ -540,6 +545,14 @@ export async function readAssignmentResultsAction(
             );
             if (parsedBody.success) {
               matcherPairs = parsedBody.data.pairs;
+            }
+          } else if (type === "group-items") {
+            const parsedBody = GroupItemsActivityBodySchema.safeParse(
+              activity.body_data,
+            );
+            if (parsedBody.success) {
+              groupItemsGroups = parsedBody.data.groups;
+              groupItemsItems = parsedBody.data.items;
             }
           } else if (type === "multiple-choice-question") {
             const parsedBody = McqActivityBodySchema.safeParse(
@@ -594,6 +607,8 @@ export async function readAssignmentResultsAction(
             correctAnswer,
             optionTextMap,
             matcherPairs,
+            groupItemsGroups,
+            groupItemsItems,
           });
         }
 
@@ -833,6 +848,7 @@ export async function readAssignmentResultsAction(
               correctAnswer: extracted.correctAnswer ?? metadata.correctAnswer,
               pupilAnswer: extracted.pupilAnswer ?? null,
               matcherPairs: extracted.matcherPairs ?? null,
+              groupItemsResults: extracted.groupItemsResults ?? null,
               needsMarking: Boolean(submission.submission_id) &&
                 status === "missing",
               isFlagged: (submission as any).is_flagged ?? false,

@@ -682,6 +682,16 @@ export const MatcherPairResultSchema = z.object({
 
 export type MatcherPairResult = z.infer<typeof MatcherPairResultSchema>;
 
+export const GroupItemsResultSchema = z.object({
+    id: z.string(),
+    text: z.string(),
+    correctGroupName: z.string(),
+    pupilGroupName: z.string().nullable(),
+    isCorrect: z.boolean(),
+});
+
+export type GroupItemsResult = z.infer<typeof GroupItemsResultSchema>;
+
 export const GroupItemsGroupSchema = z.object({
     id: z.string().min(1),
     name: z.string().min(1).max(100),
@@ -1018,6 +1028,7 @@ export const AssignmentResultCellSchema = z.object({
     correctAnswer: z.string().nullable().optional(),
     pupilAnswer: z.string().nullable().optional(),
     matcherPairs: z.array(MatcherPairResultSchema).nullable().optional(),
+    groupItemsResults: z.array(GroupItemsResultSchema).nullable().optional(),
     needsMarking: z.boolean().default(false),
     isFlagged: z.boolean().default(false),
     resubmitRequested: z.boolean().default(false),
