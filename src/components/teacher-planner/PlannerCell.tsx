@@ -198,18 +198,52 @@ export function PlannerCell({
                 %
               </span>
             )}
-            {/* Slide deck placeholder */}
-            <button
-              type="button"
-              className={cn(
-                'w-[16px] h-[16px] flex items-center justify-center rounded-[2px] border-none bg-transparent text-[9px] opacity-20 cursor-default',
-                anyIssue ? 'text-[#A32D2D]' : 'text-[var(--color-text-tertiary)]',
-              )}
-              disabled
-              title="Slide deck (not configured)"
-            >
-              ▶
-            </button>
+            {/* Present lesson — links to go/lesson/[lessonId] */}
+            {currentLesson ? (
+              <Link
+                href={`/go/lesson/${currentLesson.lessonId}`}
+                className={cn(
+                  'w-[16px] h-[16px] flex items-center justify-center rounded-[2px] text-[9px] font-medium opacity-60 hover:opacity-100 transition-opacity',
+                  anyIssue ? 'text-[#A32D2D]' : 'text-[var(--color-text-tertiary)]',
+                )}
+                title="Present lesson"
+                onClick={(e) => e.stopPropagation()}
+              >
+                ▶
+              </Link>
+            ) : (
+              <span
+                className={cn(
+                  'w-[16px] h-[16px] flex items-center justify-center text-[9px] font-medium opacity-20',
+                  anyIssue ? 'text-[#A32D2D]' : 'text-[var(--color-text-tertiary)]',
+                )}
+              >
+                ▶
+              </span>
+            )}
+            {/* Lesson page link */}
+            {currentLesson ? (
+              <Link
+                href={`/lessons/${currentLesson.lessonId}`}
+                className={cn(
+                  'w-[16px] h-[16px] flex items-center justify-center rounded-[2px] text-[9px] font-medium opacity-60 hover:opacity-100 transition-opacity',
+                  anyIssue ? 'text-[#A32D2D]' : 'text-[var(--color-text-tertiary)]',
+                )}
+                title="Go to lesson"
+                onClick={(e) => e.stopPropagation()}
+              >
+                □
+              </Link>
+            ) : (
+              <span
+                className={cn(
+                  'w-[16px] h-[16px] flex items-center justify-center text-[9px] font-medium opacity-20',
+                  anyIssue ? 'text-[#A32D2D]' : 'text-[var(--color-text-tertiary)]',
+                )}
+              >
+                □
+              </span>
+            )}
             {/* Issue indicator */}
             {anyIssue && (
               <span className="ml-auto text-[9px] text-[#A32D2D] font-medium">⚠</span>
