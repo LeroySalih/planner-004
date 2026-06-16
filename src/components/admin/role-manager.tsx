@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { Check, Loader2, Search } from "lucide-react"
+import { useActionState, useEffect, useRef, useState, useTransition } from "react"
+import { Check, Loader2, Lock, Search } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -32,6 +32,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 import { assignRoleAction, removeRoleAction } from "@/lib/server-actions/roles"
+import type { PupilActionState } from "@/app/groups/[groupId]/pupil-action-state"
+import { initialPupilActionState } from "@/app/groups/[groupId]/pupil-action-state"
 
 type ProfileWithRoles = {
   userId: string
@@ -39,14 +41,166 @@ type ProfileWithRoles = {
   firstName: string | null
   lastName: string | null
   roles: string[]
+  locked: boolean
+}
+
+type RoleManagerProps = {
+  initialProfiles: ProfileWithRoles[]
+  resetPasswordAction: (state: PupilActionState, formData: FormData) => Promise<PupilActionState>
+  unlockAction: (state: PupilActionState, formData: FormData) => Promise<PupilActionState>
 }
 
 const AVAILABLE_ROLES = ["admin", "teacher", "pupil", "technician"]
 
-export function RoleManager({ initialProfiles }: { initialProfiles: ProfileWithRoles[] }) {
+function useActionToast(state: PupilActionState) {
+  const lastHandled = useRef<PupilActionState | null>(null)
+  useEffect(() => {
+    if (state.status === "idle" || lastHandled.current === state) return
+    lastHandled.current = state
+    const message = state.message ?? (state.status === "success" ? "Done." : "Action failed.")
+    if (state.status === "success") toast.success(message)
+    else toast.error(message)
+  }, [state])
+}
+
+function ProfileRow({
+  profile,
+  resetPasswordAction,
+  unlockAction,
+  onRolesChange,
+}: {
+  profile: ProfileWithRoles
+  resetPasswordAction: (state: PupilActionState, formData: FormData) => Promise<PupilActionState>
+  unlockAction: (state: PupilActionState, formData: FormData) => Promise<PupilActionState>
+  onRolesChange: (userId: string, newRoles: string[]) => void
+}) {
+  const [resetState, resetFormAction, resetPending] = useActionState(resetPasswordAction, initialPupilActionState)
+  const [unlockState, unlockFormAction, unlockPending] = useActionState(unlockAction, initialPupilActionState)
+  const [locked, setLocked] = useState(profile.locked)
+  const [roles, setRoles] = useState(profile.roles)
+  const [pendingUpdates, setPendingUpdates] = useState<Record<string, boolean>>({})
+  const [, startTransition] = useTransition()
+
+  useActionToast(resetState)
+  useActionToast(unlockState)
+
+  useEffect(() => {
+    if (unlockState.status === "success") setLocked(false)
+  }, [unlockState.status])
+
+  const displayName =
+    [profile.firstName, profile.lastName].filter(Boolean).join(" ") || profile.userId
+
+  const toggleRole = (roleId: string) => {
+    const hasRole = roles.includes(roleId)
+    const key = `${profile.userId}-${roleId}`
+    if (pendingUpdates[key]) return
+
+    setPendingUpdates((prev) => ({ ...prev, [key]: true }))
+    const newRoles = hasRole ? roles.filter((r) => r !== roleId) : [...roles, roleId]
+    setRoles(newRoles)
+    onRolesChange(profile.userId, newRoles)
+
+    startTransition(async () => {
+      try {
+        const action = hasRole ? removeRoleAction : assignRoleAction
+        const result = await action(profile.userId, roleId)
+        if (!result.success) throw new Error(result.error ?? "Failed")
+        toast.success(`Role "${roleId}" ${hasRole ? "removed" : "added"}`)
+      } catch {
+        toast.error("Failed to update role")
+        setRoles(roles)
+        onRolesChange(profile.userId, roles)
+      } finally {
+        setPendingUpdates((prev) => {
+          const next = { ...prev }
+          delete next[key]
+          return next
+        })
+      }
+    })
+  }
+
+  return (
+    <TableRow>
+      <TableCell>
+        <div className="flex flex-col gap-0.5">
+          <div className="flex items-center gap-2">
+            <span className="font-medium">{displayName}</span>
+            {locked || unlockPending ? (
+              <form action={unlockFormAction}>
+                <input type="hidden" name="userId" value={profile.userId} />
+                <input type="hidden" name="displayName" value={displayName} />
+                <Button
+                  type="submit"
+                  variant="ghost"
+                  size="icon"
+                  className={`h-6 w-6 text-amber-600 ${unlockPending ? "animate-pulse opacity-70" : ""}`}
+                  disabled={unlockPending}
+                  title="Unlock sign-in"
+                >
+                  <Lock className="h-3.5 w-3.5" />
+                  <span className="sr-only">Unlock sign-in</span>
+                </Button>
+              </form>
+            ) : null}
+          </div>
+          <span className="text-xs text-muted-foreground">{profile.email}</span>
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="flex flex-wrap gap-1">
+          {roles.map((role) => (
+            <Badge key={role} variant="secondary" className="text-xs">
+              {role}
+            </Badge>
+          ))}
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="flex items-center gap-2">
+          <form action={resetFormAction}>
+            <input type="hidden" name="userId" value={profile.userId} />
+            <input type="hidden" name="displayName" value={displayName} />
+            <Button type="submit" variant="secondary" size="sm" className="text-xs" disabled={resetPending}>
+              {resetPending ? "Resetting…" : "Reset Password"}
+            </Button>
+          </form>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="text-xs">Edit Roles</Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Assign Roles</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {AVAILABLE_ROLES.map((role) => {
+                const hasRole = roles.includes(role)
+                const isPending = pendingUpdates[`${profile.userId}-${role}`]
+                return (
+                  <DropdownMenuCheckboxItem
+                    key={role}
+                    checked={hasRole}
+                    onCheckedChange={() => toggleRole(role)}
+                    disabled={isPending}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span>{role}</span>
+                      {isPending && <Loader2 className="h-3 w-3 animate-spin" />}
+                    </div>
+                  </DropdownMenuCheckboxItem>
+                )
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </TableCell>
+    </TableRow>
+  )
+}
+
+export function RoleManager({ initialProfiles, resetPasswordAction, unlockAction }: RoleManagerProps) {
   const [profiles, setProfiles] = useState(initialProfiles)
   const [filter, setFilter] = useState("")
-  const [pendingUpdates, setPendingUpdates] = useState<Record<string, boolean>>({})
 
   const filteredProfiles = profiles.filter((profile) => {
     const term = filter.toLowerCase()
@@ -57,51 +211,8 @@ export function RoleManager({ initialProfiles }: { initialProfiles: ProfileWithR
     )
   })
 
-  const toggleRole = async (userId: string, roleId: string, currentHasRole: boolean) => {
-    const key = `${userId}-${roleId}`
-    if (pendingUpdates[key]) return
-
-    setPendingUpdates((prev) => ({ ...prev, [key]: true }))
-
-    // Optimistic update
-    setProfiles((prev) =>
-      prev.map((p) => {
-        if (p.userId !== userId) return p
-        const newRoles = currentHasRole
-          ? p.roles.filter((r) => r !== roleId)
-          : [...p.roles, roleId]
-        return { ...p, roles: newRoles }
-      })
-    )
-
-    try {
-      const action = currentHasRole ? removeRoleAction : assignRoleAction
-      const result = await action(userId, roleId)
-
-      if (!result.success) {
-        throw new Error(result.error)
-      }
-      toast.success(`Role ${roleId} ${currentHasRole ? "removed" : "added"}`)
-    } catch (error) {
-      console.error("Failed to toggle role", error)
-      toast.error("Failed to update role")
-      // Revert optimistic update
-      setProfiles((prev) =>
-        prev.map((p) => {
-          if (p.userId !== userId) return p
-          const newRoles = currentHasRole
-            ? [...p.roles, roleId] // Re-add if removal failed
-            : p.roles.filter((r) => r !== roleId) // Remove if add failed
-          return { ...p, roles: newRoles }
-        })
-      )
-    } finally {
-      setPendingUpdates((prev) => {
-        const next = { ...prev }
-        delete next[key]
-        return next
-      })
-    }
+  const handleRolesChange = (userId: string, newRoles: string[]) => {
+    setProfiles((prev) => prev.map((p) => (p.userId === userId ? { ...p, roles: newRoles } : p)))
   }
 
   return (
@@ -130,60 +241,18 @@ export function RoleManager({ initialProfiles }: { initialProfiles: ProfileWithR
               <TableRow>
                 <TableHead>User</TableHead>
                 <TableHead>Roles</TableHead>
-                <TableHead className="w-[100px]">Actions</TableHead>
+                <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredProfiles.map((profile) => (
-                <TableRow key={profile.userId}>
-                  <TableCell>
-                    <div className="flex flex-col">
-                      <span className="font-medium">
-                        {profile.firstName} {profile.lastName}
-                      </span>
-                      <span className="text-xs text-muted-foreground">{profile.email}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {profile.roles.map((role) => (
-                        <Badge key={role} variant="secondary" className="text-xs">
-                          {role}
-                        </Badge>
-                      ))}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="sm">
-                          Edit Roles
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuLabel>Assign Roles</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        {AVAILABLE_ROLES.map((role) => {
-                          const hasRole = profile.roles.includes(role)
-                          const isPending = pendingUpdates[`${profile.userId}-${role}`]
-                          return (
-                            <DropdownMenuCheckboxItem
-                              key={role}
-                              checked={hasRole}
-                              onCheckedChange={() => toggleRole(profile.userId, role, hasRole)}
-                              disabled={isPending}
-                            >
-                              <div className="flex items-center gap-2">
-                                <span>{role}</span>
-                                {isPending && <Loader2 className="h-3 w-3 animate-spin" />}
-                              </div>
-                            </DropdownMenuCheckboxItem>
-                          )
-                        })}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
+                <ProfileRow
+                  key={profile.userId}
+                  profile={profile}
+                  resetPasswordAction={resetPasswordAction}
+                  unlockAction={unlockAction}
+                  onRolesChange={handleRolesChange}
+                />
               ))}
               {filteredProfiles.length === 0 && (
                 <TableRow>
