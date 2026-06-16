@@ -12,6 +12,7 @@ type PlannerCellProps = {
   cellState: CellState
   units: Unit[]
   lessonCache: Map<string, LessonWithObjectives[]>
+  lessonScores: Map<string, number | null>
   isSelected: boolean
   onCellClick: (day: Day, period: number) => void
   onUnitSelect: (unitId: string) => void
@@ -26,6 +27,7 @@ export function PlannerCell({
   cellState,
   units,
   lessonCache,
+  lessonScores,
   isSelected,
   onCellClick,
   onUnitSelect,
@@ -45,6 +47,10 @@ export function PlannerCell({
 
   const currentLesson = lessons[0] ?? null
   const currentUnitId = currentLesson?.unitId ?? ''
+
+  const scoreKey = groupId && currentLesson ? `${groupId}::${currentLesson.lessonId}` : null
+  const rawScore = scoreKey ? lessonScores.get(scoreKey) : undefined
+  const scoreLabel = rawScore != null ? `${Math.round(rawScore * 100)}%` : null
 
   // effectiveUnitId: if user has manually changed unit, use that; else fall back to the assigned lesson's unit
   const effectiveUnitId = pendingUnitId || currentUnitId
@@ -171,13 +177,16 @@ export function PlannerCell({
               <Link
                 href={`/results/assignments/${groupId}__${currentLesson.lessonId}`}
                 className={cn(
-                  'w-[16px] h-[16px] flex items-center justify-center rounded-[2px] text-[9px] font-medium opacity-60 hover:opacity-100 transition-opacity',
+                  'flex items-center justify-center rounded-[2px] font-medium opacity-60 hover:opacity-100 transition-opacity',
+                  scoreLabel
+                    ? 'text-[10px] px-1 h-[16px]'
+                    : 'w-[16px] h-[16px] text-[9px]',
                   anyIssue ? 'text-[#A32D2D]' : 'text-[var(--color-text-tertiary)]',
                 )}
                 title="View grades / feedback"
                 onClick={(e) => e.stopPropagation()}
               >
-                %
+                {scoreLabel ?? '%'}
               </Link>
             ) : (
               <span

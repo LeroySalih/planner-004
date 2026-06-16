@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import {
   readLessonsByUnitAction,
+  readLessonAssignmentScoreSummariesAction,
   upsertPlannerAssignmentAction,
   deletePlannerAssignmentAction,
   readPlannerAssignmentsForWeekAction,
@@ -39,6 +40,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
   const [lessonCache, setLessonCache] = useState<Map<string, LessonWithObjectives[]>>(new Map())
   const [selectedTeacherId, setSelectedTeacherId] = useState<string>(currentTeacherId)
+  const [lessonScores, setLessonScores] = useState<Map<string, number | null>>(new Map())
 
   const readOnly = selectedTeacherId !== currentTeacherId
 
@@ -107,6 +109,22 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
       next.set(cacheKey(teacherId, week), weekState)
       return next
     })
+
+    const scorePairs = (assignmentsResult.data ?? [])
+      .filter((pa) => pa.group_id && pa.lesson_id)
+      .map((pa) => ({ groupId: pa.group_id, lessonId: pa.lesson_id }))
+    if (scorePairs.length > 0) {
+      const scoreResult = await readLessonAssignmentScoreSummariesAction({ pairs: scorePairs })
+      if (scoreResult.data) {
+        setLessonScores((prev) => {
+          const next = new Map(prev)
+          for (const s of scoreResult.data!) {
+            next.set(`${s.group_id}::${s.lesson_id}`, s.activities_average)
+          }
+          return next
+        })
+      }
+    }
   }, [])
 
   useEffect(() => {
@@ -389,6 +407,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
           plannerState={plannerState}
           selectedSlot={selectedSlot}
           lessonCache={lessonCache}
+          lessonScores={lessonScores}
           onCellClick={handleCellClick}
           onUnitSelect={handleUnitSelect}
           onLessonChange={handleLessonChange}

@@ -12,6 +12,7 @@ type PlannerGridProps = {
   plannerState: PlannerState
   selectedSlot: string | null
   lessonCache: Map<string, LessonWithObjectives[]>
+  lessonScores: Map<string, number | null>
   onCellClick: (day: Day, period: number) => void
   onUnitSelect: (unitId: string) => void
   onLessonChange: (day: Day, period: number, lessonId: string) => void
@@ -49,6 +50,7 @@ export function PlannerGrid({
   plannerState,
   selectedSlot,
   lessonCache,
+  lessonScores,
   onCellClick,
   onUnitSelect,
   onLessonChange,
@@ -133,6 +135,7 @@ export function PlannerGrid({
                   isSelected={selectedSlot === key}
                   units={cellUnits}
                   lessonCache={lessonCache}
+                  lessonScores={lessonScores}
                   onCellClick={onCellClick}
                   onUnitSelect={onUnitSelect}
                   onLessonChange={onLessonChange}
