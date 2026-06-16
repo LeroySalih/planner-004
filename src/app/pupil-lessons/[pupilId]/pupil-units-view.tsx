@@ -104,9 +104,9 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
     <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-8 sm:px-6 sm:py-10">
       <header className="rounded-2xl bg-gradient-to-r from-sky-600 to-indigo-600 px-6 py-6 text-white shadow-lg sm:px-8">
         <div className="flex flex-col gap-2">
-          <h1 className="text-3xl font-semibold text-white sm:text-4xl">Pupil Units</h1>
+          <h1 className="text-3xl font-semibold text-white sm:text-4xl">My Units</h1>
           <p className="text-sm text-slate-100 sm:text-base">
-            Units and lessons assigned to {detail.pupilName} grouped by subject. Tap a lesson to view the details page.
+            Units and lessons assigned to {detail.pupilName}
           </p>
         </div>
       </header>

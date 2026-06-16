@@ -52,9 +52,14 @@ export function SigninForm({ returnTo }: { returnTo?: string }) {
     startTransition(async () => {
       const result = await signinAction({ email, password, csrfToken })
 
-      const defaultDestination = result.isTeacher
-        ? "/teacher-planner"
-        : "/my-actions"
+      let defaultDestination: string
+      if (result.isTeacher) {
+        defaultDestination = "/teacher-planner"
+      } else if (!result.firstName) {
+        defaultDestination = "/profile"
+      } else {
+        defaultDestination = `/pupil-lessons/${encodeURIComponent(result.userId!)}`
+      }
 
       const destination = result.success
         ? isValidReturnTo(returnTo) ? returnTo : defaultDestination

@@ -33,6 +33,7 @@ const AuthResultSchema = z.object({
   error: z.string().nullable(),
   userId: z.string().nullable(),
   isTeacher: z.boolean().nullable(),
+  firstName: z.string().nullable().optional(),
 })
 
 type AuthResult = z.infer<typeof AuthResultSchema>
@@ -480,6 +481,7 @@ export async function signinAction(input: unknown): Promise<AuthResult> {
         error: null,
         userId: profile.user_id,
         isTeacher: Boolean(profile.is_teacher),
+        firstName: profile.first_name ?? null,
       })
     },
   )
