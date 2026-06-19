@@ -83,18 +83,20 @@ export function SowWeekList({ groupId, halfTerms, initialLessons, units, lessonT
     })
   }
 
+  let weekNum = 0
   return (
     <div className="flex flex-col">
-      {weeks.map((weekStart, i) => {
+      {weeks.map((weekStart) => {
         const iso = toIsoDate(weekStart)
         const htName = weekToHt.get(iso)
         const lessons = lessonsByWeek.get(iso) ?? []
+        if (htName) weekNum++
         return (
           <SowWeekRow
             key={iso}
             groupId={groupId}
             weekStartDate={iso}
-            weekLabel={formatWeekLabel(weekStart, i + 1)}
+            weekLabel={formatWeekLabel(weekStart, weekNum)}
             halfTermBadge={htName ?? ''}
             isHoliday={!htName}
             lessons={lessons}

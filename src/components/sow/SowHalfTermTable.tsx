@@ -107,7 +107,7 @@ export function SowHalfTermTable({ groupId, halfTerms, htUnits, units }: Props) 
                           <button
                             onClick={() => handleRemove(ht.id, cu.unit_id)}
                             className="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] ml-0.5"
-                            aria-label={`Remove ${cu.unit_name}`}
+                            aria-label={`Remove ${cu.unit_name ?? cu.unit_id}`}
                           >
                             ✕
                           </button>

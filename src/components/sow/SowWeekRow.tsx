@@ -41,6 +41,7 @@ export function SowWeekRow({
   const [showPicker, setShowPicker] = useState(false)
 
   async function handleAdd(lessonId: string, unitId: string) {
+    if (lessons.some((l) => l.lesson_id === lessonId)) return
     const { error } = await addSowLessonAction(groupId, lessonId, unitId, weekStartDate)
     if (error) { toast.error('Failed to add lesson'); return }
     const newLesson: SowLessonPlan = {

@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import type { Unit, LessonWithObjectives } from '@/types'
 import { readLessonsByUnitAction } from '@/lib/server-updates'
+import { toast } from 'sonner'
 
 type Props = {
   units: Unit[]
@@ -19,7 +20,12 @@ export function SowLessonPicker({ units, onSelect, onCancel }: Props) {
     setSelectedUnitId(unitId)
     if (!unitId) { setLessons([]); return }
     setLoading(true)
-    const { data } = await readLessonsByUnitAction(unitId)
+    const { data, error } = await readLessonsByUnitAction(unitId)
+    if (error) {
+      toast.error('Failed to load lessons')
+      setLoading(false)
+      return
+    }
     setLessons(data ?? [])
     setLoading(false)
   }
