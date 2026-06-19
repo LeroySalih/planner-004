@@ -81,7 +81,7 @@ export function SowWeekRow({ groupId, weekLabel, halfTermBadge, isHoliday, lesso
                 className={`text-xs tabular-nums ${l.score !== null ? 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)]'}`}
                 title="View results"
               >
-                {l.score !== null ? `${l.score}%` : '--'}
+                {l.score != null ? `${l.score}%` : '--'}
               </Link>
             </div>
           </td>

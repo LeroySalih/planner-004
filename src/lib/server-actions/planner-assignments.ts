@@ -184,7 +184,7 @@ const SowWeekLessonSchema = z.object({
   lesson_title: z.string(),
   week_start_date: z.string(),
   los: z.array(z.string()).default([]),
-  score: z.number().nullable().default(null),
+  score: z.coerce.number().int().nullable().default(null),
 })
 
 const SowWeekLessonsResult = z.object({
@@ -212,7 +212,7 @@ export async function readGroupSowLessonsAction(
                 '{}'
               ) AS los,
               (
-                SELECT ROUND(100.0 * AVG(compute_submission_base_score(s.body, a.type)))
+                SELECT ROUND(100.0 * AVG(compute_submission_base_score(s.body, a.type)))::int
                 FROM activities a
                 JOIN submissions s ON s.activity_id = a.activity_id
                 JOIN group_membership gm ON gm.user_id = s.user_id AND gm.group_id = pa.group_id
