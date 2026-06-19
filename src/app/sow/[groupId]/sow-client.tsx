@@ -76,6 +76,7 @@ export function SowClient({
 
       <SowWeekList
         key={`wl-${year}`}
+        groupId={groupId}
         halfTerms={currentData.halfTerms}
         lessons={currentData.lessons}
         units={units}

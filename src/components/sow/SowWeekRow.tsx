@@ -1,7 +1,9 @@
 import { Fragment } from 'react'
+import Link from 'next/link'
 import type { SowWeekLesson } from '@/lib/server-updates'
 
 type Props = {
+  groupId: string
   weekLabel: string
   halfTermBadge: string
   isHoliday: boolean
@@ -18,7 +20,7 @@ const BADGE_COLOURS: Record<string, string> = {
   H6: 'bg-pink-100 text-pink-700',
 }
 
-export function SowWeekRow({ weekLabel, halfTermBadge, isHoliday, lessons, unitMap }: Props) {
+export function SowWeekRow({ groupId, weekLabel, halfTermBadge, isHoliday, lessons, unitMap }: Props) {
   const badge = halfTermBadge ? (
     <span className={`inline-block rounded text-center text-xs font-semibold px-1.5 py-0.5 ${BADGE_COLOURS[halfTermBadge] ?? ''}`}>
       {halfTermBadge}
@@ -58,11 +60,32 @@ export function SowWeekRow({ weekLabel, halfTermBadge, isHoliday, lessons, unitM
               <div className="flex items-center gap-1.5">{badge}<span>{weekLabel}</span></div>
             </td>
           ) : null}
-          <td className="px-3 py-2 text-sm text-[var(--color-text-secondary)] align-top">
-            {unitMap.get(l.unit_id) ?? ''}
+          <td className="px-3 py-2 text-sm align-top">
+            <Link
+              href={`/units/${encodeURIComponent(l.unit_id)}`}
+              className="text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:underline"
+            >
+              {unitMap.get(l.unit_id) ?? ''}
+            </Link>
           </td>
-          <td className="px-3 py-2 text-sm text-[var(--color-text-primary)] align-top">
-            {l.lesson_title}
+          <td className="px-3 py-2 text-sm align-top">
+            <div className="flex items-center gap-1.5">
+              <Link
+                href={`/lessons/${encodeURIComponent(l.lesson_id)}`}
+                className="text-[var(--color-text-primary)] hover:underline"
+              >
+                {l.lesson_title}
+              </Link>
+              {l.has_feedback && (
+                <Link
+                  href={`/unit-progress-reports/${encodeURIComponent(groupId)}/${encodeURIComponent(l.unit_id)}`}
+                  className="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+                  title="Feedback available"
+                >
+                  %
+                </Link>
+              )}
+            </div>
           </td>
           <td className="px-3 py-2 text-xs text-[var(--color-text-secondary)] align-top">
             {l.los.join(', ')}

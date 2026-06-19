@@ -5,6 +5,7 @@ import type { HalfTerm, Unit } from '@/types'
 import type { SowWeekLesson } from '@/lib/server-updates'
 
 type Props = {
+  groupId: string
   halfTerms: HalfTerm[]
   lessons: SowWeekLesson[]
   units: Unit[]
@@ -31,7 +32,7 @@ function formatWeekLabel(weekStart: Date, weekNum: number): string {
   return `Week ${weekNum} · ${fmt(weekStart)} – ${fmt(end)}`
 }
 
-export function SowWeekList({ halfTerms, lessons, units }: Props) {
+export function SowWeekList({ groupId, halfTerms, lessons, units }: Props) {
   if (halfTerms.length === 0) {
     return (
       <p className="text-sm text-[var(--color-text-secondary)] mt-4">
@@ -93,6 +94,7 @@ export function SowWeekList({ halfTerms, lessons, units }: Props) {
             return (
               <SowWeekRow
                 key={iso}
+                groupId={groupId}
                 weekLabel={formatWeekLabel(weekStart, weekNum)}
                 halfTermBadge={htName ?? ''}
                 isHoliday={!htName}
