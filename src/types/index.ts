@@ -1340,8 +1340,8 @@ export const HalfTermSchema = z.object({
   name: z.enum(['H1', 'H2', 'H3', 'H4', 'H5', 'H6']),
   start_date: z.string(), // ISO date string YYYY-MM-DD
   end_date: z.string(),
-})
-export type HalfTerm = z.infer<typeof HalfTermSchema>
+});
+export type HalfTerm = z.infer<typeof HalfTermSchema>;
 
 export const SowLessonPlanSchema = z.object({
   id: z.string(),
@@ -1350,8 +1350,8 @@ export const SowLessonPlanSchema = z.object({
   unit_id: z.string(),
   week_start_date: z.string(),
   created_at: z.string(),
-})
-export type SowLessonPlan = z.infer<typeof SowLessonPlanSchema>
+});
+export type SowLessonPlan = z.infer<typeof SowLessonPlanSchema>;
 
 export const SowHalfTermUnitSchema = z.object({
   group_id: z.string(),
@@ -1359,5 +1359,5 @@ export const SowHalfTermUnitSchema = z.object({
   unit_id: z.string(),
   unit_name: z.string().optional(), // joined from units table
   position: z.number(),
-})
-export type SowHalfTermUnit = z.infer<typeof SowHalfTermUnitSchema>
+});
+export type SowHalfTermUnit = z.infer<typeof SowHalfTermUnitSchema>;
