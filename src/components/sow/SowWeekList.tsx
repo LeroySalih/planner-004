@@ -82,6 +82,7 @@ export function SowWeekList({ groupId, halfTerms, lessons, units }: Props) {
             <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--color-text-secondary)] whitespace-nowrap w-48">Date</th>
             <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--color-text-secondary)] w-48">Unit</th>
             <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--color-text-secondary)]">Lesson</th>
+            <th className="px-3 py-2 text-right text-xs font-semibold text-[var(--color-text-secondary)] w-16">Score</th>
             <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--color-text-secondary)]">Learning Objectives</th>
           </tr>
         </thead>
