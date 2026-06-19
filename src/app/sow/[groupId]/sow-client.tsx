@@ -5,12 +5,11 @@ import { SowHalfTermTable } from '@/components/sow/SowHalfTermTable'
 import { SowWeekList } from '@/components/sow/SowWeekList'
 import type { HalfTerm, SowHalfTermUnit, SowLessonPlan, Unit } from '@/types'
 
-type LessonMeta = { lesson_id: string; title: string }
-
 type YearData = {
   halfTerms: HalfTerm[]
   htUnits: SowHalfTermUnit[]
   lessonPlans: SowLessonPlan[]
+  lessonMetas: { lesson_id: string; title: string }[]
 }
 
 type Props = {
@@ -20,7 +19,6 @@ type Props = {
   initialYear: number
   initialData: YearData
   units: Unit[]
-  lessonMetas: LessonMeta[]
   onYearChange: (year: number) => Promise<YearData>
 }
 
@@ -31,7 +29,6 @@ export function SowClient({
   initialYear,
   initialData,
   units,
-  lessonMetas,
   onYearChange,
 }: Props) {
   const [year, setYear] = useState(initialYear)
@@ -39,8 +36,8 @@ export function SowClient({
     [initialYear]: initialData,
   })
 
-  const lessonTitleMap = new Map(lessonMetas.map((l) => [l.lesson_id, l.title]))
   const currentData = dataByYear[year] ?? initialData
+  const lessonTitleMap = new Map(currentData.lessonMetas.map((l) => [l.lesson_id, l.title]))
 
   async function handleYearChange(newYear: number) {
     setYear(newYear)
