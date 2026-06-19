@@ -1,28 +1,20 @@
 import Link from 'next/link'
 import { requireTeacherProfile } from '@/lib/auth'
-import { readTeacherGroupsForSowAction, readHalfTermsAction } from '@/lib/server-updates'
-
-function currentAcademicYear(): number {
-  const now = new Date()
-  return now.getMonth() >= 8 ? now.getFullYear() : now.getFullYear() - 1
-}
+import { readTeacherGroupsForSowAction } from '@/lib/server-updates'
+import { currentAcademicYear, academicYearLabel } from '@/lib/academic-year'
 
 export default async function SowLandingPage() {
   await requireTeacherProfile()
 
   const year = currentAcademicYear()
-  const [groupsResult, halfTermsResult] = await Promise.all([
-    readTeacherGroupsForSowAction(),
-    readHalfTermsAction(year),
-  ])
+  const groupsResult = await readTeacherGroupsForSowAction()
 
   const groups = groupsResult.data ?? []
-  const plannedCount = halfTermsResult.data?.length ?? 0
 
   return (
     <main className="max-w-4xl mx-auto p-8">
       <h1 className="text-xl font-medium text-[var(--color-text-primary)] mb-6">
-        Schemes of Work — {year}/{String(year + 1).slice(2)}
+        Schemes of Work — {academicYearLabel(year)}
       </h1>
 
       {groups.length === 0 ? (
@@ -39,9 +31,6 @@ export default async function SowLandingPage() {
             >
               <p className="font-medium text-[var(--color-text-primary)]">{g.group_id}</p>
               <p className="text-xs text-[var(--color-text-secondary)] mt-1">{g.subject}</p>
-              <p className="text-xs text-[var(--color-text-tertiary)] mt-2">
-                {plannedCount}/6 half terms configured
-              </p>
             </Link>
           ))}
         </div>
