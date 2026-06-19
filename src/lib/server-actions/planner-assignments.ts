@@ -86,6 +86,23 @@ export async function upsertPlannerAssignmentAction(
         profile.userId,
       ],
     )
+    // Dual-write to sow_lesson_plan
+    const { rows: lessonRows } = await query<{ unit_id: string }>(
+      `SELECT l.unit_id
+       FROM lessons l
+       JOIN units u ON u.unit_id = l.unit_id
+       WHERE l.lesson_id = $1
+       LIMIT 1`,
+      [lessonId],
+    )
+    if (lessonRows[0]?.unit_id) {
+      await query(
+        `INSERT INTO sow_lesson_plan (group_id, lesson_id, unit_id, week_start_date)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (group_id, lesson_id, week_start_date) DO NOTHING`,
+        [groupId, lessonId, lessonRows[0].unit_id, weekStartDate],
+      )
+    }
     return AssignmentResult.parse({ data: toAssignment(rows[0]), error: null })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to save assignment'
@@ -109,6 +126,16 @@ export async function deletePlannerAssignmentAction(
       `DELETE FROM planner_assignments
        WHERE group_id = $1 AND lesson_id = $2 AND week_start_date = $3 AND day = $4 AND period = $5`,
       [groupId, lessonId, weekStartDate, day, period],
+    )
+    // Remove from sow_lesson_plan only if no other planner slots exist for this lesson+group+week
+    await query(
+      `DELETE FROM sow_lesson_plan
+       WHERE group_id = $1 AND lesson_id = $2 AND week_start_date = $3
+         AND NOT EXISTS (
+           SELECT 1 FROM planner_assignments
+           WHERE group_id = $1 AND lesson_id = $2 AND week_start_date = $3
+         )`,
+      [groupId, lessonId, weekStartDate],
     )
     return NullResult.parse({ data: null, error: null })
   } catch (error) {
