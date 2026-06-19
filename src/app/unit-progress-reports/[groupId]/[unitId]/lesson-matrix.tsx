@@ -253,7 +253,12 @@ export function LessonMatrix({ data, summativeOnly, groupId, unitId }: LessonMat
                   className="px-3 py-3 text-center text-sm font-semibold text-foreground"
                 >
                   <div className="min-w-[80px]">
-                    {lesson.lessonTitle}
+                    <Link
+                      href={`/results/assignments/${encodeURIComponent(`${groupId}__${lesson.lessonId}`)}`}
+                      className="hover:text-primary hover:underline"
+                    >
+                      {lesson.lessonTitle}
+                    </Link>
                   </div>
                 </th>
               ))}
