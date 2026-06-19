@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Users, ShieldAlert } from "lucide-react"
+import { Users, ShieldAlert, CalendarDays } from "lucide-react"
 
 export default function AdminDashboard() {
   return (
@@ -38,6 +38,18 @@ export default function AdminDashboard() {
           <CardContent>
             <div className="text-2xl font-bold">Safety Guardrails</div>
             <p className="text-xs text-muted-foreground">View flagged AI submissions</p>
+          </CardContent>
+        </Card>
+      </Link>
+      <Link href="/admin/half-terms">
+        <Card className="hover:bg-muted/50 transition-colors cursor-pointer">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Half Terms</CardTitle>
+            <CalendarDays className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">Configure</div>
+            <p className="text-xs text-muted-foreground">Set H1–H6 dates per academic year</p>
           </CardContent>
         </Card>
       </Link>

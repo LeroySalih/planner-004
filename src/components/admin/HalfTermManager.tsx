@@ -1,0 +1,98 @@
+'use client'
+
+import { useState } from 'react'
+import { upsertHalfTermAction } from '@/lib/server-updates'
+import { toast } from 'sonner'
+import type { HalfTerm } from '@/types'
+
+const NAMES = ['H1', 'H2', 'H3', 'H4', 'H5', 'H6'] as const
+
+type Props = {
+  year: number
+  initialHalfTerms: HalfTerm[]
+}
+
+export function HalfTermManager({ year, initialHalfTerms }: Props) {
+  const [halfTerms, setHalfTerms] = useState<HalfTerm[]>(initialHalfTerms)
+  const [saving, setSaving] = useState<string | null>(null)
+
+  function getValue(name: string, field: 'start_date' | 'end_date'): string {
+    return halfTerms.find((ht) => ht.name === name)?.[field] ?? ''
+  }
+
+  function handleChange(name: string, field: 'start_date' | 'end_date', value: string) {
+    setHalfTerms((prev) => {
+      const existing = prev.find((ht) => ht.name === name)
+      if (existing) {
+        return prev.map((ht) => ht.name === name ? { ...ht, [field]: value } : ht)
+      }
+      return [
+        ...prev,
+        {
+          id: '',
+          year,
+          name: name as HalfTerm['name'],
+          start_date: field === 'start_date' ? value : '',
+          end_date: field === 'end_date' ? value : '',
+        },
+      ]
+    })
+  }
+
+  async function handleSave(name: typeof NAMES[number]) {
+    const ht = halfTerms.find((h) => h.name === name)
+    if (!ht?.start_date || !ht?.end_date) {
+      toast.error('Set both dates before saving')
+      return
+    }
+    setSaving(name)
+    const { error, data } = await upsertHalfTermAction(year, name, ht.start_date, ht.end_date)
+    setSaving(null)
+    if (error) { toast.error(`Failed to save ${name}`); return }
+    if (data) {
+      setHalfTerms((prev) => prev.map((h) => h.name === name ? data : h))
+    }
+    toast.success(`${name} saved`)
+  }
+
+  return (
+    <div className="space-y-3">
+      <h2 className="text-base font-semibold">{year}/{String(year + 1).slice(2)} Half Terms</h2>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {NAMES.map((name) => (
+          <div
+            key={name}
+            className="rounded-lg border border-[var(--color-border)] bg-[var(--color-background-secondary)] p-4 space-y-2"
+          >
+            <p className="font-medium text-sm">{name}</p>
+            <label className="block text-xs text-[var(--color-text-secondary)]">
+              Start
+              <input
+                type="date"
+                value={getValue(name, 'start_date')}
+                onChange={(e) => handleChange(name, 'start_date', e.target.value)}
+                className="mt-0.5 w-full rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-2 py-1 text-sm"
+              />
+            </label>
+            <label className="block text-xs text-[var(--color-text-secondary)]">
+              End
+              <input
+                type="date"
+                value={getValue(name, 'end_date')}
+                onChange={(e) => handleChange(name, 'end_date', e.target.value)}
+                className="mt-0.5 w-full rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-2 py-1 text-sm"
+              />
+            </label>
+            <button
+              onClick={() => handleSave(name)}
+              disabled={saving === name}
+              className="text-xs rounded bg-blue-600 text-white px-3 py-1 hover:opacity-90 disabled:opacity-50"
+            >
+              {saving === name ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
