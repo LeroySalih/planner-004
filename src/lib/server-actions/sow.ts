@@ -248,7 +248,7 @@ export async function readTeacherGroupsForSowAction(): Promise<z.infer<typeof Te
       `SELECT DISTINCT g.group_id, g.subject
        FROM timetable_slot_groups tsg
        JOIN groups g ON g.group_id = tsg.group_id
-       WHERE tsg.teacher_id = $1 AND g.active = true
+       WHERE tsg.teacher_id = $1 AND g.active IS NOT FALSE
        ORDER BY g.subject`,
       [profile.userId],
     )
