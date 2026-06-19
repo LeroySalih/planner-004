@@ -3,7 +3,7 @@
 import { z } from 'zod'
 import { query } from '@/lib/db'
 import { requireTeacherProfile } from '@/lib/auth'
-import { HalfTermSchema, SowLessonPlanSchema, SowHalfTermUnitSchema } from '@/types'
+import { HalfTermSchema, SowLessonPlanSchema, SowHalfTermUnitSchema, TeacherGroupSchema } from '@/types'
 
 // ── Return shapes ─────────────────────────────────────────────────────────────
 
@@ -230,11 +230,6 @@ export async function removeSowLessonAction(
 }
 
 // ── Teacher groups (for /sow landing page) ────────────────────────────────────
-
-const TeacherGroupSchema = z.object({
-  group_id: z.string(),
-  subject: z.string(),
-})
 
 const TeacherGroupsResult = z.object({
   data: z.array(TeacherGroupSchema).nullable(),

@@ -1361,3 +1361,9 @@ export const SowHalfTermUnitSchema = z.object({
   position: z.number(),
 });
 export type SowHalfTermUnit = z.infer<typeof SowHalfTermUnitSchema>;
+
+export const TeacherGroupSchema = z.object({
+  group_id: z.string(),
+  subject: z.string(),
+});
+export type TeacherGroup = z.infer<typeof TeacherGroupSchema>;
