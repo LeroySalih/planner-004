@@ -64,6 +64,7 @@ export function SowClient({
       </div>
 
       <SowHalfTermTable
+        key={year}
         groupId={groupId}
         halfTerms={currentData.halfTerms}
         htUnits={currentData.htUnits}
@@ -71,6 +72,7 @@ export function SowClient({
       />
 
       <SowWeekList
+        key={year}
         groupId={groupId}
         halfTerms={currentData.halfTerms}
         initialLessons={currentData.lessonPlans}
