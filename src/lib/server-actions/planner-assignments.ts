@@ -1,7 +1,7 @@
 'use server'
 
 import { z } from 'zod'
-import { query } from '@/lib/db'
+import { query, withDbClient } from '@/lib/db'
 import { requireTeacherProfile } from '@/lib/auth'
 import {
   PlannerAssignmentSchema,
@@ -60,50 +60,48 @@ export async function upsertPlannerAssignmentAction(
     if (!weekStartDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
       return AssignmentResult.parse({ data: null, error: 'weekStartDate must be ISO YYYY-MM-DD' })
     }
-    const { rows } = await query<Record<string, unknown>>(
-      `INSERT INTO planner_assignments
-         (group_id, lesson_id, week_start_date, day, period,
-          feedback_visible, issue_flag, issue_note, notes, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       ON CONFLICT (group_id, week_start_date, day, period, lesson_id)
-       DO UPDATE SET
-         feedback_visible = EXCLUDED.feedback_visible,
-         issue_flag       = EXCLUDED.issue_flag,
-         issue_note       = EXCLUDED.issue_note,
-         notes            = EXCLUDED.notes,
-         updated_at       = now()
-       RETURNING *`,
-      [
-        groupId,
-        lessonId,
-        weekStartDate,
-        day,
-        period,
-        extras?.feedbackVisible ?? false,
-        extras?.issueFlag ?? false,
-        extras?.issueNote ?? '',
-        extras?.notes ?? '',
-        profile.userId,
-      ],
-    )
-    // Dual-write to sow_lesson_plan
-    const { rows: lessonRows } = await query<{ unit_id: string }>(
-      `SELECT l.unit_id
-       FROM lessons l
-       JOIN units u ON u.unit_id = l.unit_id
-       WHERE l.lesson_id = $1
-       LIMIT 1`,
-      [lessonId],
-    )
-    if (lessonRows[0]?.unit_id) {
-      await query(
-        `INSERT INTO sow_lesson_plan (group_id, lesson_id, unit_id, week_start_date)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (group_id, lesson_id, week_start_date) DO NOTHING`,
-        [groupId, lessonId, lessonRows[0].unit_id, weekStartDate],
+    const row = await withDbClient(async (client) => {
+      const { rows } = await client.query<Record<string, unknown>>(
+        `INSERT INTO planner_assignments
+           (group_id, lesson_id, week_start_date, day, period,
+            feedback_visible, issue_flag, issue_note, notes, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         ON CONFLICT (group_id, week_start_date, day, period, lesson_id)
+         DO UPDATE SET
+           feedback_visible = EXCLUDED.feedback_visible,
+           issue_flag       = EXCLUDED.issue_flag,
+           issue_note       = EXCLUDED.issue_note,
+           notes            = EXCLUDED.notes,
+           updated_at       = now()
+         RETURNING *`,
+        [
+          groupId,
+          lessonId,
+          weekStartDate,
+          day,
+          period,
+          extras?.feedbackVisible ?? false,
+          extras?.issueFlag ?? false,
+          extras?.issueNote ?? '',
+          extras?.notes ?? '',
+          profile.userId,
+        ],
       )
-    }
-    return AssignmentResult.parse({ data: toAssignment(rows[0]), error: null })
+      const unitRow = await client.query<{ unit_id: string }>(
+        `SELECT unit_id FROM lessons WHERE lesson_id = $1`,
+        [lessonId],
+      )
+      if (unitRow.rows[0]?.unit_id) {
+        await client.query(
+          `INSERT INTO sow_lesson_plan (group_id, lesson_id, unit_id, week_start_date)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (group_id, lesson_id, week_start_date) DO NOTHING`,
+          [groupId, lessonId, unitRow.rows[0].unit_id, weekStartDate],
+        )
+      }
+      return rows[0]
+    })
+    return AssignmentResult.parse({ data: toAssignment(row), error: null })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to save assignment'
     return AssignmentResult.parse({ data: null, error: message })
@@ -122,21 +120,23 @@ export async function deletePlannerAssignmentAction(
     if (!weekStartDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
       return NullResult.parse({ data: null, error: 'weekStartDate must be ISO YYYY-MM-DD' })
     }
-    await query(
-      `DELETE FROM planner_assignments
-       WHERE group_id = $1 AND lesson_id = $2 AND week_start_date = $3 AND day = $4 AND period = $5`,
-      [groupId, lessonId, weekStartDate, day, period],
-    )
-    // Remove from sow_lesson_plan only if no other planner slots exist for this lesson+group+week
-    await query(
-      `DELETE FROM sow_lesson_plan
-       WHERE group_id = $1 AND lesson_id = $2 AND week_start_date = $3
-         AND NOT EXISTS (
-           SELECT 1 FROM planner_assignments
-           WHERE group_id = $1 AND lesson_id = $2 AND week_start_date = $3
-         )`,
-      [groupId, lessonId, weekStartDate],
-    )
+    await withDbClient(async (client) => {
+      await client.query(
+        `DELETE FROM planner_assignments
+         WHERE group_id = $1 AND lesson_id = $2 AND week_start_date = $3 AND day = $4 AND period = $5`,
+        [groupId, lessonId, weekStartDate, day, period],
+      )
+      // Remove from sow_lesson_plan only if no other planner slots exist for this lesson+group+week
+      await client.query(
+        `DELETE FROM sow_lesson_plan
+         WHERE group_id = $1 AND lesson_id = $2 AND week_start_date = $3
+           AND NOT EXISTS (
+             SELECT 1 FROM planner_assignments
+             WHERE group_id = $1 AND lesson_id = $2 AND week_start_date = $3
+           )`,
+        [groupId, lessonId, weekStartDate],
+      )
+    })
     return NullResult.parse({ data: null, error: null })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to delete assignment'
