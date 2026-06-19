@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { upsertHalfTermAction } from '@/lib/server-updates'
 import { toast } from 'sonner'
 import type { HalfTerm } from '@/types'
+import { academicYearLabel } from '@/lib/academic-year'
+import { Button } from '@/components/ui/button'
 
 const NAMES = ['H1', 'H2', 'H3', 'H4', 'H5', 'H6'] as const
 
@@ -57,7 +59,7 @@ export function HalfTermManager({ year, initialHalfTerms }: Props) {
 
   return (
     <div className="space-y-3">
-      <h2 className="text-base font-semibold">{year}/{String(year + 1).slice(2)} Half Terms</h2>
+      <h2 className="text-base font-semibold">{academicYearLabel(year)} Half Terms</h2>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {NAMES.map((name) => (
           <div
@@ -83,13 +85,13 @@ export function HalfTermManager({ year, initialHalfTerms }: Props) {
                 className="mt-0.5 w-full rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-2 py-1 text-sm"
               />
             </label>
-            <button
+            <Button
+              size="sm"
               onClick={() => handleSave(name)}
               disabled={saving === name}
-              className="text-xs rounded bg-blue-600 text-white px-3 py-1 hover:opacity-90 disabled:opacity-50"
             >
               {saving === name ? 'Saving…' : 'Save'}
-            </button>
+            </Button>
           </div>
         ))}
       </div>
