@@ -1368,6 +1368,13 @@ export const TeacherGroupSchema = z.object({
 });
 export type TeacherGroup = z.infer<typeof TeacherGroupSchema>;
 
+export const SchoolYearSchema = z.object({
+  year: z.number().int(),
+  label: z.string(),
+  active: z.boolean(),
+});
+export type SchoolYear = z.infer<typeof SchoolYearSchema>;
+
 export const LessonMetaSchema = z.object({
   lesson_id: z.string(),
   title: z.string(),

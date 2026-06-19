@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { upsertHalfTermAction, readHalfTermsAction } from '@/lib/server-updates'
 import { toast } from 'sonner'
 import type { HalfTerm } from '@/types'
-import { academicYearLabel, availableAcademicYears } from '@/lib/academic-year'
+import { academicYearLabel } from '@/lib/academic-year'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -18,10 +18,11 @@ const NAMES = ['H1', 'H2', 'H3', 'H4', 'H5', 'H6'] as const
 
 type Props = {
   year: number
+  activeYears: number[]
   initialHalfTerms: HalfTerm[]
 }
 
-export function HalfTermManager({ year: initialYear, initialHalfTerms }: Props) {
+export function HalfTermManager({ year: initialYear, activeYears, initialHalfTerms }: Props) {
   const [year, setYear] = useState(initialYear)
   const [halfTerms, setHalfTerms] = useState<HalfTerm[]>(initialHalfTerms)
   const [saving, setSaving] = useState<string | null>(null)
@@ -84,7 +85,7 @@ export function HalfTermManager({ year: initialYear, initialHalfTerms }: Props) 
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {availableAcademicYears(initialYear).map((y) => (
+            {activeYears.map((y) => (
               <SelectItem key={y} value={String(y)}>{academicYearLabel(y)}</SelectItem>
             ))}
           </SelectContent>

@@ -370,6 +370,13 @@ export {
 } from "./server-actions/lessons"
 
 export {
+  readSchoolYearsAction,
+  readActiveSchoolYearsAction,
+  upsertSchoolYearAction,
+  setSchoolYearActiveAction,
+} from './server-actions/school-years'
+
+export {
   readHalfTermsAction,
   upsertHalfTermAction,
   readSowHalfTermUnitsAction,
