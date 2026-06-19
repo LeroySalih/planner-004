@@ -184,7 +184,7 @@ const SowWeekLessonSchema = z.object({
   lesson_title: z.string(),
   week_start_date: z.string(),
   los: z.array(z.string()).default([]),
-  has_feedback: z.boolean().default(false),
+  score: z.number().nullable().default(null),
 })
 
 const SowWeekLessonsResult = z.object({
@@ -211,11 +211,15 @@ export async function readGroupSowLessonsAction(
                  WHERE llo.lesson_id = l.lesson_id AND lo.active IS NOT FALSE),
                 '{}'
               ) AS los,
-              EXISTS(
-                SELECT 1 FROM lesson_assignments la
-                WHERE la.group_id = pa.group_id AND la.lesson_id = pa.lesson_id
-                  AND la.feedback_visible = true
-              ) AS has_feedback
+              (
+                SELECT ROUND(100.0 * AVG(compute_submission_base_score(s.body, a.type)))
+                FROM activities a
+                JOIN submissions s ON s.activity_id = a.activity_id
+                JOIN group_membership gm ON gm.user_id = s.user_id AND gm.group_id = pa.group_id
+                WHERE a.lesson_id = pa.lesson_id
+                  AND (a.active IS NULL OR a.active = true)
+                  AND compute_submission_base_score(s.body, a.type) IS NOT NULL
+              ) AS score
        FROM planner_assignments pa
        JOIN lessons l ON l.lesson_id = pa.lesson_id
        JOIN half_terms h1 ON h1.year = $2 AND h1.name = 'H1'

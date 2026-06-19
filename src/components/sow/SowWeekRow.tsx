@@ -76,15 +76,13 @@ export function SowWeekRow({ groupId, weekLabel, halfTermBadge, isHoliday, lesso
               >
                 {l.lesson_title}
               </Link>
-              {l.has_feedback && (
-                <Link
-                  href={`/unit-progress-reports/${encodeURIComponent(groupId)}/${encodeURIComponent(l.unit_id)}`}
-                  className="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
-                  title="Feedback available"
-                >
-                  %
-                </Link>
-              )}
+              <Link
+                href={`/unit-progress-reports/${encodeURIComponent(groupId)}/${encodeURIComponent(l.unit_id)}`}
+                className={`text-xs tabular-nums ${l.score !== null ? 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)]'}`}
+                title="View results"
+              >
+                {l.score !== null ? `${l.score}%` : '--'}
+              </Link>
             </div>
           </td>
           <td className="px-3 py-2 text-xs text-[var(--color-text-secondary)] align-top">
