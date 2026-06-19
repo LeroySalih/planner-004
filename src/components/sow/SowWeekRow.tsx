@@ -1,21 +1,12 @@
-'use client'
-
-import { useState } from 'react'
-import { addSowLessonAction, removeSowLessonAction } from '@/lib/server-updates'
-import { SowLessonPicker } from './SowLessonPicker'
-import { toast } from 'sonner'
-import type { SowLessonPlan, Unit } from '@/types'
+import { Fragment } from 'react'
+import type { SowWeekLesson } from '@/lib/server-updates'
 
 type Props = {
-  groupId: string
-  weekStartDate: string
   weekLabel: string
   halfTermBadge: string
   isHoliday: boolean
-  lessons: SowLessonPlan[]
-  units: Unit[]
-  lessonTitleMap: Map<string, string>
-  onLessonsChange: (weekStartDate: string, lessons: SowLessonPlan[]) => void
+  lessons: SowWeekLesson[]
+  unitMap: Map<string, string>
 }
 
 const BADGE_COLOURS: Record<string, string> = {
@@ -27,90 +18,57 @@ const BADGE_COLOURS: Record<string, string> = {
   H6: 'bg-pink-100 text-pink-700',
 }
 
-export function SowWeekRow({
-  groupId,
-  weekStartDate,
-  weekLabel,
-  halfTermBadge,
-  isHoliday,
-  lessons,
-  units,
-  lessonTitleMap,
-  onLessonsChange,
-}: Props) {
-  const [showPicker, setShowPicker] = useState(false)
-
-  async function handleAdd(lessonId: string, unitId: string) {
-    if (lessons.some((l) => l.lesson_id === lessonId)) return
-    const { error } = await addSowLessonAction(groupId, lessonId, unitId, weekStartDate)
-    if (error) { toast.error('Failed to add lesson'); return }
-    const newLesson: SowLessonPlan = {
-      id: crypto.randomUUID(),
-      group_id: groupId,
-      lesson_id: lessonId,
-      unit_id: unitId,
-      week_start_date: weekStartDate,
-      created_at: new Date().toISOString(),
-    }
-    onLessonsChange(weekStartDate, [...lessons, newLesson])
-    setShowPicker(false)
-  }
-
-  async function handleRemove(lessonId: string) {
-    const { error } = await removeSowLessonAction(groupId, lessonId, weekStartDate)
-    if (error) { toast.error('Failed to remove lesson'); return }
-    onLessonsChange(weekStartDate, lessons.filter((l) => l.lesson_id !== lessonId))
-  }
+export function SowWeekRow({ weekLabel, halfTermBadge, isHoliday, lessons, unitMap }: Props) {
+  const badge = halfTermBadge ? (
+    <span className={`inline-block rounded text-center text-xs font-semibold px-1.5 py-0.5 ${BADGE_COLOURS[halfTermBadge] ?? ''}`}>
+      {halfTermBadge}
+    </span>
+  ) : null
 
   if (isHoliday) {
     return (
-      <div className="flex items-center gap-3 py-2 px-3 rounded-lg opacity-40 text-sm">
-        <span className="w-8 text-center text-xs font-medium text-[var(--color-text-tertiary)]">—</span>
-        <span className="text-[var(--color-text-tertiary)]">{weekLabel} · Holiday</span>
-      </div>
+      <tr className="opacity-40">
+        <td className="px-3 py-1.5 text-xs text-[var(--color-text-tertiary)] whitespace-nowrap" colSpan={4}>
+          {weekLabel} · Holiday
+        </td>
+      </tr>
+    )
+  }
+
+  if (lessons.length === 0) {
+    return (
+      <tr className="border-t border-[var(--color-border)]">
+        <td className="px-3 py-2 text-xs text-[var(--color-text-secondary)] whitespace-nowrap align-top">
+          <div className="flex items-center gap-1.5">{badge}<span>{weekLabel}</span></div>
+        </td>
+        <td className="px-3 py-2" colSpan={3} />
+      </tr>
     )
   }
 
   return (
-    <div className="flex items-start gap-3 py-2 px-3 rounded-lg hover:bg-[var(--color-background-secondary)] group">
-      <span
-        className={`mt-0.5 w-8 shrink-0 rounded text-center text-xs font-semibold px-1 py-0.5 ${BADGE_COLOURS[halfTermBadge] ?? ''}`}
-      >
-        {halfTermBadge}
-      </span>
-
-      <div className="flex-1">
-        <p className="text-xs font-medium text-[var(--color-text-secondary)] mb-1">{weekLabel}</p>
-        <ul className="flex flex-col gap-0.5">
-          {lessons.map((l) => (
-            <li key={l.lesson_id} className="flex items-center gap-1 text-sm text-[var(--color-text-primary)]">
-              <span>• {lessonTitleMap.get(l.lesson_id) ?? l.lesson_id}</span>
-              <button
-                onClick={() => handleRemove(l.lesson_id)}
-                className="opacity-0 group-hover:opacity-100 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] text-xs"
-                aria-label="Remove lesson"
-              >
-                ✕
-              </button>
-            </li>
-          ))}
-        </ul>
-
-        {showPicker ? (
-          <SowLessonPicker
-            units={units}
-            onSelect={(lessonId, unitId) => handleAdd(lessonId, unitId)}
-            onCancel={() => setShowPicker(false)}
-          />
-        ) : (
-          <button
-            onClick={() => setShowPicker(true)}
-            className="text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] mt-1 opacity-0 group-hover:opacity-100"
-          >
-            + Add lesson
-          </button>
-        )}
-      </div>
-    </div>
+    <Fragment>
+      {lessons.map((l, i) => (
+        <tr key={l.lesson_id} className="border-t border-[var(--color-border)] hover:bg-[var(--color-background-secondary)]">
+          {i === 0 ? (
+            <td
+              className="px-3 py-2 text-xs text-[var(--color-text-secondary)] whitespace-nowrap align-top"
+              rowSpan={lessons.length}
+            >
+              <div className="flex items-center gap-1.5">{badge}<span>{weekLabel}</span></div>
+            </td>
+          ) : null}
+          <td className="px-3 py-2 text-sm text-[var(--color-text-secondary)] align-top">
+            {unitMap.get(l.unit_id) ?? ''}
+          </td>
+          <td className="px-3 py-2 text-sm text-[var(--color-text-primary)] align-top">
+            {l.lesson_title}
+          </td>
+          <td className="px-3 py-2 text-xs text-[var(--color-text-secondary)] align-top">
+            {l.los.join(', ')}
+          </td>
+        </tr>
+      ))}
+    </Fragment>
   )
 }

@@ -3,40 +3,32 @@ import { query } from '@/lib/db'
 import {
   readHalfTermsAction,
   readSowHalfTermUnitsAction,
-  readSowLessonPlanAction,
+  readGroupSowLessonsAction,
   readTeacherGroupsForSowAction,
   readUnitsAction,
-  readLessonsByUnitAction,
 } from '@/lib/server-updates'
+import type { SowWeekLesson } from '@/lib/server-updates'
 import { SowClient } from './sow-client'
 import { notFound } from 'next/navigation'
 import { currentAcademicYear, availableAcademicYears } from '@/lib/academic-year'
-import type { HalfTerm, SowHalfTermUnit, SowLessonPlan, LessonMeta } from '@/types'
+import type { HalfTerm, SowHalfTermUnit, Unit, TeacherGroup } from '@/types'
 
 type YearData = {
   halfTerms: HalfTerm[]
   htUnits: SowHalfTermUnit[]
-  lessonPlans: SowLessonPlan[]
-  lessonMetas: LessonMeta[]
+  lessons: SowWeekLesson[]
 }
 
 async function fetchYearData(groupId: string, year: number): Promise<YearData> {
   const [ht, htu, lp] = await Promise.all([
     readHalfTermsAction(year),
     readSowHalfTermUnitsAction(groupId, year),
-    readSowLessonPlanAction(groupId, year),
+    readGroupSowLessonsAction(groupId, year),
   ])
-  const lessonPlans = lp.data ?? []
-  const uniqueUnitIds = [...new Set(lessonPlans.map((l) => l.unit_id))]
-  const lessonsByUnit = await Promise.all(uniqueUnitIds.map((uid) => readLessonsByUnitAction(uid)))
-  const lessonMetas = lessonsByUnit.flatMap((r) =>
-    (r.data ?? []).map((l) => ({ lesson_id: l.lesson_id, title: l.title })),
-  )
   return {
     halfTerms: ht.data ?? [],
     htUnits: htu.data ?? [],
-    lessonPlans,
-    lessonMetas,
+    lessons: lp.data ?? [],
   }
 }
 
@@ -60,7 +52,8 @@ export default async function SowDetailPage({
   const group = (groupsResult.data ?? []).find((g) => g.group_id === groupId)
   if (!group) notFound()
 
-  const units = unitsResult.data ?? []
+  const units: Unit[] = unitsResult.data ?? []
+  const allGroups: TeacherGroup[] = (groupsResult.data ?? []).filter((g) => g.group_id !== groupId)
 
   async function onYearChange(newYear: number): Promise<YearData> {
     'use server'
@@ -84,6 +77,7 @@ export default async function SowDetailPage({
         initialYear={year}
         initialData={initialData}
         units={units}
+        allGroups={allGroups}
         onYearChange={onYearChange}
       />
     </main>

@@ -346,10 +346,12 @@ export {
 
 export {
   deletePlannerAssignmentAction,
+  readGroupSowLessonsAction,
   readPlannerAssignmentsForWeekAction,
   updatePlannerAssignmentExtrasAction,
   upsertPlannerAssignmentAction,
 } from './server-actions/planner-assignments'
+export type { SowWeekLesson } from './server-actions/planner-assignments'
 
 export {
   readTimetableSlotGroupsAction,
@@ -373,8 +375,6 @@ export {
   readSowHalfTermUnitsAction,
   addSowHalfTermUnitAction,
   removeSowHalfTermUnitAction,
-  readSowLessonPlanAction,
-  addSowLessonAction,
-  removeSowLessonAction,
+  assignHalfTermUnitsToGroupsAction,
   readTeacherGroupsForSowAction,
 } from './server-actions/sow'

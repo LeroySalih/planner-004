@@ -3,7 +3,7 @@
 import { z } from 'zod'
 import { query } from '@/lib/db'
 import { requireTeacherProfile, requireRole } from '@/lib/auth'
-import { HalfTermSchema, SowLessonPlanSchema, SowHalfTermUnitSchema, TeacherGroupSchema } from '@/types'
+import { HalfTermSchema, SowHalfTermUnitSchema, TeacherGroupSchema } from '@/types'
 
 // ── Return shapes ─────────────────────────────────────────────────────────────
 
@@ -14,11 +14,6 @@ const HalfTermsResult = z.object({
 
 const HalfTermResult = z.object({
   data: HalfTermSchema.nullable(),
-  error: z.string().nullable(),
-})
-
-const SowLessonPlanResult = z.object({
-  data: z.array(SowLessonPlanSchema).nullable(),
   error: z.string().nullable(),
 })
 
@@ -45,19 +40,13 @@ export async function readHalfTermsAction(year: number): Promise<z.infer<typeof 
   try {
     await requireTeacherProfile()
     const { rows } = await query<Record<string, unknown>>(
-      `SELECT id, year, name, start_date, end_date
+      `SELECT id, year, name, start_date::text, end_date::text
        FROM half_terms
        WHERE year = $1
        ORDER BY name`,
       [year],
     )
-    const data = rows.map((r) =>
-      HalfTermSchema.parse({
-        ...r,
-        start_date: toIsoDate(r.start_date),
-        end_date: toIsoDate(r.end_date),
-      }),
-    )
+    const data = rows.map((r) => HalfTermSchema.parse(r))
     return HalfTermsResult.parse({ data, error: null })
   } catch (e) {
     return HalfTermsResult.parse({ data: null, error: String(e) })
@@ -77,14 +66,10 @@ export async function upsertHalfTermAction(
        VALUES ($1, $2, $3, $4)
        ON CONFLICT (year, name)
        DO UPDATE SET start_date = EXCLUDED.start_date, end_date = EXCLUDED.end_date
-       RETURNING id, year, name, start_date, end_date`,
+       RETURNING id, year, name, start_date::text, end_date::text`,
       [year, name, startDate, endDate],
     )
-    const data = HalfTermSchema.parse({
-      ...rows[0],
-      start_date: toIsoDate(rows[0].start_date),
-      end_date: toIsoDate(rows[0].end_date),
-    })
+    const data = HalfTermSchema.parse(rows[0])
     return HalfTermResult.parse({ data, error: null })
   } catch (e) {
     return HalfTermResult.parse({ data: null, error: String(e) })
@@ -100,7 +85,7 @@ export async function readSowHalfTermUnitsAction(
   try {
     await requireTeacherProfile()
     const { rows } = await query<Record<string, unknown>>(
-      `SELECT shu.group_id, shu.half_term_id, shu.unit_id, u.subject AS unit_name, shu.position
+      `SELECT shu.group_id, shu.half_term_id, shu.unit_id, u.title AS unit_name, shu.position
        FROM sow_half_term_units shu
        JOIN half_terms ht ON ht.id = shu.half_term_id
        LEFT JOIN units u ON u.unit_id = shu.unit_id
@@ -159,70 +144,25 @@ export async function removeSowHalfTermUnitAction(
   }
 }
 
-// ── SoW lesson plan ───────────────────────────────────────────────────────────
-
-export async function readSowLessonPlanAction(
-  groupId: string,
+export async function assignHalfTermUnitsToGroupsAction(
+  sourceGroupId: string,
+  targetGroupIds: string[],
   year: number,
-): Promise<z.infer<typeof SowLessonPlanResult>> {
-  try {
-    await requireTeacherProfile()
-    const { rows } = await query<Record<string, unknown>>(
-      `SELECT slp.id, slp.group_id, slp.lesson_id, slp.unit_id,
-              slp.week_start_date, slp.created_at
-       FROM sow_lesson_plan slp
-       JOIN half_terms h1 ON h1.year = $2 AND h1.name = 'H1'
-       JOIN half_terms h6 ON h6.year = $2 AND h6.name = 'H6'
-       WHERE slp.group_id = $1
-         AND slp.week_start_date BETWEEN h1.start_date AND h6.end_date
-       ORDER BY slp.week_start_date`,
-      [groupId, year],
-    )
-    const data = rows.map((r) =>
-      SowLessonPlanSchema.parse({
-        ...r,
-        week_start_date: toIsoDate(r.week_start_date),
-        created_at: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
-      }),
-    )
-    return SowLessonPlanResult.parse({ data, error: null })
-  } catch (e) {
-    return SowLessonPlanResult.parse({ data: null, error: String(e) })
-  }
-}
-
-export async function addSowLessonAction(
-  groupId: string,
-  lessonId: string,
-  unitId: string,
-  weekStartDate: string,
 ): Promise<z.infer<typeof NullResult>> {
   try {
     await requireTeacherProfile()
-    await query(
-      `INSERT INTO sow_lesson_plan (group_id, lesson_id, unit_id, week_start_date)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (group_id, lesson_id, week_start_date) DO NOTHING`,
-      [groupId, lessonId, unitId, weekStartDate],
-    )
-    return NullResult.parse({ data: null, error: null })
-  } catch (e) {
-    return NullResult.parse({ data: null, error: String(e) })
-  }
-}
-
-export async function removeSowLessonAction(
-  groupId: string,
-  lessonId: string,
-  weekStartDate: string,
-): Promise<z.infer<typeof NullResult>> {
-  try {
-    await requireTeacherProfile()
-    await query(
-      `DELETE FROM sow_lesson_plan
-       WHERE group_id = $1 AND lesson_id = $2 AND week_start_date = $3`,
-      [groupId, lessonId, weekStartDate],
-    )
+    if (targetGroupIds.length === 0) return NullResult.parse({ data: null, error: null })
+    for (const targetGroupId of targetGroupIds) {
+      await query(
+        `INSERT INTO sow_half_term_units (group_id, half_term_id, unit_id, position)
+         SELECT $2, shu.half_term_id, shu.unit_id, shu.position
+         FROM sow_half_term_units shu
+         JOIN half_terms ht ON ht.id = shu.half_term_id
+         WHERE shu.group_id = $1 AND ht.year = $3
+         ON CONFLICT DO NOTHING`,
+        [sourceGroupId, targetGroupId, year],
+      )
+    }
     return NullResult.parse({ data: null, error: null })
   } catch (e) {
     return NullResult.parse({ data: null, error: String(e) })

@@ -1,11 +1,18 @@
 'use client'
 
 import { useState } from 'react'
-import { upsertHalfTermAction } from '@/lib/server-updates'
+import { upsertHalfTermAction, readHalfTermsAction } from '@/lib/server-updates'
 import { toast } from 'sonner'
 import type { HalfTerm } from '@/types'
-import { academicYearLabel } from '@/lib/academic-year'
+import { academicYearLabel, availableAcademicYears } from '@/lib/academic-year'
 import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 const NAMES = ['H1', 'H2', 'H3', 'H4', 'H5', 'H6'] as const
 
@@ -14,9 +21,20 @@ type Props = {
   initialHalfTerms: HalfTerm[]
 }
 
-export function HalfTermManager({ year, initialHalfTerms }: Props) {
+export function HalfTermManager({ year: initialYear, initialHalfTerms }: Props) {
+  const [year, setYear] = useState(initialYear)
   const [halfTerms, setHalfTerms] = useState<HalfTerm[]>(initialHalfTerms)
   const [saving, setSaving] = useState<string | null>(null)
+  const [loadingYear, setLoadingYear] = useState(false)
+
+  async function handleYearChange(val: string) {
+    const newYear = parseInt(val, 10)
+    setLoadingYear(true)
+    const { data } = await readHalfTermsAction(newYear)
+    setYear(newYear)
+    setHalfTerms(data ?? [])
+    setLoadingYear(false)
+  }
 
   function getValue(name: string, field: 'start_date' | 'end_date'): string {
     return halfTerms.find((ht) => ht.name === name)?.[field] ?? ''
@@ -58,8 +76,20 @@ export function HalfTermManager({ year, initialHalfTerms }: Props) {
   }
 
   return (
-    <div className="space-y-3">
-      <h2 className="text-base font-semibold">{academicYearLabel(year)} Half Terms</h2>
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <h2 className="text-base font-semibold">Half Terms</h2>
+        <Select value={String(year)} onValueChange={handleYearChange} disabled={loadingYear}>
+          <SelectTrigger className="w-32">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {availableAcademicYears(initialYear).map((y) => (
+              <SelectItem key={y} value={String(y)}>{academicYearLabel(y)}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {NAMES.map((name) => (
           <div

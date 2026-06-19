@@ -1371,5 +1371,8 @@ export type TeacherGroup = z.infer<typeof TeacherGroupSchema>;
 export const LessonMetaSchema = z.object({
   lesson_id: z.string(),
   title: z.string(),
+  unit_id: z.string().optional(),
+  unit_title: z.string().optional(),
+  los: z.array(z.string()).optional(),
 });
 export type LessonMeta = z.infer<typeof LessonMetaSchema>;

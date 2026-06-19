@@ -1,7 +1,7 @@
 'use server'
 
 import { z } from 'zod'
-import { query, withDbClient } from '@/lib/db'
+import { query } from '@/lib/db'
 import { requireTeacherProfile } from '@/lib/auth'
 import {
   PlannerAssignmentSchema,
@@ -60,48 +60,33 @@ export async function upsertPlannerAssignmentAction(
     if (!weekStartDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
       return AssignmentResult.parse({ data: null, error: 'weekStartDate must be ISO YYYY-MM-DD' })
     }
-    const row = await withDbClient(async (client) => {
-      const { rows } = await client.query<Record<string, unknown>>(
-        `INSERT INTO planner_assignments
-           (group_id, lesson_id, week_start_date, day, period,
-            feedback_visible, issue_flag, issue_note, notes, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-         ON CONFLICT (group_id, week_start_date, day, period, lesson_id)
-         DO UPDATE SET
-           feedback_visible = EXCLUDED.feedback_visible,
-           issue_flag       = EXCLUDED.issue_flag,
-           issue_note       = EXCLUDED.issue_note,
-           notes            = EXCLUDED.notes,
-           updated_at       = now()
-         RETURNING *`,
-        [
-          groupId,
-          lessonId,
-          weekStartDate,
-          day,
-          period,
-          extras?.feedbackVisible ?? false,
-          extras?.issueFlag ?? false,
-          extras?.issueNote ?? '',
-          extras?.notes ?? '',
-          profile.userId,
-        ],
-      )
-      const unitRow = await client.query<{ unit_id: string }>(
-        `SELECT unit_id FROM lessons WHERE lesson_id = $1`,
-        [lessonId],
-      )
-      if (unitRow.rows[0]?.unit_id) {
-        await client.query(
-          `INSERT INTO sow_lesson_plan (group_id, lesson_id, unit_id, week_start_date)
-           VALUES ($1, $2, $3, $4)
-           ON CONFLICT (group_id, lesson_id, week_start_date) DO NOTHING`,
-          [groupId, lessonId, unitRow.rows[0].unit_id, weekStartDate],
-        )
-      }
-      return rows[0]
-    })
-    return AssignmentResult.parse({ data: toAssignment(row), error: null })
+    const { rows } = await query<Record<string, unknown>>(
+      `INSERT INTO planner_assignments
+         (group_id, lesson_id, week_start_date, day, period,
+          feedback_visible, issue_flag, issue_note, notes, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       ON CONFLICT (group_id, week_start_date, day, period, lesson_id)
+       DO UPDATE SET
+         feedback_visible = EXCLUDED.feedback_visible,
+         issue_flag       = EXCLUDED.issue_flag,
+         issue_note       = EXCLUDED.issue_note,
+         notes            = EXCLUDED.notes,
+         updated_at       = now()
+       RETURNING *`,
+      [
+        groupId,
+        lessonId,
+        weekStartDate,
+        day,
+        period,
+        extras?.feedbackVisible ?? false,
+        extras?.issueFlag ?? false,
+        extras?.issueNote ?? '',
+        extras?.notes ?? '',
+        profile.userId,
+      ],
+    )
+    return AssignmentResult.parse({ data: toAssignment(rows[0]), error: null })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to save assignment'
     return AssignmentResult.parse({ data: null, error: message })
@@ -120,23 +105,11 @@ export async function deletePlannerAssignmentAction(
     if (!weekStartDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
       return NullResult.parse({ data: null, error: 'weekStartDate must be ISO YYYY-MM-DD' })
     }
-    await withDbClient(async (client) => {
-      await client.query(
-        `DELETE FROM planner_assignments
-         WHERE group_id = $1 AND lesson_id = $2 AND week_start_date = $3 AND day = $4 AND period = $5`,
-        [groupId, lessonId, weekStartDate, day, period],
-      )
-      // Remove from sow_lesson_plan only if no other planner slots exist for this lesson+group+week
-      await client.query(
-        `DELETE FROM sow_lesson_plan
-         WHERE group_id = $1 AND lesson_id = $2 AND week_start_date = $3
-           AND NOT EXISTS (
-             SELECT 1 FROM planner_assignments
-             WHERE group_id = $1 AND lesson_id = $2 AND week_start_date = $3
-           )`,
-        [groupId, lessonId, weekStartDate],
-      )
-    })
+    await query(
+      `DELETE FROM planner_assignments
+       WHERE group_id = $1 AND lesson_id = $2 AND week_start_date = $3 AND day = $4 AND period = $5`,
+      [groupId, lessonId, weekStartDate, day, period],
+    )
     return NullResult.parse({ data: null, error: null })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to delete assignment'
@@ -202,5 +175,54 @@ export async function updatePlannerAssignmentExtrasAction(
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to update assignment'
     return AssignmentResult.parse({ data: null, error: message })
+  }
+}
+
+const SowWeekLessonSchema = z.object({
+  lesson_id: z.string(),
+  unit_id: z.string(),
+  lesson_title: z.string(),
+  week_start_date: z.string(),
+  los: z.array(z.string()).default([]),
+})
+
+const SowWeekLessonsResult = z.object({
+  data: z.array(SowWeekLessonSchema).nullable(),
+  error: z.string().nullable(),
+})
+
+export type SowWeekLesson = z.infer<typeof SowWeekLessonSchema>
+
+export async function readGroupSowLessonsAction(
+  groupId: string,
+  year: number,
+): Promise<z.infer<typeof SowWeekLessonsResult>> {
+  try {
+    await requireTeacherProfile()
+    const { rows } = await query<Record<string, unknown>>(
+      `SELECT DISTINCT ON (pa.week_start_date, pa.lesson_id)
+              pa.lesson_id, l.unit_id, l.title AS lesson_title,
+              pa.week_start_date::text AS week_start_date,
+              COALESCE(
+                (SELECT array_agg(lo.title ORDER BY llo.order_by)
+                 FROM lessons_learning_objective llo
+                 JOIN learning_objectives lo ON lo.learning_objective_id = llo.learning_objective_id
+                 WHERE llo.lesson_id = l.lesson_id AND lo.active IS NOT FALSE),
+                '{}'
+              ) AS los
+       FROM planner_assignments pa
+       JOIN lessons l ON l.lesson_id = pa.lesson_id
+       JOIN half_terms h1 ON h1.year = $2 AND h1.name = 'H1'
+       JOIN half_terms h6 ON h6.year = $2 AND h6.name = 'H6'
+       WHERE pa.group_id = $1
+         AND pa.week_start_date BETWEEN h1.start_date AND h6.end_date
+       ORDER BY pa.week_start_date, pa.lesson_id`,
+      [groupId, year],
+    )
+    const data = rows.map((r) => SowWeekLessonSchema.parse(r))
+    return SowWeekLessonsResult.parse({ data, error: null })
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Failed to load SoW lessons'
+    return SowWeekLessonsResult.parse({ data: null, error: message })
   }
 }

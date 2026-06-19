@@ -1,15 +1,13 @@
 'use client'
 
-import { useState } from 'react'
 import { SowWeekRow } from './SowWeekRow'
-import type { HalfTerm, SowLessonPlan, Unit } from '@/types'
+import type { HalfTerm, Unit } from '@/types'
+import type { SowWeekLesson } from '@/lib/server-updates'
 
 type Props = {
-  groupId: string
   halfTerms: HalfTerm[]
-  initialLessons: SowLessonPlan[]
+  lessons: SowWeekLesson[]
   units: Unit[]
-  lessonTitleMap: Map<string, string>
 }
 
 function toLocalDate(isoDate: string): Date {
@@ -33,17 +31,7 @@ function formatWeekLabel(weekStart: Date, weekNum: number): string {
   return `Week ${weekNum} · ${fmt(weekStart)} – ${fmt(end)}`
 }
 
-export function SowWeekList({ groupId, halfTerms, initialLessons, units, lessonTitleMap }: Props) {
-  const [lessonsByWeek, setLessonsByWeek] = useState<Map<string, SowLessonPlan[]>>(() => {
-    const map = new Map<string, SowLessonPlan[]>()
-    for (const l of initialLessons) {
-      const arr = map.get(l.week_start_date) ?? []
-      arr.push(l)
-      map.set(l.week_start_date, arr)
-    }
-    return map
-  })
-
+export function SowWeekList({ halfTerms, lessons, units }: Props) {
   if (halfTerms.length === 0) {
     return (
       <p className="text-sm text-[var(--color-text-secondary)] mt-4">
@@ -52,6 +40,8 @@ export function SowWeekList({ groupId, halfTerms, initialLessons, units, lessonT
     )
   }
 
+  const unitMap = new Map(units.map((u) => [u.unit_id, u.title]))
+
   const sortedHT = [...halfTerms].sort((a, b) => a.name.localeCompare(b.name))
   const yearStart = toLocalDate(sortedHT[0].start_date)
   const yearEnd = toLocalDate(sortedHT[sortedHT.length - 1].end_date)
@@ -59,7 +49,7 @@ export function SowWeekList({ groupId, halfTerms, initialLessons, units, lessonT
   const weekToHt = new Map<string, string>()
   for (const ht of sortedHT) {
     let cur = toLocalDate(ht.start_date)
-    cur.setDate(cur.getDate() - cur.getDay()) // snap to Sunday
+    cur.setDate(cur.getDate() - cur.getDay())
     const end = toLocalDate(ht.end_date)
     while (cur <= end) {
       weekToHt.set(toIsoDate(cur), ht.name)
@@ -67,45 +57,52 @@ export function SowWeekList({ groupId, halfTerms, initialLessons, units, lessonT
     }
   }
 
+  const lessonsByWeek = new Map<string, SowWeekLesson[]>()
+  for (const l of lessons) {
+    const arr = lessonsByWeek.get(l.week_start_date) ?? []
+    arr.push(l)
+    lessonsByWeek.set(l.week_start_date, arr)
+  }
+
   const weeks: Date[] = []
   let cur = new Date(yearStart)
-  cur.setDate(cur.getDate() - cur.getDay()) // snap to Sunday
+  cur.setDate(cur.getDate() - cur.getDay())
   while (cur <= yearEnd) {
     weeks.push(new Date(cur))
     cur = addDays(cur, 7)
   }
 
-  function handleLessonsChange(weekStartDate: string, updated: SowLessonPlan[]) {
-    setLessonsByWeek((prev) => {
-      const next = new Map(prev)
-      next.set(weekStartDate, updated)
-      return next
-    })
-  }
-
   let weekNum = 0
   return (
-    <div className="flex flex-col">
-      {weeks.map((weekStart) => {
-        const iso = toIsoDate(weekStart)
-        const htName = weekToHt.get(iso)
-        const lessons = lessonsByWeek.get(iso) ?? []
-        if (htName) weekNum++
-        return (
-          <SowWeekRow
-            key={iso}
-            groupId={groupId}
-            weekStartDate={iso}
-            weekLabel={formatWeekLabel(weekStart, weekNum)}
-            halfTermBadge={htName ?? ''}
-            isHoliday={!htName}
-            lessons={lessons}
-            units={units}
-            lessonTitleMap={lessonTitleMap}
-            onLessonsChange={handleLessonsChange}
-          />
-        )
-      })}
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse text-sm">
+        <thead>
+          <tr className="border-b border-[var(--color-border)]">
+            <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--color-text-secondary)] whitespace-nowrap w-48">Date</th>
+            <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--color-text-secondary)] w-48">Unit</th>
+            <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--color-text-secondary)]">Lesson</th>
+            <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--color-text-secondary)]">Learning Objectives</th>
+          </tr>
+        </thead>
+        <tbody>
+          {weeks.map((weekStart) => {
+            const iso = toIsoDate(weekStart)
+            const htName = weekToHt.get(iso)
+            const weekLessons = lessonsByWeek.get(iso) ?? []
+            if (htName) weekNum++
+            return (
+              <SowWeekRow
+                key={iso}
+                weekLabel={formatWeekLabel(weekStart, weekNum)}
+                halfTermBadge={htName ?? ''}
+                isHoliday={!htName}
+                lessons={weekLessons}
+                unitMap={unitMap}
+              />
+            )
+          })}
+        </tbody>
+      </table>
     </div>
   )
 }
