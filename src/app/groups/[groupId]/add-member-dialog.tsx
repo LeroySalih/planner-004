@@ -47,8 +47,15 @@ export function AddMemberDialog({ groupId }: AddMemberDialogProps) {
     setLoadingPupils(true)
     listPupilsWithGroupsAction()
       .then((data) => setPupils(data))
+      .catch(() => {
+        toast({
+          variant: "destructive",
+          title: "Failed to load pupils",
+          description: "Could not load the pupil list. Please try again.",
+        })
+      })
       .finally(() => setLoadingPupils(false))
-  }, [open])
+  }, [open, toast])
 
   const eligiblePupils = pupils
     .filter((p) => !p.isTeacher)
