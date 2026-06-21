@@ -46,7 +46,9 @@ export function SowLandingClient({ initialGroups, teachers, currentTeacherId, is
 
       {groups.length === 0 ? (
         <p className="text-sm text-[var(--color-text-secondary)]">
-          No classes found. Set up your timetable in the Weekly Planner first.
+          {selectedTeacherId === currentTeacherId
+            ? 'No classes found. Set up your timetable in the Weekly Planner first.'
+            : 'This teacher has no classes set up in the Weekly Planner yet.'}
         </p>
       ) : (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
