@@ -32,6 +32,14 @@ export function hasRole(profile: AuthenticatedProfile | null, role: string): boo
   return profile.roles.includes(role)
 }
 
+export async function requireTeacherOrAdminAccess(targetTeacherId: string): Promise<AuthenticatedProfile> {
+  const profile = await requireTeacherProfile()
+  if (targetTeacherId !== profile.userId && !hasRole(profile, 'admin')) {
+    throw new Error("Not authorized to edit this teacher's planner")
+  }
+  return profile
+}
+
 async function buildSigninRedirect(): Promise<string> {
   const headerList = await headers()
   const pathname = headerList.get("x-pathname")
