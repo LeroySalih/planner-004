@@ -1,4 +1,4 @@
-import { requireTeacherProfile } from '@/lib/auth'
+import { requireTeacherProfile, requireTeacherOrAdminAccess } from '@/lib/auth'
 import { query } from '@/lib/db'
 import {
   readHalfTermsAction,
@@ -34,17 +34,22 @@ async function fetchYearData(groupId: string, year: number): Promise<YearData> {
 
 export default async function SowDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ groupId: string }>
+  searchParams: Promise<{ teacherId?: string }>
 }) {
   const { groupId } = await params
-  await requireTeacherProfile()
+  const { teacherId } = await searchParams
+  const profile = await requireTeacherProfile()
+  const targetTeacherId = teacherId ?? profile.userId
+  await requireTeacherOrAdminAccess(targetTeacherId)
 
   const year = currentAcademicYear()
   const years = await fetchActiveAcademicYears()
 
   const [groupsResult, unitsResult, initialData] = await Promise.all([
-    readTeacherGroupsForSowAction(),
+    readTeacherGroupsForSowAction(targetTeacherId),
     readUnitsAction(),
     fetchYearData(groupId, year),
   ])
@@ -57,10 +62,10 @@ export default async function SowDetailPage({
 
   async function onYearChange(newYear: number): Promise<YearData> {
     'use server'
-    const profile = await requireTeacherProfile()
+    await requireTeacherOrAdminAccess(targetTeacherId)
     const { rows } = await query<{ count: string }>(
       `SELECT COUNT(*) as count FROM timetable_slot_groups WHERE teacher_id = $1 AND group_id = $2`,
-      [profile.userId, groupId],
+      [targetTeacherId, groupId],
     )
     if (Number(rows[0]?.count ?? 0) === 0) {
       throw new Error('Unauthorized: group does not belong to this teacher')
