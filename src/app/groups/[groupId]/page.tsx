@@ -11,11 +11,12 @@ import {
   resetPupilPasswordAction,
   updateGroupMemberRoleAction,
 } from "@/lib/server-updates"
-import { requireTeacherProfile } from "@/lib/auth"
+import { hasRole, requireTeacherProfile } from "@/lib/auth"
 
 import type { PupilActionState } from "./pupil-action-state"
 import { GroupPupilList, type PupilMember } from "./group-pupil-list"
 import { ImportPupilsDialog } from "./import-pupils-dialog"
+import { AddMemberDialog } from "./add-member-dialog"
 
 const roleLabelMap: Record<string, string> = {
   pupil: "Pupil",
@@ -27,6 +28,7 @@ export default async function GroupDetailPage({
   params: Promise<{ groupId: string }>
 }) {
   const teacherProfile = await requireTeacherProfile()
+  const isAdmin = hasRole(teacherProfile, "admin")
   const { groupId } = await params
   const result = await readGroupAction(groupId, { currentProfile: teacherProfile })
 
@@ -224,7 +226,10 @@ export default async function GroupDetailPage({
           <div className="flex flex-col gap-3">
             <div className="flex items-start justify-between">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">Group</p>
-              <ImportPupilsDialog targetGroupId={group.group_id} availableGroups={availableGroups} />
+              <div className="flex items-center gap-2">
+                {isAdmin ? <AddMemberDialog groupId={group.group_id} /> : null}
+                <ImportPupilsDialog targetGroupId={group.group_id} availableGroups={availableGroups} />
+              </div>
             </div>
             <div>
               <h1 className="text-3xl font-semibold text-white">{group.group_id}</h1>
