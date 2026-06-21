@@ -133,6 +133,7 @@ export async function readPlannerAssignmentsForWeekAction(
        JOIN lessons l ON l.lesson_id = pa.lesson_id
        JOIN timetable_slot_groups tsg
          ON tsg.teacher_id = $1 AND tsg.day = pa.day AND tsg.period = pa.period
+         AND tsg.group_id = pa.group_id
        WHERE pa.week_start_date = $2`,
       [targetTeacherId, weekStartDate],
     )
