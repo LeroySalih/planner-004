@@ -2,7 +2,7 @@
 
 import { z } from 'zod'
 import { query } from '@/lib/db'
-import { requireTeacherProfile } from '@/lib/auth'
+import { requireTeacherProfile, requireTeacherOrAdminAccess } from '@/lib/auth'
 import {
   PlannerAssignmentSchema,
   PlannerAssignmentWithUnitSchema,
@@ -48,6 +48,7 @@ export async function upsertPlannerAssignmentAction(
   weekStartDate: string,
   day: string,
   period: number,
+  targetTeacherId: string,
   extras?: {
     notes?: string
     issueFlag?: boolean
@@ -56,7 +57,7 @@ export async function upsertPlannerAssignmentAction(
   },
 ): Promise<z.infer<typeof AssignmentResult>> {
   try {
-    const profile = await requireTeacherProfile()
+    const profile = await requireTeacherOrAdminAccess(targetTeacherId)
     if (!weekStartDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
       return AssignmentResult.parse({ data: null, error: 'weekStartDate must be ISO YYYY-MM-DD' })
     }
@@ -99,9 +100,10 @@ export async function deletePlannerAssignmentAction(
   weekStartDate: string,
   day: string,
   period: number,
+  targetTeacherId: string,
 ): Promise<z.infer<typeof NullResult>> {
   try {
-    await requireTeacherProfile()
+    await requireTeacherOrAdminAccess(targetTeacherId)
     if (!weekStartDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
       return NullResult.parse({ data: null, error: 'weekStartDate must be ISO YYYY-MM-DD' })
     }
@@ -154,9 +156,10 @@ export async function readPlannerAssignmentsForWeekAction(
 export async function updatePlannerAssignmentExtrasAction(
   id: string,
   patch: Partial<Pick<PlannerAssignment, 'notes' | 'issue_flag' | 'issue_note' | 'feedback_visible'>>,
+  targetTeacherId: string,
 ): Promise<z.infer<typeof AssignmentResult>> {
   try {
-    await requireTeacherProfile()
+    await requireTeacherOrAdminAccess(targetTeacherId)
     if (Object.keys(patch).filter(k => patch[k as keyof typeof patch] !== undefined).length === 0) {
       return AssignmentResult.parse({ data: null, error: 'No fields to update' })
     }
