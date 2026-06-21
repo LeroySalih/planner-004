@@ -2,7 +2,7 @@
 
 import { z } from 'zod'
 import { query } from '@/lib/db'
-import { requireTeacherProfile, requireRole } from '@/lib/auth'
+import { requireTeacherProfile, requireRole, requireTeacherOrAdminAccess } from '@/lib/auth'
 import { HalfTermSchema, SowHalfTermUnitSchema, TeacherGroupSchema } from '@/types'
 
 // ── Return shapes ─────────────────────────────────────────────────────────────
@@ -176,16 +176,20 @@ const TeacherGroupsResult = z.object({
   error: z.string().nullable(),
 })
 
-export async function readTeacherGroupsForSowAction(): Promise<z.infer<typeof TeacherGroupsResult>> {
+export async function readTeacherGroupsForSowAction(
+  targetTeacherId?: string,
+): Promise<z.infer<typeof TeacherGroupsResult>> {
   try {
     const profile = await requireTeacherProfile()
+    const resolvedTargetTeacherId = targetTeacherId ?? profile.userId
+    await requireTeacherOrAdminAccess(resolvedTargetTeacherId)
     const { rows } = await query<{ group_id: string; subject: string }>(
       `SELECT DISTINCT g.group_id, g.subject
        FROM timetable_slot_groups tsg
        JOIN groups g ON g.group_id = tsg.group_id
        WHERE tsg.teacher_id = $1 AND g.active IS NOT FALSE
        ORDER BY g.subject`,
-      [profile.userId],
+      [resolvedTargetTeacherId],
     )
     return TeacherGroupsResult.parse({ data: rows, error: null })
   } catch (e) {
