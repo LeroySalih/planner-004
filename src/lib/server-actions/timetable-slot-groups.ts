@@ -2,7 +2,7 @@
 
 import { z } from 'zod'
 import { query } from '@/lib/db'
-import { requireTeacherProfile } from '@/lib/auth'
+import { requireTeacherProfile, requireTeacherOrAdminAccess } from '@/lib/auth'
 import { TimetableSlotGroupSchema, type TimetableSlotGroup } from '@/types'
 
 const SlotGroupsResult = z.object({
@@ -19,15 +19,18 @@ export async function upsertTimetableSlotGroupAction(
   day: string,
   period: number,
   groupId: string | null,
+  targetTeacherId?: string,
 ): Promise<z.infer<typeof NullResult>> {
   try {
     const profile = await requireTeacherProfile()
+    const resolvedTargetTeacherId = targetTeacherId ?? profile.userId
+    await requireTeacherOrAdminAccess(resolvedTargetTeacherId)
     await query(
       `INSERT INTO timetable_slot_groups (teacher_id, day, period, group_id)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT (teacher_id, day, period)
        DO UPDATE SET group_id = EXCLUDED.group_id`,
-      [profile.userId, day, period, groupId],
+      [resolvedTargetTeacherId, day, period, groupId],
     )
     return NullResult.parse({ data: null, error: null })
   } catch (error) {
