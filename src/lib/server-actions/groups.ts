@@ -18,6 +18,7 @@ import {
 import {
   type AuthenticatedProfile as BaseAuthenticatedProfile,
   getAuthenticatedProfile,
+  hasRole,
   hashPassword,
   requireAuthenticatedProfile,
   requireTeacherProfile,
@@ -43,6 +44,11 @@ const RemoveGroupMemberInputSchema = z.object({
 const RemoveGroupMemberReturnSchema = z.object({
   success: z.boolean(),
   error: z.string().nullable(),
+});
+
+const AddGroupMemberInputSchema = z.object({
+  groupId: z.string().min(1),
+  userId: z.string().min(1),
 });
 
 const UpdateGroupMemberRoleInputSchema = z.object({
@@ -633,6 +639,74 @@ export async function removeGroupMemberAction(
   revalidatePath("/groups");
 
   console.log("[v0] Server action completed for removing group member:", {
+    groupId,
+    userId,
+  });
+
+  return RemoveGroupMemberReturnSchema.parse({
+    success: true,
+    error: null,
+  });
+}
+
+export async function addGroupMemberAction(
+  input: { groupId: string; userId: string },
+  options?: { currentProfile?: AuthenticatedProfile | null },
+) {
+  const parsed = AddGroupMemberInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return RemoveGroupMemberReturnSchema.parse({
+      success: false,
+      error: "Invalid group member payload.",
+    });
+  }
+
+  const { groupId, userId } = parsed.data;
+
+  console.log("[v0] Server action started for adding group member:", {
+    groupId,
+    userId,
+  });
+
+  const profile = options?.currentProfile ??
+    (await requireAuthenticatedProfile());
+  if (!hasRole(profile, "admin")) {
+    return RemoveGroupMemberReturnSchema.parse({
+      success: false,
+      error: "You do not have permission to add pupils.",
+    });
+  }
+
+  const client = createPgClient();
+
+  try {
+    await client.connect();
+    await client.query(
+      "insert into group_membership (group_id, user_id) values ($1, $2) on conflict do nothing",
+      [groupId, userId],
+    );
+  } catch (error) {
+    console.error("[v0] Server action failed for adding group member:", {
+      groupId,
+      userId,
+      error,
+    });
+    return RemoveGroupMemberReturnSchema.parse({
+      success: false,
+      error: "Unable to add pupil to group.",
+    });
+  } finally {
+    try {
+      await client.end();
+    } catch {
+      // ignore close errors
+    }
+  }
+
+  revalidatePath(`/groups/${groupId}`);
+  revalidatePath("/groups");
+
+  console.log("[v0] Server action completed for adding group member:", {
     groupId,
     userId,
   });

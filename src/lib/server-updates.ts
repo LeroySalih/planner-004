@@ -1,4 +1,5 @@
 export {
+  addGroupMemberAction,
   createGroupAction,
   deleteGroupAction,
   type GroupActionResult,
