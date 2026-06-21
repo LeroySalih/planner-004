@@ -27,13 +27,14 @@ type TeacherPlannerClientProps = {
   groups: Group[]
   teachers: { userId: string; firstName: string | null; lastName: string | null }[]
   currentTeacherId: string
+  isAdmin: boolean
 }
 
 function cacheKey(teacherId: string, week: string) {
   return `${teacherId}::${week}`
 }
 
-export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId }: TeacherPlannerClientProps) {
+export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId, isAdmin }: TeacherPlannerClientProps) {
   const [weeklyStates, setWeeklyStates] = useState<WeeklyPlannerState>(new Map())
   const [currentWeek, setCurrentWeek] = useState<string>(getTodaySunday)
   const [weekNotes, setWeekNotesMap] = useState<Map<string, string>>(new Map())
@@ -42,7 +43,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
   const [selectedTeacherId, setSelectedTeacherId] = useState<string>(currentTeacherId)
   const [lessonScores, setLessonScores] = useState<Map<string, number | null>>(new Map())
 
-  const readOnly = selectedTeacherId !== currentTeacherId
+  const readOnly = selectedTeacherId !== currentTeacherId && !isAdmin
 
   const currentWeekRef = useRef(currentWeek)
   currentWeekRef.current = currentWeek
@@ -178,18 +179,19 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
 
   const handleLessonChange = useCallback(async (day: Day, period: number, newLessonId: string) => {
     const week = currentWeekRef.current
+    const teacherId = selectedTeacherIdRef.current
     const key = slotKey(day, period)
     const cell = plannerState.get(key) ?? emptyCellState()
     const existing = cell.lessons[0] ?? null
 
     if (existing) {
-      await deletePlannerAssignmentAction(cell.groupId!, existing.lessonId, week, day, period)
+      await deletePlannerAssignmentAction(cell.groupId!, existing.lessonId, week, day, period, teacherId)
       updateSlot(day, period, (s) => ({ ...s, lessons: [] }))
     }
 
     if (!newLessonId || !cell.groupId || cell.groupId === '__free__') return
 
-    const { data } = await upsertPlannerAssignmentAction(cell.groupId, newLessonId, week, day, period, {})
+    const { data } = await upsertPlannerAssignmentAction(cell.groupId, newLessonId, week, day, period, teacherId, {})
     if (data) {
       // Find unitId and lessonTitle from cache
       let unitId = ''
@@ -212,13 +214,14 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
 
   const handleAddLesson = useCallback(async (day: Day, period: number, newLessonId: string) => {
     const week = currentWeekRef.current
+    const teacherId = selectedTeacherIdRef.current
     const key = slotKey(day, period)
     const cell = plannerState.get(key) ?? emptyCellState()
 
     if (!newLessonId || !cell.groupId || cell.groupId === '__free__') return
     if (cell.lessons.some((l) => l.lessonId === newLessonId)) return
 
-    const { data } = await upsertPlannerAssignmentAction(cell.groupId, newLessonId, week, day, period, {})
+    const { data } = await upsertPlannerAssignmentAction(cell.groupId, newLessonId, week, day, period, teacherId, {})
     if (data) {
       let unitId = ''
       let lessonTitle = ''
@@ -240,10 +243,11 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
 
   const handleRemoveLesson = useCallback(async (day: Day, period: number, lessonId: string) => {
     const week = currentWeekRef.current
+    const teacherId = selectedTeacherIdRef.current
     const key = slotKey(day, period)
     const cell = plannerState.get(key) ?? emptyCellState()
     if (!cell.groupId) return
-    await deletePlannerAssignmentAction(cell.groupId, lessonId, week, day, period)
+    await deletePlannerAssignmentAction(cell.groupId, lessonId, week, day, period, teacherId)
     updateSlot(day, period, (s) => ({ ...s, lessons: s.lessons.filter((l) => l.lessonId !== lessonId) }))
   }, [updateSlot, plannerState])
 
@@ -262,7 +266,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
       ...s,
       lessons: s.lessons.map((l) => l.lessonId === lessonId ? { ...l, feedbackVisible: next } : l),
     }))
-    await updatePlannerAssignmentExtrasAction(lesson.assignmentId, { feedback_visible: next })
+    await updatePlannerAssignmentExtrasAction(lesson.assignmentId, { feedback_visible: next }, selectedTeacherIdRef.current)
   }, [updateSlot, plannerState])
 
   const handleIssueToggle = useCallback(async (day: Day, period: number) => {
@@ -290,18 +294,19 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
       ...s,
       lessons: s.lessons.map((l) => l.lessonId === lessonId ? { ...l, lessonNotes: notes } : l),
     }))
-    await updatePlannerAssignmentExtrasAction(lesson.assignmentId, { notes })
+    await updatePlannerAssignmentExtrasAction(lesson.assignmentId, { notes }, selectedTeacherIdRef.current)
   }, [updateSlot, plannerState])
 
   const handleGroupChange = useCallback(async (day: Day, period: number, groupId: string) => {
     const key = slotKey(day, period)
     const existing = plannerState.get(key)
     const resolvedGroupId = groupId || null
+    const teacherId = selectedTeacherIdRef.current
 
     if (existing?.groupId && existing.groupId !== groupId && groupId !== '__free__') {
       const week = currentWeekRef.current
       for (const lesson of existing.lessons) {
-        await deletePlannerAssignmentAction(existing.groupId, lesson.lessonId, week, day, period)
+        await deletePlannerAssignmentAction(existing.groupId, lesson.lessonId, week, day, period, teacherId)
       }
       updateSlot(day, period, (s) => ({ ...s, lessons: [] }))
     }
@@ -309,7 +314,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
     if (resolvedGroupId && resolvedGroupId !== '__free__' && existing?.lessons.length) {
       const week = currentWeekRef.current
       for (const lesson of existing.lessons) {
-        await upsertPlannerAssignmentAction(resolvedGroupId, lesson.lessonId, week, day, period, {
+        await upsertPlannerAssignmentAction(resolvedGroupId, lesson.lessonId, week, day, period, teacherId, {
           feedbackVisible: lesson.feedbackVisible,
           notes: lesson.lessonNotes,
         })
@@ -321,9 +326,9 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
       updateSlot(day, period, (s) => ({ ...s, lessons: [] }))
     }
 
-    const classDefaults = classDefaultsByTeacherRef.current.get(selectedTeacherIdRef.current)
+    const classDefaults = classDefaultsByTeacherRef.current.get(teacherId)
     classDefaults?.set(key, resolvedGroupId)
-    await upsertTimetableSlotGroupAction(day, period, resolvedGroupId)
+    await upsertTimetableSlotGroupAction(day, period, resolvedGroupId, teacherId)
   }, [updateSlot, plannerState])
 
   const handlePrevWeek = useCallback(() => {
