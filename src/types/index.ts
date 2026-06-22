@@ -562,6 +562,35 @@ export type ShortTextSubmissionBody = z.infer<
     typeof ShortTextSubmissionBodySchema
 >;
 
+export const UploadSpreadsheetActivityBodySchema = z
+    .object({
+        task: z.string().min(1),
+        markingGuidance: z.string().min(1),
+    })
+    .passthrough();
+
+export const UploadSpreadsheetSubmissionBodySchema = z
+    .object({
+        filePath: z.string().min(1),
+        fileName: z.string().min(1),
+        ai_model_score: z.number().min(0).max(1).nullable().optional(),
+        ai_model_feedback: z.string().nullable().optional(),
+        teacher_override_score: z.number().min(0).max(1).nullable().optional(),
+        is_correct: z.boolean().default(false),
+        teacher_feedback: z.string().nullable().optional(),
+        success_criteria_scores: z
+            .record(z.string(), z.number().min(0).max(1).nullable())
+            .default({}),
+    })
+    .passthrough();
+
+export type UploadSpreadsheetActivityBody = z.infer<
+    typeof UploadSpreadsheetActivityBodySchema
+>;
+export type UploadSpreadsheetSubmissionBody = z.infer<
+    typeof UploadSpreadsheetSubmissionBodySchema
+>;
+
 export const LongTextActivityBodySchema = z
     .object({
         question: z.string().min(1),
