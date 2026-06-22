@@ -17,6 +17,7 @@ import type { PupilActionState } from "./pupil-action-state"
 import { GroupPupilList, type PupilMember } from "./group-pupil-list"
 import { ImportPupilsDialog } from "./import-pupils-dialog"
 import { AddMemberDialog } from "./add-member-dialog"
+import { AddTeacherDialog } from "./add-teacher-dialog"
 
 const roleLabelMap: Record<string, string> = {
   pupil: "Pupil",
@@ -228,6 +229,7 @@ export default async function GroupDetailPage({
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">Group</p>
               <div className="flex items-center gap-2">
                 {isAdmin ? <AddMemberDialog groupId={group.group_id} /> : null}
+                {isAdmin ? <AddTeacherDialog groupId={group.group_id} /> : null}
                 <ImportPupilsDialog targetGroupId={group.group_id} availableGroups={availableGroups} />
               </div>
             </div>
