@@ -4142,13 +4142,12 @@ function LessonActivityEditorSheet({
                   disabled={isPending}
                 />
               </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Marking guidance is not shown to the pupil — it is sent to the AI to mark the uploaded spreadsheet.
+              </p>
               {uploadSpreadsheetValidationMessage ? (
-                <p className="mt-2 text-xs text-destructive">{uploadSpreadsheetValidationMessage}</p>
-              ) : (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Marking guidance is not shown to the pupil — it is sent to the AI to mark the uploaded spreadsheet.
-                </p>
-              )}
+                <p className="mt-1 text-xs text-destructive">{uploadSpreadsheetValidationMessage}</p>
+              ) : null}
             </div>
           ) : null}
 
