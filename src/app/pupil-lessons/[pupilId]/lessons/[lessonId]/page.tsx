@@ -34,6 +34,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { StartRevisionButton } from "@/components/revisions/start-revision-button"
 import { PupilUploadActivity } from "@/components/pupil/pupil-upload-activity"
+import { PupilUploadSpreadsheetActivity } from "@/components/pupil/pupil-upload-spreadsheet-activity"
 // ...
 
 
@@ -968,6 +969,18 @@ export default async function PupilLessonFriendlyPage({
                           feedbackAssignmentIds={assignmentIds}
                           feedbackLessonId={lesson.lesson_id}
                           feedbackInitiallyVisible={initialFeedbackVisible}
+                        />
+                      ) : activity.type === "upload-spreadsheet" ? (
+                        <PupilUploadSpreadsheetActivity
+                          lessonId={lesson.lesson_id}
+                          activity={activity}
+                          pupilId={pupilId}
+                          canUpload={isPupilViewer}
+                          feedbackAssignmentIds={assignmentIds}
+                          feedbackLessonId={lesson.lesson_id}
+                          feedbackInitiallyVisible={initialFeedbackVisible}
+                          scoreLabel={formatScoreLabel(rawScore)}
+                          feedbackText={feedbackText}
                         />
                       ) : activity.type === "short-text-question" ? (
                         <PupilShortTextActivity
