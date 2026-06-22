@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
-import { ShortTextSubmissionBodySchema } from "@/types";
+import {
+  ShortTextSubmissionBodySchema,
+  UploadSpreadsheetSubmissionBodySchema,
+} from "@/types";
 import {
   clampScore,
   fetchActivitySuccessCriteriaIds,
@@ -19,6 +22,11 @@ import { logQueueEvent, resolveQueueItem } from "@/lib/ai/marking-queue";
 export const dynamic = "force-dynamic";
 
 const SHORT_TEXT_ACTIVITY_TYPE = "short-text-question";
+const UPLOAD_SPREADSHEET_ACTIVITY_TYPE = "upload-spreadsheet";
+const AI_MARKABLE_ACTIVITY_TYPES = new Set([
+  SHORT_TEXT_ACTIVITY_TYPE,
+  UPLOAD_SPREADSHEET_ACTIVITY_TYPE,
+]);
 const SHORT_TEXT_CORRECTNESS_THRESHOLD = 0.8;
 
 const PupilAnswerSchema = z
@@ -205,7 +213,7 @@ export async function POST(request: Request) {
     });
   }
 
-  if ((activityRow.type ?? "").trim() !== SHORT_TEXT_ACTIVITY_TYPE) {
+  if (!AI_MARKABLE_ACTIVITY_TYPES.has((activityRow.type ?? "").trim())) {
     console.info("[ai-mark-webhook] Activity type not supported for AI mark", {
       activityId: parsed.data.activity_id,
       type: activityRow.type,
@@ -310,6 +318,7 @@ export async function POST(request: Request) {
           submission: existingSubmission,
           result,
           activityId: parsed.data.activity_id,
+          activityType: activityRow.type,
           successCriteriaIds,
           answerFallback: answersByPupil.get(resultPupilId) ?? null,
           pupilId: resultPupilId,
@@ -332,6 +341,17 @@ export async function POST(request: Request) {
           );
           summary.skipped += 1;
         }
+      } else if (activityRow.type === UPLOAD_SPREADSHEET_ACTIVITY_TYPE) {
+        console.warn(
+          "[ai-mark-webhook] Skipping auto-creation of upload-spreadsheet submission: no existing submission with filePath/fileName found.",
+          { activityId: parsed.data.activity_id, pupilId: resultPupilId },
+        );
+        await logQueueEvent(
+          "warn",
+          `Skipped creating upload-spreadsheet submission for pupil ${resultPupilId}: no existing submission (filePath/fileName required, cannot be fabricated)`,
+          { activityId: parsed.data.activity_id, pupilId: resultPupilId },
+        );
+        summary.skipped += 1;
       } else {
         const created = await createAiMarkedSubmission({
           activityId: parsed.data.activity_id,
@@ -442,6 +462,7 @@ async function applyAiMarkToSubmission({
   submission,
   result,
   activityId,
+  activityType,
   successCriteriaIds,
   answerFallback,
   pupilId,
@@ -454,15 +475,30 @@ async function applyAiMarkToSubmission({
   };
   result: ResultEntry;
   activityId: string;
+  activityType: string | null;
   successCriteriaIds: string[];
   answerFallback: string | null;
   pupilId: string;
 }): Promise<
   { updated: boolean; payload: AssignmentResultsRealtimePayload | null }
 > {
-  const parsedBody = ShortTextSubmissionBodySchema.safeParse(
+  const isUploadSpreadsheet = activityType === UPLOAD_SPREADSHEET_ACTIVITY_TYPE;
+  const submissionSchema = isUploadSpreadsheet
+    ? UploadSpreadsheetSubmissionBodySchema
+    : ShortTextSubmissionBodySchema;
+
+  const parsedBody = submissionSchema.safeParse(
     submission.body ?? {},
   );
+  if (!parsedBody.success && isUploadSpreadsheet) {
+    // upload-spreadsheet requires filePath/fileName, which cannot be
+    // fabricated here — an existing submission missing them indicates
+    // corrupted data, so surface a clear error instead of writing a body
+    // with empty file fields.
+    throw new Error(
+      `Existing upload-spreadsheet submission ${submission.submission_id} has an invalid body (missing filePath/fileName).`,
+    );
+  }
   const baseBody = parsedBody.success
     ? parsedBody.data
     : ShortTextSubmissionBodySchema.parse({});
@@ -484,9 +520,11 @@ async function applyAiMarkToSubmission({
   const incomingAiFeedback = (result.feedback?.trim() ?? "") || null;
   const nextAiFeedback = incomingAiFeedback ?? existingAiFeedback ?? null;
 
-  const nextBody = ShortTextSubmissionBodySchema.parse({
+  const nextBody = submissionSchema.parse({
     ...baseBody,
-    answer: baseBody.answer ?? answerFallback ?? "",
+    ...(isUploadSpreadsheet
+      ? {}
+      : { answer: (baseBody as { answer?: string }).answer ?? answerFallback ?? "" }),
     ai_model_score: aiScore,
     is_correct: computeIsCorrect(effectiveScore ?? null),
     teacher_feedback: teacherFeedback,
