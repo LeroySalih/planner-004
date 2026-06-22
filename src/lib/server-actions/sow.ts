@@ -85,87 +85,26 @@ export async function readSowHalfTermUnitsAction(
   try {
     await requireTeacherProfile()
     const { rows } = await query<Record<string, unknown>>(
-      `SELECT shu.group_id, shu.half_term_id, shu.unit_id, u.title AS unit_name, shu.position
-       FROM sow_half_term_units shu
-       JOIN half_terms ht ON ht.id = shu.half_term_id
-       LEFT JOIN units u ON u.unit_id = shu.unit_id
-       WHERE shu.group_id = $1 AND ht.year = $2
-       ORDER BY ht.name, shu.position`,
+      `SELECT g.half_term_id, g.unit_id, u.title AS unit_name,
+              (ROW_NUMBER() OVER (PARTITION BY g.half_term_id ORDER BY g.first_week) - 1) AS position
+       FROM (
+         SELECT ht.id AS half_term_id, l.unit_id, MIN(pa.week_start_date) AS first_week
+         FROM planner_assignments pa
+         JOIN lessons l ON l.lesson_id = pa.lesson_id
+         JOIN half_terms ht ON ht.year = $2 AND pa.week_start_date BETWEEN ht.start_date AND ht.end_date
+         WHERE pa.group_id = $1
+         GROUP BY ht.id, l.unit_id
+       ) g
+       LEFT JOIN units u ON u.unit_id = g.unit_id
+       ORDER BY g.half_term_id, position`,
       [groupId, year],
     )
-    const data = rows.map((r) => SowHalfTermUnitSchema.parse(r))
+    const data = rows.map((r) =>
+      SowHalfTermUnitSchema.parse({ ...r, group_id: groupId, position: Number(r.position) }),
+    )
     return SowHalfTermUnitsResult.parse({ data, error: null })
   } catch (e) {
     return SowHalfTermUnitsResult.parse({ data: null, error: String(e) })
-  }
-}
-
-export async function addSowHalfTermUnitAction(
-  groupId: string,
-  halfTermId: string,
-  unitId: string,
-): Promise<z.infer<typeof NullResult>> {
-  try {
-    await requireTeacherProfile()
-    const { rows: existing } = await query<{ position: number }>(
-      `SELECT COALESCE(MAX(position), -1) + 1 AS position
-       FROM sow_half_term_units
-       WHERE group_id = $1 AND half_term_id = $2`,
-      [groupId, halfTermId],
-    )
-    const position = existing[0]?.position ?? 0
-    await query(
-      `INSERT INTO sow_half_term_units (group_id, half_term_id, unit_id, position)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT DO NOTHING`,
-      [groupId, halfTermId, unitId, position],
-    )
-    return NullResult.parse({ data: null, error: null })
-  } catch (e) {
-    return NullResult.parse({ data: null, error: String(e) })
-  }
-}
-
-export async function removeSowHalfTermUnitAction(
-  groupId: string,
-  halfTermId: string,
-  unitId: string,
-): Promise<z.infer<typeof NullResult>> {
-  try {
-    await requireTeacherProfile()
-    await query(
-      `DELETE FROM sow_half_term_units
-       WHERE group_id = $1 AND half_term_id = $2 AND unit_id = $3`,
-      [groupId, halfTermId, unitId],
-    )
-    return NullResult.parse({ data: null, error: null })
-  } catch (e) {
-    return NullResult.parse({ data: null, error: String(e) })
-  }
-}
-
-export async function assignHalfTermUnitsToGroupsAction(
-  sourceGroupId: string,
-  targetGroupIds: string[],
-  year: number,
-): Promise<z.infer<typeof NullResult>> {
-  try {
-    await requireTeacherProfile()
-    if (targetGroupIds.length === 0) return NullResult.parse({ data: null, error: null })
-    for (const targetGroupId of targetGroupIds) {
-      await query(
-        `INSERT INTO sow_half_term_units (group_id, half_term_id, unit_id, position)
-         SELECT $2, shu.half_term_id, shu.unit_id, shu.position
-         FROM sow_half_term_units shu
-         JOIN half_terms ht ON ht.id = shu.half_term_id
-         WHERE shu.group_id = $1 AND ht.year = $3
-         ON CONFLICT DO NOTHING`,
-        [sourceGroupId, targetGroupId, year],
-      )
-    }
-    return NullResult.parse({ data: null, error: null })
-  } catch (e) {
-    return NullResult.parse({ data: null, error: String(e) })
   }
 }
 
