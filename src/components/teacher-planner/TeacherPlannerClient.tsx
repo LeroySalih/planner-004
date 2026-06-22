@@ -28,19 +28,21 @@ type TeacherPlannerClientProps = {
   teachers: { userId: string; firstName: string | null; lastName: string | null }[]
   currentTeacherId: string
   isAdmin: boolean
+  initialWeek?: string
+  initialSelectedTeacherId?: string
 }
 
 function cacheKey(teacherId: string, week: string) {
   return `${teacherId}::${week}`
 }
 
-export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId, isAdmin }: TeacherPlannerClientProps) {
+export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId, isAdmin, initialWeek, initialSelectedTeacherId }: TeacherPlannerClientProps) {
   const [weeklyStates, setWeeklyStates] = useState<WeeklyPlannerState>(new Map())
-  const [currentWeek, setCurrentWeek] = useState<string>(getTodaySunday)
+  const [currentWeek, setCurrentWeek] = useState<string>(initialWeek ?? getTodaySunday)
   const [weekNotes, setWeekNotesMap] = useState<Map<string, string>>(new Map())
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
   const [lessonCache, setLessonCache] = useState<Map<string, LessonWithObjectives[]>>(new Map())
-  const [selectedTeacherId, setSelectedTeacherId] = useState<string>(currentTeacherId)
+  const [selectedTeacherId, setSelectedTeacherId] = useState<string>(initialSelectedTeacherId ?? currentTeacherId)
   const [lessonScores, setLessonScores] = useState<Map<string, number | null>>(new Map())
 
   const readOnly = selectedTeacherId !== currentTeacherId && !isAdmin

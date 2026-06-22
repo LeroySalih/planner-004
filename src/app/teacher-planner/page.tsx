@@ -2,9 +2,14 @@ import { readGroupsAction, readUnitsAction, readTeachersAction } from '@/lib/ser
 import { requireTeacherProfile, hasRole } from '@/lib/auth'
 import { TeacherPlannerClient } from '@/components/teacher-planner/TeacherPlannerClient'
 
-export default async function TeacherPlannerPage() {
+export default async function TeacherPlannerPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ week?: string; teacherId?: string }>
+}) {
   const profile = await requireTeacherProfile()
   const isAdmin = hasRole(profile, 'admin')
+  const { week, teacherId } = await searchParams
 
   const [groupsResult, unitsResult, teachersResult] = await Promise.all([
     readGroupsAction(),
@@ -30,6 +35,8 @@ export default async function TeacherPlannerPage() {
         teachers={teachersResult.data ?? []}
         currentTeacherId={profile.userId}
         isAdmin={isAdmin}
+        initialWeek={week}
+        initialSelectedTeacherId={teacherId}
       />
     </main>
   )
