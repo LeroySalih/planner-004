@@ -22,11 +22,6 @@ const SowHalfTermUnitsResult = z.object({
   error: z.string().nullable(),
 })
 
-const NullResult = z.object({
-  data: z.null(),
-  error: z.string().nullable(),
-})
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function toIsoDate(v: unknown): string {
@@ -86,7 +81,7 @@ export async function readSowHalfTermUnitsAction(
     await requireTeacherProfile()
     const { rows } = await query<Record<string, unknown>>(
       `SELECT g.half_term_id, g.unit_id, u.title AS unit_name,
-              (ROW_NUMBER() OVER (PARTITION BY g.half_term_id ORDER BY g.first_week) - 1) AS position
+              (ROW_NUMBER() OVER (PARTITION BY g.half_term_id ORDER BY g.first_week, g.unit_id) - 1) AS position
        FROM (
          SELECT ht.id AS half_term_id, l.unit_id, MIN(pa.week_start_date) AS first_week
          FROM planner_assignments pa
