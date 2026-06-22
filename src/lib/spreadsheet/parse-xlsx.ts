@@ -18,11 +18,11 @@ function toScalar(value: unknown): string | number | boolean | null {
   }
   if (value instanceof Date) return value.toISOString();
   // Error-valued cells (e.g. #DIV/0!) come back as { error: string }; return the error text itself.
-  if (typeof value === "object" && "error" in (value as Record<string, unknown>)) {
+  if (typeof value === "object" && "error" in (value as unknown as Record<string, unknown>)) {
     return String((value as { error: unknown }).error);
   }
   // Rich text / hyperlink objects: fall back to their text representation.
-  if (typeof value === "object" && "text" in (value as Record<string, unknown>)) {
+  if (typeof value === "object" && "text" in (value as unknown as Record<string, unknown>)) {
     return String((value as { text: unknown }).text);
   }
   return String(value);
@@ -30,7 +30,7 @@ function toScalar(value: unknown): string | number | boolean | null {
 
 export async function parseSpreadsheet(buffer: Buffer): Promise<ParsedSheet[]> {
   const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer);
+  await workbook.xlsx.load(buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]);
 
   const sheets: ParsedSheet[] = [];
 
@@ -48,7 +48,7 @@ export async function parseSpreadsheet(buffer: Buffer): Promise<ParsedSheet[]> {
         if (
           raw !== null &&
           typeof raw === "object" &&
-          "formula" in (raw as Record<string, unknown>)
+          "formula" in (raw as unknown as Record<string, unknown>)
         ) {
           const formulaValue = raw as { formula: string; result?: unknown };
           cells.push({
