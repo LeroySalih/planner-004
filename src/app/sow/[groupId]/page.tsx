@@ -81,6 +81,7 @@ export default async function SowDetailPage({
         initialYear={year}
         initialData={initialData}
         units={units}
+        teacherId={targetTeacherId}
         onYearChange={onYearChange}
       />
     </main>

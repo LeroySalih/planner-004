@@ -9,6 +9,7 @@ type Props = {
   halfTerms: HalfTerm[]
   lessons: SowWeekLesson[]
   units: Unit[]
+  teacherId: string
 }
 
 function toLocalDate(isoDate: string): Date {
@@ -32,7 +33,7 @@ function formatWeekLabel(weekStart: Date, weekNum: number): string {
   return `Week ${weekNum} · ${fmt(weekStart)} – ${fmt(end)}`
 }
 
-export function SowWeekList({ groupId, halfTerms, lessons, units }: Props) {
+export function SowWeekList({ groupId, halfTerms, lessons, units, teacherId }: Props) {
   if (halfTerms.length === 0) {
     return (
       <p className="text-sm text-[var(--color-text-secondary)] mt-4">
@@ -97,6 +98,8 @@ export function SowWeekList({ groupId, halfTerms, lessons, units }: Props) {
                 key={iso}
                 groupId={groupId}
                 weekLabel={formatWeekLabel(weekStart, weekNum)}
+                weekStartIso={iso}
+                teacherId={teacherId}
                 halfTermBadge={htName ?? ''}
                 isHoliday={!htName}
                 lessons={weekLessons}

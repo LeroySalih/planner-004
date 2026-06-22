@@ -19,6 +19,7 @@ type Props = {
   initialYear: number
   initialData: YearData
   units: Unit[]
+  teacherId: string
   onYearChange: (year: number) => Promise<YearData>
 }
 
@@ -29,6 +30,7 @@ export function SowClient({
   initialYear,
   initialData,
   units,
+  teacherId,
   onYearChange,
 }: Props) {
   const [year, setYear] = useState(initialYear)
@@ -74,6 +76,7 @@ export function SowClient({
         halfTerms={currentData.halfTerms}
         lessons={currentData.lessons}
         units={units}
+        teacherId={teacherId}
       />
     </>
   )

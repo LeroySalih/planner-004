@@ -5,6 +5,8 @@ import type { SowWeekLesson } from '@/lib/server-updates'
 type Props = {
   groupId: string
   weekLabel: string
+  weekStartIso: string
+  teacherId: string
   halfTermBadge: string
   isHoliday: boolean
   lessons: SowWeekLesson[]
@@ -20,18 +22,27 @@ const BADGE_COLOURS: Record<string, string> = {
   H6: 'bg-pink-100 text-pink-700',
 }
 
-export function SowWeekRow({ groupId, weekLabel, halfTermBadge, isHoliday, lessons, unitMap }: Props) {
+export function SowWeekRow({ groupId, weekLabel, weekStartIso, teacherId, halfTermBadge, isHoliday, lessons, unitMap }: Props) {
   const badge = halfTermBadge ? (
     <span className={`inline-block rounded text-center text-xs font-semibold px-1.5 py-0.5 ${BADGE_COLOURS[halfTermBadge] ?? ''}`}>
       {halfTermBadge}
     </span>
   ) : null
 
+  const weekLink = (
+    <Link
+      href={`/teacher-planner?week=${weekStartIso}&teacherId=${encodeURIComponent(teacherId)}`}
+      className="hover:underline"
+    >
+      {weekLabel}
+    </Link>
+  )
+
   if (isHoliday) {
     return (
       <tr className="opacity-40">
         <td className="px-3 py-1.5 text-xs text-[var(--color-text-tertiary)] whitespace-nowrap" colSpan={5}>
-          {weekLabel} · Holiday
+          {weekLink} · Holiday
         </td>
       </tr>
     )
@@ -41,7 +52,7 @@ export function SowWeekRow({ groupId, weekLabel, halfTermBadge, isHoliday, lesso
     return (
       <tr className="border-t border-[var(--color-border)]">
         <td className="px-3 py-2 text-xs text-[var(--color-text-secondary)] whitespace-nowrap align-top">
-          <div className="flex items-center gap-1.5">{badge}<span>{weekLabel}</span></div>
+          <div className="flex items-center gap-1.5">{badge}{weekLink}</div>
         </td>
         <td className="px-3 py-2" colSpan={4} />
       </tr>
@@ -57,7 +68,7 @@ export function SowWeekRow({ groupId, weekLabel, halfTermBadge, isHoliday, lesso
               className="px-3 py-2 text-xs text-[var(--color-text-secondary)] whitespace-nowrap align-top"
               rowSpan={lessons.length}
             >
-              <div className="flex items-center gap-1.5">{badge}<span>{weekLabel}</span></div>
+              <div className="flex items-center gap-1.5">{badge}{weekLink}</div>
             </td>
           ) : null}
           <td className="px-3 py-2 text-sm align-top">
