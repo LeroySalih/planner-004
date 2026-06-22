@@ -4,6 +4,7 @@ import type {
   LessonActivity,
   LongTextActivityBody,
   ShortTextActivityBody,
+  UploadSpreadsheetActivityBody,
   UploadUrlActivityBody,
 } from "@/types";
 import { marked } from "marked";
@@ -400,6 +401,24 @@ export function getLongTextBody(activity: LessonActivity): LongTextBody {
     ...(record as Record<string, unknown>),
     question,
   } as LongTextBody;
+}
+
+export function getUploadSpreadsheetBody(activity: LessonActivity): UploadSpreadsheetActivityBody {
+  if (!activity.body_data || typeof activity.body_data !== "object") {
+    return { task: "", markingGuidance: "" };
+  }
+
+  const record = activity.body_data as Record<string, unknown>;
+  const task = typeof record.task === "string" ? record.task : "";
+  const markingGuidance = typeof record.markingGuidance === "string"
+    ? record.markingGuidance
+    : "";
+
+  return {
+    ...(record as Record<string, unknown>),
+    task,
+    markingGuidance,
+  } as UploadSpreadsheetActivityBody;
 }
 
 export function getUploadUrlBody(activity: LessonActivity): UploadUrlBody {
