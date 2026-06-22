@@ -6,7 +6,12 @@ import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { Download, GripVertical, Loader2, Pencil, Play, Plus, Trash2 } from "lucide-react"
 
-import type { FeedbackActivityBody, FeedbackActivityGroupSettings, LessonActivity } from "@/types"
+import type {
+  FeedbackActivityBody,
+  FeedbackActivityGroupSettings,
+  LessonActivity,
+  UploadSpreadsheetActivityBody,
+} from "@/types"
 import {
   createLessonActivityAction,
   deleteActivityFileAction,
@@ -86,6 +91,7 @@ const ACTIVITY_TYPES = [
   { value: "file-download", label: "File download" },
   { value: "upload-file", label: "Upload file" },
   { value: "upload-url", label: "Upload URL" },
+  { value: "upload-spreadsheet", label: "Upload spreadsheet" },
   { value: "display-image", label: "Display image" },
   { value: "display-flashcards", label: "Flashcards" },
   { value: "display-section", label: "Display Section" },
@@ -1833,6 +1839,9 @@ function LessonActivityEditorSheet({
   const [groupItemsBody, setGroupItemsBody] = useState<GroupItemsBody>(() => createDefaultGroupItemsBody())
   const [feedbackBody, setFeedbackBody] = useState<FeedbackActivityBody>(() => createDefaultFeedbackBody())
   const [shortTextBody, setShortTextBody] = useState<ShortTextBody>(() => createDefaultShortTextBody())
+  const [uploadSpreadsheetBody, setUploadSpreadsheetBody] = useState<UploadSpreadsheetActivityBody>(() =>
+    createDefaultUploadSpreadsheetBody(),
+  )
   const [selectedSuccessCriteriaIds, setSelectedSuccessCriteriaIds] = useState<string[]>([])
   const [shareMyWorkName, setShareMyWorkName] = useState("")
   const [reviewShareActivityId, setReviewShareActivityId] = useState("")
@@ -1843,6 +1852,15 @@ function LessonActivityEditorSheet({
   const shortTextValidationMessage = useMemo(
     () => validateShortTextBody(normalizedShortTextBody),
     [normalizedShortTextBody],
+  )
+
+  const normalizedUploadSpreadsheetBody = useMemo(
+    () => normalizeUploadSpreadsheetBody(uploadSpreadsheetBody),
+    [uploadSpreadsheetBody],
+  )
+  const uploadSpreadsheetValidationMessage = useMemo(
+    () => validateUploadSpreadsheetBody(normalizedUploadSpreadsheetBody),
+    [normalizedUploadSpreadsheetBody],
   )
 
   useEffect(() => {
@@ -2117,6 +2135,18 @@ function LessonActivityEditorSheet({
 
   const handleShortTextCommit = useCallback(() => {
     setShortTextBody((current) => normalizeShortTextBody(current))
+  }, [])
+
+  const handleUploadSpreadsheetTaskChange = useCallback((value: string) => {
+    setUploadSpreadsheetBody((current) => ({ ...current, task: value }))
+  }, [])
+
+  const handleUploadSpreadsheetMarkingGuidanceChange = useCallback((value: string) => {
+    setUploadSpreadsheetBody((current) => ({ ...current, markingGuidance: value }))
+  }, [])
+
+  const handleUploadSpreadsheetCommit = useCallback(() => {
+    setUploadSpreadsheetBody((current) => normalizeUploadSpreadsheetBody(current))
   }, [])
 
   const handleSuccessCriteriaToggle = useCallback(
@@ -2619,6 +2649,7 @@ function LessonActivityEditorSheet({
       setMatcherBody(createDefaultMatcherBody())
       setGroupItemsBody(createDefaultGroupItemsBody())
       setShortTextBody(createDefaultShortTextBody())
+      setUploadSpreadsheetBody(createDefaultUploadSpreadsheetBody())
       setFeedbackBody(createDefaultFeedbackBody())
       setSelectedSuccessCriteriaIds([])
       setDisplayType("")
@@ -2679,6 +2710,11 @@ function LessonActivityEditorSheet({
       } else {
         setShortTextBody(createDefaultShortTextBody())
       }
+      if (ensuredType === "upload-spreadsheet") {
+        setUploadSpreadsheetBody(normalizeUploadSpreadsheetBody(getUploadSpreadsheetBody(activity)))
+      } else {
+        setUploadSpreadsheetBody(createDefaultUploadSpreadsheetBody())
+      }
       if (ensuredType === "feedback") {
         setFeedbackBody(
           syncFeedbackBodyWithGroups(
@@ -2737,6 +2773,7 @@ function LessonActivityEditorSheet({
       setMatcherBody(createDefaultMatcherBody())
       setGroupItemsBody(createDefaultGroupItemsBody())
       setShortTextBody(createDefaultShortTextBody())
+      setUploadSpreadsheetBody(createDefaultUploadSpreadsheetBody())
       setFeedbackBody(createDefaultFeedbackBody())
       setSelectedSuccessCriteriaIds([])
     }
@@ -2814,6 +2851,14 @@ function LessonActivityEditorSheet({
         setVideoUrl("")
         setRawBody("")
         setShortTextBody(createDefaultShortTextBody())
+        return
+      }
+
+      if (type === "upload-spreadsheet") {
+        setText("")
+        setVideoUrl("")
+        setRawBody("")
+        setUploadSpreadsheetBody(createDefaultUploadSpreadsheetBody())
         return
       }
 
@@ -2999,6 +3044,15 @@ function LessonActivityEditorSheet({
         setShortTextBody(normalizeShortTextBody(getShortTextBody(activity)))
       } else {
         setShortTextBody(createDefaultShortTextBody())
+      }
+      return
+    }
+
+    if (type === "upload-spreadsheet") {
+      if (activity) {
+        setUploadSpreadsheetBody(normalizeUploadSpreadsheetBody(getUploadSpreadsheetBody(activity)))
+      } else {
+        setUploadSpreadsheetBody(createDefaultUploadSpreadsheetBody())
       }
       return
     }
@@ -3414,6 +3468,12 @@ function LessonActivityEditorSheet({
         return
       }
       bodyData = normalizedShortTextBody
+    } else if (type === "upload-spreadsheet") {
+      if (uploadSpreadsheetValidationMessage) {
+        toast.error(uploadSpreadsheetValidationMessage)
+        return
+      }
+      bodyData = normalizedUploadSpreadsheetBody
     } else if (type === "feedback") {
       bodyData = syncFeedbackBodyWithGroups(normalizeFeedbackBody(feedbackBody), assignedGroups)
     } else if (type === "share-my-work") {
@@ -3499,7 +3559,8 @@ function LessonActivityEditorSheet({
     (type === "multiple-choice-question" && mcqValidationMessage !== null) ||
     (type === "matcher" && matcherValidationMessage !== null) ||
     (type === "group-items" && groupItemsValidationMessage !== null) ||
-    (type === "short-text-question" && shortTextValidationMessage !== null)
+    (type === "short-text-question" && shortTextValidationMessage !== null) ||
+    (type === "upload-spreadsheet" && uploadSpreadsheetValidationMessage !== null)
 
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>
@@ -4053,6 +4114,44 @@ function LessonActivityEditorSheet({
             </div>
           ) : null}
 
+          {type === "upload-spreadsheet" ? (
+            <div className="rounded-md border border-border bg-muted/20 p-4">
+              <div className="space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground" htmlFor="upload-spreadsheet-task">
+                  Task
+                </Label>
+                <RichTextEditor
+                  id="upload-spreadsheet-task"
+                  value={uploadSpreadsheetBody.task}
+                  onChange={handleUploadSpreadsheetTaskChange}
+                  onBlur={handleUploadSpreadsheetCommit}
+                  placeholder="Describe the spreadsheet task for pupils"
+                  disabled={isPending}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground" htmlFor="upload-spreadsheet-marking-guidance">
+                  Marking guidance (required)
+                </Label>
+                <RichTextEditor
+                  id="upload-spreadsheet-marking-guidance"
+                  value={uploadSpreadsheetBody.markingGuidance}
+                  onChange={handleUploadSpreadsheetMarkingGuidanceChange}
+                  onBlur={handleUploadSpreadsheetCommit}
+                  placeholder="Describe how the AI should mark this submission"
+                  disabled={isPending}
+                />
+              </div>
+              {uploadSpreadsheetValidationMessage ? (
+                <p className="mt-2 text-xs text-destructive">{uploadSpreadsheetValidationMessage}</p>
+              ) : (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Marking guidance is not shown to the pupil — it is sent to the AI to mark the uploaded spreadsheet.
+                </p>
+              )}
+            </div>
+          ) : null}
+
           {type === "feedback" ? (
             <div className="space-y-3 rounded-md border border-border bg-muted/20 p-4">
               <div className="space-y-2">
@@ -4389,6 +4488,7 @@ function LessonActivityEditorSheet({
           type !== "display-image" &&
           type !== "multiple-choice-question" &&
           type !== "short-text-question" &&
+          type !== "upload-spreadsheet" &&
           type !== "feedback" &&
           type !== "sketch-render" ? (
             <div className="space-y-2">
@@ -4481,6 +4581,63 @@ function validateShortTextBody(body: ShortTextBody): string | null {
     typeof body.modelAnswer === "string" ? body.modelAnswer.trim() : ""
   if (!modelAnswer) {
     return "Model answer is required."
+  }
+
+  return null
+}
+
+function createDefaultUploadSpreadsheetBody(): UploadSpreadsheetActivityBody {
+  return {
+    task: "",
+    markingGuidance: "",
+  }
+}
+
+function getUploadSpreadsheetBody(activity: LessonActivity): UploadSpreadsheetActivityBody {
+  if (!activity.body_data || typeof activity.body_data !== "object") {
+    return createDefaultUploadSpreadsheetBody()
+  }
+
+  const record = activity.body_data as Record<string, unknown>
+  const task = typeof record.task === "string" ? record.task : ""
+  const markingGuidance =
+    typeof record.markingGuidance === "string" ? record.markingGuidance : ""
+
+  return {
+    ...(record as Record<string, unknown>),
+    task,
+    markingGuidance,
+  } as UploadSpreadsheetActivityBody
+}
+
+function normalizeUploadSpreadsheetBody(
+  body: UploadSpreadsheetActivityBody | null | undefined,
+): UploadSpreadsheetActivityBody {
+  if (!body || typeof body !== "object") {
+    return createDefaultUploadSpreadsheetBody()
+  }
+
+  const task = typeof body.task === "string" ? body.task.trim() : ""
+  const markingGuidance =
+    typeof body.markingGuidance === "string" ? body.markingGuidance.trim() : ""
+
+  return {
+    ...(body as Record<string, unknown>),
+    task,
+    markingGuidance,
+  } as UploadSpreadsheetActivityBody
+}
+
+function validateUploadSpreadsheetBody(body: UploadSpreadsheetActivityBody): string | null {
+  const task = typeof body.task === "string" ? body.task.trim() : ""
+  if (!task) {
+    return "Add the task text before saving."
+  }
+
+  const markingGuidance =
+    typeof body.markingGuidance === "string" ? body.markingGuidance.trim() : ""
+  if (!markingGuidance) {
+    return "Marking guidance is required."
   }
 
   return null
