@@ -426,6 +426,17 @@ export default async function PupilLessonFriendlyPage({
 
   const submissionMap = new Map(uploadActivityData.map((item) => [item.activityId, item.submissions]))
 
+  const uploadSpreadsheetActivities = activities.filter((activity) => activity.type === "upload-spreadsheet")
+  const uploadSpreadsheetFileNameEntries = await Promise.all(
+    uploadSpreadsheetActivities.map(async (activity) => {
+      const result = await getLatestSubmissionForActivityAction(activity.activity_id, pupilId)
+      const body = (result.data?.body ?? null) as { fileName?: string } | null
+      const fileName = typeof body?.fileName === "string" && body.fileName.trim().length > 0 ? body.fileName : null
+      return [activity.activity_id, fileName] as const
+    }),
+  )
+  const uploadSpreadsheetFileNameMap = new Map(uploadSpreadsheetFileNameEntries)
+
   // Load share-my-work submissions (own files for each activity)
   type ShareMyWorkData = { submissionId: string | null; files: Array<{ fileId: string; fileName: string; mimeType: string; order: number }> }
   const shareMyWorkActivities = activities.filter((activity) => activity.type === "share-my-work")
@@ -976,6 +987,7 @@ export default async function PupilLessonFriendlyPage({
                           activity={activity}
                           pupilId={pupilId}
                           canUpload={isPupilViewer}
+                          initialFileName={uploadSpreadsheetFileNameMap.get(activity.activity_id) ?? null}
                           feedbackAssignmentIds={assignmentIds}
                           feedbackLessonId={lesson.lesson_id}
                           feedbackInitiallyVisible={initialFeedbackVisible}

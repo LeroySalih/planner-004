@@ -17,6 +17,7 @@ interface PupilUploadSpreadsheetActivityProps {
   activity: LessonActivity
   pupilId: string
   canUpload: boolean
+  initialFileName?: string | null
   feedbackAssignmentIds?: string[]
   feedbackLessonId?: string
   feedbackInitiallyVisible?: boolean
@@ -29,6 +30,7 @@ export function PupilUploadSpreadsheetActivity({
   activity,
   pupilId,
   canUpload,
+  initialFileName = null,
   feedbackAssignmentIds = [],
   feedbackLessonId,
   feedbackInitiallyVisible = false,
@@ -36,7 +38,7 @@ export function PupilUploadSpreadsheetActivity({
   feedbackText,
 }: PupilUploadSpreadsheetActivityProps) {
   const [isPending, startTransition] = useTransition()
-  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null)
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(initialFileName)
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null)
   const [isDragActive, setIsDragActive] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
