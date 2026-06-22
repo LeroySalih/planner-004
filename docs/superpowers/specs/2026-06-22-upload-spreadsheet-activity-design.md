@@ -75,7 +75,11 @@ New `pupil-upload-spreadsheet-activity.tsx`, modeled on
 
 On a successful upload (initial or replacement) and submission, the server:
 
-1. Parses the `.xlsx` with `exceljs` into structured row/cell data.
+1. Parses the `.xlsx` with `exceljs` (already a project dependency) into
+   structured row/cell data, capturing both each cell's value and, where
+   present, its formula (`cell.formula`) and cached formula result
+   (`cell.result`) — `exceljs` does not recalculate formulas, so the result
+   reflects whatever Excel last computed and saved.
 2. Enqueues a row into `ai_marking_queue`, tagged with
    `activity_type: 'upload-spreadsheet'` so the queue processor can
    distinguish payload construction from `short-text-question`.
@@ -89,7 +93,10 @@ picks this up and calls `invokeAiMarking()`
   task: string,
   marking_guidance: string,
   spreadsheet_base64: string,                       // raw .xlsx, base64
-  spreadsheet_data: { sheetName: string, rows: any[][] }[],
+  spreadsheet_data: {
+    sheetName: string,
+    rows: { value: string | number | boolean | null, formula?: string, result?: string | number | boolean | null }[][],
+  }[],
   webhook_url: string,
   group_assignment_id: string,
   activity_id: string,
@@ -98,9 +105,14 @@ picks this up and calls `invokeAiMarking()`
 }
 ```
 
-`spreadsheet_data` gives the AI agent structured cell values to reason over
-directly; `spreadsheet_base64` is included for workflows that need to
-re-parse, forward, or archive the original file.
+Each cell entry carries `value` (the literal value for non-formula cells, or
+the same as `result` for formula cells), and `formula`/`result` only when the
+cell contains a formula. This lets the AI marking workflow distinguish
+"pupil typed the right number" from "pupil used the right formula" — useful
+for tasks that require demonstrating a calculation method, not just a
+correct answer. `spreadsheet_data` gives the AI agent structured cell values
+to reason over directly; `spreadsheet_base64` is included for workflows that
+need to re-parse, forward, or archive the original file.
 
 ## Marking response — reuse `/webhooks/ai-mark`
 
