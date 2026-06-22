@@ -1,4 +1,4 @@
-export interface AiMarkingParams {
+export interface ShortTextMarkingParams {
   question: string;
   model_answer: string;
   pupil_answer: string;
@@ -9,6 +9,26 @@ export interface AiMarkingParams {
   pupil_id?: string;
   submission_id?: string;
 }
+
+export interface SpreadsheetCell {
+  value: string | number | boolean | null;
+  formula?: string;
+  result?: string | number | boolean | null;
+}
+
+export interface SpreadsheetMarkingParams {
+  task: string;
+  marking_guidance: string;
+  spreadsheet_base64: string;
+  spreadsheet_data: Array<{ sheetName: string; rows: SpreadsheetCell[][] }>;
+  webhook_url?: string;
+  group_assignment_id?: string;
+  activity_id?: string;
+  pupil_id?: string;
+  submission_id?: string;
+}
+
+export type AiMarkingParams = ShortTextMarkingParams | SpreadsheetMarkingParams;
 
 export interface AiMarkingResult {
   score: number;

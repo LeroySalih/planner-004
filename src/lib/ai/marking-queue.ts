@@ -2,8 +2,12 @@ import { query, withDbClient } from "@/lib/db";
 import {
   ShortTextActivityBodySchema,
   ShortTextSubmissionBodySchema,
+  UploadSpreadsheetActivityBodySchema,
+  UploadSpreadsheetSubmissionBodySchema,
 } from "@/types";
 import { invokeAiMarking } from "./ai-marking-client";
+import { parseSpreadsheet } from "@/lib/spreadsheet/parse-xlsx";
+import { createLocalStorageClient } from "@/lib/storage/local-storage";
 
 export async function logQueueEvent(
   level: "info" | "warn" | "error",
@@ -182,11 +186,11 @@ async function processSingleItem(
       throw new Error("Submission or activity context missing");
     }
 
-    // Guard: Only process short-text questions
-    if (context.type !== "short-text-question") {
+    const SUPPORTED_TYPES = new Set(["short-text-question", "upload-spreadsheet"]);
+    if (!SUPPORTED_TYPES.has(context.type as string)) {
       await logQueueEvent(
         "warn",
-        `Skipping non-short-text activity ${context.activity_id}`,
+        `Skipping unsupported activity type ${context.activity_id}`,
         { type: context.type },
       );
 
@@ -198,18 +202,10 @@ async function processSingleItem(
       return;
     }
 
-    const parsedActivity = ShortTextActivityBodySchema.parse(
-      context.activity_body,
-    );
-    const parsedSubmission = ShortTextSubmissionBodySchema.parse(
-      context.submission_body,
-    );
-
     // 3. Trigger DO function
     let effectiveCallbackUrl: string | undefined;
 
     if (callbackUrl) {
-      // Normalize base URL (remove trailing slash)
       const normalizedBase = callbackUrl.replace(/\/$/, "");
 
       if (item.assignment_id === "revision") {
@@ -219,25 +215,78 @@ async function processSingleItem(
       }
     }
 
-    // We pass the webhook info to DO
-    const doParams = {
-      question: parsedActivity.question,
-      model_answer: parsedActivity.modelAnswer,
-      pupil_answer: parsedSubmission.answer || "",
-      webhook_url: effectiveCallbackUrl,
-      group_assignment_id: item.assignment_id,
-      activity_id: context.activity_id as string,
-      pupil_id: context.pupil_id as string,
-      submission_id: item.submission_id,
-    };
+    if (context.type === "short-text-question") {
+      const parsedActivity = ShortTextActivityBodySchema.parse(
+        context.activity_body,
+      );
+      const parsedSubmission = ShortTextSubmissionBodySchema.parse(
+        context.submission_body,
+      );
 
-    await logQueueEvent(
-      "info",
-      `Triggering n8n workflow for submission ${item.submission_id}`,
-      doParams,
-    );
+      const doParams = {
+        question: parsedActivity.question,
+        model_answer: parsedActivity.modelAnswer,
+        pupil_answer: parsedSubmission.answer || "",
+        webhook_url: effectiveCallbackUrl,
+        group_assignment_id: item.assignment_id,
+        activity_id: context.activity_id as string,
+        pupil_id: context.pupil_id as string,
+        submission_id: item.submission_id,
+      };
 
-    await invokeAiMarking(doParams);
+      await logQueueEvent(
+        "info",
+        `Triggering n8n workflow for submission ${item.submission_id}`,
+        doParams,
+      );
+
+      await invokeAiMarking(doParams);
+    } else {
+      const parsedActivity = UploadSpreadsheetActivityBodySchema.parse(
+        context.activity_body,
+      );
+      const parsedSubmission = UploadSpreadsheetSubmissionBodySchema.parse(
+        context.submission_body,
+      );
+
+      const storage = createLocalStorageClient("lessons");
+      const { stream, error: streamError } = await storage.getFileStream(
+        parsedSubmission.filePath,
+      );
+      if (streamError || !stream) {
+        throw new Error(
+          `Failed to read spreadsheet file at ${parsedSubmission.filePath}: ${streamError?.message ?? "no stream"}`,
+        );
+      }
+
+      const chunks: Buffer[] = [];
+      for await (const chunk of stream) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      const buffer = Buffer.concat(chunks);
+
+      const spreadsheetData = await parseSpreadsheet(buffer);
+      const spreadsheetBase64 = buffer.toString("base64");
+
+      const doParams = {
+        task: parsedActivity.task,
+        marking_guidance: parsedActivity.markingGuidance,
+        spreadsheet_base64: spreadsheetBase64,
+        spreadsheet_data: spreadsheetData,
+        webhook_url: effectiveCallbackUrl,
+        group_assignment_id: item.assignment_id,
+        activity_id: context.activity_id as string,
+        pupil_id: context.pupil_id as string,
+        submission_id: item.submission_id,
+      };
+
+      await logQueueEvent(
+        "info",
+        `Triggering n8n workflow for spreadsheet submission ${item.submission_id}`,
+      );
+
+      await invokeAiMarking(doParams);
+    }
 
     // Note: We don't mark as 'completed' here.
     // The webhook callback will do that.
