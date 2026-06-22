@@ -17,6 +17,10 @@ function toScalar(value: unknown): string | number | boolean | null {
     return value;
   }
   if (value instanceof Date) return value.toISOString();
+  // Error-valued cells (e.g. #DIV/0!) come back as { error: string }; return the error text itself.
+  if (typeof value === "object" && "error" in (value as Record<string, unknown>)) {
+    return String((value as { error: unknown }).error);
+  }
   // Rich text / hyperlink objects: fall back to their text representation.
   if (typeof value === "object" && "text" in (value as Record<string, unknown>)) {
     return String((value as { text: unknown }).text);
@@ -33,9 +37,13 @@ export async function parseSpreadsheet(buffer: Buffer): Promise<ParsedSheet[]> {
   workbook.eachSheet((worksheet) => {
     const rows: ParsedCell[][] = [];
 
+    // includeEmpty: false here skips blank trailing rows, while includeEmpty: true on
+    // eachCell below preserves column alignment within rows that do have data.
     worksheet.eachRow({ includeEmpty: false }, (row) => {
       const cells: ParsedCell[] = [];
       row.eachCell({ includeEmpty: true }, (cell) => {
+        // Merged cells: only the master cell carries the value; the other cells in the
+        // merged region report null here. This is exceljs's behavior and is fine for our use case.
         const raw = cell.value;
         if (
           raw !== null &&
