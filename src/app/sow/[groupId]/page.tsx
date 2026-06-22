@@ -11,7 +11,7 @@ import type { SowWeekLesson } from '@/lib/server-updates'
 import { SowClient } from './sow-client'
 import { notFound } from 'next/navigation'
 import { currentAcademicYear, fetchActiveAcademicYears } from '@/lib/academic-year'
-import type { HalfTerm, SowHalfTermUnit, Unit, TeacherGroup } from '@/types'
+import type { HalfTerm, SowHalfTermUnit, Unit } from '@/types'
 
 type YearData = {
   halfTerms: HalfTerm[]
@@ -58,7 +58,6 @@ export default async function SowDetailPage({
   if (!group) notFound()
 
   const units: Unit[] = unitsResult.data ?? []
-  const allGroups: TeacherGroup[] = (groupsResult.data ?? []).filter((g) => g.group_id !== groupId)
 
   async function onYearChange(newYear: number): Promise<YearData> {
     'use server'
@@ -82,7 +81,6 @@ export default async function SowDetailPage({
         initialYear={year}
         initialData={initialData}
         units={units}
-        allGroups={allGroups}
         onYearChange={onYearChange}
       />
     </main>

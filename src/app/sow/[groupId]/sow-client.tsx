@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { SowHalfTermTable } from '@/components/sow/SowHalfTermTable'
 import { SowWeekList } from '@/components/sow/SowWeekList'
-import type { HalfTerm, SowHalfTermUnit, TeacherGroup, Unit } from '@/types'
+import type { HalfTerm, SowHalfTermUnit, Unit } from '@/types'
 import type { SowWeekLesson } from '@/lib/server-updates'
 
 type YearData = {
@@ -19,7 +19,6 @@ type Props = {
   initialYear: number
   initialData: YearData
   units: Unit[]
-  allGroups: TeacherGroup[]
   onYearChange: (year: number) => Promise<YearData>
 }
 
@@ -30,7 +29,6 @@ export function SowClient({
   initialYear,
   initialData,
   units,
-  allGroups,
   onYearChange,
 }: Props) {
   const [year, setYear] = useState(initialYear)
@@ -66,12 +64,8 @@ export function SowClient({
 
       <SowHalfTermTable
         key={`ht-${year}`}
-        groupId={groupId}
-        year={year}
         halfTerms={currentData.halfTerms}
         htUnits={currentData.htUnits}
-        units={units}
-        allGroups={allGroups}
       />
 
       <SowWeekList
