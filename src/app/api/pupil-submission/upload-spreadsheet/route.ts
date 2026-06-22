@@ -14,6 +14,8 @@ const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
 const ALLOWED_EXTENSION = ".xlsx"
 const ALLOWED_MIME_TYPES = new Set([
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  // Some browsers/OSes send this generic type instead of the xlsx-specific one or an empty string.
+  "application/octet-stream",
 ])
 
 function buildSubmissionPath(lessonId: string, activityId: string, pupilStorageKey: string, fileName: string) {
