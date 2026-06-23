@@ -215,11 +215,6 @@ export function LessonFilesManager({ unitId, lessonId, initialFiles }: LessonFil
     >
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm text-muted-foreground">
-            Upload resources for this lesson. Files are stored securely in Supabase under
-            <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">{lessonId}</code>.
-          </p>
-          <p className="text-xs text-muted-foreground">Drag and drop multiple files or use the add button.</p>
           {uploadProgress.total > 0 ? (
             <div className="mt-3 w-full max-w-xs space-y-1 sm:max-w-sm">
               <Progress value={progressPercent} />
