@@ -103,7 +103,12 @@ export {
 
 export { readLessonAssignmentScoreSummariesAction } from "./server-actions/lesson-assignment-scores";
 
-export { readSubjectsAction } from "./server-actions/subjects";
+export {
+  readSubjectsAction,
+  readAllSubjectsAction,
+  createSubjectAction,
+  setSubjectActiveAction,
+} from "./server-actions/subjects";
 
 export {
   deleteUnitFileAction,
