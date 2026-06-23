@@ -1309,8 +1309,8 @@ ${scs[0] ? `SC: ${scs[0].title}` : ""}
           {activities.length === 0 ? (
             <p className="text-sm text-muted-foreground">No activities have been added yet.</p>
           ) : (
-            <div className="flex gap-4">
-              <aside className="sticky top-4 hidden max-h-[calc(100vh-2rem)] w-60 shrink-0 self-start overflow-y-auto md:block">
+            <div className="flex max-h-[70vh] gap-4 overflow-y-auto">
+              <aside className="sticky top-0 hidden h-fit w-60 shrink-0 self-start md:block">
                 <ul className="space-y-1">
                   {activities.map((activity) => {
                     const sidebarIsDragging = draggingId === activity.activity_id
