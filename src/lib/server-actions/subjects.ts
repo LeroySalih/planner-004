@@ -2,7 +2,7 @@
 
 import { z } from "zod"
 
-import { SubjectSchema, SubjectsSchema, type Subject } from "@/types"
+import { SubjectSchema, SubjectsSchema } from "@/types"
 import { Client } from "pg"
 import { requireRole, requireTeacherProfile, type AuthenticatedProfile } from "@/lib/auth"
 import { withTelemetry } from "@/lib/telemetry"
