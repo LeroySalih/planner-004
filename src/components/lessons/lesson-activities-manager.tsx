@@ -145,6 +145,7 @@ export function LessonActivitiesManager({
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dragOverId, setDragOverId] = useState<string | null>(null)
   const pendingReorderRef = useRef<{ next: LessonActivity[]; previous: LessonActivity[] } | null>(null)
+  const activityListItemRefs = useRef<Map<string, HTMLLIElement>>(new Map())
   const [isUploading, setIsUploading] = useState(false)
   const [mdPasteDialogOpen, setMdPasteDialogOpen] = useState(false)
   const [mdPasteContent, setMdPasteContent] = useState("")
@@ -772,6 +773,11 @@ useEffect(() => {
     })
   }
 
+  const scrollToActivity = (activityId: string) => {
+    const node = activityListItemRefs.current.get(activityId)
+    node?.scrollIntoView({ behavior: "smooth", block: "start" })
+  }
+
   const handleDeleteActivity = (activityId: string) => {
     startTransition(async () => {
       const result = await deleteLessonActivityAction(unitId, lessonId, activityId)
@@ -1384,6 +1390,13 @@ ${scs[0] ? `SC: ${scs[0].title}` : ""}
                 return (
                   <li
                     key={activity.activity_id}
+                    ref={(node) => {
+                      if (node) {
+                        activityListItemRefs.current.set(activity.activity_id, node)
+                      } else {
+                        activityListItemRefs.current.delete(activity.activity_id)
+                      }
+                    }}
                     onDragOver={handleDragOver(activity.activity_id)}
                     onDragEnter={handleDragOver(activity.activity_id)}
                     onDragLeave={handleDragLeave(activity.activity_id)}
