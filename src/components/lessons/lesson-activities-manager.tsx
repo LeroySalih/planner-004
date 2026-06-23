@@ -1309,77 +1309,77 @@ ${scs[0] ? `SC: ${scs[0].title}` : ""}
           {activities.length === 0 ? (
             <p className="text-sm text-muted-foreground">No activities have been added yet.</p>
           ) : (
-          <div className="flex gap-4">
-            <aside className="sticky top-4 hidden max-h-[calc(100vh-2rem)] w-60 shrink-0 self-start overflow-y-auto md:block">
-              <ul className="space-y-1">
-                {activities.map((activity) => {
-                  const sidebarIsDragging = draggingId === activity.activity_id
-                  const sidebarIsDragOver = dragOverId === activity.activity_id
-                  return (
+            <div className="flex gap-4">
+              <aside className="sticky top-4 hidden max-h-[calc(100vh-2rem)] w-60 shrink-0 self-start overflow-y-auto md:block">
+                <ul className="space-y-1">
+                  {activities.map((activity) => {
+                    const sidebarIsDragging = draggingId === activity.activity_id
+                    const sidebarIsDragOver = dragOverId === activity.activity_id
+                    return (
+                      <li
+                        key={activity.activity_id}
+                        onDragOver={handleDragOver(activity.activity_id)}
+                        onDragEnter={handleDragOver(activity.activity_id)}
+                        onDragLeave={handleDragLeave(activity.activity_id)}
+                        onDrop={handleDrop(activity.activity_id)}
+                        className={[
+                          "flex items-center gap-1 rounded-md border border-transparent px-1 py-1 transition",
+                          sidebarIsDragging ? "opacity-70" : "",
+                          sidebarIsDragOver ? "border-primary bg-primary/5" : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
+                      >
+                        <button
+                          type="button"
+                          aria-label="Drag to reorder activity"
+                          className="cursor-grab text-muted-foreground transition hover:text-foreground"
+                          draggable
+                          onDragStart={handleDragStart(activity.activity_id)}
+                          onDragEnd={handleDragEnd}
+                        >
+                          <GripVertical className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => scrollToActivity(activity.activity_id)}
+                          className="flex-1 truncate text-left text-xs text-foreground hover:underline"
+                          title={activity.title}
+                        >
+                          {activity.title}
+                        </button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-6 w-6"
+                          onClick={() => handleDeleteActivity(activity.activity_id)}
+                          disabled={isBusy}
+                          aria-label="Delete activity"
+                        >
+                          <Trash2 className="h-3 w-3 text-destructive" />
+                        </Button>
+                      </li>
+                    )
+                  })}
+                  {draggingId ? (
                     <li
-                      key={activity.activity_id}
-                      onDragOver={handleDragOver(activity.activity_id)}
-                      onDragEnter={handleDragOver(activity.activity_id)}
-                      onDragLeave={handleDragLeave(activity.activity_id)}
-                      onDrop={handleDrop(activity.activity_id)}
+                      key="activity-sidebar-dropzone-end"
+                      onDragOver={handleDragOver(END_DROP_ID)}
+                      onDragEnter={handleDragOver(END_DROP_ID)}
+                      onDragLeave={handleDragLeave(END_DROP_ID)}
+                      onDrop={handleDrop(END_DROP_ID)}
                       className={[
-                        "flex items-center gap-1 rounded-md border border-transparent px-1 py-1 transition",
-                        sidebarIsDragging ? "opacity-70" : "",
-                        sidebarIsDragOver ? "border-primary bg-primary/5" : "",
+                        "h-6 rounded-md border-2 border-dashed border-border transition",
+                        dragOverId === END_DROP_ID ? "border-primary bg-primary/5" : "border-transparent",
                       ]
                         .filter(Boolean)
                         .join(" ")}
-                    >
-                      <button
-                        type="button"
-                        aria-label="Drag to reorder activity"
-                        className="cursor-grab text-muted-foreground transition hover:text-foreground"
-                        draggable
-                        onDragStart={handleDragStart(activity.activity_id)}
-                        onDragEnd={handleDragEnd}
-                      >
-                        <GripVertical className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => scrollToActivity(activity.activity_id)}
-                        className="flex-1 truncate text-left text-xs text-foreground hover:underline"
-                        title={activity.title}
-                      >
-                        {activity.title}
-                      </button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-6 w-6"
-                        onClick={() => handleDeleteActivity(activity.activity_id)}
-                        disabled={isBusy}
-                        aria-label="Delete activity"
-                      >
-                        <Trash2 className="h-3 w-3 text-destructive" />
-                      </Button>
-                    </li>
-                  )
-                })}
-                {draggingId ? (
-                  <li
-                    key="activity-sidebar-dropzone-end"
-                    onDragOver={handleDragOver(END_DROP_ID)}
-                    onDragEnter={handleDragOver(END_DROP_ID)}
-                    onDragLeave={handleDragLeave(END_DROP_ID)}
-                    onDrop={handleDrop(END_DROP_ID)}
-                    className={[
-                      "h-6 rounded-md border-2 border-dashed border-border transition",
-                      dragOverId === END_DROP_ID ? "border-primary bg-primary/5" : "border-transparent",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                  />
-                ) : null}
-              </ul>
-            </aside>
-            <ul className="flex-1 space-y-3">
-              {activities.map((activity) => {
+                    />
+                  ) : null}
+                </ul>
+              </aside>
+              <ul className="flex-1 space-y-3">
+                {activities.map((activity) => {
                 const label = typeLabelMap[activity.type] ?? activity.type
                 const isDragging = draggingId === activity.activity_id
                 const isDragOver = dragOverId === activity.activity_id
@@ -1598,8 +1598,8 @@ ${scs[0] ? `SC: ${scs[0].title}` : ""}
                 </div>
               </li>
                 ) : null}
-            </ul>
-          </div>
+              </ul>
+            </div>
           )}
         </section>
       </div>
