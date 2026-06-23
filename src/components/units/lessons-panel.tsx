@@ -173,6 +173,8 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
           description: response.error ?? "Please try again shortly.",
         })
         setLessons(previousLessons)
+      } else {
+        toast.success("Lesson order updated")
       }
     })
   }
