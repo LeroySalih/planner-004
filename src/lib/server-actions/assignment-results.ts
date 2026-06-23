@@ -16,6 +16,7 @@ import {
   McqSubmissionBodySchema,
   ShortTextActivityBodySchema,
   ShortTextSubmissionBodySchema,
+  UploadSpreadsheetActivityBodySchema,
   UploadUrlActivityBodySchema,
 } from "@/types";
 import { query } from "@/lib/db";
@@ -593,6 +594,13 @@ export async function readAssignmentResultsAction(
             question = normaliseRichText(rawQuestion);
           } else if (type === "upload-file" || type === "sketch-render") {
             question = extractUploadInstructions(activity.body_data);
+          } else if (type === "upload-spreadsheet") {
+            const parsedBody = UploadSpreadsheetActivityBodySchema.safeParse(
+              activity.body_data,
+            );
+            if (parsedBody.success) {
+              question = normaliseRichText(parsedBody.data.task);
+            }
           } else if (type === "upload-url") {
             const parsedBody = UploadUrlActivityBodySchema.safeParse(
               activity.body_data,

@@ -344,7 +344,7 @@ export async function listPupilActivitySubmissionsAction(
 
         const { rows } = await client.query(
           `
-            select submission_id, submission_status, submitted_at, body, coalesce(body->>'upload_file_name', '') as file_name, coalesce(body->>'instructions', '') as instructions, case when body::jsonb ? 'uploaded_files' then body->'uploaded_files' else null end as uploaded_files
+            select submission_id, submission_status, submitted_at, body, coalesce(body->>'upload_file_name', '') as file_name, coalesce(body->>'instructions', '') as instructions, case when body::jsonb ? 'uploaded_files' then body->'uploaded_files' else null end as uploaded_files, coalesce(body->>'fileName', '') as spreadsheet_file_name, coalesce(body->>'filePath', '') as spreadsheet_file_path
             from submissions
             where activity_id = $1 and user_id = $2
             order by submitted_at desc
@@ -373,6 +373,20 @@ export async function listPupilActivitySubmissionsAction(
               SubmissionStatusSchema.safeParse(row.submission_status).data ??
                 "inprogress",
             instructions: row.instructions || null,
+          }]
+          : row.spreadsheet_file_name
+          ? [{
+            // upload-spreadsheet submissions store a single fileName/filePath
+            // pair rather than upload-file's uploaded_files array/upload_file_name.
+            name: row.spreadsheet_file_name,
+            path: row.spreadsheet_file_path || "",
+            uploaded_at: typeof row.submitted_at === "string"
+              ? row.submitted_at
+              : row.submitted_at?.toISOString() ?? new Date().toISOString(),
+            status:
+              SubmissionStatusSchema.safeParse(row.submission_status).data ??
+                "inprogress",
+            instructions: null,
           }]
           : [];
 

@@ -1,6 +1,7 @@
 "use client"
 
 import { useActionState, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Download, Eye, Flag, RefreshCw, RotateCcw, RotateCw, X, ZoomIn, ZoomOut } from "lucide-react"
 import {
@@ -25,7 +26,6 @@ import {
   listPupilActivitySubmissionsAction,
   overrideAssignmentScoreAction,
   clearActivityAiMarksAction,
-  requestAiMarkAction,
   resetAssignmentScoreAction,
   updateAssignmentFeedbackVisibilityAction,
   triggerManualAiMarkingAction,
@@ -423,6 +423,14 @@ function isImageFile(filename: string): boolean {
   return /\.(jpg|jpeg|png|gif|webp|svg|heic)$/i.test(filename)
 }
 
+// Activity types whose pupil response is a downloadable file in storage,
+// listed/signed via listPupilActivitySubmissionsAction / getPupilActivitySubmissionUrlAction.
+const UPLOAD_LISTING_ACTIVITY_TYPES = new Set(["upload-file", "upload-spreadsheet"])
+
+function isUploadListingActivityType(type: string): boolean {
+  return UPLOAD_LISTING_ACTIVITY_TYPES.has(type)
+}
+
 export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResultMatrix }) {
   const [matrixState, setMatrixState] = useState<MatrixWithState>(() => {
     // Ensure initial rows have correct needsMarking state
@@ -688,46 +696,35 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       toast.error("Unable to find activity details.")
       return
     }
-    const questionText =
-      groupedRows
-        .map((row) => row.cells[activityIndex]?.question)
-        .find((question) => typeof question === "string" && question.trim().length > 0) ??
-      selectedActivity.title
-    const modelAnswer =
-      groupedRows
-        .map((row) => row.cells[activityIndex]?.correctAnswer)
-        .find((answer) => typeof answer === "string" && answer.trim().length > 0) ?? ""
-    const providedAnswers = groupedRows
-      .map((row) => {
-        const cell = row.cells[activityIndex]
-        if (!cell) {
-          return null
-        }
-        return {
-          pupilId: row.pupil.userId,
-          provided_answer: cell.pupilAnswer ?? "",
-        }
-      })
-      .filter((entry): entry is { pupilId: string; provided_answer: string } => Boolean(entry))
-    const payload = {
-      requestid: crypto.randomUUID(),
-      question_text: questionText ?? "",
-      model_answer: modelAnswer ?? "",
-      provided_answers: providedAnswers,
-      group_assignment_id: matrixState.assignmentId,
-      activity_id: selectedActivity.activityId,
+
+    // Reuses the same generic, activity-type-agnostic marking-queue pipeline
+    // as handleColumnAiMark's "Mark All" button, rather than the legacy
+    // AI_MARK_URL action (which only supports question/model-answer payloads
+    // and can't represent a file-upload submission).
+    const submissionsToMark = groupedRows
+      .map((row) => row.cells[activityIndex]?.submissionId)
+      .filter((submissionId): submissionId is string => Boolean(submissionId))
+      .map((submissionId) => ({ submissionId }))
+
+    if (submissionsToMark.length === 0) {
+      toast.info("No submissions found in this column to mark.")
+      return
     }
+
     startAiMarkTransition(async () => {
       try {
-        const result = await requestAiMarkAction(payload)
+        const result = await triggerBulkAiMarkingAction({
+          assignmentId: matrixState.assignmentId,
+          submissions: submissionsToMark,
+        })
         if (!result.success) {
-          toast.error(result.error ?? "Unable to send AI mark request.")
+          toast.error("Failed to queue AI marking.")
           return
         }
-        toast.success("AI mark request sent.")
+        toast.success(`AI marking queued for ${submissionsToMark.length} submissions.`)
       } catch (error) {
         console.error("[assignment-results] AI Mark request failed", error)
-        toast.error("Unable to send AI mark request.")
+        toast.error("Failed to request AI marking for the column.")
       }
     })
   }, [selectedActivity, activities, groupedRows, matrixState.assignmentId, startAiMarkTransition])
@@ -1106,7 +1103,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
   )
 
   useEffect(() => {
-    if (!selection || selection.activity.type !== "upload-file" || !selectedUploadKey) {
+    if (!selection || !isUploadListingActivityType(selection.activity.type) || !selectedUploadKey) {
       return
     }
     const lessonId = matrixState.lesson?.lessonId
@@ -1125,7 +1122,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
   }, [selection, matrixState.lesson?.lessonId, selectedUploadKey, selectedUploadState?.status, loadUploadFiles])
 
   const handleUploadRefresh = useCallback(() => {
-    if (!selection || selection.activity.type !== "upload-file") {
+    if (!selection || !isUploadListingActivityType(selection.activity.type)) {
       return
     }
     const lessonId = matrixState.lesson?.lessonId
@@ -2432,7 +2429,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
 
                   <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
                     <p className="text-xs font-semibold uppercase tracking-wide text-primary">Pupil response</p>
-                    {selection.activity.type === "upload-file" ? (
+                    {isUploadListingActivityType(selection.activity.type) ? (
                       <p className="text-sm text-foreground">
                         {selectedUploadState?.files.length
                           ? "Learner submitted file uploads listed below."
@@ -2460,7 +2457,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                     )}
                   </div>
 
-                  {selection.activity.type === "upload-file" ? (
+                  {isUploadListingActivityType(selection.activity.type) ? (
                     <div className="rounded-md border border-border/60 bg-muted/40 p-3">
                       <div className="mb-2 flex items-center justify-between gap-2">
                         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -2868,9 +2865,18 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
             <div className="border-t border-border/60 px-4 py-4">
               <div className="space-y-3 text-sm">
                 <div>
-                  <p className="text-lg font-semibold text-foreground">
-                    {matrixState.lesson?.title ?? "Lesson unavailable"}
-                  </p>
+                  {matrixState.lesson?.lessonId ? (
+                    <Link
+                      href={`/lessons/${encodeURIComponent(matrixState.lesson.lessonId)}`}
+                      className="text-lg font-semibold text-foreground hover:underline"
+                    >
+                      {matrixState.lesson.title ?? "Lesson unavailable"}
+                    </Link>
+                  ) : (
+                    <p className="text-lg font-semibold text-foreground">
+                      {matrixState.lesson?.title ?? "Lesson unavailable"}
+                    </p>
+                  )}
                   <p className="text-sm text-muted-foreground">
                     Group {matrixState.group?.groupId ?? "—"}
                     {matrixState.group?.subject ? ` · ${matrixState.group.subject}` : ""}
@@ -3440,7 +3446,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                       <>
                         <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
                       <p className="text-xs font-semibold uppercase tracking-wide text-primary">Pupil response</p>
-                      {selection.activity.type === "upload-file" ? (
+                      {isUploadListingActivityType(selection.activity.type) ? (
                         <p className="text-sm text-foreground">
                           {selectedUploadState?.files.length
                             ? "Learner submitted file uploads listed below."
@@ -3481,7 +3487,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                       )}
                     </div>
 
-                    {selection.activity.type === "upload-file" ? (
+                    {isUploadListingActivityType(selection.activity.type) ? (
                       <div className="rounded-md border border-border/60 bg-muted/40 p-3">
                         <div className="mb-2 flex items-center justify-between gap-2">
                           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -3576,7 +3582,8 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                   <Tabs defaultValue="override" className="flex flex-1 flex-col gap-4 overflow-hidden pt-4 border-t border-border/60">
                     <TabsList className="w-full">
                       <TabsTrigger value="override" className="flex-1">Override</TabsTrigger>
-                      {selection.activity.type === "short-text-question" && (
+                      {(selection.activity.type === "short-text-question" ||
+                        selection.activity.type === "upload-spreadsheet") && (
                         <TabsTrigger value="auto" className="flex-1">Automatic score</TabsTrigger>
                       )}
                     </TabsList>

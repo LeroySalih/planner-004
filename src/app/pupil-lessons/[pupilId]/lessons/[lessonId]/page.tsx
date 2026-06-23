@@ -59,6 +59,8 @@ import {
   MatcherSubmissionBodySchema,
   McqSubmissionBodySchema,
   ShortTextSubmissionBodySchema,
+  UploadSpreadsheetActivityBodySchema,
+  UploadSpreadsheetSubmissionBodySchema,
   UploadUrlSubmissionBodySchema,
 } from "@/types"
 import { ActivityProgressPanel } from "./activity-progress-panel"
@@ -633,6 +635,35 @@ export default async function PupilLessonFriendlyPage({
   )
 
   const shortTextDataMap = new Map(shortTextSubmissionEntries.map((entry) => [entry.activityId, entry]))
+
+  await Promise.all(
+    uploadSpreadsheetActivities.map(async (activity) => {
+      const activityBody = UploadSpreadsheetActivityBodySchema.safeParse(activity.body_data)
+      const questionText = activityBody.success ? activityBody.data.task?.trim() || null : null
+
+      const result = await getLatestSubmissionForActivityAction(activity.activity_id, pupilId)
+      if (result.error || !result.data) {
+        return
+      }
+
+      const parsedBody = UploadSpreadsheetSubmissionBodySchema.safeParse(result.data.body)
+      if (!parsedBody.success) {
+        return
+      }
+
+      const extraction = extractScoreFromSubmission(activity.type ?? "", result.data.body, [], {
+        question: questionText,
+        correctAnswer: null,
+        optionTextMap: undefined,
+      })
+      const latestFeedback = latestFeedbackByActivity.get(activity.activity_id)
+      activityFeedbackMap.set(
+        activity.activity_id,
+        latestFeedback ?? extraction.feedback ?? extraction.autoFeedback ?? null,
+      )
+    }),
+  )
+
   const longTextSubmissionEntries = await Promise.all(
     longTextActivities.map(async (activity) => {
       const longTextBody = getLongTextBodyServer(activity)

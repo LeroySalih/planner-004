@@ -7,6 +7,7 @@ import {
   MatcherSubmissionBodySchema,
   McqSubmissionBodySchema,
   ShortTextSubmissionBodySchema,
+  UploadSpreadsheetSubmissionBodySchema,
   UploadUrlSubmissionBodySchema,
 } from "@/types";
 import { clampScore, normaliseSuccessCriteriaScores } from "@/lib/scoring/client-success-criteria";
@@ -465,6 +466,82 @@ export function extractScoreFromSubmission(
       correctAnswer: metadata.correctAnswer,
       pupilAnswer: null,
     };
+    return {
+      autoScore: null,
+      overrideScore: null,
+      effectiveScore: null,
+      autoSuccessCriteriaScores: fallbackScores,
+      overrideSuccessCriteriaScores: null,
+      successCriteriaScores: fallbackScores,
+      feedback: null,
+      autoFeedback: null,
+      question: metadata.question,
+      correctAnswer: metadata.correctAnswer,
+      pupilAnswer: null,
+    };
+  }
+
+  if (activityType === "upload-spreadsheet") {
+    const parsed = UploadSpreadsheetSubmissionBodySchema.safeParse(submissionBody);
+    const fallbackScores = normaliseSuccessCriteriaScores({
+      successCriteriaIds,
+      fillValue: 0,
+    });
+
+    if (parsed.success) {
+      const pupilAnswer = parsed.data.fileName?.trim()
+        ? `Uploaded: ${parsed.data.fileName.trim()}`
+        : null;
+      const hasAnswer = Boolean(pupilAnswer);
+      const auto = typeof parsed.data.ai_model_score === "number" &&
+          Number.isFinite(parsed.data.ai_model_score)
+        ? parsed.data.ai_model_score
+        : hasAnswer
+        ? 0
+        : null;
+      const override = typeof parsed.data.teacher_override_score === "number" &&
+          Number.isFinite(parsed.data.teacher_override_score)
+        ? parsed.data.teacher_override_score
+        : null;
+      const feedback = typeof parsed.data.teacher_feedback === "string" &&
+          parsed.data.teacher_feedback.trim().length > 0
+        ? parsed.data.teacher_feedback.trim()
+        : null;
+      const autoFeedback = typeof parsed.data.ai_model_feedback === "string" &&
+          parsed.data.ai_model_feedback.trim().length > 0
+        ? parsed.data.ai_model_feedback.trim()
+        : null;
+      const successCriteriaScores = normaliseSuccessCriteriaScores({
+        successCriteriaIds,
+        existingScores: parsed.data.success_criteria_scores,
+        fillValue: override ?? auto ?? 0,
+      });
+      const autoScores = normaliseSuccessCriteriaScores({
+        successCriteriaIds,
+        fillValue: auto ?? 0,
+      });
+      const overrideScores = typeof override === "number"
+        ? normaliseSuccessCriteriaScores({
+          successCriteriaIds,
+          fillValue: override,
+        })
+        : null;
+
+      return {
+        autoScore: auto,
+        overrideScore: override,
+        effectiveScore: override ?? auto ?? (hasAnswer ? 0 : null),
+        autoSuccessCriteriaScores: autoScores,
+        overrideSuccessCriteriaScores: overrideScores,
+        successCriteriaScores,
+        feedback,
+        autoFeedback,
+        question: metadata.question,
+        correctAnswer: metadata.correctAnswer,
+        pupilAnswer,
+      };
+    }
+
     return {
       autoScore: null,
       overrideScore: null,

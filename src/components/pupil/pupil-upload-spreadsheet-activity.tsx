@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState, useTransition, type ChangeEvent } from "react"
 import { toast } from "sonner"
-import { Loader2, Upload } from "lucide-react"
+import { CheckCircle2, Loader2, Upload } from "lucide-react"
 
 import type { LessonActivity } from "@/types"
 import { Button } from "@/components/ui/button"
@@ -249,7 +249,12 @@ export function PupilUploadSpreadsheetActivity({
             </div>
           ) : null}
           {uploadedFileName ? (
-            <p className="text-xs text-muted-foreground">Last uploaded: {uploadedFileName}</p>
+            <div className="flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-800 dark:bg-green-900/20 dark:text-green-100">
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+              <span>
+                Uploaded <span className="font-medium">{uploadedFileName}</span>
+              </span>
+            </div>
           ) : null}
           <p className="text-xs text-muted-foreground">
             Files are stored securely so your teacher can review them later. You can re-upload at any time.

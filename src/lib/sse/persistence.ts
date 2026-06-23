@@ -37,9 +37,17 @@ export async function persistSseEvent(input: SseEmitInput): Promise<SseEventEnve
 }
 
 // Event types that should never be replayed to reconnecting clients.
-// Marking results are authoritative from the server render; replaying historical
-// marking events corrupts client state when n8n retried the same activity many times.
-const REPLAY_EXCLUDED_TYPES = ["assignment.results.updated"]
+// Submission/marking state is authoritative from the server render; replaying
+// historical events corrupts client state — e.g. an old "submission.uploaded"
+// event (which carries no score data) overwriting an already-rendered AI score
+// with "missing", or marking events from a retried activity reapplying stale results.
+const REPLAY_EXCLUDED_TYPES = [
+  "assignment.results.updated",
+  "submission.uploaded",
+  "submission.updated",
+  "submission.created",
+  "submission.deleted",
+]
 
 export async function fetchRecentSseEvents(topics: SseTopic[], limit = DEFAULT_LIMIT) {
   if (topics.length === 0) {

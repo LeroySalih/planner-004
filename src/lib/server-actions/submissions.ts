@@ -14,6 +14,7 @@ import {
   ShortTextSubmissionBodySchema,
   type Submission,
   SubmissionSchema,
+  UploadSpreadsheetSubmissionBodySchema,
 } from "@/types";
 import { query } from "@/lib/db";
 import { isScorableActivityType } from "@/dino.config";
@@ -406,6 +407,104 @@ export async function readLessonSubmissionSummariesAction(
         const scoreEntries = submissionList
           .map((submission) => {
             const parsedSubmission = ShortTextSubmissionBodySchema.safeParse(
+              submission.body,
+            );
+            if (!parsedSubmission.success) {
+              return null;
+            }
+
+            const aiScore =
+              typeof parsedSubmission.data.ai_model_score === "number" &&
+                Number.isFinite(parsedSubmission.data.ai_model_score)
+                ? parsedSubmission.data.ai_model_score
+                : null;
+            const overrideScore =
+              typeof parsedSubmission.data.teacher_override_score ===
+                  "number" &&
+                Number.isFinite(parsedSubmission.data.teacher_override_score)
+                ? parsedSubmission.data.teacher_override_score
+                : null;
+            const effectiveScore = overrideScore ?? aiScore;
+            const successCriteriaScores = normaliseSuccessCriteriaScores({
+              successCriteriaIds,
+              existingScores: parsedSubmission.data.success_criteria_scores,
+              fillValue: effectiveScore ?? 0,
+            });
+            const averagedScore =
+              computeAverageSuccessCriteriaScore(successCriteriaScores) ?? effectiveScore ?? null;
+
+            return {
+              userId: submission.user_id,
+              score: averagedScore,
+              isCorrect: parsedSubmission.data.is_correct === true,
+              successCriteriaScores,
+            };
+          })
+          .filter(
+            (entry): entry is {
+              userId: string;
+              score: number | null;
+              isCorrect: boolean;
+              successCriteriaScores: Record<string, number | null>;
+            } => entry !== null,
+          );
+
+        summary.scores = scoreEntries.map((entry) => ({
+          userId: entry.userId,
+          score: entry.score,
+          isCorrect: entry.isCorrect,
+          successCriteriaScores: entry.successCriteriaScores,
+        }));
+
+        summary.correctCount = scoreEntries.filter((entry) =>
+          entry.isCorrect
+        ).length;
+
+        const numericScores = scoreEntries
+          .filter((entry) =>
+            typeof entry.score === "number" && Number.isFinite(entry.score)
+          )
+          .map((entry) => ({
+            userId: entry.userId,
+            score: entry.score as number,
+            isCorrect: entry.isCorrect,
+            successCriteriaScores: entry.successCriteriaScores ?? {},
+          }));
+
+        if (numericScores.length > 0) {
+          const activitiesScore = numericScores.reduce(
+            (acc, entry) => acc + entry.score,
+            0,
+          );
+          const averageScore = activitiesScore / numericScores.length;
+          summary.averageScore = averageScore;
+          overallTotals.total += activitiesScore;
+          overallTotals.count += numericScores.length;
+          if (isSummative) {
+            overallSummativeTotals.total += activitiesScore;
+            overallSummativeTotals.count += numericScores.length;
+          }
+          if (viewerUserId) {
+            numericScores
+              .filter((entry) => entry.userId === viewerUserId)
+              .forEach((entry) => {
+                viewerTotals.total += entry.score;
+                viewerTotals.count += 1;
+              });
+            if (isSummative) {
+              numericScores
+                .filter((entry) => entry.userId === viewerUserId)
+                .forEach((entry) => {
+                  viewerSummativeTotals.total += entry.score;
+                  viewerSummativeTotals.count += 1;
+                });
+            }
+          }
+        }
+      } else if (activityType === "upload-spreadsheet") {
+        const scoreEntries = submissionList
+          .map((submission) => {
+            const parsedSubmission = UploadSpreadsheetSubmissionBodySchema.safeParse(
               submission.body,
             );
             if (!parsedSubmission.success) {

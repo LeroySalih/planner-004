@@ -1,3 +1,11 @@
+import { setDefaultAutoSelectFamily } from "node:net";
+
+// Node's dual-stack "happy eyeballs" connection racing (autoSelectFamily,
+// default on since Node 20) can hang outbound fetches to some IPv4-only
+// hosts on certain local networks. Disabling it makes fetch() connect the
+// same way curl does, sequentially over the resolved address family.
+setDefaultAutoSelectFamily(false);
+
 export interface ShortTextMarkingParams {
   question: string;
   model_answer: string;
