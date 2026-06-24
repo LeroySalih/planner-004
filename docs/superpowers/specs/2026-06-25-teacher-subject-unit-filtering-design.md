@@ -6,7 +6,7 @@ The teacher planner's unit picker (used to assign a unit to a lesson slot) curre
 
 ## Goal
 
-Let teachers self-associate with one or more subjects on their profile page. Use that association to scope the planner's unit list to units whose subject matches one of the teacher's subjects.
+Let admins associate teachers with one or more subjects from the admin area. Use that association to scope the planner's unit list to units whose subject matches one of the teacher's subjects.
 
 ## Out of scope
 
@@ -32,19 +32,24 @@ No `active` column — a row's existence means "associated"; removing the row me
 
 New file `src/lib/server-actions/teacher-subjects.ts`:
 
-- `readTeacherSubjectsAction(options?: { userId?: string })` — returns the list of subjects (`string[]`) associated with a profile. Defaults to the current authenticated profile when `userId` is omitted. Requires the target profile to have `is_teacher = true` (consistent with `requireTeacherProfile()` guard pattern used elsewhere).
-- `updateTeacherSubjectsAction(subjects: string[])` — replaces the *current* authenticated teacher's full subject association set in a single transaction (delete all rows for `user_id`, then insert the new set). Self-service only: a teacher can only edit their own associations, never another profile's. Validates `subjects` against the `subjects` table (must be active subjects) before writing — the FK constraint also enforces this at the DB level.
+- `readTeacherSubjectsAction(options?: { userId?: string })` — returns the list of subjects (`string[]`) associated with a profile. Defaults to the current authenticated profile when `userId` is omitted. Requires the target profile to have `is_teacher = true` (consistent with `requireTeacherProfile()` guard pattern used elsewhere). Used by the planner page to read the logged-in teacher's own subjects.
+- `readAllTeacherSubjectsAction()` — admin-only bulk read returning `{ userId: string, subject: string }[]` across all teachers, for rendering the admin grid without N+1 queries.
+- `updateTeacherSubjectsAction(userId: string, subjects: string[])` — replaces the full subject association set for the given teacher in a single transaction (delete all rows for `user_id`, then insert the new set). Admin-only: guarded with `requireRole('admin')`, not self-service — teachers cannot edit their own associations. Validates `subjects` against the `subjects` table (must be active subjects) before writing — the FK constraint also enforces this at the DB level.
 
 Both follow the standard `{ data, error }` shape and `withTelemetry` wrapping used throughout `src/lib/server-actions/`. Re-export through `src/lib/server-updates.ts`.
 
-## Profile page UI
+## Admin page UI
 
-Add a new `TeacherSubjects` client component (`src/components/profile/teacher-subjects.tsx`), modeled on the existing `ProfileGroups` component pattern in `src/components/profile/groups.tsx`.
+No change to the profile page — teachers cannot self-assign subjects.
 
-- Rendered as a new section in `src/app/profiles/[profileId]/page.tsx`, directly after the "Groups" section.
-- Only rendered when the profile being viewed has `is_teacher = true`.
-- Shows a checkbox list of all active subjects (from `readAllSubjectsAction`), pre-checked according to `readTeacherSubjectsAction`.
-- A "Save" action calls `updateTeacherSubjectsAction` with the full checked set and shows a `sonner` toast on success/error, following the optimistic-update pattern described in CLAUDE.md.
+New admin page `src/app/admin/teacher-subjects/page.tsx` (admin-only route, guarded the same way as `src/app/admin/roles/page.tsx` via `requireRole('admin')`), listing every teacher profile (`is_teacher = true`, from `readAllProfilesAction` filtered client/server-side) with a checkbox row of active subjects (from `readAllSubjectsAction`) next to each.
+
+- New `TeacherSubjectManager` client component (`src/components/admin/teacher-subject-manager.tsx`), modeled on the existing `RoleManager` component pattern (`src/components/admin/role-manager.tsx`) and `SubjectManager` for the checkbox-grid interaction style.
+- Initial data: for each teacher, pre-fetch their current subjects via `readTeacherSubjectsAction({ userId })` (or a bulk variant — see below) so checkboxes are pre-checked.
+- Toggling a checkbox calls `updateTeacherSubjectsAction(userId, subjects)` with that teacher's full updated subject set, with a `sonner` toast on success/error, following the optimistic-update pattern described in CLAUDE.md.
+- Add a link to this new page from the admin nav, alongside "Subjects" and "Roles".
+
+To avoid N+1 queries when rendering the admin grid, add a bulk read: `readAllTeacherSubjectsAction()` returning `{ userId, subject }[]` for every teacher, which the page groups into a `Map<userId, string[]>` before passing to the component.
 
 ## Planner filtering
 
@@ -63,4 +68,5 @@ In `src/app/teacher-planner/page.tsx`:
   1. As a teacher with no subjects configured: planner unit dropdown is empty.
   2. As a teacher with one subject configured matching some units: dropdown shows only those units.
   3. As an admin: dropdown shows all active units regardless of admin's own subject associations.
-  4. Profile page: a teacher can check/uncheck subjects and the change persists and reflects immediately in their planner dropdown.
+  4. Admin page: an admin can check/uncheck subjects for a given teacher, the change persists, and is reflected the next time that teacher loads their planner.
+  5. A non-admin teacher cannot call `updateTeacherSubjectsAction` (server-side role check rejects it even if attempted directly).
