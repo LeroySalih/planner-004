@@ -1206,6 +1206,56 @@ function ActivityPresentView({
     )
   }
 
+  if (activity.type === "upload-spreadsheet") {
+    const uploadSpreadsheet = getUploadSpreadsheetBody(activity)
+    const markup = getRichTextMarkup(uploadSpreadsheet.task)
+
+    return wrap(
+      <div className="space-y-4">
+        {markup ? (
+          <div
+            className="prose prose-lg max-w-none dark:prose-invert text-foreground"
+            dangerouslySetInnerHTML={{ __html: markup }}
+          />
+        ) : (
+          <p className="text-muted-foreground">Add a task so pupils know what to submit.</p>
+        )}
+
+        <div className="space-y-2">
+          <p className="text-sm text-muted-foreground">
+            Share any reference files pupils should download before uploading their spreadsheet.
+          </p>
+          {files.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No files attached yet.</p>
+          ) : (
+            <ul className="space-y-2">
+              {files.map((file) => (
+                <li
+                  key={file.path}
+                  className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm"
+                >
+                  <div className="flex flex-col">
+                    <span className="font-medium">{file.name}</span>
+                    {file.size ? (
+                      <span className="text-xs text-muted-foreground">{formatFileSize(file.size)}</span>
+                    ) : null}
+                  </div>
+                  <Button size="sm" variant="secondary" onClick={() => onDownloadFile(file.name)}>
+                    Download
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          Pupils can upload their spreadsheet from the student lesson page. Their submission is saved under this activity.
+        </p>
+      </div>
+    )
+  }
+
   if (activity.type === "show-video") {
     const url = getActivityFileUrlValue(activity)
     if (!url) {
