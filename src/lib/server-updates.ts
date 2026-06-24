@@ -111,6 +111,12 @@ export {
 } from "./server-actions/subjects";
 
 export {
+  readTeacherSubjectsAction,
+  readAllTeacherSubjectsAction,
+  updateTeacherSubjectsAction,
+} from "./server-actions/teacher-subjects";
+
+export {
   deleteUnitFileAction,
   getUnitFileDownloadUrlAction,
   listUnitFilesAction,
