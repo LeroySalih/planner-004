@@ -44,20 +44,21 @@ export async function parseSpreadsheet(buffer: Buffer): Promise<ParsedSheet[]> {
       row.eachCell({ includeEmpty: true }, (cell) => {
         // Merged cells: only the master cell carries the value; the other cells in the
         // merged region report null here. This is exceljs's behavior and is fine for our use case.
-        const raw = cell.value;
-        if (
-          raw !== null &&
-          typeof raw === "object" &&
-          "formula" in (raw as unknown as Record<string, unknown>)
-        ) {
-          const formulaValue = raw as { formula: string; result?: unknown };
+        //
+        // Use cell.type/cell.formula/cell.result rather than inspecting cell.value's raw
+        // shape: a cell using Excel's "shared formula" optimization (one formula copied
+        // down a range) has cell.value = { sharedFormula: "C2", result: 8 } with NO
+        // `formula` property at all — only the master cell carries literal formula text.
+        // cell.formula already resolves shared formulas to the cell's own relative
+        // formula text (e.g. "A3+B3"), so this handles master and shared formulas alike.
+        if (cell.type === ExcelJS.ValueType.Formula) {
           cells.push({
-            value: toScalar(formulaValue.result),
-            formula: formulaValue.formula,
-            result: toScalar(formulaValue.result),
+            value: toScalar(cell.result),
+            formula: cell.formula,
+            result: toScalar(cell.result),
           });
         } else {
-          cells.push({ value: toScalar(raw) });
+          cells.push({ value: toScalar(cell.value) });
         }
       });
       rows.push(cells);
