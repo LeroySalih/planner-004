@@ -29,16 +29,20 @@ export default async function TeacherPlannerPage({
   }
 
   const allUnits = unitsResult.data ?? []
+  const allGroups = groupsResult.data ?? []
   const teacherSubjects = teacherSubjectsResult.data ?? []
   const visibleUnits = isAdmin
     ? allUnits
     : allUnits.filter((unit) => teacherSubjects.includes(unit.subject))
+  const visibleGroups = isAdmin
+    ? allGroups
+    : allGroups.filter((group) => teacherSubjects.includes(group.subject))
 
   return (
     <main className="min-h-screen bg-[var(--color-background-tertiary)] p-8">
       <TeacherPlannerClient
         units={visibleUnits}
-        groups={groupsResult.data ?? []}
+        groups={visibleGroups}
         teachers={teachersResult.data ?? []}
         currentTeacherId={profile.userId}
         isAdmin={isAdmin}
