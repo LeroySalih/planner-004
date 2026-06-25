@@ -131,7 +131,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
   }, [])
 
   useEffect(() => {
-    loadWeekAssignments(currentTeacherId, getTodaySunday())
+    loadWeekAssignments(currentTeacherId, currentWeekRef.current)
   }, [loadWeekAssignments, currentTeacherId])
 
   useEffect(() => {
