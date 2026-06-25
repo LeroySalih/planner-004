@@ -1,4 +1,4 @@
-import { readGroupsAction, readUnitsAction, readTeachersAction } from '@/lib/server-updates'
+import { readGroupsAction, readUnitsAction, readTeachersAction, readTeacherSubjectsAction } from '@/lib/server-updates'
 import { requireTeacherProfile, hasRole } from '@/lib/auth'
 import { TeacherPlannerClient } from '@/components/teacher-planner/TeacherPlannerClient'
 
@@ -11,10 +11,11 @@ export default async function TeacherPlannerPage({
   const isAdmin = hasRole(profile, 'admin')
   const { week, teacherId } = await searchParams
 
-  const [groupsResult, unitsResult, teachersResult] = await Promise.all([
+  const [groupsResult, unitsResult, teachersResult, teacherSubjectsResult] = await Promise.all([
     readGroupsAction(),
     readUnitsAction(),
     readTeachersAction(),
+    readTeacherSubjectsAction({ currentProfile: profile }),
   ])
 
   if (groupsResult.error || unitsResult.error) {
@@ -27,10 +28,16 @@ export default async function TeacherPlannerPage({
     )
   }
 
+  const allUnits = unitsResult.data ?? []
+  const teacherSubjects = teacherSubjectsResult.data ?? []
+  const visibleUnits = isAdmin
+    ? allUnits
+    : allUnits.filter((unit) => teacherSubjects.includes(unit.subject))
+
   return (
     <main className="min-h-screen bg-[var(--color-background-tertiary)] p-8">
       <TeacherPlannerClient
-        units={unitsResult.data ?? []}
+        units={visibleUnits}
         groups={groupsResult.data ?? []}
         teachers={teachersResult.data ?? []}
         currentTeacherId={profile.userId}
