@@ -29,9 +29,10 @@ interface GroupsPageClientProps {
   initialFilter: string
   error: string | null
   currentProfile: AuthenticatedProfile
+  subjects: string[]
 }
 
-export function GroupsPageClient({ groups: initialGroups, initialFilter, error, currentProfile }: GroupsPageClientProps) {
+export function GroupsPageClient({ groups: initialGroups, initialFilter, error, currentProfile, subjects }: GroupsPageClientProps) {
   const router = useRouter()
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [editingGroup, setEditingGroup] = useState<Group | null>(null)
@@ -122,7 +123,7 @@ export function GroupsPageClient({ groups: initialGroups, initialFilter, error, 
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
         onCreated={() => router.refresh()}
-        existingSubjects={deriveSubjectOptions(groups)}
+        existingSubjects={subjects}
         currentProfile={currentProfile}
       />
 
@@ -170,16 +171,6 @@ export function GroupsPageClient({ groups: initialGroups, initialFilter, error, 
 
 function sortGroups(groups: Group[]) {
   return [...groups].sort((a, b) => a.group_id.localeCompare(b.group_id))
-}
-
-function deriveSubjectOptions(groups: Group[]) {
-  const subjects = new Set<string>()
-  groups.forEach((group) => {
-    if (group.subject) {
-      subjects.add(group.subject)
-    }
-  })
-  return Array.from(subjects).sort((a, b) => a.localeCompare(b))
 }
 
 interface CreateGroupsSidebarProps {

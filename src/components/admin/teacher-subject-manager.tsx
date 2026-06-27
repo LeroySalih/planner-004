@@ -50,13 +50,18 @@ export function TeacherSubjectManager({ teachers, subjects, initialAssignments }
   }
 
   return (
-    <div className="overflow-x-auto rounded-md border border-[var(--color-border)]">
+    <div
+      className="overflow-x-auto rounded-md border border-[var(--color-border)] [scrollbar-color:var(--color-border)_transparent] [scrollbar-width:auto]"
+      style={{ scrollbarGutter: 'stable' }}
+    >
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-[var(--color-border)]">
-            <th className="px-4 py-2 text-left font-medium text-[var(--color-text-primary)]">Teacher</th>
+            <th className="sticky left-0 z-10 bg-[var(--color-background)] px-4 py-2 text-left font-medium text-[var(--color-text-primary)]">
+              Teacher
+            </th>
             {subjects.map((subject) => (
-              <th key={subject} className="px-4 py-2 text-center font-medium text-[var(--color-text-primary)]">
+              <th key={subject} className="px-4 py-2 text-center font-medium text-[var(--color-text-primary)] whitespace-nowrap">
                 {subject}
               </th>
             ))}
@@ -67,7 +72,9 @@ export function TeacherSubjectManager({ teachers, subjects, initialAssignments }
             const teacherSubjects = assignments.get(teacher.userId) ?? []
             return (
               <tr key={teacher.userId} className="border-b border-[var(--color-border)] last:border-0">
-                <td className="px-4 py-2 text-[var(--color-text-primary)]">{teacher.displayName}</td>
+                <td className="sticky left-0 z-10 bg-[var(--color-background)] px-4 py-2 text-[var(--color-text-primary)]">
+                  {teacher.displayName}
+                </td>
                 {subjects.map((subject) => {
                   const key = `${teacher.userId}::${subject}`
                   return (
