@@ -440,15 +440,22 @@ export default async function PupilLessonFriendlyPage({
   const uploadSpreadsheetFileNameMap = new Map(uploadSpreadsheetFileNameEntries)
 
   const uploadWorksheetActivities = activities.filter((activity) => activity.type === "upload-worksheet")
-  const uploadWorksheetFileNameEntries = await Promise.all(
+  const uploadWorksheetFileEntries = await Promise.all(
     uploadWorksheetActivities.map(async (activity) => {
       const result = await getLatestSubmissionForActivityAction(activity.activity_id, pupilId)
-      const body = (result.data?.body ?? null) as { fileName?: string } | null
+      const body = (result.data?.body ?? null) as { fileName?: string; filePath?: string } | null
       const fileName = typeof body?.fileName === "string" && body.fileName.trim().length > 0 ? body.fileName : null
-      return [activity.activity_id, fileName] as const
+      const filePath = typeof body?.filePath === "string" && body.filePath.trim().length > 0 ? body.filePath : null
+      const fileUrl = filePath ? `/api/files/${filePath.split("/").map(encodeURIComponent).join("/")}` : null
+      return [activity.activity_id, { fileName, fileUrl }] as const
     }),
   )
-  const uploadWorksheetFileNameMap = new Map(uploadWorksheetFileNameEntries)
+  const uploadWorksheetFileNameMap = new Map(
+    uploadWorksheetFileEntries.map(([activityId, { fileName }]) => [activityId, fileName]),
+  )
+  const uploadWorksheetFileUrlMap = new Map(
+    uploadWorksheetFileEntries.map(([activityId, { fileUrl }]) => [activityId, fileUrl]),
+  )
 
   // Load share-my-work submissions (own files for each activity)
   type ShareMyWorkData = { submissionId: string | null; files: Array<{ fileId: string; fileName: string; mimeType: string; order: number }> }
@@ -1061,6 +1068,7 @@ export default async function PupilLessonFriendlyPage({
                           pupilId={pupilId}
                           canUpload={isPupilViewer}
                           initialFileName={uploadWorksheetFileNameMap.get(activity.activity_id) ?? null}
+                          initialFileUrl={uploadWorksheetFileUrlMap.get(activity.activity_id) ?? null}
                           feedbackAssignmentIds={assignmentIds}
                           feedbackLessonId={lesson.lesson_id}
                           feedbackInitiallyVisible={initialFeedbackVisible}

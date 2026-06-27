@@ -224,5 +224,5 @@ export async function POST(request: Request) {
 
   console.log(`${tag} Upload complete`, { submissionId, fileName, lessonId, activityId, pupilId, durationMs: Date.now() - startedAt })
 
-  return NextResponse.json({ success: true, submissionId })
+  return NextResponse.json({ success: true, submissionId, filePath: path })
 }

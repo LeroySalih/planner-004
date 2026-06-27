@@ -2,10 +2,11 @@
 
 import { useCallback, useRef, useState, useTransition, type ChangeEvent } from "react"
 import { toast } from "sonner"
-import { CheckCircle2, Loader2, Upload } from "lucide-react"
+import { CheckCircle2, Loader2, Upload, X } from "lucide-react"
 
 import type { LessonActivity } from "@/types"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { getRichTextMarkup } from "@/components/lessons/activity-view/utils"
 import { ActivityProgressPanel } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/activity-progress-panel"
 
@@ -18,6 +19,7 @@ interface PupilUploadWorksheetActivityProps {
   pupilId: string
   canUpload: boolean
   initialFileName?: string | null
+  initialFileUrl?: string | null
   feedbackAssignmentIds?: string[]
   feedbackLessonId?: string
   feedbackInitiallyVisible?: boolean
@@ -31,6 +33,7 @@ export function PupilUploadWorksheetActivity({
   pupilId,
   canUpload,
   initialFileName = null,
+  initialFileUrl = null,
   feedbackAssignmentIds = [],
   feedbackLessonId,
   feedbackInitiallyVisible = false,
@@ -39,8 +42,10 @@ export function PupilUploadWorksheetActivity({
 }: PupilUploadWorksheetActivityProps) {
   const [isPending, startTransition] = useTransition()
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(initialFileName)
+  const [uploadedFileUrl, setUploadedFileUrl] = useState<string | null>(initialFileUrl)
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null)
   const [isDragActive, setIsDragActive] = useState(false)
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   // Guards against concurrent uploads caused by rapid double-tap or duplicate
   // onChange events, same as pupil-upload-activity.tsx.
@@ -120,7 +125,7 @@ export function PupilUploadWorksheetActivity({
             formData.append("groupAssignmentId", feedbackAssignmentIds[0])
           }
 
-          let result: { success: boolean; error?: string }
+          let result: { success: boolean; error?: string; filePath?: string }
           try {
             const response = await fetch("/api/pupil-submission/upload-worksheet", {
               method: "POST",
@@ -142,6 +147,9 @@ export function PupilUploadWorksheetActivity({
 
           toast.success(`Uploaded ${file.name}`)
           setUploadedFileName(file.name)
+          setUploadedFileUrl(
+            result.filePath ? `/api/files/${result.filePath.split("/").map(encodeURIComponent).join("/")}` : null,
+          )
           setSelectedFileName(null)
         } finally {
           uploadInProgress.current = false
@@ -277,8 +285,18 @@ export function PupilUploadWorksheetActivity({
             </div>
           ) : null}
           {uploadedFileName ? (
-            <div className="flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-800 dark:bg-green-900/20 dark:text-green-100">
-              <CheckCircle2 className="h-4 w-4 shrink-0" />
+            <div className="flex items-center gap-3 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-800 dark:bg-green-900/20 dark:text-green-100">
+              {uploadedFileUrl ? (
+                <button
+                  type="button"
+                  onClick={() => setIsLightboxOpen(true)}
+                  className="h-12 w-12 shrink-0 overflow-hidden rounded border border-green-200 bg-white dark:border-green-800"
+                >
+                  <img src={uploadedFileUrl} alt={uploadedFileName} className="h-full w-full object-cover" loading="lazy" />
+                </button>
+              ) : (
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+              )}
               <span>
                 Uploaded <span className="font-medium">{uploadedFileName}</span>
               </span>
@@ -304,6 +322,30 @@ export function PupilUploadWorksheetActivity({
         modelAnswer={null}
         isMarked={scoreLabel !== "In progress" && scoreLabel !== "No score yet"}
       />
+
+      {uploadedFileUrl ? (
+        <Dialog open={isLightboxOpen} onOpenChange={setIsLightboxOpen}>
+          <DialogContent
+            showCloseButton={false}
+            className="h-[90vh] max-h-[90vh] w-[95vw] max-w-[95vw] p-0 gap-0 flex flex-col sm:max-w-3xl"
+          >
+            <div className="flex items-center justify-between border-b px-4 py-3">
+              <DialogTitle className="text-base font-medium">{uploadedFileName}</DialogTitle>
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => setIsLightboxOpen(false)}>
+                <X className="h-4 w-4" />
+                <span className="sr-only">Close</span>
+              </Button>
+            </div>
+            <div className="flex flex-1 min-h-0 items-center justify-center bg-muted/30 p-4">
+              <img
+                src={uploadedFileUrl}
+                alt={uploadedFileName ?? "Uploaded worksheet"}
+                className="max-h-full max-w-full object-contain rounded-lg"
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
+      ) : null}
     </div>
   )
 }
