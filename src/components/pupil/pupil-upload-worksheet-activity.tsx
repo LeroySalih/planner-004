@@ -62,27 +62,53 @@ export function PupilUploadWorksheetActivity({
         return
       }
 
-      const file = files[0]
+      let file = files[0]
 
-      const lowerName = file.name.toLowerCase()
-      if (!ALLOWED_EXTENSIONS.some((ext) => lowerName.endsWith(ext))) {
-        toast.error(`Upload failed for ${file.name}`, {
-          description: "Only JPEG, PNG, or HEIC photos are allowed.",
-        })
-        uploadInProgress.current = false
-        return
-      }
-
-      if (file.size > MAX_FILE_SIZE_BYTES) {
-        toast.error(`Upload failed for ${file.name}`, {
-          description: "File exceeds 10MB limit.",
-        })
-        uploadInProgress.current = false
-        return
-      }
+      const fileType = file.type.toLowerCase()
+      const fileNameLower = file.name.toLowerCase()
+      const isHeic =
+        fileType === "image/heic" ||
+        fileType === "image/heif" ||
+        fileNameLower.endsWith(".heic") ||
+        fileNameLower.endsWith(".heif")
 
       startTransition(async () => {
         try {
+          if (isHeic) {
+            try {
+              toast.info("Converting photo...")
+              const heic2any = (await import("heic2any")).default
+              const convertedBlob = await heic2any({
+                blob: file,
+                toType: "image/jpeg",
+              })
+
+              const blob = Array.isArray(convertedBlob) ? convertedBlob[0] : convertedBlob
+              file = new File([blob], file.name.replace(/\.(heic|heif)$/i, ".jpg"), {
+                type: "image/jpeg",
+              })
+            } catch (error) {
+              console.error("[pupil-upload-worksheet] HEIC conversion failed", error)
+              toast.error("Failed to process image. Please try a standard JPEG or PNG.")
+              return
+            }
+          }
+
+          const lowerName = file.name.toLowerCase()
+          if (!ALLOWED_EXTENSIONS.some((ext) => lowerName.endsWith(ext))) {
+            toast.error(`Upload failed for ${file.name}`, {
+              description: "Only JPEG, PNG, or HEIC photos are allowed.",
+            })
+            return
+          }
+
+          if (file.size > MAX_FILE_SIZE_BYTES) {
+            toast.error(`Upload failed for ${file.name}`, {
+              description: "File exceeds 10MB limit.",
+            })
+            return
+          }
+
           setSelectedFileName(file.name)
 
           const formData = new FormData()

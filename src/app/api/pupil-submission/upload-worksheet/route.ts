@@ -11,12 +11,10 @@ import { UploadWorksheetSubmissionBodySchema } from "@/types"
 
 const LESSON_FILES_BUCKET = "lessons"
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
-const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".heic", ".heif"]
+const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png"]
 const ALLOWED_MIME_TYPES = new Set([
   "image/jpeg",
   "image/png",
-  "image/heic",
-  "image/heif",
   // Some browsers/OSes send this generic type instead of a specific image type.
   "application/octet-stream",
 ])
@@ -92,7 +90,7 @@ export async function POST(request: Request) {
   const hasAllowedExtension = ALLOWED_EXTENSIONS.some((ext) => lowerName.endsWith(ext))
   const hasAllowedMime = file.type === "" || ALLOWED_MIME_TYPES.has(file.type)
   if (!hasAllowedExtension || !hasAllowedMime) {
-    return NextResponse.json({ success: false, error: "Only JPEG, PNG, or HEIC photos are allowed" }, { status: 415 })
+    return NextResponse.json({ success: false, error: "Only JPEG or PNG photos are allowed" }, { status: 415 })
   }
 
   if (file.size > MAX_FILE_SIZE_BYTES) {
