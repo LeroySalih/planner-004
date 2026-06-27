@@ -4,6 +4,8 @@ import {
   ShortTextSubmissionBodySchema,
   UploadSpreadsheetActivityBodySchema,
   UploadSpreadsheetSubmissionBodySchema,
+  UploadWorksheetActivityBodySchema,
+  UploadWorksheetSubmissionBodySchema,
 } from "@/types";
 import { invokeAiMarking } from "./ai-marking-client";
 import { parseSpreadsheet } from "@/lib/spreadsheet/parse-xlsx";
@@ -186,7 +188,7 @@ async function processSingleItem(
       throw new Error("Submission or activity context missing");
     }
 
-    const SUPPORTED_TYPES = new Set(["short-text-question", "upload-spreadsheet"]);
+    const SUPPORTED_TYPES = new Set(["short-text-question", "upload-spreadsheet", "upload-worksheet"]);
     if (!SUPPORTED_TYPES.has(context.type as string)) {
       await logQueueEvent(
         "warn",
@@ -241,7 +243,7 @@ async function processSingleItem(
       );
 
       await invokeAiMarking(doParams);
-    } else {
+    } else if (context.type === "upload-spreadsheet") {
       const parsedActivity = UploadSpreadsheetActivityBodySchema.parse(
         context.activity_body,
       );
@@ -283,6 +285,48 @@ async function processSingleItem(
       await logQueueEvent(
         "info",
         `Triggering n8n workflow for spreadsheet submission ${item.submission_id}`,
+      );
+
+      await invokeAiMarking(doParams);
+    } else {
+      const parsedActivity = UploadWorksheetActivityBodySchema.parse(
+        context.activity_body,
+      );
+      const parsedSubmission = UploadWorksheetSubmissionBodySchema.parse(
+        context.submission_body,
+      );
+
+      const storage = createLocalStorageClient("lessons");
+      const { stream, error: streamError } = await storage.getFileStream(
+        parsedSubmission.filePath,
+      );
+      if (streamError || !stream) {
+        throw new Error(
+          `Failed to read worksheet image at ${parsedSubmission.filePath}: ${streamError?.message ?? "no stream"}`,
+        );
+      }
+
+      const chunks: Buffer[] = [];
+      for await (const chunk of stream) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      const buffer = Buffer.concat(chunks);
+      const worksheetImageBase64 = buffer.toString("base64");
+
+      const doParams = {
+        task: parsedActivity.task,
+        marking_guidance: parsedActivity.markingGuidance,
+        WORKSHEET_IMAGE: worksheetImageBase64,
+        webhook_url: effectiveCallbackUrl,
+        group_assignment_id: item.assignment_id,
+        activity_id: context.activity_id as string,
+        pupil_id: context.pupil_id as string,
+        submission_id: item.submission_id,
+      };
+
+      await logQueueEvent(
+        "info",
+        `Triggering n8n workflow for worksheet submission ${item.submission_id}`,
       );
 
       await invokeAiMarking(doParams);

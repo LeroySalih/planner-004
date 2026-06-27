@@ -36,7 +36,18 @@ export interface SpreadsheetMarkingParams {
   submission_id?: string;
 }
 
-export type AiMarkingParams = ShortTextMarkingParams | SpreadsheetMarkingParams;
+export interface WorksheetMarkingParams {
+  task: string;
+  marking_guidance: string;
+  WORKSHEET_IMAGE: string;
+  webhook_url?: string;
+  group_assignment_id?: string;
+  activity_id?: string;
+  pupil_id?: string;
+  submission_id?: string;
+}
+
+export type AiMarkingParams = ShortTextMarkingParams | SpreadsheetMarkingParams | WorksheetMarkingParams;
 
 export interface AiMarkingResult {
   score: number;
