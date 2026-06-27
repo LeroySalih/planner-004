@@ -470,6 +470,24 @@ export default async function PupilLessonFriendlyPage({
   const activityFeedbackMap = new Map<string, string | null>()
   const activityModelAnswerMap = new Map<string, string | null>()
 
+  await Promise.all(
+    [...uploadSpreadsheetActivities, ...uploadWorksheetActivities].map(async (activity) => {
+      const result = await getLatestSubmissionForActivityAction(activity.activity_id, pupilId)
+      if (result.error || !result.data) {
+        return
+      }
+      const extraction = extractScoreFromSubmission(activity.type ?? "", result.data.body, [], {
+        question: null,
+        correctAnswer: null,
+        optionTextMap: undefined,
+      })
+      activityFeedbackMap.set(
+        activity.activity_id,
+        extraction.feedback ?? extraction.autoFeedback ?? null,
+      )
+    }),
+  )
+
   const mcqSubmissionEntries = await Promise.all(
     mcqActivities.map(async (activity) => {
       const mcqBody = getMcqBodyServer(activity)

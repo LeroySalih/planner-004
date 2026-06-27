@@ -1,8 +1,11 @@
 "use client"
 
 import type { ReactNode } from "react"
+import { useMemo } from "react"
+import "katex/dist/katex.min.css"
 
 import { Badge } from "@/components/ui/badge"
+import { renderFeedbackMarkup } from "@/lib/markdown-latex"
 import { useFeedbackVisibility } from "./feedback-visibility-debug"
 
 type ActivityProgressPanelProps = {
@@ -34,6 +37,9 @@ export function ActivityProgressPanel({
   submissionCount,
 }: ActivityProgressPanelProps) {
   const { currentVisible } = useFeedbackVisibility()
+
+  const feedbackMarkup = useMemo(() => renderFeedbackMarkup(feedbackText), [feedbackText])
+  const modelAnswerMarkup = useMemo(() => renderFeedbackMarkup(modelAnswer), [modelAnswer])
 
   if (!show) {
     return null
@@ -72,13 +78,25 @@ export function ActivityProgressPanel({
           <dl className="mt-3 space-y-3">
             <div className="rounded-md bg-muted/50 px-3 py-2">
               <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Feedback</dt>
-              <dd className="mt-1 text-sm text-foreground">{feedbackText || "No feedback yet."}</dd>
+              {feedbackMarkup ? (
+                <dd
+                  className="prose prose-sm mt-1 max-w-none text-sm text-foreground dark:prose-invert"
+                  dangerouslySetInnerHTML={{ __html: feedbackMarkup }}
+                />
+              ) : (
+                <dd className="mt-1 text-sm text-foreground">No feedback yet.</dd>
+              )}
             </div>
             <div className="rounded-md bg-muted/50 px-3 py-2">
               <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Model answer</dt>
-              <dd className="mt-1 text-sm text-foreground">
-                {modelAnswer || "Your teacher hasn’t shared a model answer yet."}
-              </dd>
+              {modelAnswerMarkup ? (
+                <dd
+                  className="prose prose-sm mt-1 max-w-none text-sm text-foreground dark:prose-invert"
+                  dangerouslySetInnerHTML={{ __html: modelAnswerMarkup }}
+                />
+              ) : (
+                <dd className="mt-1 text-sm text-foreground">Your teacher hasn’t shared a model answer yet.</dd>
+              )}
             </div>
           </dl>
           {flagSlot && <div className="mt-3 border-t border-border pt-3">{flagSlot}</div>}
