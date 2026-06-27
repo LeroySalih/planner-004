@@ -97,7 +97,7 @@ export function PupilUploadWorksheetActivity({
           const lowerName = file.name.toLowerCase()
           if (!ALLOWED_EXTENSIONS.some((ext) => lowerName.endsWith(ext))) {
             toast.error(`Upload failed for ${file.name}`, {
-              description: "Only JPEG, PNG, or HEIC photos are allowed.",
+              description: "Only JPEG or PNG photos are allowed.",
             })
             return
           }
