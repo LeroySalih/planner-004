@@ -18,6 +18,7 @@ import {
   ShortTextSubmissionBodySchema,
   UploadSpreadsheetActivityBodySchema,
   UploadUrlActivityBodySchema,
+  UploadWorksheetActivityBodySchema,
 } from "@/types";
 import { query } from "@/lib/db";
 import { createLocalStorageClient } from "@/lib/storage/local-storage";
@@ -596,6 +597,13 @@ export async function readAssignmentResultsAction(
             question = extractUploadInstructions(activity.body_data);
           } else if (type === "upload-spreadsheet") {
             const parsedBody = UploadSpreadsheetActivityBodySchema.safeParse(
+              activity.body_data,
+            );
+            if (parsedBody.success) {
+              question = normaliseRichText(parsedBody.data.task);
+            }
+          } else if (type === "upload-worksheet") {
+            const parsedBody = UploadWorksheetActivityBodySchema.safeParse(
               activity.body_data,
             );
             if (parsedBody.success) {
