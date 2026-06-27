@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   ShortTextSubmissionBodySchema,
   UploadSpreadsheetSubmissionBodySchema,
+  UploadWorksheetSubmissionBodySchema,
 } from "@/types";
 import {
   clampScore,
@@ -23,9 +24,14 @@ export const dynamic = "force-dynamic";
 
 const SHORT_TEXT_ACTIVITY_TYPE = "short-text-question";
 const UPLOAD_SPREADSHEET_ACTIVITY_TYPE = "upload-spreadsheet";
+const UPLOAD_WORKSHEET_ACTIVITY_TYPE = "upload-worksheet";
 const AI_MARKABLE_ACTIVITY_TYPES = new Set([
   SHORT_TEXT_ACTIVITY_TYPE,
   UPLOAD_SPREADSHEET_ACTIVITY_TYPE,
+]);
+const FILE_SUBMISSION_ACTIVITY_TYPES = new Set([
+  UPLOAD_SPREADSHEET_ACTIVITY_TYPE,
+  UPLOAD_WORKSHEET_ACTIVITY_TYPE,
 ]);
 const SHORT_TEXT_CORRECTNESS_THRESHOLD = 0.8;
 
@@ -341,14 +347,14 @@ export async function POST(request: Request) {
           );
           summary.skipped += 1;
         }
-      } else if (activityRow.type === UPLOAD_SPREADSHEET_ACTIVITY_TYPE) {
+      } else if (FILE_SUBMISSION_ACTIVITY_TYPES.has(activityRow.type ?? "")) {
         console.warn(
-          "[ai-mark-webhook] Skipping auto-creation of upload-spreadsheet submission: no existing submission with filePath/fileName found.",
+          `[ai-mark-webhook] Skipping auto-creation of ${activityRow.type} submission: no existing submission with filePath/fileName found.`,
           { activityId: parsed.data.activity_id, pupilId: resultPupilId },
         );
         await logQueueEvent(
           "warn",
-          `Skipped creating upload-spreadsheet submission for pupil ${resultPupilId}: no existing submission (filePath/fileName required, cannot be fabricated)`,
+          `Skipped creating ${activityRow.type} submission for pupil ${resultPupilId}: no existing submission (filePath/fileName required, cannot be fabricated)`,
           { activityId: parsed.data.activity_id, pupilId: resultPupilId },
         );
         summary.skipped += 1;
@@ -482,21 +488,23 @@ async function applyAiMarkToSubmission({
 }): Promise<
   { updated: boolean; payload: AssignmentResultsRealtimePayload | null }
 > {
-  const isUploadSpreadsheet = activityType === UPLOAD_SPREADSHEET_ACTIVITY_TYPE;
-  const submissionSchema = isUploadSpreadsheet
-    ? UploadSpreadsheetSubmissionBodySchema
-    : ShortTextSubmissionBodySchema;
+  const isFileSubmission = FILE_SUBMISSION_ACTIVITY_TYPES.has(activityType ?? "");
+  const submissionSchema = activityType === UPLOAD_WORKSHEET_ACTIVITY_TYPE
+    ? UploadWorksheetSubmissionBodySchema
+    : activityType === UPLOAD_SPREADSHEET_ACTIVITY_TYPE
+      ? UploadSpreadsheetSubmissionBodySchema
+      : ShortTextSubmissionBodySchema;
 
   const parsedBody = submissionSchema.safeParse(
     submission.body ?? {},
   );
-  if (!parsedBody.success && isUploadSpreadsheet) {
-    // upload-spreadsheet requires filePath/fileName, which cannot be
-    // fabricated here — an existing submission missing them indicates
-    // corrupted data, so surface a clear error instead of writing a body
-    // with empty file fields.
+  if (!parsedBody.success && isFileSubmission) {
+    // upload-spreadsheet/upload-worksheet require filePath/fileName, which
+    // cannot be fabricated here — an existing submission missing them
+    // indicates corrupted data, so surface a clear error instead of writing
+    // a body with empty file fields.
     throw new Error(
-      `Existing upload-spreadsheet submission ${submission.submission_id} has an invalid body (missing filePath/fileName).`,
+      `Existing ${activityType} submission ${submission.submission_id} has an invalid body (missing filePath/fileName).`,
     );
   }
   const baseBody = parsedBody.success
@@ -522,7 +530,7 @@ async function applyAiMarkToSubmission({
 
   const nextBody = submissionSchema.parse({
     ...baseBody,
-    ...(isUploadSpreadsheet
+    ...(isFileSubmission
       ? {}
       : { answer: (baseBody as { answer?: string }).answer ?? answerFallback ?? "" }),
     ai_model_score: aiScore,
