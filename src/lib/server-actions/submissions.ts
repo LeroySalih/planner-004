@@ -15,6 +15,7 @@ import {
   type Submission,
   SubmissionSchema,
   UploadSpreadsheetSubmissionBodySchema,
+  UploadWorksheetSubmissionBodySchema,
 } from "@/types";
 import { query } from "@/lib/db";
 import { isScorableActivityType } from "@/dino.config";
@@ -501,10 +502,16 @@ export async function readLessonSubmissionSummariesAction(
             }
           }
         }
-      } else if (activityType === "upload-spreadsheet") {
+      } else if (
+        activityType === "upload-spreadsheet" ||
+        activityType === "upload-worksheet"
+      ) {
+        const submissionBodySchema = activityType === "upload-worksheet"
+          ? UploadWorksheetSubmissionBodySchema
+          : UploadSpreadsheetSubmissionBodySchema;
         const scoreEntries = submissionList
           .map((submission) => {
-            const parsedSubmission = UploadSpreadsheetSubmissionBodySchema.safeParse(
+            const parsedSubmission = submissionBodySchema.safeParse(
               submission.body,
             );
             if (!parsedSubmission.success) {

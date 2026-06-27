@@ -9,6 +9,7 @@ import {
   ShortTextSubmissionBodySchema,
   UploadSpreadsheetSubmissionBodySchema,
   UploadUrlSubmissionBodySchema,
+  UploadWorksheetSubmissionBodySchema,
 } from "@/types";
 import { clampScore, normaliseSuccessCriteriaScores } from "@/lib/scoring/client-success-criteria";
 
@@ -481,8 +482,11 @@ export function extractScoreFromSubmission(
     };
   }
 
-  if (activityType === "upload-spreadsheet") {
-    const parsed = UploadSpreadsheetSubmissionBodySchema.safeParse(submissionBody);
+  if (activityType === "upload-spreadsheet" || activityType === "upload-worksheet") {
+    const submissionBodySchema = activityType === "upload-worksheet"
+      ? UploadWorksheetSubmissionBodySchema
+      : UploadSpreadsheetSubmissionBodySchema;
+    const parsed = submissionBodySchema.safeParse(submissionBody);
     const fallbackScores = normaliseSuccessCriteriaScores({
       successCriteriaIds,
       fillValue: 0,
