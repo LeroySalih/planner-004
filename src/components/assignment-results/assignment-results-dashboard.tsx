@@ -425,7 +425,7 @@ function isImageFile(filename: string): boolean {
 
 // Activity types whose pupil response is a downloadable file in storage,
 // listed/signed via listPupilActivitySubmissionsAction / getPupilActivitySubmissionUrlAction.
-const UPLOAD_LISTING_ACTIVITY_TYPES = new Set(["upload-file", "upload-spreadsheet"])
+const UPLOAD_LISTING_ACTIVITY_TYPES = new Set(["upload-file", "upload-spreadsheet", "upload-worksheet"])
 
 function isUploadListingActivityType(type: string): boolean {
   return UPLOAD_LISTING_ACTIVITY_TYPES.has(type)
@@ -3583,7 +3583,8 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                     <TabsList className="w-full">
                       <TabsTrigger value="override" className="flex-1">Override</TabsTrigger>
                       {(selection.activity.type === "short-text-question" ||
-                        selection.activity.type === "upload-spreadsheet") && (
+                        selection.activity.type === "upload-spreadsheet" ||
+                        selection.activity.type === "upload-worksheet") && (
                         <TabsTrigger value="auto" className="flex-1">Automatic score</TabsTrigger>
                       )}
                     </TabsList>
