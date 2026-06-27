@@ -35,7 +35,7 @@ import { Button } from "@/components/ui/button"
 import { StartRevisionButton } from "@/components/revisions/start-revision-button"
 import { PupilUploadActivity } from "@/components/pupil/pupil-upload-activity"
 import { PupilUploadSpreadsheetActivity } from "@/components/pupil/pupil-upload-spreadsheet-activity"
-// ...
+import { PupilUploadWorksheetActivity } from "@/components/pupil/pupil-upload-worksheet-activity"
 
 
 import { PupilMcqActivity } from "@/components/pupil/pupil-mcq-activity"
@@ -438,6 +438,17 @@ export default async function PupilLessonFriendlyPage({
     }),
   )
   const uploadSpreadsheetFileNameMap = new Map(uploadSpreadsheetFileNameEntries)
+
+  const uploadWorksheetActivities = activities.filter((activity) => activity.type === "upload-worksheet")
+  const uploadWorksheetFileNameEntries = await Promise.all(
+    uploadWorksheetActivities.map(async (activity) => {
+      const result = await getLatestSubmissionForActivityAction(activity.activity_id, pupilId)
+      const body = (result.data?.body ?? null) as { fileName?: string } | null
+      const fileName = typeof body?.fileName === "string" && body.fileName.trim().length > 0 ? body.fileName : null
+      return [activity.activity_id, fileName] as const
+    }),
+  )
+  const uploadWorksheetFileNameMap = new Map(uploadWorksheetFileNameEntries)
 
   // Load share-my-work submissions (own files for each activity)
   type ShareMyWorkData = { submissionId: string | null; files: Array<{ fileId: string; fileName: string; mimeType: string; order: number }> }
@@ -1019,6 +1030,19 @@ export default async function PupilLessonFriendlyPage({
                           pupilId={pupilId}
                           canUpload={isPupilViewer}
                           initialFileName={uploadSpreadsheetFileNameMap.get(activity.activity_id) ?? null}
+                          feedbackAssignmentIds={assignmentIds}
+                          feedbackLessonId={lesson.lesson_id}
+                          feedbackInitiallyVisible={initialFeedbackVisible}
+                          scoreLabel={formatScoreLabel(rawScore)}
+                          feedbackText={feedbackText}
+                        />
+                      ) : activity.type === "upload-worksheet" ? (
+                        <PupilUploadWorksheetActivity
+                          lessonId={lesson.lesson_id}
+                          activity={activity}
+                          pupilId={pupilId}
+                          canUpload={isPupilViewer}
+                          initialFileName={uploadWorksheetFileNameMap.get(activity.activity_id) ?? null}
                           feedbackAssignmentIds={assignmentIds}
                           feedbackLessonId={lesson.lesson_id}
                           feedbackInitiallyVisible={initialFeedbackVisible}
