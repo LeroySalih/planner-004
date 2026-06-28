@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import {
   createMarkingGuidanceAction,
   updateMarkingGuidanceAction,
@@ -10,6 +11,7 @@ import {
 import type { MarkingGuidance, Subject } from '@/types'
 import { Button } from '@/components/ui/button'
 import { RichTextEditor } from '@/components/ui/rich-text-editor'
+import { getRichTextMarkup } from '@/components/lessons/activity-view/utils'
 
 type Props = {
   subjects: Subject[]
@@ -31,8 +33,21 @@ export function MarkingGuidanceManager({ subjects, initialGuidances }: Props) {
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
   const [saving, setSaving] = useState(false)
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
 
   const activeSubjects = useMemo(() => subjects.filter((s) => s.active), [subjects])
+
+  function toggleExpanded(id: string) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }
 
   function resetForm() {
     setEditingId(null)
@@ -151,33 +166,53 @@ export function MarkingGuidanceManager({ subjects, initialGuidances }: Props) {
         {guidances.length === 0 && (
           <p className="px-4 py-3 text-sm text-[var(--color-text-secondary)]">No marking guidances configured.</p>
         )}
-        {guidances.map((g) => (
-          <div key={g.id} className="flex items-center justify-between px-4 py-3 gap-4">
-            <div className="flex items-center gap-3 flex-1 min-w-0">
-              <span className="text-xs rounded-full bg-[var(--color-background-secondary)] border border-[var(--color-border)] px-2 py-0.5 text-[var(--color-text-tertiary)]">
-                {g.subject}
-              </span>
-              <span
-                className={`text-sm font-medium ${g.active ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)] line-through'}`}
-              >
-                {g.title}
-              </span>
-              {!g.active && (
-                <span className="text-xs rounded-full bg-[var(--color-background-secondary)] border border-[var(--color-border)] px-2 py-0.5 text-[var(--color-text-tertiary)]">
-                  inactive
-                </span>
+        {guidances.map((g) => {
+          const isExpanded = expandedIds.has(g.id)
+          return (
+            <div key={g.id}>
+              <div className="flex items-center justify-between px-4 py-3 gap-4">
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => toggleExpanded(g.id)}
+                    aria-label={isExpanded ? 'Hide details' : 'Show details'}
+                    aria-expanded={isExpanded}
+                    className="shrink-0 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+                  >
+                    {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                  </button>
+                  <span className="text-xs rounded-full bg-[var(--color-background-secondary)] border border-[var(--color-border)] px-2 py-0.5 text-[var(--color-text-tertiary)]">
+                    {g.subject}
+                  </span>
+                  <span
+                    className={`text-sm font-medium ${g.active ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-tertiary)] line-through'}`}
+                  >
+                    {g.title}
+                  </span>
+                  {!g.active && (
+                    <span className="text-xs rounded-full bg-[var(--color-background-secondary)] border border-[var(--color-border)] px-2 py-0.5 text-[var(--color-text-tertiary)]">
+                      inactive
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button size="sm" variant="ghost" onClick={() => startEdit(g)}>
+                    Edit
+                  </Button>
+                  <Button size="sm" variant={g.active ? 'ghost' : 'outline'} onClick={() => handleToggleActive(g)}>
+                    {g.active ? 'Deactivate' : 'Activate'}
+                  </Button>
+                </div>
+              </div>
+              {isExpanded && (
+                <div
+                  className="px-4 pb-3 pl-11 prose prose-sm max-w-none dark:prose-invert text-[var(--color-text-secondary)]"
+                  dangerouslySetInnerHTML={{ __html: getRichTextMarkup(g.content) ?? '' }}
+                />
               )}
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <Button size="sm" variant="ghost" onClick={() => startEdit(g)}>
-                Edit
-              </Button>
-              <Button size="sm" variant={g.active ? 'ghost' : 'outline'} onClick={() => handleToggleActive(g)}>
-                {g.active ? 'Deactivate' : 'Activate'}
-              </Button>
-            </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )

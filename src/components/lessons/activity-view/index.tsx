@@ -358,14 +358,14 @@ function ActivityShortView({
     const markup = getRichTextMarkup(uploadWorksheet.task)
     content = markup ? (
       <div className="space-y-1">
-        <p className="text-xs font-semibold uppercase tracking-wide text-primary">Upload worksheet</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-primary">Upload exam question</p>
         <div
           className="prose prose-sm line-clamp-3 max-w-none dark:prose-invert text-muted-foreground"
           dangerouslySetInnerHTML={{ __html: markup }}
         />
       </div>
     ) : (
-      <p className="text-sm text-muted-foreground">Upload worksheet task awaiting setup.</p>
+      <p className="text-sm text-muted-foreground">Upload exam question task awaiting setup.</p>
     )
   } else if (activity.type === "feedback") {
     const feedback = getFeedbackBody(activity)
@@ -1288,7 +1288,7 @@ function ActivityPresentView({
 
         <div className="space-y-2">
           <p className="text-sm text-muted-foreground">
-            Share any reference files pupils should download before uploading their worksheet photo.
+            Share any reference files pupils should download before uploading their exam question photo.
           </p>
           {files.length === 0 ? (
             <p className="text-sm text-muted-foreground">No files attached yet.</p>
@@ -1315,7 +1315,7 @@ function ActivityPresentView({
         </div>
 
         <p className="text-xs text-muted-foreground">
-          Pupils can upload a photo of their completed worksheet from the student lesson page. Their photo is saved under this activity.
+          Pupils can upload a photo of their completed exam question from the student lesson page. Their photo is saved under this activity.
         </p>
       </div>
     )

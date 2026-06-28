@@ -94,7 +94,7 @@ const ACTIVITY_TYPES = [
   { value: "upload-file", label: "Upload file" },
   { value: "upload-url", label: "Upload URL" },
   { value: "upload-spreadsheet", label: "Upload spreadsheet" },
-  { value: "upload-worksheet", label: "Upload worksheet" },
+  { value: "upload-worksheet", label: "Upload exam question" },
   { value: "display-image", label: "Display image" },
   { value: "display-flashcards", label: "Flashcards" },
   { value: "display-section", label: "Display Section" },
@@ -4315,7 +4315,7 @@ function LessonActivityEditorSheet({
                   value={uploadWorksheetBody.task}
                   onChange={handleUploadWorksheetTaskChange}
                   onBlur={handleUploadWorksheetCommit}
-                  placeholder="Describe the worksheet task for pupils"
+                  placeholder="Describe the exam question task for pupils"
                   disabled={isPending}
                 />
               </div>
@@ -4370,7 +4370,7 @@ function LessonActivityEditorSheet({
                 />
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
-                Marking guidance is not shown to the pupil — it is sent to the AI to mark the uploaded worksheet photo.
+                Marking guidance is not shown to the pupil — it is sent to the AI to mark the uploaded exam question photo.
               </p>
               {uploadWorksheetValidationMessage ? (
                 <p className="mt-1 text-xs text-destructive">{uploadWorksheetValidationMessage}</p>

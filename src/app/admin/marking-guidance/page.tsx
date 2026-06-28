@@ -13,7 +13,7 @@ export default async function MarkingGuidancePage() {
         <h1 className="text-xl font-semibold text-[var(--color-text-primary)]">Marking Guidance</h1>
         <p className="text-sm text-[var(--color-text-secondary)] mt-1">
           Define reusable marking guidance templates per subject. Teachers can select one when configuring an Upload
-          Worksheet activity.
+          Exam Question activity.
         </p>
       </div>
       <MarkingGuidanceManager subjects={subjects ?? []} initialGuidances={guidances ?? []} />

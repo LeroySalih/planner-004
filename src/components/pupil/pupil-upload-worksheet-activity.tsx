@@ -207,7 +207,7 @@ export function PupilUploadWorksheetActivity({
               <h3 className="text-base font-semibold text-foreground">{activity.title}</h3>
             </div>
           </div>
-          <span className="text-xs font-medium uppercase tracking-wide text-primary">Upload worksheet</span>
+          <span className="text-xs font-medium uppercase tracking-wide text-primary">Upload exam question</span>
         </div>
       </div>
 
@@ -221,7 +221,7 @@ export function PupilUploadWorksheetActivity({
       {canUpload ? (
         <div className="space-y-3">
           <label className="text-sm font-medium text-foreground" htmlFor={`upload-worksheet-${activity.activity_id}`}>
-            Upload a photo of your completed worksheet
+            Upload a photo of your completed exam question
           </label>
           <div
             onDragOver={handleDragOver}
@@ -339,7 +339,7 @@ export function PupilUploadWorksheetActivity({
             <div className="flex flex-1 min-h-0 items-center justify-center bg-muted/30 p-4">
               <img
                 src={uploadedFileUrl}
-                alt={uploadedFileName ?? "Uploaded worksheet"}
+                alt={uploadedFileName ?? "Uploaded exam question"}
                 className="max-h-full max-w-full object-contain rounded-lg"
               />
             </div>
