@@ -5,6 +5,7 @@ import { LessonDetailClient } from "@/components/lessons/lesson-detail-client"
 import { PublicLessonView } from "@/components/public/PublicLessonView"
 import { PublicLessonNav } from "@/components/public/PublicLessonNav"
 import {
+  readActiveMarkingGuidancesForSubjectAction,
   readAllLearningObjectivesAction,
   readLessonDetailBootstrapAction,
   readLessonReferenceDataAction,
@@ -133,6 +134,11 @@ export default async function LessonDetailPage({
     unitId: lesson.unit_id,
   })
 
+  const lessonSubject = lessonPayload?.unit?.subject ?? null
+  const markingGuidancesResult = lessonSubject
+    ? await readActiveMarkingGuidancesForSubjectAction(lessonSubject)
+    : { data: [], error: null }
+
   if (referenceResult.error || learningObjectivesResult.error) {
     return (
       <div className="container mx-auto space-y-4 p-6">
@@ -190,6 +196,7 @@ export default async function LessonDetailPage({
       lessonFiles={lessonPayload?.lessonFiles ?? []}
       lessonActivities={lessonPayload?.lessonActivities ?? []}
       unitLessons={lessonOptions}
+      availableMarkingGuidances={markingGuidancesResult.data ?? []}
     />
   )
 }

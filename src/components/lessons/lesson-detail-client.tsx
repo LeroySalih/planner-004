@@ -13,6 +13,7 @@ import type {
   LessonActivity,
   LessonSuccessCriterion,
   LessonWithObjectives,
+  MarkingGuidance,
   Unit,
 } from "@/types"
 import {
@@ -62,6 +63,7 @@ interface LessonDetailClientProps {
   }[]
   lessonActivities: LessonActivity[]
   unitLessons: LessonPickerOption[]
+  availableMarkingGuidances: MarkingGuidance[]
 }
 
 export function LessonDetailClient({
@@ -73,6 +75,7 @@ export function LessonDetailClient({
   lessonFiles,
   lessonActivities,
   unitLessons,
+  availableMarkingGuidances,
 }: LessonDetailClientProps) {
   const router = useRouter()
   const [currentLesson, setCurrentLesson] = useState<LessonWithObjectives>(lesson)
@@ -541,6 +544,7 @@ export function LessonDetailClient({
               lessonId={currentLesson.lesson_id}
               initialActivities={lessonActivitiesState}
               availableSuccessCriteria={lessonSuccessCriteria}
+              availableMarkingGuidances={availableMarkingGuidances}
             />
           </CardContent>
         </Card>
