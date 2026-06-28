@@ -10,6 +10,7 @@ import type {
   FeedbackActivityBody,
   FeedbackActivityGroupSettings,
   LessonActivity,
+  MarkingGuidance,
   UploadSpreadsheetActivityBody,
   UploadWorksheetActivityBody,
 } from "@/types"
@@ -130,6 +131,7 @@ interface LessonActivitiesManagerProps {
   lessonId: string
   initialActivities: LessonActivity[]
   availableSuccessCriteria: LessonActivitySuccessCriterionOption[]
+  availableMarkingGuidances: MarkingGuidance[]
 }
 
 export function LessonActivitiesManager({
@@ -137,6 +139,7 @@ export function LessonActivitiesManager({
   lessonId,
   initialActivities,
   availableSuccessCriteria,
+  availableMarkingGuidances,
 }: LessonActivitiesManagerProps) {
   const router = useRouter()
   const [activities, setActivities] = useState<LessonActivity[]>(() => sortActivities(initialActivities))
@@ -1618,6 +1621,7 @@ ${scs[0] ? `SC: ${scs[0].title}` : ""}
         assignedGroups={assignedGroups}
         assignedGroupsLoading={assignedGroupsLoading}
         availableSuccessCriteria={availableSuccessCriteria}
+        availableMarkingGuidances={availableMarkingGuidances}
         onFilePresenceChange={handleFilePresenceChange}
         allActivities={activities}
       />
@@ -1874,6 +1878,7 @@ interface LessonActivityEditorSheetProps {
   assignedGroups: AssignedGroupInfo[]
   assignedGroupsLoading: boolean
   availableSuccessCriteria: LessonActivitySuccessCriterionOption[]
+  availableMarkingGuidances: MarkingGuidance[]
   onFilePresenceChange?: (activityId: string, hasFiles: boolean) => void
   allActivities: LessonActivity[]
 }
@@ -1890,6 +1895,7 @@ function LessonActivityEditorSheet({
   assignedGroups,
   assignedGroupsLoading,
   availableSuccessCriteria,
+  availableMarkingGuidances,
   onFilePresenceChange,
   allActivities,
 }: LessonActivityEditorSheetProps) {
@@ -2252,6 +2258,13 @@ function LessonActivityEditorSheet({
 
   const handleUploadWorksheetMarkingGuidanceChange = useCallback((value: string) => {
     setUploadWorksheetBody((current) => ({ ...current, markingGuidance: value }))
+  }, [])
+
+  const handleUploadWorksheetGuidanceIdChange = useCallback((value: string) => {
+    setUploadWorksheetBody((current) => ({
+      ...current,
+      markingGuidanceId: value === "" ? undefined : value,
+    }))
   }, [])
 
   const handleUploadWorksheetCommit = useCallback(() => {
@@ -4307,15 +4320,52 @@ function LessonActivityEditorSheet({
                 />
               </div>
               <div className="space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground" htmlFor="upload-worksheet-marking-guidance-template">
+                  Marking guidance template (optional)
+                </Label>
+                {(() => {
+                  const selectedGuidanceId = uploadWorksheetBody.markingGuidanceId
+                  const guidanceOptions =
+                    selectedGuidanceId && !availableMarkingGuidances.some((g) => g.id === selectedGuidanceId)
+                      ? [
+                          ...availableMarkingGuidances,
+                          {
+                            id: selectedGuidanceId,
+                            title: "Previously selected guidance",
+                            subject: "",
+                            content: "",
+                            active: false,
+                          },
+                        ]
+                      : availableMarkingGuidances
+                  return (
+                    <select
+                      id="upload-worksheet-marking-guidance-template"
+                      value={uploadWorksheetBody.markingGuidanceId ?? ""}
+                      onChange={(e) => handleUploadWorksheetGuidanceIdChange(e.target.value)}
+                      disabled={isPending}
+                      className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                    >
+                      <option value="">None</option>
+                      {guidanceOptions.map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {g.title}{g.active ? "" : " (inactive)"}
+                        </option>
+                      ))}
+                    </select>
+                  )
+                })()}
+              </div>
+              <div className="space-y-2">
                 <Label className="text-xs font-medium text-muted-foreground" htmlFor="upload-worksheet-marking-guidance">
-                  Marking guidance (required)
+                  Additional marking guidance (optional if a template is selected)
                 </Label>
                 <RichTextEditor
                   id="upload-worksheet-marking-guidance"
                   value={uploadWorksheetBody.markingGuidance}
                   onChange={handleUploadWorksheetMarkingGuidanceChange}
                   onBlur={handleUploadWorksheetCommit}
-                  placeholder="Describe how the AI should mark the worksheet photo"
+                  placeholder="Add any additional guidance the AI should follow"
                   disabled={isPending}
                 />
               </div>
@@ -4824,6 +4874,7 @@ function createDefaultUploadWorksheetBody(): UploadWorksheetActivityBody {
   return {
     task: "",
     markingGuidance: "",
+    markingGuidanceId: undefined,
   }
 }
 
@@ -4836,11 +4887,14 @@ function getUploadWorksheetBody(activity: LessonActivity): UploadWorksheetActivi
   const task = typeof record.task === "string" ? record.task : ""
   const markingGuidance =
     typeof record.markingGuidance === "string" ? record.markingGuidance : ""
+  const markingGuidanceId =
+    typeof record.markingGuidanceId === "string" ? record.markingGuidanceId : undefined
 
   return {
     ...(record as Record<string, unknown>),
     task,
     markingGuidance,
+    markingGuidanceId,
   } as UploadWorksheetActivityBody
 }
 
@@ -4854,11 +4908,16 @@ function normalizeUploadWorksheetBody(
   const task = typeof body.task === "string" ? body.task.trim() : ""
   const markingGuidance =
     typeof body.markingGuidance === "string" ? body.markingGuidance.trim() : ""
+  const markingGuidanceId =
+    typeof body.markingGuidanceId === "string" && body.markingGuidanceId.length > 0
+      ? body.markingGuidanceId
+      : undefined
 
   return {
     ...(body as Record<string, unknown>),
     task,
     markingGuidance,
+    markingGuidanceId,
   } as UploadWorksheetActivityBody
 }
 
@@ -4870,8 +4929,9 @@ function validateUploadWorksheetBody(body: UploadWorksheetActivityBody): string 
 
   const markingGuidance =
     typeof body.markingGuidance === "string" ? body.markingGuidance.trim() : ""
-  if (!markingGuidance) {
-    return "Marking guidance is required."
+  const hasGuidanceId = typeof body.markingGuidanceId === "string" && body.markingGuidanceId.length > 0
+  if (!markingGuidance && !hasGuidanceId) {
+    return "Add marking guidance text or select a marking guidance template."
   }
 
   return null
