@@ -75,16 +75,20 @@ export function MarkingGuidanceManager({ subjects, initialGuidances }: Props) {
       toast.error('Select a subject')
       return
     }
-    const { error } = await createMarkingGuidanceAction({ subject, title: trimmedTitle, content: trimmedContent })
+    const { data, error } = await createMarkingGuidanceAction({ subject, title: trimmedTitle, content: trimmedContent })
     setSaving(false)
     if (error) {
       toast.error(error)
       return
     }
+    if (!data) {
+      toast.error('Failed to create guidance: no id returned')
+      return
+    }
     setGuidances((prev) =>
       sortGuidances([
         ...prev,
-        { id: crypto.randomUUID(), subject, title: trimmedTitle, content: trimmedContent, active: true },
+        { id: data.id, subject, title: trimmedTitle, content: trimmedContent, active: true },
       ]),
     )
     toast.success(`Added ${trimmedTitle}`)

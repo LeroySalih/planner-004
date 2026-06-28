@@ -16,6 +16,11 @@ const MarkingGuidanceWriteResult = z.object({
   error: z.string().nullable(),
 })
 
+const MarkingGuidanceCreateResult = z.object({
+  data: z.object({ id: z.string() }).nullable(),
+  error: z.string().nullable(),
+})
+
 function toMarkingGuidance(row: Record<string, unknown>) {
   return MarkingGuidanceSchema.parse({
     id: row.id,
@@ -65,22 +70,22 @@ export async function createMarkingGuidanceAction(input: {
   subject: string
   title: string
   content: string
-}): Promise<z.infer<typeof MarkingGuidanceWriteResult>> {
+}): Promise<z.infer<typeof MarkingGuidanceCreateResult>> {
   try {
     await requireRole("admin")
     const subject = input.subject.trim()
     const title = input.title.trim()
     const content = input.content.trim()
     if (!subject || !title || !content) {
-      return MarkingGuidanceWriteResult.parse({ data: null, error: "Subject, title and content are required." })
+      return MarkingGuidanceCreateResult.parse({ data: null, error: "Subject, title and content are required." })
     }
-    await query(
-      `INSERT INTO marking_guidances (subject, title, content, active) VALUES ($1, $2, $3, true)`,
+    const { rows } = await query<{ id: string }>(
+      `INSERT INTO marking_guidances (subject, title, content, active) VALUES ($1, $2, $3, true) RETURNING id`,
       [subject, title, content],
     )
-    return MarkingGuidanceWriteResult.parse({ data: null, error: null })
+    return MarkingGuidanceCreateResult.parse({ data: { id: rows[0].id }, error: null })
   } catch (e) {
-    return MarkingGuidanceWriteResult.parse({ data: null, error: String(e) })
+    return MarkingGuidanceCreateResult.parse({ data: null, error: String(e) })
   }
 }
 
