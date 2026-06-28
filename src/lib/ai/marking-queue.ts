@@ -11,6 +11,27 @@ import { invokeAiMarking } from "./ai-marking-client";
 import { parseSpreadsheet } from "@/lib/spreadsheet/parse-xlsx";
 import { createLocalStorageClient } from "@/lib/storage/local-storage";
 
+async function resolveUploadWorksheetMarkingGuidance(
+  markingGuidance: string,
+  markingGuidanceId: string | undefined,
+): Promise<string> {
+  if (!markingGuidanceId) {
+    return markingGuidance;
+  }
+
+  const { rows } = await query<{ content: string }>(
+    `SELECT content FROM marking_guidances WHERE id = $1`,
+    [markingGuidanceId],
+  );
+
+  const guidanceContent = rows[0]?.content;
+  if (!guidanceContent) {
+    return markingGuidance;
+  }
+
+  return [guidanceContent, markingGuidance].filter((part) => part.trim().length > 0).join("\n\n");
+}
+
 export async function logQueueEvent(
   level: "info" | "warn" | "error",
   message: string,
@@ -313,9 +334,14 @@ async function processSingleItem(
       const buffer = Buffer.concat(chunks);
       const worksheetImageBase64 = buffer.toString("base64");
 
+      const resolvedMarkingGuidance = await resolveUploadWorksheetMarkingGuidance(
+        parsedActivity.markingGuidance,
+        parsedActivity.markingGuidanceId,
+      );
+
       const doParams = {
         task: parsedActivity.task,
-        marking_guidance: parsedActivity.markingGuidance,
+        marking_guidance: resolvedMarkingGuidance,
         WORKSHEET_IMAGE: worksheetImageBase64,
         webhook_url: effectiveCallbackUrl,
         group_assignment_id: item.assignment_id,
