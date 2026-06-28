@@ -1,5 +1,7 @@
 "use client"
 
+import "katex/dist/katex.min.css"
+
 import { useActionState, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -39,6 +41,7 @@ import {
   normaliseSuccessCriteriaScores,
 } from "@/lib/scoring/client-success-criteria"
 import { getRichTextMarkup } from "@/components/lessons/activity-view/utils"
+import { renderFeedbackMarkup } from "@/lib/markdown-latex"
 import {
   ASSIGNMENT_FEEDBACK_VISIBILITY_EVENT,
   ASSIGNMENT_RESULTS_UPDATE_EVENT,
@@ -456,6 +459,10 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
   })
   const [feedbackVisible, setFeedbackVisible] = useState<boolean>(matrix.assignment?.feedbackVisible ?? false)
   const [selection, setSelection] = useState<CellSelection | null>(null)
+  const autoFeedbackMarkup = useMemo(
+    () => renderFeedbackMarkup(selection?.cell.autoFeedback),
+    [selection?.cell.autoFeedback],
+  )
   const [activitySummarySelection, setActivitySummarySelection] = useState<string | null>(null)
   const [criterionDrafts, setCriterionDrafts] = useState<Record<string, string>>({})
   const [overallScoreDraft, setOverallScoreDraft] = useState<string>("")
@@ -2815,13 +2822,16 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                         <p className="text-xs font-semibold uppercase tracking-wide text-primary">
                           Automatic feedback
                         </p>
-                        <p className="text-sm text-foreground">
-                          {selection.cell.needsMarking
-                            ? "Not Yet Marked"
-                            : selection.cell.autoFeedback?.trim()
-                              ? selection.cell.autoFeedback
-                              : "No automatic feedback available."}
-                        </p>
+                        {selection.cell.needsMarking ? (
+                          <p className="text-sm text-foreground">Not Yet Marked</p>
+                        ) : autoFeedbackMarkup ? (
+                          <div
+                            className="prose prose-sm mt-1 max-w-none text-sm text-foreground dark:prose-invert"
+                            dangerouslySetInnerHTML={{ __html: autoFeedbackMarkup }}
+                          />
+                        ) : (
+                          <p className="text-sm text-foreground">No automatic feedback available.</p>
+                        )}
                       </div>
                     </div>
                   </TabsContent>
@@ -3852,11 +3862,14 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                           <p className="text-xs font-semibold uppercase tracking-wide text-primary">
                             Automatic feedback
                           </p>
-                          <p className="text-sm text-foreground">
-                            {selection.cell.autoFeedback?.trim()
-                              ? selection.cell.autoFeedback
-                              : "No automatic feedback available."}
-                          </p>
+                          {autoFeedbackMarkup ? (
+                            <div
+                              className="prose prose-sm mt-1 max-w-none text-sm text-foreground dark:prose-invert"
+                              dangerouslySetInnerHTML={{ __html: autoFeedbackMarkup }}
+                            />
+                          ) : (
+                            <p className="text-sm text-foreground">No automatic feedback available.</p>
+                          )}
                         </div>
                       </div>
                     </TabsContent>
