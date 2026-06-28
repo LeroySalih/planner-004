@@ -111,6 +111,14 @@ export {
 } from "./server-actions/subjects";
 
 export {
+  readMarkingGuidancesAction,
+  readActiveMarkingGuidancesForSubjectAction,
+  createMarkingGuidanceAction,
+  updateMarkingGuidanceAction,
+  setMarkingGuidanceActiveAction,
+} from "./server-actions/marking-guidance";
+
+export {
   readTeacherSubjectsAction,
   readAllTeacherSubjectsAction,
   updateTeacherSubjectsAction,
