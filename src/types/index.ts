@@ -30,6 +30,20 @@ export const SubjectsSchema = z.array(SubjectSchema);
 export type Subject = z.infer<typeof SubjectSchema>;
 export type Subjects = z.infer<typeof SubjectsSchema>;
 
+export const MarkingGuidanceSchema = z.object({
+    id: z.string(),
+    subject: z.string().min(1).max(255),
+    title: z.string().min(1),
+    content: z.string().min(1),
+    active: z.boolean().default(true),
+    createdAt: z.string().optional(),
+});
+
+export const MarkingGuidancesSchema = z.array(MarkingGuidanceSchema);
+
+export type MarkingGuidance = z.infer<typeof MarkingGuidanceSchema>;
+export type MarkingGuidances = z.infer<typeof MarkingGuidancesSchema>;
+
 export const FastUiJobStatusSchema = z.enum(["queued", "completed", "error"]);
 
 export const FastUiRealtimePayloadSchema = z.object({
@@ -594,9 +608,14 @@ export type UploadSpreadsheetSubmissionBody = z.infer<
 export const UploadWorksheetActivityBodySchema = z
     .object({
         task: z.string().min(1),
-        markingGuidance: z.string().min(1),
+        markingGuidance: z.string().optional().default(""),
+        markingGuidanceId: z.string().optional(),
     })
-    .passthrough();
+    .passthrough()
+    .refine(
+        (body) => body.markingGuidance.trim().length > 0 || !!body.markingGuidanceId,
+        { message: "Provide marking guidance text or select a marking guidance template.", path: ["markingGuidance"] },
+    );
 
 export const UploadWorksheetSubmissionBodySchema = z
     .object({
