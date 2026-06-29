@@ -1080,6 +1080,8 @@ export const AssignmentResultActivitySchema = z.object({
     isSummative: z.boolean().nullish().transform((value) => value ?? false),
     successCriteria: z.array(AssignmentResultActivitySuccessCriterionSchema)
         .default([]),
+    markingGuidance: z.string().nullable().optional(),
+    subjectGuidance: z.string().nullable().optional(),
 });
 
 export const AssignmentResultCellSchema = z.object({

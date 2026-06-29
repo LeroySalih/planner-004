@@ -434,7 +434,13 @@ function isUploadListingActivityType(type: string): boolean {
   return UPLOAD_LISTING_ACTIVITY_TYPES.has(type)
 }
 
-export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResultMatrix }) {
+export function AssignmentResultsDashboard({
+  matrix,
+  isAdmin = false,
+}: {
+  matrix: AssignmentResultMatrix
+  isAdmin?: boolean
+}) {
   const [matrixState, setMatrixState] = useState<MatrixWithState>(() => {
     // Ensure initial rows have correct needsMarking state
     const processedRows = matrix.rows.map((row) => ({
@@ -767,6 +773,27 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
       }
     })
   }, [selection, matrixState.assignmentId, startAiMarkTransition])
+
+  const handleCopyToLlm = useCallback(() => {
+    if (!selection) {
+      toast.error("No selection to copy.")
+      return
+    }
+
+    const sections = [
+      `Question:\n${selection.cell.question ?? "No question text available."}`,
+    ]
+    if (selection.activity.subjectGuidance) {
+      sections.push(`Subject Guidance:\n${selection.activity.subjectGuidance}`)
+    }
+    if (selection.activity.markingGuidance) {
+      sections.push(`Marking Guidance:\n${selection.activity.markingGuidance}`)
+    }
+
+    navigator.clipboard.writeText(sections.join("\n\n"))
+      .then(() => toast.success("Copied question and guidance to clipboard."))
+      .catch(() => toast.error("Failed to copy to clipboard."))
+  }, [selection])
 
   const handleColumnAiMark = useCallback((activityIndex: number) => {
     const activity = activities[activityIndex]
@@ -2778,8 +2805,17 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                           <span className="text-lg font-semibold text-foreground">
                             {formatPercent(selection.cell.autoScore ?? selection.cell.score ?? null)}
                           </span>
-                          <span className="text-xs text-muted-foreground">
+                          <span className="flex items-center gap-2 text-xs text-muted-foreground">
                             {selection.cell.status === "override" ? "Override applied" : "Auto"}
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                onClick={handleCopyToLlm}
+                                className="text-primary underline-offset-2 hover:underline"
+                              >
+                                Copy to LLM
+                              </button>
+                            )}
                           </span>
                         </div>
                         <p className="mt-2 text-xs text-muted-foreground">
