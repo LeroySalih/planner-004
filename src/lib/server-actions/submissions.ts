@@ -29,6 +29,10 @@ import {
   logActivitySubmissionEvent,
 } from "@/lib/activity-logging";
 import { emitSubmissionEvent } from "@/lib/sse/topics";
+import {
+  clearResubmitRequest,
+  getNextAttemptNumber,
+} from "@/lib/server-actions/submission-attempts";
 
 const SubmissionResultSchema = z.object({
   data: SubmissionSchema.nullable(),
@@ -820,109 +824,20 @@ export async function upsertMcqSubmissionAction(
     teacher_feedback: null,
   });
 
-  let existingSubmissionId: string | null = null;
-  try {
-    const { rows } = await query(
-      `
-        select submission_id
-        from submissions
-        where activity_id = $1
-          and user_id = $2
-        order by submitted_at desc nulls last
-        limit 1
-      `,
-      [payload.activityId, payload.userId],
-    );
-    const existingRow = rows?.[0] ?? null;
-    existingSubmissionId =
-      existingRow && typeof existingRow.submission_id === "string"
-        ? existingRow.submission_id
-        : null;
-  } catch (existingError) {
-    console.error(
-      "[submissions] Failed to check existing submission:",
-      existingError,
-    );
-    const message = existingError instanceof Error
-      ? existingError.message
-      : "Unable to load submission.";
-    return { success: false, error: message, data: null as Submission | null };
-  }
-
+  const attemptNumber = await getNextAttemptNumber(
+    payload.activityId,
+    payload.userId,
+  );
   const timestamp = new Date().toISOString();
 
-  if (existingSubmissionId) {
-    try {
-      const { rows } = await query(
-        `
-          update submissions
-          set body = $1, submitted_at = $2, is_flagged = false, resubmit_requested = false, resubmit_note = NULL
-          where submission_id = $3
-          returning *
-        `,
-        [submissionBody, timestamp, existingSubmissionId],
-      );
-
-      const parsed = SubmissionSchema.safeParse(rows?.[0]);
-      if (!parsed.success) {
-        console.error(
-          "[submissions] Failed to parse updated submission:",
-          parsed.error,
-        );
-        return {
-          success: false,
-          error: "Invalid submission data.",
-          data: null as Submission | null,
-        };
-      }
-
-      await logActivitySubmissionEvent({
-        submissionId: parsed.data.submission_id,
-        activityId: payload.activityId,
-        lessonId,
-        pupilId: payload.userId,
-        fileName: null,
-        submittedAt: parsed.data.submitted_at ?? timestamp,
-      });
-
-      void emitSubmissionEvent("submission.updated", {
-        submissionId: parsed.data.submission_id,
-        activityId: payload.activityId,
-        pupilId: payload.userId,
-        submittedAt: parsed.data.submitted_at ?? timestamp,
-        submissionStatus: "inprogress",
-        isFlagged: false,
-      });
-
-      console.log("[realtime-debug] MCQ submission stored", {
-        type: "update",
-        activityId: payload.activityId,
-        pupilId: payload.userId,
-        submissionId: parsed.data.submission_id,
-      });
-
-      return { success: true, error: null, data: parsed.data };
-    } catch (error) {
-      console.error("[submissions] Failed to update submission:", error);
-      const message = error instanceof Error
-        ? error.message
-        : "Unable to update submission.";
-      return {
-        success: false,
-        error: message,
-        data: null as Submission | null,
-      };
-    }
-  }
-
   try {
     const { rows } = await query(
       `
-        insert into submissions (activity_id, user_id, body)
-        values ($1, $2, $3)
+        insert into submissions (activity_id, user_id, attempt_number, body, submitted_at)
+        values ($1, $2, $3, $4, $5)
         returning *
       `,
-      [payload.activityId, payload.userId, submissionBody],
+      [payload.activityId, payload.userId, attemptNumber, submissionBody, timestamp],
     );
 
     const parsed = SubmissionSchema.safeParse(rows?.[0]);
@@ -937,6 +852,8 @@ export async function upsertMcqSubmissionAction(
         data: null as Submission | null,
       };
     }
+
+    await clearResubmitRequest(payload.activityId, payload.userId);
 
     await logActivitySubmissionEvent({
       submissionId: parsed.data.submission_id,
@@ -961,6 +878,7 @@ export async function upsertMcqSubmissionAction(
       activityId: payload.activityId,
       pupilId: payload.userId,
       submissionId: parsed.data.submission_id,
+      attemptNumber,
     });
 
     return { success: true, error: null, data: parsed.data };
@@ -1065,102 +983,20 @@ export async function upsertMatcherSubmissionAction(
     teacher_feedback: null,
   });
 
-  let existingSubmissionId: string | null = null;
-  try {
-    const { rows } = await query(
-      `
-        select submission_id
-        from submissions
-        where activity_id = $1
-          and user_id = $2
-        order by submitted_at desc nulls last
-        limit 1
-      `,
-      [payload.activityId, payload.userId],
-    );
-    const existingRow = rows?.[0] ?? null;
-    existingSubmissionId =
-      existingRow && typeof existingRow.submission_id === "string"
-        ? existingRow.submission_id
-        : null;
-  } catch (existingError) {
-    console.error(
-      "[submissions] Failed to check existing matcher submission:",
-      existingError,
-    );
-    const message = existingError instanceof Error
-      ? existingError.message
-      : "Unable to load submission.";
-    return { success: false, error: message, data: null as Submission | null };
-  }
-
+  const attemptNumber = await getNextAttemptNumber(
+    payload.activityId,
+    payload.userId,
+  );
   const timestamp = new Date().toISOString();
 
-  if (existingSubmissionId) {
-    try {
-      const { rows } = await query(
-        `
-          update submissions
-          set body = $1, submitted_at = $2, is_flagged = false, resubmit_requested = false, resubmit_note = NULL
-          where submission_id = $3
-          returning *
-        `,
-        [submissionBody, timestamp, existingSubmissionId],
-      );
-
-      const parsed = SubmissionSchema.safeParse(rows?.[0]);
-      if (!parsed.success) {
-        console.error(
-          "[submissions] Failed to parse updated matcher submission:",
-          parsed.error,
-        );
-        return {
-          success: false,
-          error: "Invalid submission data.",
-          data: null as Submission | null,
-        };
-      }
-
-      await logActivitySubmissionEvent({
-        submissionId: parsed.data.submission_id,
-        activityId: payload.activityId,
-        lessonId,
-        pupilId: payload.userId,
-        fileName: null,
-        submittedAt: parsed.data.submitted_at ?? timestamp,
-      });
-
-      void emitSubmissionEvent("submission.updated", {
-        submissionId: parsed.data.submission_id,
-        activityId: payload.activityId,
-        pupilId: payload.userId,
-        submittedAt: parsed.data.submitted_at ?? timestamp,
-        submissionStatus: "inprogress",
-        isFlagged: false,
-      });
-
-      return { success: true, error: null, data: parsed.data };
-    } catch (error) {
-      console.error("[submissions] Failed to update matcher submission:", error);
-      const message = error instanceof Error
-        ? error.message
-        : "Unable to update submission.";
-      return {
-        success: false,
-        error: message,
-        data: null as Submission | null,
-      };
-    }
-  }
-
   try {
     const { rows } = await query(
       `
-        insert into submissions (activity_id, user_id, body)
-        values ($1, $2, $3)
+        insert into submissions (activity_id, user_id, attempt_number, body, submitted_at)
+        values ($1, $2, $3, $4, $5)
         returning *
       `,
-      [payload.activityId, payload.userId, submissionBody],
+      [payload.activityId, payload.userId, attemptNumber, submissionBody, timestamp],
     );
 
     const parsed = SubmissionSchema.safeParse(rows?.[0]);
@@ -1175,6 +1011,8 @@ export async function upsertMatcherSubmissionAction(
         data: null as Submission | null,
       };
     }
+
+    await clearResubmitRequest(payload.activityId, payload.userId);
 
     await logActivitySubmissionEvent({
       submissionId: parsed.data.submission_id,
@@ -1308,102 +1146,20 @@ export async function upsertGroupItemsSubmissionAction(
     teacher_feedback: null,
   });
 
-  let existingSubmissionId: string | null = null;
-  try {
-    const { rows } = await query(
-      `
-        select submission_id
-        from submissions
-        where activity_id = $1
-          and user_id = $2
-        order by submitted_at desc nulls last
-        limit 1
-      `,
-      [payload.activityId, payload.userId],
-    );
-    const existingRow = rows?.[0] ?? null;
-    existingSubmissionId =
-      existingRow && typeof existingRow.submission_id === "string"
-        ? existingRow.submission_id
-        : null;
-  } catch (existingError) {
-    console.error(
-      "[submissions] Failed to check existing group-items submission:",
-      existingError,
-    );
-    const message = existingError instanceof Error
-      ? existingError.message
-      : "Unable to load submission.";
-    return { success: false, error: message, data: null as Submission | null };
-  }
-
+  const attemptNumber = await getNextAttemptNumber(
+    payload.activityId,
+    payload.userId,
+  );
   const timestamp = new Date().toISOString();
 
-  if (existingSubmissionId) {
-    try {
-      const { rows } = await query(
-        `
-          update submissions
-          set body = $1, submitted_at = $2, is_flagged = false, resubmit_requested = false, resubmit_note = NULL
-          where submission_id = $3
-          returning *
-        `,
-        [submissionBody, timestamp, existingSubmissionId],
-      );
-
-      const parsed = SubmissionSchema.safeParse(rows?.[0]);
-      if (!parsed.success) {
-        console.error(
-          "[submissions] Failed to parse updated group-items submission:",
-          parsed.error,
-        );
-        return {
-          success: false,
-          error: "Invalid submission data.",
-          data: null as Submission | null,
-        };
-      }
-
-      await logActivitySubmissionEvent({
-        submissionId: parsed.data.submission_id,
-        activityId: payload.activityId,
-        lessonId,
-        pupilId: payload.userId,
-        fileName: null,
-        submittedAt: parsed.data.submitted_at ?? timestamp,
-      });
-
-      void emitSubmissionEvent("submission.updated", {
-        submissionId: parsed.data.submission_id,
-        activityId: payload.activityId,
-        pupilId: payload.userId,
-        submittedAt: parsed.data.submitted_at ?? timestamp,
-        submissionStatus: "inprogress",
-        isFlagged: false,
-      });
-
-      return { success: true, error: null, data: parsed.data };
-    } catch (error) {
-      console.error("[submissions] Failed to update group-items submission:", error);
-      const message = error instanceof Error
-        ? error.message
-        : "Unable to update submission.";
-      return {
-        success: false,
-        error: message,
-        data: null as Submission | null,
-      };
-    }
-  }
-
   try {
     const { rows } = await query(
       `
-        insert into submissions (activity_id, user_id, body)
-        values ($1, $2, $3)
+        insert into submissions (activity_id, user_id, attempt_number, body, submitted_at)
+        values ($1, $2, $3, $4, $5)
         returning *
       `,
-      [payload.activityId, payload.userId, submissionBody],
+      [payload.activityId, payload.userId, attemptNumber, submissionBody, timestamp],
     );
 
     const parsed = SubmissionSchema.safeParse(rows?.[0]);
@@ -1418,6 +1174,8 @@ export async function upsertGroupItemsSubmissionAction(
         data: null as Submission | null,
       };
     }
+
+    await clearResubmitRequest(payload.activityId, payload.userId);
 
     await logActivitySubmissionEvent({
       submissionId: parsed.data.submission_id,
