@@ -3374,9 +3374,14 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
               </div>
 
               <div className="flex items-baseline justify-between">
-                <span className="text-3xl font-semibold text-foreground">
-                  {formatPercent(selection.cell.score ?? null)}
-                </span>
+                <div className="flex items-baseline gap-3">
+                  <span className="text-3xl font-semibold text-foreground">
+                    {formatPercent(selection.cell.score ?? null)}
+                  </span>
+                  <span className="text-sm text-muted-foreground">
+                    Accuracy: {formatPercent(selection.cell.accuracy ?? null)}
+                  </span>
+                </div>
                 <div className="flex items-center gap-2">
                   {selection.cell.resubmitRequested && (
                     <Badge variant="outline" className="gap-1 border-amber-500 text-amber-600">
