@@ -816,9 +816,15 @@ export function AssignmentResultsDashboard({
     if (selection.activity.markingGuidance) {
       sections.push(`Marking Guidance:\n${selection.activity.markingGuidance}`)
     }
+    if (selection.cell.pupilAnswer) {
+      sections.push(`Pupil Response:\n${selection.cell.pupilAnswer}`)
+    }
+    if (selection.cell.autoFeedback) {
+      sections.push(`Automatic Feedback:\n${selection.cell.autoFeedback}`)
+    }
 
     navigator.clipboard.writeText(sections.join("\n\n"))
-      .then(() => toast.success("Copied question and guidance to clipboard."))
+      .then(() => toast.success("Copied question, guidance and feedback to clipboard."))
       .catch(() => toast.error("Failed to copy to clipboard."))
   }, [selection])
 
@@ -3912,8 +3918,17 @@ export function AssignmentResultsDashboard({
                             <span className="text-lg font-semibold text-foreground">
                               {formatPercent(selection.cell.autoScore ?? selection.cell.score ?? null)}
                             </span>
-                            <span className="text-xs text-muted-foreground">
+                            <span className="flex items-center gap-2 text-xs text-muted-foreground">
                               {selection.cell.status === "override" ? "Override applied" : "Auto"}
+                              {isAdmin && (
+                                <button
+                                  type="button"
+                                  onClick={handleCopyToLlm}
+                                  className="text-primary underline-offset-2 hover:underline"
+                                >
+                                  Copy to LLM
+                                </button>
+                              )}
                             </span>
                           </div>
                           <p className="mt-2 text-xs text-muted-foreground">

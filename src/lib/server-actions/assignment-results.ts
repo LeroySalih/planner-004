@@ -614,9 +614,7 @@ export async function readAssignmentResultsAction(
             if (parsedBody.success) {
               question = normaliseRichText(parsedBody.data.task);
               activityGuidanceMetadata.set(activity.activity_id, {
-                markingGuidance: parsedBody.data.markingGuidance?.trim()
-                  ? parsedBody.data.markingGuidance
-                  : null,
+                markingGuidance: normaliseRichText(parsedBody.data.markingGuidance),
                 markingGuidanceId: parsedBody.data.markingGuidanceId ?? null,
               });
             }
@@ -653,12 +651,13 @@ export async function readAssignmentResultsAction(
             const { rows: guidanceRows } = await query<
               { id: string; content: string | null }
             >(
-              "select id, content from marking_guidances where id = any($1::text[])",
+              "select id, content from marking_guidances where id = any($1::uuid[])",
               [markingGuidanceIds],
             );
             for (const row of guidanceRows ?? []) {
-              if (typeof row.id === "string" && typeof row.content === "string") {
-                subjectGuidanceContentMap.set(row.id, row.content);
+              const normalisedContent = normaliseRichText(row.content);
+              if (typeof row.id === "string" && normalisedContent) {
+                subjectGuidanceContentMap.set(row.id, normalisedContent);
               }
             }
           } catch (guidanceError) {
