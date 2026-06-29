@@ -1106,6 +1106,7 @@ export const AssignmentResultCellSchema = z.object({
     pupilId: z.string(),
     submissionId: z.string().nullable(),
     score: z.number().min(0).max(1).nullable(),
+    accuracy: z.number().min(0).max(1).nullable().optional(),
     autoScore: z.number().min(0).max(1).nullable(),
     overrideScore: z.number().min(0).max(1).nullable(),
     status: z.enum(["missing", "auto", "override"]).default("missing"),

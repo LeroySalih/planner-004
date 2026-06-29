@@ -44,6 +44,7 @@ import {
   insertPupilActivityFeedbackEntry,
   selectLatestFeedbackEntry,
 } from "@/lib/feedback/pupil-activity-feedback";
+import { computeAccuracyByUser } from "@/lib/server-actions/submissions";
 
 const ASSIGNMENT_ID_SEPARATOR = "__";
 const SHORT_TEXT_ACTIVITY_TYPE = "short-text-question";
@@ -717,6 +718,40 @@ export async function readAssignmentResultsAction(
           }
         }
 
+        // Compute accuracy (mean score across all attempts) per pupil, per
+        // activity, using every submission row fetched above — not just the
+        // latest attempt used for the cell's `score`.
+        const accuracyByActivity = new Map<string, Map<string, number | null>>();
+        for (const activityId of activityMap.keys()) {
+          const activityType = activityTypeMap.get(activityId) ?? "";
+          const successCriteriaIds = activityMap.get(activityId)?.successCriteria.map(
+            (criterion) => criterion.successCriteriaId,
+          ) ?? [];
+          const metadata = activityQuestionMetadata.get(activityId) ?? {
+            question: null,
+            correctAnswer: null,
+            optionTextMap: undefined,
+          };
+          const entries = submissionRows
+            .filter((row) => row.activity_id === activityId)
+            .map((row) => {
+              const extracted = extractScoreFromSubmission(
+                activityType,
+                row.body,
+                successCriteriaIds,
+                metadata,
+              );
+              const rawScore = computeAverageSuccessCriteriaScore(
+                extracted.successCriteriaScores,
+              ) ?? extracted.effectiveScore ?? 0;
+              return {
+                userId: row.user_id ?? "",
+                score: clampScore(rawScore),
+              };
+            });
+          accuracyByActivity.set(activityId, computeAccuracyByUser(entries));
+        }
+
         const baseCellMap = new Map<
           string,
           z.infer<typeof AssignmentResultCellSchema>
@@ -738,11 +773,15 @@ export async function readAssignmentResultsAction(
                 optionTextMap: undefined,
               };
 
+            const accuracy = accuracyByActivity.get(activity.activityId)
+              ?.get(pupil.userId) ?? null;
+
             const baseCell = AssignmentResultCellSchema.parse({
               activityId: activity.activityId,
               pupilId: pupil.userId,
               submissionId: null,
               score: 0,
+              accuracy,
               autoScore: 0,
               overrideScore: null,
               status: "missing",
@@ -845,6 +884,7 @@ export async function readAssignmentResultsAction(
               pupilId,
               submissionId: submission.submission_id ?? null,
               score: finalScore,
+              accuracy: accuracyByActivity.get(activityId)?.get(pupilId) ?? null,
               autoScore: typeof extracted.autoScore === "number" ? clampScore(extracted.autoScore) : finalScore,
               overrideScore: typeof extracted.overrideScore === "number" ? clampScore(extracted.overrideScore) : null,
               status,

@@ -34,7 +34,7 @@ import {
   getNextAttemptNumber,
 } from "@/lib/server-actions/submission-attempts";
 
-function computeAccuracyByUser(
+export function computeAccuracyByUser(
   entries: Array<{ userId: string; score: number | null }>,
 ): Map<string, number | null> {
   const totals = new Map<string, { sum: number; count: number }>();
