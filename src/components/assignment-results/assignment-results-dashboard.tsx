@@ -13,6 +13,7 @@ import {
   AssignmentResultMatrix,
   AssignmentResultRow,
   AssignmentResultSuccessCriterionSummary,
+  Submission,
 } from "@/types"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
@@ -34,6 +35,7 @@ import {
   triggerBulkAiMarkingAction,
   toggleSubmissionFlagAction,
   requestResubmissionAction,
+  readSubmissionAttemptsAction,
 } from "@/lib/server-updates"
 import { resolveScoreTone } from "@/lib/results/colors"
 import {
@@ -463,6 +465,31 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
     () => renderFeedbackMarkup(selection?.cell.autoFeedback),
     [selection?.cell.autoFeedback],
   )
+  const [attempts, setAttempts] = useState<Submission[]>([])
+  const [attemptsLoading, setAttemptsLoading] = useState(false)
+
+  useEffect(() => {
+    if (!selection) {
+      setAttempts([])
+      return
+    }
+    let cancelled = false
+    setAttemptsLoading(true)
+    readSubmissionAttemptsAction(selection.cell.activityId, selection.cell.pupilId)
+      .then(({ data }) => {
+        if (!cancelled) {
+          setAttempts(data)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setAttemptsLoading(false)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selection])
   const [activitySummarySelection, setActivitySummarySelection] = useState<string | null>(null)
   const [criterionDrafts, setCriterionDrafts] = useState<Record<string, string>>({})
   const [overallScoreDraft, setOverallScoreDraft] = useState<string>("")
@@ -1300,18 +1327,13 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
 
     startResubmitTransition(async () => {
       try {
-        // Optimistic update: zero score and set resubmit flag
+        // Optimistic update: mark resubmission requested.
+        // Note: the server no longer mutates the submission row when a resubmission is
+        // requested (it only records the request), so the existing score/feedback stay as-is.
         applyCellUpdate((cell) => ({
           ...cell,
-          score: 0,
-          autoScore: 0,
-          overrideScore: null,
-          status: "auto" as const,
           resubmitRequested: true,
           resubmitNote: resubmitNote.trim() || null,
-          successCriteriaScores: Object.fromEntries(
-            Object.keys(cell.successCriteriaScores ?? {}).map((k) => [k, 0])
-          ),
         }))
         setSelection((prev) =>
           prev
@@ -1319,10 +1341,6 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                 ...prev,
                 cell: {
                   ...prev.cell,
-                  score: 0,
-                  autoScore: 0,
-                  overrideScore: null,
-                  status: "auto" as const,
                   resubmitRequested: true,
                   resubmitNote: resubmitNote.trim() || null,
                 },
@@ -2309,9 +2327,14 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
             </div>
 
             <div className="flex items-baseline justify-between">
-              <span className="text-3xl font-semibold text-foreground">
-                {formatPercent(selection.cell.score ?? null)}
-              </span>
+              <div className="flex items-baseline gap-3">
+                <span className="text-3xl font-semibold text-foreground">
+                  {formatPercent(selection.cell.score ?? null)}
+                </span>
+                <span className="text-sm text-muted-foreground">
+                  Accuracy: {formatPercent(selection.cell.accuracy ?? null)}
+                </span>
+              </div>
               <div className="flex items-center gap-2">
                 {selection.cell.resubmitRequested && (
                   <Badge variant="outline" className="gap-1 border-amber-500 text-amber-600">
@@ -2557,6 +2580,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                   <TabsList className="w-full">
                     <TabsTrigger value="override">Override</TabsTrigger>
                     <TabsTrigger value="auto">Automatic score</TabsTrigger>
+                    <TabsTrigger value="attempts">Attempts</TabsTrigger>
                   </TabsList>
 
                   <TabsContent value="override" className="flex-1 overflow-hidden">
@@ -2833,6 +2857,34 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                           <p className="text-sm text-foreground">No automatic feedback available.</p>
                         )}
                       </div>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="attempts" className="flex-1 overflow-hidden">
+                    <div className="flex h-full flex-col gap-3 overflow-y-auto pr-1">
+                      {attemptsLoading ? (
+                        <p className="text-sm text-muted-foreground">Loading attempts…</p>
+                      ) : attempts.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">No attempts yet.</p>
+                      ) : (
+                        attempts.map((attempt) => (
+                          <div
+                            key={attempt.submission_id}
+                            className="rounded-md border border-border/60 bg-muted/40 p-3 text-sm"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-semibold text-foreground">
+                                Attempt {attempt.attempt_number}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                {attempt.submitted_at
+                                  ? new Date(attempt.submitted_at).toLocaleString()
+                                  : "N/A"}
+                              </span>
+                            </div>
+                          </div>
+                        ))
+                      )}
                     </div>
                   </TabsContent>
                 </Tabs>
@@ -3597,6 +3649,7 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                         selection.activity.type === "upload-worksheet") && (
                         <TabsTrigger value="auto" className="flex-1">Automatic score</TabsTrigger>
                       )}
+                      <TabsTrigger value="attempts" className="flex-1">Attempts</TabsTrigger>
                     </TabsList>
 
                     <TabsContent value="override" className="flex-1 overflow-hidden">
@@ -3871,6 +3924,34 @@ export function AssignmentResultsDashboard({ matrix }: { matrix: AssignmentResul
                             <p className="text-sm text-foreground">No automatic feedback available.</p>
                           )}
                         </div>
+                      </div>
+                    </TabsContent>
+
+                    <TabsContent value="attempts" className="flex-1 overflow-hidden">
+                      <div className="flex h-full flex-col gap-3 overflow-y-auto pr-1">
+                        {attemptsLoading ? (
+                          <p className="text-sm text-muted-foreground">Loading attempts…</p>
+                        ) : attempts.length === 0 ? (
+                          <p className="text-sm text-muted-foreground">No attempts yet.</p>
+                        ) : (
+                          attempts.map((attempt) => (
+                            <div
+                              key={attempt.submission_id}
+                              className="rounded-md border border-border/60 bg-muted/40 p-3 text-sm"
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="font-semibold text-foreground">
+                                  Attempt {attempt.attempt_number}
+                                </span>
+                                <span className="text-xs text-muted-foreground">
+                                  {attempt.submitted_at
+                                    ? new Date(attempt.submitted_at).toLocaleString()
+                                    : "N/A"}
+                                </span>
+                              </div>
+                            </div>
+                          ))
+                        )}
                       </div>
                     </TabsContent>
                   </Tabs>
