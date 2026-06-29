@@ -87,8 +87,10 @@ export { readAssignmentsBootstrapAction, readAssignmentsBootstrapForGroupsAction
 export {
   clearActivityAiMarksAction,
   overrideAssignmentScoreAction,
+  readActivityMarkingGuidanceAction,
   readAssignmentResultsAction,
   resetAssignmentScoreAction,
+  updateActivityMarkingGuidanceAction,
   updateAssignmentFeedbackVisibilityAction,
 } from "./server-actions/assignment-results";
 export { requestAiMarkAction } from "./server-actions/ai-mark";

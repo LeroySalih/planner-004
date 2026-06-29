@@ -22,7 +22,7 @@ import {
 } from "@/types";
 import { query } from "@/lib/db";
 import { createLocalStorageClient } from "@/lib/storage/local-storage";
-import { requireTeacherProfile } from "@/lib/auth";
+import { requireRole, requireTeacherProfile } from "@/lib/auth";
 import {
   clampScore,
   computeAverageSuccessCriteriaScore,
@@ -2079,4 +2079,80 @@ export async function clearActivityAiMarksAction(
       });
     },
   );
+}
+
+const UpdateActivityMarkingGuidanceResultSchema = z.object({
+  success: z.boolean(),
+  error: z.string().nullable(),
+});
+
+const ReadActivityMarkingGuidanceResultSchema = z.object({
+  data: z.string().nullable(),
+  error: z.string().nullable(),
+});
+
+export async function readActivityMarkingGuidanceAction(
+  activityId: string,
+): Promise<z.infer<typeof ReadActivityMarkingGuidanceResultSchema>> {
+  try {
+    await requireRole("admin");
+
+    const { rows } = await query<{ type: string; marking_guidance: string | null }>(
+      `select type, body_data->>'markingGuidance' as marking_guidance from activities where activity_id = $1 limit 1`,
+      [activityId],
+    );
+    const activity = rows[0];
+    if (!activity) {
+      return ReadActivityMarkingGuidanceResultSchema.parse({ data: null, error: "Activity not found." });
+    }
+    if (activity.type !== "upload-worksheet") {
+      return ReadActivityMarkingGuidanceResultSchema.parse({
+        data: null,
+        error: "Marking guidance can only be edited for upload-worksheet activities.",
+      });
+    }
+
+    return ReadActivityMarkingGuidanceResultSchema.parse({
+      data: activity.marking_guidance ?? "",
+      error: null,
+    });
+  } catch (e) {
+    return ReadActivityMarkingGuidanceResultSchema.parse({ data: null, error: String(e) });
+  }
+}
+
+export async function updateActivityMarkingGuidanceAction(
+  activityId: string,
+  markingGuidance: string,
+): Promise<z.infer<typeof UpdateActivityMarkingGuidanceResultSchema>> {
+  try {
+    await requireRole("admin");
+
+    const { rows } = await query<{ type: string; body_data: unknown }>(
+      `select type, body_data from activities where activity_id = $1 limit 1`,
+      [activityId],
+    );
+    const activity = rows[0];
+    if (!activity) {
+      return UpdateActivityMarkingGuidanceResultSchema.parse({
+        success: false,
+        error: "Activity not found.",
+      });
+    }
+    if (activity.type !== "upload-worksheet") {
+      return UpdateActivityMarkingGuidanceResultSchema.parse({
+        success: false,
+        error: "Marking guidance can only be edited for upload-worksheet activities.",
+      });
+    }
+
+    await query(
+      `update activities set body_data = jsonb_set(body_data::jsonb, '{markingGuidance}', to_jsonb($1::text), true) where activity_id = $2`,
+      [markingGuidance, activityId],
+    );
+
+    return UpdateActivityMarkingGuidanceResultSchema.parse({ success: true, error: null });
+  } catch (e) {
+    return UpdateActivityMarkingGuidanceResultSchema.parse({ success: false, error: String(e) });
+  }
 }
