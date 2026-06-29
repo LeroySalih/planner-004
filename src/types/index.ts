@@ -188,6 +188,7 @@ export const SubmissionSchema = z.object({
     submission_id: z.string(),
     activity_id: z.string(),
     user_id: z.string(),
+    attempt_number: z.number().int().min(1),
     submitted_at: z
         .union([z.string(), z.date()])
         .transform((
@@ -203,6 +204,23 @@ export const SubmissionsSchema = z.array(SubmissionSchema);
 
 export type Submission = z.infer<typeof SubmissionSchema>;
 export type Submissions = z.infer<typeof SubmissionsSchema>;
+
+export const SubmissionResubmitRequestSchema = z.object({
+    activity_id: z.string(),
+    user_id: z.string(),
+    requested: z.boolean(),
+    note: z.string().nullable().optional(),
+    requested_at: z
+        .union([z.string(), z.date()])
+        .transform((
+            value,
+        ) => (value instanceof Date ? value.toISOString() : value)),
+    requested_by: z.string().nullable().optional(),
+});
+
+export type SubmissionResubmitRequest = z.infer<
+    typeof SubmissionResubmitRequestSchema
+>;
 
 export const GroupWithMembershipSchema = GroupSchema.extend({
     members: GroupMembershipsSchema.default([]),
