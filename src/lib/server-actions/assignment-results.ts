@@ -428,6 +428,10 @@ export async function readAssignmentResultsAction(
             groupItemsItems?: import("@/types").GroupItemsItem[];
           }
         >();
+        const activityGuidanceMetadata = new Map<
+          string,
+          { markingGuidance: string | null; markingGuidanceId: string | null }
+        >();
 
         if (activityIds.length > 0) {
           let activitySuccessCriteriaRows: Array<
@@ -609,6 +613,12 @@ export async function readAssignmentResultsAction(
             );
             if (parsedBody.success) {
               question = normaliseRichText(parsedBody.data.task);
+              activityGuidanceMetadata.set(activity.activity_id, {
+                markingGuidance: parsedBody.data.markingGuidance?.trim()
+                  ? parsedBody.data.markingGuidance
+                  : null,
+                markingGuidanceId: parsedBody.data.markingGuidanceId ?? null,
+              });
             }
           } else if (type === "upload-url") {
             const parsedBody = UploadUrlActivityBodySchema.safeParse(
@@ -629,8 +639,42 @@ export async function readAssignmentResultsAction(
           });
         }
 
-        const activities = scorableActivities.map((activity) =>
-          AssignmentResultActivitySchema.parse({
+        const markingGuidanceIds = Array.from(
+          new Set(
+            Array.from(activityGuidanceMetadata.values())
+              .map((entry) => entry.markingGuidanceId)
+              .filter((value): value is string => Boolean(value)),
+          ),
+        );
+
+        const subjectGuidanceContentMap = new Map<string, string>();
+        if (markingGuidanceIds.length > 0) {
+          try {
+            const { rows: guidanceRows } = await query<
+              { id: string; content: string | null }
+            >(
+              "select id, content from marking_guidances where id = any($1::text[])",
+              [markingGuidanceIds],
+            );
+            for (const row of guidanceRows ?? []) {
+              if (typeof row.id === "string" && typeof row.content === "string") {
+                subjectGuidanceContentMap.set(row.id, row.content);
+              }
+            }
+          } catch (guidanceError) {
+            console.error(
+              "[assignment-results] Failed to load marking guidance templates:",
+              guidanceError,
+            );
+          }
+        }
+
+        const activities = scorableActivities.map((activity) => {
+          const guidance = activityGuidanceMetadata.get(activity.activity_id);
+          const subjectGuidance = guidance?.markingGuidanceId
+            ? subjectGuidanceContentMap.get(guidance.markingGuidanceId) ?? null
+            : null;
+          return AssignmentResultActivitySchema.parse({
             activityId: activity.activity_id,
             title: activity.title ?? "Untitled activity",
             type: (activity.type ?? "").trim(),
@@ -641,8 +685,10 @@ export async function readAssignmentResultsAction(
               isScorableActivityType(activity.type),
             successCriteria:
               activitySuccessCriteriaMap.get(activity.activity_id) ?? [],
-          })
-        );
+            markingGuidance: guidance?.markingGuidance ?? null,
+            subjectGuidance,
+          });
+        });
 
         const activityMap = new Map(
           activities.map((activity) => [activity.activityId, activity]),

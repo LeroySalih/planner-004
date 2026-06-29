@@ -5,12 +5,15 @@ import { notFound } from "next/navigation"
 import { AssignmentResultsDashboard } from "@/components/assignment-results"
 import { readAssignmentResultsAction } from "@/lib/server-updates"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { hasRole, requireTeacherProfile } from "@/lib/auth"
 
 interface AssignmentResultsPageProps {
   params: { assignmentId: string }
 }
 
 export default async function AssignmentResultsPage({ params }: AssignmentResultsPageProps) {
+  const teacherProfile = await requireTeacherProfile()
+  const isAdmin = hasRole(teacherProfile, "admin")
   const awaitedParams = await params
   const assignmentId = decodeURIComponent(awaitedParams?.assignmentId ?? "")
   const { data, error } = await readAssignmentResultsAction(assignmentId)
@@ -36,7 +39,7 @@ export default async function AssignmentResultsPage({ params }: AssignmentResult
 
   return (
     <div className="container mx-auto py-8">
-      <AssignmentResultsDashboard matrix={data} />
+      <AssignmentResultsDashboard matrix={data} isAdmin={isAdmin} />
     </div>
   )
 }
