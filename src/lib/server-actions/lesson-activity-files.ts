@@ -13,6 +13,10 @@ import { emitSubmissionEvent, emitUploadEvent } from "@/lib/sse/topics";
 import { logActivitySubmissionEvent } from "@/lib/activity-logging";
 import { createLocalStorageClient } from "@/lib/storage/local-storage";
 import { withTelemetry } from "@/lib/telemetry";
+import {
+  clearResubmitRequest,
+  getNextAttemptNumber,
+} from "@/lib/server-actions/submission-attempts";
 
 const LESSON_FILES_BUCKET = "lessons";
 
@@ -690,27 +694,21 @@ export async function uploadPupilActivitySubmissionAction(formData: FormData) {
             success_criteria_scores: {},
           };
 
-          if (existing?.submission_id) {
-            await client.query(
-              `
-                 update submissions
-                 set body = $1, submitted_at = $2, submission_status = 'inprogress', is_flagged = false, resubmit_requested = false, resubmit_note = NULL
-                 where submission_id = $3
-               `,
-              [submissionPayload, submittedAt, existing.submission_id],
-            );
-            submissionId = existing.submission_id;
-          } else {
-            const { rows: newRows } = await client.query(
-              `
-                 insert into submissions (activity_id, user_id, body, submitted_at, submission_status)
-                 values ($1, $2, $3, $4, 'inprogress')
-                 returning submission_id
-               `,
-              [activityId, userId, submissionPayload, submittedAt],
-            );
-            submissionId = newRows[0]?.submission_id;
-          }
+          const attemptNumber = await getNextAttemptNumber(
+            activityId,
+            userId,
+          );
+          const { rows: newRows } = await client.query(
+            `
+               insert into submissions (activity_id, user_id, attempt_number, body, submitted_at, submission_status)
+               values ($1, $2, $3, $4, $5, 'inprogress')
+               returning submission_id
+             `,
+            [activityId, userId, attemptNumber, submissionPayload, submittedAt],
+          );
+          submissionId = newRows[0]?.submission_id;
+
+          await clearResubmitRequest(activityId, userId);
 
           await logActivitySubmissionEvent({
             submissionId,
@@ -1278,39 +1276,18 @@ async function upsertUploadSubmissionRecord({
     success_criteria_scores: {},
   };
 
-  const { rows: existingRows } = await client.query(
-    `
-      select submission_id
-      from submissions
-      where activity_id = $1 and user_id = $2
-      order by submitted_at desc
-      limit 1
-    `,
-    [activityId, pupilId],
-  );
-
-  const existing = existingRows[0] ?? null;
-
-  if (existing?.submission_id) {
-    await client.query(
-      `
-        update submissions
-        set body = $1, submitted_at = $2, submission_status = 'inprogress', is_flagged = false, resubmit_requested = false, resubmit_note = NULL
-        where submission_id = $3
-      `,
-      [payload, submittedAt, existing.submission_id],
-    );
-    return { success: true, submissionId: existing.submission_id };
-  }
+  const attemptNumber = await getNextAttemptNumber(activityId, pupilId);
 
   const { rows } = await client.query(
     `
-      insert into submissions (activity_id, user_id, body, submitted_at, submission_status)
-      values ($1, $2, $3, $4, 'inprogress')
+      insert into submissions (activity_id, user_id, attempt_number, body, submitted_at, submission_status)
+      values ($1, $2, $3, $4, $5, 'inprogress')
       returning submission_id
     `,
-    [activityId, pupilId, payload, submittedAt],
+    [activityId, pupilId, attemptNumber, payload, submittedAt],
   );
+
+  await clearResubmitRequest(activityId, pupilId);
 
   return { success: true, submissionId: rows[0]?.submission_id ?? null };
 }
