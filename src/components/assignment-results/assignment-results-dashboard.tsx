@@ -40,6 +40,8 @@ import {
   readSubmissionAttemptsAction,
   readMarkingGuidanceByIdAction,
   updateMarkingGuidanceAction,
+  readActivityMarkingGuidanceAction,
+  updateActivityMarkingGuidanceAction,
 } from "@/lib/server-updates"
 import { resolveScoreTone } from "@/lib/results/colors"
 import {
@@ -503,16 +505,21 @@ export function AssignmentResultsDashboard({
   const [guidanceEditor, setGuidanceEditor] = useState<
     { id: string; title: string; content: string; loading: boolean; saving: boolean } | null
   >(null)
+  const [questionGuidanceEditor, setQuestionGuidanceEditor] = useState<
+    { activityId: string; content: string; loading: boolean; saving: boolean } | null
+  >(null)
   const autoFeedbackMarkup = useMemo(
     () => renderFeedbackMarkup(selection?.cell.autoFeedback),
     [selection?.cell.autoFeedback],
   )
   const [attempts, setAttempts] = useState<Submission[]>([])
   const [attemptsLoading, setAttemptsLoading] = useState(false)
+  const [viewingAttempt, setViewingAttempt] = useState<Submission | null>(null)
 
   useEffect(() => {
     if (!selection) {
       setAttempts([])
+      setViewingAttempt(null)
       return
     }
     let cancelled = false
@@ -3033,9 +3040,11 @@ export function AssignmentResultsDashboard({
                         <p className="text-sm text-muted-foreground">No attempts yet.</p>
                       ) : (
                         attempts.map((attempt) => (
-                          <div
+                          <button
+                            type="button"
                             key={attempt.submission_id}
-                            className="rounded-md border border-border/60 bg-muted/40 p-3 text-sm"
+                            onClick={() => setViewingAttempt(attempt)}
+                            className="rounded-md border border-border/60 bg-muted/40 p-3 text-left text-sm transition-colors hover:bg-muted/70"
                           >
                             <div className="flex items-center justify-between">
                               <span className="font-semibold text-foreground">
@@ -3047,7 +3056,7 @@ export function AssignmentResultsDashboard({
                                   : "N/A"}
                               </span>
                             </div>
-                          </div>
+                          </button>
                         ))
                       )}
                     </div>
@@ -4133,9 +4142,11 @@ export function AssignmentResultsDashboard({
                           <p className="text-sm text-muted-foreground">No attempts yet.</p>
                         ) : (
                           attempts.map((attempt) => (
-                            <div
+                            <button
+                              type="button"
                               key={attempt.submission_id}
-                              className="rounded-md border border-border/60 bg-muted/40 p-3 text-sm"
+                              onClick={() => setViewingAttempt(attempt)}
+                              className="rounded-md border border-border/60 bg-muted/40 p-3 text-left text-sm transition-colors hover:bg-muted/70"
                             >
                               <div className="flex items-center justify-between">
                                 <span className="font-semibold text-foreground">
@@ -4147,7 +4158,7 @@ export function AssignmentResultsDashboard({
                                     : "N/A"}
                                 </span>
                               </div>
-                            </div>
+                            </button>
                           ))
                         )}
                       </div>
@@ -4191,6 +4202,105 @@ export function AssignmentResultsDashboard({
             </Button>
             <Button onClick={handleSaveGuidance} disabled={!guidanceEditor || guidanceEditor.loading || guidanceEditor.saving}>
               {guidanceEditor?.saving ? "Saving…" : "Save changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!viewingAttempt} onOpenChange={(open) => !open && setViewingAttempt(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              {viewingAttempt ? `Attempt ${viewingAttempt.attempt_number}` : "Attempt"}
+            </DialogTitle>
+          </DialogHeader>
+          {viewingAttempt && selection
+            ? (() => {
+                const successCriteriaIds = selection.activity.successCriteria.map(
+                  (criterion) => criterion.successCriteriaId,
+                )
+                const metadata = {
+                  question: selection.cell.question ?? null,
+                  correctAnswer: selection.cell.correctAnswer ?? null,
+                  optionTextMap: undefined,
+                }
+                const extracted = extractScoreFromSubmission(
+                  selection.activity.type,
+                  viewingAttempt.body,
+                  successCriteriaIds,
+                  metadata,
+                )
+                const autoFeedbackHtml = renderFeedbackMarkup(extracted.autoFeedback)
+                const overrideFeedbackHtml = renderFeedbackMarkup(extracted.feedback)
+
+                return (
+                  <div className="space-y-4">
+                    <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
+                      <span>
+                        {viewingAttempt.submitted_at
+                          ? new Date(viewingAttempt.submitted_at).toLocaleString()
+                          : "N/A"}
+                      </span>
+                      <span className="font-semibold text-foreground">
+                        Auto score: {formatPercent(extracted.autoScore)}
+                      </span>
+                      <span className="font-semibold text-foreground">
+                        Override score: {formatPercent(extracted.overrideScore)}
+                      </span>
+                    </div>
+
+                    {extracted.question ? (
+                      <div className="rounded-md border border-border/60 bg-muted/40 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Question
+                        </p>
+                        <p className="text-sm text-foreground">{extracted.question}</p>
+                      </div>
+                    ) : null}
+
+                    {extracted.pupilAnswer ? (
+                      <div className="rounded-md border border-border/60 bg-muted/40 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Pupil response
+                        </p>
+                        <p className="text-sm text-foreground">{extracted.pupilAnswer}</p>
+                      </div>
+                    ) : null}
+
+                    <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                        Automatic feedback
+                      </p>
+                      {autoFeedbackHtml ? (
+                        <div
+                          className="prose prose-sm mt-1 max-w-none text-sm text-foreground dark:prose-invert"
+                          dangerouslySetInnerHTML={{ __html: autoFeedbackHtml }}
+                        />
+                      ) : (
+                        <p className="text-sm text-foreground">No automatic feedback available.</p>
+                      )}
+                    </div>
+
+                    <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-amber-600">
+                        Override feedback
+                      </p>
+                      {overrideFeedbackHtml ? (
+                        <div
+                          className="prose prose-sm mt-1 max-w-none text-sm text-foreground dark:prose-invert"
+                          dangerouslySetInnerHTML={{ __html: overrideFeedbackHtml }}
+                        />
+                      ) : (
+                        <p className="text-sm text-foreground">No override feedback available.</p>
+                      )}
+                    </div>
+                  </div>
+                )
+              })()
+            : null}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewingAttempt(null)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>
