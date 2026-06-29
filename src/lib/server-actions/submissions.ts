@@ -34,6 +34,26 @@ import {
   getNextAttemptNumber,
 } from "@/lib/server-actions/submission-attempts";
 
+function computeAccuracyByUser(
+  entries: Array<{ userId: string; score: number | null }>,
+): Map<string, number | null> {
+  const totals = new Map<string, { sum: number; count: number }>();
+  for (const entry of entries) {
+    if (typeof entry.score !== "number" || !Number.isFinite(entry.score)) {
+      continue;
+    }
+    const existing = totals.get(entry.userId) ?? { sum: 0, count: 0 };
+    existing.sum += entry.score;
+    existing.count += 1;
+    totals.set(entry.userId, existing);
+  }
+  const accuracyByUser = new Map<string, number | null>();
+  for (const [userId, { sum, count }] of totals) {
+    accuracyByUser.set(userId, count > 0 ? sum / count : null);
+  }
+  return accuracyByUser;
+}
+
 const SubmissionResultSchema = z.object({
   data: SubmissionSchema.nullable(),
   error: z.string().nullable(),
@@ -235,7 +255,7 @@ export async function readLessonSubmissionSummariesAction(
     try {
       const { rows } = await query(
         `
-          select submission_id, activity_id, user_id, submitted_at, body
+          select submission_id, activity_id, user_id, attempt_number, submitted_at, body
           from submissions
           where activity_id = any($1::text[])
         `,
@@ -361,8 +381,14 @@ export async function readLessonSubmissionSummariesAction(
         summary.scores = scoreEntries.map((entry) => ({
           userId: entry.userId,
           score: entry.score,
+          accuracy: null,
           isCorrect: entry.isCorrect,
           successCriteriaScores: entry.successCriteriaScores,
+        }));
+        const mcqAccuracyByUser = computeAccuracyByUser(summary.scores);
+        summary.scores = summary.scores.map((entry) => ({
+          ...entry,
+          accuracy: mcqAccuracyByUser.get(entry.userId) ?? null,
         }));
         summary.correctCount = scoreEntries.filter((entry) =>
           entry.isCorrect
@@ -457,8 +483,14 @@ export async function readLessonSubmissionSummariesAction(
         summary.scores = scoreEntries.map((entry) => ({
           userId: entry.userId,
           score: entry.score,
+          accuracy: null,
           isCorrect: entry.isCorrect,
           successCriteriaScores: entry.successCriteriaScores,
+        }));
+        const shortTextAccuracyByUser = computeAccuracyByUser(summary.scores);
+        summary.scores = summary.scores.map((entry) => ({
+          ...entry,
+          accuracy: shortTextAccuracyByUser.get(entry.userId) ?? null,
         }));
 
         summary.correctCount = scoreEntries.filter((entry) =>
@@ -561,8 +593,14 @@ export async function readLessonSubmissionSummariesAction(
         summary.scores = scoreEntries.map((entry) => ({
           userId: entry.userId,
           score: entry.score,
+          accuracy: null,
           isCorrect: entry.isCorrect,
           successCriteriaScores: entry.successCriteriaScores,
+        }));
+        const uploadAccuracyByUser = computeAccuracyByUser(summary.scores);
+        summary.scores = summary.scores.map((entry) => ({
+          ...entry,
+          accuracy: uploadAccuracyByUser.get(entry.userId) ?? null,
         }));
 
         summary.correctCount = scoreEntries.filter((entry) =>
@@ -669,11 +707,16 @@ export async function readLessonSubmissionSummariesAction(
           return {
             userId: submission.user_id,
             score: finalScore,
+            accuracy: null,
             successCriteriaScores: normalisedScores,
           };
         });
 
-        summary.scores = generalScores;
+        const generalAccuracyByUser = computeAccuracyByUser(generalScores);
+        summary.scores = generalScores.map((entry) => ({
+          ...entry,
+          accuracy: generalAccuracyByUser.get(entry.userId) ?? null,
+        }));
 
         const numericScores = generalScores.filter((entry) =>
           typeof entry.score === "number"

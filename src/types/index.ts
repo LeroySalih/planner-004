@@ -908,6 +908,7 @@ export type ShortTextFeedbackResult = z.infer<
 export interface LessonSubmissionScore {
     userId: string;
     score: number | null;
+    accuracy: number | null;
     isCorrect?: boolean;
     successCriteriaScores?: Record<string, number | null>;
 }

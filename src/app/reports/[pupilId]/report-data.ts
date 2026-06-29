@@ -611,6 +611,7 @@ function buildLessonSubmissionSummaries(
       summary.scores = scoreEntries.map((entry) => ({
         userId: entry.userId,
         score: entry.score,
+        accuracy: null,
         isCorrect: entry.isCorrect,
         successCriteriaScores: entry.successCriteriaScores,
       }))
@@ -674,6 +675,7 @@ function buildLessonSubmissionSummaries(
       summary.scores = scoreEntries.map((entry) => ({
         userId: entry.userId,
         score: entry.score,
+        accuracy: null,
         isCorrect: entry.isCorrect,
         successCriteriaScores: entry.successCriteriaScores,
       }))
@@ -738,6 +740,7 @@ function buildLessonSubmissionSummaries(
         return {
           userId: submission.user_id,
           score: finalScore,
+          accuracy: null,
           successCriteriaScores: normalisedScores,
         }
       })
