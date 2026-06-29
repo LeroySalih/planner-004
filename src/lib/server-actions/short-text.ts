@@ -401,7 +401,7 @@ async function markShortTextActivityHelper(activity: LessonActivity) {
         select submission_id, activity_id, user_id, submitted_at, body
         from submissions
         where activity_id = $1
-        order by submitted_at desc
+        order by attempt_number desc
         limit 1
       `,
       [activity.activity_id],

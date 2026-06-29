@@ -1364,7 +1364,7 @@ async function getSubmissionRow(
         from submissions
         where activity_id = $1
           and user_id = $2
-        order by submitted_at desc nulls last
+        order by attempt_number desc
         limit 1
       `,
       [activityId, pupilId],

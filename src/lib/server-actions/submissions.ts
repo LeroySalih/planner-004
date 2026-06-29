@@ -91,7 +91,7 @@ export async function getLatestSubmissionForActivityAction(
         select *
         from submissions
         where activity_id = $1 and user_id = $2
-        order by submitted_at desc
+        order by attempt_number desc
         limit 1
       `,
       [input.activityId, input.userId],

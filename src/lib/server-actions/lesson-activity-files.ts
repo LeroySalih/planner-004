@@ -351,7 +351,7 @@ export async function listPupilActivitySubmissionsAction(
             select submission_id, submission_status, submitted_at, body, coalesce(body->>'upload_file_name', '') as file_name, coalesce(body->>'instructions', '') as instructions, case when body::jsonb ? 'uploaded_files' then body->'uploaded_files' else null end as uploaded_files, coalesce(body->>'fileName', '') as spreadsheet_file_name, coalesce(body->>'filePath', '') as spreadsheet_file_path
             from submissions
             where activity_id = $1 and user_id = $2
-            order by submitted_at desc
+            order by attempt_number desc
             limit 1
           `,
           [activityId, pupilId],
@@ -590,7 +590,7 @@ export async function uploadPupilActivitySubmissionAction(formData: FormData) {
               select submission_id, body
               from submissions
               where activity_id = $1 and user_id = $2
-              order by submitted_at desc
+              order by attempt_number desc
               limit 1
             `,
             [activityId, userId],
@@ -787,7 +787,7 @@ export async function deletePupilActivitySubmissionAction(
             select submission_id, body
             from submissions
             where activity_id = $1 and user_id = $2
-            order by submitted_at desc
+            order by attempt_number desc
             limit 1
           `,
           [activityId, pupilId],
@@ -962,7 +962,7 @@ export async function updatePupilSubmissionInstructionsAction(input: {
               select submission_id
               from submissions
               where activity_id = $2 and user_id = $3
-              order by submitted_at desc
+              order by attempt_number desc
               limit 1
             )
             update submissions s
@@ -981,7 +981,7 @@ export async function updatePupilSubmissionInstructionsAction(input: {
 
         // 1. Fetch
         const { rows: rowsV2 } = await client.query(
-          `select submission_id, body from submissions where activity_id = $1 and user_id = $2 order by submitted_at desc limit 1`,
+          `select submission_id, body from submissions where activity_id = $1 and user_id = $2 order by attempt_number desc limit 1`,
           [activityId, profile.userId],
         );
 
@@ -1097,7 +1097,7 @@ export async function updatePupilSubmissionStatusAction(input: {
               select submission_id
               from submissions
               where activity_id = $2 and user_id = $3
-              order by submitted_at desc
+              order by attempt_number desc
               limit 1
             )
             update submissions s
@@ -1111,7 +1111,7 @@ export async function updatePupilSubmissionStatusAction(input: {
 
         // New logic supporting array of files
         const { rows: rowsV2 } = await client.query(
-          `select submission_id, body from submissions where activity_id = $1 and user_id = $2 order by submitted_at desc limit 1`,
+          `select submission_id, body from submissions where activity_id = $1 and user_id = $2 order by attempt_number desc limit 1`,
           [activityId, profile.userId],
         );
 
@@ -1205,7 +1205,7 @@ const cleanupUploadSubmissionRecord = async ({
       select submission_id, body
       from submissions
       where activity_id = $1 and user_id = $2
-      order by submitted_at desc
+      order by attempt_number desc
       limit 1
     `,
     [activityId, pupilId],

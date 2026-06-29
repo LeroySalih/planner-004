@@ -836,7 +836,7 @@ export async function updateUploadSubmissionStatusAction(input: {
         // If fileName provided, update specific file in JSON
         if (fileName) {
           const { rows: subRows } = await client.query(
-            `select submission_id, body from submissions where activity_id = $1 and user_id = $2 order by submitted_at desc limit 1`,
+            `select submission_id, body from submissions where activity_id = $1 and user_id = $2 order by attempt_number desc limit 1`,
             [activityId, pupilId],
           );
 
@@ -878,7 +878,7 @@ export async function updateUploadSubmissionStatusAction(input: {
               select submission_id
               from submissions
               where activity_id = $2 and user_id = $3
-              order by submitted_at desc
+              order by attempt_number desc
               limit 1
             )
             update submissions s
