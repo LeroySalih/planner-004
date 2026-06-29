@@ -27,6 +27,10 @@ import {
 import { emitSubmissionEvent } from "@/lib/sse/topics";
 import { query } from "@/lib/db";
 import { resolvePupilStorageKey } from "@/lib/server-actions/lesson-activity-files";
+import {
+    clearResubmitRequest,
+    getNextAttemptNumber,
+} from "@/lib/server-actions/submission-attempts";
 
 const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
 
@@ -120,7 +124,7 @@ export async function saveSketchRenderAnswerAction(input: FormData) {
     let existingSubmission: Submission | null = null;
     try {
         const { rows } = await query<Submission>(
-            `select * from submissions where activity_id = $1 and user_id = $2 limit 1`,
+            `select * from submissions where activity_id = $1 and user_id = $2 order by attempt_number desc limit 1`,
             [activityId, userId],
         );
         existingSubmission = rows[0] ? SubmissionSchema.parse(rows[0]) : null;
@@ -156,7 +160,7 @@ export async function saveSketchRenderAnswerAction(input: FormData) {
         userId,
         lessonId,
         submissionBody,
-        existingSubmission?.submission_id ?? null,
+        null,
     );
 }
 
@@ -174,7 +178,7 @@ export async function renderSketchServerAction(
     let submission: Submission | null = null;
     try {
         const { rows } = await query<Submission>(
-            `select * from submissions where activity_id = $1 and user_id = $2 limit 1`,
+            `select * from submissions where activity_id = $1 and user_id = $2 order by attempt_number desc limit 1`,
             [activityId, userId],
         );
         submission = rows[0] ? SubmissionSchema.parse(rows[0]) : null;
@@ -542,14 +546,20 @@ async function upsertSubmission(
             );
             saved = result.rows[0] as Submission;
         } else {
-            console.log("[upsertSubmission] Inserting new submission", {
+            const attemptNumber = await getNextAttemptNumber(
+                activityId,
+                userId,
+            );
+            console.log("[upsertSubmission] Inserting new attempt", {
                 isFlagged,
+                attemptNumber,
             });
             const result = await query(
-                `insert into submissions (activity_id, user_id, body, submitted_at, is_flagged) values ($1, $2, $3, $4, $5) returning *`,
-                [activityId, userId, body, timestamp, isFlagged],
+                `insert into submissions (activity_id, user_id, attempt_number, body, submitted_at, is_flagged) values ($1, $2, $3, $4, $5, $6) returning *`,
+                [activityId, userId, attemptNumber, body, timestamp, isFlagged],
             );
             saved = result.rows[0] as Submission;
+            await clearResubmitRequest(activityId, userId);
         }
         console.log("[upsertSubmission] Done", {
             savedId: saved?.submission_id,

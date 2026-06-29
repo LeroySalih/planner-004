@@ -8,6 +8,7 @@ import { emitSubmissionEvent } from "@/lib/sse/topics"
 import { logActivitySubmissionEvent } from "@/lib/activity-logging"
 import { enqueueMarkingTasks, triggerQueueProcessor } from "@/lib/ai/marking-queue"
 import { UploadSpreadsheetSubmissionBodySchema } from "@/types"
+import { clearResubmitRequest, getNextAttemptNumber } from "@/lib/server-actions/submission-attempts"
 
 const LESSON_FILES_BUCKET = "lessons"
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
@@ -136,18 +137,6 @@ export async function POST(request: Request) {
     await client.connect()
 
     try {
-      const { rows: existingRows } = await client.query(
-        `
-          select submission_id
-          from submissions
-          where activity_id = $1 and user_id = $2
-          order by submitted_at desc
-          limit 1
-        `,
-        [activityId, userId],
-      )
-      const existing = existingRows[0]
-
       const submissionBody = UploadSpreadsheetSubmissionBodySchema.parse({
         filePath: path,
         fileName,
@@ -157,27 +146,18 @@ export async function POST(request: Request) {
         success_criteria_scores: {},
       })
 
-      if (existing?.submission_id) {
-        await client.query(
-          `
-            update submissions
-            set body = $1, submitted_at = $2, submission_status = 'submitted', is_flagged = false, resubmit_requested = false, resubmit_note = NULL
-            where submission_id = $3
-          `,
-          [submissionBody, submittedAt, existing.submission_id],
-        )
-        submissionId = existing.submission_id
-      } else {
-        const { rows: newRows } = await client.query(
-          `
-            insert into submissions (activity_id, user_id, body, submitted_at, submission_status)
-            values ($1, $2, $3, $4, 'submitted')
-            returning submission_id
-          `,
-          [activityId, userId, submissionBody, submittedAt],
-        )
-        submissionId = newRows[0]?.submission_id ?? null
-      }
+      const attemptNumber = await getNextAttemptNumber(activityId, userId)
+      const { rows: newRows } = await client.query(
+        `
+          insert into submissions (activity_id, user_id, attempt_number, body, submitted_at, submission_status)
+          values ($1, $2, $3, $4, $5, 'submitted')
+          returning submission_id
+        `,
+        [activityId, userId, attemptNumber, submissionBody, submittedAt],
+      )
+      submissionId = newRows[0]?.submission_id ?? null
+
+      await clearResubmitRequest(activityId, userId)
 
       await logActivitySubmissionEvent({ submissionId, activityId, lessonId, pupilId: userId, fileName, submittedAt })
     } catch (err) {

@@ -4,6 +4,7 @@ import { Client } from "pg"
 import { getAuthenticatedProfile } from "@/lib/auth"
 import { query } from "@/lib/db"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
+import { clearResubmitRequest, getNextAttemptNumber } from "@/lib/server-actions/submission-attempts"
 
 const LESSON_FILES_BUCKET = "lessons"
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
@@ -116,7 +117,7 @@ export async function POST(request: Request) {
     await client.connect()
 
     const { rows: existingRows } = await client.query(
-      `select submission_id, body from submissions where activity_id = $1 and user_id = $2 order by submitted_at desc limit 1`,
+      `select submission_id, body from submissions where activity_id = $1 and user_id = $2 order by attempt_number desc limit 1`,
       [activityId, userId],
     )
 
@@ -129,21 +130,14 @@ export async function POST(request: Request) {
     const body = { files }
     const submittedAt = new Date().toISOString()
 
-    if (existing) {
-      submissionId = existing.submission_id
-      await client.query(
-        `update submissions set body = $1, submitted_at = $2 where submission_id = $3`,
-        [JSON.stringify(body), submittedAt, submissionId],
-      )
-      console.log(`${tag} Updated existing submission`, { submissionId })
-    } else {
-      const { rows: insertRows } = await client.query<{ submission_id: string }>(
-        `insert into submissions (submission_id, activity_id, user_id, body, submitted_at) values (gen_random_uuid(), $1, $2, $3, $4) returning submission_id`,
-        [activityId, userId, JSON.stringify(body), submittedAt],
-      )
-      submissionId = insertRows[0].submission_id
-      console.log(`${tag} Created new submission`, { submissionId })
-    }
+    const attemptNumber = await getNextAttemptNumber(activityId, userId)
+    const { rows: insertRows } = await client.query<{ submission_id: string }>(
+      `insert into submissions (activity_id, user_id, attempt_number, body, submitted_at) values ($1, $2, $3, $4, $5) returning submission_id`,
+      [activityId, userId, attemptNumber, JSON.stringify(body), submittedAt],
+    )
+    submissionId = insertRows[0].submission_id
+    console.log(`${tag} Created new attempt`, { submissionId, attemptNumber })
+    await clearResubmitRequest(activityId, userId)
   } catch (err) {
     console.error(`${tag} DB upsert failed — rolling back storage`, { path, error: err })
     await storage.remove([path])

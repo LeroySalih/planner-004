@@ -19,6 +19,7 @@ import {
 import { insertPupilActivityFeedbackEntry } from "@/lib/feedback/pupil-activity-feedback";
 import { query } from "@/lib/db";
 import { logQueueEvent, resolveQueueItem } from "@/lib/ai/marking-queue";
+import { getNextAttemptNumber } from "@/lib/server-actions/submission-attempts";
 
 export const dynamic = "force-dynamic";
 
@@ -607,17 +608,19 @@ async function createAiMarkedSubmission({
     success_criteria_scores: successCriteriaScores,
   });
 
+  const attemptNumber = await getNextAttemptNumber(activityId, pupilId);
   const { rows } = await query<{ submission_id: string }>(
     `
       insert into submissions (
         activity_id,
         user_id,
+        attempt_number,
         submitted_at,
         body
-      ) values ($1, $2, $3, $4)
+      ) values ($1, $2, $3, $4, $5)
       returning submission_id
     `,
-    [activityId, pupilId, new Date().toISOString(), submissionBody],
+    [activityId, pupilId, attemptNumber, new Date().toISOString(), submissionBody],
   );
 
   const insertedRow = rows?.[0] ?? null;

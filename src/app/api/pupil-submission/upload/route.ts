@@ -7,6 +7,7 @@ import { query } from "@/lib/db"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 import { emitSubmissionEvent } from "@/lib/sse/topics"
 import { logActivitySubmissionEvent } from "@/lib/activity-logging"
+import { clearResubmitRequest, getNextAttemptNumber } from "@/lib/server-actions/submission-attempts"
 
 const LESSON_FILES_BUCKET = "lessons"
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
@@ -159,7 +160,7 @@ export async function POST(request: Request) {
           select submission_id, body
           from submissions
           where activity_id = $1 and user_id = $2
-          order by submitted_at desc
+          order by attempt_number desc
           limit 1
         `,
         [activityId, userId],
@@ -226,29 +227,19 @@ export async function POST(request: Request) {
         success_criteria_scores: {},
       }
 
-      if (existing?.submission_id) {
-        await client.query(
-          `
-            update submissions
-            set body = $1, submitted_at = $2, submission_status = 'inprogress', is_flagged = false, resubmit_requested = false, resubmit_note = NULL
-            where submission_id = $3
-          `,
-          [submissionPayload, submittedAt, existing.submission_id],
-        )
-        submissionId = existing.submission_id
-        console.log(`${tag} Updated existing submission`, { submissionId })
-      } else {
-        const { rows: newRows } = await client.query(
-          `
-            insert into submissions (activity_id, user_id, body, submitted_at, submission_status)
-            values ($1, $2, $3, $4, 'inprogress')
-            returning submission_id
-          `,
-          [activityId, userId, submissionPayload, submittedAt],
-        )
-        submissionId = newRows[0]?.submission_id ?? null
-        console.log(`${tag} Created new submission`, { submissionId })
-      }
+      const attemptNumber = await getNextAttemptNumber(activityId, userId)
+      const { rows: newRows } = await client.query(
+        `
+          insert into submissions (activity_id, user_id, attempt_number, body, submitted_at, submission_status)
+          values ($1, $2, $3, $4, $5, 'inprogress')
+          returning submission_id
+        `,
+        [activityId, userId, attemptNumber, submissionPayload, submittedAt],
+      )
+      submissionId = newRows[0]?.submission_id ?? null
+      console.log(`${tag} Created new attempt`, { submissionId, attemptNumber })
+
+      await clearResubmitRequest(activityId, userId)
 
       await logActivitySubmissionEvent({ submissionId, activityId, lessonId, pupilId: userId, fileName, submittedAt })
     } catch (err) {

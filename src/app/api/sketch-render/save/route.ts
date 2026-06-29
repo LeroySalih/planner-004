@@ -7,6 +7,7 @@ import { emitSubmissionEvent } from "@/lib/sse/topics"
 import { getActivityLessonId, logActivitySubmissionEvent } from "@/lib/activity-logging"
 import { fetchActivitySuccessCriteriaIds, normaliseSuccessCriteriaScores } from "@/lib/scoring/success-criteria"
 import { SketchRenderSubmissionBodySchema, SubmissionSchema } from "@/types"
+import { clearResubmitRequest, getNextAttemptNumber } from "@/lib/server-actions/submission-attempts"
 
 async function resolvePupilStorageKey(userId: string): Promise<string> {
   const { rows } = await query<{ email: string | null }>(
@@ -100,7 +101,10 @@ export async function POST(request: Request) {
 
   let existingSubmission = null
   try {
-    const { rows } = await query(`select * from submissions where activity_id = $1 and user_id = $2 limit 1`, [activityId, userId])
+    const { rows } = await query(
+      `select * from submissions where activity_id = $1 and user_id = $2 order by attempt_number desc limit 1`,
+      [activityId, userId],
+    )
     existingSubmission = rows[0] ? SubmissionSchema.parse(rows[0]) : null
   } catch {
     // treat as no existing submission
@@ -125,19 +129,13 @@ export async function POST(request: Request) {
   let saved: Record<string, unknown> | undefined
 
   try {
-    if (existingSubmission?.submission_id) {
-      const result = await query(
-        `update submissions set body = $1, submitted_at = $2, is_flagged = false where submission_id = $3 returning *`,
-        [submissionBody, timestamp, existingSubmission.submission_id],
-      )
-      saved = result.rows[0] as Record<string, unknown>
-    } else {
-      const result = await query(
-        `insert into submissions (activity_id, user_id, body, submitted_at, is_flagged) values ($1, $2, $3, $4, false) returning *`,
-        [activityId, userId, submissionBody, timestamp],
-      )
-      saved = result.rows[0] as Record<string, unknown>
-    }
+    const attemptNumber = await getNextAttemptNumber(activityId, userId)
+    const result = await query(
+      `insert into submissions (activity_id, user_id, attempt_number, body, submitted_at, is_flagged) values ($1, $2, $3, $4, $5, false) returning *`,
+      [activityId, userId, attemptNumber, submissionBody, timestamp],
+    )
+    saved = result.rows[0] as Record<string, unknown>
+    await clearResubmitRequest(activityId, userId)
   } catch (err) {
     console.error(`${tag} DB upsert failed`, err)
     return NextResponse.json({ success: false, error: "Failed to save submission", data: null }, { status: 500 })
