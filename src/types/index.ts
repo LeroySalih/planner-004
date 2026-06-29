@@ -1101,6 +1101,7 @@ export const AssignmentResultActivitySchema = z.object({
         .default([]),
     markingGuidance: z.string().nullable().optional(),
     subjectGuidance: z.string().nullable().optional(),
+    markingGuidanceId: z.string().nullable().optional(),
 });
 
 export const AssignmentResultCellSchema = z.object({

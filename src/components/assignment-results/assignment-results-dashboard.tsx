@@ -5,7 +5,7 @@ import "katex/dist/katex.min.css"
 import { useActionState, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Download, Eye, Flag, RefreshCw, RotateCcw, RotateCw, X, ZoomIn, ZoomOut } from "lucide-react"
+import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Clipboard, Download, Eye, Flag, RefreshCw, RotateCcw, RotateCw, X, ZoomIn, ZoomOut } from "lucide-react"
 import {
   AssignmentResultActivity,
   AssignmentResultActivitySummary,
@@ -21,8 +21,10 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
+import { RichTextEditor } from "@/components/ui/rich-text-editor"
 import { toast } from "sonner"
 import {
   getPupilActivitySubmissionUrlAction,
@@ -36,6 +38,8 @@ import {
   toggleSubmissionFlagAction,
   requestResubmissionAction,
   readSubmissionAttemptsAction,
+  readMarkingGuidanceByIdAction,
+  updateMarkingGuidanceAction,
 } from "@/lib/server-updates"
 import { resolveScoreTone } from "@/lib/results/colors"
 import {
@@ -424,8 +428,37 @@ function resolvePupilLabels(pupil: AssignmentResultRow["pupil"]) {
   return { primaryLabel, secondaryLabel }
 }
 
+function stripHtml(value: string): string {
+  return value
+    .replace(/&nbsp;/gi, " ")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
 function isImageFile(filename: string): boolean {
   return /\.(jpg|jpeg|png|gif|webp|svg|heic)$/i.test(filename)
+}
+
+async function convertImageBlobToPng(blob: Blob): Promise<Blob> {
+  const bitmap = await createImageBitmap(blob)
+  const canvas = document.createElement("canvas")
+  canvas.width = bitmap.width
+  canvas.height = bitmap.height
+  const context = canvas.getContext("2d")
+  if (!context) {
+    throw new Error("Canvas 2D context unavailable.")
+  }
+  context.drawImage(bitmap, 0, 0)
+  return await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((pngBlob) => {
+      if (pngBlob) {
+        resolve(pngBlob)
+      } else {
+        reject(new Error("Failed to encode image as PNG."))
+      }
+    }, "image/png")
+  })
 }
 
 // Activity types whose pupil response is a downloadable file in storage,
@@ -467,6 +500,9 @@ export function AssignmentResultsDashboard({
   })
   const [feedbackVisible, setFeedbackVisible] = useState<boolean>(matrix.assignment?.feedbackVisible ?? false)
   const [selection, setSelection] = useState<CellSelection | null>(null)
+  const [guidanceEditor, setGuidanceEditor] = useState<
+    { id: string; title: string; content: string; loading: boolean; saving: boolean } | null
+  >(null)
   const autoFeedbackMarkup = useMemo(
     () => renderFeedbackMarkup(selection?.cell.autoFeedback),
     [selection?.cell.autoFeedback],
@@ -827,6 +863,74 @@ export function AssignmentResultsDashboard({
       .then(() => toast.success("Copied question, guidance and feedback to clipboard."))
       .catch(() => toast.error("Failed to copy to clipboard."))
   }, [selection])
+
+  const handleCopyImage = useCallback(async (file: { name: string; url?: string | null }) => {
+    if (!file.url) {
+      toast.error("No image available to copy.")
+      return
+    }
+
+    try {
+      const response = await fetch(file.url)
+      const blob = await response.blob()
+      const pngBlob = blob.type === "image/png" ? blob : await convertImageBlobToPng(blob)
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": pngBlob })])
+      toast.success("Image copied to clipboard.")
+    } catch (error) {
+      console.error("[assignment-results] Copy image failed", error)
+      toast.error("Failed to copy image to clipboard.")
+    }
+  }, [])
+
+  const handleOpenGuidanceEditor = useCallback((markingGuidanceId: string) => {
+    setGuidanceEditor({ id: markingGuidanceId, title: "", content: "", loading: true, saving: false })
+    readMarkingGuidanceByIdAction(markingGuidanceId).then(({ data, error }) => {
+      if (error || !data) {
+        toast.error(error ?? "Marking guidance not found.")
+        setGuidanceEditor(null)
+        return
+      }
+      setGuidanceEditor({ id: data.id, title: data.title, content: data.content, loading: false, saving: false })
+    })
+  }, [])
+
+  const handleSaveGuidance = useCallback(() => {
+    if (!guidanceEditor) return
+    const trimmedTitle = guidanceEditor.title.trim()
+    const trimmedContent = guidanceEditor.content.trim()
+    if (!trimmedTitle || !trimmedContent) {
+      toast.error("Title and content are required.")
+      return
+    }
+
+    setGuidanceEditor((current) => (current ? { ...current, saving: true } : current))
+    updateMarkingGuidanceAction({ id: guidanceEditor.id, title: trimmedTitle, content: trimmedContent }).then(
+      ({ error }) => {
+        if (error) {
+          toast.error(error)
+          setGuidanceEditor((current) => (current ? { ...current, saving: false } : current))
+          return
+        }
+
+        const plainContent = stripHtml(trimmedContent)
+        setMatrixState((prev) => ({
+          ...prev,
+          activities: prev.activities.map((activity) =>
+            activity.markingGuidanceId === guidanceEditor.id
+              ? { ...activity, subjectGuidance: plainContent }
+              : activity,
+          ),
+        }))
+        setSelection((prev) =>
+          prev && prev.activity.markingGuidanceId === guidanceEditor.id
+            ? { ...prev, activity: { ...prev.activity, subjectGuidance: plainContent } }
+            : prev,
+        )
+        toast.success("Subject guidance updated.")
+        setGuidanceEditor(null)
+      },
+    )
+  }, [guidanceEditor])
 
   const handleColumnAiMark = useCallback((activityIndex: number) => {
     const activity = activities[activityIndex]
@@ -2593,6 +2697,16 @@ export function AssignmentResultsDashboard({
                                     <Download className="h-3 w-3" />
                                     Download
                                   </a>
+                                  {isAdmin && isImageFile(file.name) ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCopyImage(file)}
+                                      className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                                    >
+                                      <Clipboard className="h-3 w-3" />
+                                      Copy image
+                                    </button>
+                                  ) : null}
                                 </div>
                               ) : (
                                 <span className="mt-1 text-xs text-muted-foreground">
@@ -2844,6 +2958,15 @@ export function AssignmentResultsDashboard({
                                 className="text-primary underline-offset-2 hover:underline"
                               >
                                 Copy to LLM
+                              </button>
+                            )}
+                            {isAdmin && selection.activity.markingGuidanceId && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenGuidanceEditor(selection.activity.markingGuidanceId!)}
+                                className="text-primary underline-offset-2 hover:underline"
+                              >
+                                Edit Subject Guidance
                               </button>
                             )}
                           </span>
@@ -3670,6 +3793,16 @@ export function AssignmentResultsDashboard({
                                       <Download className="h-3 w-3" />
                                       Download
                                     </a>
+                                    {isAdmin && isImageFile(file.name) ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCopyImage(file)}
+                                        className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                                      >
+                                        <Clipboard className="h-3 w-3" />
+                                        Copy image
+                                      </button>
+                                    ) : null}
                                   </div>
                                 ) : (
                                   <span className="mt-1 text-xs text-muted-foreground">
@@ -3929,6 +4062,15 @@ export function AssignmentResultsDashboard({
                                   Copy to LLM
                                 </button>
                               )}
+                              {isAdmin && selection.activity.markingGuidanceId && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenGuidanceEditor(selection.activity.markingGuidanceId!)}
+                                  className="text-primary underline-offset-2 hover:underline"
+                                >
+                                  Edit Subject Guidance
+                                </button>
+                              )}
                             </span>
                           </div>
                           <p className="mt-2 text-xs text-muted-foreground">
@@ -4014,6 +4156,45 @@ export function AssignmentResultsDashboard({
                               </div>
                             </div>
                       </aside>    )}
+
+      <Dialog open={!!guidanceEditor} onOpenChange={(open) => !open && setGuidanceEditor(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Subject Guidance</DialogTitle>
+          </DialogHeader>
+          {guidanceEditor?.loading ? (
+            <p className="text-sm text-muted-foreground">Loading guidance…</p>
+          ) : guidanceEditor ? (
+            <div className="space-y-3">
+              <Input
+                value={guidanceEditor.title}
+                onChange={(e) =>
+                  setGuidanceEditor((current) => (current ? { ...current, title: e.target.value } : current))
+                }
+                placeholder="Title"
+                disabled={guidanceEditor.saving}
+              />
+              <RichTextEditor
+                id="subject-guidance-content"
+                value={guidanceEditor.content}
+                onChange={(value) =>
+                  setGuidanceEditor((current) => (current ? { ...current, content: value } : current))
+                }
+                placeholder="Marking guidance content"
+                disabled={guidanceEditor.saving}
+              />
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setGuidanceEditor(null)} disabled={guidanceEditor?.saving}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveGuidance} disabled={!guidanceEditor || guidanceEditor.loading || guidanceEditor.saving}>
+              {guidanceEditor?.saving ? "Saving…" : "Save changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

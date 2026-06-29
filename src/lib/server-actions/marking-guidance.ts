@@ -11,6 +11,11 @@ const MarkingGuidancesResult = z.object({
   error: z.string().nullable(),
 })
 
+const MarkingGuidanceResult = z.object({
+  data: MarkingGuidanceSchema.nullable(),
+  error: z.string().nullable(),
+})
+
 const MarkingGuidanceWriteResult = z.object({
   data: z.null(),
   error: z.string().nullable(),
@@ -63,6 +68,21 @@ export async function readActiveMarkingGuidancesForSubjectAction(
     return MarkingGuidancesResult.parse({ data: rows.map(toMarkingGuidance), error: null })
   } catch (e) {
     return MarkingGuidancesResult.parse({ data: null, error: String(e) })
+  }
+}
+
+export async function readMarkingGuidanceByIdAction(
+  id: string,
+): Promise<z.infer<typeof MarkingGuidanceResult>> {
+  try {
+    await requireRole("admin")
+    const { rows } = await query<Record<string, unknown>>(
+      `SELECT id, subject, title, content, active, created_at FROM marking_guidances WHERE id = $1`,
+      [id],
+    )
+    return MarkingGuidanceResult.parse({ data: rows[0] ? toMarkingGuidance(rows[0]) : null, error: null })
+  } catch (e) {
+    return MarkingGuidanceResult.parse({ data: null, error: String(e) })
   }
 }
 

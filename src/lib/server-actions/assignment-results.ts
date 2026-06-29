@@ -686,6 +686,7 @@ export async function readAssignmentResultsAction(
               activitySuccessCriteriaMap.get(activity.activity_id) ?? [],
             markingGuidance: guidance?.markingGuidance ?? null,
             subjectGuidance,
+            markingGuidanceId: guidance?.markingGuidanceId ?? null,
           });
         });
 

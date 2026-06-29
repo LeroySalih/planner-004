@@ -113,6 +113,7 @@ export {
 export {
   readMarkingGuidancesAction,
   readActiveMarkingGuidancesForSubjectAction,
+  readMarkingGuidanceByIdAction,
   createMarkingGuidanceAction,
   updateMarkingGuidanceAction,
   setMarkingGuidanceActiveAction,
