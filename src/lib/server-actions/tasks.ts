@@ -52,7 +52,7 @@ export async function readPupilTasksAction(userId: string): Promise<{
         la.start_date,
         a.activity_id,
         coalesce(a.title, 'Activity') as activity_title,
-        s.resubmit_note
+        r.note as resubmit_note
       from submissions s
       join activities a on a.activity_id = s.activity_id
       join lessons l on l.lesson_id = a.lesson_id
@@ -60,12 +60,13 @@ export async function readPupilTasksAction(userId: string): Promise<{
       join lesson_assignments la on la.lesson_id = l.lesson_id
       join group_membership gm on gm.group_id = la.group_id and gm.user_id = $1
       join groups g on g.group_id = la.group_id
+      join submission_resubmit_requests r
+        on r.activity_id = s.activity_id and r.user_id = s.user_id and r.requested = true
       where s.user_id = $1
-        and s.resubmit_requested = true
         and coalesce(l.active, true) = true
         and coalesce(a.active, true) = true
         and coalesce(g.active, true) = true
-      order by s.activity_id, s.submitted_at desc
+      order by s.activity_id, s.attempt_number desc
       `,
       [normalizedUserId],
     );
