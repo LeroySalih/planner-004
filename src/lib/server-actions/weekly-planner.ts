@@ -233,7 +233,7 @@ export async function readWeeklyPlannerPupilAction(
                JOIN activities a ON a.activity_id = s.activity_id
                WHERE s.user_id = $1
                  AND a.type = ANY($3::text[])
-               ORDER BY s.activity_id, s.submitted_at DESC
+               ORDER BY s.activity_id, s.attempt_number DESC
              ),
              lesson_scores AS (
                SELECT a.lesson_id,

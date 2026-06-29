@@ -203,10 +203,10 @@ export async function listShortTextSubmissionsAction(activityId: string) {
   try {
     const { rows } = await query(
       `
-        select submission_id, activity_id, user_id, submitted_at, body
+        select distinct on (user_id) submission_id, activity_id, user_id, submitted_at, body
         from submissions
         where activity_id = $1
-        order by submitted_at desc
+        order by user_id, attempt_number desc
       `,
       [activityId],
     )

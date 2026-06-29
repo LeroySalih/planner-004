@@ -412,7 +412,7 @@ export async function readPupilUnitsBootstrapAction(
                 FROM submissions s
                 JOIN scorable_activities sa ON sa.activity_id = s.activity_id
                 WHERE s.user_id = $3
-                ORDER BY s.activity_id, s.submitted_at DESC
+                ORDER BY s.activity_id, s.attempt_number DESC
               )
               SELECT 
                 sa.lesson_id,
@@ -440,12 +440,13 @@ export async function readPupilUnitsBootstrapAction(
           ? { rows: [] as { lesson_id: string; resubmit_count: number }[] }
           : await query<{ lesson_id: string; resubmit_count: number }>(
             `
-              select a.lesson_id, count(*)::int as resubmit_count
+              select a.lesson_id, count(distinct s.activity_id)::int as resubmit_count
               from submissions s
               join activities a on a.activity_id = s.activity_id
+              join submission_resubmit_requests r
+                on r.activity_id = s.activity_id and r.user_id = s.user_id and r.requested = true
               where a.lesson_id = any($1::text[])
                 and s.user_id = $2
-                and s.resubmit_requested = true
               group by a.lesson_id
             `,
             [lessonIds, normalizedPupilId],
