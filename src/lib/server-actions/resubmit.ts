@@ -4,18 +4,11 @@ import { performance } from "node:perf_hooks";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
-import {
-  McqSubmissionBodySchema,
-  ShortTextSubmissionBodySchema,
-} from "@/types";
 import { query } from "@/lib/db";
 import { requireTeacherProfile } from "@/lib/auth";
-import {
-  fetchActivitySuccessCriteriaIds,
-  normaliseSuccessCriteriaScores,
-} from "@/lib/scoring/success-criteria";
 import { withTelemetry } from "@/lib/telemetry";
 import { insertPupilActivityFeedbackEntry } from "@/lib/feedback/pupil-activity-feedback";
+import { setResubmitRequest } from "@/lib/server-actions/submission-attempts";
 
 const RequestResubmissionInputSchema = z.object({
   assignmentId: z.string().min(3),
@@ -59,46 +52,26 @@ export async function requestResubmissionAction(
       }
 
       try {
-        // Validate activity exists
         const { rows: activityRows } = await query(
-          "select activity_id, type from activities where activity_id = $1 limit 1",
+          "select activity_id from activities where activity_id = $1 limit 1",
           [parsed.data.activityId],
         );
-        const activityRow = activityRows?.[0] ?? null;
-
-        if (!activityRow) {
+        if (!activityRows?.[0]) {
           return RequestResubmissionReturnSchema.parse({
             success: false,
             error: "Activity not found.",
           });
         }
 
-        // Find submission
-        let submissionId: string | null = null;
-        let body: Record<string, unknown> = {};
-
-        if (parsed.data.submissionId) {
-          const { rows } = await query<{ submission_id: string; body: unknown }>(
-            "select submission_id, body from submissions where submission_id = $1 limit 1",
-            [parsed.data.submissionId],
-          );
-          if (rows?.[0]) {
-            submissionId = rows[0].submission_id;
-            body = (rows[0].body as Record<string, unknown>) ?? {};
-          }
-        }
-
+        let submissionId: string | null = parsed.data.submissionId ?? null;
         if (!submissionId) {
-          const { rows } = await query<{ submission_id: string; body: unknown }>(
-            `select submission_id, body from submissions
+          const { rows } = await query<{ submission_id: string }>(
+            `select submission_id from submissions
              where activity_id = $1 and user_id = $2
-             order by submitted_at desc nulls last limit 1`,
+             order by attempt_number desc limit 1`,
             [parsed.data.activityId, parsed.data.pupilId],
           );
-          if (rows?.[0]) {
-            submissionId = rows[0].submission_id;
-            body = (rows[0].body as Record<string, unknown>) ?? {};
-          }
+          submissionId = rows?.[0]?.submission_id ?? null;
         }
 
         if (!submissionId) {
@@ -108,100 +81,12 @@ export async function requestResubmissionAction(
           });
         }
 
-        // Zero out the score in the submission body
-        const successCriteriaIds = await fetchActivitySuccessCriteriaIds(
-          parsed.data.activityId,
-        );
-        const type = typeof activityRow.type === "string"
-          ? activityRow.type.trim()
-          : "";
-
-        let nextBody: Record<string, unknown> = {};
-
-        if (body && typeof body === "object") {
-          const zeroScores = normaliseSuccessCriteriaScores({
-            successCriteriaIds,
-            fillValue: 0,
-          });
-
-          if (type === "multiple-choice-question") {
-            const parsedBody = McqSubmissionBodySchema.safeParse(body);
-            if (parsedBody.success) {
-              nextBody = {
-                ...body,
-                is_correct: false,
-                teacher_override_score: null,
-                teacher_feedback: null,
-                success_criteria_scores: zeroScores,
-              };
-            } else {
-              nextBody = {
-                ...body,
-                teacher_override_score: null,
-                teacher_feedback: null,
-                success_criteria_scores: zeroScores,
-              };
-            }
-          } else if (type === "short-text-question") {
-            const parsedBody = ShortTextSubmissionBodySchema.safeParse(body);
-            if (parsedBody.success) {
-              nextBody = {
-                ...body,
-                ai_model_score: null,
-                ai_model_feedback: null,
-                is_correct: false,
-                teacher_override_score: null,
-                teacher_feedback: null,
-                success_criteria_scores: zeroScores,
-              };
-            } else {
-              nextBody = {
-                ...body,
-                teacher_override_score: null,
-                teacher_feedback: null,
-                success_criteria_scores: zeroScores,
-              };
-            }
-          } else {
-            nextBody = {
-              ...body,
-              teacher_override_score: null,
-              teacher_feedback: null,
-              success_criteria_scores: zeroScores,
-            };
-          }
-        } else {
-          const zeroScores = normaliseSuccessCriteriaScores({
-            successCriteriaIds,
-            fillValue: 0,
-          });
-          nextBody = {
-            teacher_override_score: null,
-            teacher_feedback: null,
-            success_criteria_scores: zeroScores,
-          };
-        }
-
-        // Update submission: set resubmit flag, zero body, clear score
-        try {
-          await query(
-            `update submissions
-             set body = $1,
-                 resubmit_requested = true,
-                 resubmit_note = $2
-             where submission_id = $3`,
-            [nextBody, parsed.data.note?.trim() || null, submissionId],
-          );
-        } catch (updateError) {
-          console.error(
-            "[resubmit] Failed to set resubmit on submission:",
-            updateError,
-          );
-          return RequestResubmissionReturnSchema.parse({
-            success: false,
-            error: "Unable to request resubmission.",
-          });
-        }
+        await setResubmitRequest({
+          activityId: parsed.data.activityId,
+          userId: parsed.data.pupilId,
+          note: parsed.data.note?.trim() || null,
+          requestedBy: teacherProfile.userId,
+        });
 
         // Record feedback entry for audit trail
         await insertPupilActivityFeedbackEntry({
