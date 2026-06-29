@@ -44,7 +44,7 @@ import {
   insertPupilActivityFeedbackEntry,
   selectLatestFeedbackEntry,
 } from "@/lib/feedback/pupil-activity-feedback";
-import { computeAccuracyByUser } from "@/lib/server-actions/submissions";
+import { computeAccuracyByUser } from "@/lib/scoring/accuracy";
 
 const ASSIGNMENT_ID_SEPARATOR = "__";
 const SHORT_TEXT_ACTIVITY_TYPE = "short-text-question";
