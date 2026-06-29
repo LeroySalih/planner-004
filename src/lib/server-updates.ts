@@ -195,6 +195,8 @@ export {
   upsertMcqSubmissionAction,
 } from "./server-actions/submissions";
 
+export { readSubmissionAttemptsAction } from "./server-actions/submission-attempts";
+
 export {
   listShortTextSubmissionsAction,
   markShortTextActivityAction,

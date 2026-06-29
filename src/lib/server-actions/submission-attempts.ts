@@ -1,6 +1,7 @@
 "use server";
 
 import { query } from "@/lib/db";
+import { SubmissionSchema, type Submission } from "@/types";
 
 export async function getNextAttemptNumber(
   activityId: string,
@@ -57,4 +58,41 @@ export async function getResubmitRequest(
     [activityId, userId],
   );
   return rows[0] ?? null;
+}
+
+export async function readSubmissionAttemptsAction(
+  activityId: string,
+  userId: string,
+): Promise<{ data: Submission[]; error: string | null }> {
+  try {
+    const { rows } = await query(
+      `
+        select *
+        from submissions
+        where activity_id = $1 and user_id = $2
+        order by attempt_number asc
+      `,
+      [activityId, userId],
+    );
+
+    const parsed = SubmissionSchema.array().safeParse(rows ?? []);
+    if (!parsed.success) {
+      console.error(
+        "[submission-attempts] Failed to parse attempt rows:",
+        parsed.error,
+      );
+      return { data: [], error: "Invalid submission data." };
+    }
+
+    return { data: parsed.data, error: null };
+  } catch (error) {
+    console.error(
+      "[submission-attempts] Failed to read submission attempts:",
+      error,
+    );
+    const message = error instanceof Error
+      ? error.message
+      : "Unable to load submission attempts.";
+    return { data: [], error: message };
+  }
 }
