@@ -515,6 +515,43 @@ export function AssignmentResultsDashboard({
   const [attempts, setAttempts] = useState<Submission[]>([])
   const [attemptsLoading, setAttemptsLoading] = useState(false)
   const [viewingAttempt, setViewingAttempt] = useState<Submission | null>(null)
+  const [viewingAttemptFileUrl, setViewingAttemptFileUrl] = useState<string | null>(null)
+  const [viewingAttemptFileLoading, setViewingAttemptFileLoading] = useState(false)
+
+  useEffect(() => {
+    const lessonId = matrixState.lesson?.lessonId
+    const activityType = selection?.activity.type
+    const isUploadActivity = activityType === "upload-worksheet" || activityType === "upload-spreadsheet"
+    const fileName =
+      isUploadActivity && viewingAttempt?.body && typeof viewingAttempt.body === "object"
+        ? (viewingAttempt.body as { fileName?: unknown }).fileName
+        : null
+
+    if (!lessonId || !selection || !viewingAttempt || typeof fileName !== "string" || !fileName.trim()) {
+      setViewingAttemptFileUrl(null)
+      return
+    }
+
+    let cancelled = false
+    setViewingAttemptFileLoading(true)
+    getPupilActivitySubmissionUrlAction(
+      lessonId,
+      selection.activity.activityId,
+      selection.row.pupil.userId,
+      fileName,
+    )
+      .then((result) => {
+        if (!cancelled) {
+          setViewingAttemptFileUrl(result.success ? result.url ?? null : null)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setViewingAttemptFileLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [viewingAttempt, selection, matrixState.lesson?.lessonId])
 
   useEffect(() => {
     if (!selection) {
@@ -938,6 +975,49 @@ export function AssignmentResultsDashboard({
       },
     )
   }, [guidanceEditor])
+
+  const handleOpenQuestionGuidanceEditor = useCallback((activityId: string) => {
+    setQuestionGuidanceEditor({ activityId, content: "", loading: true, saving: false })
+    readActivityMarkingGuidanceAction(activityId).then(({ data, error }) => {
+      if (error || data === null) {
+        toast.error(error ?? "Marking guidance not found.")
+        setQuestionGuidanceEditor(null)
+        return
+      }
+      setQuestionGuidanceEditor({ activityId, content: data, loading: false, saving: false })
+    })
+  }, [])
+
+  const handleSaveQuestionGuidance = useCallback(() => {
+    if (!questionGuidanceEditor) return
+    const trimmedContent = questionGuidanceEditor.content.trim()
+
+    setQuestionGuidanceEditor((current) => (current ? { ...current, saving: true } : current))
+    updateActivityMarkingGuidanceAction(questionGuidanceEditor.activityId, trimmedContent).then(({ success, error }) => {
+      if (!success) {
+        toast.error(error ?? "Failed to save marking guidance.")
+        setQuestionGuidanceEditor((current) => (current ? { ...current, saving: false } : current))
+        return
+      }
+
+      const plainContent = stripHtml(trimmedContent)
+      setMatrixState((prev) => ({
+        ...prev,
+        activities: prev.activities.map((activity) =>
+          activity.activityId === questionGuidanceEditor.activityId
+            ? { ...activity, markingGuidance: plainContent || null }
+            : activity,
+        ),
+      }))
+      setSelection((prev) =>
+        prev && prev.activity.activityId === questionGuidanceEditor.activityId
+          ? { ...prev, activity: { ...prev.activity, markingGuidance: plainContent || null } }
+          : prev,
+      )
+      toast.success("Question marking guidance updated.")
+      setQuestionGuidanceEditor(null)
+    })
+  }, [questionGuidanceEditor])
 
   const handleColumnAiMark = useCallback((activityIndex: number) => {
     const activity = activities[activityIndex]
@@ -2976,6 +3056,15 @@ export function AssignmentResultsDashboard({
                                 Edit Subject Guidance
                               </button>
                             )}
+                            {isAdmin && selection.activity.type === "upload-worksheet" && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenQuestionGuidanceEditor(selection.activity.activityId)}
+                                className="text-primary underline-offset-2 hover:underline"
+                              >
+                                Edit Question Guidance
+                              </button>
+                            )}
                           </span>
                         </div>
                         <p className="mt-2 text-xs text-muted-foreground">
@@ -4080,6 +4169,15 @@ export function AssignmentResultsDashboard({
                                   Edit Subject Guidance
                                 </button>
                               )}
+                              {isAdmin && selection.activity.type === "upload-worksheet" && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenQuestionGuidanceEditor(selection.activity.activityId)}
+                                  className="text-primary underline-offset-2 hover:underline"
+                                >
+                                  Edit Question Guidance
+                                </button>
+                              )}
                             </span>
                           </div>
                           <p className="mt-2 text-xs text-muted-foreground">
@@ -4207,6 +4305,42 @@ export function AssignmentResultsDashboard({
         </DialogContent>
       </Dialog>
 
+      <Dialog open={!!questionGuidanceEditor} onOpenChange={(open) => !open && setQuestionGuidanceEditor(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Question Guidance</DialogTitle>
+          </DialogHeader>
+          {questionGuidanceEditor?.loading ? (
+            <p className="text-sm text-muted-foreground">Loading guidance…</p>
+          ) : questionGuidanceEditor ? (
+            <RichTextEditor
+              id="question-guidance-content"
+              value={questionGuidanceEditor.content}
+              onChange={(value) =>
+                setQuestionGuidanceEditor((current) => (current ? { ...current, content: value } : current))
+              }
+              placeholder="Marking guidance for this question"
+              disabled={questionGuidanceEditor.saving}
+            />
+          ) : null}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setQuestionGuidanceEditor(null)}
+              disabled={questionGuidanceEditor?.saving}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveQuestionGuidance}
+              disabled={!questionGuidanceEditor || questionGuidanceEditor.loading || questionGuidanceEditor.saving}
+            >
+              {questionGuidanceEditor?.saving ? "Saving…" : "Save changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={!!viewingAttempt} onOpenChange={(open) => !open && setViewingAttempt(null)}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -4263,7 +4397,20 @@ export function AssignmentResultsDashboard({
                         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                           Pupil response
                         </p>
-                        <p className="text-sm text-foreground">{extracted.pupilAnswer}</p>
+                        {viewingAttemptFileLoading ? (
+                          <p className="text-sm text-muted-foreground">Loading file link…</p>
+                        ) : viewingAttemptFileUrl ? (
+                          <a
+                            href={viewingAttemptFileUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm text-primary underline underline-offset-2"
+                          >
+                            {extracted.pupilAnswer}
+                          </a>
+                        ) : (
+                          <p className="text-sm text-foreground">{extracted.pupilAnswer}</p>
+                        )}
                       </div>
                     ) : null}
 
