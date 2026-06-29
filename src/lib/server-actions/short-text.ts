@@ -21,6 +21,10 @@ import { emitSubmissionEvent } from "@/lib/sse/topics"
 import { enqueueMarkingTasks, triggerQueueProcessor } from "@/lib/ai/marking-queue"
 import { query } from "@/lib/db"
 import { runAiMarkingFlow } from "@/lib/ai/ai-marking-service"
+import {
+  clearResubmitRequest,
+  getNextAttemptNumber,
+} from "@/lib/server-actions/submission-attempts"
 
 const ShortTextAnswerInputSchema = z.object({
   activityId: z.string().min(1),
@@ -91,24 +95,6 @@ export async function saveShortTextAnswerAction(input: z.infer<typeof ShortTextA
   })
   const lessonId = await getActivityLessonId(payload.activityId)
 
-  let existingId: string | null = null
-  try {
-    const { rows } = await query<{ submission_id: string }>(
-      `
-        select submission_id
-        from submissions
-        where activity_id = $1 and user_id = $2
-        order by submitted_at desc
-        limit 1
-      `,
-      [payload.activityId, payload.userId],
-    )
-    existingId = rows[0]?.submission_id ?? null
-  } catch (error) {
-    console.error("[short-text] Failed to read existing submission:", error)
-    return { success: false, error: error instanceof Error ? error.message : "Unable to save submission.", data: null as Submission | null }
-  }
-
   const submissionBody = ShortTextSubmissionBodySchema.parse({
     answer: (payload.answer ?? "").trim(),
     ai_model_score: null,
@@ -123,45 +109,32 @@ export async function saveShortTextAnswerAction(input: z.infer<typeof ShortTextA
   let savedSubmission: Submission | null = null
 
   try {
-    if (existingId) {
-      const { rows } = await query(
-        `
-          update submissions
-          set body = $1, submitted_at = $2, is_flagged = false, resubmit_requested = false, resubmit_note = NULL
-          where submission_id = $3
-          returning *
-        `,
-        [submissionBody, timestamp, existingId],
-      )
-      const parsed = SubmissionSchema.safeParse(rows[0])
-      if (!parsed.success) {
-        console.error("[short-text] Invalid submission payload after update:", parsed.error)
-        return { success: false, error: "Invalid submission data.", data: null as Submission | null }
-      }
-      savedSubmission = parsed.data
-      // Clear stale AI feedback so the pupil sees "pending marking" after resubmission,
-      // not the old AI feedback from the previous answer.
-      void query(
-        `delete from pupil_activity_feedback where activity_id = $1 and pupil_id = $2 and source = 'ai'`,
-        [payload.activityId, payload.userId],
-      ).catch((err) => console.error("[short-text] Failed to clear stale AI feedback:", err))
-    } else {
-      const { rows } = await query(
-        `
-          insert into submissions (activity_id, user_id, body, submitted_at)
-          values ($1, $2, $3, $4)
-          returning *
-        `,
-        [payload.activityId, payload.userId, submissionBody, timestamp],
-      )
+    const attemptNumber = await getNextAttemptNumber(payload.activityId, payload.userId)
 
-      const parsed = SubmissionSchema.safeParse(rows[0])
-      if (!parsed.success) {
-        console.error("[short-text] Invalid submission payload after insert:", parsed.error)
-        return { success: false, error: "Invalid submission data.", data: null as Submission | null }
-      }
-      savedSubmission = parsed.data
+    const { rows } = await query(
+      `
+        insert into submissions (activity_id, user_id, attempt_number, body, submitted_at)
+        values ($1, $2, $3, $4, $5)
+        returning *
+      `,
+      [payload.activityId, payload.userId, attemptNumber, submissionBody, timestamp],
+    )
+
+    const parsed = SubmissionSchema.safeParse(rows[0])
+    if (!parsed.success) {
+      console.error("[short-text] Invalid submission payload after insert:", parsed.error)
+      return { success: false, error: "Invalid submission data.", data: null as Submission | null }
     }
+    savedSubmission = parsed.data
+
+    await clearResubmitRequest(payload.activityId, payload.userId)
+
+    // Clear stale AI feedback so the pupil sees "pending marking" after resubmission,
+    // not the old AI feedback from the previous answer.
+    void query(
+      `delete from pupil_activity_feedback where activity_id = $1 and pupil_id = $2 and source = 'ai'`,
+      [payload.activityId, payload.userId],
+    ).catch((err) => console.error("[short-text] Failed to clear stale AI feedback:", err))
 
     if (savedSubmission) {
       // Fire-and-forget logging to avoid blocking the user
