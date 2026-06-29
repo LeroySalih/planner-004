@@ -15,6 +15,10 @@ import {
 } from "@/lib/scoring/success-criteria"
 import { emitSubmissionEvent } from "@/lib/sse/topics"
 import { query } from "@/lib/db"
+import {
+  clearResubmitRequest,
+  getNextAttemptNumber,
+} from "@/lib/server-actions/submission-attempts"
 
 const LongTextAnswerInputSchema = z.object({
   activityId: z.string().min(1),
@@ -32,28 +36,6 @@ export async function saveLongTextAnswerAction(input: z.infer<typeof LongTextAns
   })
   const lessonId = await getActivityLessonId(payload.activityId)
 
-  let existingId: string | null = null
-  try {
-    const { rows } = await query<{ submission_id: string }>(
-      `
-        select submission_id
-        from submissions
-        where activity_id = $1 and user_id = $2
-        order by submitted_at desc
-        limit 1
-      `,
-      [payload.activityId, payload.userId],
-    )
-    existingId = rows[0]?.submission_id ?? null
-  } catch (error) {
-    console.error("[long-text] Failed to read existing submission:", error)
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Unable to save submission.",
-      data: null as Submission | null,
-    }
-  }
-
   const submissionBody = LongTextSubmissionBodySchema.parse({
     answer: (payload.answer ?? "").trim(),
     success_criteria_scores: initialScores,
@@ -63,51 +45,15 @@ export async function saveLongTextAnswerAction(input: z.infer<typeof LongTextAns
   const timestamp = new Date().toISOString()
 
   try {
-    if (existingId) {
-      const { rows } = await query(
-        `
-          update submissions
-          set body = $1, submitted_at = $2, is_flagged = false, resubmit_requested = false, resubmit_note = NULL
-          where submission_id = $3
-          returning *
-        `,
-        [submissionBody, timestamp, existingId],
-      )
-      const parsed = SubmissionSchema.safeParse(rows[0])
-      if (!parsed.success) {
-        console.error("[long-text] Invalid submission payload after update:", parsed.error)
-        return { success: false, error: "Invalid submission data.", data: null as Submission | null }
-      }
-      
-      void logActivitySubmissionEvent({
-        submissionId: parsed.data.submission_id,
-        activityId: payload.activityId,
-        lessonId,
-        pupilId: payload.userId,
-        fileName: null,
-        submittedAt: parsed.data.submitted_at ?? timestamp,
-      })
-
-      void emitSubmissionEvent("submission.updated", {
-        submissionId: parsed.data.submission_id,
-        activityId: payload.activityId,
-        pupilId: payload.userId,
-        submittedAt: parsed.data.submitted_at ?? timestamp,
-        submissionStatus: "inprogress",
-        isFlagged: false,
-      })
-
-      deferRevalidate(`/lessons/${payload.activityId}`)
-      return { success: true, error: null, data: parsed.data }
-    }
+    const attemptNumber = await getNextAttemptNumber(payload.activityId, payload.userId)
 
     const { rows } = await query(
       `
-        insert into submissions (activity_id, user_id, body, submitted_at, submission_status)
-        values ($1, $2, $3, $4, 'inprogress')
+        insert into submissions (activity_id, user_id, body, submitted_at, submission_status, attempt_number)
+        values ($1, $2, $3, $4, 'inprogress', $5)
         returning *
       `,
-      [payload.activityId, payload.userId, submissionBody, timestamp],
+      [payload.activityId, payload.userId, submissionBody, timestamp, attemptNumber],
     )
 
     const parsed = SubmissionSchema.safeParse(rows[0])
@@ -115,6 +61,8 @@ export async function saveLongTextAnswerAction(input: z.infer<typeof LongTextAns
       console.error("[long-text] Invalid submission payload after insert:", parsed.error)
       return { success: false, error: "Invalid submission data.", data: null as Submission | null }
     }
+
+    await clearResubmitRequest(payload.activityId, payload.userId)
 
     void logActivitySubmissionEvent({
       submissionId: parsed.data.submission_id,
