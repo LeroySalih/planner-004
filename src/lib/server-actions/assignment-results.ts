@@ -901,6 +901,10 @@ export async function readAssignmentResultsAction(
 
           const rawFinalScore = extracted.effectiveScore ?? 0;
           const finalScore = clampScore(rawFinalScore);
+          const safeMaxMarks = activity.maxMarks || 1;
+          const marksAwarded = extracted.effectiveScore !== null
+            ? Math.round(extracted.effectiveScore * safeMaxMarks)
+            : null;
 
           const feedbackRows = feedbackLookupMap.get(key);
           const latestTeacherFeedback = selectLatestFeedbackEntry(
@@ -931,6 +935,8 @@ export async function readAssignmentResultsAction(
               pupilId,
               submissionId: submission.submission_id ?? null,
               score: finalScore,
+              marksAwarded,
+              maxMarks: safeMaxMarks,
               accuracy: accuracyByActivity.get(activityId)?.get(pupilId) ?? null,
               autoScore: typeof extracted.autoScore === "number" ? clampScore(extracted.autoScore) : finalScore,
               overrideScore: typeof extracted.overrideScore === "number" ? clampScore(extracted.overrideScore) : null,

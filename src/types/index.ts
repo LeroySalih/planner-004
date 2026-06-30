@@ -1126,6 +1126,8 @@ export const AssignmentResultCellSchema = z.object({
     pupilId: z.string(),
     submissionId: z.string().nullable(),
     score: z.number().min(0).max(1).nullable(),
+    marksAwarded: z.number().int().min(0).nullable().optional(),
+    maxMarks: z.number().int().min(1).optional(),
     accuracy: z.number().min(0).max(1).nullable().optional(),
     autoScore: z.number().min(0).max(1).nullable(),
     overrideScore: z.number().min(0).max(1).nullable(),
