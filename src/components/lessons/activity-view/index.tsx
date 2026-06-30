@@ -2231,7 +2231,7 @@ function ShortTextPresentView({
         normalizedRows.forEach((row) => {
           drafts[row.submissionId] =
             row.teacherOverrideScore !== null && Number.isFinite(row.teacherOverrideScore)
-              ? row.teacherOverrideScore.toFixed(2)
+              ? String(row.teacherOverrideScore)
               : ""
         })
         setOverrideDrafts(drafts)
