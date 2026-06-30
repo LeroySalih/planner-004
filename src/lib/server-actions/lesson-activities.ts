@@ -75,6 +75,7 @@ const CreateActivityInputSchema = z.object({
   bodyData: z.unknown().nullable().optional(),
   isSummative: z.boolean().optional(),
   successCriteriaIds: z.array(z.string().min(1)).optional(),
+  maxMarks: z.number().int().min(1).optional(),
 });
 
 const UpdateActivityInputSchema = z.object({
@@ -83,6 +84,7 @@ const UpdateActivityInputSchema = z.object({
   bodyData: z.unknown().nullable().optional(),
   isSummative: z.boolean().optional(),
   successCriteriaIds: z.array(z.string().min(1)).optional(),
+  maxMarks: z.number().int().min(1).optional(),
 });
 
 const ReorderActivityInputSchema = z
@@ -223,12 +225,15 @@ export async function createLessonActivityAction(
       const maxOrder = maxOrderRows[0]?.order_by;
       const nextOrder = typeof maxOrder === "number" ? maxOrder + 1 : 0;
 
+      const defaultMaxMarks = payload.type === "short-text-question" ? 3 : 1;
+      const maxMarks = payload.maxMarks ?? defaultMaxMarks;
+
       const { rows } = await client.query(
         `
           insert into activities (
-            lesson_id, title, type, body_data, is_summative, order_by, active
+            lesson_id, title, type, body_data, is_summative, order_by, max_marks, active
           )
-          values ($1, $2, $3, $4, $5, $6, true)
+          values ($1, $2, $3, $4, $5, $6, $7, true)
           returning *
         `,
         [
@@ -238,6 +243,7 @@ export async function createLessonActivityAction(
           normalizedBody.bodyData,
           isSummativeAllowed ? isSummativeRequested : false,
           nextOrder,
+          maxMarks,
         ],
       );
 
@@ -392,6 +398,9 @@ export async function updateLessonActivityAction(
     updates.is_summative = false;
   } else if (requestedSummative !== undefined) {
     updates.is_summative = requestedSummative ?? false;
+  }
+  if (payload.maxMarks !== undefined) {
+    updates.max_marks = payload.maxMarks;
   }
 
   if (Object.keys(updates).length === 0) {

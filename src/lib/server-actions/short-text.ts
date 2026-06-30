@@ -234,7 +234,7 @@ export async function markShortTextActivityAction(input: z.infer<typeof MarkShor
   try {
     const { rows } = await query(
       `
-        select activity_id, body_data
+        select *
         from activities
         where activity_id = $1
         limit 1

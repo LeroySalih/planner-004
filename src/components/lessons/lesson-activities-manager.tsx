@@ -527,6 +527,7 @@ useEffect(() => {
     bodyData,
     imageSubmission,
     successCriteriaIds,
+    maxMarks,
     pendingUploadFiles = [],
   }: {
     mode: "create" | "edit"
@@ -536,6 +537,7 @@ useEffect(() => {
     bodyData: unknown
     imageSubmission?: ImageSubmissionPayload
     successCriteriaIds: string[]
+    maxMarks: number
     pendingUploadFiles?: File[]
   }) => {
     startTransition(async () => {
@@ -548,6 +550,7 @@ useEffect(() => {
           type,
           bodyData: createBody,
           successCriteriaIds,
+          maxMarks,
         })
 
           if (!createResult.success || !createResult.data) {
@@ -635,6 +638,7 @@ useEffect(() => {
           type,
           bodyData,
           successCriteriaIds,
+          maxMarks,
         })
 
         if (!result.success || !result.data) {
@@ -703,6 +707,7 @@ useEffect(() => {
           type,
           bodyData: imageSubmission.finalBody ?? null,
           successCriteriaIds,
+          maxMarks,
         })
 
         if (!updateResult.success || !updateResult.data) {
@@ -760,6 +765,7 @@ useEffect(() => {
         type,
         bodyData,
         successCriteriaIds,
+        maxMarks,
       })
 
       if (!result.success || !result.data) {
@@ -1872,6 +1878,7 @@ interface LessonActivityEditorSheetProps {
     bodyData: unknown
     imageSubmission?: ImageSubmissionPayload
     successCriteriaIds: string[]
+    maxMarks: number
   }) => void
   unitId: string
   lessonId: string
@@ -1936,6 +1943,7 @@ function LessonActivityEditorSheet({
   const [uploadWorksheetBody, setUploadWorksheetBody] = useState<UploadWorksheetActivityBody>(() =>
     createDefaultUploadWorksheetBody(),
   )
+  const [maxMarks, setMaxMarks] = useState(1)
   const [selectedSuccessCriteriaIds, setSelectedSuccessCriteriaIds] = useState<string[]>([])
   const [shareMyWorkName, setShareMyWorkName] = useState("")
   const [reviewShareActivityId, setReviewShareActivityId] = useState("")
@@ -2776,6 +2784,7 @@ function LessonActivityEditorSheet({
       setFeedbackBody(createDefaultFeedbackBody())
       setSelectedSuccessCriteriaIds([])
       setDisplayType("")
+      setMaxMarks(1)
       return
     }
 
@@ -2783,6 +2792,11 @@ function LessonActivityEditorSheet({
       const ensuredType = ensureActivityType(activity.type)
       setTitle(activity.title)
       setType(ensuredType)
+      setMaxMarks(
+        typeof activity.max_marks === "number" && Number.isFinite(activity.max_marks)
+          ? activity.max_marks
+          : ensuredType === "short-text-question" ? 3 : 1,
+      )
       const initialText =
         ensuredType === "upload-file" ? extractUploadInstructions(activity)
         : ensuredType === "display-flashcards" ? extractFlashcardsText(activity)
@@ -2881,6 +2895,7 @@ function LessonActivityEditorSheet({
       resetImageState()
       setTitle("")
       setType("text")
+      setMaxMarks(1)
       setText("")
       setVideoUrl("")
       setRawBody("")
@@ -3699,6 +3714,7 @@ function LessonActivityEditorSheet({
       bodyData,
       imageSubmission,
       successCriteriaIds: sanitizedSuccessCriteriaIds,
+      maxMarks,
       ...submissionPayload,
     })
   }
@@ -3731,7 +3747,12 @@ function LessonActivityEditorSheet({
             <Label htmlFor="activity-type">Type</Label>
             <Select
               value={type}
-              onValueChange={(value: ActivityTypeValue) => setType(value)}
+              onValueChange={(value: ActivityTypeValue) => {
+                setType(value)
+                if (isCreateMode) {
+                  setMaxMarks(value === "short-text-question" ? 3 : 1)
+                }
+              }}
               disabled={isPending}
             >
               <SelectTrigger id="activity-type">
@@ -3754,6 +3775,22 @@ function LessonActivityEditorSheet({
               value={title}
               onChange={(event) => setTitle(event.target.value)}
               placeholder="Warm-up discussion"
+              disabled={isPending}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="activity-max-marks">Marks available</Label>
+            <Input
+              id="activity-max-marks"
+              type="number"
+              min={1}
+              step={1}
+              value={maxMarks}
+              onChange={(event) => {
+                const parsed = parseInt(event.target.value, 10)
+                setMaxMarks(Number.isFinite(parsed) && parsed >= 1 ? parsed : 1)
+              }}
               disabled={isPending}
             />
           </div>
