@@ -4,7 +4,15 @@
 
 -- 1. Add max_marks to activities, defaulting to 1, with short-text-question at 3.
 ALTER TABLE activities ADD COLUMN IF NOT EXISTS max_marks INTEGER NOT NULL DEFAULT 1;
-ALTER TABLE activities ADD CONSTRAINT activities_max_marks_positive CHECK (max_marks > 0);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'activities_max_marks_positive'
+  ) THEN
+    ALTER TABLE activities ADD CONSTRAINT activities_max_marks_positive CHECK (max_marks > 0);
+  END IF;
+END;
+$$;
 
 UPDATE activities SET max_marks = 3 WHERE type = 'short-text-question' AND max_marks = 1;
 
@@ -31,6 +39,7 @@ $$;
 -- 3. compute_submission_marks: marks-based counterpart to compute_submission_base_score.
 -- Priority: marks_override -> MCQ is_correct (scaled to max_marks) -> STQ teacher_ai_marks/ai_marks/marks/auto_marks
 -- -> generic marks/auto_marks. Returns NULL if nothing found (unmarked).
+-- NOTE: submissions.body is declared `json`, not `jsonb` — callers must cast body::jsonb when invoking this function.
 CREATE OR REPLACE FUNCTION compute_submission_marks(body JSONB, activity_type TEXT, max_marks INTEGER)
 RETURNS INTEGER
 LANGUAGE plpgsql
