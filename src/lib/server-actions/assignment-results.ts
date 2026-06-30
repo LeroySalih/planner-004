@@ -381,7 +381,7 @@ export async function readAssignmentResultsAction(
         try {
           const { rows } = await query(
             `
-          select activity_id, title, type, order_by, body_data, active, is_summative
+          select activity_id, title, type, order_by, body_data, active, is_summative, max_marks
           from activities
           where lesson_id = $1 and active = true
           order by order_by asc nulls first
@@ -687,6 +687,9 @@ export async function readAssignmentResultsAction(
             markingGuidance: guidance?.markingGuidance ?? null,
             subjectGuidance,
             markingGuidanceId: guidance?.markingGuidanceId ?? null,
+            maxMarks: typeof activity.max_marks === "number"
+              ? activity.max_marks
+              : Number(activity.max_marks) || 1,
           });
         });
 

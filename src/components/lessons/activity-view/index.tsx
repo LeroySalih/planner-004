@@ -1952,11 +1952,11 @@ function FeedbackPresentView({
 
   const activitiesAverageDisplay =
     showScores && summaryState.averages.activitiesAverage !== null
-      ? formatAverageScore(summaryState.averages.activitiesAverage, "lesson-average")
+      ? formatAverageScore(summaryState.averages.activitiesAverage)
       : null
   const assessmentAverageDisplay =
     showScores && summaryState.averages.assessmentAverage !== null
-      ? formatAverageScore(summaryState.averages.assessmentAverage, "lesson-average")
+      ? formatAverageScore(summaryState.averages.assessmentAverage)
       : null
 
   return (
@@ -2213,7 +2213,7 @@ function ShortTextPresentView({
             answer: typeof body.answer === "string" ? body.answer : "",
             aiModelScore: typeof body.ai_model_score === "number" ? body.ai_model_score : null,
             teacherOverrideScore:
-              typeof body.teacher_override_score === "number" ? body.teacher_override_score : null,
+              typeof body.marks_override === "number" ? body.marks_override : null,
             isCorrect: body.is_correct === true,
             profile: null,
           }
@@ -2320,23 +2320,28 @@ function ShortTextPresentView({
 
   const handleOverrideSave = async (submission: ShortTextSubmissionRow) => {
     const draft = (overrideDrafts[submission.submissionId] ?? "").trim()
-    let overrideScore: number | null = null
+    let marksOverride: number | null = null
 
     if (draft.length > 0) {
-      const parsed = Number.parseFloat(draft)
-      if (Number.isNaN(parsed) || parsed < 0 || parsed > 1) {
-        toast.error("Enter a score between 0 and 1.")
+      const parsed = Number.parseInt(draft, 10)
+      if (
+        Number.isNaN(parsed) ||
+        !Number.isInteger(parsed) ||
+        parsed < 0 ||
+        parsed > activity.max_marks
+      ) {
+        toast.error(`Enter a whole number between 0 and ${activity.max_marks}.`)
         return
       }
-      overrideScore = Number.parseFloat(parsed.toFixed(3))
+      marksOverride = parsed
     }
 
     const currentOverride = submission.teacherOverrideScore
     const matchesCurrent =
-      (overrideScore === null && currentOverride === null) ||
-      (typeof overrideScore === "number" &&
+      (marksOverride === null && currentOverride === null) ||
+      (typeof marksOverride === "number" &&
         typeof currentOverride === "number" &&
-        Math.abs(overrideScore - currentOverride) < 0.0005)
+        marksOverride === currentOverride)
 
     if (matchesCurrent) {
       toast.info("Override already up to date.")
@@ -2349,7 +2354,7 @@ function ShortTextPresentView({
         submissionId: submission.submissionId,
         activityId: activity.activity_id,
         lessonId,
-        overrideScore,
+        marksOverride,
       })
 
       if (!result.success) {
@@ -2359,7 +2364,7 @@ function ShortTextPresentView({
         return
       }
 
-      toast.success(overrideScore === null ? "Override cleared." : "Override saved.")
+      toast.success(marksOverride === null ? "Override cleared." : "Override saved.")
       setRefreshKey((previous) => previous + 1)
       triggerFeedbackRefresh(lessonId ?? null)
     } catch (error) {
@@ -2477,7 +2482,7 @@ function ShortTextPresentView({
                 (trimmedDraft.length === 0 && currentOverride === null) ||
                 (trimmedDraft.length > 0 &&
                   currentOverride !== null &&
-                  Math.abs(Number.parseFloat(trimmedDraft) - currentOverride) < 0.0005)
+                  Number.parseInt(trimmedDraft, 10) === currentOverride)
               const finalScore =
                 submission.teacherOverrideScore ?? submission.aiModelScore ?? null
               const hasAiScore = submission.aiModelScore !== null
@@ -2502,7 +2507,9 @@ function ShortTextPresentView({
                     </div>
                     <div className="flex flex-wrap gap-2 text-xs">
                       <span className="rounded-full bg-muted px-2 py-1 font-medium text-foreground">
-                        Final score: {formatScore(finalScore)}
+                        Final score: {submission.teacherOverrideScore !== null
+                          ? `${submission.teacherOverrideScore} / ${activity.max_marks}`
+                          : formatScore(finalScore)}
                       </span>
                       {submission.teacherOverrideScore !== null ? (
                         <span className="rounded-full bg-amber-500/10 px-2 py-1 font-medium text-amber-600">
@@ -2540,20 +2547,20 @@ function ShortTextPresentView({
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                     <Input
                       type="number"
-                      inputMode="decimal"
-                      min="0"
-                      max="1"
-                      step="0.05"
+                      inputMode="numeric"
+                      min={0}
+                      max={activity.max_marks}
+                      step={1}
                       value={draftValue}
                       onChange={(event) =>
                         handleOverrideChange(submission.submissionId, event.target.value)
                       }
-                      placeholder="Override score (0-1)"
+                      placeholder={`Override marks (0-${activity.max_marks})`}
                       className="sm:max-w-[160px]"
                     />
                     <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                       <span>
-                        Leave blank to clear the override. Scores are between 0 and 1.
+                        Leave blank to clear the override. Marks are out of {activity.max_marks}.
                       </span>
                     </div>
                     <Button
@@ -2579,17 +2586,12 @@ function ShortTextPresentView({
   )
 }
 
-function formatAverageScore(value: number | null, type: string): string {
+function formatAverageScore(value: number | null): string {
   if (value === null || Number.isNaN(value)) {
     return "n/a"
   }
 
-  if (type === "multiple-choice-question") {
-    return `${Math.round(value * 100)}%`
-  }
-
-  const rounded = Math.round(value * 100) / 100
-  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2)
+  return `${Math.round(value * 100)}%`
 }
 
 function formatActivityTypeLabel(type: string): string {

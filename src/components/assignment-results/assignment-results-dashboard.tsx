@@ -2128,7 +2128,7 @@ export function AssignmentResultsDashboard({
           activityId: selection.activity.activityId,
           pupilId: selection.row.pupil.userId,
           submissionId: selection.cell.submissionId,
-          score: parsedAverage,
+          marksOverride: Math.round(parsedAverage * selection.activity.maxMarks),
           feedback: feedback.length > 0 ? feedback : null,
           criterionScores: successCriteriaScores,
         },
@@ -2944,7 +2944,8 @@ export function AssignmentResultsDashboard({
                               />
                             </div>
                             <p className="text-xs text-muted-foreground">
-                              No success criteria linked to this activity. You can assign an overall score directly.
+                              No success criteria linked to this activity. You can assign an overall score directly
+                              (out of {selection.activity.maxMarks} {selection.activity.maxMarks === 1 ? "mark" : "marks"}).
                             </p>
                           </div>
                         )}
@@ -4057,7 +4058,8 @@ export function AssignmentResultsDashboard({
                                 />
                               </div>
                               <p className="text-xs text-muted-foreground">
-                                No success criteria linked to this activity. You can assign an overall score directly.
+                                No success criteria linked to this activity. You can assign an overall score directly
+                                (out of {selection.activity.maxMarks} {selection.activity.maxMarks === 1 ? "mark" : "marks"}).
                               </p>
                             </div>
                           )}
