@@ -111,7 +111,7 @@ export async function readPupilTasksAction(userId: string): Promise<{
           and (la.start_date::date + interval '7 days') < now()
       ),
       scorable_activities as (
-        select a.activity_id, a.lesson_id, a.type as activity_type
+        select a.activity_id, a.lesson_id, a.type as activity_type, a.max_marks
         from activities a
         where a.lesson_id in (select lesson_id from pupil_lessons)
           and a.type = any($2::text[])
@@ -120,7 +120,7 @@ export async function readPupilTasksAction(userId: string): Promise<{
       latest_submissions as (
         select distinct on (s.activity_id)
           s.activity_id,
-          compute_submission_base_score(s.body, sa.activity_type) as score
+          compute_submission_marks(s.body::jsonb, sa.activity_type, sa.max_marks) as marks
         from submissions s
         join scorable_activities sa on sa.activity_id = s.activity_id
         where s.user_id = $1
@@ -129,8 +129,8 @@ export async function readPupilTasksAction(userId: string): Promise<{
       lesson_scores as (
         select
           sa.lesson_id,
-          count(sa.activity_id)::int as max_score,
-          coalesce(sum(ls.score), 0) as score
+          sum(sa.max_marks)::int as max_score,
+          coalesce(sum(ls.marks), 0) as score
         from scorable_activities sa
         left join latest_submissions ls on ls.activity_id = sa.activity_id
         group by sa.lesson_id
@@ -147,7 +147,7 @@ export async function readPupilTasksAction(userId: string): Promise<{
       from pupil_lessons pl
       join lesson_scores ls on ls.lesson_id = pl.lesson_id
       where ls.max_score > 0
-        and (ls.score / ls.max_score) < 0.8
+        and (ls.score::numeric / nullif(ls.max_score, 0)) < 0.8
       `,
       [normalizedUserId, scorableTypes],
     );
