@@ -1002,16 +1002,6 @@ export function buildUnitRows({
       const appendScore = (criterionId: string, raw: number | null | undefined) => {
         if (!criterionId) return
         const numeric = typeof raw === "number" && Number.isFinite(raw) ? raw : 0
-        console.log("[reports] Criterion score contribution", {
-          unitId: lessons[0]?.unit_id ?? null,
-          lessonId: lesson.lesson_id,
-          activityId: summary.activityId,
-          criterionId,
-          raw,
-          numeric,
-          isSummative,
-          hadSubmission: Boolean(pupilEntry),
-        })
         const slot = criterionTotals.get(criterionId) ?? {
           total: 0,
           count: 0,

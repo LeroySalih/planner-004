@@ -1016,7 +1016,7 @@ export const LessonActivitySchema = z.object({
     active: z.boolean().nullish().transform((value) => value ?? true),
     success_criteria_ids: z.array(z.string()).default([]),
     success_criteria: ActivitySuccessCriteriaSchema.default([]),
-    max_marks: z.number().int().min(1),
+    max_marks: z.number().int().min(1).default(1),
 });
 
 export const LessonActivitiesSchema = z.array(LessonActivitySchema);

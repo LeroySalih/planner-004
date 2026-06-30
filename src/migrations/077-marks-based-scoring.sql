@@ -54,7 +54,7 @@ BEGIN
     RETURN NULL;
   END IF;
 
-  override_val := (body->>'marks_override')::INTEGER;
+  override_val := CASE WHEN body->>'marks_override' ~ '^-?\d+$' THEN (body->>'marks_override')::INTEGER END;
   IF override_val IS NOT NULL THEN
     RETURN clamp_marks(override_val, max_marks);
   END IF;
