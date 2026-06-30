@@ -6,7 +6,7 @@ const MODEL_NAME = "gpt-5-mini"
 const EvaluationResponseSchema = z.array(
   z.object({
     submissionId: z.string(),
-    score: z.number().min(0).max(1),
+    marks: z.number(),
   }),
 )
 
@@ -17,7 +17,7 @@ export interface ShortTextEvaluationInput {
 
 export interface ShortTextEvaluationResult {
   submissionId: string
-  score: number | null
+  marks: number | null
   error?: string
 }
 
@@ -29,6 +29,7 @@ export async function scoreShortTextAnswers(
   question: string,
   modelAnswer: string,
   inputs: ShortTextEvaluationInput[],
+  maxMarks: number,
   options: CallOptions = {},
 ): Promise<ShortTextEvaluationResult[]> {
   if (inputs.length === 0) {
@@ -45,12 +46,13 @@ export async function scoreShortTextAnswers(
 
   const instructions = [
     "You are grading short text answers from pupils.",
-    "For each submission you must provide a correctness score between 0 and 1.",
+    `This short-text question is worth ${maxMarks} marks.`,
+    `For each submission you must award a whole number of marks from 0 to ${maxMarks} based on how well the pupil's answer matches the model answer.`,
     "Only reply with a JSON array of objects that match this TypeScript definition:",
-    "Array<{ submissionId: string; score: number }>",
+    "Array<{ submissionId: string; marks: number }>",
     "Do not include any extra commentary or text outside of the JSON response.",
-    "If a pupil answer is empty or missing, return a score of 0.",
-    "Ensure scores stay within the inclusive range [0, 1].",
+    "If a pupil answer is empty or missing, return 0 marks.",
+    `Ensure marks stay within the inclusive range [0, ${maxMarks}] and are whole numbers.`,
   ].join(" ")
 
   const submissionDetails = inputs
@@ -102,24 +104,25 @@ export async function scoreShortTextAnswers(
   const messageContent = payload.choices?.[0]?.message?.content ?? ""
   const parsedResults = parseEvaluationResponse(messageContent)
 
-  const resultMap = new Map(parsedResults.map((entry) => [entry.submissionId, entry.score]))
+  const resultMap = new Map(parsedResults.map((entry) => [entry.submissionId, entry.marks]))
 
   return inputs.map((entry) => {
-    const score = resultMap.get(entry.submissionId)
-    if (typeof score === "number" && Number.isFinite(score)) {
-      const clamped = clamp(score, 0, 1)
-      return { submissionId: entry.submissionId, score: clamped }
+    const marks = resultMap.get(entry.submissionId)
+    const rounded = typeof marks === "number" && Number.isFinite(marks) ? Math.round(marks) : null
+    if (rounded !== null) {
+      const clamped = clamp(rounded, 0, maxMarks)
+      return { submissionId: entry.submissionId, marks: clamped }
     }
 
     return {
       submissionId: entry.submissionId,
-      score: null,
-      error: score === undefined ? "Score missing in AI response." : "Invalid score returned by AI.",
+      marks: null,
+      error: marks === undefined ? "Marks missing in AI response." : "Invalid marks returned by AI.",
     }
   })
 }
 
-function parseEvaluationResponse(content: string): Array<{ submissionId: string; score: number }> {
+function parseEvaluationResponse(content: string): Array<{ submissionId: string; marks: number }> {
   if (!content) {
     throw new Error("Empty response from OpenAI")
   }

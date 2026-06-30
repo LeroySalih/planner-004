@@ -193,13 +193,14 @@ export async function POST(request: Request) {
     activity_id: string;
     type: string | null;
     lesson_id: string | null;
+    max_marks: number | null;
   } | null = null;
   try {
     const { rows } = await query<
-      { activity_id: string; type: string | null; lesson_id: string | null }
+      { activity_id: string; type: string | null; lesson_id: string | null; max_marks: number | null }
     >(
       `
-        select activity_id, type, lesson_id
+        select activity_id, type, lesson_id, max_marks
         from activities
         where activity_id = $1
         limit 1
@@ -327,6 +328,7 @@ export async function POST(request: Request) {
           result,
           activityId: parsed.data.activity_id,
           activityType: activityRow.type,
+          maxMarks: activityRow.max_marks ?? 1,
           successCriteriaIds,
           answerFallback: answersByPupil.get(resultPupilId) ?? null,
           pupilId: resultPupilId,
@@ -365,6 +367,7 @@ export async function POST(request: Request) {
           activityId: parsed.data.activity_id,
           pupilId: resultPupilId,
           result,
+          maxMarks: activityRow.max_marks ?? 1,
           successCriteriaIds,
           answer: answersByPupil.get(resultPupilId) ?? null,
         });
@@ -466,11 +469,18 @@ function computeIsCorrect(score: number | null): boolean {
   return score >= SHORT_TEXT_CORRECTNESS_THRESHOLD;
 }
 
+function scoreToMarks(score: number, maxMarks: number): number {
+  const fraction = clampScore(score);
+  const marks = Math.round(fraction * maxMarks);
+  return Math.max(0, Math.min(maxMarks, marks));
+}
+
 async function applyAiMarkToSubmission({
   submission,
   result,
   activityId,
   activityType,
+  maxMarks,
   successCriteriaIds,
   answerFallback,
   pupilId,
@@ -484,6 +494,7 @@ async function applyAiMarkToSubmission({
   result: ResultEntry;
   activityId: string;
   activityType: string | null;
+  maxMarks: number;
   successCriteriaIds: string[];
   answerFallback: string | null;
   pupilId: string;
@@ -513,13 +524,14 @@ async function applyAiMarkToSubmission({
     ? parsedBody.data
     : ShortTextSubmissionBodySchema.parse({});
 
-  const hasTeacherOverride =
-    typeof baseBody.teacher_override_score === "number" &&
-    Number.isFinite(baseBody.teacher_override_score);
+  const hasMarksOverride =
+    typeof (baseBody as { marks_override?: number | null }).marks_override === "number" &&
+    Number.isFinite((baseBody as { marks_override?: number | null }).marks_override);
 
-  const aiScore = clampScore(result.score);
-  const effectiveScore = hasTeacherOverride
-    ? baseBody.teacher_override_score
+  const aiMarks = scoreToMarks(result.score, maxMarks);
+  const aiScore = maxMarks > 0 ? aiMarks / maxMarks : 0;
+  const effectiveScore = hasMarksOverride
+    ? ((baseBody as { marks_override?: number | null }).marks_override ?? 0) / maxMarks
     : aiScore;
   const teacherFeedback = baseBody.teacher_feedback ?? null;
   const existingAiFeedback =
@@ -535,7 +547,7 @@ async function applyAiMarkToSubmission({
     ...(isFileSubmission
       ? {}
       : { answer: (baseBody as { answer?: string }).answer ?? answerFallback ?? "" }),
-    ai_model_score: aiScore,
+    ai_marks: aiMarks,
     is_correct: computeIsCorrect(effectiveScore ?? null),
     teacher_feedback: teacherFeedback,
     ai_model_feedback: nextAiFeedback,
@@ -581,18 +593,21 @@ async function createAiMarkedSubmission({
   activityId,
   pupilId,
   result,
+  maxMarks,
   successCriteriaIds,
   answer,
 }: {
   activityId: string;
   pupilId: string;
   result: ResultEntry;
+  maxMarks: number;
   successCriteriaIds: string[];
   answer: string | null;
 }): Promise<
   { created: boolean; payload: AssignmentResultsRealtimePayload | null }
 > {
-  const score = clampScore(result.score);
+  const marks = scoreToMarks(result.score, maxMarks);
+  const score = maxMarks > 0 ? marks / maxMarks : 0;
   const successCriteriaScores = normaliseSuccessCriteriaScores({
     successCriteriaIds,
     fillValue: score,
@@ -600,8 +615,8 @@ async function createAiMarkedSubmission({
 
   const submissionBody = ShortTextSubmissionBodySchema.parse({
     answer: answer ?? "",
-    ai_model_score: score,
-    teacher_override_score: null,
+    ai_marks: marks,
+    marks_override: null,
     teacher_feedback: null,
     ai_model_feedback: (result.feedback?.trim() ?? "") || null,
     is_correct: computeIsCorrect(score),

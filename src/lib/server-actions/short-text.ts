@@ -470,6 +470,7 @@ async function markShortTextActivityHelper(activity: LessonActivity) {
           answer: parsedSubmission.data.answer,
         },
       ],
+      activity.max_marks,
     )
   } catch (error) {
     console.error("[short-text] Failed to score short text answers:", error)
@@ -477,17 +478,18 @@ async function markShortTextActivityHelper(activity: LessonActivity) {
   }
 
   const scoredResult = scored[0]
+  const maxMarks = activity.max_marks
   const normalizedScores = normaliseSuccessCriteriaScores({
     successCriteriaIds,
     existingScores: parsedSubmission.data.success_criteria_scores,
-    fillValue: scoredResult.score,
+    fillValue: maxMarks > 0 ? (scoredResult.marks ?? 0) / maxMarks : null,
   })
 
   const updatedBody = ShortTextSubmissionBodySchema.parse({
     ...parsedSubmission.data,
-    ai_model_score: scoredResult.score,
+    ai_marks: scoredResult.marks,
     ai_model_feedback: null,
-    is_correct: (scoredResult.score ?? 0) >= SHORT_TEXT_CORRECTNESS_THRESHOLD,
+    is_correct: maxMarks > 0 && (scoredResult.marks ?? 0) / maxMarks >= SHORT_TEXT_CORRECTNESS_THRESHOLD,
     success_criteria_scores: normalizedScores,
   })
 
