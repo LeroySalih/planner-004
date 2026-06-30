@@ -767,6 +767,7 @@ export const MatcherSubmissionBodySchema = z
         success_criteria_scores: z
             .record(z.string(), z.number().min(0).max(1).nullable())
             .default({}),
+        marks: z.number().int().min(0).nullable().optional(),
     })
     .passthrough();
 
