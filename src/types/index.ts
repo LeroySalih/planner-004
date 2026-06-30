@@ -558,6 +558,9 @@ export const McqSubmissionBodySchema = z
         success_criteria_scores: z
             .record(z.string(), z.number().min(0).max(1).nullable())
             .default({}),
+        marks: z.number().int().min(0).nullable().optional(),
+        auto_marks: z.number().int().min(0).nullable().optional(),
+        marks_override: z.number().int().min(0).nullable().optional(),
     })
     .passthrough();
 
@@ -586,6 +589,11 @@ export const ShortTextSubmissionBodySchema = z
         success_criteria_scores: z
             .record(z.string(), z.number().min(0).max(1).nullable())
             .default({}),
+        marks: z.number().int().min(0).nullable().optional(),
+        auto_marks: z.number().int().min(0).nullable().optional(),
+        ai_marks: z.number().int().min(0).nullable().optional(),
+        teacher_ai_marks: z.number().int().min(0).nullable().optional(),
+        marks_override: z.number().int().min(0).nullable().optional(),
     })
     .passthrough();
 
@@ -817,6 +825,9 @@ export const GroupItemsSubmissionBodySchema = z
         success_criteria_scores: z
             .record(z.string(), z.number().min(0).max(1).nullable())
             .default({}),
+        marks: z.number().int().min(0).nullable().optional(),
+        auto_marks: z.number().int().min(0).nullable().optional(),
+        marks_override: z.number().int().min(0).nullable().optional(),
     })
     .passthrough();
 
@@ -893,6 +904,7 @@ export const ShortTextFeedbackResultSchema = z.object({
     score: z.number().min(0).max(1).nullable(),
     feedback: z.string(),
     populated_from_submission: z.boolean(),
+    marks: z.number().int().min(0).nullable().optional(),
 });
 
 export type ShortTextFeedbackRequest = z.infer<
@@ -1001,6 +1013,7 @@ export const LessonActivitySchema = z.object({
     active: z.boolean().nullish().transform((value) => value ?? true),
     success_criteria_ids: z.array(z.string()).default([]),
     success_criteria: ActivitySuccessCriteriaSchema.default([]),
+    max_marks: z.number().int().min(1),
 });
 
 export const LessonActivitiesSchema = z.array(LessonActivitySchema);
