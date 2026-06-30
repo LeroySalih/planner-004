@@ -24,8 +24,10 @@ export async function getClassProgressAction(groupId: string, summativeOnly = fa
        u.title as unit_title,
        u.subject as unit_subject,
        COUNT(DISTINCT gm.user_id) as pupil_count,
-       AVG(CASE WHEN $2 = true AND a.is_summative = false THEN NULL
-                ELSE COALESCE(compute_submission_base_score(s.body, a.type), 0) END) as avg_score
+       (SUM(CASE WHEN $2 = true AND a.is_summative = false THEN NULL
+                 ELSE COALESCE(compute_submission_marks(s.body::jsonb, a.type, a.max_marks), 0) END)::numeric
+         / NULLIF(SUM(CASE WHEN $2 = true AND a.is_summative = false THEN NULL
+                            ELSE a.max_marks END), 0)) * 100 as avg_score
      FROM lesson_assignments la
      JOIN lessons l ON l.lesson_id = la.lesson_id
      JOIN units u ON u.unit_id = l.unit_id
@@ -74,8 +76,10 @@ export async function getProgressMatrixAction(summativeOnly = false) {
        u.title as unit_title,
        u.subject as unit_subject,
        COUNT(DISTINCT gm.user_id) as pupil_count,
-       AVG(CASE WHEN $1 = true AND a.is_summative = false THEN NULL
-                ELSE COALESCE(compute_submission_base_score(s.body, a.type), 0) END) as avg_score
+       (SUM(CASE WHEN $1 = true AND a.is_summative = false THEN NULL
+                 ELSE COALESCE(compute_submission_marks(s.body::jsonb, a.type, a.max_marks), 0) END)::numeric
+         / NULLIF(SUM(CASE WHEN $1 = true AND a.is_summative = false THEN NULL
+                            ELSE a.max_marks END), 0)) * 100 as avg_score
      FROM groups g
      JOIN lesson_assignments la ON la.group_id = g.group_id
      JOIN lessons l ON l.lesson_id = la.lesson_id
@@ -139,8 +143,10 @@ export async function getClassPupilMatrixAction(groupId: string, summativeOnly =
        gm.user_id as pupil_id,
        p.first_name,
        p.last_name,
-       AVG(CASE WHEN $2 = true AND a.is_summative = false THEN NULL
-                ELSE COALESCE(compute_submission_base_score(s.body, a.type), 0) END) as avg_score
+       (SUM(CASE WHEN $2 = true AND a.is_summative = false THEN NULL
+                 ELSE COALESCE(compute_submission_marks(s.body::jsonb, a.type, a.max_marks), 0) END)::numeric
+         / NULLIF(SUM(CASE WHEN $2 = true AND a.is_summative = false THEN NULL
+                            ELSE a.max_marks END), 0)) * 100 as avg_score
      FROM lesson_assignments la
      JOIN lessons l ON l.lesson_id = la.lesson_id
      JOIN units u ON u.unit_id = l.unit_id
@@ -212,7 +218,8 @@ export async function getUnitLessonMatrixAction(groupId: string, unitId: string,
          p.last_name,
          a.activity_id,
          a.is_summative,
-         CASE WHEN a.activity_id IS NOT NULL THEN COALESCE(compute_submission_base_score(s.body, a.type), 0) END as score
+         CASE WHEN a.activity_id IS NOT NULL THEN COALESCE(compute_submission_marks(s.body::jsonb, a.type, a.max_marks), 0) END as marks,
+         CASE WHEN a.activity_id IS NOT NULL THEN a.max_marks END as max_marks
        FROM lessons l
        JOIN lesson_assignments la ON la.lesson_id = l.lesson_id AND la.group_id = $1
        JOIN group_membership gm ON gm.group_id = la.group_id
@@ -231,7 +238,8 @@ export async function getUnitLessonMatrixAction(groupId: string, unitId: string,
        pupil_id,
        first_name,
        last_name,
-       AVG(CASE WHEN $3 = true AND is_summative = false THEN NULL ELSE score END) as avg_score
+       (SUM(CASE WHEN $3 = true AND is_summative = false THEN NULL ELSE marks END)::numeric
+         / NULLIF(SUM(CASE WHEN $3 = true AND is_summative = false THEN NULL ELSE max_marks END), 0)) * 100 as avg_score
      FROM lesson_activity_scores
      GROUP BY lesson_id, lesson_title, order_by, pupil_id, first_name, last_name
      ORDER BY order_by, last_name, first_name`,
@@ -295,8 +303,10 @@ export async function getPupilUnitLessonsAction(groupId: string, unitId: string,
        l.lesson_id,
        l.title as lesson_title,
        l.order_by,
-       AVG(CASE WHEN $4 = true AND a.is_summative = false THEN NULL
-                WHEN a.activity_id IS NOT NULL THEN COALESCE(compute_submission_base_score(s.body, a.type), 0) END) as avg_score
+       (SUM(CASE WHEN $4 = true AND a.is_summative = false THEN NULL
+                 WHEN a.activity_id IS NOT NULL THEN COALESCE(compute_submission_marks(s.body::jsonb, a.type, a.max_marks), 0) END)::numeric
+         / NULLIF(SUM(CASE WHEN $4 = true AND a.is_summative = false THEN NULL
+                            WHEN a.activity_id IS NOT NULL THEN a.max_marks END), 0)) * 100 as avg_score
      FROM lessons l
      JOIN lesson_assignments la ON la.lesson_id = l.lesson_id AND la.group_id = $1
      LEFT JOIN activities a ON a.lesson_id = l.lesson_id
