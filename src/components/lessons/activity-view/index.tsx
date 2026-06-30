@@ -65,7 +65,7 @@ type ShortTextSubmissionRow = {
   userId: string
   submittedAt: string | null
   answer: string
-  aiModelScore: number | null
+  aiMarks: number | null
   teacherOverrideScore: number | null
   isCorrect: boolean
   profile: {
@@ -2211,7 +2211,14 @@ function ShortTextPresentView({
             userId: row.user_id,
             submittedAt,
             answer: typeof body.answer === "string" ? body.answer : "",
-            aiModelScore: typeof body.ai_model_score === "number" ? body.ai_model_score : null,
+            aiMarks:
+              typeof body.teacher_ai_marks === "number"
+                ? body.teacher_ai_marks
+                : typeof body.ai_marks === "number"
+                  ? body.ai_marks
+                  : typeof body.marks === "number"
+                    ? body.marks
+                    : null,
             teacherOverrideScore:
               typeof body.marks_override === "number" ? body.marks_override : null,
             isCorrect: body.is_correct === true,
@@ -2250,7 +2257,7 @@ function ShortTextPresentView({
   const totalSubmissions = submissions.length
   const markedCount = submissions.filter(
     (submission) =>
-      submission.aiModelScore !== null || submission.teacherOverrideScore !== null,
+      submission.aiMarks !== null || submission.teacherOverrideScore !== null,
   ).length
   const progressValue =
     totalSubmissions > 0 ? Math.round((markedCount / totalSubmissions) * 100) : 0
@@ -2259,7 +2266,7 @@ function ShortTextPresentView({
     if (typeof score !== "number" || Number.isNaN(score)) {
       return "—"
     }
-    return score.toFixed(2)
+    return `${score} / ${activity.max_marks}`
   }
 
   const formatSubmittedAt = (timestamp: string | null) => {
@@ -2484,8 +2491,8 @@ function ShortTextPresentView({
                   currentOverride !== null &&
                   Number.parseInt(trimmedDraft, 10) === currentOverride)
               const finalScore =
-                submission.teacherOverrideScore ?? submission.aiModelScore ?? null
-              const hasAiScore = submission.aiModelScore !== null
+                submission.teacherOverrideScore ?? submission.aiMarks ?? null
+              const hasAiScore = submission.aiMarks !== null
               const awaitingMark = !hasAiScore && submission.teacherOverrideScore === null
 
               return (
@@ -2518,7 +2525,7 @@ function ShortTextPresentView({
                       ) : null}
                       {hasAiScore ? (
                         <span className="rounded-full bg-primary/10 px-2 py-1 font-medium text-primary">
-                          AI score {formatScore(submission.aiModelScore)}
+                          AI score {formatScore(submission.aiMarks)}
                         </span>
                       ) : null}
                       {submission.isCorrect ? (
