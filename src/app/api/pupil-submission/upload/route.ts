@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 import { Client } from "pg"
 
-import { getAuthenticatedProfile } from "@/lib/auth"
+import { getAuthenticatedProfile, hasRole } from "@/lib/auth"
 import { query } from "@/lib/db"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 import { emitSubmissionEvent } from "@/lib/sse/topics"
@@ -88,9 +88,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: "No file provided" }, { status: 400 })
   }
 
-  if (profile.userId !== pupilId) {
+  if (profile.userId !== pupilId && !hasRole(profile, "teacher")) {
     console.warn(`${tag} Auth mismatch: session=${profile.userId} requested pupilId=${pupilId}`)
-    return NextResponse.json({ success: false, error: "You can only upload files for your own account." }, { status: 403 })
+    return NextResponse.json({ success: false, error: "You are not allowed to upload files for this pupil." }, { status: 403 })
   }
 
   if (file.size > MAX_FILE_SIZE_BYTES) {
@@ -103,7 +103,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: "File exceeds 5MB limit" }, { status: 413 })
   }
 
-  const userId = profile.userId
+  const userId = pupilId
+  const uploaderId = profile.userId
   const fileName = file.name
 
   console.log(`${tag} Uploading file`, {
@@ -117,7 +118,7 @@ export async function POST(request: Request) {
 
   let pupilStorageKey: string
   try {
-    pupilStorageKey = profile.email?.trim() ?? (await resolvePupilStorageKey(userId))
+    pupilStorageKey = await resolvePupilStorageKey(pupilId)
   } catch (err) {
     console.error(`${tag} Failed to resolve pupil storage key`, err)
     return NextResponse.json({ success: false, error: "Unable to process upload." }, { status: 500 })
@@ -136,7 +137,7 @@ export async function POST(request: Request) {
 
   const { error: uploadError } = await storage.upload(path, arrayBuffer, {
     contentType: file.type || "application/octet-stream",
-    uploadedBy: userId,
+    uploadedBy: uploaderId,
     originalPath: path,
   })
 

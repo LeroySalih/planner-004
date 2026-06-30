@@ -56,6 +56,7 @@ import {
 } from "@/lib/results-channel"
 import { extractScoreFromSubmission, selectLatestSubmission } from "@/lib/scoring/activity-scores"
 import { SketchRenderFeedbackView } from "@/components/assignment-results/sketch-render-feedback-view"
+import { TeacherSubmissionDropzone } from "@/components/assignment-results/teacher-submission-dropzone"
 
 type CellStatus = AssignmentResultCell["status"]
 
@@ -2552,6 +2553,16 @@ export function AssignmentResultsDashboard({
                     </div>
                   ) : null}
 
+                  <TeacherSubmissionDropzone
+                    enabled={isUploadListingActivityType(selection.activity.type)}
+                    lessonId={matrixState.lesson?.lessonId ?? ""}
+                    activityId={selection.activity.activityId}
+                    activityType={selection.activity.type}
+                    pupilId={selection.row.pupil.userId}
+                    assignmentId={matrixState.assignmentId}
+                    disabled={!matrixState.lesson?.lessonId}
+                    onUploaded={handleUploadRefresh}
+                  >
                   <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
                     <p className="text-xs font-semibold uppercase tracking-wide text-primary">Pupil response</p>
                     {isUploadListingActivityType(selection.activity.type) ? (
@@ -2581,6 +2592,7 @@ export function AssignmentResultsDashboard({
                       <p className="text-sm text-foreground">No response has been recorded yet.</p>
                     )}
                   </div>
+                  </TeacherSubmissionDropzone>
 
                   {isUploadListingActivityType(selection.activity.type) ? (
                     <div className="rounded-md border border-border/60 bg-muted/40 p-3">
@@ -3571,6 +3583,16 @@ export function AssignmentResultsDashboard({
                       />
                     ) : (
                       <>
+                        <TeacherSubmissionDropzone
+                          enabled={isUploadListingActivityType(selection.activity.type)}
+                          lessonId={matrixState.lesson?.lessonId ?? ""}
+                          activityId={selection.activity.activityId}
+                          activityType={selection.activity.type}
+                          pupilId={selection.row.pupil.userId}
+                          assignmentId={matrixState.assignmentId}
+                          disabled={!matrixState.lesson?.lessonId}
+                          onUploaded={handleUploadRefresh}
+                        >
                         <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
                       <p className="text-xs font-semibold uppercase tracking-wide text-primary">Pupil response</p>
                       {isUploadListingActivityType(selection.activity.type) ? (
@@ -3613,6 +3635,7 @@ export function AssignmentResultsDashboard({
                         <p className="text-sm text-foreground">No response has been recorded yet.</p>
                       )}
                     </div>
+                    </TeacherSubmissionDropzone>
 
                     {isUploadListingActivityType(selection.activity.type) ? (
                       <div className="rounded-md border border-border/60 bg-muted/40 p-3">
