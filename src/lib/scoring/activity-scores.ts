@@ -12,8 +12,45 @@ import {
   UploadWorksheetSubmissionBodySchema,
 } from "@/types";
 import { clampScore, normaliseSuccessCriteriaScores } from "@/lib/scoring/client-success-criteria";
+import { computeSubmissionMarks } from "@/lib/scoring/submission-marks";
 
 export const TEACHER_OVERRIDE_PLACEHOLDER = "__teacher_override__";
+
+// Marks-based fraction derivation, mirroring the simplification already applied to
+// lesson_assignment_score_summaries (Phase 1 Task 2): no per-success-criterion sub-averaging,
+// use the per-activity marks ratio (marksAwarded / maxMarks) directly.
+function deriveFractionsFromMarks(
+  submissionBody: unknown,
+  activityType: string,
+  maxMarks: number,
+): {
+  autoScore: number | null;
+  overrideScore: number | null;
+  effectiveScore: number | null;
+} {
+  const safeMaxMarks = maxMarks > 0 ? maxMarks : 1;
+  const record = submissionBody && typeof submissionBody === "object"
+    ? (submissionBody as Record<string, unknown>)
+    : {};
+
+  const effectiveMarks = computeSubmissionMarks(submissionBody, activityType, safeMaxMarks);
+  const effectiveScore = effectiveMarks === null ? null : effectiveMarks / safeMaxMarks;
+
+  const overrideRaw = record.marks_override;
+  const overrideMarks = typeof overrideRaw === "number" && Number.isFinite(overrideRaw)
+    ? Math.min(Math.max(Math.trunc(overrideRaw), 0), safeMaxMarks)
+    : null;
+  const overrideScore = overrideMarks === null ? null : overrideMarks / safeMaxMarks;
+
+  // autoScore = effective score computed as if no override were present, i.e. the
+  // automatic/AI portion of the priority chain only.
+  const bodyWithoutOverride = { ...record };
+  delete (bodyWithoutOverride as Record<string, unknown>).marks_override;
+  const autoMarks = computeSubmissionMarks(bodyWithoutOverride, activityType, safeMaxMarks);
+  const autoScore = autoMarks === null ? null : autoMarks / safeMaxMarks;
+
+  return { autoScore, overrideScore, effectiveScore };
+}
 
 function buildMatcherPairResults(
   pairs: import("@/types").MatcherPair[],
@@ -90,6 +127,7 @@ export function extractScoreFromSubmission(
   activityType: string,
   submissionBody: unknown,
   successCriteriaIds: string[],
+  maxMarks: number,
   metadata: {
     question: string | null;
     correctAnswer: string | null;
@@ -102,14 +140,15 @@ export function extractScoreFromSubmission(
   if (activityType === "multiple-choice-question") {
     const parsed = McqSubmissionBodySchema.safeParse(submissionBody);
     if (parsed.success) {
-      const override = typeof parsed.data.teacher_override_score === "number"
-        ? parsed.data.teacher_override_score
-        : null;
-      const auto = parsed.data.is_correct ? 1 : 0;
+      const { autoScore: auto, overrideScore: override, effectiveScore } = deriveFractionsFromMarks(
+        submissionBody,
+        activityType,
+        maxMarks,
+      );
       const successCriteriaScores = normaliseSuccessCriteriaScores({
         successCriteriaIds,
         existingScores: parsed.data.success_criteria_scores,
-        fillValue: override ?? auto,
+        fillValue: effectiveScore,
       });
       const overrideScores = typeof override === "number"
         ? normaliseSuccessCriteriaScores({
@@ -140,7 +179,7 @@ export function extractScoreFromSubmission(
       return {
         autoScore: auto,
         overrideScore: override,
-        effectiveScore: override ?? auto,
+        effectiveScore,
         autoSuccessCriteriaScores: autoScores,
         overrideSuccessCriteriaScores: overrideScores,
         successCriteriaScores,
@@ -198,14 +237,15 @@ export function extractScoreFromSubmission(
   if (activityType === "matcher") {
     const parsed = MatcherSubmissionBodySchema.safeParse(submissionBody);
     if (parsed.success) {
-      const override = typeof parsed.data.teacher_override_score === "number"
-        ? parsed.data.teacher_override_score
-        : null;
-      const auto = parsed.data.is_correct ? 1 : 0;
+      const { autoScore: auto, overrideScore: override, effectiveScore } = deriveFractionsFromMarks(
+        submissionBody,
+        activityType,
+        maxMarks,
+      );
       const successCriteriaScores = normaliseSuccessCriteriaScores({
         successCriteriaIds,
         existingScores: parsed.data.success_criteria_scores,
-        fillValue: override ?? auto,
+        fillValue: effectiveScore,
       });
       const overrideScores = typeof override === "number"
         ? normaliseSuccessCriteriaScores({
@@ -229,7 +269,7 @@ export function extractScoreFromSubmission(
       return {
         autoScore: auto,
         overrideScore: override,
-        effectiveScore: override ?? auto,
+        effectiveScore,
         autoSuccessCriteriaScores: autoScores,
         overrideSuccessCriteriaScores: overrideScores,
         successCriteriaScores,
@@ -266,14 +306,15 @@ export function extractScoreFromSubmission(
   if (activityType === "group-items") {
     const parsed = GroupItemsSubmissionBodySchema.safeParse(submissionBody);
     if (parsed.success) {
-      const override = typeof parsed.data.teacher_override_score === "number"
-        ? parsed.data.teacher_override_score
-        : null;
-      const auto = parsed.data.score ?? 0;
+      const { autoScore: auto, overrideScore: override, effectiveScore } = deriveFractionsFromMarks(
+        submissionBody,
+        activityType,
+        maxMarks,
+      );
       const successCriteriaScores = normaliseSuccessCriteriaScores({
         successCriteriaIds,
         existingScores: parsed.data.success_criteria_scores,
-        fillValue: override ?? auto,
+        fillValue: effectiveScore,
       });
       const overrideScores = typeof override === "number"
         ? normaliseSuccessCriteriaScores({
@@ -297,7 +338,7 @@ export function extractScoreFromSubmission(
       return {
         autoScore: auto,
         overrideScore: override,
-        effectiveScore: override ?? auto,
+        effectiveScore,
         autoSuccessCriteriaScores: autoScores,
         overrideSuccessCriteriaScores: overrideScores,
         successCriteriaScores,
@@ -341,17 +382,11 @@ export function extractScoreFromSubmission(
         (typeof record.text === "string" ? record.text.trim() : "") ||
         (typeof record.response === "string" ? record.response.trim() : "");
       const pupilAnswer = candidateAnswer.length > 0 ? candidateAnswer : null;
-      const hasAnswer = Boolean(pupilAnswer);
-      const auto = typeof parsed.data.ai_model_score === "number" &&
-          Number.isFinite(parsed.data.ai_model_score)
-        ? parsed.data.ai_model_score
-        : hasAnswer
-        ? 0
-        : null;
-      const override = typeof parsed.data.teacher_override_score === "number" &&
-          Number.isFinite(parsed.data.teacher_override_score)
-        ? parsed.data.teacher_override_score
-        : null;
+      const { autoScore: auto, overrideScore: override, effectiveScore } = deriveFractionsFromMarks(
+        submissionBody,
+        activityType,
+        maxMarks,
+      );
       const feedback = typeof parsed.data.teacher_feedback === "string" &&
           parsed.data.teacher_feedback.trim().length > 0
         ? parsed.data.teacher_feedback.trim()
@@ -363,11 +398,11 @@ export function extractScoreFromSubmission(
       const successCriteriaScores = normaliseSuccessCriteriaScores({
         successCriteriaIds,
         existingScores: parsed.data.success_criteria_scores,
-        fillValue: override ?? auto ?? 0,
+        fillValue: effectiveScore,
       });
       const autoScores = normaliseSuccessCriteriaScores({
         successCriteriaIds,
-        fillValue: auto ?? 0,
+        fillValue: auto,
       });
       const overrideScores = typeof override === "number"
         ? normaliseSuccessCriteriaScores({
@@ -378,7 +413,7 @@ export function extractScoreFromSubmission(
       return {
         autoScore: auto,
         overrideScore: override,
-        effectiveScore: override ?? auto ?? (hasAnswer ? 0 : null),
+        effectiveScore,
         autoSuccessCriteriaScores: autoScores,
         overrideSuccessCriteriaScores: overrideScores,
         successCriteriaScores,

@@ -45,7 +45,6 @@ import {
 } from "@/lib/server-updates"
 import { resolveScoreTone } from "@/lib/results/colors"
 import {
-  computeAverageSuccessCriteriaScore,
   normaliseSuccessCriteriaScores,
 } from "@/lib/scoring/client-success-criteria"
 import { getRichTextMarkup } from "@/components/lessons/activity-view/utils"
@@ -1699,9 +1698,15 @@ export function AssignmentResultsDashboard({
             optionTextMap: undefined,
           }
           const activityType = currentMatrix.activities[activityIndex].type
-          const extracted = extractScoreFromSubmission(activityType, record.body, successCriteriaIds, metadata)
-          const finalScore =
-            computeAverageSuccessCriteriaScore(extracted.successCriteriaScores) ?? extracted.effectiveScore ?? 0
+          const activityMaxMarks = currentMatrix.activities[activityIndex].maxMarks || 1
+          const extracted = extractScoreFromSubmission(
+            activityType,
+            record.body,
+            successCriteriaIds,
+            activityMaxMarks,
+            metadata,
+          )
+          const finalScore = extracted.effectiveScore ?? 0
           const status =
             typeof extracted.overrideScore === "number"
               ? "override"
@@ -4080,6 +4085,7 @@ export function AssignmentResultsDashboard({
                   selection.activity.type,
                   viewingAttempt.body,
                   successCriteriaIds,
+                  selection.activity.maxMarks || 1,
                   metadata,
                 )
                 const autoFeedbackHtml = renderFeedbackMarkup(extracted.autoFeedback)

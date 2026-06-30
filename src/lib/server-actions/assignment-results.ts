@@ -25,7 +25,6 @@ import { createLocalStorageClient } from "@/lib/storage/local-storage";
 import { requireRole, requireTeacherProfile } from "@/lib/auth";
 import {
   clampScore,
-  computeAverageSuccessCriteriaScore,
   fetchActivitySuccessCriteriaIds,
   normaliseSuccessCriteriaScores,
 } from "@/lib/scoring/success-criteria";
@@ -776,6 +775,7 @@ export async function readAssignmentResultsAction(
           const successCriteriaIds = activityMap.get(activityId)?.successCriteria.map(
             (criterion) => criterion.successCriteriaId,
           ) ?? [];
+          const activityMaxMarks = activityMap.get(activityId)?.maxMarks || 1;
           const metadata = activityQuestionMetadata.get(activityId) ?? {
             question: null,
             correctAnswer: null,
@@ -788,11 +788,10 @@ export async function readAssignmentResultsAction(
                 activityType,
                 row.body,
                 successCriteriaIds,
+                activityMaxMarks,
                 metadata,
               );
-              const rawScore = computeAverageSuccessCriteriaScore(
-                extracted.successCriteriaScores,
-              ) ?? extracted.effectiveScore ?? 0;
+              const rawScore = extracted.effectiveScore ?? 0;
               return {
                 userId: row.user_id ?? "",
                 score: clampScore(rawScore),
@@ -891,6 +890,7 @@ export async function readAssignmentResultsAction(
             activityType,
             submission.body,
             successCriteriaIds,
+            activity.maxMarks || 1,
             metadata,
           );
           const status = typeof extracted.overrideScore === "number"
@@ -899,9 +899,7 @@ export async function readAssignmentResultsAction(
             ? "auto"
             : "missing";
 
-          const rawFinalScore = computeAverageSuccessCriteriaScore(
-            extracted.successCriteriaScores,
-          ) ?? extracted.effectiveScore ?? 0;
+          const rawFinalScore = extracted.effectiveScore ?? 0;
           const finalScore = clampScore(rawFinalScore);
 
           const feedbackRows = feedbackLookupMap.get(key);

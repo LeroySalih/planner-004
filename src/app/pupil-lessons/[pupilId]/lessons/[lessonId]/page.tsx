@@ -483,7 +483,7 @@ export default async function PupilLessonFriendlyPage({
       if (result.error || !result.data) {
         return
       }
-      const extraction = extractScoreFromSubmission(activity.type ?? "", result.data.body, [], {
+      const extraction = extractScoreFromSubmission(activity.type ?? "", result.data.body, [], activity.max_marks ?? 1, {
         question: null,
         correctAnswer: null,
         optionTextMap: undefined,
@@ -512,7 +512,7 @@ export default async function PupilLessonFriendlyPage({
 
       const parsedBody = McqSubmissionBodySchema.safeParse(result.data.body)
       if (parsedBody.success) {
-        const extraction = extractScoreFromSubmission(activity.type ?? "", result.data.body, [], {
+        const extraction = extractScoreFromSubmission(activity.type ?? "", result.data.body, [], activity.max_marks ?? 1, {
           question: questionText,
           correctAnswer: correctOptionText,
           optionTextMap,
@@ -646,7 +646,7 @@ export default async function PupilLessonFriendlyPage({
 
       const parsedBody = ShortTextSubmissionBodySchema.safeParse(result.data.body)
       if (parsedBody.success) {
-        const extraction = extractScoreFromSubmission(activity.type ?? "", result.data.body, [], {
+        const extraction = extractScoreFromSubmission(activity.type ?? "", result.data.body, [], activity.max_marks ?? 1, {
           question: questionText,
           correctAnswer: modelAnswer,
           optionTextMap: undefined,
@@ -687,7 +687,7 @@ export default async function PupilLessonFriendlyPage({
         return
       }
 
-      const extraction = extractScoreFromSubmission(activity.type ?? "", result.data.body, [], {
+      const extraction = extractScoreFromSubmission(activity.type ?? "", result.data.body, [], activity.max_marks ?? 1, {
         question: questionText,
         correctAnswer: null,
         optionTextMap: undefined,
@@ -713,7 +713,7 @@ export default async function PupilLessonFriendlyPage({
 
       const parsedBody = LongTextSubmissionBodySchema.safeParse(result.data.body)
       if (parsedBody.success) {
-        const extraction = extractScoreFromSubmission(activity.type ?? "", result.data.body, [], {
+        const extraction = extractScoreFromSubmission(activity.type ?? "", result.data.body, [], activity.max_marks ?? 1, {
           question: questionText,
           correctAnswer: null,
           optionTextMap: undefined,
@@ -756,7 +756,7 @@ export default async function PupilLessonFriendlyPage({
 
       const parsedBody = UploadUrlSubmissionBodySchema.safeParse(result.data.body)
       if (parsedBody.success) {
-        const extraction = extractScoreFromSubmission(activity.type ?? "", result.data.body, [], {
+        const extraction = extractScoreFromSubmission(activity.type ?? "", result.data.body, [], activity.max_marks ?? 1, {
           question: questionText,
           correctAnswer: null,
           optionTextMap: undefined,
