@@ -23,7 +23,7 @@ import {
 import { getLevelForYearScore } from "@/lib/levels"
 import { withTelemetry } from "@/lib/telemetry"
 import { query } from "@/lib/db"
-import { computeAverageSuccessCriteriaScore, normaliseSuccessCriteriaScores } from "@/lib/scoring/success-criteria"
+import { computeSubmissionMarks } from "@/lib/scoring/submission-marks"
 import { isScorableActivityType } from "@/dino.config"
 
 export const ReportDatasetLessonSchema = LessonWithObjectivesSchema.extend({
@@ -559,6 +559,12 @@ function buildLessonSubmissionSummaries(
       continue
     }
 
+    // Marks-based scoring: no per-success-criterion sub-averaging (Phase 1 Task 2 /
+    // Phase 2 Task 12 simplification). Marks are scoped per-activity only, so every
+    // declared success criterion for an activity shares the same per-activity ratio
+    // (marksAwarded / maxMarks).
+    const maxMarks = activity.max_marks ?? 1
+
     if (activityType === "multiple-choice-question") {
       const parsedActivity = McqActivityBodySchema.safeParse(activity.body_data)
       const mcqOptions = parsedActivity.success ? parsedActivity.data.options : []
@@ -578,23 +584,13 @@ function buildLessonSubmissionSummaries(
             return null
           }
           const isCorrect = parsedSubmission.data.is_correct === true
-          const overrideScore =
-            typeof parsedSubmission.data.teacher_override_score === "number" &&
-            Number.isFinite(parsedSubmission.data.teacher_override_score)
-              ? parsedSubmission.data.teacher_override_score
-              : null
-          const effectiveScore = overrideScore ?? (isCorrect ? 1 : 0)
-          const successCriteriaScores = normaliseSuccessCriteriaScores({
-            successCriteriaIds,
-            existingScores: parsedSubmission.data.success_criteria_scores,
-            fillValue: effectiveScore,
-          })
-          const score = computeAverageSuccessCriteriaScore(successCriteriaScores) ?? 0
+          const marksAwarded = computeSubmissionMarks(submission.body, activityType, maxMarks)
+          const score = marksAwarded === null ? 0 : marksAwarded / maxMarks
           return {
             userId: submission.user_id,
             score,
             isCorrect,
-            successCriteriaScores,
+            marksAwarded,
           }
         })
         .filter(
@@ -604,7 +600,7 @@ function buildLessonSubmissionSummaries(
             userId: string
             score: number
             isCorrect: boolean
-            successCriteriaScores: Record<string, number | null>
+            marksAwarded: number | null
           } => entry !== null,
         )
 
@@ -613,7 +609,8 @@ function buildLessonSubmissionSummaries(
         score: entry.score,
         accuracy: null,
         isCorrect: entry.isCorrect,
-        successCriteriaScores: entry.successCriteriaScores,
+        marksAwarded: entry.marksAwarded,
+        maxMarks,
       }))
       summary.correctCount = scoreEntries.filter((entry) => entry.isCorrect).length
 
@@ -637,28 +634,14 @@ function buildLessonSubmissionSummaries(
             return null
           }
 
-          const aiScore =
-            typeof parsedSubmission.data.ai_model_score === "number" && Number.isFinite(parsedSubmission.data.ai_model_score)
-              ? parsedSubmission.data.ai_model_score
-              : null
-          const overrideScore =
-            typeof parsedSubmission.data.teacher_override_score === "number" &&
-            Number.isFinite(parsedSubmission.data.teacher_override_score)
-              ? parsedSubmission.data.teacher_override_score
-              : null
-          const effectiveScore = overrideScore ?? aiScore
-          const successCriteriaScores = normaliseSuccessCriteriaScores({
-            successCriteriaIds,
-            existingScores: parsedSubmission.data.success_criteria_scores,
-            fillValue: effectiveScore ?? 0,
-          })
-          const averagedScore = computeAverageSuccessCriteriaScore(successCriteriaScores) ?? 0
+          const marksAwarded = computeSubmissionMarks(submission.body, activityType, maxMarks)
+          const score = marksAwarded === null ? 0 : marksAwarded / maxMarks
 
           return {
             userId: submission.user_id,
-            score: averagedScore,
+            score,
             isCorrect: parsedSubmission.data.is_correct === true,
-            successCriteriaScores,
+            marksAwarded,
           }
         })
         .filter(
@@ -668,7 +651,7 @@ function buildLessonSubmissionSummaries(
             userId: string
             score: number
             isCorrect: boolean
-            successCriteriaScores: Record<string, number | null>
+            marksAwarded: number | null
           } => entry !== null,
         )
 
@@ -677,7 +660,8 @@ function buildLessonSubmissionSummaries(
         score: entry.score,
         accuracy: null,
         isCorrect: entry.isCorrect,
-        successCriteriaScores: entry.successCriteriaScores,
+        marksAwarded: entry.marksAwarded,
+        maxMarks,
       }))
 
       summary.correctCount = scoreEntries.filter((entry) => entry.isCorrect).length
@@ -693,55 +677,26 @@ function buildLessonSubmissionSummaries(
     } else {
       const generalScores = submissionList.map((submission) => {
         const body = submission.body
-        let overrideScore: number | null = null
-        let baseScore: number | null = null
-        let successCriteriaScores: Record<string, number | null> | undefined
 
         if (body && typeof body === "object") {
           const record = body as Record<string, unknown>
-
           if (!summary.correctAnswer) {
             const correctValue = record.correctAnswer
             if (typeof correctValue === "string" && correctValue.trim().length > 0) {
               summary.correctAnswer = correctValue.trim()
             }
           }
-
-          const override = record.teacher_override_score
-          if (typeof override === "number" && Number.isFinite(override)) {
-            overrideScore = override
-          }
-
-          const rawSuccessCriteria = record.success_criteria_scores
-          if (rawSuccessCriteria && typeof rawSuccessCriteria === "object") {
-            successCriteriaScores = rawSuccessCriteria as Record<string, number | null>
-          }
-
-          const scoreValue = record.score
-          if (typeof scoreValue === "number" && Number.isFinite(scoreValue)) {
-            baseScore = scoreValue
-          } else if (typeof scoreValue === "string") {
-            const parsed = Number.parseFloat(scoreValue)
-            if (!Number.isNaN(parsed)) {
-              baseScore = parsed
-            }
-          }
         }
 
-        const normalisedScores = normaliseSuccessCriteriaScores({
-          successCriteriaIds,
-          existingScores: successCriteriaScores,
-          fillValue: overrideScore ?? baseScore ?? 0,
-        })
-
-        const averagedScore = computeAverageSuccessCriteriaScore(normalisedScores)
-        const finalScore = averagedScore ?? overrideScore ?? baseScore ?? null
+        const marksAwarded = computeSubmissionMarks(body, activityType, maxMarks)
+        const finalScore = marksAwarded === null ? null : marksAwarded / maxMarks
 
         return {
           userId: submission.user_id,
           score: finalScore,
           accuracy: null,
-          successCriteriaScores: normalisedScores,
+          marksAwarded,
+          maxMarks,
         }
       })
 
@@ -1039,6 +994,11 @@ export function buildUnitRows({
 
       const pupilEntry = (summary.scores ?? []).find((entry) => entry.userId === pupilId)
 
+      // Marks-based scoring: marks are scoped per-activity only (no per-success-criterion
+      // marks exist). Per the approved Phase 1 Task 2 / Phase 2 Task 12 simplification,
+      // every success criterion declared on this activity shares the same per-activity
+      // marks ratio (entry.score = marksAwarded / maxMarks) rather than averaging a
+      // per-criterion sub-score.
       const appendScore = (criterionId: string, raw: number | null | undefined) => {
         if (!criterionId) return
         const numeric = typeof raw === "number" && Number.isFinite(raw) ? raw : 0
@@ -1066,8 +1026,7 @@ export function buildUnitRows({
           if (isSummative) {
             criterionSummativeFlags.set(criterionId, true)
           }
-          const raw = (pupilEntry.successCriteriaScores ?? {})[criterionId]
-          appendScore(criterionId, raw)
+          appendScore(criterionId, pupilEntry.score)
         }
       } else {
         for (const criterionId of declaredSuccessCriteria) {
