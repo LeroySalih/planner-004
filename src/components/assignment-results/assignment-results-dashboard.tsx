@@ -176,23 +176,7 @@ function formatPercent(score: number | null): string {
   return `${Math.round(score * 100)}%`
 }
 
-function formatPercentValue(percent: number): string {
-  if (Number.isNaN(percent)) {
-    return "0"
-  }
-  const clamped = Math.min(Math.max(percent, 0), 100)
-  const rounded = Math.round(clamped * 100) / 100
-  return Number.isInteger(rounded) ? String(rounded) : rounded.toString()
-}
-
-function formatPercentInput(value: number | null | undefined): string {
-  if (typeof value !== "number" || Number.isNaN(value)) {
-    return "0"
-  }
-  return formatPercentValue(value * 100)
-}
-
-function toPercentNumber(raw: string | undefined): number | null {
+function toMarksNumber(raw: string | undefined, maxMarks: number): number | null {
   if (typeof raw !== "string") {
     return 0
   }
@@ -200,11 +184,21 @@ function toPercentNumber(raw: string | undefined): number | null {
   if (trimmed.length === 0) {
     return 0
   }
-  const value = Number.parseFloat(trimmed)
-  if (Number.isNaN(value) || value < 0 || value > 100) {
+  if (!/^\d+$/.test(trimmed)) {
+    return null
+  }
+  const value = Number.parseInt(trimmed, 10)
+  if (Number.isNaN(value) || value < 0 || value > maxMarks) {
     return null
   }
   return value
+}
+
+function formatMarksInput(value: number | null | undefined): string {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return "0"
+  }
+  return String(Math.round(value))
 }
 
 function formatFileSize(size?: number | null): string {
@@ -577,8 +571,7 @@ export function AssignmentResultsDashboard({
     }
   }, [selection])
   const [activitySummarySelection, setActivitySummarySelection] = useState<string | null>(null)
-  const [criterionDrafts, setCriterionDrafts] = useState<Record<string, string>>({})
-  const [overallScoreDraft, setOverallScoreDraft] = useState<string>("")
+  const [marksDraft, setMarksDraft] = useState<string>("")
   const [feedbackDraft, setFeedbackDraft] = useState<string>("")
   const [uploadFiles, setUploadFiles] = useState<Record<string, UploadFileState>>({})
   const [viewingFile, setViewingFile] = useState<{ name: string; url: string | null } | null>(null)
@@ -1264,18 +1257,12 @@ export function AssignmentResultsDashboard({
 
   const draftAverage = useMemo(() => {
     if (!selection) return null
-    const criteria = selection.activity.successCriteria
-    if (criteria.length === 0) return null
-    let total = 0
-    for (const criterion of criteria) {
-      const percent = toPercentNumber(criterionDrafts[criterion.successCriteriaId])
-      if (percent === null) {
-        return null
-      }
-      total += percent / 100
-    }
-    return total / criteria.length
-  }, [selection, criterionDrafts])
+    const maxMarks = selection.activity.maxMarks
+    if (!maxMarks || maxMarks <= 0) return null
+    const marks = toMarksNumber(marksDraft, maxMarks)
+    if (marks === null) return null
+    return marks / maxMarks
+  }, [selection, marksDraft])
 
   const overallAverageLabel = useMemo(
     () => formatPercent(matrixState.overallAverages?.average ?? null),
@@ -1429,24 +1416,14 @@ export function AssignmentResultsDashboard({
       cell,
     })
 
-    const nextCriterionDrafts: Record<string, string> = {}
-    if (activity.successCriteria.length > 0) {
-      for (const criterion of activity.successCriteria) {
-        const value = cell.successCriteriaScores[criterion.successCriteriaId]
-        const numeric = typeof value === "number" && Number.isFinite(value) ? value : 0
-        nextCriterionDrafts[criterion.successCriteriaId] = formatPercentInput(numeric)
-      }
-    } else {
-      const numeric = typeof cell.score === "number" && Number.isFinite(cell.score) ? cell.score : 0
-      setOverallScoreDraft(formatPercentInput(numeric))
-    }
-    setCriterionDrafts(nextCriterionDrafts)
+    const fraction = typeof cell.score === "number" && Number.isFinite(cell.score) ? cell.score : 0
+    setMarksDraft(formatMarksInput(Math.round(fraction * activity.maxMarks)))
     setFeedbackDraft(cell.feedback ?? "")
   }
 
   const closeSheet = () => {
     setSelection(null)
-    setCriterionDrafts({})
+    setMarksDraft("")
     setFeedbackDraft("")
   }
 
@@ -2010,50 +1987,27 @@ export function AssignmentResultsDashboard({
   }, [handleRealtimeSubmission])
 
   const handleOverrideSubmit = (
-    overrides?: Record<string, string>,
+    marksOverrideDraft?: string,
     feedbackOverride?: string,
-    overallScoreOverride?: string,
   ) => {
     if (!selection) return
 
+    const maxMarks = selection.activity.maxMarks
     const criteria = selection.activity.successCriteria
     const currentFeedbackDraft = feedbackOverride ?? feedbackDraft
-    const currentOverallScoreDraft = overallScoreOverride ?? overallScoreDraft
+    const currentMarksDraft = marksOverrideDraft ?? marksDraft
 
-    let successCriteriaScores: Record<string, number | null> = {}
-    let parsedAverage = 0
-
-    if (criteria.length > 0) {
-      const currentCriterionDrafts = overrides ?? criterionDrafts
-      const parsedCriterionScores: Record<string, number> = {}
-
-      for (const criterion of criteria) {
-        const percent = toPercentNumber(currentCriterionDrafts[criterion.successCriteriaId])
-        if (percent === null) {
-          toast.error("Enter a percentage between 0 and 100 for each success criterion.")
-          return
-        }
-        const normalised = percent / 100
-        parsedCriterionScores[criterion.successCriteriaId] = Number.parseFloat(
-          Math.min(Math.max(normalised, 0), 1).toFixed(3),
-        )
-      }
-
-      successCriteriaScores = normaliseSuccessCriteriaScores({
-        successCriteriaIds: criteria.map((criterion) => criterion.successCriteriaId),
-        existingScores: parsedCriterionScores,
-        fillValue: 0,
-      })
-
-      parsedAverage = computeAverageSuccessCriteriaScore(successCriteriaScores) ?? 0
-    } else {
-      const percent = toPercentNumber(currentOverallScoreDraft)
-      if (percent === null) {
-        toast.error("Enter a percentage between 0 and 100.")
-        return
-      }
-      parsedAverage = Number.parseFloat((percent / 100).toFixed(3))
+    const marks = toMarksNumber(currentMarksDraft, maxMarks)
+    if (marks === null) {
+      toast.error(`Enter a whole number between 0 and ${maxMarks}.`)
+      return
     }
+    const parsedAverage = maxMarks > 0 ? marks / maxMarks : 0
+
+    const successCriteriaScores = normaliseSuccessCriteriaScores({
+      successCriteriaIds: criteria.map((criterion) => criterion.successCriteriaId),
+      fillValue: parsedAverage,
+    })
 
     const feedback = currentFeedbackDraft.trim()
     const submittedAt = new Date().toISOString()
@@ -2105,19 +2059,7 @@ export function AssignmentResultsDashboard({
       }
     })
 
-    if (criteria.length > 0) {
-      setCriterionDrafts(
-        Object.fromEntries(
-          selection.activity.successCriteria.map((criterion) => {
-            const value = successCriteriaScores[criterion.successCriteriaId]
-            const normalised = typeof value === "number" && Number.isFinite(value) ? value : 0
-            return [criterion.successCriteriaId, formatPercentInput(normalised)]
-          }),
-        ),
-      )
-    } else {
-      setOverallScoreDraft(formatPercentInput(parsedAverage))
-    }
+    setMarksDraft(formatMarksInput(marks))
     setFeedbackDraft(feedback)
 
     startOverrideUITransition(() => {
@@ -2128,9 +2070,8 @@ export function AssignmentResultsDashboard({
           activityId: selection.activity.activityId,
           pupilId: selection.row.pupil.userId,
           submissionId: selection.cell.submissionId,
-          marksOverride: Math.round(parsedAverage * selection.activity.maxMarks),
+          marksOverride: marks,
           feedback: feedback.length > 0 ? feedback : null,
-          criterionScores: successCriteriaScores,
         },
         derived: {
           rowIndex: selection.rowIndex,
@@ -2146,25 +2087,26 @@ export function AssignmentResultsDashboard({
     })
   }
 
-  const handleOverallScoreInputBlur = () => {
-    const raw = overallScoreDraft
+  const handleMarksInputBlur = () => {
+    if (!selection) return
+    const maxMarks = selection.activity.maxMarks
+    const raw = marksDraft
     const trimmed = typeof raw === "string" ? raw.trim() : ""
     if (trimmed.length === 0) {
       if (raw === "0") {
         return
       }
-      setOverallScoreDraft("0")
+      setMarksDraft("0")
       return
     }
-    const parsed = Number.parseFloat(trimmed)
-    if (Number.isNaN(parsed)) {
-      setOverallScoreDraft("0")
+    const marks = toMarksNumber(trimmed, maxMarks)
+    if (marks === null) {
+      setMarksDraft(formatMarksInput(Math.min(Math.max(Number.parseInt(trimmed, 10) || 0, 0), maxMarks)))
       return
     }
-    const clamped = Math.min(Math.max(parsed, 0), 100)
-    const formatted = formatPercentValue(clamped)
+    const formatted = formatMarksInput(marks)
     if (formatted !== raw) {
-      setOverallScoreDraft(formatted)
+      setMarksDraft(formatted)
     }
   }
 
@@ -2228,21 +2170,10 @@ export function AssignmentResultsDashboard({
           }
           return { ...current, cell: optimisticEntry.snapshot }
         })
-        if (derived.order.length > 0) {
-          setCriterionDrafts(
-            Object.fromEntries(
-              derived.order.map((criterionId) => {
-                const value = optimisticEntry.snapshot.successCriteriaScores?.[criterionId]
-                const normalised = typeof value === "number" && Number.isFinite(value) ? value : 0
-                return [criterionId, formatPercentInput(normalised)]
-              }),
-            ),
-          )
-        } else {
-          const value = optimisticEntry.snapshot.overrideScore ?? optimisticEntry.snapshot.score
-          const normalised = typeof value === "number" && Number.isFinite(value) ? value : 0
-          setOverallScoreDraft(formatPercentInput(normalised))
-        }
+        const maxMarksForRevert = selection?.activity.maxMarks ?? 1
+        const revertValue = optimisticEntry.snapshot.overrideScore ?? optimisticEntry.snapshot.score
+        const revertFraction = typeof revertValue === "number" && Number.isFinite(revertValue) ? revertValue : 0
+        setMarksDraft(formatMarksInput(Math.round(revertFraction * maxMarksForRevert)))
         setFeedbackDraft(optimisticEntry.snapshot.feedback ?? "")
         clearOptimisticEntry(derived.rowIndex, derived.activityIndex, derived.optimisticToken)
       }
@@ -2276,21 +2207,8 @@ export function AssignmentResultsDashboard({
           },
         }
       })
-      if (derived.order.length > 0) {
-        setCriterionDrafts(
-          Object.fromEntries(
-            derived.order.map((criterionId) => {
-              const value = derived.successCriteriaScores[criterionId]
-              return [
-                criterionId,
-                formatPercentInput(typeof value === "number" && Number.isFinite(value) ? value : 0),
-              ]
-            }),
-          ),
-        )
-      } else {
-        setOverallScoreDraft(formatPercentInput(derived.parsedAverage))
-      }
+      const maxMarksForSelection = selection?.activity.maxMarks ?? 1
+      setMarksDraft(formatMarksInput(Math.round(derived.parsedAverage * maxMarksForSelection)))
       setFeedbackDraft(derived.feedback ?? "")
       toast.success("Override saved.")
       startOverrideUITransition(() => {
@@ -2352,21 +2270,8 @@ export function AssignmentResultsDashboard({
           },
         }
       })
-      if (derived.order.length > 0) {
-        setCriterionDrafts(
-          Object.fromEntries(
-            derived.order.map((criterionId) => {
-              const value = derived.successCriteriaScores[criterionId]
-              return [
-                criterionId,
-                formatPercentInput(typeof value === "number" && Number.isFinite(value) ? value : 0),
-              ]
-            }),
-          ),
-        )
-      } else {
-        setOverallScoreDraft(formatPercentInput(derived.autoScore))
-      }
+      const maxMarksForResetSelection = selection?.activity.maxMarks ?? 1
+      setMarksDraft(formatMarksInput(Math.round(derived.autoScore * maxMarksForResetSelection)))
       setFeedbackDraft("")
       toast.success("Override cleared.")
       startResetUITransition(() => {
@@ -2382,45 +2287,6 @@ export function AssignmentResultsDashboard({
   const goToLesson = () => {
     if (!matrixState.lesson?.lessonId) return
     router.push(`/lessons/${encodeURIComponent(matrixState.lesson.lessonId)}`)
-  }
-
-  const handleCriterionInputChange = (criterionId: string, value: string) => {
-    setCriterionDrafts((previous) => ({
-      ...previous,
-      [criterionId]: value,
-    }))
-  }
-
-  const handleCriterionInputBlur = (criterionId: string) => {
-    setCriterionDrafts((previous) => {
-      const raw = previous[criterionId]
-      const trimmed = typeof raw === "string" ? raw.trim() : ""
-      if (trimmed.length === 0) {
-        if (raw === "0") {
-          return previous
-        }
-        return {
-          ...previous,
-          [criterionId]: "0",
-        }
-      }
-      const parsed = Number.parseFloat(trimmed)
-      if (Number.isNaN(parsed)) {
-        return {
-          ...previous,
-          [criterionId]: "0",
-        }
-      }
-      const clamped = Math.min(Math.max(parsed, 0), 100)
-      const formatted = formatPercentValue(clamped)
-      if (formatted === raw) {
-        return previous
-      }
-      return {
-        ...previous,
-        [criterionId]: formatted,
-      }
-    })
   }
 
   const handlePrevPupil = useCallback(() => {
@@ -2826,129 +2692,54 @@ export function AssignmentResultsDashboard({
                             Average: {draftAverage !== null ? formatPercent(draftAverage) : "—"}
                           </span>
                         </div>
-                        {selection.activity.successCriteria.length > 0 ? (
-                          <div className="space-y-3">
-                            {selection.activity.successCriteria.map((criterion) => {
-                              const criterionId = criterion.successCriteriaId
-                              const label =
-                                criterion.title?.trim() && criterion.title.trim().length > 0
-                                  ? criterion.title.trim()
-                                  : criterion.description?.trim() && criterion.description.trim().length > 0
-                                    ? criterion.description.trim()
-                                    : criterionId
-                              const draftValueRaw = criterionDrafts[criterionId]
-                              const percentDraft =
-                                typeof draftValueRaw === "string" ? draftValueRaw : "0"
-                              const trimmed = percentDraft.trim()
-                              const numericDraft =
-                                trimmed.length === 0 ? 0 : Number.parseFloat(trimmed)
-                              const isNumericDraftValid = !Number.isNaN(numericDraft)
+                        <div className="space-y-2">
+                          <p className="text-xs font-semibold text-muted-foreground">Marks awarded</p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {[
+                              { label: "0", marks: 0 },
+                              { label: "Full", marks: selection.activity.maxMarks },
+                            ].map((option) => {
+                              const numericDraft = Number.parseInt(marksDraft, 10)
+                              const isActive = !Number.isNaN(numericDraft) && numericDraft === option.marks
                               return (
-                                <div key={criterionId} className="space-y-2">
-                                  <p className="text-xs font-semibold text-muted-foreground">{label}</p>
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    {[
-                                      { label: "0", percent: 0 },
-                                      { label: "Partial", percent: 50 },
-                                      { label: "Full", percent: 100 },
-                                    ].map((option) => {
-                                      const isActive =
-                                        isNumericDraftValid &&
-                                        Math.abs(numericDraft - option.percent) < 0.0001
-                                      return (
-                                        <Button
-                                          key={option.label}
-                                          type="button"
-                                          size="sm"
-                                          variant={isActive ? "default" : "outline"}
-                                          aria-pressed={isActive}
-                                          className="h-8 px-2 text-xs"
-                                          onClick={() => {
-                                            const val = formatPercentValue(option.percent)
-                                            const nextDrafts = { ...criterionDrafts, [criterionId]: val }
-                                            setCriterionDrafts(nextDrafts)
-                                            handleOverrideSubmit(nextDrafts)
-                                          }}
-                                        >
-                                          {option.label}
-                                        </Button>
-                                      )
-                                    })}
-                                    <Input
-                                      type="number"
-                                      inputMode="decimal"
-                                      min="0"
-                                      max="100"
-                                      step="0.1"
-                                      value={percentDraft}
-                                      onChange={(event) =>
-                                        handleCriterionInputChange(criterionId, event.target.value)
-                                      }
-                                      onBlur={() => {
-                                        handleCriterionInputBlur(criterionId)
-                                        handleOverrideSubmit()
-                                      }}
-                                      placeholder="Exact percent (0-100)"
-                                      aria-label={`Exact percent for ${label}`}
-                                      className="h-8 w-24"
-                                    />
-                                  </div>
-                                </div>
+                                <Button
+                                  key={option.label}
+                                  type="button"
+                                  size="sm"
+                                  variant={isActive ? "default" : "outline"}
+                                  aria-pressed={isActive}
+                                  className="h-8 px-2 text-xs"
+                                  onClick={() => {
+                                    const val = formatMarksInput(option.marks)
+                                    setMarksDraft(val)
+                                    handleOverrideSubmit(val)
+                                  }}
+                                >
+                                  {option.label}
+                                </Button>
                               )
                             })}
+                            <Input
+                              type="number"
+                              inputMode="numeric"
+                              min={0}
+                              max={selection.activity.maxMarks}
+                              step={1}
+                              value={marksDraft}
+                              onChange={(event) => setMarksDraft(event.target.value)}
+                              onBlur={() => {
+                                handleMarksInputBlur()
+                                handleOverrideSubmit()
+                              }}
+                              placeholder={`Marks (0-${selection.activity.maxMarks})`}
+                              aria-label="Marks awarded"
+                              className="h-8 w-24"
+                            />
+                            <span className="text-xs text-muted-foreground">
+                              out of {selection.activity.maxMarks}
+                            </span>
                           </div>
-                        ) : (
-                          <div className="space-y-2">
-                            <p className="text-xs font-semibold text-muted-foreground">Overall Score</p>
-                            <div className="flex flex-wrap items-center gap-2">
-                              {[
-                                { label: "0", percent: 0 },
-                                { label: "Partial", percent: 50 },
-                                { label: "Full", percent: 100 },
-                              ].map((option) => {
-                                const draftVal = Number.parseFloat(overallScoreDraft)
-                                const isActive = !Number.isNaN(draftVal) && Math.abs(draftVal - option.percent) < 0.0001
-                                return (
-                                  <Button
-                                    key={option.label}
-                                    type="button"
-                                    size="sm"
-                                    variant={isActive ? "default" : "outline"}
-                                    aria-pressed={isActive}
-                                    className="h-8 px-2 text-xs"
-                                    onClick={() => {
-                                      const val = formatPercentValue(option.percent)
-                                      setOverallScoreDraft(val)
-                                      handleOverrideSubmit(undefined, undefined, val)
-                                    }}
-                                  >
-                                    {option.label}
-                                  </Button>
-                                )
-                              })}
-                              <Input
-                                type="number"
-                                inputMode="decimal"
-                                min="0"
-                                max="100"
-                                step="0.1"
-                                value={overallScoreDraft}
-                                onChange={(event) => setOverallScoreDraft(event.target.value)}
-                                onBlur={() => {
-                                  handleOverallScoreInputBlur()
-                                  handleOverrideSubmit()
-                                }}
-                                placeholder="Exact percent (0-100)"
-                                aria-label="Exact overall percent"
-                                className="h-8 w-24"
-                              />
-                            </div>
-                            <p className="text-xs text-muted-foreground">
-                              No success criteria linked to this activity. You can assign an overall score directly
-                              (out of {selection.activity.maxMarks} {selection.activity.maxMarks === 1 ? "mark" : "marks"}).
-                            </p>
-                          </div>
-                        )}
+                        </div>
 
                         <div className="grid gap-2">
                           <label className="text-sm font-medium text-foreground" htmlFor="override-feedback">
@@ -3940,129 +3731,54 @@ export function AssignmentResultsDashboard({
                               Average: {draftAverage !== null ? formatPercent(draftAverage) : "—"}
                             </span>
                           </div>
-                          {selection.activity.successCriteria.length > 0 ? (
-                            <div className="space-y-3">
-                              {selection.activity.successCriteria.map((criterion) => {
-                                const criterionId = criterion.successCriteriaId
-                                const label =
-                                  criterion.title?.trim() && criterion.title.trim().length > 0
-                                    ? criterion.title.trim()
-                                    : criterion.description?.trim() && criterion.description.trim().length > 0
-                                      ? criterion.description.trim()
-                                      : criterionId
-                                const draftValueRaw = criterionDrafts[criterionId]
-                                const percentDraft =
-                                  typeof draftValueRaw === "string" ? draftValueRaw : "0"
-                                const trimmed = percentDraft.trim()
-                                const numericDraft =
-                                  trimmed.length === 0 ? 0 : Number.parseFloat(trimmed)
-                                const isNumericDraftValid = !Number.isNaN(numericDraft)
+                          <div className="space-y-2">
+                            <p className="text-xs font-semibold text-muted-foreground">Marks awarded</p>
+                            <div className="flex flex-wrap items-center gap-2">
+                              {[
+                                { label: "0", marks: 0 },
+                                { label: "Full", marks: selection.activity.maxMarks },
+                              ].map((option) => {
+                                const numericDraft = Number.parseInt(marksDraft, 10)
+                                const isActive = !Number.isNaN(numericDraft) && numericDraft === option.marks
                                 return (
-                                  <div key={criterionId} className="space-y-2">
-                                    <p className="text-xs font-semibold text-muted-foreground">{label}</p>
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      {[
-                                        { label: "0", percent: 0 },
-                                        { label: "Partial", percent: 50 },
-                                        { label: "Full", percent: 100 },
-                                      ].map((option) => {
-                                        const isActive =
-                                          isNumericDraftValid &&
-                                          Math.abs(numericDraft - option.percent) < 0.0001
-                                        return (
-                                          <Button
-                                            key={option.label}
-                                            type="button"
-                                            size="sm"
-                                            variant={isActive ? "default" : "outline"}
-                                            aria-pressed={isActive}
-                                            className="h-8 px-2 text-xs"
-                                            onClick={() => {
-                                              const val = formatPercentValue(option.percent)
-                                              const nextDrafts = { ...criterionDrafts, [criterionId]: val }
-                                              setCriterionDrafts(nextDrafts)
-                                              handleOverrideSubmit(nextDrafts)
-                                            }}
-                                          >
-                                            {option.label}
-                                          </Button>
-                                        )
-                                      })}
-                                      <Input
-                                        type="number"
-                                        inputMode="decimal"
-                                        min="0"
-                                        max="100"
-                                        step="0.1"
-                                        value={percentDraft}
-                                        onChange={(event) =>
-                                          handleCriterionInputChange(criterionId, event.target.value)
-                                        }
-                                        onBlur={() => {
-                                          handleCriterionInputBlur(criterionId)
-                                          handleOverrideSubmit()
-                                        }}
-                                        placeholder="Exact percent (0-100)"
-                                        aria-label={`Exact percent for ${label}`}
-                                        className="h-8 w-24"
-                                      />
-                                    </div>
-                                  </div>
+                                  <Button
+                                    key={option.label}
+                                    type="button"
+                                    size="sm"
+                                    variant={isActive ? "default" : "outline"}
+                                    aria-pressed={isActive}
+                                    className="h-8 px-2 text-xs"
+                                    onClick={() => {
+                                      const val = formatMarksInput(option.marks)
+                                      setMarksDraft(val)
+                                      handleOverrideSubmit(val)
+                                    }}
+                                  >
+                                    {option.label}
+                                  </Button>
                                 )
                               })}
+                              <Input
+                                type="number"
+                                inputMode="numeric"
+                                min={0}
+                                max={selection.activity.maxMarks}
+                                step={1}
+                                value={marksDraft}
+                                onChange={(event) => setMarksDraft(event.target.value)}
+                                onBlur={() => {
+                                  handleMarksInputBlur()
+                                  handleOverrideSubmit()
+                                }}
+                                placeholder={`Marks (0-${selection.activity.maxMarks})`}
+                                aria-label="Marks awarded"
+                                className="h-8 w-24"
+                              />
+                              <span className="text-xs text-muted-foreground">
+                                out of {selection.activity.maxMarks}
+                              </span>
                             </div>
-                          ) : (
-                            <div className="space-y-2">
-                              <p className="text-xs font-semibold text-muted-foreground">Overall Score</p>
-                              <div className="flex flex-wrap items-center gap-2">
-                                {[
-                                  { label: "0", percent: 0 },
-                                  { label: "Partial", percent: 50 },
-                                  { label: "Full", percent: 100 },
-                                ].map((option) => {
-                                  const draftVal = Number.parseFloat(overallScoreDraft)
-                                  const isActive = !Number.isNaN(draftVal) && Math.abs(draftVal - option.percent) < 0.0001
-                                  return (
-                                    <Button
-                                      key={option.label}
-                                      type="button"
-                                      size="sm"
-                                      variant={isActive ? "default" : "outline"}
-                                      aria-pressed={isActive}
-                                      className="h-8 px-2 text-xs"
-                                      onClick={() => {
-                                        const val = formatPercentValue(option.percent)
-                                        setOverallScoreDraft(val)
-                                        handleOverrideSubmit(undefined, undefined, val)
-                                      }}
-                                    >
-                                      {option.label}
-                                    </Button>
-                                  )
-                                })}
-                                <Input
-                                  type="number"
-                                  inputMode="decimal"
-                                  min="0"
-                                  max="100"
-                                  step="0.1"
-                                  value={overallScoreDraft}
-                                  onChange={(event) => setOverallScoreDraft(event.target.value)}
-                                  onBlur={() => {
-                                    handleOverallScoreInputBlur()
-                                    handleOverrideSubmit()
-                                  }}
-                                  placeholder="Exact percent (0-100)"
-                                  aria-label="Exact overall percent"
-                                  className="h-8 w-24"
-                                />
-                              </div>
-                              <p className="text-xs text-muted-foreground">
-                                No success criteria linked to this activity. You can assign an overall score directly
-                                (out of {selection.activity.maxMarks} {selection.activity.maxMarks === 1 ? "mark" : "marks"}).
-                              </p>
-                            </div>
-                          )}
+                          </div>
 
                           <div className="grid gap-2">
                             <label className="text-sm font-medium text-foreground" htmlFor="override-feedback">
