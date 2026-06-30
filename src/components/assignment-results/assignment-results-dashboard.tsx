@@ -2430,7 +2430,9 @@ export function AssignmentResultsDashboard({
                       {selection.cell.marksAwarded} / {selection.cell.maxMarks ?? selection.activity.maxMarks ?? 1}
                     </span>
                     <span className="text-sm text-muted-foreground">
-                      {formatPercent(selection.cell.score ?? null)}
+                      {formatPercent((selection.cell.maxMarks ?? selection.activity.maxMarks ?? 1) > 0
+                        ? selection.cell.marksAwarded / (selection.cell.maxMarks ?? selection.activity.maxMarks ?? 1)
+                        : null)}
                     </span>
                   </>
                 ) : (
