@@ -64,7 +64,7 @@ const OverrideShortTextScoreSchema = z.object({
   submissionId: z.string().min(1),
   activityId: z.string().min(1),
   lessonId: z.string().optional(),
-  overrideScore: z.number().min(0).max(1).nullable(),
+  marksOverride: z.number().int().min(0).nullable(),
 })
 
 export interface ShortTextSubmissionView {
@@ -294,18 +294,44 @@ export async function overrideShortTextSubmissionScoreAction(
       return { success: false, error: "Invalid submission payload.", data: null }
     }
 
+    const { rows: activityRows } = await query(
+      `
+        select activity_id, max_marks
+        from activities
+        where activity_id = $1
+        limit 1
+      `,
+      [payload.activityId],
+    )
+    const activityRow = activityRows[0] ?? null
+    if (!activityRow) {
+      return { success: false, error: "Activity not found.", data: null }
+    }
+    const maxMarks = typeof activityRow.max_marks === "number"
+      ? activityRow.max_marks
+      : Number(activityRow.max_marks)
+
+    if (
+      payload.marksOverride !== null &&
+      (!Number.isInteger(payload.marksOverride) || payload.marksOverride < 0 || payload.marksOverride > maxMarks)
+    ) {
+      return { success: false, error: `marksOverride must be a whole number between 0 and ${maxMarks}`, data: null }
+    }
+
     const successCriteriaIds = await fetchActivitySuccessCriteriaIds(payload.activityId)
     const normalizedScores = normaliseSuccessCriteriaScores({
       successCriteriaIds,
       existingScores: parsedSubmission.data.success_criteria_scores,
-      fillValue: payload.overrideScore,
+      fillValue: payload.marksOverride,
     })
 
     const updatedBody = ShortTextSubmissionBodySchema.parse({
       ...parsedSubmission.data,
-      teacher_override_score: payload.overrideScore,
+      marks_override: payload.marksOverride,
       success_criteria_scores: normalizedScores,
-      is_correct: payload.overrideScore !== null ? payload.overrideScore >= SHORT_TEXT_CORRECTNESS_THRESHOLD : false,
+      is_correct: payload.marksOverride !== null
+        ? payload.marksOverride / maxMarks >= SHORT_TEXT_CORRECTNESS_THRESHOLD
+        : false,
     })
 
     const { rows } = await query(

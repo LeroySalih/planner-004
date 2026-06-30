@@ -70,7 +70,7 @@ const AssignmentOverrideInputSchema = z.object({
   activityId: z.string().min(1),
   pupilId: z.string().min(1),
   submissionId: z.string().min(1).nullable(),
-  score: z.number().min(0).max(1),
+  marksOverride: z.number().int().min(0),
   feedback: z.string().trim().max(2000).nullable().optional(),
   criterionScores: AssignmentResultCriterionScoresSchema.optional(),
 });
@@ -1507,7 +1507,7 @@ export async function overrideAssignmentScoreAction(
 
       try {
         const { rows: activityRows } = await query(
-          "select activity_id, type from activities where activity_id = $1 limit 1",
+          "select activity_id, type, max_marks from activities where activity_id = $1 limit 1",
           [parsed.data.activityId],
         );
         const activityRow = activityRows?.[0] ?? null;
@@ -1523,6 +1523,21 @@ export async function overrideAssignmentScoreAction(
           ? activityRow.type.trim()
           : "";
 
+        const maxMarks = typeof activityRow.max_marks === "number"
+          ? activityRow.max_marks
+          : Number(activityRow.max_marks);
+
+        if (
+          !Number.isInteger(parsed.data.marksOverride) ||
+          parsed.data.marksOverride < 0 ||
+          parsed.data.marksOverride > maxMarks
+        ) {
+          return MutateAssignmentScoreReturnSchema.parse({
+            success: false,
+            error: `marksOverride must be a whole number between 0 and ${maxMarks}`,
+          });
+        }
+
         const successCriteriaIds = await fetchActivitySuccessCriteriaIds(
           parsed.data.activityId,
         );
@@ -1534,12 +1549,12 @@ export async function overrideAssignmentScoreAction(
             ? normaliseSuccessCriteriaScores({
               successCriteriaIds,
               existingScores: parsed.data.criterionScores,
-              fillValue: parsed.data.score,
+              fillValue: parsed.data.marksOverride,
             })
             : normaliseSuccessCriteriaScores({
               successCriteriaIds,
               existingScores: existing,
-              fillValue: parsed.data.score,
+              fillValue: parsed.data.marksOverride,
             });
 
         const submissionLookup = await getSubmissionRow(
@@ -1578,7 +1593,7 @@ export async function overrideAssignmentScoreAction(
               : ShortTextSubmissionBodySchema.parse({});
             return {
               ...base,
-              teacher_override_score: parsed.data.score,
+              marks_override: parsed.data.marksOverride,
               teacher_feedback: parsed.data.feedback ?? null,
               success_criteria_scores: buildOverrideScores(
                 base.success_criteria_scores,
@@ -1599,7 +1614,7 @@ export async function overrideAssignmentScoreAction(
               });
             return {
               ...base,
-              teacher_override_score: parsed.data.score,
+              marks_override: parsed.data.marksOverride,
               teacher_feedback: parsed.data.feedback ?? null,
               success_criteria_scores: buildOverrideScores(
                 base.success_criteria_scores,
@@ -1618,14 +1633,14 @@ export async function overrideAssignmentScoreAction(
                 : undefined;
             return {
               ...record,
-              teacher_override_score: parsed.data.score,
+              marks_override: parsed.data.marksOverride,
               teacher_feedback: parsed.data.feedback ?? null,
               success_criteria_scores: buildOverrideScores(existingScores),
             };
           }
 
           return {
-            teacher_override_score: parsed.data.score,
+            marks_override: parsed.data.marksOverride,
             teacher_feedback: parsed.data.feedback ?? null,
             success_criteria_scores: buildOverrideScores(),
           };
@@ -1685,7 +1700,7 @@ export async function overrideAssignmentScoreAction(
           pupilId: parsed.data.pupilId,
           submissionId,
           source: "teacher",
-          score: parsed.data.score,
+          score: maxMarks > 0 ? parsed.data.marksOverride / maxMarks : null,
           feedbackText: parsed.data.feedback ?? null,
           createdBy: teacherProfile.userId,
         });
