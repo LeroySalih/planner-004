@@ -72,8 +72,9 @@ export function PupilDoFlashcardsActivity({
     )
   }
 
+  const maxMarks = activity.max_marks ?? 1
   const scoreDisplay =
-    latestScore !== null ? `${Math.round(latestScore * 100)}%` : null
+    latestScore !== null ? `${Math.round(latestScore * maxMarks)}/${maxMarks}` : null
 
   return (
     <>
