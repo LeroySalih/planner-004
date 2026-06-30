@@ -54,7 +54,7 @@ const ResultEntrySchema = z
     pupilid: z.string().uuid().optional(),
     pupilId: z.string().uuid().optional(),
     pupil_id: z.string().uuid().optional(),
-    score: z.number().min(0).max(1),
+    score: z.number().min(0),
     feedback: z.string().optional().nullable(),
   })
   .refine((value) => value.pupilid || value.pupilId || value.pupil_id, {
@@ -470,9 +470,12 @@ function computeIsCorrect(score: number | null): boolean {
 }
 
 function scoreToMarks(score: number, maxMarks: number): number {
+  // Accept both fraction (0–1) and whole-marks (>1) formats from n8n
+  if (score > 1) {
+    return Math.max(0, Math.min(maxMarks, Math.round(score)));
+  }
   const fraction = clampScore(score);
-  const marks = Math.round(fraction * maxMarks);
-  return Math.max(0, Math.min(maxMarks, marks));
+  return Math.max(0, Math.min(maxMarks, Math.round(fraction * maxMarks)));
 }
 
 async function applyAiMarkToSubmission({
