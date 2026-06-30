@@ -24,18 +24,29 @@ test.describe("Teacher upload on behalf of pupil", () => {
     await expect(page).toHaveURL(/\/results\/assignments\/.+/)
 
     // Find the "Upload for pupil" control; it only appears after selecting an
-    // upload-activity cell, so click the first selectable score cell first.
-    const firstCell = page.getByRole("button").filter({ hasText: /%$/ }).first()
-    const hasCell = (await firstCell.count()) > 0
-    test.skip(!hasCell, "No selectable score cells in test data")
-    await firstCell.click()
+    // upload-activity cell. Iterate over score cells (buttons ending with %) to find one.
+    const scoreCells = page.getByRole("button").filter({ hasText: /%$/ })
+    const cellCount = await scoreCells.count()
+    test.skip(cellCount === 0, "No selectable score cells in test data")
 
-    const uploadButton = page.getByRole("button", { name: "Upload for pupil" })
-    const isUploadActivity = (await uploadButton.count()) > 0
-    test.skip(!isUploadActivity, "Selected cell is not an upload activity")
+    let uploadButton: any = null
+    const cellCapLimit = Math.min(cellCount, 40)
 
-    // The hidden file input is the sibling of the button inside the dropzone.
-    const fileInput = page.locator('input[type="file"]').last()
+    for (let i = 0; i < cellCapLimit; i++) {
+      const cell = scoreCells.nth(i)
+      await cell.click()
+
+      uploadButton = page.getByRole("button", { name: "Upload for pupil" })
+      const isUploadActivity = (await uploadButton.count()) > 0
+      if (isUploadActivity) {
+        break
+      }
+    }
+
+    test.skip(uploadButton === null || (await uploadButton.count()) === 0, "No upload-activity cell found in test data")
+
+    // The hidden file input is within the same dropzone parent as the upload button.
+    const fileInput = uploadButton.locator('xpath=ancestor::div[1]//input[@type="file"] | xpath=ancestor::div[2]//input[@type="file"]').first()
     await fileInput.setInputFiles({
       name: "teacher-upload.png",
       mimeType: "image/png",
