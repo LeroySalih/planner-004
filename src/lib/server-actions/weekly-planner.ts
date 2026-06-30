@@ -228,7 +228,7 @@ export async function readWeeklyPlannerPupilAction(
           const scoresResult = await query<{ lesson_id: string; score: number; max_score: number; has_submission: boolean; has_score: boolean }>(
             `WITH latest_submissions AS (
                SELECT DISTINCT ON (s.activity_id) s.activity_id,
-                 compute_submission_base_score(s.body, a.type) AS score
+                 compute_submission_marks(s.body::jsonb, a.type, a.max_marks) AS marks
                FROM submissions s
                JOIN activities a ON a.activity_id = s.activity_id
                WHERE s.user_id = $1
@@ -237,10 +237,10 @@ export async function readWeeklyPlannerPupilAction(
              ),
              lesson_scores AS (
                SELECT a.lesson_id,
-                 count(a.activity_id)::int AS max_score,
-                 coalesce(sum(ls.score), 0) AS score,
+                 sum(a.max_marks)::int AS max_score,
+                 coalesce(sum(ls.marks), 0) AS score,
                  bool_or(ls.activity_id IS NOT NULL) AS has_submission,
-                 bool_or(ls.score IS NOT NULL) AS has_score
+                 bool_or(ls.marks IS NOT NULL) AS has_score
                FROM activities a
                LEFT JOIN latest_submissions ls ON ls.activity_id = a.activity_id
                WHERE a.lesson_id = ANY($2::text[])
