@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { Client } from "pg"
 
-import { getAuthenticatedProfile } from "@/lib/auth"
+import { getAuthenticatedProfile, hasRole } from "@/lib/auth"
 import { query } from "@/lib/db"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 import { emitSubmissionEvent } from "@/lib/sse/topics"
@@ -82,8 +82,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: "No file provided" }, { status: 400 })
   }
 
-  if (profile.userId !== pupilId) {
-    return NextResponse.json({ success: false, error: "You can only upload files for your own account." }, { status: 403 })
+  if (profile.userId !== pupilId && !hasRole(profile, "teacher")) {
+    return NextResponse.json({ success: false, error: "You are not allowed to upload files for this pupil." }, { status: 403 })
   }
 
   const fileName = file.name
@@ -98,11 +98,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: "File exceeds 10MB limit" }, { status: 413 })
   }
 
-  const userId = profile.userId
+  const userId = pupilId
+  const uploaderId = profile.userId
 
   let pupilStorageKey: string
   try {
-    pupilStorageKey = profile.email?.trim() ?? (await resolvePupilStorageKey(userId))
+    pupilStorageKey = await resolvePupilStorageKey(pupilId)
   } catch (err) {
     console.error(`${tag} Failed to resolve pupil storage key`, err)
     return NextResponse.json({ success: false, error: "Unable to process upload." }, { status: 500 })
@@ -122,7 +123,7 @@ export async function POST(request: Request) {
   // Always write to the same path (no versioning) so a re-upload simply replaces the file.
   const { error: uploadError } = await storage.upload(path, arrayBuffer, {
     contentType: file.type || "image/jpeg",
-    uploadedBy: userId,
+    uploadedBy: uploaderId,
     originalPath: path,
   })
 
