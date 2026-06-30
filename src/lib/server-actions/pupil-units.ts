@@ -399,7 +399,7 @@ export async function readPupilUnitsBootstrapAction(
           }>(
             `
               WITH scorable_activities AS (
-                SELECT activity_id, lesson_id, type AS activity_type
+                SELECT activity_id, lesson_id, type AS activity_type, max_marks
                 FROM activities
                 WHERE lesson_id = ANY($1::text[])
                   AND type = ANY($2::text[])
@@ -408,16 +408,16 @@ export async function readPupilUnitsBootstrapAction(
               latest_submissions AS (
                 SELECT DISTINCT ON (s.activity_id)
                   s.activity_id,
-                  compute_submission_base_score(s.body, sa.activity_type) as score
+                  compute_submission_marks(s.body::jsonb, sa.activity_type, sa.max_marks) as marks
                 FROM submissions s
                 JOIN scorable_activities sa ON sa.activity_id = s.activity_id
                 WHERE s.user_id = $3
                 ORDER BY s.activity_id, s.attempt_number DESC
               )
-              SELECT 
+              SELECT
                 sa.lesson_id,
-                COUNT(sa.activity_id) as max_score,
-                COALESCE(SUM(ls.score), 0) as score
+                COALESCE(SUM(sa.max_marks), 0) as max_score,
+                COALESCE(SUM(ls.marks), 0) as score
               FROM scorable_activities sa
               LEFT JOIN latest_submissions ls ON ls.activity_id = sa.activity_id
               GROUP BY sa.lesson_id
