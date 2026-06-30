@@ -2424,12 +2424,23 @@ export function AssignmentResultsDashboard({
 
             <div className="flex items-baseline justify-between">
               <div className="flex items-baseline gap-3">
-                <span className="text-3xl font-semibold text-foreground">
-                  {formatPercent(selection.cell.score ?? null)}
-                </span>
-                <span className="text-sm text-muted-foreground">
-                  Accuracy: {formatPercent(selection.cell.accuracy ?? null)}
-                </span>
+                {(() => {
+                  const maxMarks = selection.activity.maxMarks ?? 1
+                  const score = selection.cell.score
+                  const marksAwarded = typeof score === "number" ? Math.round(score * maxMarks) : null
+                  return marksAwarded !== null ? (
+                    <>
+                      <span className="text-3xl font-semibold text-foreground">
+                        {marksAwarded} / {maxMarks}
+                      </span>
+                      <span className="text-sm text-muted-foreground">
+                        {formatPercent(score)}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-3xl font-semibold text-foreground">—</span>
+                  )
+                })()}
               </div>
               <div className="flex items-center gap-2">
                 {selection.cell.resubmitRequested && (
@@ -3447,12 +3458,23 @@ export function AssignmentResultsDashboard({
 
               <div className="flex items-baseline justify-between">
                 <div className="flex items-baseline gap-3">
-                  <span className="text-3xl font-semibold text-foreground">
-                    {formatPercent(selection.cell.score ?? null)}
-                  </span>
-                  <span className="text-sm text-muted-foreground">
-                    Accuracy: {formatPercent(selection.cell.accuracy ?? null)}
-                  </span>
+                  {(() => {
+                    const maxMarks = selection.activity.maxMarks ?? 1
+                    const score = selection.cell.score
+                    const marksAwarded = typeof score === "number" ? Math.round(score * maxMarks) : null
+                    return marksAwarded !== null ? (
+                      <>
+                        <span className="text-3xl font-semibold text-foreground">
+                          {marksAwarded} / {maxMarks}
+                        </span>
+                        <span className="text-sm text-muted-foreground">
+                          {formatPercent(score)}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-3xl font-semibold text-foreground">—</span>
+                    )
+                  })()}
                 </div>
                 <div className="flex items-center gap-2">
                   {selection.cell.resubmitRequested && (
