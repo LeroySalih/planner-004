@@ -20,7 +20,6 @@ import { getActivityLessonId, logActivitySubmissionEvent } from "@/lib/activity-
 import { emitSubmissionEvent } from "@/lib/sse/topics"
 import { enqueueMarkingTasks, triggerQueueProcessor } from "@/lib/ai/marking-queue"
 import { query } from "@/lib/db"
-import { runAiMarkingFlow } from "@/lib/ai/ai-marking-service"
 import {
   clearResubmitRequest,
   getNextAttemptNumber,
