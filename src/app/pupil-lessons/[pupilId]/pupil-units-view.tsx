@@ -278,7 +278,7 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
                             </span>
                             {lesson.lessonScore !== null && lesson.lessonMaxScore !== null && lesson.lessonMaxScore > 0 && (
                               <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10">
-                                {Math.round(lesson.lessonScore * 10) / 10}/{lesson.lessonMaxScore} ({Math.round((lesson.lessonScore / lesson.lessonMaxScore) * 100)}%)
+                                {Math.round(lesson.lessonScore * 10) / 10}/{lesson.lessonMaxScore} ({Math.round(lesson.lessonScorePercentage ?? 0)}%)
                               </span>
                             )}
                             {typeof lesson.avgSubmissionsPerActivity === "number" && lesson.avgSubmissionsPerActivity > 0 && (

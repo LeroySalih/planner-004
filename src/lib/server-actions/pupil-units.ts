@@ -109,6 +109,7 @@ const SubjectUnitsSchema = z.object({
               revisionDate: z.string().nullable(),
               lessonScore: z.number().nullable(),
               lessonMaxScore: z.number().nullable(),
+              lessonScorePercentage: z.number().nullable(),
               resubmitCount: z.number().int().default(0),
               avgSubmissionsPerActivity: z.number().nullable().default(null),
             }),
@@ -390,12 +391,14 @@ export async function readPupilUnitsBootstrapAction(
               lesson_id: string;
               score: number;
               max_score: number;
+              score_percentage: number | null;
             }[],
           }
           : await query<{
             lesson_id: string;
             score: number;
             max_score: number;
+            score_percentage: number | null;
           }>(
             `
               WITH scorable_activities AS (
@@ -417,7 +420,11 @@ export async function readPupilUnitsBootstrapAction(
               SELECT
                 sa.lesson_id,
                 COALESCE(SUM(sa.max_marks), 0) as max_score,
-                COALESCE(SUM(ls.marks), 0) as score
+                COALESCE(SUM(ls.marks), 0) as score,
+                ROUND(
+                  (SUM(ls.marks)::numeric / NULLIF(SUM(sa.max_marks), 0)) * 100,
+                  2
+                ) as score_percentage
               FROM scorable_activities sa
               LEFT JOIN latest_submissions ls ON ls.activity_id = sa.activity_id
               GROUP BY sa.lesson_id
@@ -582,7 +589,7 @@ export async function readPupilUnitsBootstrapAction(
 
         const lessonScoresByLesson = new Map<
           string,
-          { score: number; max_score: number }
+          { score: number; max_score: number; score_percentage: number | null }
         >();
         (lessonScoresResult.rows || []).forEach((row) => {
           lessonScoresByLesson.set(row.lesson_id, {
@@ -592,6 +599,12 @@ export async function readPupilUnitsBootstrapAction(
             max_score: typeof row.max_score === "number"
               ? row.max_score
               : parseInt(row.max_score as any, 10),
+            score_percentage: row.score_percentage === null ||
+                row.score_percentage === undefined
+              ? null
+              : (typeof row.score_percentage === "number"
+                ? row.score_percentage
+                : parseFloat(row.score_percentage as any)),
           });
         });
 
@@ -700,6 +713,9 @@ export async function readPupilUnitsBootstrapAction(
               lessonMaxScore:
                 lessonScoresByLesson.get(assignment.lesson_id)?.max_score ??
                   null,
+              lessonScorePercentage:
+                lessonScoresByLesson.get(assignment.lesson_id)
+                  ?.score_percentage ?? null,
               resubmitCount:
                 resubmitByLesson.get(assignment.lesson_id) ?? 0,
               avgSubmissionsPerActivity:

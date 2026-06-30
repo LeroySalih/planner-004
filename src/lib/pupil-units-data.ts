@@ -39,6 +39,7 @@ export type PupilUnitLesson = {
   revisionDate: string | null;
   lessonScore: number | null;
   lessonMaxScore: number | null;
+  lessonScorePercentage: number | null;
   resubmitCount: number;
   avgSubmissionsPerActivity: number | null;
 };
