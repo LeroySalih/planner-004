@@ -71,7 +71,51 @@ const LessonActivitySummaryRowSchema = z.object({
   type: z.string().nullable(),
   body_data: z.unknown().nullable(),
   is_summative: z.boolean().nullish().transform((value) => value ?? false),
+  max_marks: z.number().int().min(1).default(1),
 });
+
+// Marks-based counterpart to compute_submission_marks (src/migrations/077-marks-based-scoring.sql),
+// mirrored in TypeScript for callers that compute scores client-side rather than via SQL.
+// Priority: marks_override -> MCQ/matcher is_correct (scaled to maxMarks) -> STQ
+// teacher_ai_marks/ai_marks/marks/auto_marks -> generic marks/auto_marks. Returns null if unmarked.
+function computeSubmissionMarks(
+  body: unknown,
+  activityType: string,
+  maxMarks: number,
+): number | null {
+  if (!body || typeof body !== "object") return null;
+  const record = body as Record<string, unknown>;
+  const clamp = (value: number | null | undefined): number | null => {
+    if (value === null || value === undefined || !Number.isFinite(value)) {
+      return null;
+    }
+    return Math.min(Math.max(value, 0), maxMarks);
+  };
+  const asInt = (value: unknown): number | null =>
+    typeof value === "number" && Number.isFinite(value)
+      ? Math.trunc(value)
+      : null;
+
+  const override = asInt(record.marks_override);
+  if (override !== null) return clamp(override);
+
+  if (activityType === "multiple-choice-question" || activityType === "matcher") {
+    if (typeof record.is_correct === "boolean") {
+      return record.is_correct ? maxMarks : 0;
+    }
+    return clamp(asInt(record.marks) ?? asInt(record.auto_marks));
+  }
+
+  if (activityType === "short-text-question") {
+    const value = asInt(record.teacher_ai_marks) ??
+      asInt(record.ai_marks) ??
+      asInt(record.marks) ??
+      asInt(record.auto_marks);
+    return clamp(value);
+  }
+
+  return clamp(asInt(record.marks) ?? asInt(record.auto_marks));
+}
 
 export async function getLatestSubmissionForActivityAction(
   activityId: string,
@@ -155,7 +199,7 @@ export async function readLessonSubmissionSummariesAction(
     try {
       const { rows } = await query(
         `
-          select activity_id, title, type, body_data, active, is_summative
+          select activity_id, title, type, body_data, active, is_summative, max_marks
           from activities
           where lesson_id = $1 and active = true
         `,
@@ -267,10 +311,10 @@ export async function readLessonSubmissionSummariesAction(
     }
 
     const summaries: LessonSubmissionSummary[] = [];
-    const overallTotals = { total: 0, count: 0 };
-    const overallSummativeTotals = { total: 0, count: 0 };
-    const viewerTotals = { total: 0, count: 0 };
-    const viewerSummativeTotals = { total: 0, count: 0 };
+    const overallTotals = { marks: 0, maxMarks: 0 };
+    const overallSummativeTotals = { marks: 0, maxMarks: 0 };
+    const viewerTotals = { marks: 0, maxMarks: 0 };
+    const viewerSummativeTotals = { marks: 0, maxMarks: 0 };
 
     for (const activity of scorableActivities) {
       const activityType = (activity.type ?? "").trim();
@@ -281,6 +325,28 @@ export async function readLessonSubmissionSummariesAction(
       const successCriteriaIds =
         activitySuccessCriteriaMap.get(activity.activity_id) ?? [];
       const isSummative = activity.is_summative ?? false;
+      const maxMarks = activity.max_marks;
+
+      // Marks-based contributions to the lesson-level averages (separate from
+      // summary.scores[].score below, which remains a 0-1 fraction for per-pupil
+      // display/accuracy and is intentionally left untouched here).
+      const addMarksContribution = (userId: string, marksAwarded: number | null) => {
+        if (marksAwarded === null) return;
+        overallTotals.marks += marksAwarded;
+        overallTotals.maxMarks += maxMarks;
+        if (isSummative) {
+          overallSummativeTotals.marks += marksAwarded;
+          overallSummativeTotals.maxMarks += maxMarks;
+        }
+        if (viewerUserId && userId === viewerUserId) {
+          viewerTotals.marks += marksAwarded;
+          viewerTotals.maxMarks += maxMarks;
+          if (isSummative) {
+            viewerSummativeTotals.marks += marksAwarded;
+            viewerSummativeTotals.maxMarks += maxMarks;
+          }
+        }
+      };
 
       const summary: LessonSubmissionSummary = {
         activityId: activity.activity_id,
@@ -382,28 +448,12 @@ export async function readLessonSubmissionSummariesAction(
           );
           const averageScore = activitiesScore / scoreEntries.length;
           summary.averageScore = averageScore;
-          overallTotals.total += activitiesScore;
-          overallTotals.count += scoreEntries.length;
-          if (isSummative) {
-            overallSummativeTotals.total += activitiesScore;
-            overallSummativeTotals.count += scoreEntries.length;
-          }
-          if (viewerUserId) {
-            scoreEntries
-              .filter((entry) => entry.userId === viewerUserId)
-              .forEach((entry) => {
-                viewerTotals.total += entry.score;
-                viewerTotals.count += 1;
-              });
-            if (isSummative) {
-              scoreEntries
-                .filter((entry) => entry.userId === viewerUserId)
-                .forEach((entry) => {
-                  viewerSummativeTotals.total += entry.score;
-                  viewerSummativeTotals.count += 1;
-                });
-            }
-          }
+        }
+        for (const submission of submissionList) {
+          addMarksContribution(
+            submission.user_id,
+            computeSubmissionMarks(submission.body, activityType, maxMarks),
+          );
         }
       } else if (activityType === "short-text-question") {
         const parsedActivity = ShortTextActivityBodySchema.safeParse(
@@ -496,28 +546,12 @@ export async function readLessonSubmissionSummariesAction(
           );
           const averageScore = activitiesScore / numericScores.length;
           summary.averageScore = averageScore;
-          overallTotals.total += activitiesScore;
-          overallTotals.count += numericScores.length;
-          if (isSummative) {
-            overallSummativeTotals.total += activitiesScore;
-            overallSummativeTotals.count += numericScores.length;
-          }
-          if (viewerUserId) {
-            numericScores
-              .filter((entry) => entry.userId === viewerUserId)
-              .forEach((entry) => {
-                viewerTotals.total += entry.score;
-                viewerTotals.count += 1;
-              });
-            if (isSummative) {
-              numericScores
-                .filter((entry) => entry.userId === viewerUserId)
-                .forEach((entry) => {
-                  viewerSummativeTotals.total += entry.score;
-                  viewerSummativeTotals.count += 1;
-                });
-            }
-          }
+        }
+        for (const submission of submissionList) {
+          addMarksContribution(
+            submission.user_id,
+            computeSubmissionMarks(submission.body, activityType, maxMarks),
+          );
         }
       } else if (
         activityType === "upload-spreadsheet" ||
@@ -606,28 +640,12 @@ export async function readLessonSubmissionSummariesAction(
           );
           const averageScore = activitiesScore / numericScores.length;
           summary.averageScore = averageScore;
-          overallTotals.total += activitiesScore;
-          overallTotals.count += numericScores.length;
-          if (isSummative) {
-            overallSummativeTotals.total += activitiesScore;
-            overallSummativeTotals.count += numericScores.length;
-          }
-          if (viewerUserId) {
-            numericScores
-              .filter((entry) => entry.userId === viewerUserId)
-              .forEach((entry) => {
-                viewerTotals.total += entry.score;
-                viewerTotals.count += 1;
-              });
-            if (isSummative) {
-              numericScores
-                .filter((entry) => entry.userId === viewerUserId)
-                .forEach((entry) => {
-                  viewerSummativeTotals.total += entry.score;
-                  viewerSummativeTotals.count += 1;
-                });
-            }
-          }
+        }
+        for (const submission of submissionList) {
+          addMarksContribution(
+            submission.user_id,
+            computeSubmissionMarks(submission.body, activityType, maxMarks),
+          );
         }
       } else {
         const generalScores = submissionList.map((submission) => {
@@ -713,36 +731,23 @@ export async function readLessonSubmissionSummariesAction(
           );
           const averageScore = activitiesScore / numericScores.length;
           summary.averageScore = averageScore;
-          overallTotals.total += activitiesScore;
-          overallTotals.count += numericScores.length;
-          if (isSummative) {
-            overallSummativeTotals.total += activitiesScore;
-            overallSummativeTotals.count += numericScores.length;
-          }
-          if (viewerUserId) {
-            numericScores
-              .filter((entry) => entry.userId === viewerUserId)
-              .forEach((entry) => {
-                viewerTotals.total += entry.score;
-                viewerTotals.count += 1;
-              });
-            if (isSummative) {
-              numericScores
-                .filter((entry) => entry.userId === viewerUserId)
-                .forEach((entry) => {
-                  viewerSummativeTotals.total += entry.score;
-                  viewerSummativeTotals.count += 1;
-                });
-            }
-          }
+        }
+        for (const submission of submissionList) {
+          addMarksContribution(
+            submission.user_id,
+            computeSubmissionMarks(submission.body, activityType, maxMarks),
+          );
         }
       }
 
       summaries.push(summary);
     }
 
-    const computeAverage = (totals: { total: number; count: number }) =>
-      totals.count > 0 ? totals.total / totals.count : null;
+    // Marks-weighted percentage: sum(marksAwarded) / sum(maxMarks) * 100, rather than
+    // an unweighted mean of per-submission fractions (which over-weights low-mark
+    // activities relative to high-mark ones).
+    const computeAverage = (totals: { marks: number; maxMarks: number }) =>
+      totals.maxMarks > 0 ? (totals.marks / totals.maxMarks) * 100 : null;
 
     const lessonAverages: LessonAverageBreakdown = viewerUserId
       ? {

@@ -2591,7 +2591,7 @@ function formatAverageScore(value: number | null): string {
     return "n/a"
   }
 
-  return `${Math.round(value * 100)}%`
+  return `${Math.round(value)}%`
 }
 
 function formatActivityTypeLabel(type: string): string {
