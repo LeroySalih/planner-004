@@ -772,12 +772,14 @@ export async function upsertMcqSubmissionAction(
   input: z.infer<typeof McqSubmissionInputSchema>,
 ) {
   const payload = McqSubmissionInputSchema.parse(input);
-  let activity: { body_data: unknown; lesson_id: string | null } | null = null;
+  let activity:
+    | { body_data: unknown; lesson_id: string | null; max_marks: number | null }
+    | null = null;
   try {
     const { rows } = await query<
-      { body_data: unknown; lesson_id: string | null }
+      { body_data: unknown; lesson_id: string | null; max_marks: number | null }
     >(
-      "select body_data, lesson_id from activities where activity_id = $1 limit 1",
+      "select body_data, lesson_id, max_marks from activities where activity_id = $1 limit 1",
       [payload.activityId],
     );
     activity = rows[0] ?? null;
@@ -835,6 +837,7 @@ export async function upsertMcqSubmissionAction(
     payload.activityId,
   );
   const isCorrect = mcqBody.correctOptionId === payload.optionId;
+  const marksAwarded = isCorrect ? activity.max_marks : 0;
   const successCriteriaScores = normaliseSuccessCriteriaScores({
     successCriteriaIds,
     fillValue: isCorrect ? 1 : 0,
@@ -843,6 +846,7 @@ export async function upsertMcqSubmissionAction(
   const submissionBody = McqSubmissionBodySchema.parse({
     answer_chosen: payload.optionId,
     is_correct: isCorrect,
+    marks: marksAwarded,
     success_criteria_scores: successCriteriaScores,
     teacher_override_score: null,
     teacher_feedback: null,
@@ -919,12 +923,14 @@ export async function upsertMatcherSubmissionAction(
   input: z.infer<typeof MatcherSubmissionInputSchema>,
 ) {
   const payload = MatcherSubmissionInputSchema.parse(input);
-  let activity: { body_data: unknown; lesson_id: string | null } | null = null;
+  let activity:
+    | { body_data: unknown; lesson_id: string | null; max_marks: number | null }
+    | null = null;
   try {
     const { rows } = await query<
-      { body_data: unknown; lesson_id: string | null }
+      { body_data: unknown; lesson_id: string | null; max_marks: number | null }
     >(
-      "select body_data, lesson_id from activities where activity_id = $1 limit 1",
+      "select body_data, lesson_id, max_marks from activities where activity_id = $1 limit 1",
       [payload.activityId],
     );
     activity = rows[0] ?? null;
@@ -982,6 +988,7 @@ export async function upsertMatcherSubmissionAction(
   const isCorrect = matcherBody.pairs.every(
     (pair) => payload.answers[pair.id] === pair.id,
   );
+  const marksAwarded = isCorrect ? activity.max_marks : 0;
 
   const successCriteriaIds = await fetchActivitySuccessCriteriaIds(
     payload.activityId,
@@ -1002,6 +1009,7 @@ export async function upsertMatcherSubmissionAction(
     layout: payload.layout,
     answers: sanitizedAnswers,
     is_correct: isCorrect,
+    marks: marksAwarded,
     success_criteria_scores: successCriteriaScores,
     teacher_override_score: null,
     teacher_feedback: null,
