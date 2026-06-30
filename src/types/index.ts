@@ -924,6 +924,8 @@ export interface LessonSubmissionScore {
     accuracy: number | null;
     isCorrect?: boolean;
     successCriteriaScores?: Record<string, number | null>;
+    marksAwarded?: number | null;
+    maxMarks?: number;
 }
 
 export interface LessonSubmissionSummary {

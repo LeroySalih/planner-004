@@ -71,8 +71,11 @@ export function PupilShortTextActivity({
 
   // Merge server-initial props with live context result.
   // Context result wins when present (it's fresher than the server render).
+  const maxMarks = activity.max_marks ?? 1
   const effectiveScoreLabel = contextResult
-    ? (contextResult.score !== null ? `${Math.round(contextResult.score * 100)}%` : "—")
+    ? (contextResult.score !== null
+        ? `${Math.round(contextResult.score * maxMarks)}/${maxMarks}`
+        : "—")
     : scoreLabelProp
   const effectiveFeedbackText = contextResult ? contextResult.feedbackText : feedbackTextProp
 

@@ -330,7 +330,9 @@ export async function readLessonSubmissionSummariesAction(
       // Marks-based contributions to the lesson-level averages (separate from
       // summary.scores[].score below, which remains a 0-1 fraction for per-pupil
       // display/accuracy and is intentionally left untouched here).
+      const marksByUser = new Map<string, number | null>();
       const addMarksContribution = (userId: string, marksAwarded: number | null) => {
+        marksByUser.set(userId, marksAwarded);
         if (marksAwarded === null) return;
         overallTotals.marks += marksAwarded;
         overallTotals.maxMarks += maxMarks;
@@ -739,6 +741,14 @@ export async function readLessonSubmissionSummariesAction(
           );
         }
       }
+
+      summary.scores = summary.scores.map((entry) => ({
+        ...entry,
+        marksAwarded: marksByUser.has(entry.userId)
+          ? marksByUser.get(entry.userId) ?? null
+          : null,
+        maxMarks,
+      }));
 
       summaries.push(summary);
     }

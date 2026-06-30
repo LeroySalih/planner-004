@@ -865,27 +865,47 @@ export default async function PupilLessonFriendlyPage({
   const initialFeedbackVisible = assignments.some((assignment) => assignment.feedbackVisible)
 
   const activityScoreMap = new Map<string, number | null | undefined>()
+  const activityMarksMap = new Map<string, { marksAwarded: number | null; maxMarks: number } | undefined>()
   if (!lessonSubmissionSummaries.error) {
     (lessonSubmissionSummaries.data ?? []).forEach((entry) => {
       const viewerScore = entry.scores.find((score) => score.userId === pupilId)
-      
+
       // If viewerScore is undefined, no submission exists (undefined).
       // If viewerScore exists but score is null/undefined, it's unmarked (null).
       // If score is a number, it's marked (number).
       let value: number | null | undefined = undefined
       if (viewerScore) {
-          value = typeof viewerScore.score === "number" && Number.isFinite(viewerScore.score) 
-              ? viewerScore.score 
+          value = typeof viewerScore.score === "number" && Number.isFinite(viewerScore.score)
+              ? viewerScore.score
               : null
       }
-      
+
       activityScoreMap.set(entry.activityId, value)
+
+      if (viewerScore) {
+        activityMarksMap.set(entry.activityId, {
+          marksAwarded: viewerScore.marksAwarded ?? null,
+          maxMarks: viewerScore.maxMarks ?? 1,
+        })
+      }
     })
   }
 
-  const formatScoreLabel = (score: number | null | undefined) => {
-    if (score === null) return "—"
-    if (typeof score === "number" && Number.isFinite(score)) return `${Math.round(score * 100)}%`
+  const formatScoreLabel = (score: number | null | undefined, activityId?: string) => {
+    if (score === null) {
+      const marksInfo = activityId ? activityMarksMap.get(activityId) : undefined
+      if (marksInfo && marksInfo.marksAwarded !== null) {
+        return `${marksInfo.marksAwarded}/${marksInfo.maxMarks}`
+      }
+      return "—"
+    }
+    if (typeof score === "number" && Number.isFinite(score)) {
+      const marksInfo = activityId ? activityMarksMap.get(activityId) : undefined
+      if (marksInfo && marksInfo.marksAwarded !== null) {
+        return `${marksInfo.marksAwarded}/${marksInfo.maxMarks}`
+      }
+      return `${Math.round(score * 100)}%`
+    }
     return "No score yet"
   }
 
@@ -1058,7 +1078,7 @@ export default async function PupilLessonFriendlyPage({
                           feedbackAssignmentIds={assignmentIds}
                           feedbackLessonId={lesson.lesson_id}
                           feedbackInitiallyVisible={initialFeedbackVisible}
-                          scoreLabel={formatScoreLabel(rawScore)}
+                          scoreLabel={formatScoreLabel(rawScore, activity.activity_id)}
                           feedbackText={feedbackText}
                         />
                       ) : activity.type === "upload-worksheet" ? (
@@ -1072,7 +1092,7 @@ export default async function PupilLessonFriendlyPage({
                           feedbackAssignmentIds={assignmentIds}
                           feedbackLessonId={lesson.lesson_id}
                           feedbackInitiallyVisible={initialFeedbackVisible}
-                          scoreLabel={formatScoreLabel(rawScore)}
+                          scoreLabel={formatScoreLabel(rawScore, activity.activity_id)}
                           feedbackText={feedbackText}
                         />
                       ) : activity.type === "short-text-question" ? (
@@ -1089,7 +1109,7 @@ export default async function PupilLessonFriendlyPage({
                           feedbackAssignmentIds={assignmentIds}
                           feedbackLessonId={lesson.lesson_id}
                           feedbackInitiallyVisible={initialFeedbackVisible}
-                          scoreLabel={formatScoreLabel(rawScore)}
+                          scoreLabel={formatScoreLabel(rawScore, activity.activity_id)}
                           feedbackText={feedbackText}
                           modelAnswer={modelAnswer}
                           initialIsPendingMarking={rawScore === null}
@@ -1105,7 +1125,7 @@ export default async function PupilLessonFriendlyPage({
                           feedbackAssignmentIds={assignmentIds}
                           feedbackLessonId={lesson.lesson_id}
                           feedbackInitiallyVisible={initialFeedbackVisible}
-                          scoreLabel={formatScoreLabel(rawScore)}
+                          scoreLabel={formatScoreLabel(rawScore, activity.activity_id)}
                           feedbackText={feedbackText}
                           modelAnswer={modelAnswer}
                         />
@@ -1119,7 +1139,7 @@ export default async function PupilLessonFriendlyPage({
                           feedbackAssignmentIds={assignmentIds}
                           feedbackLessonId={lesson.lesson_id}
                           feedbackInitiallyVisible={initialFeedbackVisible}
-                          scoreLabel={formatScoreLabel(rawScore)}
+                          scoreLabel={formatScoreLabel(rawScore, activity.activity_id)}
                           feedbackText={feedbackText}
                           modelAnswer={modelAnswer}
                         />
@@ -1171,7 +1191,7 @@ export default async function PupilLessonFriendlyPage({
                           feedbackAssignmentIds={assignmentIds}
                           feedbackLessonId={lesson.lesson_id}
                           feedbackInitiallyVisible={initialFeedbackVisible}
-                          scoreLabel={formatScoreLabel(rawScore)}
+                          scoreLabel={formatScoreLabel(rawScore, activity.activity_id)}
                           feedbackText={feedbackText}
                           modelAnswer={modelAnswer}
                         />
@@ -1367,7 +1387,7 @@ export default async function PupilLessonFriendlyPage({
                     lessonId={lesson.lesson_id}
                     initialVisible={initialFeedbackVisible}
                     show={showProgress && activity.type !== "short-text-question"}
-                    scoreLabel={formatScoreLabel(rawScore)}
+                    scoreLabel={formatScoreLabel(rawScore, activity.activity_id)}
                     feedbackText={feedbackText}
                     modelAnswer={modelAnswer}
                     isMarked={typeof rawScore === "number"}
