@@ -216,13 +216,13 @@ export async function readGroupSowLessonsAction(
                 '{}'
               ) AS los,
               (
-                SELECT ROUND(100.0 * AVG(compute_submission_base_score(s.body, a.type)))::int
+                SELECT ROUND(100.0 * SUM(compute_submission_marks(s.body::jsonb, a.type, a.max_marks)) / NULLIF(SUM(a.max_marks), 0))::int
                 FROM activities a
                 JOIN submissions s ON s.activity_id = a.activity_id
                 JOIN group_membership gm ON gm.user_id = s.user_id AND gm.group_id = pa.group_id
                 WHERE a.lesson_id = pa.lesson_id
                   AND (a.active IS NULL OR a.active = true)
-                  AND compute_submission_base_score(s.body, a.type) IS NOT NULL
+                  AND compute_submission_marks(s.body::jsonb, a.type, a.max_marks) IS NOT NULL
               ) AS score
        FROM planner_assignments pa
        JOIN lessons l ON l.lesson_id = pa.lesson_id
