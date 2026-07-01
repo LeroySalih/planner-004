@@ -190,6 +190,7 @@ export {
 export { listLessonsLearningObjectivesAction } from "./server-actions/lesson-learning-objectives";
 
 export {
+  editWorksheetTextAction,
   getLatestSubmissionForActivityAction,
   readLessonSubmissionSummariesAction,
   readSubmissionByIdAction,

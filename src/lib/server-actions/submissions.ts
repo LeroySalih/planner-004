@@ -33,6 +33,7 @@ import {
   clearResubmitRequest,
   getNextAttemptNumber,
 } from "@/lib/server-actions/submission-attempts";
+import { enqueueMarkingTasks, triggerQueueProcessor } from "@/lib/ai/marking-queue";
 import { computeAccuracyByUser } from "@/lib/scoring/accuracy";
 import { computeSubmissionMarks } from "@/lib/scoring/submission-marks";
 
@@ -1239,4 +1240,53 @@ export async function readSubmissionByIdAction(submissionId: string) {
       : "Unable to load submission.";
     return { success: false, error: message, data: null };
   }
+}
+
+export async function editWorksheetTextAction(input: {
+  activityId: string;
+  userId: string;
+  sourceSubmissionId: string;
+  text: string;
+  groupAssignmentId?: string;
+}): Promise<{ success: boolean; error: string | null; data: Submission | null }> {
+  const { rows } = await query<{ body: unknown }>(
+    `select body from submissions where submission_id = $1 limit 1`,
+    [input.sourceSubmissionId],
+  );
+  const source = rows?.[0];
+  if (!source) return { success: false, error: "Source attempt not found.", data: null };
+
+  const sourceBody = UploadWorksheetSubmissionBodySchema.parse(source.body ?? {});
+  const newBody = UploadWorksheetSubmissionBodySchema.parse({
+    images: sourceBody.images,
+    extractedText: input.text,
+    ocr_status: "marking",
+    ocr_error: null,
+    is_correct: false,
+    success_criteria_scores: {},
+  });
+
+  const attemptNumber = await getNextAttemptNumber(input.activityId, input.userId);
+  const { rows: inserted } = await query(
+    `insert into submissions (activity_id, user_id, attempt_number, body, submitted_at, submission_status)
+     values ($1, $2, $3, $4, now(), 'submitted')
+     returning *`,
+    [input.activityId, input.userId, attemptNumber, newBody],
+  );
+  const created = SubmissionSchema.parse(inserted[0]);
+
+  if (input.groupAssignmentId) {
+    try {
+      await enqueueMarkingTasks(input.groupAssignmentId, [{ submissionId: created.submission_id }]);
+      await triggerQueueProcessor();
+    } catch (err) {
+      console.error("[editWorksheetTextAction] enqueue marking failed", err);
+    }
+  }
+  void emitSubmissionEvent("submission.updated", {
+    submissionId: created.submission_id,
+    activityId: input.activityId,
+    ocrStatus: "marking",
+  });
+  return { success: true, error: null, data: created };
 }
