@@ -113,6 +113,34 @@ on `error`, score + feedback on `marked`.
   the body). Per project security policy, this secret lives only in `.env`.
 - Uploaded pupil images are stored auth-gated (never `public/`).
 
+## Codebase Reality (discovered during planning, 2026-07-01)
+
+Exploration changed the scope from the original spec:
+
+1. **The AI Marking workflow half already exists and is reused, not built.**
+   `src/lib/ai/ai-marking-client.ts` (`invokeAiMarking`), `src/lib/ai/marking-queue.ts`
+   (`enqueueMarkingTasks` / queue table `ai_marking_queue`), and the callback route
+   `src/app/webhooks/ai-mark/route.ts` (auth header `mark-service-key`, secret
+   `MARK_SERVICE_KEY`) already implement the async-callback + SSE pattern. The result
+   is written to `submissions.body` by `applyAiMarkToSubmission()`.
+
+2. **We modify the existing `upload-worksheet` activity in place** — no new activity
+   type. The type identifier stays `upload-worksheet`; its display label becomes
+   "Upload Exam Question". Its behaviour changes from "mark the image directly"
+   (`WORKSHEET_IMAGE` base64) to "OCR the images to editable text, then mark the text".
+
+3. **Genuinely new work:** multi-image upload (current component only handles
+   `files[0]`), the OCR outbound client + callback route, the editable-text
+   checkpoint UI, storing multiple images, the OCR state machine on the submission
+   body, and swapping the worksheet marking payload from image to extracted text.
+
+4. **State machine lives in `submissions.body`** as an `ocr_status` field
+   (`extracting → extracted → marking → marked → error`), not in the constrained
+   `submission_status` enum — no DB enum migration needed.
+
+5. **Realtime is SSE** (`src/lib/sse/*`, topics `submissions` / `assignments`), not
+   Supabase Realtime.
+
 ## Open Implementation Decisions (for the plan)
 
 - **New activity type** `upload-exam-question` (scorable) registered in
