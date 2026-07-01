@@ -226,14 +226,21 @@ function describeStatus(status: CellStatus) {
 }
 
 
-function resolveCellBackgroundTone(cell: AssignmentResultCell) {
+function resolveCellBackgroundTone(cell: AssignmentResultCell, maxMarks: number) {
   if (cell.needsMarking) {
     return "bg-gray-400 text-gray-900 border border-gray-500 hover:bg-gray-300"
   }
   if (cell.status === "missing" || !cell.submissionId) {
     return "bg-background text-muted-foreground border border-dashed border-border"
   }
-  return resolveScoreTone(cell.score, cell.status)
+  // Colour from the same marksAwarded/maxMarks fraction the cell displays, not the stored score.
+  const derivedScore =
+    cell.marksAwarded !== null && cell.marksAwarded !== undefined
+      ? maxMarks > 0
+        ? cell.marksAwarded / maxMarks
+        : null
+      : cell.score
+  return resolveScoreTone(derivedScore, cell.status)
 }
 
 
@@ -3287,7 +3294,7 @@ export function AssignmentResultsDashboard({
                           </button>
                         </td>
                         {row.cells.map((cell, activityIndex) => {
-                          const tone = resolveCellBackgroundTone(cell)
+                          const tone = resolveCellBackgroundTone(cell, activities[activityIndex].maxMarks ?? 1)
                           return (
                             <td key={cell.activityId} className="px-2 py-2 text-center">
                               <button
