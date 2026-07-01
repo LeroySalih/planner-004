@@ -177,6 +177,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: "Unable to record submission." }, { status: 500 })
     }
 
+    // Emit SSE so the pupil UI transitions to "extracting" immediately after insert.
+    if (submissionId) {
+      void emitSubmissionEvent("submission.updated", {
+        submissionId,
+        activityId,
+        ocrStatus: "extracting",
+      })
+    }
+
     // Post-insert: read stored files back and invoke OCR. This runs OUTSIDE the DB-insert
     // try/catch so failures here never trigger storage rollback or a 500 response — the
     // submission row and uploaded files are already committed and must be kept.

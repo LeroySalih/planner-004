@@ -16,6 +16,7 @@ import {
   type AssignmentResultsRealtimePayload,
   publishAssignmentResultsEvents,
 } from "@/lib/results-sse";
+import { emitSubmissionEvent } from "@/lib/sse/topics";
 import { insertPupilActivityFeedbackEntry } from "@/lib/feedback/pupil-activity-feedback";
 import { query } from "@/lib/db";
 import { logQueueEvent, resolveQueueItem } from "@/lib/ai/marking-queue";
@@ -515,12 +516,11 @@ async function applyAiMarkToSubmission({
     submission.body ?? {},
   );
   if (!parsedBody.success && isFileSubmission) {
-    // upload-spreadsheet/upload-worksheet require filePath/fileName, which
-    // cannot be fabricated here — an existing submission missing them
-    // indicates corrupted data, so surface a clear error instead of writing
-    // a body with empty file fields.
+    // upload-worksheet requires images/extractedText; upload-spreadsheet
+    // requires filePath/fileName. Both cannot be fabricated from the webhook
+    // payload — an existing submission missing them indicates corrupted data.
     throw new Error(
-      `Existing ${activityType} submission ${submission.submission_id} has an invalid body (missing filePath/fileName).`,
+      `Existing ${activityType} submission ${submission.submission_id} has an invalid body (missing required file fields).`,
     );
   }
   const baseBody = parsedBody.success
@@ -571,6 +571,14 @@ async function applyAiMarkToSubmission({
     `,
     [nextBody, submission.submission_id],
   );
+
+  if (activityType === UPLOAD_WORKSHEET_ACTIVITY_TYPE) {
+    void emitSubmissionEvent("submission.updated", {
+      submissionId: submission.submission_id,
+      activityId,
+      ocrStatus: "marked",
+    })
+  }
 
   await insertPupilActivityFeedbackEntry({
     activityId,
