@@ -643,20 +643,44 @@ export const UploadWorksheetActivityBodySchema = z
         { message: "Provide marking guidance text or select a marking guidance template.", path: ["markingGuidance"] },
     );
 
+export const WorksheetImageSchema = z.object({
+  filePath: z.string().min(1),
+  fileName: z.string().min(1),
+});
+export type WorksheetImage = z.infer<typeof WorksheetImageSchema>;
+
+export const WorksheetOcrStatusSchema = z.enum([
+  "extracting",
+  "extracted",
+  "marking",
+  "marked",
+  "error",
+]);
+export type WorksheetOcrStatus = z.infer<typeof WorksheetOcrStatusSchema>;
+
 export const UploadWorksheetSubmissionBodySchema = z
-    .object({
-        filePath: z.string().min(1),
-        fileName: z.string().min(1),
-        ai_model_score: z.number().min(0).max(1).nullable().optional(),
-        ai_model_feedback: z.string().nullable().optional(),
-        teacher_override_score: z.number().min(0).max(1).nullable().optional(),
-        is_correct: z.boolean().default(false),
-        teacher_feedback: z.string().nullable().optional(),
-        success_criteria_scores: z
-            .record(z.string(), z.number().min(0).max(1).nullable())
-            .default({}),
-    })
-    .passthrough();
+  .object({
+    images: z.array(WorksheetImageSchema).default([]),
+    extractedText: z.string().nullable().default(null),
+    ocr_status: WorksheetOcrStatusSchema.default("extracting"),
+    ocr_error: z.string().nullable().optional(),
+    // Legacy single-file fields — kept optional so old attempts still parse.
+    filePath: z.string().optional(),
+    fileName: z.string().optional(),
+    // Marking fields (written by applyAiMarkToSubmission — unchanged).
+    ai_model_score: z.number().min(0).max(1).nullable().optional(),
+    ai_model_feedback: z.string().nullable().optional(),
+    teacher_override_score: z.number().min(0).max(1).nullable().optional(),
+    is_correct: z.boolean().default(false),
+    teacher_feedback: z.string().nullable().optional(),
+    success_criteria_scores: z
+      .record(z.string(), z.number().min(0).max(1).nullable())
+      .default({}),
+    ai_marks: z.number().int().min(0).nullable().optional(),
+    teacher_ai_marks: z.number().int().min(0).nullable().optional(),
+    marks_override: z.number().int().min(0).nullable().optional(),
+  })
+  .passthrough();
 
 export type UploadWorksheetActivityBody = z.infer<
     typeof UploadWorksheetActivityBodySchema
