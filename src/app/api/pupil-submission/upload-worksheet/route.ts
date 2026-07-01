@@ -171,8 +171,17 @@ export async function POST(request: Request) {
       const firstFileName = images[0]?.fileName ?? ""
       await logActivitySubmissionEvent({ submissionId, activityId, lessonId, pupilId: userId, fileName: firstFileName, submittedAt })
 
-      if (submissionId) {
-        // Read each stored file back and build base64 payloads for OCR.
+    } catch (err) {
+      console.error(`${tag} DB upsert failed — rolling back storage`, { error: err })
+      await storage.remove(images.map((img) => img.filePath))
+      return NextResponse.json({ success: false, error: "Unable to record submission." }, { status: 500 })
+    }
+
+    // Post-insert: read stored files back and invoke OCR. This runs OUTSIDE the DB-insert
+    // try/catch so failures here never trigger storage rollback or a 500 response — the
+    // submission row and uploaded files are already committed and must be kept.
+    if (submissionId) {
+      try {
         const callbackBase = (process.env.AI_MARKING_CALLBACK_URL ?? "").replace(/\/$/, "")
         const ocrImages: Array<{ base64: string; fileName: string }> = []
         for (const img of images) {
@@ -186,17 +195,19 @@ export async function POST(request: Request) {
           ocrImages.push({ base64, fileName: img.fileName })
         }
 
+        await invokeImageOcr({
+          submission_id: submissionId,
+          activity_id: activityId,
+          pupil_id: userId,
+          group_assignment_id: groupAssignmentId ?? undefined,
+          webhook_url: `${callbackBase}/webhooks/image-to-text`,
+          images: ocrImages,
+        })
+      } catch (err) {
+        // Read failure OR invoke failure: mark submission as ocr_status "error".
+        // Do NOT remove storage (images are valid) and do NOT return 500.
+        console.error(`${tag} OCR read/invoke failed — setting ocr_status error`, err)
         try {
-          await invokeImageOcr({
-            submission_id: submissionId,
-            activity_id: activityId,
-            pupil_id: userId,
-            group_assignment_id: groupAssignmentId ?? undefined,
-            webhook_url: `${callbackBase}/webhooks/image-to-text`,
-            images: ocrImages,
-          })
-        } catch (err) {
-          console.error(`${tag} OCR invoke failed`, err)
           const errBody = UploadWorksheetSubmissionBodySchema.parse({
             images,
             extractedText: null,
@@ -206,12 +217,10 @@ export async function POST(request: Request) {
             success_criteria_scores: {},
           })
           await client.query(`update submissions set body = $1 where submission_id = $2`, [errBody, submissionId])
+        } catch (updateErr) {
+          console.error(`${tag} Failed to update submission to ocr_status error`, updateErr)
         }
       }
-    } catch (err) {
-      console.error(`${tag} DB upsert failed — rolling back storage`, { error: err })
-      await storage.remove(images.map((img) => img.filePath))
-      return NextResponse.json({ success: false, error: "Unable to record submission." }, { status: 500 })
     }
   } finally {
     try {
