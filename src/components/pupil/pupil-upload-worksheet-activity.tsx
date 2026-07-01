@@ -136,16 +136,15 @@ export function PupilUploadWorksheetActivity({
       setLegacyFileName(body.fileName ?? body.filePath.split("/").pop() ?? "file")
     }
 
-    if (body.extractedText && ocrStatus !== "extracting") {
+    if (body.extractedText) {
       setDraftText(body.extractedText)
     }
-  }, [activity.activity_id, pupilId, ocrStatus])
+  }, [activity.activity_id, pupilId])
 
   // On mount, load the latest submission
   useEffect(() => {
     void loadLatestSubmission()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [loadLatestSubmission])
 
   // SSE subscription for live ocr_status updates
   useEffect(() => {
@@ -209,7 +208,7 @@ export function PupilUploadWorksheetActivity({
               toast.error(`Failed to process ${raw.name}`, {
                 description: "Please try a standard JPEG or PNG.",
               })
-              return
+              continue
             }
 
             const lowerName = file.name.toLowerCase()
@@ -217,20 +216,23 @@ export function PupilUploadWorksheetActivity({
               toast.error(`Upload failed for ${file.name}`, {
                 description: "Only JPEG or PNG photos are allowed.",
               })
-              return
+              continue
             }
 
             if (file.size > MAX_FILE_SIZE_BYTES) {
               toast.error(`Upload failed for ${file.name}`, {
                 description: "File exceeds 10MB limit.",
               })
-              return
+              continue
             }
 
             prepared.push(file)
           }
 
-          if (prepared.length === 0) return
+          if (prepared.length === 0) {
+            toast.error("No valid photos to upload")
+            return
+          }
 
           const formData = new FormData()
           formData.append("lessonId", lessonId)
@@ -335,7 +337,7 @@ export function PupilUploadWorksheetActivity({
         userId: pupilId,
         sourceSubmissionId: latestSubmissionId,
         text: draftText,
-        groupAssignmentId: feedbackAssignmentIds[0],
+        groupAssignmentId: feedbackAssignmentIds[0] ?? undefined,
       })
       if (!result.success) {
         toast.error("Failed to save", { description: result.error ?? "Please try again." })
@@ -460,9 +462,9 @@ export function PupilUploadWorksheetActivity({
           {/* Thumbnails */}
           {hasImages ? (
             <div className="flex flex-wrap gap-2">
-              {imageUrls.map((img, i) => (
+              {imageUrls.map((img) => (
                 <button
-                  key={i}
+                  key={img.url}
                   type="button"
                   onClick={() => openLightbox(img.url, img.name)}
                   className="h-16 w-16 shrink-0 overflow-hidden rounded border border-border bg-muted"
