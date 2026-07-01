@@ -4041,10 +4041,11 @@ export function AssignmentResultsDashboard({
                       </aside>    )}
 
       <Dialog open={!!guidanceEditor} onOpenChange={(open) => !open && setGuidanceEditor(null)}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="grid-rows-[auto_minmax(0,1fr)_auto] max-h-[85vh] max-w-2xl">
           <DialogHeader>
             <DialogTitle>Edit Subject Guidance</DialogTitle>
           </DialogHeader>
+          <div className="min-h-0 overflow-y-auto pr-1">
           {guidanceEditor?.loading ? (
             <p className="text-sm text-muted-foreground">Loading guidance…</p>
           ) : guidanceEditor ? (
@@ -4068,6 +4069,7 @@ export function AssignmentResultsDashboard({
               />
             </div>
           ) : null}
+          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setGuidanceEditor(null)} disabled={guidanceEditor?.saving}>
               Cancel
@@ -4080,10 +4082,11 @@ export function AssignmentResultsDashboard({
       </Dialog>
 
       <Dialog open={!!questionGuidanceEditor} onOpenChange={(open) => !open && setQuestionGuidanceEditor(null)}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="grid-rows-[auto_minmax(0,1fr)_auto] max-h-[85vh] max-w-2xl">
           <DialogHeader>
             <DialogTitle>Edit Question Guidance</DialogTitle>
           </DialogHeader>
+          <div className="min-h-0 overflow-y-auto pr-1">
           {questionGuidanceEditor?.loading ? (
             <p className="text-sm text-muted-foreground">Loading guidance…</p>
           ) : questionGuidanceEditor ? (
@@ -4097,6 +4100,7 @@ export function AssignmentResultsDashboard({
               disabled={questionGuidanceEditor.saving}
             />
           ) : null}
+          </div>
           <DialogFooter>
             <Button
               variant="outline"
@@ -4116,12 +4120,13 @@ export function AssignmentResultsDashboard({
       </Dialog>
 
       <Dialog open={!!viewingAttempt} onOpenChange={(open) => !open && setViewingAttempt(null)}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="grid-rows-[auto_minmax(0,1fr)_auto] max-h-[85vh] max-w-2xl">
           <DialogHeader>
             <DialogTitle>
               {viewingAttempt ? `Attempt ${viewingAttempt.attempt_number}` : "Attempt"}
             </DialogTitle>
           </DialogHeader>
+          <div className="min-h-0 overflow-y-auto pr-1">
           {viewingAttempt && selection
             ? (() => {
                 const successCriteriaIds = selection.activity.successCriteria.map(
@@ -4220,6 +4225,7 @@ export function AssignmentResultsDashboard({
                 )
               })()
             : null}
+          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setViewingAttempt(null)}>
               Close
