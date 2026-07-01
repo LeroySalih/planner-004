@@ -91,6 +91,7 @@ export function PupilUploadWorksheetActivity({
   const [draftText, setDraftText] = useState("")
   const [ocrError, setOcrError] = useState<string | null>(null)
   const [latestSubmissionId, setLatestSubmissionId] = useState<string | null>(null)
+  const latestSubmissionIdRef = useRef<string | null>(null)
   const [saving, setSaving] = useState(false)
 
   // Fallback: show legacy single-file info if no submission yet
@@ -109,6 +110,7 @@ export function PupilUploadWorksheetActivity({
 
     const sub = result.data
     setLatestSubmissionId(sub.submission_id)
+    latestSubmissionIdRef.current = sub.submission_id
 
     const parsed = UploadWorksheetSubmissionBodySchema.safeParse(sub.body)
     if (!parsed.success) return
@@ -169,7 +171,7 @@ export function PupilUploadWorksheetActivity({
 
       const matchesActivity = payload.activityId === activity.activity_id
       const matchesSubmission =
-        latestSubmissionId != null && payload.submissionId === latestSubmissionId
+        latestSubmissionIdRef.current != null && payload.submissionId === latestSubmissionIdRef.current
 
       if (matchesActivity || matchesSubmission) {
         if (payload.ocrStatus) {
@@ -183,7 +185,7 @@ export function PupilUploadWorksheetActivity({
     return () => {
       source.close()
     }
-  }, [activity.activity_id, latestSubmissionId, loadLatestSubmission])
+  }, [activity.activity_id, loadLatestSubmission])
 
   const beginUpload = useCallback(
     (incoming: FileList | File[]) => {
@@ -347,6 +349,7 @@ export function PupilUploadWorksheetActivity({
       setOcrStatus("marking")
       if (result.data) {
         setLatestSubmissionId(result.data.submission_id)
+        latestSubmissionIdRef.current = result.data.submission_id
       }
     } finally {
       setSaving(false)
