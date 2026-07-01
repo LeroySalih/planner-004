@@ -3298,7 +3298,12 @@ export function AssignmentResultsDashboard({
                                 )}
                                 onClick={() => handleCellSelect(rowIndex, activityIndex)}
                               >
-                                {cell.needsMarking ? "—" : formatPercent(cell.score ?? null)}
+                                {cell.needsMarking ? "—" : (() => {
+                                  const maxMarks = activities[activityIndex].maxMarks ?? 1
+                                  return cell.marksAwarded !== null && cell.marksAwarded !== undefined
+                                    ? formatPercent(maxMarks > 0 ? cell.marksAwarded / maxMarks : null)
+                                    : formatPercent(cell.score ?? null)
+                                })()}
                                 {cell.resubmitRequested ? (
                                   <RotateCcw className="ml-1.5 h-3.5 w-3.5" />
                                 ) : null}
