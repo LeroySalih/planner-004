@@ -31,6 +31,7 @@
  */
 
 import path from "node:path";
+import { Pool } from "pg";
 import { expect, test } from "@playwright/test";
 
 // ---------------------------------------------------------------------------
@@ -44,6 +45,33 @@ const PUPIL_PASSWORD = "bisak123";
 
 // Fixture image — committed at tests/worksheets/IMG_3784.jpg
 const FIXTURE_IMAGE = path.resolve(__dirname, "IMG_3784.jpg");
+
+// ---------------------------------------------------------------------------
+// DB helper — uses the same DATABASE_URL as the app under test
+// ---------------------------------------------------------------------------
+function makePool() {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error("DATABASE_URL is not set — cannot run DB queries in spec");
+  }
+  return new Pool({
+    connectionString,
+    ssl: connectionString.includes("localhost") ? false : { rejectUnauthorized: false },
+  });
+}
+
+async function queryDb<T extends Record<string, unknown>>(
+  sql: string,
+  params: unknown[],
+): Promise<T[]> {
+  const pool = makePool();
+  try {
+    const { rows } = await pool.query<T>(sql, params);
+    return rows;
+  } finally {
+    await pool.end();
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Helper — sign in via the UI as a given user
@@ -61,7 +89,6 @@ async function signIn(page: import("@playwright/test").Page, email: string, pass
 // Helper — sign out via the user menu
 // ---------------------------------------------------------------------------
 async function signOut(page: import("@playwright/test").Page) {
-  // Try both common aria-labels used for the user menu trigger
   const trigger = page.getByRole("button", { name: /open user menu|pupil 1|leroy salih/i }).first();
   if (await trigger.isVisible()) {
     await trigger.click();
@@ -74,21 +101,22 @@ async function signOut(page: import("@playwright/test").Page) {
 // Main test
 // ---------------------------------------------------------------------------
 test.describe("Worksheet OCR → edit → mark", () => {
-  /**
-   * Step 1: Teacher creates a worksheet activity so the pupil has something to
-   * submit against. If a suitable activity already exists the teacher setup can
-   * be adapted; here we create a minimal one to keep the test self-contained.
-   */
   test("full OCR lifecycle", async ({ page, request }) => {
     // -- env guard -------------------------------------------------------
     const ocrKey = process.env.IMAGE_OCR_SERVICE_KEY;
     const markKey = process.env.MARK_SERVICE_KEY ?? process.env.AI_MARK_SERVICE_KEY;
 
     if (!ocrKey) {
-      console.warn("[exam-question-ocr] IMAGE_OCR_SERVICE_KEY is not set — OCR callback step will be skipped.");
+      throw new Error(
+        "IMAGE_OCR_SERVICE_KEY is not set — OCR callback step cannot run. " +
+        "Export the key in your shell before running this spec.",
+      );
     }
     if (!markKey) {
-      console.warn("[exam-question-ocr] MARK_SERVICE_KEY is not set — mark callback step will be skipped.");
+      throw new Error(
+        "MARK_SERVICE_KEY is not set — marking callback step cannot run. " +
+        "Export the key in your shell before running this spec.",
+      );
     }
 
     // ====================================================================
@@ -126,14 +154,60 @@ test.describe("Worksheet OCR → edit → mark", () => {
     await page.getByText("OCR Test Lesson").click();
     await page.waitForURL(/lessons\//);
     const lessonUrl = page.url();
+    const lessonIdMatch = lessonUrl.match(/lessons\/([a-f0-9-]{36})/);
+    if (!lessonIdMatch) {
+      throw new Error(`Could not extract lesson_id from URL: ${lessonUrl}`);
+    }
+    const lessonId = lessonIdMatch[1];
 
-    // Add upload-worksheet activity
+    // Add upload-worksheet activity and capture its id from the network response
+    let activityId: string | null = null;
+    const activityResponsePromise = page.waitForResponse(
+      (resp) =>
+        resp.url().includes("server-actions") ||
+        resp.request().method() === "POST",
+      { timeout: 15_000 },
+    );
+
     await page.getByRole("button", { name: "Add Activity" }).click();
     await page.getByText("Select an activity type...").click();
     await page.getByRole("option", { name: /upload.*exam|upload.*worksheet/i }).click();
     await page.getByRole("textbox", { name: /title/i }).fill("Upload Exam Question");
     await page.getByRole("button", { name: "Add Activity" }).click();
     await page.waitForLoadState("networkidle");
+
+    // Fetch the activity id from the DB by title + lesson (deterministic)
+    const activityRows = await queryDb<{ activity_id: string }>(
+      `SELECT activity_id FROM activities
+       WHERE lesson_id = $1
+         AND title = 'Upload Exam Question'
+         AND type = 'upload-worksheet'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [lessonId],
+    );
+    if (!activityRows.length) {
+      throw new Error(
+        `Could not find the 'Upload Exam Question' activity in the DB for lesson ${lessonId}. ` +
+        "Activity creation may have failed.",
+      );
+    }
+    activityId = activityRows[0].activity_id;
+
+    // ====================================================================
+    // Fetch the pupil's user_id from the DB
+    // ====================================================================
+    const pupilRows = await queryDb<{ user_id: string }>(
+      `SELECT user_id FROM profiles WHERE email = $1 LIMIT 1`,
+      [PUPIL_EMAIL],
+    );
+    if (!pupilRows.length) {
+      throw new Error(
+        `Pupil account '${PUPIL_EMAIL}' not found in the DB. ` +
+        "Seed the test accounts before running this spec.",
+      );
+    }
+    const pupilUserId = pupilRows[0].user_id;
 
     // ====================================================================
     // PUPIL — sign in and upload an image
@@ -159,123 +233,100 @@ test.describe("Worksheet OCR → edit → mark", () => {
     await expect(page.getByText("Reading your work…")).toBeVisible({ timeout: 15_000 });
 
     // ====================================================================
-    // Retrieve the submission_id so we can POST the OCR callback
+    // Retrieve submission_id via DB — deterministic, no SSE race
     // ====================================================================
-    // Intercept the upload response to capture submission_id embedded in the
-    // page — if the route response or SSE event exposes it. Alternatively,
-    // read it from the network response.
-    //
-    // Because the upload API responds with { success, imagePaths } (no
-    // submission_id), we rely on a follow-up call to
-    // getLatestSubmissionForActivityAction (server action). That is an internal
-    // RPC call. The simplest approach: read the submission_id from the page's
-    // SSE stream or from a direct DB query.
-    //
-    // NOTE: Without a DB query helper we cannot obtain the submission_id
-    // deterministically in the browser. We capture it from network responses.
+    // Poll for up to 10 s to give the server time to insert the row
     let submissionId: string | null = null;
-    let groupAssignmentId: string | undefined;
-
-    // Listen for POST to upload-worksheet to grab submitted fields, then use
-    // a server-actions call or watch network for the submission id via SSE or
-    // subsequent page requests.
-    // The cleanest method: intercept the SSE message broadcast after upload.
-    await page.evaluate(() => {
-      window.__ocrSubmissionId = null;
-      const src = new EventSource("/sse?topics=submissions");
-      src.onmessage = (ev) => {
-        try {
-          const env = JSON.parse(ev.data);
-          if (env.type === "submission.updated" && env.payload?.submissionId) {
-            window.__ocrSubmissionId = env.payload.submissionId;
-            src.close();
-          }
-        } catch {
-          /* ignore */
-        }
-      };
-    });
-
-    // Re-upload to trigger SSE (the file may already be uploading; wait a moment)
-    await page.waitForTimeout(3_000);
-
-    submissionId = await page.evaluate(() => (window as any).__ocrSubmissionId ?? null);
-
+    const pollDeadline = Date.now() + 10_000;
+    while (!submissionId && Date.now() < pollDeadline) {
+      const rows = await queryDb<{ submission_id: string }>(
+        `SELECT submission_id FROM submissions
+         WHERE activity_id = $1 AND user_id = $2
+         ORDER BY attempt_number DESC
+         LIMIT 1`,
+        [activityId, pupilUserId],
+      );
+      if (rows.length) {
+        submissionId = rows[0].submission_id;
+      } else {
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    }
     if (!submissionId) {
-      // Fallback: query the DB via the test helper if available
-      console.warn(
-        "[exam-question-ocr] Could not capture submission_id from SSE. " +
-        "OCR callback step skipped. This is an environment limitation — " +
-        "the code under test is correct.",
+      throw new Error(
+        `No submission row found in DB for activity ${activityId} / pupil ${pupilUserId} ` +
+        "after 10 s. The upload may have failed or the server is not persisting submissions.",
       );
     }
 
     // ====================================================================
     // Simulate OCR callback: POST /webhooks/image-to-text
     // ====================================================================
-    if (submissionId && ocrKey) {
-      const ocrResponse = await request.post("/webhooks/image-to-text", {
-        headers: {
-          "Content-Type": "application/json",
-          "image-ocr-service-key": ocrKey,
-        },
-        data: {
-          submission_id: submissionId,
-          text: "The pupil's hand-written answer goes here.\n\nSecond paragraph of the answer.",
-          ...(groupAssignmentId ? { group_assignment_id: groupAssignmentId } : {}),
-        },
-      });
+    const ocrResponse = await request.post("/webhooks/image-to-text", {
+      headers: {
+        "Content-Type": "application/json",
+        "image-ocr-service-key": ocrKey,
+      },
+      data: {
+        submission_id: submissionId,
+        text: "The pupil's hand-written answer goes here.\n\nSecond paragraph of the answer.",
+        group_assignment_id: "e2e__test",
+      },
+    });
 
-      expect(ocrResponse.status()).toBe(200);
-      const ocrBody = await ocrResponse.json();
-      expect(ocrBody).toMatchObject({ success: true });
+    expect(ocrResponse.status()).toBe(200);
+    const ocrBody = await ocrResponse.json();
+    expect(ocrBody).toMatchObject({ success: true });
 
-      // ====================================================================
-      // Assert the editable text (transcript) appears
-      // ====================================================================
-      await expect(page.getByRole("textbox")).toContainText("pupil's hand-written answer", { timeout: 15_000 });
-    } else {
-      console.warn("[exam-question-ocr] Skipping OCR callback assertion (no submissionId or ocrKey).");
-      // The spec still documents the expected behaviour even when we cannot
-      // run the step. This is an environment blocker only.
-      test.skip(); // Remove this line once seeding is in place.
-    }
+    // ====================================================================
+    // Assert extractedText + ocr_status via DB (robust — no UI polling race)
+    // ====================================================================
+    const submissionAfterOcr = await queryDb<{ body: Record<string, unknown> }>(
+      `SELECT body FROM submissions WHERE submission_id = $1 LIMIT 1`,
+      [submissionId],
+    );
+    expect(submissionAfterOcr).toHaveLength(1);
+    const bodyAfterOcr = submissionAfterOcr[0].body as Record<string, unknown>;
+    expect(bodyAfterOcr.extractedText).toContain("pupil's hand-written answer");
+    expect(bodyAfterOcr.ocr_status).toBe("marking");
 
     // ====================================================================
     // Simulate marking callback: POST /webhooks/ai-mark
+    // group_assignment_id uses "groupId__lessonId" format required by the handler
     // ====================================================================
-    if (submissionId && markKey && groupAssignmentId) {
-      // Obtain activity_id from the page URL or network; use a fallback approach
-      const activityIdMatch = lessonUrl.match(/activities\/([a-f0-9-]{36})/);
-      const activityId = activityIdMatch?.[1];
-
-      if (activityId) {
-        const markResponse = await request.post("/webhooks/ai-mark", {
-          headers: {
-            "Content-Type": "application/json",
-            "mark-service-key": markKey,
+    const markResponse = await request.post("/webhooks/ai-mark", {
+      headers: {
+        "Content-Type": "application/json",
+        "mark-service-key": markKey,
+      },
+      data: {
+        group_assignment_id: "e2e__test",
+        activity_id: activityId,
+        results: [
+          {
+            pupilId: pupilUserId,
+            score: 3,
+            feedback: "Good attempt. Review paragraph structure.",
           },
-          data: {
-            group_assignment_id: groupAssignmentId,
-            activity_id: activityId,
-            results: [
-              {
-                pupil_id: null, // will be resolved server-side via submission
-                score: 0.75,
-                feedback: "Good attempt. Review paragraph structure.",
-              },
-            ],
-          },
-        });
+        ],
+      },
+    });
 
-        // Accept 200 or 207 (partial success)
-        expect([200, 207]).toContain(markResponse.status());
-      } else {
-        console.warn("[exam-question-ocr] Could not derive activity_id from URL — marking callback skipped.");
-      }
-    } else {
-      console.warn("[exam-question-ocr] Skipping mark callback (missing submissionId, markKey, or groupAssignmentId).");
-    }
+    // Accept 200 or 207 (partial success)
+    expect([200, 207]).toContain(markResponse.status());
+
+    // ====================================================================
+    // Assert ai_marks + ocr_status via DB
+    // ====================================================================
+    const submissionAfterMark = await queryDb<{ body: Record<string, unknown> }>(
+      `SELECT body FROM submissions WHERE submission_id = $1 LIMIT 1`,
+      [submissionId],
+    );
+    expect(submissionAfterMark).toHaveLength(1);
+    const bodyAfterMark = submissionAfterMark[0].body as Record<string, unknown>;
+    expect(typeof bodyAfterMark.ai_marks).toBe("number");
+    expect(bodyAfterMark.ocr_status).toBe("marked");
+    expect(typeof bodyAfterMark.ai_model_feedback).toBe("string");
 
     // ====================================================================
     // TEACHER — sign back in and view results
@@ -290,15 +341,7 @@ test.describe("Worksheet OCR → edit → mark", () => {
     const resultsButton = page.getByRole("button", { name: /results/i });
     if (await resultsButton.isVisible()) {
       await resultsButton.click();
-      // The submission should appear in the results dashboard
       await expect(page.getByText("Upload Exam Question")).toBeVisible({ timeout: 10_000 });
     }
   });
 });
-
-// Extend the Window type to allow our SSE helper property
-declare global {
-  interface Window {
-    __ocrSubmissionId: string | null;
-  }
-}
