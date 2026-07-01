@@ -4,7 +4,7 @@ export interface ImageOcrParams {
   pupil_id: string;
   webhook_url: string;
   group_assignment_id?: string;
-  images: Array<{ url: string; fileName: string }>;
+  images: Array<{ base64: string; fileName: string }>;
 }
 
 /**
