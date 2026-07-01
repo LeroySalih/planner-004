@@ -313,26 +313,9 @@ async function processSingleItem(
       const parsedActivity = UploadWorksheetActivityBodySchema.parse(
         context.activity_body,
       );
-      const parsedSubmission = UploadWorksheetSubmissionBodySchema.parse(
-        context.submission_body,
+      const parsedSubmissionBody = UploadWorksheetSubmissionBodySchema.parse(
+        context.submission_body ?? {},
       );
-
-      const storage = createLocalStorageClient("lessons");
-      const { stream, error: streamError } = await storage.getFileStream(
-        parsedSubmission.filePath,
-      );
-      if (streamError || !stream) {
-        throw new Error(
-          `Failed to read worksheet image at ${parsedSubmission.filePath}: ${streamError?.message ?? "no stream"}`,
-        );
-      }
-
-      const chunks: Buffer[] = [];
-      for await (const chunk of stream) {
-        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-      }
-      const buffer = Buffer.concat(chunks);
-      const worksheetImageBase64 = buffer.toString("base64");
 
       const resolvedMarkingGuidance = await resolveUploadWorksheetMarkingGuidance(
         parsedActivity.markingGuidance,
@@ -342,7 +325,7 @@ async function processSingleItem(
       const doParams = {
         task: parsedActivity.task,
         marking_guidance: resolvedMarkingGuidance,
-        WORKSHEET_IMAGE: worksheetImageBase64,
+        extracted_text: parsedSubmissionBody.extractedText ?? "",
         webhook_url: effectiveCallbackUrl,
         group_assignment_id: item.assignment_id,
         activity_id: context.activity_id as string,

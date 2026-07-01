@@ -550,6 +550,9 @@ async function applyAiMarkToSubmission({
     ...(isFileSubmission
       ? {}
       : { answer: (baseBody as { answer?: string }).answer ?? answerFallback ?? "" }),
+    ...(activityType === UPLOAD_WORKSHEET_ACTIVITY_TYPE
+      ? { ocr_status: "marked" }
+      : {}),
     ai_marks: aiMarks,
     is_correct: computeIsCorrect(effectiveScore ?? null),
     teacher_feedback: teacherFeedback,
