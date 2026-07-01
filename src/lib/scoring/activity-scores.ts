@@ -528,9 +528,22 @@ export function extractScoreFromSubmission(
     });
 
     if (parsed.success) {
-      const pupilAnswer = parsed.data.fileName?.trim()
-        ? `Uploaded: ${parsed.data.fileName.trim()}`
-        : null;
+      const worksheetData = parsed.data as {
+        extractedText?: string | null;
+        fileName?: string | null;
+        images?: unknown[];
+      };
+      const pupilAnswer = activityType === "upload-worksheet"
+        ? typeof worksheetData.extractedText === "string" && worksheetData.extractedText.trim()
+          ? worksheetData.extractedText
+          : worksheetData.fileName?.trim()
+            ? `Uploaded: ${worksheetData.fileName.trim()}`
+            : worksheetData.images?.length
+              ? `${worksheetData.images.length} image(s) uploaded`
+              : null
+        : parsed.data.fileName?.trim()
+          ? `Uploaded: ${parsed.data.fileName.trim()}`
+          : null;
       const hasAnswer = Boolean(pupilAnswer);
       const auto = typeof parsed.data.ai_model_score === "number" &&
           Number.isFinite(parsed.data.ai_model_score)

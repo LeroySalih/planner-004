@@ -42,6 +42,7 @@ import {
   updateMarkingGuidanceAction,
   readActivityMarkingGuidanceAction,
   updateActivityMarkingGuidanceAction,
+  editWorksheetTextAction,
 } from "@/lib/server-updates"
 import { resolveScoreTone } from "@/lib/results/colors"
 import {
@@ -518,11 +519,68 @@ export function AssignmentResultsDashboard({
   const [viewingAttempt, setViewingAttempt] = useState<Submission | null>(null)
   const [viewingAttemptFileUrl, setViewingAttemptFileUrl] = useState<string | null>(null)
   const [viewingAttemptFileLoading, setViewingAttemptFileLoading] = useState(false)
+  const [viewingAttemptImageUrls, setViewingAttemptImageUrls] = useState<
+    Array<{ url: string | null; fileName: string }>
+  >([])
+  const [ocrDraft, setOcrDraft] = useState<string>("")
+  const [savingOcrText, setSavingOcrText] = useState(false)
 
   useEffect(() => {
     const lessonId = matrixState.lesson?.lessonId
     const activityType = selection?.activity.type
-    const isUploadActivity = activityType === "upload-worksheet" || activityType === "upload-spreadsheet"
+    const isWorksheet = activityType === "upload-worksheet"
+    const isUploadActivity = isWorksheet || activityType === "upload-spreadsheet"
+
+    if (isWorksheet) {
+      const body =
+        viewingAttempt?.body && typeof viewingAttempt.body === "object"
+          ? (viewingAttempt.body as {
+              images?: Array<{ fileName?: unknown }>
+              fileName?: unknown
+            })
+          : null
+      const imageNames: string[] =
+        body?.images && Array.isArray(body.images) && body.images.length > 0
+          ? body.images
+              .map((img) => (typeof img?.fileName === "string" ? img.fileName : null))
+              .filter((name): name is string => Boolean(name && name.trim()))
+          : typeof body?.fileName === "string" && body.fileName.trim()
+            ? [body.fileName]
+            : []
+
+      if (!lessonId || !selection || !viewingAttempt || imageNames.length === 0) {
+        setViewingAttemptImageUrls([])
+        setViewingAttemptFileUrl(null)
+        return
+      }
+
+      let cancelled = false
+      setViewingAttemptFileLoading(true)
+      Promise.all(
+        imageNames.map((fileName) =>
+          getPupilActivitySubmissionUrlAction(
+            lessonId,
+            selection.activity.activityId,
+            selection.row.pupil.userId,
+            fileName,
+          ).then((result) => ({
+            url: result.success ? result.url ?? null : null,
+            fileName,
+          })),
+        ),
+      )
+        .then((results) => {
+          if (!cancelled) setViewingAttemptImageUrls(results)
+        })
+        .finally(() => {
+          if (!cancelled) setViewingAttemptFileLoading(false)
+        })
+      return () => {
+        cancelled = true
+      }
+    }
+
+    setViewingAttemptImageUrls([])
     const fileName =
       isUploadActivity && viewingAttempt?.body && typeof viewingAttempt.body === "object"
         ? (viewingAttempt.body as { fileName?: unknown }).fileName
@@ -553,6 +611,14 @@ export function AssignmentResultsDashboard({
       cancelled = true
     }
   }, [viewingAttempt, selection, matrixState.lesson?.lessonId])
+
+  useEffect(() => {
+    const body =
+      viewingAttempt?.body && typeof viewingAttempt.body === "object"
+        ? (viewingAttempt.body as { extractedText?: unknown })
+        : null
+    setOcrDraft(typeof body?.extractedText === "string" ? body.extractedText : "")
+  }, [viewingAttempt])
 
   useEffect(() => {
     if (!selection) {
@@ -4146,6 +4212,33 @@ export function AssignmentResultsDashboard({
                 )
                 const autoFeedbackHtml = renderFeedbackMarkup(extracted.autoFeedback)
                 const overrideFeedbackHtml = renderFeedbackMarkup(extracted.feedback)
+                const isWorksheet = selection.activity.type === "upload-worksheet"
+
+                const handleTeacherSaveAndRemark = async () => {
+                  if (!viewingAttempt) return
+                  setSavingOcrText(true)
+                  try {
+                    const result = await editWorksheetTextAction({
+                      activityId: selection.activity.activityId,
+                      userId: selection.row.pupil.userId,
+                      sourceSubmissionId: viewingAttempt.submission_id,
+                      text: ocrDraft,
+                      groupAssignmentId: matrixState.assignmentId,
+                    })
+                    if (result.success) {
+                      toast.success("Saved. Re-marking the worksheet…")
+                      setViewingAttempt(null)
+                    } else {
+                      toast.error(result.error ?? "Failed to save worksheet text.")
+                    }
+                  } catch (error) {
+                    toast.error(
+                      error instanceof Error ? error.message : "Failed to save worksheet text.",
+                    )
+                  } finally {
+                    setSavingOcrText(false)
+                  }
+                }
 
                 return (
                   <div className="space-y-4">
@@ -4172,7 +4265,66 @@ export function AssignmentResultsDashboard({
                       </div>
                     ) : null}
 
-                    {extracted.pupilAnswer ? (
+                    {isWorksheet ? (
+                      <div className="space-y-3 rounded-md border border-border/60 bg-muted/40 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Pupil response
+                        </p>
+                        {viewingAttemptFileLoading ? (
+                          <p className="text-sm text-muted-foreground">Loading images…</p>
+                        ) : viewingAttemptImageUrls.length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {viewingAttemptImageUrls.map((img) => (
+                              <a
+                                key={img.fileName}
+                                href={img.url ?? "#"}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="block"
+                              >
+                                <img
+                                  src={img.url ?? ""}
+                                  alt={img.fileName}
+                                  className="h-24 rounded border object-cover"
+                                />
+                              </a>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">No images uploaded.</p>
+                        )}
+                        {isAdmin ? (
+                          <div className="space-y-2">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                              Extracted text
+                            </p>
+                            <textarea
+                              value={ocrDraft}
+                              onChange={(e) => setOcrDraft(e.target.value)}
+                              rows={8}
+                              className="w-full rounded border border-border/60 bg-background p-2 text-sm"
+                            />
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={handleTeacherSaveAndRemark}
+                              disabled={savingOcrText}
+                            >
+                              {savingOcrText ? "Saving…" : "Save & re-mark"}
+                            </Button>
+                          </div>
+                        ) : extracted.pupilAnswer ? (
+                          <div className="space-y-1">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                              Extracted text
+                            </p>
+                            <p className="whitespace-pre-wrap text-sm text-foreground">
+                              {extracted.pupilAnswer}
+                            </p>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : extracted.pupilAnswer ? (
                       <div className="rounded-md border border-border/60 bg-muted/40 p-3">
                         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                           Pupil response
