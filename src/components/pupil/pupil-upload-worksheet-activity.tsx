@@ -1,14 +1,19 @@
 "use client"
 
-import { useCallback, useRef, useState, useTransition, type ChangeEvent } from "react"
+import { useCallback, useEffect, useRef, useState, useTransition, type ChangeEvent } from "react"
 import { toast } from "sonner"
 import { CheckCircle2, Loader2, Upload, X } from "lucide-react"
 
 import type { LessonActivity } from "@/types"
+import { UploadWorksheetSubmissionBodySchema, type WorksheetOcrStatus } from "@/types"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { getRichTextMarkup } from "@/components/lessons/activity-view/utils"
 import { ActivityProgressPanel } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/activity-progress-panel"
+import {
+  editWorksheetTextAction,
+  getLatestSubmissionForActivityAction,
+} from "@/lib/server-updates"
 
 const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".heic", ".heif"]
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
@@ -27,6 +32,38 @@ interface PupilUploadWorksheetActivityProps {
   feedbackText?: string | null
 }
 
+function buildFileUrl(filePath: string): string {
+  return `/api/files/${filePath.split("/").map(encodeURIComponent).join("/")}`
+}
+
+async function convertHeicIfNeeded(file: File): Promise<File> {
+  const fileType = file.type.toLowerCase()
+  const fileNameLower = file.name.toLowerCase()
+  const isHeic =
+    fileType === "image/heic" ||
+    fileType === "image/heif" ||
+    fileNameLower.endsWith(".heic") ||
+    fileNameLower.endsWith(".heif")
+
+  if (!isHeic) return file
+
+  try {
+    toast.info("Converting photo...")
+    const heic2any = (await import("heic2any")).default
+    const convertedBlob = await heic2any({
+      blob: file,
+      toType: "image/jpeg",
+    })
+    const blob = Array.isArray(convertedBlob) ? convertedBlob[0] : convertedBlob
+    return new File([blob], file.name.replace(/\.(heic|heif)$/i, ".jpg"), {
+      type: "image/jpeg",
+    })
+  } catch (error) {
+    console.error("[pupil-upload-worksheet] HEIC conversion failed", error)
+    throw new Error("Failed to process image. Please try a standard JPEG or PNG.")
+  }
+}
+
 export function PupilUploadWorksheetActivity({
   lessonId,
   activity,
@@ -41,20 +78,113 @@ export function PupilUploadWorksheetActivity({
   feedbackText,
 }: PupilUploadWorksheetActivityProps) {
   const [isPending, startTransition] = useTransition()
-  const [uploadedFileName, setUploadedFileName] = useState<string | null>(initialFileName)
-  const [uploadedFileUrl, setUploadedFileUrl] = useState<string | null>(initialFileUrl)
-  const [selectedFileName, setSelectedFileName] = useState<string | null>(null)
   const [isDragActive, setIsDragActive] = useState(false)
   const [isLightboxOpen, setIsLightboxOpen] = useState(false)
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
+  const [lightboxName, setLightboxName] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
-  // Guards against concurrent uploads caused by rapid double-tap or duplicate
-  // onChange events, same as pupil-upload-activity.tsx.
   const uploadInProgress = useRef(false)
+
+  // OCR state — populated from latest submission
+  const [ocrStatus, setOcrStatus] = useState<WorksheetOcrStatus | null>(null)
+  const [imageUrls, setImageUrls] = useState<Array<{ url: string; name: string }>>([])
+  const [draftText, setDraftText] = useState("")
+  const [ocrError, setOcrError] = useState<string | null>(null)
+  const [latestSubmissionId, setLatestSubmissionId] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  // Fallback: show legacy single-file info if no submission yet
+  const [legacyFileName, setLegacyFileName] = useState<string | null>(initialFileName)
+  const [legacyFileUrl, setLegacyFileUrl] = useState<string | null>(initialFileUrl)
 
   const task = (activity.body_data as any)?.task ?? ""
   const hasTask = typeof task === "string" && task.trim().length > 0
 
   const uploadDisabled = !canUpload || isPending
+
+  // Load the latest submission and sync local state
+  const loadLatestSubmission = useCallback(async () => {
+    const result = await getLatestSubmissionForActivityAction(activity.activity_id, pupilId)
+    if (!result.data) return
+
+    const sub = result.data
+    setLatestSubmissionId(sub.submission_id)
+
+    const parsed = UploadWorksheetSubmissionBodySchema.safeParse(sub.body)
+    if (!parsed.success) return
+
+    const body = parsed.data
+
+    if (body.ocr_status) {
+      setOcrStatus(body.ocr_status)
+    }
+
+    if (body.ocr_error) {
+      setOcrError(body.ocr_error)
+    }
+
+    if (body.images && body.images.length > 0) {
+      setImageUrls(
+        body.images.map((img) => ({
+          url: buildFileUrl(img.filePath),
+          name: img.fileName,
+        })),
+      )
+    } else if (body.filePath) {
+      // Legacy single-file submission
+      setLegacyFileUrl(buildFileUrl(body.filePath))
+      setLegacyFileName(body.fileName ?? body.filePath.split("/").pop() ?? "file")
+    }
+
+    if (body.extractedText && ocrStatus !== "extracting") {
+      setDraftText(body.extractedText)
+    }
+  }, [activity.activity_id, pupilId, ocrStatus])
+
+  // On mount, load the latest submission
+  useEffect(() => {
+    void loadLatestSubmission()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // SSE subscription for live ocr_status updates
+  useEffect(() => {
+    const source = new EventSource("/sse?topics=submissions")
+
+    source.onmessage = (event) => {
+      const envelope = JSON.parse(event.data) as {
+        topic?: string
+        type?: string
+        payload?: unknown
+      }
+      if (envelope.topic !== "submissions") return
+      if (envelope.type !== "submission.updated") return
+
+      const payload = envelope.payload as {
+        submissionId?: string
+        activityId?: string
+        ocrStatus?: WorksheetOcrStatus
+      } | null
+
+      if (!payload) return
+
+      const matchesActivity = payload.activityId === activity.activity_id
+      const matchesSubmission =
+        latestSubmissionId != null && payload.submissionId === latestSubmissionId
+
+      if (matchesActivity || matchesSubmission) {
+        if (payload.ocrStatus) {
+          setOcrStatus(payload.ocrStatus)
+        }
+        // Re-load for the full body (extracted text, new submission id, etc.)
+        void loadLatestSubmission()
+      }
+    }
+
+    return () => {
+      source.close()
+    }
+  }, [activity.activity_id, latestSubmissionId, loadLatestSubmission])
 
   const beginUpload = useCallback(
     (incoming: FileList | File[]) => {
@@ -67,65 +197,53 @@ export function PupilUploadWorksheetActivity({
         return
       }
 
-      let file = files[0]
-
-      const fileType = file.type.toLowerCase()
-      const fileNameLower = file.name.toLowerCase()
-      const isHeic =
-        fileType === "image/heic" ||
-        fileType === "image/heif" ||
-        fileNameLower.endsWith(".heic") ||
-        fileNameLower.endsWith(".heif")
-
       startTransition(async () => {
         try {
-          if (isHeic) {
-            try {
-              toast.info("Converting photo...")
-              const heic2any = (await import("heic2any")).default
-              const convertedBlob = await heic2any({
-                blob: file,
-                toType: "image/jpeg",
-              })
+          const prepared: File[] = []
 
-              const blob = Array.isArray(convertedBlob) ? convertedBlob[0] : convertedBlob
-              file = new File([blob], file.name.replace(/\.(heic|heif)$/i, ".jpg"), {
-                type: "image/jpeg",
+          for (const raw of files) {
+            let file: File
+            try {
+              file = await convertHeicIfNeeded(raw)
+            } catch {
+              toast.error(`Failed to process ${raw.name}`, {
+                description: "Please try a standard JPEG or PNG.",
               })
-            } catch (error) {
-              console.error("[pupil-upload-worksheet] HEIC conversion failed", error)
-              toast.error("Failed to process image. Please try a standard JPEG or PNG.")
               return
             }
+
+            const lowerName = file.name.toLowerCase()
+            if (!ALLOWED_EXTENSIONS.some((ext) => lowerName.endsWith(ext))) {
+              toast.error(`Upload failed for ${file.name}`, {
+                description: "Only JPEG or PNG photos are allowed.",
+              })
+              return
+            }
+
+            if (file.size > MAX_FILE_SIZE_BYTES) {
+              toast.error(`Upload failed for ${file.name}`, {
+                description: "File exceeds 10MB limit.",
+              })
+              return
+            }
+
+            prepared.push(file)
           }
 
-          const lowerName = file.name.toLowerCase()
-          if (!ALLOWED_EXTENSIONS.some((ext) => lowerName.endsWith(ext))) {
-            toast.error(`Upload failed for ${file.name}`, {
-              description: "Only JPEG or PNG photos are allowed.",
-            })
-            return
-          }
-
-          if (file.size > MAX_FILE_SIZE_BYTES) {
-            toast.error(`Upload failed for ${file.name}`, {
-              description: "File exceeds 10MB limit.",
-            })
-            return
-          }
-
-          setSelectedFileName(file.name)
+          if (prepared.length === 0) return
 
           const formData = new FormData()
           formData.append("lessonId", lessonId)
           formData.append("activityId", activity.activity_id)
           formData.append("pupilId", pupilId)
-          formData.append("file", file)
+          for (const f of prepared) {
+            formData.append("files", f)
+          }
           if (feedbackAssignmentIds.length > 0) {
             formData.append("groupAssignmentId", feedbackAssignmentIds[0])
           }
 
-          let result: { success: boolean; error?: string; filePath?: string }
+          let result: { success: boolean; error?: string; imagePaths?: string[] }
           try {
             const response = await fetch("/api/pupil-submission/upload-worksheet", {
               method: "POST",
@@ -138,25 +256,36 @@ export function PupilUploadWorksheetActivity({
           }
 
           if (!result.success) {
-            toast.error(`Upload failed for ${file.name}`, {
+            toast.error("Upload failed", {
               description: result.error ?? "Please try again later.",
             })
-            setSelectedFileName(null)
             return
           }
 
-          toast.success(`Uploaded ${file.name}`)
-          setUploadedFileName(file.name)
-          setUploadedFileUrl(
-            result.filePath ? `/api/files/${result.filePath.split("/").map(encodeURIComponent).join("/")}` : null,
-          )
-          setSelectedFileName(null)
+          toast.success(`Uploaded ${prepared.length} photo${prepared.length > 1 ? "s" : ""}`)
+
+          // Set optimistic thumbnails
+          if (result.imagePaths && result.imagePaths.length > 0) {
+            setImageUrls(
+              result.imagePaths.map((p, i) => ({
+                url: buildFileUrl(p),
+                name: prepared[i]?.name ?? p.split("/").pop() ?? "photo",
+              })),
+            )
+          }
+
+          // Set status to extracting while OCR runs
+          setOcrStatus("extracting")
+          setDraftText("")
+
+          // Reload to get latest submission ID for SSE matching
+          await loadLatestSubmission()
         } finally {
           uploadInProgress.current = false
         }
       })
     },
-    [activity.activity_id, feedbackAssignmentIds, lessonId, pupilId],
+    [activity.activity_id, feedbackAssignmentIds, lessonId, pupilId, loadLatestSubmission],
   )
 
   const handleFileChange = useCallback(
@@ -167,7 +296,6 @@ export function PupilUploadWorksheetActivity({
       }
       const files = event.target.files
       if (!files || files.length === 0) {
-        setSelectedFileName(null)
         return
       }
       beginUpload(files)
@@ -197,6 +325,40 @@ export function PupilUploadWorksheetActivity({
     }
     beginUpload(files)
   }, [beginUpload, canUpload, uploadDisabled])
+
+  const handleSaveAndRemark = useCallback(async () => {
+    if (!latestSubmissionId) return
+    setSaving(true)
+    try {
+      const result = await editWorksheetTextAction({
+        activityId: activity.activity_id,
+        userId: pupilId,
+        sourceSubmissionId: latestSubmissionId,
+        text: draftText,
+        groupAssignmentId: feedbackAssignmentIds[0],
+      })
+      if (!result.success) {
+        toast.error("Failed to save", { description: result.error ?? "Please try again." })
+        return
+      }
+      toast.success("Saved — your answer is being re-marked.")
+      setOcrStatus("marking")
+      if (result.data) {
+        setLatestSubmissionId(result.data.submission_id)
+      }
+    } finally {
+      setSaving(false)
+    }
+  }, [activity.activity_id, draftText, feedbackAssignmentIds, latestSubmissionId, pupilId])
+
+  const openLightbox = useCallback((url: string, name: string) => {
+    setLightboxUrl(url)
+    setLightboxName(name)
+    setIsLightboxOpen(true)
+  }, [])
+
+  const hasImages = imageUrls.length > 0
+  const hasSubmission = ocrStatus !== null
 
   return (
     <div className="space-y-3 px-1">
@@ -250,8 +412,8 @@ export function PupilUploadWorksheetActivity({
             }}
           >
             <Upload className="h-5 w-5 text-muted-foreground" />
-            <p className="text-sm font-medium">Drag & drop a photo here</p>
-            <p className="text-xs text-muted-foreground">or click to take/choose a photo</p>
+            <p className="text-sm font-medium">Drag & drop photos here</p>
+            <p className="text-xs text-muted-foreground">or click to take/choose photos</p>
             <Button
               type="button"
               size="sm"
@@ -263,7 +425,7 @@ export function PupilUploadWorksheetActivity({
               }}
               disabled={uploadDisabled}
             >
-              Choose photo
+              Choose photos
             </Button>
             <input
               ref={fileInputRef}
@@ -271,35 +433,15 @@ export function PupilUploadWorksheetActivity({
               type="file"
               accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif"
               capture="environment"
+              multiple
               className="hidden"
               disabled={uploadDisabled}
               onChange={handleFileChange}
             />
           </div>
-          {selectedFileName ? (
-            <p className="text-xs text-muted-foreground">Uploading: {selectedFileName}</p>
-          ) : null}
           {isPending ? (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Updating…
-            </div>
-          ) : null}
-          {uploadedFileName ? (
-            <div className="flex items-center gap-3 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-800 dark:bg-green-900/20 dark:text-green-100">
-              {uploadedFileUrl ? (
-                <button
-                  type="button"
-                  onClick={() => setIsLightboxOpen(true)}
-                  className="h-12 w-12 shrink-0 overflow-hidden rounded border border-green-200 bg-white dark:border-green-800"
-                >
-                  <img src={uploadedFileUrl} alt={uploadedFileName} className="h-full w-full object-cover" loading="lazy" />
-                </button>
-              ) : (
-                <CheckCircle2 className="h-4 w-4 shrink-0" />
-              )}
-              <span>
-                Uploaded <span className="font-medium">{uploadedFileName}</span>
-              </span>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Uploading…
             </div>
           ) : null}
           <p className="text-xs text-muted-foreground">
@@ -312,6 +454,94 @@ export function PupilUploadWorksheetActivity({
         </p>
       )}
 
+      {/* OCR state section — shown when there is a submission */}
+      {hasSubmission ? (
+        <div className="space-y-3">
+          {/* Thumbnails */}
+          {hasImages ? (
+            <div className="flex flex-wrap gap-2">
+              {imageUrls.map((img, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => openLightbox(img.url, img.name)}
+                  className="h-16 w-16 shrink-0 overflow-hidden rounded border border-border bg-muted"
+                  title={img.name}
+                >
+                  <img src={img.url} alt={img.name} className="h-full w-full object-cover" loading="lazy" />
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          {/* OCR status rendering */}
+          {ocrStatus === "extracting" ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>Reading your work…</span>
+            </div>
+          ) : ocrStatus === "error" ? (
+            <div className="space-y-1">
+              <p className="text-sm text-destructive">
+                {ocrError ?? "Couldn't read the images. Please try re-uploading."}
+              </p>
+            </div>
+          ) : ocrStatus === "extracted" || ocrStatus === "marking" || ocrStatus === "marked" ? (
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">
+                Extracted answer — you can correct any mistakes before re-marking
+              </label>
+              <textarea
+                className="w-full rounded-md border border-input bg-background p-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
+                rows={6}
+                value={draftText}
+                onChange={(e) => setDraftText(e.target.value)}
+              />
+              {ocrStatus === "marking" ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>Marking in progress…</span>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleSaveAndRemark}
+                  disabled={saving || !latestSubmissionId}
+                >
+                  {saving ? (
+                    <>
+                      <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                      Saving…
+                    </>
+                  ) : (
+                    "Save & re-mark"
+                  )}
+                </Button>
+              )}
+            </div>
+          ) : null}
+        </div>
+      ) : legacyFileName ? (
+        /* Legacy single-file fallback for old submissions without ocr_status */
+        <div className="flex items-center gap-3 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-800 dark:bg-green-900/20 dark:text-green-100">
+          {legacyFileUrl ? (
+            <button
+              type="button"
+              onClick={() => openLightbox(legacyFileUrl, legacyFileName ?? "Uploaded file")}
+              className="h-12 w-12 shrink-0 overflow-hidden rounded border border-green-200 bg-white dark:border-green-800"
+            >
+              <img src={legacyFileUrl} alt={legacyFileName ?? "Uploaded"} className="h-full w-full object-cover" loading="lazy" />
+            </button>
+          ) : (
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
+          )}
+          <span>
+            Uploaded <span className="font-medium">{legacyFileName}</span>
+          </span>
+        </div>
+      ) : null}
+
       <ActivityProgressPanel
         assignmentIds={feedbackAssignmentIds}
         lessonId={feedbackLessonId ?? lessonId}
@@ -323,29 +553,30 @@ export function PupilUploadWorksheetActivity({
         isMarked={scoreLabel !== "In progress" && scoreLabel !== "No score yet"}
       />
 
-      {uploadedFileUrl ? (
-        <Dialog open={isLightboxOpen} onOpenChange={setIsLightboxOpen}>
-          <DialogContent
-            showCloseButton={false}
-            className="h-[90vh] max-h-[90vh] w-[95vw] max-w-[95vw] p-0 gap-0 flex flex-col sm:max-w-3xl"
-          >
-            <div className="flex items-center justify-between border-b px-4 py-3">
-              <DialogTitle className="text-base font-medium">{uploadedFileName}</DialogTitle>
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => setIsLightboxOpen(false)}>
-                <X className="h-4 w-4" />
-                <span className="sr-only">Close</span>
-              </Button>
-            </div>
-            <div className="flex flex-1 min-h-0 items-center justify-center bg-muted/30 p-4">
+      {/* Lightbox */}
+      <Dialog open={isLightboxOpen} onOpenChange={setIsLightboxOpen}>
+        <DialogContent
+          showCloseButton={false}
+          className="h-[90vh] max-h-[90vh] w-[95vw] max-w-[95vw] p-0 gap-0 flex flex-col sm:max-w-3xl"
+        >
+          <div className="flex items-center justify-between border-b px-4 py-3">
+            <DialogTitle className="text-base font-medium">{lightboxName}</DialogTitle>
+            <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => setIsLightboxOpen(false)}>
+              <X className="h-4 w-4" />
+              <span className="sr-only">Close</span>
+            </Button>
+          </div>
+          <div className="flex flex-1 min-h-0 items-center justify-center bg-muted/30 p-4">
+            {lightboxUrl ? (
               <img
-                src={uploadedFileUrl}
-                alt={uploadedFileName ?? "Uploaded exam question"}
+                src={lightboxUrl}
+                alt={lightboxName ?? "Uploaded exam question"}
                 className="max-h-full max-w-full object-contain rounded-lg"
               />
-            </div>
-          </DialogContent>
-        </Dialog>
-      ) : null}
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
