@@ -578,6 +578,12 @@ async function applyAiMarkToSubmission({
       ? { ocr_status: "marked" }
       : {}),
     ai_marks: aiMarks,
+    // Also persist the whole-marks value and the fractional score so the
+    // canonical scoring SQL can read a worksheet/spreadsheet mark:
+    // compute_submission_marks reads `marks`, compute_submission_base_score
+    // reads `ai_model_score`.
+    marks: aiMarks,
+    ai_model_score: aiScore,
     is_correct: computeIsCorrect(effectiveScore ?? null),
     teacher_feedback: teacherFeedback,
     ai_model_feedback: nextAiFeedback,
