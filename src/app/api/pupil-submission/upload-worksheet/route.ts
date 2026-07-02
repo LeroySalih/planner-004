@@ -6,7 +6,7 @@ import { query } from "@/lib/db"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 import { emitSubmissionEvent } from "@/lib/sse/topics"
 import { logActivitySubmissionEvent } from "@/lib/activity-logging"
-import { enqueueMarkingTasks, triggerQueueProcessor } from "@/lib/ai/marking-queue"
+import { invokeImageOcr } from "@/lib/ai/ocr-client"
 import { UploadWorksheetSubmissionBodySchema } from "@/types"
 import { clearResubmitRequest, getNextAttemptNumber } from "@/lib/server-actions/submission-attempts"
 
@@ -67,7 +67,8 @@ export async function POST(request: Request) {
   const pupilId = formData.get("pupilId")
   const groupAssignmentIdRaw = formData.get("groupAssignmentId")
   const groupAssignmentId = typeof groupAssignmentIdRaw === "string" && groupAssignmentIdRaw.trim() !== "" ? groupAssignmentIdRaw : null
-  const file = formData.get("file")
+
+  const files = formData.getAll("files").filter((f): f is File => f instanceof File)
 
   if (typeof lessonId !== "string" || lessonId.trim() === "") {
     return NextResponse.json({ success: false, error: "Missing lessonId" }, { status: 400 })
@@ -78,24 +79,12 @@ export async function POST(request: Request) {
   if (typeof pupilId !== "string" || pupilId.trim() === "") {
     return NextResponse.json({ success: false, error: "Missing pupilId" }, { status: 400 })
   }
-  if (!(file instanceof File)) {
-    return NextResponse.json({ success: false, error: "No file provided" }, { status: 400 })
+  if (files.length === 0) {
+    return NextResponse.json({ success: false, error: "No files provided." }, { status: 400 })
   }
 
   if (profile.userId !== pupilId && !hasRole(profile, "teacher")) {
     return NextResponse.json({ success: false, error: "You are not allowed to upload files for this pupil." }, { status: 403 })
-  }
-
-  const fileName = file.name
-  const lowerName = fileName.toLowerCase()
-  const hasAllowedExtension = ALLOWED_EXTENSIONS.some((ext) => lowerName.endsWith(ext))
-  const hasAllowedMime = file.type === "" || ALLOWED_MIME_TYPES.has(file.type)
-  if (!hasAllowedExtension || !hasAllowedMime) {
-    return NextResponse.json({ success: false, error: "Only JPEG or PNG photos are allowed" }, { status: 415 })
-  }
-
-  if (file.size > MAX_FILE_SIZE_BYTES) {
-    return NextResponse.json({ success: false, error: "File exceeds 10MB limit" }, { status: 413 })
   }
 
   const userId = pupilId
@@ -109,27 +98,44 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: "Unable to process upload." }, { status: 500 })
   }
 
-  const path = buildSubmissionPath(lessonId, activityId, pupilStorageKey, fileName)
   const storage = createLocalStorageClient(LESSON_FILES_BUCKET)
 
-  let arrayBuffer: ArrayBuffer
-  try {
-    arrayBuffer = await file.arrayBuffer()
-  } catch (err) {
-    console.error(`${tag} Failed to read file buffer`, err)
-    return NextResponse.json({ success: false, error: "Failed to read file." }, { status: 500 })
-  }
+  // Validate and upload each file; collect image metadata.
+  const images: Array<{ filePath: string; fileName: string }> = []
+  for (const file of files) {
+    const fileName = file.name
+    const lowerName = fileName.toLowerCase()
+    const hasAllowedExtension = ALLOWED_EXTENSIONS.some((ext) => lowerName.endsWith(ext))
+    const hasAllowedMime = file.type === "" || ALLOWED_MIME_TYPES.has(file.type)
+    if (!hasAllowedExtension || !hasAllowedMime) {
+      return NextResponse.json({ success: false, error: "Only JPEG or PNG photos are allowed" }, { status: 415 })
+    }
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      return NextResponse.json({ success: false, error: "File exceeds 10MB limit" }, { status: 413 })
+    }
 
-  // Always write to the same path (no versioning) so a re-upload simply replaces the file.
-  const { error: uploadError } = await storage.upload(path, arrayBuffer, {
-    contentType: file.type || "image/jpeg",
-    uploadedBy: uploaderId,
-    originalPath: path,
-  })
+    const filePath = buildSubmissionPath(lessonId, activityId, pupilStorageKey, fileName)
 
-  if (uploadError) {
-    console.error(`${tag} Storage upload failed`, { path, error: uploadError.message })
-    return NextResponse.json({ success: false, error: uploadError.message }, { status: 500 })
+    let arrayBuffer: ArrayBuffer
+    try {
+      arrayBuffer = await file.arrayBuffer()
+    } catch (err) {
+      console.error(`${tag} Failed to read file buffer`, err)
+      return NextResponse.json({ success: false, error: "Failed to read file." }, { status: 500 })
+    }
+
+    const { error: uploadError } = await storage.upload(filePath, arrayBuffer, {
+      contentType: file.type || "image/jpeg",
+      uploadedBy: uploaderId,
+      originalPath: filePath,
+    })
+
+    if (uploadError) {
+      console.error(`${tag} Storage upload failed`, { filePath, error: uploadError.message })
+      return NextResponse.json({ success: false, error: uploadError.message }, { status: 500 })
+    }
+
+    images.push({ filePath, fileName })
   }
 
   const submittedAt = new Date().toISOString()
@@ -141,10 +147,10 @@ export async function POST(request: Request) {
 
     try {
       const submissionBody = UploadWorksheetSubmissionBodySchema.parse({
-        filePath: path,
-        fileName,
-        ai_model_score: null,
-        ai_model_feedback: null,
+        images,
+        extractedText: null,
+        ocr_status: "extracting",
+        ocr_error: null,
         is_correct: false,
         success_criteria_scores: {},
       })
@@ -162,11 +168,68 @@ export async function POST(request: Request) {
 
       await clearResubmitRequest(activityId, userId)
 
-      await logActivitySubmissionEvent({ submissionId, activityId, lessonId, pupilId: userId, fileName, submittedAt })
+      const firstFileName = images[0]?.fileName ?? ""
+      await logActivitySubmissionEvent({ submissionId, activityId, lessonId, pupilId: userId, fileName: firstFileName, submittedAt })
+
     } catch (err) {
-      console.error(`${tag} DB upsert failed — rolling back storage`, { path, error: err })
-      await storage.remove([path])
+      console.error(`${tag} DB upsert failed — rolling back storage`, { error: err })
+      await storage.remove(images.map((img) => img.filePath))
       return NextResponse.json({ success: false, error: "Unable to record submission." }, { status: 500 })
+    }
+
+    // Emit SSE so the pupil UI transitions to "extracting" immediately after insert.
+    if (submissionId) {
+      void emitSubmissionEvent("submission.updated", {
+        submissionId,
+        activityId,
+        ocrStatus: "extracting",
+      })
+    }
+
+    // Post-insert: read stored files back and invoke OCR. This runs OUTSIDE the DB-insert
+    // try/catch so failures here never trigger storage rollback or a 500 response — the
+    // submission row and uploaded files are already committed and must be kept.
+    if (submissionId) {
+      try {
+        const callbackBase = (process.env.AI_MARKING_CALLBACK_URL ?? "").replace(/\/$/, "")
+        const ocrImages: Array<{ base64: string; fileName: string }> = []
+        for (const img of images) {
+          const { stream, error: streamError } = await storage.getFileStream(img.filePath)
+          if (streamError || !stream) {
+            throw new Error(`Failed to read image at ${img.filePath}: ${streamError?.message ?? "no stream"}`)
+          }
+          const chunks: Buffer[] = []
+          for await (const chunk of stream) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+          const base64 = Buffer.concat(chunks).toString("base64")
+          ocrImages.push({ base64, fileName: img.fileName })
+        }
+
+        await invokeImageOcr({
+          submission_id: submissionId,
+          activity_id: activityId,
+          pupil_id: userId,
+          group_assignment_id: groupAssignmentId ?? undefined,
+          webhook_url: `${callbackBase}/webhooks/image-to-text`,
+          images: ocrImages,
+        })
+      } catch (err) {
+        // Read failure OR invoke failure: mark submission as ocr_status "error".
+        // Do NOT remove storage (images are valid) and do NOT return 500.
+        console.error(`${tag} OCR read/invoke failed — setting ocr_status error`, err)
+        try {
+          const errBody = UploadWorksheetSubmissionBodySchema.parse({
+            images,
+            extractedText: null,
+            ocr_status: "error",
+            ocr_error: "Could not read images. Please try re-uploading.",
+            is_correct: false,
+            success_criteria_scores: {},
+          })
+          await client.query(`update submissions set body = $1 where submission_id = $2`, [errBody, submissionId])
+        } catch (updateErr) {
+          console.error(`${tag} Failed to update submission to ocr_status error`, updateErr)
+        }
+      }
     }
   } finally {
     try {
@@ -182,7 +245,7 @@ export async function POST(request: Request) {
       activityId,
       pupilId: userId,
       submittedAt,
-      fileName,
+      fileName: images[0]?.fileName ?? "",
       submissionStatus: "submitted",
       isFlagged: false,
     })
@@ -190,20 +253,7 @@ export async function POST(request: Request) {
     console.error(`${tag} SSE emit failed (non-fatal)`, err)
   }
 
-  // Auto-trigger AI marking on every submit/re-submit — no debounce, since
-  // each call here represents a complete file replace, not a keystroke.
-  if (submissionId && groupAssignmentId) {
-    try {
-      await enqueueMarkingTasks(groupAssignmentId, [{ submissionId }])
-      await triggerQueueProcessor()
-    } catch (err) {
-      console.error(`${tag} Failed to enqueue AI marking (non-fatal)`, err)
-    }
-  } else if (submissionId && !groupAssignmentId) {
-    console.warn(`${tag} No groupAssignmentId provided — skipping AI marking enqueue`, { submissionId })
-  }
+  console.log(`${tag} Upload complete`, { submissionId, imageCount: images.length, lessonId, activityId, pupilId, durationMs: Date.now() - startedAt })
 
-  console.log(`${tag} Upload complete`, { submissionId, fileName, lessonId, activityId, pupilId, durationMs: Date.now() - startedAt })
-
-  return NextResponse.json({ success: true, submissionId, filePath: path })
+  return NextResponse.json({ success: true, submissionId, imagePaths: images.map((img) => img.filePath) })
 }

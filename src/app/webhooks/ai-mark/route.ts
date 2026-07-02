@@ -16,6 +16,7 @@ import {
   type AssignmentResultsRealtimePayload,
   publishAssignmentResultsEvents,
 } from "@/lib/results-sse";
+import { emitSubmissionEvent } from "@/lib/sse/topics";
 import { insertPupilActivityFeedbackEntry } from "@/lib/feedback/pupil-activity-feedback";
 import { query } from "@/lib/db";
 import { logQueueEvent, resolveQueueItem } from "@/lib/ai/marking-queue";
@@ -54,12 +55,20 @@ const ResultEntrySchema = z
     pupilid: z.string().uuid().optional(),
     pupilId: z.string().uuid().optional(),
     pupil_id: z.string().uuid().optional(),
-    score: z.number().min(0),
+    // Raw whole marks awarded by the agent (preferred). `score` is retained for
+    // callers that still send a fraction (0-1) or whole-marks value.
+    marks_awarded: z.number().min(0).optional(),
+    score: z.number().min(0).optional(),
+    max_marks: z.number().min(0).optional(),
     feedback: z.string().optional().nullable(),
   })
   .refine((value) => value.pupilid || value.pupilId || value.pupil_id, {
     message: "pupil identifier is required",
     path: ["pupilid"],
+  })
+  .refine((value) => value.marks_awarded != null || value.score != null, {
+    message: "marks_awarded or score is required",
+    path: ["marks_awarded"],
   });
 
 const PayloadSchema = z.object({
@@ -316,7 +325,7 @@ export async function POST(request: Request) {
       {
         hasExistingSubmission: !!existingSubmission,
         submissionId: existingSubmission?.submission_id,
-        receivedScore: result.score,
+        receivedMarks: result.marks_awarded ?? result.score,
         receivedFeedback: result.feedback,
       },
     );
@@ -478,6 +487,22 @@ function scoreToMarks(score: number, maxMarks: number): number {
   return Math.max(0, Math.min(maxMarks, Math.round(fraction * maxMarks)));
 }
 
+// The agent returns raw marks_awarded (0..max_marks); use it directly. Fall back
+// to the legacy `score` field (fraction or whole marks) for callers that still
+// send it. Percentages are derived from marks / maxMarks downstream.
+function resolveAiMarks(
+  result: { marks_awarded?: number | null; score?: number | null },
+  maxMarks: number,
+): number {
+  if (typeof result.marks_awarded === "number") {
+    return Math.max(0, Math.min(maxMarks, Math.round(result.marks_awarded)));
+  }
+  if (typeof result.score === "number") {
+    return scoreToMarks(result.score, maxMarks);
+  }
+  return 0;
+}
+
 async function applyAiMarkToSubmission({
   submission,
   result,
@@ -515,12 +540,11 @@ async function applyAiMarkToSubmission({
     submission.body ?? {},
   );
   if (!parsedBody.success && isFileSubmission) {
-    // upload-spreadsheet/upload-worksheet require filePath/fileName, which
-    // cannot be fabricated here — an existing submission missing them
-    // indicates corrupted data, so surface a clear error instead of writing
-    // a body with empty file fields.
+    // upload-worksheet requires images/extractedText; upload-spreadsheet
+    // requires filePath/fileName. Both cannot be fabricated from the webhook
+    // payload — an existing submission missing them indicates corrupted data.
     throw new Error(
-      `Existing ${activityType} submission ${submission.submission_id} has an invalid body (missing filePath/fileName).`,
+      `Existing ${activityType} submission ${submission.submission_id} has an invalid body (missing required file fields).`,
     );
   }
   const baseBody = parsedBody.success
@@ -531,7 +555,7 @@ async function applyAiMarkToSubmission({
     typeof (baseBody as { marks_override?: number | null }).marks_override === "number" &&
     Number.isFinite((baseBody as { marks_override?: number | null }).marks_override);
 
-  const aiMarks = scoreToMarks(result.score, maxMarks);
+  const aiMarks = resolveAiMarks(result, maxMarks);
   const aiScore = maxMarks > 0 ? aiMarks / maxMarks : 0;
   const effectiveScore = hasMarksOverride
     ? ((baseBody as { marks_override?: number | null }).marks_override ?? 0) / maxMarks
@@ -550,7 +574,16 @@ async function applyAiMarkToSubmission({
     ...(isFileSubmission
       ? {}
       : { answer: (baseBody as { answer?: string }).answer ?? answerFallback ?? "" }),
+    ...(activityType === UPLOAD_WORKSHEET_ACTIVITY_TYPE
+      ? { ocr_status: "marked" }
+      : {}),
     ai_marks: aiMarks,
+    // Also persist the whole-marks value and the fractional score so the
+    // canonical scoring SQL can read a worksheet/spreadsheet mark:
+    // compute_submission_marks reads `marks`, compute_submission_base_score
+    // reads `ai_model_score`.
+    marks: aiMarks,
+    ai_model_score: aiScore,
     is_correct: computeIsCorrect(effectiveScore ?? null),
     teacher_feedback: teacherFeedback,
     ai_model_feedback: nextAiFeedback,
@@ -568,6 +601,14 @@ async function applyAiMarkToSubmission({
     `,
     [nextBody, submission.submission_id],
   );
+
+  if (activityType === UPLOAD_WORKSHEET_ACTIVITY_TYPE) {
+    void emitSubmissionEvent("submission.updated", {
+      submissionId: submission.submission_id,
+      activityId,
+      ocrStatus: "marked",
+    })
+  }
 
   await insertPupilActivityFeedbackEntry({
     activityId,
@@ -609,7 +650,7 @@ async function createAiMarkedSubmission({
 }): Promise<
   { created: boolean; payload: AssignmentResultsRealtimePayload | null }
 > {
-  const marks = scoreToMarks(result.score, maxMarks);
+  const marks = resolveAiMarks(result, maxMarks);
   const score = maxMarks > 0 ? marks / maxMarks : 0;
   const successCriteriaScores = normaliseSuccessCriteriaScores({
     successCriteriaIds,

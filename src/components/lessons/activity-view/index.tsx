@@ -358,14 +358,14 @@ function ActivityShortView({
     const markup = getRichTextMarkup(uploadWorksheet.task)
     content = markup ? (
       <div className="space-y-1">
-        <p className="text-xs font-semibold uppercase tracking-wide text-primary">Upload exam question</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-primary">Upload Exam Question</p>
         <div
           className="prose prose-sm line-clamp-3 max-w-none dark:prose-invert text-muted-foreground"
           dangerouslySetInnerHTML={{ __html: markup }}
         />
       </div>
     ) : (
-      <p className="text-sm text-muted-foreground">Upload exam question task awaiting setup.</p>
+      <p className="text-sm text-muted-foreground">Upload Exam Question task awaiting setup.</p>
     )
   } else if (activity.type === "feedback") {
     const feedback = getFeedbackBody(activity)

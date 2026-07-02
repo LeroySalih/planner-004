@@ -11,6 +11,12 @@ import { invokeAiMarking } from "./ai-marking-client";
 import { parseSpreadsheet } from "@/lib/spreadsheet/parse-xlsx";
 import { createLocalStorageClient } from "@/lib/storage/local-storage";
 
+// The marking AI agent expects question/model_answer/marking_guidance/pupil_answer
+// on every request. Fall back to "Not Set" so no field is ever empty/undefined.
+function markingFieldOrNotSet(value: unknown): string {
+  return typeof value === "string" && value.trim() !== "" ? value : "Not Set";
+}
+
 async function resolveUploadWorksheetMarkingGuidance(
   markingGuidance: string,
   markingGuidanceId: string | undefined,
@@ -169,12 +175,13 @@ async function processSingleItem(
     // Use global query for parallel safety
     const { rows: contextRows } = await query(
       `
-        SELECT 
+        SELECT
           s.body as submission_body,
           s.user_id as pupil_id,
           a.body_data as activity_body,
           a.activity_id,
-          a.type
+          a.type,
+          a.max_marks
         FROM submissions s
         JOIN activities a ON a.activity_id = s.activity_id
         WHERE s.submission_id = $1
@@ -189,12 +196,13 @@ async function processSingleItem(
     if (!context) {
       const { rows: revisionRows } = await query(
         `
-          SELECT 
+          SELECT
             ra.answer_data as submission_body,
             r.pupil_id as pupil_id,
             a.body_data as activity_body,
             a.activity_id,
-            a.type
+            a.type,
+            a.max_marks
           FROM revision_answers ra
           JOIN revisions r ON r.revision_id = ra.revision_id
           JOIN activities a ON a.activity_id = ra.activity_id
@@ -248,8 +256,12 @@ async function processSingleItem(
 
       const doParams = {
         question: parsedActivity.question,
-        model_answer: parsedActivity.modelAnswer,
+        model_answer: markingFieldOrNotSet(parsedActivity.modelAnswer),
+        marking_guidance: markingFieldOrNotSet(
+          (parsedActivity as { markingGuidance?: unknown }).markingGuidance,
+        ),
         pupil_answer: parsedSubmission.answer || "",
+        max_marks: typeof context.max_marks === "number" ? context.max_marks : 1,
         webhook_url: effectiveCallbackUrl,
         group_assignment_id: item.assignment_id,
         activity_id: context.activity_id as string,
@@ -313,26 +325,9 @@ async function processSingleItem(
       const parsedActivity = UploadWorksheetActivityBodySchema.parse(
         context.activity_body,
       );
-      const parsedSubmission = UploadWorksheetSubmissionBodySchema.parse(
-        context.submission_body,
+      const parsedSubmissionBody = UploadWorksheetSubmissionBodySchema.parse(
+        context.submission_body ?? {},
       );
-
-      const storage = createLocalStorageClient("lessons");
-      const { stream, error: streamError } = await storage.getFileStream(
-        parsedSubmission.filePath,
-      );
-      if (streamError || !stream) {
-        throw new Error(
-          `Failed to read worksheet image at ${parsedSubmission.filePath}: ${streamError?.message ?? "no stream"}`,
-        );
-      }
-
-      const chunks: Buffer[] = [];
-      for await (const chunk of stream) {
-        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-      }
-      const buffer = Buffer.concat(chunks);
-      const worksheetImageBase64 = buffer.toString("base64");
 
       const resolvedMarkingGuidance = await resolveUploadWorksheetMarkingGuidance(
         parsedActivity.markingGuidance,
@@ -340,9 +335,14 @@ async function processSingleItem(
       );
 
       const doParams = {
-        task: parsedActivity.task,
-        marking_guidance: resolvedMarkingGuidance,
-        WORKSHEET_IMAGE: worksheetImageBase64,
+        // Upload Exam Question uses the same marking contract as short-text:
+        // question <- task, no model answer, guidance <- resolved guidance,
+        // pupil_answer <- the OCR'd text.
+        question: parsedActivity.task,
+        model_answer: "Not Set",
+        marking_guidance: markingFieldOrNotSet(resolvedMarkingGuidance),
+        pupil_answer: parsedSubmissionBody.extractedText ?? "",
+        max_marks: typeof context.max_marks === "number" ? context.max_marks : 1,
         webhook_url: effectiveCallbackUrl,
         group_assignment_id: item.assignment_id,
         activity_id: context.activity_id as string,

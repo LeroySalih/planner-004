@@ -33,8 +33,10 @@ import {
   clearResubmitRequest,
   getNextAttemptNumber,
 } from "@/lib/server-actions/submission-attempts";
+import { enqueueMarkingTasks, triggerQueueProcessor } from "@/lib/ai/marking-queue";
 import { computeAccuracyByUser } from "@/lib/scoring/accuracy";
 import { computeSubmissionMarks } from "@/lib/scoring/submission-marks";
+import { getAuthenticatedProfile, hasRole } from "@/lib/auth";
 
 const SubmissionResultSchema = z.object({
   data: SubmissionSchema.nullable(),
@@ -1238,5 +1240,68 @@ export async function readSubmissionByIdAction(submissionId: string) {
       ? error.message
       : "Unable to load submission.";
     return { success: false, error: message, data: null };
+  }
+}
+
+export async function editWorksheetTextAction(input: {
+  activityId: string;
+  userId: string;
+  sourceSubmissionId: string;
+  text: string;
+  groupAssignmentId?: string;
+}): Promise<{ success: boolean; error: string | null; data: Submission | null }> {
+  const profile = await getAuthenticatedProfile();
+  if (!profile) return { success: false, error: "Unauthorized", data: null };
+  if (profile.userId !== input.userId && !hasRole(profile, "teacher")) {
+    return { success: false, error: "Not allowed to edit this pupil's attempt.", data: null };
+  }
+
+  try {
+    const { rows } = await query<{ body: unknown }>(
+      `select body from submissions where submission_id = $1 limit 1`,
+      [input.sourceSubmissionId],
+    );
+    const source = rows?.[0];
+    if (!source) return { success: false, error: "Source attempt not found.", data: null };
+
+    const sourceParsed = UploadWorksheetSubmissionBodySchema.safeParse(source.body ?? {});
+    if (!sourceParsed.success) return { success: false, error: "Source attempt is not a worksheet submission.", data: null };
+
+    const newBody = UploadWorksheetSubmissionBodySchema.parse({
+      images: sourceParsed.data.images,
+      extractedText: input.text,
+      ocr_status: "marking",
+      ocr_error: null,
+      is_correct: false,
+      success_criteria_scores: {},
+    });
+
+    const attemptNumber = await getNextAttemptNumber(input.activityId, input.userId);
+    const { rows: inserted } = await query(
+      `insert into submissions (activity_id, user_id, attempt_number, body, submitted_at, submission_status)
+       values ($1, $2, $3, $4, now(), 'submitted')
+       returning *`,
+      [input.activityId, input.userId, attemptNumber, newBody],
+    );
+    if (!inserted[0]) return { success: false, error: "Failed to create attempt.", data: null };
+    const created = SubmissionSchema.parse(inserted[0]);
+
+    if (input.groupAssignmentId) {
+      try {
+        await enqueueMarkingTasks(input.groupAssignmentId, [{ submissionId: created.submission_id }]);
+        await triggerQueueProcessor();
+      } catch (err) {
+        console.error("[editWorksheetTextAction] enqueue marking failed", err);
+      }
+    }
+    void emitSubmissionEvent("submission.updated", {
+      submissionId: created.submission_id,
+      activityId: input.activityId,
+      ocrStatus: "marking",
+    });
+    return { success: true, error: null, data: created };
+  } catch (err) {
+    console.error("[editWorksheetTextAction]", err);
+    return { success: false, error: "Failed to save edited text.", data: null };
   }
 }
