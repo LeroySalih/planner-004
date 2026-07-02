@@ -47,9 +47,14 @@ export async function runAiMarkingFlow(request: AiMarkingRequest): Promise<void>
     }
 
     // 3. Invoke AI Marking
+    const markingGuidance = (parsedActivity.data as { markingGuidance?: unknown }).markingGuidance;
     const result = await invokeAiMarking({
       question: parsedActivity.data.question,
       model_answer: parsedActivity.data.modelAnswer,
+      marking_guidance:
+        typeof markingGuidance === "string" && markingGuidance.trim() !== ""
+          ? markingGuidance
+          : "Not Set",
       pupil_answer: pupilAnswer,
     });
 

@@ -9,6 +9,7 @@ setDefaultAutoSelectFamily(false);
 export interface ShortTextMarkingParams {
   question: string;
   model_answer: string;
+  marking_guidance: string;
   pupil_answer: string;
   // Callback and context for async processing
   webhook_url?: string;
@@ -37,9 +38,10 @@ export interface SpreadsheetMarkingParams {
 }
 
 export interface WorksheetMarkingParams {
-  task: string;
+  question: string;
+  model_answer: string;
   marking_guidance: string;
-  extracted_text: string;
+  pupil_answer: string;
   webhook_url?: string;
   group_assignment_id?: string;
   activity_id?: string;

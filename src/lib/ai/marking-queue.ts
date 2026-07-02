@@ -11,6 +11,12 @@ import { invokeAiMarking } from "./ai-marking-client";
 import { parseSpreadsheet } from "@/lib/spreadsheet/parse-xlsx";
 import { createLocalStorageClient } from "@/lib/storage/local-storage";
 
+// The marking AI agent expects question/model_answer/marking_guidance/pupil_answer
+// on every request. Fall back to "Not Set" so no field is ever empty/undefined.
+function markingFieldOrNotSet(value: unknown): string {
+  return typeof value === "string" && value.trim() !== "" ? value : "Not Set";
+}
+
 async function resolveUploadWorksheetMarkingGuidance(
   markingGuidance: string,
   markingGuidanceId: string | undefined,
@@ -248,7 +254,10 @@ async function processSingleItem(
 
       const doParams = {
         question: parsedActivity.question,
-        model_answer: parsedActivity.modelAnswer,
+        model_answer: markingFieldOrNotSet(parsedActivity.modelAnswer),
+        marking_guidance: markingFieldOrNotSet(
+          (parsedActivity as { markingGuidance?: unknown }).markingGuidance,
+        ),
         pupil_answer: parsedSubmission.answer || "",
         webhook_url: effectiveCallbackUrl,
         group_assignment_id: item.assignment_id,
@@ -323,9 +332,13 @@ async function processSingleItem(
       );
 
       const doParams = {
-        task: parsedActivity.task,
-        marking_guidance: resolvedMarkingGuidance,
-        extracted_text: parsedSubmissionBody.extractedText ?? "",
+        // Upload Exam Question uses the same marking contract as short-text:
+        // question <- task, no model answer, guidance <- resolved guidance,
+        // pupil_answer <- the OCR'd text.
+        question: parsedActivity.task,
+        model_answer: "Not Set",
+        marking_guidance: markingFieldOrNotSet(resolvedMarkingGuidance),
+        pupil_answer: parsedSubmissionBody.extractedText ?? "",
         webhook_url: effectiveCallbackUrl,
         group_assignment_id: item.assignment_id,
         activity_id: context.activity_id as string,
