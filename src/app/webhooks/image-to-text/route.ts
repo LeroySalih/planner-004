@@ -26,7 +26,16 @@ function normaliseOcrText(raw: string): string {
   try {
     parsed = JSON.parse(trimmed);
   } catch {
-    return raw;
+    // Malformed JSON — the model commonly emits literal newlines inside the
+    // string, which is not valid JSON. Extract the submission_text value(s) by
+    // regex so we still store clean text rather than the raw JSON wrapper.
+    const matches = [
+      ...trimmed.matchAll(/"submission_text"\s*:\s*"([\s\S]*?)"\s*}/g),
+    ];
+    const parts = matches
+      .map((match) => match[1].replace(/\\"/g, '"').replace(/\\n/g, "\n").trim())
+      .filter((part) => part !== "");
+    return parts.length > 0 ? parts.join("\n\n") : raw;
   }
   const entries = Array.isArray(parsed) ? parsed : [parsed];
   const parts = entries
