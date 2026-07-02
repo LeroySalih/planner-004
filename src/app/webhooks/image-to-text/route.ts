@@ -11,6 +11,43 @@ const PayloadSchema = z.object({
   group_assignment_id: z.string().min(3).optional(),
 });
 
+/**
+ * The OCR agent returns its transcript as a JSON array of
+ * `{ question_number?, submission_text }` objects. Normalise that into a single
+ * plain-text string (real newlines, no JSON wrapper) for storage/marking. If the
+ * text isn't that shape, it is returned unchanged.
+ */
+function normaliseOcrText(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("[") && !trimmed.startsWith("{")) {
+    return raw;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return raw;
+  }
+  const entries = Array.isArray(parsed) ? parsed : [parsed];
+  const parts = entries
+    .map((entry) => {
+      if (entry && typeof entry === "object") {
+        const value = (entry as { submission_text?: unknown }).submission_text;
+        const questionNumber = (entry as { question_number?: unknown }).question_number;
+        if (typeof value === "string") {
+          const prefix =
+            questionNumber != null && String(questionNumber).trim() !== ""
+              ? `${String(questionNumber).trim()}. `
+              : "";
+          return `${prefix}${value}`;
+        }
+      }
+      return typeof entry === "string" ? entry : "";
+    })
+    .filter((part) => part.trim() !== "");
+  return parts.length > 0 ? parts.join("\n\n") : raw;
+}
+
 export async function POST(request: Request) {
   const tag = "[image-to-text-webhook]";
   const expected = process.env.IMAGE_OCR_SERVICE_KEY;
@@ -48,7 +85,7 @@ export async function POST(request: Request) {
   const currentBody = UploadWorksheetSubmissionBodySchema.parse(row.body ?? {});
   const nextBody = UploadWorksheetSubmissionBodySchema.parse({
     ...currentBody,
-    extractedText: text,
+    extractedText: normaliseOcrText(text),
     ocr_status: "marking",
     ocr_error: null,
   });

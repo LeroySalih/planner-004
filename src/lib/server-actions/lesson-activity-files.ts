@@ -392,6 +392,27 @@ export async function listPupilActivitySubmissionsAction(
                 "inprogress",
             instructions: null,
           }]
+          : Array.isArray(
+              (row.body as { images?: Array<{ fileName?: string; filePath?: string }> } | null)
+                ?.images,
+            )
+          // upload-worksheet submissions store an images[] array of
+          // { fileName, filePath } pairs (multi-image OCR uploads).
+          ? ((row.body as {
+            images: Array<{ fileName?: string; filePath?: string }>;
+          }).images)
+            .filter((image) => typeof image?.fileName === "string" && image.fileName.trim() !== "")
+            .map((image) => ({
+              name: image.fileName as string,
+              path: image.filePath || "",
+              uploaded_at: typeof row.submitted_at === "string"
+                ? row.submitted_at
+                : row.submitted_at?.toISOString() ?? new Date().toISOString(),
+              status:
+                SubmissionStatusSchema.safeParse(row.submission_status).data ??
+                  "inprogress",
+              instructions: null,
+            }))
           : [];
 
         const pupilStorageKey = await resolvePupilStorageKey(pupilId);
