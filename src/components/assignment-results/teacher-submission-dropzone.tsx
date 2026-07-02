@@ -45,6 +45,7 @@ export function TeacherSubmissionDropzone({
   const uploadInProgress = useRef(false)
 
   const endpoint = UPLOAD_ENDPOINTS[activityType]
+  const isWorksheet = activityType === "upload-worksheet"
   const canUpload =
     enabled && Boolean(endpoint) && !disabled && !isPending && lessonId.length > 0 && pupilId.length > 0
 
@@ -59,7 +60,10 @@ export function TeacherSubmissionDropzone({
         uploadInProgress.current = false
         return
       }
-      const file = files[0]
+      // upload-worksheet accepts multiple images under the "files" field; the
+      // other upload routes take a single file under "file".
+      const isWorksheet = activityType === "upload-worksheet"
+      const selected = isWorksheet ? files : [files[0]]
 
       startTransition(async () => {
         try {
@@ -67,10 +71,19 @@ export function TeacherSubmissionDropzone({
           formData.append("lessonId", lessonId)
           formData.append("activityId", activityId)
           formData.append("pupilId", pupilId)
-          formData.append("file", file)
+          if (isWorksheet) {
+            for (const f of selected) {
+              formData.append("files", f)
+            }
+          } else {
+            formData.append("file", selected[0])
+          }
           if (AI_MARKED_TYPES.has(activityType) && assignmentId) {
             formData.append("groupAssignmentId", assignmentId)
           }
+
+          const label =
+            selected.length > 1 ? `${selected.length} files` : selected[0].name
 
           let result: { success: boolean; error?: string }
           try {
@@ -82,13 +95,13 @@ export function TeacherSubmissionDropzone({
           }
 
           if (!result.success) {
-            toast.error(`Upload failed for ${file.name}`, {
+            toast.error(`Upload failed for ${label}`, {
               description: result.error ?? "Please try again later.",
             })
             return
           }
 
-          toast.success(`Uploaded ${file.name} on behalf of the pupil`)
+          toast.success(`Uploaded ${label} on behalf of the pupil`)
           onUploaded()
         } finally {
           uploadInProgress.current = false
@@ -148,6 +161,8 @@ export function TeacherSubmissionDropzone({
           ref={inputRef}
           type="file"
           className="hidden"
+          multiple={isWorksheet}
+          accept={isWorksheet ? "image/jpeg,image/png" : undefined}
           disabled={!canUpload}
           onChange={(event) => {
             const files = event.target.files
