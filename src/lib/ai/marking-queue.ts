@@ -175,12 +175,13 @@ async function processSingleItem(
     // Use global query for parallel safety
     const { rows: contextRows } = await query(
       `
-        SELECT 
+        SELECT
           s.body as submission_body,
           s.user_id as pupil_id,
           a.body_data as activity_body,
           a.activity_id,
-          a.type
+          a.type,
+          a.max_marks
         FROM submissions s
         JOIN activities a ON a.activity_id = s.activity_id
         WHERE s.submission_id = $1
@@ -195,12 +196,13 @@ async function processSingleItem(
     if (!context) {
       const { rows: revisionRows } = await query(
         `
-          SELECT 
+          SELECT
             ra.answer_data as submission_body,
             r.pupil_id as pupil_id,
             a.body_data as activity_body,
             a.activity_id,
-            a.type
+            a.type,
+            a.max_marks
           FROM revision_answers ra
           JOIN revisions r ON r.revision_id = ra.revision_id
           JOIN activities a ON a.activity_id = ra.activity_id
@@ -259,6 +261,7 @@ async function processSingleItem(
           (parsedActivity as { markingGuidance?: unknown }).markingGuidance,
         ),
         pupil_answer: parsedSubmission.answer || "",
+        max_marks: typeof context.max_marks === "number" ? context.max_marks : 1,
         webhook_url: effectiveCallbackUrl,
         group_assignment_id: item.assignment_id,
         activity_id: context.activity_id as string,
@@ -339,6 +342,7 @@ async function processSingleItem(
         model_answer: "Not Set",
         marking_guidance: markingFieldOrNotSet(resolvedMarkingGuidance),
         pupil_answer: parsedSubmissionBody.extractedText ?? "",
+        max_marks: typeof context.max_marks === "number" ? context.max_marks : 1,
         webhook_url: effectiveCallbackUrl,
         group_assignment_id: item.assignment_id,
         activity_id: context.activity_id as string,

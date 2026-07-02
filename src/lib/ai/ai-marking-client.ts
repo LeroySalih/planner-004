@@ -11,6 +11,7 @@ export interface ShortTextMarkingParams {
   model_answer: string;
   marking_guidance: string;
   pupil_answer: string;
+  max_marks?: number;
   // Callback and context for async processing
   webhook_url?: string;
   group_assignment_id?: string;
@@ -42,6 +43,7 @@ export interface WorksheetMarkingParams {
   model_answer: string;
   marking_guidance: string;
   pupil_answer: string;
+  max_marks?: number;
   webhook_url?: string;
   group_assignment_id?: string;
   activity_id?: string;
