@@ -65,33 +65,22 @@ export async function enqueueMarkingTasks(
   );
 
   for (const task of tasks) {
-    if (delaySecs > 0) {
-      // Debounced path: upsert — reset process_after on conflict with pending row
-      await query(
-        `
-        INSERT INTO ai_marking_queue (submission_id, assignment_id, status, process_after)
-        VALUES ($1, $2, 'pending', now() + make_interval(secs => $3))
-        ON CONFLICT (submission_id) WHERE status IN ('pending', 'processing')
-        DO UPDATE SET
-          process_after = CASE
-            WHEN ai_marking_queue.status = 'pending'
-              THEN now() + make_interval(secs => $3)
-            ELSE ai_marking_queue.process_after
-          END
-        `,
-        [task.submissionId, assignmentId, delaySecs],
-      );
-    } else {
-      // Immediate path (manual/bulk): original behaviour
-      await query(
-        `
-        INSERT INTO ai_marking_queue (submission_id, assignment_id, status, process_after)
-        VALUES ($1, $2, 'pending', now())
-        ON CONFLICT (submission_id) WHERE status IN ('pending', 'processing') DO NOTHING
-        `,
-        [task.submissionId, assignmentId],
-      );
-    }
+    await query(
+      `update submissions set mark_status='waiting', mark_error=null where submission_id=$1`,
+      [task.submissionId],
+    );
+    await query(
+      `
+        insert into ai_marking_queue (submission_id, assignment_id, attempts, process_after)
+        values ($1, $2, 0, now() + make_interval(secs => $3))
+        on conflict (submission_id) do update set
+          assignment_id = excluded.assignment_id,
+          attempts = 0,
+          process_after = now() + make_interval(secs => $3),
+          updated_at = now()
+      `,
+      [task.submissionId, assignmentId, delaySecs],
+    );
   }
 }
 
@@ -100,25 +89,27 @@ export async function processNextQueueItem() {
   const callbackUrl = process.env.AI_MARKING_CALLBACK_URL;
   const BATCH_SIZE = 5;
 
-  // 1. Claim a batch of rows
+  // 1. Claim a batch of submissions by their mark_status
   // We use the global query pool directly so we don't lock a single client for the duration
-  const { rows } = await query(
+  const { rows } = await query<{
+    submission_id: string;
+    assignment_id: string;
+    attempts: number;
+  }>(
     `
-    UPDATE ai_marking_queue
-    SET status = 'processing',
-        attempts = attempts + 1,
-        updated_at = now()
-    WHERE queue_id IN (
-      SELECT queue_id
-      FROM ai_marking_queue
-      WHERE status = 'pending'
-        AND attempts < 3
-        AND process_after <= now()
-      ORDER BY process_after ASC
-      LIMIT $1
-      FOR UPDATE SKIP LOCKED
-    )
-    RETURNING queue_id, submission_id, assignment_id, attempts
+    update submissions s
+    set mark_status = 'marking'
+    from (
+      select q.submission_id, q.assignment_id, q.attempts
+      from ai_marking_queue q
+      join submissions sub on sub.submission_id = q.submission_id
+      where sub.mark_status = 'waiting' and q.process_after <= now() and q.attempts < 3
+      order by q.process_after asc
+      limit $1
+      for update of q skip locked
+    ) picked
+    where s.submission_id = picked.submission_id
+    returning s.submission_id, picked.assignment_id as assignment_id, picked.attempts as attempts
     `,
     [BATCH_SIZE],
   );
@@ -139,7 +130,7 @@ export async function processNextQueueItem() {
 
   // 3. Check remaining
   const { rows: countRows } = await query(
-    "SELECT count(*) FROM ai_marking_queue WHERE status = 'pending' AND attempts < 3 AND process_after <= now()",
+    "select count(*) from ai_marking_queue q join submissions s on s.submission_id = q.submission_id where s.mark_status = 'waiting' and q.process_after <= now() and q.attempts < 3",
   );
   const remainingCount = parseInt((countRows[0] as any).count, 10);
 
@@ -158,7 +149,6 @@ export async function processNextQueueItem() {
 
 async function processSingleItem(
   item: {
-    queue_id: string;
     submission_id: string;
     assignment_id: string;
     attempts: number;
@@ -168,7 +158,7 @@ async function processSingleItem(
   try {
     await logQueueEvent(
       "info",
-      `Processing item ${item.queue_id} for submission ${item.submission_id} (Attempt ${item.attempts})`,
+      `Processing submission ${item.submission_id} (Attempt ${item.attempts})`,
     );
 
     // 2. Fetch context for DO function
@@ -225,10 +215,14 @@ async function processSingleItem(
         { type: context.type },
       );
 
-      // Mark as completed so we don't retry
+      // Unsupported: mark the submission as errored and drop the queue row so we don't retry
       await query(
-        `UPDATE ai_marking_queue SET status = 'completed', updated_at = now() WHERE queue_id = $1`,
-        [item.queue_id],
+        `update submissions set mark_status='marking-error', mark_error='Unsupported activity type' where submission_id=$1`,
+        [item.submission_id],
+      );
+      await query(
+        `delete from ai_marking_queue where submission_id=$1`,
+        [item.submission_id],
       );
       return;
     }
@@ -363,33 +357,43 @@ async function processSingleItem(
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error(
-      `[marking-queue] Failed to process item ${item.queue_id}:`,
+      `[marking-queue] Failed to process submission ${item.submission_id}:`,
       error,
     );
-    await logQueueEvent("error", `Failed to process item ${item.queue_id}`, {
+    await logQueueEvent("error", `Failed to process submission ${item.submission_id}`, {
       error: errorMessage,
     });
 
     await query(
-      `
-        UPDATE ai_marking_queue
-        SET status = CASE WHEN attempts >= 3 THEN 'failed' ELSE 'pending' END,
-            last_error = $1,
-            updated_at = now()
-        WHERE queue_id = $2
-        `,
-      [errorMessage, item.queue_id],
+      `update ai_marking_queue set attempts = attempts + 1, last_error = $1, updated_at = now(), process_after = now() + interval '30 seconds' where submission_id = $2`,
+      [errorMessage, item.submission_id],
     );
+    const { rows: attemptRows } = await query<{ attempts: number }>(
+      `select attempts from ai_marking_queue where submission_id=$1`,
+      [item.submission_id],
+    );
+    if ((attemptRows[0]?.attempts ?? 3) >= 3) {
+      await query(
+        `update submissions set mark_status='marking-error', mark_error=$1 where submission_id=$2`,
+        [errorMessage, item.submission_id],
+      );
+      await query(
+        `delete from ai_marking_queue where submission_id=$1`,
+        [item.submission_id],
+      );
+    } else {
+      await query(
+        `update submissions set mark_status='waiting' where submission_id=$1`,
+        [item.submission_id],
+      );
+    }
     // Re-throw to signal failure to Promise.allSettled (optional, but good for counting stats)
     throw error;
   }
 }
 
 export async function resolveQueueItem(submissionId: string) {
-  await query(
-    `UPDATE ai_marking_queue SET status = 'completed', updated_at = now() WHERE submission_id = $1`,
-    [submissionId],
-  );
+  await query(`delete from ai_marking_queue where submission_id=$1`, [submissionId]);
 }
 
 export async function triggerQueueProcessor(baseUrl?: string) {
@@ -426,18 +430,14 @@ export async function triggerQueueProcessor(baseUrl?: string) {
 
 export async function pruneCompletedQueueItems() {
   await query(
-    `DELETE FROM ai_marking_queue WHERE status = 'completed' AND updated_at < now() - interval '7 days'`,
+    `delete from ai_marking_queue q using submissions s where s.submission_id = q.submission_id and s.mark_status in ('marked', 'marking-error')`,
   );
 }
 
 export async function recoverStuckItems() {
   await query(
-    `
-    UPDATE ai_marking_queue
-    SET status = 'pending',
-        last_error = 'Recovered from stuck processing state'
-    WHERE status = 'processing'
-      AND updated_at < now() - interval '10 minutes'
-    `,
+    `update submissions set mark_status='waiting'
+     where mark_status='marking'
+       and submission_id in (select submission_id from ai_marking_queue where updated_at < now() - interval '10 minutes')`,
   );
 }
