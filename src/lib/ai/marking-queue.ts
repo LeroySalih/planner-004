@@ -115,23 +115,50 @@ export async function processNextQueueItem() {
     [BATCH_SIZE],
   );
 
-  if (rows.length === 0) {
+  // 1b. Claim a batch of revision answers by their own status lifecycle
+  const { rows: revClaimed } = await query<{
+    submission_id: string;
+    assignment_id: string;
+    attempts: number;
+  }>(
+    `update revision_answers ra set status='marking'
+     from (
+       select q.submission_id, q.assignment_id, q.attempts
+       from ai_marking_queue q
+       join revision_answers r on r.answer_id = q.submission_id::uuid
+       where q.assignment_id = 'revision' and r.status = 'pending_marking'
+         and q.process_after <= now() and q.attempts < 3
+       order by q.process_after asc
+       limit $1
+       for update of q skip locked
+     ) picked
+     where ra.answer_id = picked.submission_id::uuid
+     returning ra.answer_id as submission_id, picked.assignment_id as assignment_id, picked.attempts as attempts`,
+    [BATCH_SIZE],
+  );
+
+  const claimed = [...(rows as any[]), ...(revClaimed as any[])];
+
+  if (claimed.length === 0) {
     return { processed: 0, remaining: 0 };
   }
 
   await logQueueEvent(
     "info",
-    `Claimed batch of ${rows.length} items for processing`,
+    `Claimed batch of ${claimed.length} items for processing`,
   );
 
   // 2. Process in parallel
   const results = await Promise.allSettled(
-    (rows as any[]).map((item) => processSingleItem(item, callbackUrl)),
+    claimed.map((item) => processSingleItem(item, callbackUrl)),
   );
 
   // 3. Check remaining
   const { rows: countRows } = await query(
-    "select count(*) from ai_marking_queue q join submissions s on s.submission_id = q.submission_id where s.mark_status = 'waiting' and q.process_after <= now() and q.attempts < 3",
+    `select
+       (select count(*) from ai_marking_queue q join submissions s on s.submission_id=q.submission_id where s.mark_status='waiting' and q.process_after<=now() and q.attempts<3)
+     + (select count(*) from ai_marking_queue q join revision_answers r on r.answer_id=q.submission_id::uuid where q.assignment_id='revision' and r.status='pending_marking' and q.process_after<=now() and q.attempts<3)
+       as count`,
   );
   const remainingCount = parseInt((countRows[0] as any).count, 10);
 
@@ -391,31 +418,50 @@ async function processSingleItem(
       [errorMessage, item.submission_id],
     );
     const attemptsNow = bumped[0]?.attempts ?? 3;
+    const isRevision = item.assignment_id === "revision";
     if (attemptsNow >= 3) {
-      await query(
-        `update submissions set mark_status='marking-error', mark_error=$1 where submission_id=$2`,
-        [errorMessage, item.submission_id],
-      );
-      await query(
-        `delete from ai_marking_queue where submission_id=$1`,
-        [item.submission_id],
-      );
-      const { rows: idRows } = await query<{ activity_id: string; user_id: string }>(
-        `select activity_id, user_id from submissions where submission_id=$1`,
-        [item.submission_id],
-      );
-      void emitSubmissionEvent("submission.updated", {
-        submissionId: item.submission_id,
-        activityId: idRows[0]?.activity_id ?? "",
-        pupilId: idRows[0]?.user_id ?? "",
-        markStatus: "marking-error",
-        markError: errorMessage,
-      });
+      if (isRevision) {
+        await query(
+          `update revision_answers set status='pending_manual' where answer_id=$1`,
+          [item.submission_id],
+        );
+        await query(
+          `delete from ai_marking_queue where submission_id=$1`,
+          [item.submission_id],
+        );
+      } else {
+        await query(
+          `update submissions set mark_status='marking-error', mark_error=$1 where submission_id=$2`,
+          [errorMessage, item.submission_id],
+        );
+        await query(
+          `delete from ai_marking_queue where submission_id=$1`,
+          [item.submission_id],
+        );
+        const { rows: idRows } = await query<{ activity_id: string; user_id: string }>(
+          `select activity_id, user_id from submissions where submission_id=$1`,
+          [item.submission_id],
+        );
+        void emitSubmissionEvent("submission.updated", {
+          submissionId: item.submission_id,
+          activityId: idRows[0]?.activity_id ?? "",
+          pupilId: idRows[0]?.user_id ?? "",
+          markStatus: "marking-error",
+          markError: errorMessage,
+        });
+      }
     } else {
-      await query(
-        `update submissions set mark_status='waiting' where submission_id=$1`,
-        [item.submission_id],
-      );
+      if (isRevision) {
+        await query(
+          `update revision_answers set status='pending_marking' where answer_id=$1`,
+          [item.submission_id],
+        );
+      } else {
+        await query(
+          `update submissions set mark_status='waiting' where submission_id=$1`,
+          [item.submission_id],
+        );
+      }
     }
     // Re-throw to signal failure to Promise.allSettled (optional, but good for counting stats)
     throw error;
@@ -462,6 +508,9 @@ export async function pruneCompletedQueueItems() {
   await query(
     `delete from ai_marking_queue q using submissions s where s.submission_id = q.submission_id and s.mark_status in ('marked', 'marking-error')`,
   );
+  await query(
+    `delete from ai_marking_queue q using revision_answers r where r.answer_id=q.submission_id::uuid and r.status in ('marked','pending_manual')`,
+  );
 }
 
 export async function recoverStuckItems() {
@@ -469,5 +518,8 @@ export async function recoverStuckItems() {
     `update submissions set mark_status='waiting'
      where mark_status='marking'
        and submission_id in (select submission_id from ai_marking_queue where updated_at < now() - interval '10 minutes')`,
+  );
+  await query(
+    `update revision_answers set status='pending_marking' where status='marking' and answer_id in (select submission_id::uuid from ai_marking_queue where updated_at < now() - interval '10 minutes')`,
   );
 }
