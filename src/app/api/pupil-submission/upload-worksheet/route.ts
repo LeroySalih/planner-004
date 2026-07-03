@@ -220,6 +220,13 @@ export async function POST(request: Request) {
             `update submissions set mark_status = 'reading-error', mark_error = $1 where submission_id = $2`,
             ["Could not read images. Please try re-uploading.", submissionId],
           )
+          void emitSubmissionEvent("submission.updated", {
+            submissionId,
+            activityId,
+            pupilId: userId,
+            markStatus: "reading-error",
+            markError: "Could not read images. Please try re-uploading.",
+          })
         } catch (updateErr) {
           console.error(`${tag} Failed to update submission to reading-error`, updateErr)
         }

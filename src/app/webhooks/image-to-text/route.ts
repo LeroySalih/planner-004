@@ -98,6 +98,13 @@ export async function POST(request: Request) {
       `update submissions set mark_status = 'reading-error', mark_error = $1 where submission_id = $2`,
       ["Invalid submission body.", submission_id],
     );
+    void emitSubmissionEvent("submission.updated", {
+      submissionId: submission_id,
+      activityId: row.activity_id,
+      pupilId: row.user_id,
+      markStatus: "reading-error",
+      markError: "Invalid submission body.",
+    });
     return NextResponse.json({ error: "Invalid submission body." }, { status: 400 });
   }
 
