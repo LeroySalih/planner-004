@@ -279,16 +279,16 @@ test.describe("Worksheet OCR → edit → mark", () => {
     expect(ocrBody).toMatchObject({ success: true });
 
     // ====================================================================
-    // Assert extractedText + ocr_status via DB (robust — no UI polling race)
+    // Assert extractedText + mark_status via DB (robust — no UI polling race)
     // ====================================================================
-    const submissionAfterOcr = await queryDb<{ body: Record<string, unknown> }>(
-      `SELECT body FROM submissions WHERE submission_id = $1 LIMIT 1`,
+    const submissionAfterOcr = await queryDb<{ body: Record<string, unknown>; mark_status: string }>(
+      `SELECT body, mark_status FROM submissions WHERE submission_id = $1 LIMIT 1`,
       [submissionId],
     );
     expect(submissionAfterOcr).toHaveLength(1);
     const bodyAfterOcr = submissionAfterOcr[0].body as Record<string, unknown>;
     expect(bodyAfterOcr.extractedText).toContain("pupil's hand-written answer");
-    expect(bodyAfterOcr.ocr_status).toBe("marking");
+    expect(submissionAfterOcr[0].mark_status).toBe("marking");
 
     // ====================================================================
     // Simulate marking callback: POST /webhooks/ai-mark
@@ -316,16 +316,16 @@ test.describe("Worksheet OCR → edit → mark", () => {
     expect([200, 207]).toContain(markResponse.status());
 
     // ====================================================================
-    // Assert ai_marks + ocr_status via DB
+    // Assert ai_marks + mark_status via DB
     // ====================================================================
-    const submissionAfterMark = await queryDb<{ body: Record<string, unknown> }>(
-      `SELECT body FROM submissions WHERE submission_id = $1 LIMIT 1`,
+    const submissionAfterMark = await queryDb<{ body: Record<string, unknown>; mark_status: string }>(
+      `SELECT body, mark_status FROM submissions WHERE submission_id = $1 LIMIT 1`,
       [submissionId],
     );
     expect(submissionAfterMark).toHaveLength(1);
     const bodyAfterMark = submissionAfterMark[0].body as Record<string, unknown>;
     expect(typeof bodyAfterMark.ai_marks).toBe("number");
-    expect(bodyAfterMark.ocr_status).toBe("marked");
+    expect(submissionAfterMark[0].mark_status).toBe("marked");
     expect(typeof bodyAfterMark.ai_model_feedback).toBe("string");
 
     // ====================================================================

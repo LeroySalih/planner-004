@@ -37,12 +37,20 @@ export async function readAiMarkingQueueAction() {
 
     const statsResult = await query(
       `
-      SELECT 
-        count(*) filter (where status = 'pending') as pending,
-        count(*) filter (where status = 'processing') as processing,
-        count(*) filter (where status = 'completed') as completed,
-        count(*) filter (where status = 'failed') as failed
-      FROM ai_marking_queue
+      SELECT
+        (
+          select count(*) from ai_marking_queue q
+          left join submissions s on s.submission_id = q.submission_id
+          left join revision_answers r on q.assignment_id = 'revision' and r.answer_id = q.submission_id::uuid
+          where s.mark_status = 'waiting' or r.status = 'pending_marking'
+        ) as waiting,
+        (
+          select count(*) from ai_marking_queue q
+          left join submissions s on s.submission_id = q.submission_id
+          left join revision_answers r on q.assignment_id = 'revision' and r.answer_id = q.submission_id::uuid
+          where s.mark_status = 'marking' or r.status = 'marking'
+        ) as marking,
+        (select count(*) from ai_marking_queue) as total
       `,
     );
 
@@ -60,7 +68,22 @@ export async function readAiMarkingQueueAction() {
 export async function retryQueueItemAction(queueId: string) {
   try {
     await query(
-      `UPDATE ai_marking_queue SET status = 'pending', attempts = 0 WHERE queue_id = $1`,
+      `UPDATE ai_marking_queue SET attempts = 0, process_after = now() WHERE queue_id = $1`,
+      [queueId],
+    );
+    // Reset linked submission back to waiting state
+    await query(
+      `UPDATE submissions SET mark_status = 'waiting'
+       WHERE submission_id = (SELECT submission_id FROM ai_marking_queue WHERE queue_id = $1)`,
+      [queueId],
+    );
+    // Reset linked revision answer back to pending_marking (no-op for non-revision rows)
+    await query(
+      `UPDATE revision_answers SET status = 'pending_marking'
+       WHERE answer_id = (
+         SELECT submission_id::uuid FROM ai_marking_queue
+         WHERE queue_id = $1 AND assignment_id = 'revision'
+       )`,
       [queueId],
     );
     void triggerQueueProcessor();
