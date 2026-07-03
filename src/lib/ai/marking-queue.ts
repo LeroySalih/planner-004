@@ -10,6 +10,7 @@ import {
 import { invokeAiMarking } from "./ai-marking-client";
 import { parseSpreadsheet } from "@/lib/spreadsheet/parse-xlsx";
 import { createLocalStorageClient } from "@/lib/storage/local-storage";
+import { emitSubmissionEvent } from "@/lib/sse/topics";
 
 // The marking AI agent expects question/model_answer/marking_guidance/pupil_answer
 // on every request. Fall back to "Not Set" so no field is ever empty/undefined.
@@ -224,8 +225,23 @@ async function processSingleItem(
         `delete from ai_marking_queue where submission_id=$1`,
         [item.submission_id],
       );
+      void emitSubmissionEvent("submission.updated", {
+        submissionId: item.submission_id,
+        activityId: context.activity_id as string,
+        pupilId: context.pupil_id as string,
+        markStatus: "marking-error",
+        markError: "Unsupported activity type",
+      });
       return;
     }
+
+    // Emit marking SSE now that we know this item will be sent to the AI
+    void emitSubmissionEvent("submission.updated", {
+      submissionId: item.submission_id,
+      activityId: context.activity_id as string,
+      pupilId: context.pupil_id as string,
+      markStatus: "marking",
+    });
 
     // 3. Trigger DO function
     let effectiveCallbackUrl: string | undefined;
@@ -384,6 +400,17 @@ async function processSingleItem(
         `delete from ai_marking_queue where submission_id=$1`,
         [item.submission_id],
       );
+      const { rows: idRows } = await query<{ activity_id: string; user_id: string }>(
+        `select activity_id, user_id from submissions where submission_id=$1`,
+        [item.submission_id],
+      );
+      void emitSubmissionEvent("submission.updated", {
+        submissionId: item.submission_id,
+        activityId: idRows[0]?.activity_id ?? "",
+        pupilId: idRows[0]?.user_id ?? "",
+        markStatus: "marking-error",
+        markError: errorMessage,
+      });
     } else {
       await query(
         `update submissions set mark_status='waiting' where submission_id=$1`,
