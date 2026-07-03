@@ -93,7 +93,7 @@ export async function POST(request: Request) {
                   JOIN revisions r ON r.revision_id = ra.revision_id
                   WHERE ra.activity_id = $1 
                     AND r.pupil_id = $2
-                    AND ra.status = 'pending_marking'
+                    AND ra.status IN ('marking', 'pending_marking')
                   ORDER BY ra.created_at DESC
                   LIMIT 1`,
                 [activity_id, pupilId],

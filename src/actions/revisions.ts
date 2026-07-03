@@ -24,7 +24,7 @@ export type RevisionAnswer = {
     answer_data: any;
     score: number | null;
     feedback: string | null;
-    status: "pending_marking" | "marked" | "pending_manual";
+    status: "pending_marking" | "marking" | "marked" | "pending_manual";
 };
 
 export async function startRevision(lessonId: string) {
@@ -176,13 +176,9 @@ export async function saveRevisionAnswer(
 
         if (answerId) {
             await query(
-                `INSERT INTO ai_marking_queue (submission_id, assignment_id, status)
-                 SELECT $1, 'revision', 'pending'
-                 WHERE NOT EXISTS (
-                    SELECT 1 FROM ai_marking_queue 
-                    WHERE submission_id = $1 
-                      AND status = ANY (ARRAY['pending'::text, 'processing'::text])
-                 )`,
+                `insert into ai_marking_queue (submission_id, assignment_id, attempts, process_after)
+                 values ($1, 'revision', 0, now())
+                 on conflict (submission_id) do update set attempts = 0, process_after = now(), updated_at = now()`,
                 [answerId],
             );
 

@@ -164,7 +164,15 @@ export async function saveShortTextAnswerAction(input: z.infer<typeof ShortTextA
           [{ submissionId: savedSubmission.submission_id }],
           { processAfterSeconds: DEBOUNCE_SECS },
         )
-          .then(() => setTimeout(() => void triggerQueueProcessor(), DEBOUNCE_SECS * 1000))
+          .then(() => {
+            void emitSubmissionEvent("submission.updated", {
+              submissionId: savedSubmission!.submission_id,
+              activityId: payload.activityId,
+              pupilId: payload.userId,
+              markStatus: "waiting",
+            })
+            return setTimeout(() => void triggerQueueProcessor(), DEBOUNCE_SECS * 1000)
+          })
           .catch((err) => console.error("[short-text] Failed to enqueue AI marking:", err))
       }
 
@@ -182,9 +190,16 @@ export async function saveShortTextAnswerAction(input: z.infer<typeof ShortTextA
 
 export async function triggerManualAiMarkingAction(input: z.infer<typeof ManualAiMarkingInputSchema>) {
   const payload = ManualAiMarkingInputSchema.parse(input)
-  
+
   await enqueueMarkingTasks(payload.assignmentId, [{ submissionId: payload.submissionId }]);
   void triggerQueueProcessor();
+
+  void emitSubmissionEvent("submission.updated", {
+    submissionId: payload.submissionId,
+    activityId: payload.activityId,
+    pupilId: payload.pupilId,
+    markStatus: "waiting",
+  })
 
   return { success: true }
 }

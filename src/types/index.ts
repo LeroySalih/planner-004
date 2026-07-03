@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { MARK_STATUSES } from "@/dino.config";
+export const MarkStatusSchema = z.enum(MARK_STATUSES);
 
 export const GroupSchema = z.object({
     group_id: z.string(),
@@ -198,6 +200,8 @@ export const SubmissionSchema = z.object({
     is_flagged: z.boolean().default(false),
     resubmit_requested: z.boolean().default(false),
     resubmit_note: z.string().nullable().optional(),
+    mark_status: MarkStatusSchema.nullable().optional(),
+    mark_error: z.string().nullable().optional(),
 });
 
 export const SubmissionsSchema = z.array(SubmissionSchema);
@@ -649,21 +653,10 @@ export const WorksheetImageSchema = z.object({
 });
 export type WorksheetImage = z.infer<typeof WorksheetImageSchema>;
 
-export const WorksheetOcrStatusSchema = z.enum([
-  "extracting",
-  "extracted",
-  "marking",
-  "marked",
-  "error",
-]);
-export type WorksheetOcrStatus = z.infer<typeof WorksheetOcrStatusSchema>;
-
 export const UploadWorksheetSubmissionBodySchema = z
   .object({
     images: z.array(WorksheetImageSchema).default([]),
     extractedText: z.string().nullable().default(null),
-    ocr_status: WorksheetOcrStatusSchema.default("extracting"),
-    ocr_error: z.string().nullable().optional(),
     // Legacy single-file fields — kept optional so old attempts still parse.
     filePath: z.string().optional(),
     fileName: z.string().optional(),

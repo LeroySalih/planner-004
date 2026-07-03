@@ -58,6 +58,8 @@ import {
 import { extractScoreFromSubmission, selectLatestSubmission } from "@/lib/scoring/activity-scores"
 import { SketchRenderFeedbackView } from "@/components/assignment-results/sketch-render-feedback-view"
 import { TeacherSubmissionDropzone } from "@/components/assignment-results/teacher-submission-dropzone"
+import type { MarkStatus } from "@/dino.config"
+import { markStatusLabel } from "@/lib/mark-status"
 
 type CellStatus = AssignmentResultCell["status"]
 
@@ -473,6 +475,16 @@ function isUploadListingActivityType(type: string): boolean {
   return UPLOAD_LISTING_ACTIVITY_TYPES.has(type)
 }
 
+function MarkStatusChip({ status, markError, markedAt }: { status: MarkStatus | null | undefined; markError?: string | null; markedAt?: string | null }) {
+  if (!status) return null
+  const { label, tone } = markStatusLabel(status, markedAt)
+  const cls = tone === "error" ? "bg-destructive/10 text-destructive"
+    : tone === "done" ? "bg-emerald-500/10 text-emerald-600"
+    : tone === "active" ? "bg-primary/10 text-primary"
+    : "bg-muted text-muted-foreground"
+  return <span title={markError ?? undefined} className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${cls}`}>{label}</span>
+}
+
 export function AssignmentResultsDashboard({
   matrix,
   isAdmin = false,
@@ -869,6 +881,18 @@ export function AssignmentResultsDashboard({
   useEffect(() => {
     selectionRef.current = selection
   }, [selection])
+
+  const attemptsRef = useRef(attempts)
+  useEffect(() => {
+    attemptsRef.current = attempts
+  }, [attempts])
+
+  const reloadAttempts = useCallback(async () => {
+    const sel = selectionRef.current
+    if (!sel) return
+    const { data } = await readSubmissionAttemptsAction(sel.cell.activityId, sel.cell.pupilId)
+    setAttempts(data)
+  }, [])
 
   const handleAiMark = useCallback(() => {
     if (!selectedActivity) {
@@ -2026,7 +2050,23 @@ export function AssignmentResultsDashboard({
                 ? "INSERT"
                 : "UPDATE"
 
-
+          if (typeof payload.markStatus === "string") {
+            setAttempts((prev) =>
+              prev.map((a) =>
+                a.submission_id === submissionId
+                  ? { ...a, mark_status: payload.markStatus as MarkStatus, mark_error: (payload.markError as string) ?? a.mark_error }
+                  : a,
+              ),
+            )
+            if (
+              selectionRef.current &&
+              payload.activityId === selectionRef.current.cell.activityId &&
+              payload.pupilId === selectionRef.current.cell.pupilId &&
+              !attemptsRef.current.some((a) => a.submission_id === submissionId)
+            ) {
+              void reloadAttempts()
+            }
+          }
 
           handleRealtimeSubmission({
             eventType,
@@ -2063,7 +2103,7 @@ export function AssignmentResultsDashboard({
     return () => {
       source.close()
     }
-  }, [handleRealtimeSubmission])
+  }, [handleRealtimeSubmission, reloadAttempts])
 
   const handleOverrideSubmit = (
     marksOverrideDraft?: string,
@@ -2909,9 +2949,12 @@ export function AssignmentResultsDashboard({
                     <div className="flex h-full flex-col gap-3 overflow-y-auto pr-1">
                       <div className="rounded-md border border-border/60 bg-muted/40 p-3">
                         <div className="flex items-center justify-between">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                            Automatic score
-                          </p>
+                          <div className="flex items-center gap-2">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                              Automatic score
+                            </p>
+                            {(() => { const latestAttempt = attempts.length ? attempts[attempts.length - 1] : null; return <MarkStatusChip status={latestAttempt?.mark_status ?? null} markError={latestAttempt?.mark_error} markedAt={latestAttempt?.submitted_at} /> })()}
+                          </div>
                           <Button
                             variant="outline"
                             size="sm"
@@ -3029,11 +3072,7 @@ export function AssignmentResultsDashboard({
                               <span className="font-semibold text-foreground">
                                 Attempt {attempt.attempt_number}
                               </span>
-                              <span className="text-xs text-muted-foreground">
-                                {attempt.submitted_at
-                                  ? new Date(attempt.submitted_at).toLocaleString()
-                                  : "N/A"}
-                              </span>
+                              <MarkStatusChip status={attempt.mark_status ?? null} markError={attempt.mark_error} markedAt={attempt.submitted_at} />
                             </div>
                           </button>
                         ))
@@ -3972,9 +4011,12 @@ export function AssignmentResultsDashboard({
                       <div className="flex h-full flex-col gap-3 overflow-y-auto pr-1">
                         <div className="rounded-md border border-border/60 bg-muted/40 p-3">
                           <div className="flex items-center justify-between">
-                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                              Automatic score
-                            </p>
+                            <div className="flex items-center gap-2">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                Automatic score
+                              </p>
+                              {(() => { const latestAttempt = attempts.length ? attempts[attempts.length - 1] : null; return <MarkStatusChip status={latestAttempt?.mark_status ?? null} markError={latestAttempt?.mark_error} markedAt={latestAttempt?.submitted_at} /> })()}
+                            </div>
                             <Button
                               variant="outline"
                               size="sm"
@@ -4090,11 +4132,7 @@ export function AssignmentResultsDashboard({
                                 <span className="font-semibold text-foreground">
                                   Attempt {attempt.attempt_number}
                                 </span>
-                                <span className="text-xs text-muted-foreground">
-                                  {attempt.submitted_at
-                                    ? new Date(attempt.submitted_at).toLocaleString()
-                                    : "N/A"}
-                                </span>
+                                <MarkStatusChip status={attempt.mark_status ?? null} markError={attempt.mark_error} markedAt={attempt.submitted_at} />
                               </div>
                             </button>
                           ))

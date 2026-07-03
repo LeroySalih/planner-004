@@ -47,7 +47,10 @@ export async function POST(request: Request) {
     try {
       const { rows } = await import("@/lib/db").then((m) =>
         m.query(
-          "SELECT count(*) FROM ai_marking_queue WHERE status = 'pending' AND attempts < 3",
+          `select
+             (select count(*) from ai_marking_queue q join submissions s on s.submission_id=q.submission_id where s.mark_status='waiting' and q.process_after<=now() and q.attempts<3)
+           + (select count(*) from ai_marking_queue q join revision_answers r on r.answer_id=q.submission_id::uuid where q.assignment_id='revision' and r.status='pending_marking' and q.process_after<=now() and q.attempts<3)
+             as count`,
         )
       );
       remaining = parseInt(rows[0].count as string, 10);

@@ -5,7 +5,8 @@ import { toast } from "sonner"
 import { CheckCircle2, Loader2, Upload, X } from "lucide-react"
 
 import type { LessonActivity } from "@/types"
-import { UploadWorksheetSubmissionBodySchema, type WorksheetOcrStatus } from "@/types"
+import { UploadWorksheetSubmissionBodySchema } from "@/types"
+import type { MarkStatus } from "@/dino.config"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { getRichTextMarkup } from "@/components/lessons/activity-view/utils"
@@ -85,11 +86,11 @@ export function PupilUploadWorksheetActivity({
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const uploadInProgress = useRef(false)
 
-  // OCR state — populated from latest submission
-  const [ocrStatus, setOcrStatus] = useState<WorksheetOcrStatus | null>(null)
+  // Mark status — populated from latest submission column
+  const [markStatus, setMarkStatus] = useState<MarkStatus | null>(null)
   const [imageUrls, setImageUrls] = useState<Array<{ url: string; name: string }>>([])
   const [draftText, setDraftText] = useState("")
-  const [ocrError, setOcrError] = useState<string | null>(null)
+  const [markError, setMarkError] = useState<string | null>(null)
   const [latestSubmissionId, setLatestSubmissionId] = useState<string | null>(null)
   const latestSubmissionIdRef = useRef<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -112,18 +113,19 @@ export function PupilUploadWorksheetActivity({
     setLatestSubmissionId(sub.submission_id)
     latestSubmissionIdRef.current = sub.submission_id
 
+    // Status and error come from the submission column, not body
+    if (sub.mark_status) {
+      setMarkStatus(sub.mark_status)
+    }
+
+    if (sub.mark_error) {
+      setMarkError(sub.mark_error)
+    }
+
     const parsed = UploadWorksheetSubmissionBodySchema.safeParse(sub.body)
     if (!parsed.success) return
 
     const body = parsed.data
-
-    if (body.ocr_status) {
-      setOcrStatus(body.ocr_status)
-    }
-
-    if (body.ocr_error) {
-      setOcrError(body.ocr_error)
-    }
 
     if (body.images && body.images.length > 0) {
       setImageUrls(
@@ -148,7 +150,7 @@ export function PupilUploadWorksheetActivity({
     void loadLatestSubmission()
   }, [loadLatestSubmission])
 
-  // SSE subscription for live ocr_status updates
+  // SSE subscription for live mark_status updates
   useEffect(() => {
     const source = new EventSource("/sse?topics=submissions")
 
@@ -164,7 +166,8 @@ export function PupilUploadWorksheetActivity({
       const payload = envelope.payload as {
         submissionId?: string
         activityId?: string
-        ocrStatus?: WorksheetOcrStatus
+        markStatus?: MarkStatus
+        markError?: string
       } | null
 
       if (!payload) return
@@ -174,8 +177,11 @@ export function PupilUploadWorksheetActivity({
         latestSubmissionIdRef.current != null && payload.submissionId === latestSubmissionIdRef.current
 
       if (matchesActivity || matchesSubmission) {
-        if (payload.ocrStatus) {
-          setOcrStatus(payload.ocrStatus)
+        if (payload.markStatus) {
+          setMarkStatus(payload.markStatus)
+        }
+        if (payload.markError) {
+          setMarkError(payload.markError)
         }
         // Re-load for the full body (extracted text, new submission id, etc.)
         void loadLatestSubmission()
@@ -278,8 +284,8 @@ export function PupilUploadWorksheetActivity({
             )
           }
 
-          // Set status to extracting while OCR runs
-          setOcrStatus("extracting")
+          // Set status to reading while OCR runs
+          setMarkStatus("reading")
           setDraftText("")
 
           // Reload to get latest submission ID for SSE matching
@@ -346,7 +352,7 @@ export function PupilUploadWorksheetActivity({
         return
       }
       toast.success("Saved — your answer is being re-marked.")
-      setOcrStatus("marking")
+      setMarkStatus("marking")
       if (result.data) {
         setLatestSubmissionId(result.data.submission_id)
         latestSubmissionIdRef.current = result.data.submission_id
@@ -363,7 +369,7 @@ export function PupilUploadWorksheetActivity({
   }, [])
 
   const hasImages = imageUrls.length > 0
-  const hasSubmission = ocrStatus !== null
+  const hasSubmission = markStatus !== null
 
   return (
     <div className="space-y-3 px-1">
@@ -459,7 +465,7 @@ export function PupilUploadWorksheetActivity({
         </p>
       )}
 
-      {/* OCR state section — shown when there is a submission */}
+      {/* Mark status section — shown when there is a submission */}
       {hasSubmission ? (
         <div className="space-y-3">
           {/* Thumbnails */}
@@ -479,19 +485,19 @@ export function PupilUploadWorksheetActivity({
             </div>
           ) : null}
 
-          {/* OCR status rendering */}
-          {ocrStatus === "extracting" ? (
+          {/* Mark status rendering */}
+          {markStatus === "reading" ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
               <span>Reading your work…</span>
             </div>
-          ) : ocrStatus === "error" ? (
+          ) : markStatus === "reading-error" || markStatus === "marking-error" ? (
             <div className="space-y-1">
               <p className="text-sm text-destructive">
-                {ocrError ?? "Couldn't read the images. Please try re-uploading."}
+                {markError ?? "Couldn't read the images. Please try re-uploading."}
               </p>
             </div>
-          ) : ocrStatus === "extracted" || ocrStatus === "marking" || ocrStatus === "marked" ? (
+          ) : markStatus === "waiting" || markStatus === "marking" || markStatus === "marked" ? (
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">
                 Extracted answer — you can correct any mistakes before re-marking
@@ -502,10 +508,10 @@ export function PupilUploadWorksheetActivity({
                 value={draftText}
                 onChange={(e) => setDraftText(e.target.value)}
               />
-              {ocrStatus === "marking" ? (
+              {markStatus === "waiting" || markStatus === "marking" ? (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  <span>Marking in progress…</span>
+                  <span>Marking…</span>
                 </div>
               ) : (
                 <Button
@@ -528,7 +534,7 @@ export function PupilUploadWorksheetActivity({
           ) : null}
         </div>
       ) : legacyFileName ? (
-        /* Legacy single-file fallback for old submissions without ocr_status */
+        /* Legacy single-file fallback for old submissions without mark_status */
         <div className="flex items-center gap-3 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-800 dark:bg-green-900/20 dark:text-green-100">
           {legacyFileUrl ? (
             <button
