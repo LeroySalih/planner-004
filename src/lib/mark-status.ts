@@ -29,6 +29,9 @@ export function markStatusLabel(
     case "marking-error":
       return { label: "Marking error", tone: "error" };
     default:
-      return { label: "—", tone: "pending" };
+      // Unknown/legacy attempts with no status: fall back to a neutral date
+      // pill so the row still shows its date once (the separate date column is
+      // removed to avoid showing the date twice).
+      return { label: markedAt ? formatDate(markedAt) : "—", tone: "pending" };
   }
 }

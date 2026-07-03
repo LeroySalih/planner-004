@@ -3072,14 +3072,7 @@ export function AssignmentResultsDashboard({
                               <span className="font-semibold text-foreground">
                                 Attempt {attempt.attempt_number}
                               </span>
-                              <div className="flex items-center gap-2">
-                                <MarkStatusChip status={attempt.mark_status ?? null} markError={attempt.mark_error} markedAt={attempt.mark_status === "marked" ? attempt.submitted_at : null} />
-                                <span className="text-xs text-muted-foreground">
-                                  {attempt.submitted_at
-                                    ? new Date(attempt.submitted_at).toLocaleString()
-                                    : "N/A"}
-                                </span>
-                              </div>
+                              <MarkStatusChip status={attempt.mark_status ?? null} markError={attempt.mark_error} markedAt={attempt.submitted_at} />
                             </div>
                           </button>
                         ))
@@ -4139,14 +4132,7 @@ export function AssignmentResultsDashboard({
                                 <span className="font-semibold text-foreground">
                                   Attempt {attempt.attempt_number}
                                 </span>
-                                <div className="flex items-center gap-2">
-                                  <MarkStatusChip status={attempt.mark_status ?? null} markError={attempt.mark_error} markedAt={attempt.mark_status === "marked" ? attempt.submitted_at : null} />
-                                  <span className="text-xs text-muted-foreground">
-                                    {attempt.submitted_at
-                                      ? new Date(attempt.submitted_at).toLocaleString()
-                                      : "N/A"}
-                                  </span>
-                                </div>
+                                <MarkStatusChip status={attempt.mark_status ?? null} markError={attempt.mark_error} markedAt={attempt.submitted_at} />
                               </div>
                             </button>
                           ))
