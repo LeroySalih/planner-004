@@ -1270,16 +1270,14 @@ export async function editWorksheetTextAction(input: {
     const newBody = UploadWorksheetSubmissionBodySchema.parse({
       images: sourceParsed.data.images,
       extractedText: input.text,
-      ocr_status: "marking",
-      ocr_error: null,
       is_correct: false,
       success_criteria_scores: {},
     });
 
     const attemptNumber = await getNextAttemptNumber(input.activityId, input.userId);
     const { rows: inserted } = await query(
-      `insert into submissions (activity_id, user_id, attempt_number, body, submitted_at, submission_status)
-       values ($1, $2, $3, $4, now(), 'submitted')
+      `insert into submissions (activity_id, user_id, attempt_number, body, submitted_at, submission_status, mark_status)
+       values ($1, $2, $3, $4, now(), 'submitted', 'waiting')
        returning *`,
       [input.activityId, input.userId, attemptNumber, newBody],
     );
@@ -1297,7 +1295,8 @@ export async function editWorksheetTextAction(input: {
     void emitSubmissionEvent("submission.updated", {
       submissionId: created.submission_id,
       activityId: input.activityId,
-      ocrStatus: "marking",
+      pupilId: input.userId,
+      markStatus: "waiting",
     });
     return { success: true, error: null, data: created };
   } catch (err) {

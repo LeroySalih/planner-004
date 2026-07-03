@@ -194,6 +194,12 @@ export async function POST(request: Request) {
     try {
       await enqueueMarkingTasks(groupAssignmentId, [{ submissionId }])
       await triggerQueueProcessor()
+      void emitSubmissionEvent("submission.updated", {
+        submissionId,
+        activityId,
+        pupilId: userId,
+        markStatus: "waiting",
+      })
     } catch (err) {
       console.error(`${tag} Failed to enqueue AI marking (non-fatal)`, err)
     }

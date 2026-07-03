@@ -149,8 +149,6 @@ export async function POST(request: Request) {
       const submissionBody = UploadWorksheetSubmissionBodySchema.parse({
         images,
         extractedText: null,
-        ocr_status: "extracting",
-        ocr_error: null,
         is_correct: false,
         success_criteria_scores: {},
       })
@@ -158,8 +156,8 @@ export async function POST(request: Request) {
       const attemptNumber = await getNextAttemptNumber(activityId, userId)
       const { rows: newRows } = await client.query(
         `
-          insert into submissions (activity_id, user_id, attempt_number, body, submitted_at, submission_status)
-          values ($1, $2, $3, $4, $5, 'submitted')
+          insert into submissions (activity_id, user_id, attempt_number, body, submitted_at, submission_status, mark_status)
+          values ($1, $2, $3, $4, $5, 'submitted', 'reading')
           returning submission_id
         `,
         [activityId, userId, attemptNumber, submissionBody, submittedAt],
@@ -177,12 +175,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: "Unable to record submission." }, { status: 500 })
     }
 
-    // Emit SSE so the pupil UI transitions to "extracting" immediately after insert.
+    // Emit SSE so the pupil UI transitions to "reading" immediately after insert.
     if (submissionId) {
       void emitSubmissionEvent("submission.updated", {
         submissionId,
         activityId,
-        ocrStatus: "extracting",
+        pupilId: userId,
+        markStatus: "reading",
       })
     }
 
@@ -213,21 +212,16 @@ export async function POST(request: Request) {
           images: ocrImages,
         })
       } catch (err) {
-        // Read failure OR invoke failure: mark submission as ocr_status "error".
+        // Read failure OR invoke failure: mark submission as reading-error.
         // Do NOT remove storage (images are valid) and do NOT return 500.
-        console.error(`${tag} OCR read/invoke failed — setting ocr_status error`, err)
+        console.error(`${tag} OCR read/invoke failed — setting mark_status reading-error`, err)
         try {
-          const errBody = UploadWorksheetSubmissionBodySchema.parse({
-            images,
-            extractedText: null,
-            ocr_status: "error",
-            ocr_error: "Could not read images. Please try re-uploading.",
-            is_correct: false,
-            success_criteria_scores: {},
-          })
-          await client.query(`update submissions set body = $1 where submission_id = $2`, [errBody, submissionId])
+          await client.query(
+            `update submissions set mark_status = 'reading-error', mark_error = $1 where submission_id = $2`,
+            ["Could not read images. Please try re-uploading.", submissionId],
+          )
         } catch (updateErr) {
-          console.error(`${tag} Failed to update submission to ocr_status error`, updateErr)
+          console.error(`${tag} Failed to update submission to reading-error`, updateErr)
         }
       }
     }

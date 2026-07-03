@@ -82,8 +82,8 @@ export async function POST(request: Request) {
   }
   const { submission_id, text, group_assignment_id } = parsed.data;
 
-  const { rows } = await query<{ body: unknown; activity_id: string }>(
-    `select body, activity_id from submissions where submission_id = $1 limit 1`,
+  const { rows } = await query<{ body: unknown; activity_id: string; user_id: string }>(
+    `select body, activity_id, user_id from submissions where submission_id = $1 limit 1`,
     [submission_id],
   );
   const row = rows?.[0];
@@ -91,22 +91,30 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Submission not found." }, { status: 404 });
   }
 
-  const currentBody = UploadWorksheetSubmissionBodySchema.parse(row.body ?? {});
+  const currentBody = UploadWorksheetSubmissionBodySchema.safeParse(row.body ?? {});
+  if (!currentBody.success) {
+    // Not a worksheet submission or invalid body — mark as reading-error
+    await query(
+      `update submissions set mark_status = 'reading-error', mark_error = $1 where submission_id = $2`,
+      ["Invalid submission body.", submission_id],
+    );
+    return NextResponse.json({ error: "Invalid submission body." }, { status: 400 });
+  }
+
   const nextBody = UploadWorksheetSubmissionBodySchema.parse({
-    ...currentBody,
+    ...currentBody.data,
     extractedText: normaliseOcrText(text),
-    ocr_status: "marking",
-    ocr_error: null,
   });
-  await query(`update submissions set body = $1 where submission_id = $2`, [
-    nextBody,
-    submission_id,
-  ]);
+  await query(
+    `update submissions set body = $1, mark_status = 'waiting', mark_error = null where submission_id = $2`,
+    [nextBody, submission_id],
+  );
 
   void emitSubmissionEvent("submission.updated", {
     submissionId: submission_id,
     activityId: row.activity_id,
-    ocrStatus: "marking",
+    pupilId: row.user_id,
+    markStatus: "waiting",
   });
 
   // Auto-forward the transcript to the existing marking pipeline.
