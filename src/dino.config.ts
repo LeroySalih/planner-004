@@ -61,6 +61,23 @@ export function assertSummativeEligibleActivityType(
   }
 }
 
+export const MARK_STATUSES = Object.freeze([
+  "waiting",
+  "reading",
+  "marking",
+  "marked",
+  "reading-error",
+  "marking-error",
+] as const);
+
+export type MarkStatus = (typeof MARK_STATUSES)[number];
+
+const MARK_STATUS_SET: ReadonlySet<string> = new Set(MARK_STATUSES);
+
+export function isMarkStatus(value: unknown): value is MarkStatus {
+  return typeof value === "string" && MARK_STATUS_SET.has(value);
+}
+
 // Activity types shown to unauthenticated public visitors.
 // Excludes interactive/pupil-specific types (file-download, share-my-work,
 // review-others-work, voice) even though they are non-scorable.
