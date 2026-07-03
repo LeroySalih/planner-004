@@ -364,15 +364,18 @@ async function processSingleItem(
       error: errorMessage,
     });
 
-    await query(
-      `update ai_marking_queue set attempts = attempts + 1, last_error = $1, updated_at = now(), process_after = now() + interval '30 seconds' where submission_id = $2`,
+    const { rows: bumped } = await query<{ attempts: number }>(
+      `update ai_marking_queue
+         set attempts = attempts + 1,
+             last_error = $1,
+             process_after = now() + interval '30 seconds',
+             updated_at = now()
+       where submission_id = $2
+       returning attempts`,
       [errorMessage, item.submission_id],
     );
-    const { rows: attemptRows } = await query<{ attempts: number }>(
-      `select attempts from ai_marking_queue where submission_id=$1`,
-      [item.submission_id],
-    );
-    if ((attemptRows[0]?.attempts ?? 3) >= 3) {
+    const attemptsNow = bumped[0]?.attempts ?? 3;
+    if (attemptsNow >= 3) {
       await query(
         `update submissions set mark_status='marking-error', mark_error=$1 where submission_id=$2`,
         [errorMessage, item.submission_id],
