@@ -599,13 +599,18 @@ async function applyAiMarkToSubmission({
     [nextBody, submission.submission_id],
   );
 
-  if (activityType === UPLOAD_WORKSHEET_ACTIVITY_TYPE) {
-    void emitSubmissionEvent("submission.updated", {
-      submissionId: submission.submission_id,
-      activityId,
-      ocrStatus: "marked",
-    })
-  }
+  await query(
+    `update submissions set mark_status='marked', mark_error=null where submission_id=$1`,
+    [submission.submission_id],
+  );
+
+  void emitSubmissionEvent("submission.updated", {
+    submissionId: submission.submission_id,
+    activityId,
+    pupilId,
+    markStatus: "marked",
+    markedAt: new Date().toISOString(),
+  });
 
   await insertPupilActivityFeedbackEntry({
     activityId,
