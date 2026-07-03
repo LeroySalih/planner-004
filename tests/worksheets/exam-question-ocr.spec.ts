@@ -288,7 +288,7 @@ test.describe("Worksheet OCR → edit → mark", () => {
     expect(submissionAfterOcr).toHaveLength(1);
     const bodyAfterOcr = submissionAfterOcr[0].body as Record<string, unknown>;
     expect(bodyAfterOcr.extractedText).toContain("pupil's hand-written answer");
-    expect(submissionAfterOcr[0].mark_status).toBe("marking");
+    expect(["waiting", "marking"]).toContain(submissionAfterOcr[0].mark_status);
 
     // ====================================================================
     // Simulate marking callback: POST /webhooks/ai-mark

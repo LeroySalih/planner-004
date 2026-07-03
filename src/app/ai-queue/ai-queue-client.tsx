@@ -15,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { readAiMarkingQueueAction, retryQueueItemAction, processQueueAction, readAiMarkingLogsAction, clearAiMarkingQueueAction, clearAiMarkingLogsAction } from "@/lib/server-actions/ai-queue"
 import { toast } from "sonner"
 import { RefreshCw, RotateCcw, Play, MessageSquare, Activity, Trash2 } from "lucide-react"
+import { markStatusLabel } from "@/lib/mark-status"
 
 export default function AiQueuePage() {
   const [data, setData] = useState<any[]>([])
@@ -107,18 +108,19 @@ export default function AiQueuePage() {
     })
   }
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
+  const getStatusBadge = (markStatus: string | null | undefined) => {
+    const { label, tone } = markStatusLabel(markStatus as any)
+    switch (tone) {
       case "pending":
-        return <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">Pending</Badge>
-      case "processing":
-        return <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 animate-pulse">Processing</Badge>
-      case "completed":
-        return <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">Completed</Badge>
-      case "failed":
-        return <Badge variant="destructive">Failed</Badge>
+        return <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">{label}</Badge>
+      case "active":
+        return <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 animate-pulse">{label}</Badge>
+      case "done":
+        return <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">{label}</Badge>
+      case "error":
+        return <Badge variant="destructive">{label}</Badge>
       default:
-        return <Badge variant="secondary">{status}</Badge>
+        return <Badge variant="secondary">{label}</Badge>
     }
   }
 
@@ -151,7 +153,7 @@ export default function AiQueuePage() {
             <Trash2 className="h-4 w-4 mr-2" />
             Clear Queue
           </Button>
-          <Button variant="default" size="sm" onClick={handleProcessQueue} disabled={isLoading || isPending || stats.pending === 0}>
+          <Button variant="default" size="sm" onClick={handleProcessQueue} disabled={isLoading || isPending || !stats.waiting}>
             <Play className="h-4 w-4 mr-2" />
             Process Queue
           </Button>
@@ -162,22 +164,18 @@ export default function AiQueuePage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <div className="p-4 rounded-lg border bg-card shadow-sm">
-          <p className="text-xs font-medium text-muted-foreground uppercase">Pending</p>
-          <p className="text-2xl font-bold">{stats.pending || 0}</p>
+          <p className="text-xs font-medium text-muted-foreground uppercase">Waiting</p>
+          <p className="text-2xl font-bold">{stats.waiting || 0}</p>
         </div>
         <div className="p-4 rounded-lg border bg-card shadow-sm">
-          <p className="text-xs font-medium text-muted-foreground uppercase">Processing</p>
-          <p className="text-2xl font-bold">{stats.processing || 0}</p>
+          <p className="text-xs font-medium text-muted-foreground uppercase">Marking</p>
+          <p className="text-2xl font-bold">{stats.marking || 0}</p>
         </div>
         <div className="p-4 rounded-lg border bg-card shadow-sm">
-          <p className="text-xs font-medium text-muted-foreground uppercase">Completed</p>
-          <p className="text-2xl font-bold">{stats.completed || 0}</p>
-        </div>
-        <div className="p-4 rounded-lg border bg-card shadow-sm text-destructive">
-          <p className="text-xs font-medium uppercase">Failed</p>
-          <p className="text-2xl font-bold">{stats.failed || 0}</p>
+          <p className="text-xs font-medium text-muted-foreground uppercase">Total in Queue</p>
+          <p className="text-2xl font-bold">{stats.total || 0}</p>
         </div>
       </div>
 
@@ -223,7 +221,7 @@ export default function AiQueuePage() {
                       <TableCell className="max-w-[200px] truncate" title={item.activity_title}>
                         {item.activity_title}
                       </TableCell>
-                      <TableCell>{getStatusBadge(item.status)}</TableCell>
+                      <TableCell>{getStatusBadge(item.mark_status)}</TableCell>
                       <TableCell>{item.attempts}</TableCell>
                       <TableCell className="text-xs whitespace-nowrap">
                         {new Date(item.created_at).toLocaleString()}
@@ -232,7 +230,7 @@ export default function AiQueuePage() {
                         {item.last_error || "—"}
                       </TableCell>
                       <TableCell className="text-right">
-                        {item.status === "failed" && (
+                        {item.mark_status === "marking-error" && (
                           <Button 
                             variant="ghost" 
                             size="sm" 

@@ -22,17 +22,21 @@ UPDATE public.submissions
 SET mark_error = (body::jsonb ->> 'ocr_error')
 WHERE mark_error IS NULL AND (body::jsonb ->> 'ocr_error') IS NOT NULL;
 
--- Queue: deduplicate (keep newest created_at per submission_id), then drop status
--- column + its indexes/constraint; add plain unique on submission_id.
-DELETE FROM public.ai_marking_queue a
-USING (
-  SELECT submission_id, max(created_at) AS keep_created_at
-  FROM public.ai_marking_queue
-  GROUP BY submission_id
-  HAVING count(*) > 1
-) dedup
-WHERE a.submission_id = dedup.submission_id
-  AND a.created_at < dedup.keep_created_at;
+-- Queue: deduplicate (keep newest created_at per submission_id; use ctid as
+-- tiebreaker so exactly one row survives even when timestamps are identical),
+-- then drop status column + its indexes/constraint; add plain unique on submission_id.
+DELETE FROM public.ai_marking_queue
+WHERE ctid IN (
+  SELECT ctid FROM (
+    SELECT ctid,
+           row_number() OVER (
+             PARTITION BY submission_id
+             ORDER BY created_at DESC, ctid DESC
+           ) AS rn
+    FROM public.ai_marking_queue
+  ) ranked
+  WHERE rn > 1
+);
 
 DROP INDEX IF EXISTS idx_ai_marking_queue_unique_active;
 DROP INDEX IF EXISTS idx_ai_marking_queue_status;

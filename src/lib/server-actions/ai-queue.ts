@@ -12,12 +12,14 @@ export async function readAiMarkingQueueAction() {
   try {
     const { rows } = await query(
       `
-      SELECT 
+      SELECT
         q.*,
         COALESCE(p.first_name, rp.first_name) as first_name,
         COALESCE(p.last_name, rp.last_name) as last_name,
         COALESCE(a.title, ra_act.title) as activity_title,
-        CASE WHEN q.assignment_id = 'revision' THEN 'Revision' ELSE 'Lesson' END as source_type
+        CASE WHEN q.assignment_id = 'revision' THEN 'Revision' ELSE 'Lesson' END as source_type,
+        s.mark_status,
+        s.mark_error
       FROM ai_marking_queue q
       -- Regular submissions
       LEFT JOIN submissions s ON s.submission_id = q.submission_id AND q.assignment_id != 'revision'
@@ -29,8 +31,8 @@ export async function readAiMarkingQueueAction() {
       LEFT JOIN revisions r ON r.revision_id = ra.revision_id
       LEFT JOIN profiles rp ON rp.user_id = r.pupil_id
       LEFT JOIN activities ra_act ON ra_act.activity_id = ra.activity_id
-      
-      ORDER BY q.created_at DESC
+
+      ORDER BY q.process_after ASC
       LIMIT 100
       `,
     );
