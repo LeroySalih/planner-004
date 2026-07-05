@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Computing Through the Ages</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,300;0,400;0,700;1,300;1,400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --cream: #f0e8d8;
+    --paper: #f8f2e6;
+    --border: #d8cbb4;
+    --ink: #2b2620;
+    --ink-muted: #5c5344;
+    --ink-soft: #6b6152;
+    --amber: #b45f28;
+    --pro: #5f7a4f;
+    --con: #a34a2f;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--cream);
+    color: var(--ink);
+    font-family: 'Spectral', Georgia, serif;
+    font-weight: 300;
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+
+  .mono {
+    font-family: 'Space Mono', monospace;
+  }
+
+  /* ---------- Top bar ---------- */
+  .topbar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.7rem 1.6rem;
+    background: rgba(240, 232, 216, 0.82);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .topbar-title {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    white-space: nowrap;
+  }
+
+  .motion-picker {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+  }
+
+  .motion-picker .picker-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.62rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+
+  .segmented {
+    display: flex;
+    border: 1px solid var(--border);
+    background: var(--paper);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .segmented button {
+    appearance: none;
+    border: none;
+    background: transparent;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.64rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    padding: 0.45rem 0.85rem;
+    cursor: pointer;
+    border-right: 1px solid var(--border);
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .segmented button:last-child { border-right: none; }
+
+  .segmented button:hover { color: var(--ink); }
+
+  .segmented button.active {
+    background: var(--amber);
+    color: var(--paper);
+  }
+
+  /* ---------- Hero ---------- */
+  .hero {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 6rem 1.5rem 4rem;
+  }
+
+  .hero .kicker {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.32em;
+    text-transform: uppercase;
+    color: var(--amber);
+    margin-bottom: 1.6rem;
+  }
+
+  .hero h1 {
+    font-weight: 700;
+    font-size: clamp(2.6rem, 7vw, 5.2rem);
+    line-height: 1.05;
+    max-width: 14ch;
+    text-wrap: balance;
+    margin-bottom: 1.8rem;
+  }
+
+  .hero .intro {
+    font-size: clamp(1rem, 1.6vw, 1.2rem);
+    color: var(--ink-muted);
+    max-width: 52ch;
+    text-wrap: pretty;
+    margin-bottom: 4rem;
+  }
+
+  .scroll-cue {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.62rem;
+    letter-spacing: 0.3em;
+    color: var(--ink-soft);
+  }
+
+  .scroll-cue .arrow {
+    font-size: 1.1rem;
+    animation: bounce 1.6s ease-in-out infinite;
+  }
+
+  @keyframes bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(9px); }
+  }
+
+  /* ---------- Device sections ---------- */
+  .device-section {
+    height: 230vh;
+    position: relative;
+  }
+
+  .scene {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .giant-num {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -54%);
+    font-family: 'Space Mono', monospace;
+    font-weight: 700;
+    font-size: clamp(20rem, 55vw, 46rem);
+    color: rgba(43, 38, 32, 0.045);
+    user-select: none;
+    pointer-events: none;
+    line-height: 1;
+  }
+
+  .scene-inner {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 6fr) minmax(0, 5fr);
+    gap: clamp(1.5rem, 4vw, 4rem);
+    align-items: center;
+    width: min(1180px, calc(100vw - 8.5rem));
+    padding: 4.5rem 0 2rem;
+  }
+
+  .panel {
+    will-change: transform, opacity;
+  }
+
+  /* ---------- Image placeholder ---------- */
+  .img-placeholder {
+    position: relative;
+    aspect-ratio: 4 / 3;
+    border: 1px solid var(--border);
+    background:
+      repeating-linear-gradient(
+        45deg,
+        var(--paper),
+        var(--paper) 9px,
+        #f1ead9 9px,
+        #f1ead9 18px
+      );
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.85rem;
+  }
+
+  .fig-tag, .photo-tag {
+    position: absolute;
+    top: 0.75rem;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.6rem;
+    letter-spacing: 0.14em;
+    color: var(--ink-soft);
+    background: var(--paper);
+    border: 1px solid var(--border);
+    padding: 0.22rem 0.55rem;
+  }
+
+  .fig-tag { left: 0.75rem; }
+  .photo-tag { right: 0.75rem; }
+
+  .device-icon {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--cream);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ink-muted);
+  }
+
+  .device-icon svg {
+    width: 34px;
+    height: 34px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .img-device-name {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+  }
+
+  .img-caption {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.6rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    opacity: 0.75;
+  }
+
+  /* ---------- Text card ---------- */
+  .text-card {
+    background: var(--paper);
+    border: 1px solid var(--border);
+    padding: clamp(1.4rem, 2.6vw, 2.4rem) clamp(1.4rem, 2.8vw, 2.6rem);
+    box-shadow: 0 1px 0 rgba(43, 38, 32, 0.04);
+  }
+
+  .card-meta {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.7rem;
+    margin-bottom: 1.1rem;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.62rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+
+  .card-meta .era { color: var(--amber); font-weight: 700; }
+
+  .text-card h2 {
+    font-weight: 700;
+    font-size: clamp(1.7rem, 3vw, 2.5rem);
+    line-height: 1.12;
+    text-wrap: balance;
+    margin-bottom: 0.35rem;
+  }
+
+  .tagline {
+    font-style: italic;
+    font-weight: 400;
+    color: var(--amber);
+    font-size: clamp(0.98rem, 1.5vw, 1.15rem);
+    margin-bottom: 1rem;
+  }
+
+  .description {
+    font-size: clamp(0.9rem, 1.25vw, 1rem);
+    color: var(--ink-muted);
+    text-wrap: pretty;
+    margin-bottom: 1.4rem;
+  }
+
+  .proscons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 clamp(1rem, 2vw, 2rem);
+  }
+
+  .pc-col h3 {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.4rem;
+    margin-bottom: 0.6rem;
+  }
+
+  .pc-col.pros h3 { color: var(--pro); }
+  .pc-col.cons h3 { color: var(--con); }
+
+  .pc-col ul {
+    list-style: none;
+  }
+
+  .pc-col li {
+    position: relative;
+    padding-left: 1.05rem;
+    font-size: clamp(0.82rem, 1.1vw, 0.92rem);
+    color: var(--ink-muted);
+    margin-bottom: 0.45rem;
+    line-height: 1.45;
+    text-wrap: pretty;
+  }
+
+  .pc-col li::before {
+    content: "▸";
+    position: absolute;
+    left: 0;
+    top: 0;
+    font-size: 0.72rem;
+  }
+
+  .pc-col.pros li::before { color: var(--pro); }
+  .pc-col.cons li::before { color: var(--con); }
+
+  /* ---------- Timeline nav ---------- */
+  .timeline-nav {
+    position: fixed;
+    right: 1.4rem;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 90;
+    display: flex;
+    flex-direction: column;
+    gap: 1.05rem;
+  }
+
+  .timeline-nav a {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.55rem;
+    text-decoration: none;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.62rem;
+    letter-spacing: 0.12em;
+    color: var(--ink-soft);
+    transition: color 0.2s;
+  }
+
+  .timeline-nav a .tick {
+    display: block;
+    width: 14px;
+    height: 1px;
+    background: var(--ink-soft);
+    transition: width 0.2s, background 0.2s;
+  }
+
+  .timeline-nav a.active {
+    color: var(--amber);
+    font-weight: 700;
+  }
+
+  .timeline-nav a.active .tick {
+    width: 30px;
+    height: 2px;
+    background: var(--amber);
+  }
+
+  /* ---------- Footer ---------- */
+  .exhibit-footer {
+    min-height: 46vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    text-align: center;
+    padding: 4rem 1.5rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .exhibit-footer .end-mark {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.34em;
+    text-transform: uppercase;
+    color: var(--amber);
+  }
+
+  .exhibit-footer p {
+    color: var(--ink-soft);
+    font-size: 0.95rem;
+    max-width: 44ch;
+    text-wrap: pretty;
+  }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 880px) {
+    .timeline-nav { display: none; }
+
+    .scene { overflow-y: auto; }
+
+    .scene-inner {
+      grid-template-columns: 1fr;
+      width: calc(100vw - 2.6rem);
+      gap: 1.2rem;
+      padding-top: 4.2rem;
+    }
+
+    .img-placeholder { max-height: 34vh; }
+
+    .topbar { flex-wrap: wrap; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .scroll-cue .arrow { animation: none; }
+  }
+</style>
+</head>
+<body>
+
+  <!-- Top bar with motion-style selector -->
+  <header class="topbar">
+    <span class="topbar-title">Computing Through the Ages</span>
+    <div class="motion-picker">
+      <span class="picker-label">Motion</span>
+      <div class="segmented" role="group" aria-label="Motion style">
+        <button type="button" data-preset="subtle" class="active">Subtle</button>
+        <button type="button" data-preset="bold">Bold + Scale</button>
+        <button type="button" data-preset="snappy">Snappy</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero -->
+  <section class="hero" id="hero">
+    <p class="kicker">A Field Guide to Digital Devices</p>
+    <h1>Computing Through the Ages</h1>
+    <p class="intro">
+      Six machines, six eras, one story: how the computer shrank from a
+      room-filling giant into the glass rectangle in your pocket. Scroll to
+      walk the exhibit.
+    </p>
+    <div class="scroll-cue">
+      <span class="arrow">↓</span>
+      <span>Scroll</span>
+    </div>
+  </section>
+
+  <!-- Device scenes are generated by script from DEVICES data -->
+  <main id="exhibit"></main>
+
+  <!-- Timeline nav -->
+  <nav class="timeline-nav" id="timeline" aria-label="Device timeline"></nav>
+
+  <!-- Footer -->
+  <footer class="exhibit-footer">
+    <span class="end-mark">— End of Exhibit —</span>
+    <p>
+      From the mainframe hall to the palm of your hand: every device here
+      still computes the same way — it just found a new place to live.
+    </p>
+  </footer>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ------------------------------------------------------------------ *
+   *  Data
+   * ------------------------------------------------------------------ */
+
+  var ICONS = {
+    mainframe:
+      '<svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="1"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="8" y1="10" x2="16" y2="10"/><circle cx="9" cy="16" r="1"/><circle cx="12" cy="16" r="1"/><circle cx="15" cy="16" r="1"/></svg>',
+    desktop:
+      '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="1"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="16" x2="12" y2="20"/></svg>',
+    laptop:
+      '<svg viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="10" rx="1"/><path d="M3 19h18l-2-4H5z"/></svg>',
+    pi:
+      '<svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="1"/><line x1="7" y1="6" x2="7" y2="3"/><line x1="11" y1="6" x2="11" y2="3"/><line x1="15" y1="6" x2="15" y2="3"/><circle cx="9" cy="12" r="2"/><rect x="14" y="10" width="3" height="4"/></svg>',
+    tablet:
+      '<svg viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="18" rx="2"/><line x1="10" y1="18" x2="14" y2="18"/></svg>',
+    smartphone:
+      '<svg viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="20" rx="2"/><line x1="11" y1="19" x2="13" y2="19"/></svg>'
+  };
+
+  var DEVICES = [
+    {
+      id: "mainframe",
+      name: "Mainframe",
+      year: "1951",
+      era: "The Institutional Era",
+      tagline: "The room that ran the world.",
+      description:
+        "Large, immensely powerful computers built to process huge volumes of data and transactions with near-continuous uptime. Banks, airlines and governments still trust them today with their most critical work.",
+      pros: [
+        "Handles millions of transactions per hour",
+        "Legendary reliability and uptime",
+        "Strong built-in security",
+        "Serves thousands of users at once"
+      ],
+      cons: [
+        "Extremely expensive to buy and run",
+        "Needs specialised operators",
+        "Massive physical footprint",
+        "Not a personal device"
+      ]
+    },
+    {
+      id: "desktop",
+      name: "Desktop PC",
+      year: "1977",
+      era: "The Personal Era",
+      tagline: "Power that stays put.",
+      description:
+        "The computer that moved out of the machine hall and onto the desk. A modular box of parts you can open, upgrade and repair — still the best value per unit of raw computing power.",
+      pros: [
+        "Great performance for the price",
+        "Easy to upgrade and repair",
+        "Full-size display and input devices",
+        "Excellent cooling for sustained work"
+      ],
+      cons: [
+        "Not portable",
+        "Takes up desk space",
+        "Needs a wall outlet",
+        "Peripherals sold separately"
+      ]
+    },
+    {
+      id: "laptop",
+      name: "Laptop",
+      year: "1981",
+      era: "The Portable Era",
+      tagline: "The office in a bag.",
+      description:
+        "Screen, keyboard, battery and computer folded into one hinged slab. The laptop traded a little raw power for something new: the freedom to take serious work anywhere.",
+      pros: [
+        "Portable all-in-one design",
+        "Runs on battery power",
+        "Good balance of power and size",
+        "Built-in keyboard, screen and camera"
+      ],
+      cons: [
+        "Harder to upgrade than a desktop",
+        "Pricier than an equal desktop",
+        "Limited cooling under heavy load",
+        "Batteries wear out over time"
+      ]
+    },
+    {
+      id: "pi",
+      name: "Raspberry Pi",
+      year: "2012",
+      era: "The Embedded Era",
+      tagline: "A whole computer on one board.",
+      description:
+        "A credit-card-sized single-board computer that costs less than a textbook. Its exposed pins connect software directly to motors, sensors and lights — putting real computing inside almost anything.",
+      pros: [
+        "Cheap and low-power",
+        "GPIO pins connect to real hardware",
+        "Compact and embeddable",
+        "Brilliant for learning computing"
+      ],
+      cons: [
+        "Limited processing power",
+        "Relies on SD-card storage",
+        "Fragile bare circuit board",
+        "Not suited to heavy workloads"
+      ]
+    },
+    {
+      id: "tablet",
+      name: "Tablet",
+      year: "2010",
+      era: "The Touch Era",
+      tagline: "Touch is the interface.",
+      description:
+        "A bare sheet of glass that becomes whatever app is on screen. By removing the keyboard and mouse entirely, the tablet made computing feel direct enough for a two-year-old — or a grandparent.",
+      pros: [
+        "Slim, light and portable",
+        "Intuitive touch interface",
+        "Long battery life",
+        "Great for media and note-taking"
+      ],
+      cons: [
+        "Limited multitasking",
+        "Awkward for long typing sessions",
+        "Less powerful than laptops",
+        "Difficult to repair"
+      ]
+    },
+    {
+      id: "smartphone",
+      name: "Smartphone",
+      year: "2007",
+      era: "The Pocket Era",
+      tagline: "The computer in your pocket.",
+      description:
+        "The most personal computer ever made: phone, camera, map, wallet, library and arcade in a single slab that never leaves your side. More people compute on these than on every other device combined.",
+      pros: [
+        "Always with you and connected",
+        "Powerful cameras and sensors",
+        "Huge app ecosystem",
+        "Replaces many devices in one"
+      ],
+      cons: [
+        "Small screen limits heavy work",
+        "Battery lasts about a day",
+        "Easy to lose or break",
+        "Privacy concerns follow you around"
+      ]
+    }
+  ];
+
+  /* ------------------------------------------------------------------ *
+   *  Motion presets
+   * ------------------------------------------------------------------ */
+
+  var PRESETS = {
+    subtle: { offset: 130, scale: 0.97, ease: 1.35, enterEnd: 0.34, exitStart: 0.66 },
+    bold:   { offset: 360, scale: 0.80, ease: 1.60, enterEnd: 0.34, exitStart: 0.66 },
+    snappy: { offset: 560, scale: 0.94, ease: 0.55, enterEnd: 0.30, exitStart: 0.70 }
+  };
+
+  var preset = PRESETS.subtle;
+
+  /* ------------------------------------------------------------------ *
+   *  Build scenes
+   * ------------------------------------------------------------------ */
+
+  var exhibit = document.getElementById("exhibit");
+  var timeline = document.getElementById("timeline");
+
+  DEVICES.forEach(function (d, i) {
+    var num = "0" + (i + 1);
+
+    var section = document.createElement("section");
+    section.className = "device-section";
+    section.id = "device-" + d.id;
+    section.innerHTML =
+      '<div class="scene">' +
+        '<div class="giant-num" aria-hidden="true">' + num + "</div>" +
+        '<div class="scene-inner">' +
+          '<div class="panel panel-img">' +
+            '<div class="img-placeholder">' +
+              '<span class="fig-tag">FIG. ' + num + "</span>" +
+              '<span class="photo-tag">◲ PHOTO</span>' +
+              '<div class="device-icon">' + ICONS[d.id] + "</div>" +
+              '<span class="img-device-name">' + d.name + "</span>" +
+              '<span class="img-caption">drop image here</span>' +
+            "</div>" +
+          "</div>" +
+          '<div class="panel panel-text">' +
+            '<div class="text-card">' +
+              '<div class="card-meta">' +
+                '<span class="era">' + d.era + "</span>" +
+                "<span>№ " + num + " · " + d.year + "</span>" +
+              "</div>" +
+              "<h2>" + d.name + "</h2>" +
+              '<p class="tagline">' + d.tagline + "</p>" +
+              '<p class="description">' + d.description + "</p>" +
+              '<div class="proscons">' +
+                '<div class="pc-col pros"><h3>＋ Pros</h3><ul>' +
+                  d.pros.map(function (p) { return "<li>" + p + "</li>"; }).join("") +
+                "</ul></div>" +
+                '<div class="pc-col cons"><h3>－ Cons</h3><ul>' +
+                  d.cons.map(function (c) { return "<li>" + c + "</li>"; }).join("") +
+                "</ul></div>" +
+              "</div>" +
+            "</div>" +
+          "</div>" +
+        "</div>" +
+      "</div>";
+    exhibit.appendChild(section);
+
+    var link = document.createElement("a");
+    link.href = "#device-" + d.id;
+    link.innerHTML = "<span>" + d.year + '</span><span class="tick"></span>';
+    link.addEventListener("click", function (e) {
+      e.preventDefault();
+      // Land partway into the section so the scene is pinned and settled.
+      var target = document.getElementById("device-" + d.id);
+      var rect = target.getBoundingClientRect();
+      var hold = (rect.height - window.innerHeight) / 2;
+      window.scrollTo({ top: window.scrollY + rect.top + hold, behavior: "smooth" });
+    });
+    timeline.appendChild(link);
+  });
+
+  var sections = Array.prototype.slice.call(
+    document.querySelectorAll(".device-section")
+  );
+  var navLinks = Array.prototype.slice.call(timeline.querySelectorAll("a"));
+  var panels = sections.map(function (s) {
+    return {
+      img: s.querySelector(".panel-img"),
+      text: s.querySelector(".panel-text")
+    };
+  });
+
+  /* ------------------------------------------------------------------ *
+   *  Preset switcher
+   * ------------------------------------------------------------------ */
+
+  var buttons = Array.prototype.slice.call(
+    document.querySelectorAll(".segmented button")
+  );
+  buttons.forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      buttons.forEach(function (b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+      preset = PRESETS[btn.dataset.preset];
+      scheduleUpdate();
+    });
+  });
+
+  /* ------------------------------------------------------------------ *
+   *  Scroll-driven animation (imperative, rAF-throttled)
+   * ------------------------------------------------------------------ */
+
+  var ticking = false;
+  var activeIndex = -1;
+  var reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function easeOut(t, power) {
+    // power < 1 → fast start (snappy); power > 1 → gentle start (subtle).
+    return 1 - Math.pow(1 - t, power);
+  }
+
+  // Returns "openness" 0 → 1 → 0 across enter / hold / exit.
+  function openness(p) {
+    if (p < preset.enterEnd) {
+      return easeOut(p / preset.enterEnd, preset.ease);
+    }
+    if (p > preset.exitStart) {
+      return 1 - easeOut((p - preset.exitStart) / (1 - preset.exitStart), preset.ease);
+    }
+    return 1;
+  }
+
+  function update() {
+    ticking = false;
+    var vh = window.innerHeight;
+    var bestIndex = -1;
+    var bestDist = Infinity;
+
+    for (var i = 0; i < sections.length; i++) {
+      var rect = sections[i].getBoundingClientRect();
+
+      // Track which scene is closest to being pinned on screen.
+      var mid = rect.top + rect.height / 2;
+      var dist = Math.abs(mid - vh / 2);
+      if (rect.top < vh && rect.bottom > 0 && dist < bestDist) {
+        bestDist = dist;
+        bestIndex = i;
+      }
+
+      // Skip transform work for fully off-screen sections.
+      if (rect.bottom < -200 || rect.top > vh + 200) continue;
+
+      var travel = rect.height - vh;
+      var p = travel > 0 ? Math.min(Math.max(-rect.top / travel, 0), 1) : 1;
+      var o = reducedMotion ? 1 : openness(p);
+      var shift = (1 - o) * preset.offset;
+      var scale = preset.scale + (1 - preset.scale) * o;
+      var opacity = 0.15 + 0.85 * o;
+
+      panels[i].img.style.transform =
+        "translateX(" + -shift + "px) scale(" + scale + ")";
+      panels[i].img.style.opacity = opacity;
+      panels[i].text.style.transform =
+        "translateX(" + shift + "px) scale(" + scale + ")";
+      panels[i].text.style.opacity = opacity;
+    }
+
+    if (bestIndex !== activeIndex) {
+      activeIndex = bestIndex;
+      navLinks.forEach(function (link, j) {
+        link.classList.toggle("active", j === bestIndex);
+      });
+    }
+  }
+
+  function scheduleUpdate() {
+    if (!ticking) {
+      ticking = true;
+      requestAnimationFrame(update);
+    }
+  }
+
+  window.addEventListener("scroll", scheduleUpdate, { passive: true });
+  window.addEventListener("resize", scheduleUpdate);
+  update();
+})();
+</script>
+</body>
+</html>
