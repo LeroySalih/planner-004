@@ -151,6 +151,44 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
+/* ── Pupil activity UI — "Warm Study" (1C) / feedback pattern "2A" ──────────
+   Design-token layer for the redesigned pupil activity screens. Prefixed
+   `pa-` so it never collides with the app's core theme. Generates utilities
+   such as bg-pa-card, text-pa-ink, border-pa-field-border, rounded-pa-card. */
+@theme {
+  --color-pa-green: #1f8a52;
+  --color-pa-green-tint: #eaf3ec;
+  --color-pa-green-panel: #f4faf5;
+  --color-pa-green-border: #dce8df;
+  --color-pa-ink: #16241c;
+  --color-pa-prose: #37413a;
+  --color-pa-card: #f3f6f1;
+  --color-pa-card-border: #e4eadf;
+  --color-pa-panel: #ffffff;
+  --color-pa-field: #fbfcfa;
+  --color-pa-field-border: #e1e5dd;
+  --color-pa-muted-1: #6e756b;
+  --color-pa-muted-2: #7c8378;
+  --color-pa-muted-3: #9aa096;
+  --color-pa-key-border: #cdd3c9;
+  --color-pa-key-text: #aab0a4;
+  --color-pa-amber: #b5893a;
+  --color-pa-amber-tint: #fbf2dd;
+  --color-pa-amber-dot: #e3a008;
+  --color-pa-page: #e9ece5;
+
+  --radius-pa-card: 26px;
+  --radius-pa-panel: 20px;
+  --radius-pa-box: 16px;
+  --radius-pa-opt: 15px;
+}
+
+@theme inline {
+  --font-pa-head: var(--font-bricolage);
+  --font-pa-body: var(--font-hanken);
+  --font-pa-num: var(--font-space);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
