@@ -75,6 +75,15 @@ import {
 } from "@/components/lessons/activity-view/utils"
 import { FeedbackVisibilityProvider, SseStatusIndicator } from "./feedback-visibility-debug"
 import { SubmissionCommentInput } from "@/components/submission-comment-input"
+import {
+  ActivityReveal,
+  LessonEnd,
+  LessonHero,
+  LessonScrollProgress,
+  StickySectionHeading,
+  type ScrollObjective,
+  type ScrollObjectiveCriterion,
+} from "@/components/lessons/lesson-scroll-layout"
 
 type McqOption = { id: string; text: string }
 
@@ -349,6 +358,7 @@ export default async function PupilLessonFriendlyPage({
     notFound()
   }
 
+  const unit = lessonPayload?.unit ?? null
   const activities = (lessonPayload?.lessonActivities ?? []).filter((activity) => activity.active !== false)
   const lessonFiles = lessonPayload?.lessonFiles ?? []
 
@@ -920,108 +930,89 @@ export default async function PupilLessonFriendlyPage({
     "do-flashcards",
   ])
 
+  // --- Scroll-layout data ---------------------------------------------------
+  // Group success criteria under their learning objective for the opening hero.
+  const criteriaByObjective = new Map<string, ScrollObjectiveCriterion[]>()
+  for (const sc of lesson.lesson_success_criteria ?? []) {
+    const key = sc.learning_objective_id ?? "__ungrouped__"
+    const bucket = criteriaByObjective.get(key) ?? []
+    bucket.push({
+      id: sc.success_criteria_id,
+      title: sc.title,
+      description: sc.description ?? null,
+      level: sc.level ?? null,
+    })
+    criteriaByObjective.set(key, bucket)
+  }
+
+  const heroObjectives: ScrollObjective[] = (lesson.lesson_objectives ?? [])
+    .slice()
+    .sort((a, b) => (a.order_by ?? 0) - (b.order_by ?? 0))
+    .map((lo) => ({
+      id: lo.learning_objective_id,
+      title: lo.learning_objective?.title ?? lo.title ?? lo.learning_objective_id,
+      criteria: (criteriaByObjective.get(lo.learning_objective_id) ?? []).sort(
+        (a, b) => (a.level ?? 0) - (b.level ?? 0),
+      ),
+    }))
+
+  const heroUngroupedCriteria = criteriaByObjective.get("__ungrouped__") ?? []
+
+  // Group activities under any `display-section` headings, preserving order.
+  const segments: { section: (typeof activities)[number] | null; items: typeof activities }[] = []
+  for (const activity of activities) {
+    if (activity.type === "display-section") {
+      segments.push({ section: activity, items: [] })
+    } else {
+      if (segments.length === 0) segments.push({ section: null, items: [] })
+      segments[segments.length - 1].items.push(activity)
+    }
+  }
+
+  // Number only the answerable/display activities (not the section headings).
+  const activityNumbers = new Map<string, number>()
+  let runningActivityNumber = 0
+  for (const activity of activities) {
+    if (activity.type === "display-section") continue
+    runningActivityNumber += 1
+    activityNumbers.set(activity.activity_id, runningActivityNumber)
+  }
+  const totalActivities = runningActivityNumber
+
   return (
     <FeedbackVisibilityProvider
       assignmentIds={assignmentIds}
       lessonId={lesson.lesson_id}
       initialVisible={initialFeedbackVisible}
     >
-      <div className="mx-auto flex w-full max-w-6xl gap-8 px-6 py-10">
-        {/* Activity sidebar */}
-        {activities.length > 0 && (
-          <aside className="hidden lg:block w-52 shrink-0">
-            <div className="sticky top-24 space-y-1">
-              <p className="mb-3 px-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Activities
-              </p>
-              {activities.map((activity, index) => (
-                <a
-                  key={activity.activity_id}
-                  href={`#activity-${activity.activity_id}`}
-                  className="flex items-start gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-                >
-                  <span className="shrink-0 font-medium">{index + 1}.</span>
-                  <span className="line-clamp-2">{activity.title ?? formatActivityType(activity.type)}</span>
-                </a>
-              ))}
-              <SseStatusIndicator />
-            </div>
-          </aside>
-        )}
-        <main className="min-w-0 flex-1 flex flex-col gap-8">
-        <header className="rounded-2xl bg-gradient-to-r from-sky-600 to-indigo-600 px-8 py-6 text-white shadow-lg">
-          <div className="flex flex-col gap-3">
-            <div>
-              <Link
-                href={`/pupil-lessons/${encodeURIComponent(pupilId)}`}
-                className="inline-flex items-center gap-1 text-sm underline-offset-4 hover:underline"
-              >
-                <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back to My Lessons
-              </Link>
-            </div>
-            <div className="flex justify-between items-start">
-              <div className="flex flex-col gap-1">
-                <h1 className="text-3xl font-semibold text-white">{lesson.title}</h1>
-                <p className="text-sm text-slate-100">Unit: {lesson.unit_id}</p>
-              </div>
-              <StartRevisionButton lessonId={lesson.lesson_id} />
-            </div>
-            {summary ? (
-              <p className="text-sm text-slate-100">Hello {summary.name}, here&apos;s everything you need for this lesson.</p>
-            ) : (
-              <p className="text-sm text-slate-100">Here&apos;s everything you need for this lesson.</p>
-            )}
-          </div>
-        </header>
+      <main className="relative bg-gradient-to-b from-background via-background to-muted/40">
+        <LessonScrollProgress />
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg font-semibold text-foreground">Lesson Overview</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4 text-sm text-muted-foreground">
-            {assignments.length > 0 ? (
-              <ul className="space-y-2">
-                {assignments.map((assignment, index) => (
-                  <li key={`${assignment.groupId}-${assignment.date}-${index}`} className="rounded-md bg-muted/40 px-3 py-2">
-                    <div className="font-medium text-foreground">Group: {assignment.groupId}</div>
-                    {assignment.subject ? <div>Subject: {assignment.subject}</div> : null}
-                    <div>Starts: {formatDateLabel(assignment.date)}</div>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p>This lesson isn’t currently linked to your assignments, but you can still review its resources below.</p>
-            )}
-          </CardContent>
-        </Card>
+        <LessonHero
+          lessonTitle={lesson.title}
+          unitTitle={unit?.title ?? ""}
+          objectives={heroObjectives}
+          ungroupedCriteria={heroUngroupedCriteria}
+          backHref={`/pupil-lessons/${encodeURIComponent(pupilId)}`}
+          backLabel="Back to My Lessons"
+          greetingName={summary?.name ?? null}
+        />
 
-        {lesson.lesson_objectives && lesson.lesson_objectives.length > 0 ? (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold text-foreground">Learning Objectives</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ul className="list-disc space-y-2 pl-5 text-sm text-muted-foreground">
-                {lesson.lesson_objectives.map((objective) => (
-                  <li key={objective.learning_objective_id}>
-                    {objective.learning_objective?.title ?? objective.learning_objective_id}
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
-        ) : null}
+        <div className="mx-auto w-full max-w-3xl px-6 pb-40 pt-16">
+          {activities.length === 0 ? (
+            <p className="text-center text-muted-foreground">
+              There aren&apos;t any activities attached yet.
+            </p>
+          ) : (
+            segments.map((segment, segmentIndex) => (
+              <section key={segment.section?.activity_id ?? `segment-${segmentIndex}`}>
+                {segment.section ? (
+                  <StickySectionHeading title={segment.section.title} />
+                ) : null}
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg font-semibold text-foreground">Lesson Activities</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {activities.length === 0 ? (
-              <p className="text-sm text-muted-foreground">There aren&apos;t any activities attached yet.</p>
-            ) : (
-              <ol className="space-y-3 text-sm">
-                {activities.map((activity, index) => {
+                <div className="flex flex-col gap-12 sm:gap-16">
+                  {segment.items.map((activity) => {
+                  const index = (activityNumbers.get(activity.activity_id) ?? 1) - 1
                   const linkUrl = extractActivityLink(activity)
                   const activityFiles = fileDownloadUrlMap.get(activity.activity_id) ?? []
                   
@@ -1048,14 +1039,7 @@ export default async function PupilLessonFriendlyPage({
 
 
                   return (
-                    <li
-                      key={activity.activity_id}
-                      id={`activity-${activity.activity_id}`}
-                      className="scroll-mt-24 rounded-md border border-border/60 bg-muted/40 px-3 py-3"
-                    >
-                      <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                        Step {index + 1}
-                      </p>
+                    <ActivityReveal key={activity.activity_id} index={index} total={totalActivities}>
                       {activity.type === "upload-file" ? (
                         <PupilUploadActivity
                           lessonId={lesson.lesson_id}
@@ -1400,14 +1384,15 @@ export default async function PupilLessonFriendlyPage({
                       <SubmissionCommentInput submissionId={submissionId} />
                     ) : null
                   })()}
-                </li>
-              )
-            })}
-              </ol>
-            )}
-          </CardContent>
-        </Card>
+                    </ActivityReveal>
+                  )
+                })}
+                </div>
+              </section>
+            ))
+          )}
 
+          <div className="mt-16 space-y-6">
         {(lesson.lesson_links?.length ?? 0) > 0 ? (
           <Card>
             <CardHeader>
@@ -1449,8 +1434,11 @@ export default async function PupilLessonFriendlyPage({
             </CardContent>
           </Card>
         ) : null}
-        </main>
-      </div>
+          </div>
+
+          <LessonEnd />
+        </div>
+      </main>
     </FeedbackVisibilityProvider>
   )
 }
