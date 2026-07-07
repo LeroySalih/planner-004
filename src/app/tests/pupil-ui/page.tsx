@@ -162,13 +162,13 @@ const variants: { label: string; props: PupilActivityCardProps }[] = [
   },
 ]
 
-export default function PupilUiTestPage() {
+function Gallery({ theme }: { theme: "Light" | "Dark" }) {
   return (
-    <div className={`${pupilActivityFontClass} min-h-screen bg-pa-page px-5 py-12`}>
+    <section className={`${theme === "Dark" ? "dark " : ""}bg-pa-page px-5 py-12`}>
       <div className="mx-auto max-w-[1180px]">
         <header className="mb-10 text-center">
           <h1 className="font-[family-name:var(--font-pa-head)] text-3xl font-semibold text-pa-ink">
-            Pupil activity UI
+            Pupil activity UI — {theme}
           </h1>
           <p className="mt-2 text-sm text-pa-muted-1">
             Short answer, multiple choice and file upload — each in the released and in-progress
@@ -187,6 +187,15 @@ export default function PupilUiTestPage() {
           ))}
         </div>
       </div>
+    </section>
+  )
+}
+
+export default function PupilUiTestPage() {
+  return (
+    <div className={pupilActivityFontClass}>
+      <Gallery theme="Light" />
+      <Gallery theme="Dark" />
     </div>
   )
 }

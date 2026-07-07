@@ -155,28 +155,62 @@
    Design-token layer for the redesigned pupil activity screens. Prefixed
    `pa-` so it never collides with the app's core theme. Generates utilities
    such as bg-pa-card, text-pa-ink, border-pa-field-border, rounded-pa-card. */
-@theme {
-  --color-pa-green: #1f8a52;
-  --color-pa-green-tint: #eaf3ec;
-  --color-pa-green-panel: #f4faf5;
-  --color-pa-green-border: #dce8df;
-  --color-pa-ink: #16241c;
-  --color-pa-prose: #37413a;
-  --color-pa-card: #f3f6f1;
-  --color-pa-card-border: #e4eadf;
-  --color-pa-panel: #ffffff;
-  --color-pa-field: #fbfcfa;
-  --color-pa-field-border: #e1e5dd;
-  --color-pa-muted-1: #6e756b;
-  --color-pa-muted-2: #7c8378;
-  --color-pa-muted-3: #9aa096;
-  --color-pa-key-border: #cdd3c9;
-  --color-pa-key-text: #aab0a4;
-  --color-pa-amber: #b5893a;
-  --color-pa-amber-tint: #fbf2dd;
-  --color-pa-amber-dot: #e3a008;
-  --color-pa-page: #e9ece5;
+/* Light (default) palette */
+:root {
+  --pa-green: #1f8a52;
+  --pa-green-tint: #eaf3ec;
+  --pa-green-panel: #f4faf5;
+  --pa-green-border: #dce8df;
+  --pa-green-released: #3a7d53;
+  --pa-ink: #16241c;
+  --pa-prose: #37413a;
+  --pa-card: #f3f6f1;
+  --pa-card-border: #e4eadf;
+  --pa-panel: #ffffff;
+  --pa-field: #fbfcfa;
+  --pa-field-border: #e1e5dd;
+  --pa-muted-1: #6e756b;
+  --pa-muted-2: #7c8378;
+  --pa-muted-3: #9aa096;
+  --pa-key-border: #cdd3c9;
+  --pa-key-text: #aab0a4;
+  --pa-amber: #b5893a;
+  --pa-amber-tint: #fbf2dd;
+  --pa-amber-dot: #e3a008;
+  --pa-page: #e9ece5;
+  --pa-ring-track: #e1e7dc;
+  --pa-thumb-border: #dce2d6;
+}
 
+/* Warm-dark palette — designed to preserve the green identity and warm
+   reading surface while inverting for dark mode (no reference spec). */
+.dark {
+  --pa-green: #47b27a;
+  --pa-green-tint: #17271d;
+  --pa-green-panel: #14201a;
+  --pa-green-border: #2c3d33;
+  --pa-green-released: #6fbf8e;
+  --pa-ink: #eaf1ec;
+  --pa-prose: #c3cdc6;
+  --pa-card: #1a211c;
+  --pa-card-border: #2a332c;
+  --pa-panel: #222b24;
+  --pa-field: #1b231d;
+  --pa-field-border: #313b33;
+  --pa-muted-1: #a7afa6;
+  --pa-muted-2: #98a096;
+  --pa-muted-3: #828a80;
+  --pa-key-border: #3a4238;
+  --pa-key-text: #8a9188;
+  --pa-amber: #d8a94e;
+  --pa-amber-tint: #2a2211;
+  --pa-amber-dot: #e9ae2a;
+  --pa-page: #10140e;
+  --pa-ring-track: #2c332d;
+  --pa-thumb-border: #313b33;
+}
+
+@theme {
   --radius-pa-card: 26px;
   --radius-pa-panel: 20px;
   --radius-pa-box: 16px;
@@ -184,6 +218,30 @@
 }
 
 @theme inline {
+  --color-pa-green: var(--pa-green);
+  --color-pa-green-tint: var(--pa-green-tint);
+  --color-pa-green-panel: var(--pa-green-panel);
+  --color-pa-green-border: var(--pa-green-border);
+  --color-pa-green-released: var(--pa-green-released);
+  --color-pa-ink: var(--pa-ink);
+  --color-pa-prose: var(--pa-prose);
+  --color-pa-card: var(--pa-card);
+  --color-pa-card-border: var(--pa-card-border);
+  --color-pa-panel: var(--pa-panel);
+  --color-pa-field: var(--pa-field);
+  --color-pa-field-border: var(--pa-field-border);
+  --color-pa-muted-1: var(--pa-muted-1);
+  --color-pa-muted-2: var(--pa-muted-2);
+  --color-pa-muted-3: var(--pa-muted-3);
+  --color-pa-key-border: var(--pa-key-border);
+  --color-pa-key-text: var(--pa-key-text);
+  --color-pa-amber: var(--pa-amber);
+  --color-pa-amber-tint: var(--pa-amber-tint);
+  --color-pa-amber-dot: var(--pa-amber-dot);
+  --color-pa-page: var(--pa-page);
+  --color-pa-ring-track: var(--pa-ring-track);
+  --color-pa-thumb-border: var(--pa-thumb-border);
+
   --font-pa-head: var(--font-bricolage);
   --font-pa-body: var(--font-hanken);
   --font-pa-num: var(--font-space);
