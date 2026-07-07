@@ -7,7 +7,6 @@ import { CheckCircle2, Loader2, Upload } from "lucide-react"
 import type { LessonActivity } from "@/types"
 import { Button } from "@/components/ui/button"
 import { getRichTextMarkup } from "@/components/lessons/activity-view/utils"
-import { ActivityProgressPanel } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/activity-progress-panel"
 
 const ALLOWED_EXTENSION = ".xlsx"
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
@@ -164,28 +163,17 @@ export function PupilUploadSpreadsheetActivity({
   }, [beginUpload, canUpload, uploadDisabled])
 
   return (
-    <div className="space-y-3 px-1">
-      <div className="space-y-1">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex flex-col gap-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-base font-semibold text-foreground">{activity.title}</h3>
-            </div>
-          </div>
-          <span className="text-xs font-medium uppercase tracking-wide text-primary">Upload spreadsheet</span>
-        </div>
-      </div>
-
+    <div className="space-y-3">
       {hasTask ? (
         <div
-          className="prose prose-sm max-w-none text-muted-foreground"
+          className="prose prose-sm max-w-none text-pa-muted-3"
           dangerouslySetInnerHTML={{ __html: getRichTextMarkup(task) ?? "" }}
         />
       ) : null}
 
       {canUpload ? (
         <div className="space-y-3">
-          <label className="text-sm font-medium text-foreground" htmlFor={`upload-spreadsheet-${activity.activity_id}`}>
+          <label className="text-sm font-medium text-pa-ink" htmlFor={`upload-spreadsheet-${activity.activity_id}`}>
             Upload your spreadsheet
           </label>
           <div
@@ -194,9 +182,9 @@ export function PupilUploadSpreadsheetActivity({
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
             className={[
-              "flex flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed border-muted-foreground/40 p-4 text-center transition",
+              "flex flex-col items-center justify-center gap-2 rounded-pa-box border-2 border-dashed border-pa-field-border bg-pa-field p-4 text-center transition",
               canUpload && !uploadDisabled ? "cursor-pointer" : "cursor-not-allowed opacity-60",
-              isDragActive ? "border-primary bg-primary/5" : "",
+              isDragActive ? "border-pa-green bg-pa-green/5" : "",
             ]
               .filter(Boolean)
               .join(" ")}
@@ -214,9 +202,9 @@ export function PupilUploadSpreadsheetActivity({
               }
             }}
           >
-            <Upload className="h-5 w-5 text-muted-foreground" />
-            <p className="text-sm font-medium">Drag & drop your file here</p>
-            <p className="text-xs text-muted-foreground">or click to browse your device</p>
+            <Upload className="h-5 w-5 text-pa-muted-3" />
+            <p className="text-sm font-medium text-pa-ink">Drag & drop your file here</p>
+            <p className="text-xs text-pa-muted-3">or click to browse your device</p>
             <Button
               type="button"
               size="sm"
@@ -241,41 +229,31 @@ export function PupilUploadSpreadsheetActivity({
             />
           </div>
           {selectedFileName ? (
-            <p className="text-xs text-muted-foreground">Uploading: {selectedFileName}</p>
+            <p className="text-xs text-pa-muted-3">Uploading: {selectedFileName}</p>
           ) : null}
           {isPending ? (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <div className="flex items-center gap-2 text-xs text-pa-muted-3">
               <Loader2 className="h-3.5 w-3.5 animate-spin" /> Updating…
             </div>
           ) : null}
           {uploadedFileName ? (
-            <div className="flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-800 dark:bg-green-900/20 dark:text-green-100">
-              <CheckCircle2 className="h-4 w-4 shrink-0" />
-              <span>
-                Uploaded <span className="font-medium">{uploadedFileName}</span>
-              </span>
+            <div className="flex items-center gap-3 rounded-[14px] border-[1.5px] border-pa-field-border bg-pa-field px-[13px] py-[11px]">
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-pa-green" />
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-pa-ink">{uploadedFileName}</p>
+                <p className="text-xs text-pa-muted-3">Uploaded</p>
+              </div>
             </div>
           ) : null}
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-pa-muted-3">
             Files are stored securely so your teacher can review them later. You can re-upload at any time.
           </p>
         </div>
       ) : (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-pa-muted-3">
           Uploading is disabled in read-only mode. Sign in as the pupil to submit work.
         </p>
       )}
-
-      <ActivityProgressPanel
-        assignmentIds={feedbackAssignmentIds}
-        lessonId={feedbackLessonId ?? lessonId}
-        initialVisible={feedbackInitiallyVisible}
-        show={true}
-        scoreLabel={scoreLabel}
-        feedbackText={feedbackText}
-        modelAnswer={null}
-        isMarked={scoreLabel !== "In progress" && scoreLabel !== "No score yet"}
-      />
     </div>
   )
 }

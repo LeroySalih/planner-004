@@ -10,7 +10,6 @@ import type { MarkStatus } from "@/dino.config"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { getRichTextMarkup } from "@/components/lessons/activity-view/utils"
-import { ActivityProgressPanel } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/activity-progress-panel"
 import {
   editWorksheetTextAction,
   getLatestSubmissionForActivityAction,
@@ -372,28 +371,17 @@ export function PupilUploadWorksheetActivity({
   const hasSubmission = markStatus !== null
 
   return (
-    <div className="space-y-3 px-1">
-      <div className="space-y-1">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex flex-col gap-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-base font-semibold text-foreground">{activity.title}</h3>
-            </div>
-          </div>
-          <span className="text-xs font-medium uppercase tracking-wide text-primary">Upload exam question</span>
-        </div>
-      </div>
-
+    <div className="space-y-3">
       {hasTask ? (
         <div
-          className="prose prose-sm max-w-none text-muted-foreground"
+          className="prose prose-sm max-w-none text-pa-muted-3"
           dangerouslySetInnerHTML={{ __html: getRichTextMarkup(task) ?? "" }}
         />
       ) : null}
 
       {canUpload ? (
         <div className="space-y-3">
-          <label className="text-sm font-medium text-foreground" htmlFor={`upload-worksheet-${activity.activity_id}`}>
+          <label className="text-sm font-medium text-pa-ink" htmlFor={`upload-worksheet-${activity.activity_id}`}>
             Upload a photo of your completed exam question
           </label>
           <div
@@ -402,9 +390,9 @@ export function PupilUploadWorksheetActivity({
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
             className={[
-              "flex flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed border-muted-foreground/40 p-4 text-center transition",
+              "flex flex-col items-center justify-center gap-2 rounded-pa-box border-2 border-dashed border-pa-field-border bg-pa-field p-4 text-center transition",
               canUpload && !uploadDisabled ? "cursor-pointer" : "cursor-not-allowed opacity-60",
-              isDragActive ? "border-primary bg-primary/5" : "",
+              isDragActive ? "border-pa-green bg-pa-green/5" : "",
             ]
               .filter(Boolean)
               .join(" ")}
@@ -422,9 +410,9 @@ export function PupilUploadWorksheetActivity({
               }
             }}
           >
-            <Upload className="h-5 w-5 text-muted-foreground" />
-            <p className="text-sm font-medium">Drag & drop photos here</p>
-            <p className="text-xs text-muted-foreground">or click to take/choose photos</p>
+            <Upload className="h-5 w-5 text-pa-muted-3" />
+            <p className="text-sm font-medium text-pa-ink">Drag & drop photos here</p>
+            <p className="text-xs text-pa-muted-3">or click to take/choose photos</p>
             <Button
               type="button"
               size="sm"
@@ -451,16 +439,16 @@ export function PupilUploadWorksheetActivity({
             />
           </div>
           {isPending ? (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <div className="flex items-center gap-2 text-xs text-pa-muted-3">
               <Loader2 className="h-3.5 w-3.5 animate-spin" /> Uploading…
             </div>
           ) : null}
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-pa-muted-3">
             Photos are stored securely so your teacher can review them later. You can re-upload at any time.
           </p>
         </div>
       ) : (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-pa-muted-3">
           Uploading is disabled in read-only mode. Sign in as the pupil to submit work.
         </p>
       )}
@@ -476,7 +464,7 @@ export function PupilUploadWorksheetActivity({
                   key={img.url}
                   type="button"
                   onClick={() => openLightbox(img.url, img.name)}
-                  className="h-16 w-16 shrink-0 overflow-hidden rounded border border-border bg-muted"
+                  className="h-16 w-16 shrink-0 overflow-hidden rounded-[14px] border-[1.5px] border-pa-field-border bg-pa-field"
                   title={img.name}
                 >
                   <img src={img.url} alt={img.name} className="h-full w-full object-cover" loading="lazy" />
@@ -487,7 +475,7 @@ export function PupilUploadWorksheetActivity({
 
           {/* Mark status rendering */}
           {markStatus === "reading" ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="flex items-center gap-2 text-sm text-pa-muted-3">
               <Loader2 className="h-4 w-4 animate-spin" />
               <span>Reading your work…</span>
             </div>
@@ -499,26 +487,26 @@ export function PupilUploadWorksheetActivity({
             </div>
           ) : markStatus === "waiting" || markStatus === "marking" || markStatus === "marked" ? (
             <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">
+              <label className="text-sm font-medium text-pa-ink">
                 Extracted answer — you can correct any mistakes before re-marking
               </label>
               <textarea
-                className="w-full rounded-md border border-input bg-background p-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
+                className="w-full rounded-pa-box border-[1.5px] border-pa-field-border bg-pa-field px-4 py-3.5 text-[15px] text-pa-ink outline-none placeholder:text-pa-muted-3 focus-visible:border-pa-green disabled:opacity-70"
                 rows={6}
                 value={draftText}
                 onChange={(e) => setDraftText(e.target.value)}
               />
               {markStatus === "waiting" || markStatus === "marking" ? (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <div className="flex items-center gap-2 text-xs text-pa-muted-3">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   <span>Marking…</span>
                 </div>
               ) : (
                 <Button
                   type="button"
-                  size="sm"
                   onClick={handleSaveAndRemark}
                   disabled={saving || !latestSubmissionId}
+                  className="h-auto w-full rounded-[14px] bg-pa-green py-3.5 text-[15px] font-bold text-white hover:bg-pa-green/90"
                 >
                   {saving ? (
                     <>
@@ -535,34 +523,24 @@ export function PupilUploadWorksheetActivity({
         </div>
       ) : legacyFileName ? (
         /* Legacy single-file fallback for old submissions without mark_status */
-        <div className="flex items-center gap-3 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-800 dark:bg-green-900/20 dark:text-green-100">
+        <div className="flex items-center gap-3 rounded-[14px] border-[1.5px] border-pa-field-border bg-pa-field px-[13px] py-[11px]">
           {legacyFileUrl ? (
             <button
               type="button"
               onClick={() => openLightbox(legacyFileUrl, legacyFileName ?? "Uploaded file")}
-              className="h-12 w-12 shrink-0 overflow-hidden rounded border border-green-200 bg-white dark:border-green-800"
+              className="h-12 w-12 shrink-0 overflow-hidden rounded-[10px] border-[1.5px] border-pa-field-border bg-white"
             >
               <img src={legacyFileUrl} alt={legacyFileName ?? "Uploaded"} className="h-full w-full object-cover" loading="lazy" />
             </button>
           ) : (
-            <CheckCircle2 className="h-4 w-4 shrink-0" />
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-pa-green" />
           )}
-          <span>
-            Uploaded <span className="font-medium">{legacyFileName}</span>
-          </span>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-pa-ink">{legacyFileName}</p>
+            <p className="text-xs text-pa-muted-3">Uploaded</p>
+          </div>
         </div>
       ) : null}
-
-      <ActivityProgressPanel
-        assignmentIds={feedbackAssignmentIds}
-        lessonId={feedbackLessonId ?? lessonId}
-        initialVisible={feedbackInitiallyVisible}
-        show={true}
-        scoreLabel={scoreLabel}
-        feedbackText={feedbackText}
-        modelAnswer={null}
-        isMarked={scoreLabel !== "In progress" && scoreLabel !== "No score yet"}
-      />
 
       {/* Lightbox */}
       <Dialog open={isLightboxOpen} onOpenChange={setIsLightboxOpen}>

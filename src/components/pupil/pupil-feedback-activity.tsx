@@ -82,7 +82,7 @@ export function PupilFeedbackActivity({
 
   if (!isVisible) {
     return (
-      <div className="rounded-md border border-dashed border-border/60 bg-muted/40 px-3 py-3 text-sm text-muted-foreground">
+      <div className="rounded-pa-box border border-dashed border-pa-field-border bg-pa-field px-4 py-3 text-sm text-pa-muted-3">
         Feedback is hidden for this assignment. Your teacher will let you know when it is available.
       </div>
     )

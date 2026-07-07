@@ -2,13 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react"
 import { toast } from "sonner"
-import { CheckCircle2, Loader2 } from "lucide-react"
+import { Loader2 } from "lucide-react"
 
 import type { LessonActivity } from "@/types"
 import { ActivityImagePreview } from "@/components/lessons/activity-image-preview"
 import {
   getMcqBody,
-  getRichTextMarkup,
   isAbsoluteUrl,
   type McqBody,
 } from "@/components/lessons/activity-view/utils"
@@ -17,7 +16,6 @@ import {
   upsertMcqSubmissionAction,
 } from "@/lib/server-updates"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
-import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { triggerFeedbackRefresh } from "@/lib/feedback-events"
 
@@ -175,43 +173,24 @@ export function PupilMcqActivity({
   )
 
   const question = mcqBody.question.trim()
-  const questionMarkup = getRichTextMarkup(mcqBody.question)
   const hasOptions = mcqBody.options.length > 0
-
   const currentSelection = selection ?? ""
-
   const savedOptionText = lastSaved ? optionMap.get(lastSaved)?.text?.trim() || null : null
 
   return (
-    <div className="space-y-4 rounded-md border border-border bg-card p-4 shadow-sm">
-      <header className="flex flex-col gap-2">
-        <h4 className="text-lg font-semibold text-foreground">{activity.title || "Multiple choice question"}</h4>
-      </header>
-
-      <section className="space-y-2">
-        {questionMarkup ? (
-          <div
-            className="prose prose-sm max-w-none text-foreground"
-            dangerouslySetInnerHTML={{ __html: questionMarkup }}
-          />
-        ) : (
-          <p className="text-base text-foreground">
-            {question || "The teacher hasn’t added the question text yet."}
-          </p>
-        )}
-        {!canAnswerEffective ? (
-          <p className="text-xs text-muted-foreground">
-            You can review this question, but only pupils can select an answer.
-          </p>
-        ) : null}
-      </section>
+    <div className="space-y-3">
+      {!canAnswerEffective ? (
+        <p className="text-xs text-pa-muted-3">
+          You can review this question, but only pupils can select an answer.
+        </p>
+      ) : null}
 
       {imageState.loading ? (
-        <div className="flex min-h-[160px] items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
+        <div className="flex min-h-[140px] items-center justify-center rounded-pa-box border border-dashed border-pa-field-border text-sm text-pa-muted-3">
           Loading image…
         </div>
       ) : imageState.error ? (
-        <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <div className="rounded-pa-box border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {imageState.error}
         </div>
       ) : imageState.url ? (
@@ -222,74 +201,67 @@ export function PupilMcqActivity({
         />
       ) : null}
 
-      <section className="space-y-3">
-        {hasOptions ? (
-          <RadioGroup
-            value={currentSelection}
-            onValueChange={handleSelect}
-            className="space-y-3"
-          >
-            {mcqBody.options.map((option, index) => {
-              const optionId = option.id
-              const isSelected = optionId === selection
-              const optionText = option.text.trim() || `Option ${index + 1}`
+      {hasOptions ? (
+        <RadioGroup
+          value={currentSelection}
+          onValueChange={handleSelect}
+          className="flex flex-col gap-[11px]"
+        >
+          {mcqBody.options.map((option, index) => {
+            const optionId = option.id
+            const isSelected = optionId === selection
+            const optionText = option.text.trim() || `Option ${index + 1}`
 
-              return (
-                <label
-                  key={optionId}
-                  htmlFor={`${activity.activity_id}-${optionId}`}
+            return (
+              <label
+                key={optionId}
+                htmlFor={`${activity.activity_id}-${optionId}`}
+                className={cn(
+                  "flex items-center gap-[13px] rounded-pa-opt border-[1.5px] px-4 py-[15px] transition-colors",
+                  canAnswerEffective && !isPending ? "cursor-pointer" : "cursor-not-allowed opacity-90",
+                  isSelected
+                    ? "border-2 border-pa-green bg-pa-green-tint"
+                    : "border-pa-field-border bg-pa-field hover:border-pa-green/50",
+                )}
+              >
+                <RadioGroupItem
+                  id={`${activity.activity_id}-${optionId}`}
+                  value={optionId}
+                  disabled={!canAnswerEffective || isPending}
+                  className="sr-only"
+                />
+                <span
+                  aria-hidden
                   className={cn(
-                    "flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-background p-3 transition",
-                    isSelected && "border-primary bg-primary/5",
-                    (!canAnswerEffective || isPending) && "cursor-not-allowed opacity-90",
+                    "grid h-6 w-6 flex-none place-items-center rounded-lg border-2 text-xs font-bold",
+                    isSelected ? "border-pa-green text-pa-green" : "border-pa-key-border text-pa-key-text",
                   )}
                 >
-                  <RadioGroupItem
-                    id={`${activity.activity_id}-${optionId}`}
-                    value={optionId}
-                    disabled={!canAnswerEffective || isPending}
-                    className="mt-1"
-                  />
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{optionText}</p>
-                    <p className="text-xs text-muted-foreground">Choice {index + 1}</p>
-                  </div>
-                </label>
-              )
-            })}
-          </RadioGroup>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            The teacher hasn’t added answer options yet.
-          </p>
-        )}
-      </section>
+                  {String.fromCharCode(65 + index)}
+                </span>
+                <span className={cn("text-[15.5px] text-pa-ink", isSelected && "font-semibold")}>
+                  {optionText}
+                </span>
+              </label>
+            )
+          })}
+        </RadioGroup>
+      ) : (
+        <p className="text-sm text-pa-muted-3">The teacher hasn’t added answer options yet.</p>
+      )}
 
-      <footer className="flex flex-wrap items-center gap-2 text-xs">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-pa-muted-3">
         {isPending ? (
-          <span className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-1 text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5">
             <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
             Saving your answer…
           </span>
-        ) : feedback ? (
-          <Badge
-            variant={feedback.type === "success" ? "default" : "destructive"}
-            className="inline-flex items-center gap-2"
-          >
-            {feedback.type === "success" ? (
-              <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
-            ) : null}
-            {feedback.message}
-          </Badge>
-        ) : null}
-
-        {savedOptionText ? (
-          <span className="text-muted-foreground">
-            Saved answer: <span className="font-medium text-foreground">{savedOptionText}</span>
+        ) : savedOptionText ? (
+          <span>
+            Saved: <span className="font-medium text-pa-ink">{savedOptionText}</span>
           </span>
         ) : null}
-      </footer>
-
+      </div>
     </div>
   )
 }

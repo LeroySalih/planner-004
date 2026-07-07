@@ -1,3 +1,4 @@
+import type { ReactNode } from "react"
 import Link from "next/link"
 import { notFound, redirect } from "next/navigation"
 import { format } from "date-fns"
@@ -1053,39 +1054,225 @@ export default async function PupilLessonFriendlyPage({
                   const showProgress = inputActivityTypes.has(activity.type ?? "")
 
                   // Restyled types render inside the Warm Study shell (bare motion
-                  // wrapper + LiveActivityShell). Unconverted types fall through to
-                  // the legacy ActivityReveal path below.
+                  // wrapper + LiveActivityShell). Anything not covered here falls
+                  // through to the legacy ActivityReveal path below.
+                  const shell = (
+                    body: ReactNode,
+                    opts: { typeLabel: string; typeGlyph?: string; question?: string; hideMarking?: boolean },
+                  ) => (
+                    <ActivityMotion key={activity.activity_id} index={index}>
+                      <LiveActivityShell
+                        activityId={activity.activity_id}
+                        question={opts.question ?? getActivityQuestion(activity)}
+                        activityIndex={index + 1}
+                        activityTotal={totalActivities}
+                        typeLabel={opts.typeLabel}
+                        typeGlyph={opts.typeGlyph}
+                        hideMarking={opts.hideMarking}
+                        scoreLabel={formatScoreLabel(rawScore, activity.activity_id)}
+                        isMarked={typeof rawScore === "number"}
+                        isPendingMarking={rawScore === null}
+                        feedbackText={feedbackText}
+                        modelAnswer={modelAnswer}
+                        maxMarks={activity.max_marks ?? 1}
+                      >
+                        {body}
+                      </LiveActivityShell>
+                    </ActivityMotion>
+                  )
+
                   if (activity.type === "short-text-question") {
-                    return (
-                      <ActivityMotion key={activity.activity_id} index={index}>
-                        <LiveActivityShell
-                          activityId={activity.activity_id}
-                          question={getActivityQuestion(activity)}
-                          activityIndex={index + 1}
-                          activityTotal={totalActivities}
-                          typeLabel="Short answer"
-                          typeGlyph="✎"
-                          scoreLabel={formatScoreLabel(rawScore, activity.activity_id)}
-                          isMarked={typeof rawScore === "number"}
-                          isPendingMarking={rawScore === null}
-                          feedbackText={feedbackText}
-                          modelAnswer={modelAnswer}
-                          maxMarks={activity.max_marks ?? 1}
-                        >
-                          <PupilShortTextActivity
-                            lessonId={lesson.lesson_id}
-                            activity={activity}
-                            pupilId={pupilId}
-                            canAnswer={isPupilViewer}
-                            initialAnswer={shortTextDataMap.get(activity.activity_id)?.answer ?? ""}
-                            initialSubmissionId={shortTextDataMap.get(activity.activity_id)?.submissionId ?? null}
-                            initialIsFlagged={shortTextDataMap.get(activity.activity_id)?.isFlagged ?? false}
-                            initialResubmitRequested={shortTextDataMap.get(activity.activity_id)?.resubmitRequested ?? false}
-                            resubmitNote={shortTextDataMap.get(activity.activity_id)?.resubmitNote ?? null}
-                            feedbackAssignmentIds={assignmentIds}
-                          />
-                        </LiveActivityShell>
-                      </ActivityMotion>
+                    return shell(
+                      <PupilShortTextActivity
+                        lessonId={lesson.lesson_id}
+                        activity={activity}
+                        pupilId={pupilId}
+                        canAnswer={isPupilViewer}
+                        initialAnswer={shortTextDataMap.get(activity.activity_id)?.answer ?? ""}
+                        initialSubmissionId={shortTextDataMap.get(activity.activity_id)?.submissionId ?? null}
+                        initialIsFlagged={shortTextDataMap.get(activity.activity_id)?.isFlagged ?? false}
+                        initialResubmitRequested={shortTextDataMap.get(activity.activity_id)?.resubmitRequested ?? false}
+                        resubmitNote={shortTextDataMap.get(activity.activity_id)?.resubmitNote ?? null}
+                        feedbackAssignmentIds={assignmentIds}
+                      />,
+                      { typeLabel: "Short answer", typeGlyph: "✎" },
+                    )
+                  }
+
+                  if (activity.type === "multiple-choice-question") {
+                    return shell(
+                      <PupilMcqActivity
+                        lessonId={lesson.lesson_id}
+                        activity={activity}
+                        pupilId={pupilId}
+                        canAnswer={isPupilViewer}
+                        initialSelection={mcqSelectionMap.get(activity.activity_id) ?? null}
+                        feedbackAssignmentIds={assignmentIds}
+                      />,
+                      { typeLabel: "Multiple choice", typeGlyph: "◉" },
+                    )
+                  }
+
+                  if (activity.type === "long-text-question" || activity.type === "text-question") {
+                    return shell(
+                      <PupilLongTextActivity
+                        lessonId={lesson.lesson_id}
+                        activity={activity}
+                        pupilId={pupilId}
+                        canAnswer={isPupilViewer}
+                        initialAnswer={longTextAnswerMap.get(activity.activity_id) ?? ""}
+                        feedbackAssignmentIds={assignmentIds}
+                      />,
+                      { typeLabel: "Long answer", typeGlyph: "✎" },
+                    )
+                  }
+
+                  if (activity.type === "upload-url") {
+                    return shell(
+                      <PupilUploadUrlActivity
+                        lessonId={lesson.lesson_id}
+                        activity={activity}
+                        pupilId={pupilId}
+                        canAnswer={isPupilViewer}
+                        initialAnswer={uploadUrlDataMap.get(activity.activity_id)?.answer ?? ""}
+                        initialSubmissionId={uploadUrlDataMap.get(activity.activity_id)?.submissionId ?? null}
+                        initialIsFlagged={uploadUrlDataMap.get(activity.activity_id)?.isFlagged ?? false}
+                        initialResubmitRequested={uploadUrlDataMap.get(activity.activity_id)?.resubmitRequested ?? false}
+                        resubmitNote={uploadUrlDataMap.get(activity.activity_id)?.resubmitNote ?? null}
+                        feedbackAssignmentIds={assignmentIds}
+                      />,
+                      { typeLabel: "Submit a link", typeGlyph: "🔗" },
+                    )
+                  }
+
+                  if (activity.type === "upload-file") {
+                    return shell(
+                      <PupilUploadActivity
+                        lessonId={lesson.lesson_id}
+                        activity={activity}
+                        pupilId={pupilId}
+                        instructions={extractUploadInstructions(activity)}
+                        initialSubmissions={submissionMap.get(activity.activity_id) ?? []}
+                        canUpload={isPupilViewer}
+                        feedbackAssignmentIds={assignmentIds}
+                      />,
+                      { typeLabel: "File upload", typeGlyph: "⬆", question: activity.title || "Upload your work" },
+                    )
+                  }
+
+                  if (activity.type === "upload-spreadsheet") {
+                    return shell(
+                      <PupilUploadSpreadsheetActivity
+                        lessonId={lesson.lesson_id}
+                        activity={activity}
+                        pupilId={pupilId}
+                        canUpload={isPupilViewer}
+                        initialFileName={uploadSpreadsheetFileNameMap.get(activity.activity_id) ?? null}
+                        feedbackAssignmentIds={assignmentIds}
+                      />,
+                      { typeLabel: "Spreadsheet", typeGlyph: "▦", question: activity.title || "Upload a spreadsheet" },
+                    )
+                  }
+
+                  if (activity.type === "upload-worksheet") {
+                    return shell(
+                      <PupilUploadWorksheetActivity
+                        lessonId={lesson.lesson_id}
+                        activity={activity}
+                        pupilId={pupilId}
+                        canUpload={isPupilViewer}
+                        initialFileName={uploadWorksheetFileNameMap.get(activity.activity_id) ?? null}
+                        initialFileUrl={uploadWorksheetFileUrlMap.get(activity.activity_id) ?? null}
+                        feedbackAssignmentIds={assignmentIds}
+                      />,
+                      { typeLabel: "Worksheet", typeGlyph: "▦", question: activity.title || "Upload a worksheet" },
+                    )
+                  }
+
+                  if (activity.type === "matcher") {
+                    return shell(
+                      <PupilMatcherActivity
+                        lessonId={lesson.lesson_id}
+                        activity={activity}
+                        pupilId={pupilId}
+                        canAnswer={isPupilViewer}
+                        initialLayout={matcherDataMap.get(activity.activity_id)?.layout ?? []}
+                        initialAnswers={matcherDataMap.get(activity.activity_id)?.answers ?? {}}
+                      />,
+                      { typeLabel: "Match up", typeGlyph: "⇄" },
+                    )
+                  }
+
+                  if (activity.type === "group-items") {
+                    return shell(
+                      <PupilGroupItemsActivity
+                        lessonId={lesson.lesson_id}
+                        activityId={activity.activity_id}
+                        title={activity.title}
+                        pupilId={pupilId}
+                        canAnswer={isPupilViewer}
+                        groups={groupItemsDataMap.get(activity.activity_id)?.groups ?? []}
+                        items={groupItemsDataMap.get(activity.activity_id)?.items ?? []}
+                        initialItemOrder={groupItemsDataMap.get(activity.activity_id)?.itemOrder ?? []}
+                        initialPlacements={groupItemsDataMap.get(activity.activity_id)?.placements ?? {}}
+                      />,
+                      { typeLabel: "Sort into groups", typeGlyph: "▤" },
+                    )
+                  }
+
+                  if (activity.type === "do-flashcards") {
+                    return shell(
+                      <PupilDoFlashcardsActivity
+                        activity={activity}
+                        pupilId={pupilId}
+                        initialScore={rawScore ?? null}
+                      />,
+                      { typeLabel: "Flashcards", typeGlyph: "🂠" },
+                    )
+                  }
+
+                  if (activity.type === "sketch-render") {
+                    return shell(
+                      <PupilSketchRenderActivity
+                        activity={activity}
+                        userId={pupilId}
+                        submission={sketchRenderSubmissionMap.get(activity.activity_id) ?? null}
+                        assignmentId={assignmentIds[0]}
+                      />,
+                      { typeLabel: "Sketch", typeGlyph: "✎" },
+                    )
+                  }
+
+                  if (activity.type === "share-my-work") {
+                    return shell(
+                      <PupilShareMyWorkActivity
+                        lessonId={lesson.lesson_id}
+                        activity={activity}
+                        pupilId={pupilId}
+                        canUpload={isPupilViewer}
+                        initialFiles={shareMyWorkDataMap.get(activity.activity_id)?.files ?? []}
+                        initialSubmissionId={shareMyWorkDataMap.get(activity.activity_id)?.submissionId ?? null}
+                      />,
+                      { typeLabel: "Share my work", typeGlyph: "⬆", hideMarking: true },
+                    )
+                  }
+
+                  if (activity.type === "review-others-work") {
+                    return shell(
+                      <PupilReviewOthersWorkActivity activity={activity} pupilId={pupilId} />,
+                      { typeLabel: "Review others' work", typeGlyph: "◎", hideMarking: true },
+                    )
+                  }
+
+                  if (activity.type === "feedback") {
+                    return shell(
+                      <PupilFeedbackActivity
+                        activity={activity}
+                        lessonId={lesson.lesson_id}
+                        assignmentIds={assignmentIds}
+                        initialVisible={initialFeedbackVisible}
+                      />,
+                      { typeLabel: "Feedback", typeGlyph: "★", hideMarking: true },
                     )
                   }
 

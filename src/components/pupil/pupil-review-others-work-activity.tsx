@@ -159,11 +159,8 @@ export function PupilReviewOthersWorkActivity({
 
   if (!shareActivityId) {
     return (
-      <div className="space-y-2">
-        <div className="flex items-start gap-2">
-          <h3 className="font-medium text-foreground">{activity.title || "Review others' work"}</h3>
-        </div>
-        <p className="text-sm text-muted-foreground">
+      <div className="space-y-3">
+        <p className="text-xs text-pa-muted-3">
           This activity is not configured yet. The teacher needs to link it to a &quot;Share my work&quot; activity.
         </p>
       </div>
@@ -173,24 +170,18 @@ export function PupilReviewOthersWorkActivity({
   const totalImages = selectedSubmission?.images.length ?? 0
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-start gap-2">
-        <span className="text-xs font-semibold text-muted-foreground">{stepNumber}.</span>
-        <div>
-          <h3 className="font-medium text-foreground">{activity.title || "Review others' work"}</h3>
-          <p className="text-sm text-muted-foreground">
-            Browse your classmates&apos; shared work and leave feedback.
-          </p>
-        </div>
-      </div>
+    <div className="space-y-3">
+      <p className="text-xs text-pa-muted-3">
+        Browse your classmates&apos; shared work and leave feedback.
+      </p>
 
       {isLoading ? (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <div className="flex items-center gap-2 text-xs text-pa-muted-3">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading submissions...
         </div>
       ) : submissions.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
+        <p className="text-xs text-pa-muted-3">
           No classmates have shared their work yet. Check back later.
         </p>
       ) : (
@@ -200,11 +191,11 @@ export function PupilReviewOthersWorkActivity({
               key={submission.submissionId}
               type="button"
               onClick={() => handleOpenSubmission(submission)}
-              className="rounded-lg border border-border bg-card p-3 text-left transition-colors hover:border-primary/50"
+              className="rounded-[14px] border-[1.5px] border-pa-field-border bg-pa-field p-3 text-left transition-colors hover:border-pa-green"
             >
               <div className="flex items-center gap-2">
-                <MessageSquare className="h-4 w-4 text-muted-foreground" />
-                <span className="font-medium text-sm">{submission.label}</span>
+                <MessageSquare className="h-4 w-4 text-pa-muted-3" />
+                <span className="text-sm font-semibold text-pa-ink">{submission.label}</span>
                 <Badge variant="outline" className="ml-auto text-[10px]">
                   {submission.images.length} image{submission.images.length !== 1 ? "s" : ""}
                 </Badge>
@@ -212,7 +203,7 @@ export function PupilReviewOthersWorkActivity({
               {submission.images.length > 0 && (
                 <div className="mt-2 flex gap-1 overflow-hidden">
                   {submission.images.slice(0, 3).map((img, i) => (
-                    <div key={i} className="h-12 w-12 shrink-0 overflow-hidden rounded bg-muted">
+                    <div key={i} className="h-12 w-12 shrink-0 overflow-hidden rounded bg-pa-field">
                       <img
                         src={img.url}
                         alt=""
@@ -222,7 +213,7 @@ export function PupilReviewOthersWorkActivity({
                     </div>
                   ))}
                   {submission.images.length > 3 && (
-                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded bg-muted text-xs text-muted-foreground">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded bg-pa-field text-xs text-pa-muted-3">
                       +{submission.images.length - 3}
                     </div>
                   )}
@@ -253,7 +244,7 @@ export function PupilReviewOthersWorkActivity({
           {/* Body: side-by-side image + comments */}
           <div className="flex flex-1 min-h-0 flex-col sm:flex-row">
             {/* Left: Image viewer */}
-            <div className="flex flex-1 flex-col items-center justify-center bg-muted/30 p-4 min-h-0">
+            <div className="flex flex-1 flex-col items-center justify-center bg-pa-field p-4 min-h-0">
               {selectedSubmission && totalImages > 0 && (
                 <>
                   <div className="relative flex flex-1 items-center justify-center w-full min-h-0">
@@ -293,7 +284,7 @@ export function PupilReviewOthersWorkActivity({
                           type="button"
                           onClick={() => setSelectedImageIndex(i)}
                           className={`h-10 w-10 shrink-0 overflow-hidden rounded border-2 transition-colors ${
-                            i === selectedImageIndex ? "border-primary" : "border-transparent"
+                            i === selectedImageIndex ? "border-pa-green" : "border-transparent"
                           }`}
                         >
                           <img
@@ -310,9 +301,9 @@ export function PupilReviewOthersWorkActivity({
             </div>
 
             {/* Right: Comments panel */}
-            <div className="flex w-full flex-col border-t sm:w-80 sm:border-t-0 sm:border-l">
-              <div className="px-4 py-3 border-b">
-                <h5 className="text-sm font-medium text-foreground">
+            <div className="flex w-full flex-col border-t border-pa-field-border sm:w-80 sm:border-t-0 sm:border-l">
+              <div className="px-4 py-3 border-b border-pa-field-border">
+                <h5 className="text-sm font-semibold text-pa-ink">
                   Your Comments
                 </h5>
               </div>
@@ -320,36 +311,36 @@ export function PupilReviewOthersWorkActivity({
               {/* Comments list */}
               <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2 min-h-0">
                 {commentsLoading ? (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <div className="flex items-center gap-2 text-xs text-pa-muted-3">
                     <Loader2 className="h-3 w-3 animate-spin" />
                     Loading...
                   </div>
                 ) : comments.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-xs text-pa-muted-3">
                     No comments yet. Leave your feedback below.
                   </p>
                 ) : (
                   comments.map((comment) => (
                     <div
                       key={comment.commentId}
-                      className={`rounded-md border p-3 text-sm ${
+                      className={`rounded-pa-box border p-3 text-sm ${
                         comment.isFlagged
-                          ? "border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30"
-                          : "border-border bg-muted/30"
+                          ? "border-pa-amber-tint bg-pa-amber-tint"
+                          : "border-pa-field-border bg-pa-field"
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium text-xs text-muted-foreground">
+                        <span className="text-xs font-semibold text-pa-muted-3">
                           {comment.authorLabel}
                         </span>
                         {comment.isFlagged && (
-                          <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-300">
+                          <Badge variant="outline" className="text-[10px] text-pa-amber border-pa-amber-tint">
                             <AlertTriangle className="mr-1 h-3 w-3" />
                             Flagged
                           </Badge>
                         )}
                       </div>
-                      <p className="mt-1 text-foreground">{comment.commentText}</p>
+                      <p className="mt-1 text-pa-ink">{comment.commentText}</p>
                     </div>
                   ))
                 )}
@@ -357,19 +348,17 @@ export function PupilReviewOthersWorkActivity({
 
               {/* Comment input */}
               {(
-                <div className="border-t px-4 py-3 space-y-2">
+                <div className="border-t border-pa-field-border px-4 py-3 space-y-2">
                   <Textarea
                     value={commentText}
                     onChange={(e) => setCommentText(e.target.value)}
                     placeholder="Leave a comment..."
                     rows={3}
-                    className="resize-none text-sm"
+                    className="resize-none rounded-pa-box border-[1.5px] border-pa-field-border bg-pa-field px-4 py-3.5 text-[15px] text-pa-ink outline-none placeholder:text-pa-muted-3 focus-visible:border-pa-green"
                     disabled={isPending}
                   />
                   <Button
-                    variant="default"
-                    size="sm"
-                    className="w-full gap-1"
+                    className="h-auto w-full gap-1 rounded-[14px] bg-pa-green py-3.5 text-[15px] font-bold text-white hover:bg-pa-green/90"
                     onClick={handleSubmitComment}
                     disabled={isPending || !commentText.trim()}
                   >

@@ -14,7 +14,6 @@ import {
 } from "@/lib/server-updates"
 import { getRichTextMarkup } from "@/components/lessons/activity-view/utils"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import {
   Select,
   SelectContent,
@@ -363,39 +362,25 @@ export function PupilUploadActivity({
   }, [beginUpload, canUpload, uploadDisabled])
 
   return (
-    <div className="space-y-3 px-1">
-      <div className="space-y-1">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex flex-col gap-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-base font-semibold text-foreground">{activity.title}</h3>
-            </div>
-          </div>
-          <span className="text-xs font-medium uppercase tracking-wide text-primary">Upload file</span>
-        </div>
-      </div>
-
+    <div className="space-y-3">
       {hasInstructions ? (
-        <div 
-          className="prose prose-sm max-w-none text-muted-foreground"
-          dangerouslySetInnerHTML={{ __html: getRichTextMarkup(instructions) ?? "" }} 
+        <div
+          className="prose prose-sm max-w-none text-pa-prose [&_strong]:text-pa-ink"
+          dangerouslySetInnerHTML={{ __html: getRichTextMarkup(instructions) ?? "" }}
         />
       ) : null}
 
       {canUpload ? (
-        <div className="space-y-3">
-          <label className="text-sm font-medium text-foreground" htmlFor={`upload-${activity.activity_id}`}>
-            Upload your work
-          </label>
+        <div className="space-y-2">
           <div
             onDragOver={handleDragOver}
             onDragEnter={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
             className={[
-              "flex flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed border-muted-foreground/40 p-4 text-center transition",
+              "flex flex-col items-center justify-center gap-2 rounded-pa-box border-2 border-dashed p-6 text-center transition-colors",
               canUpload && !uploadDisabled ? "cursor-pointer" : "cursor-not-allowed opacity-60",
-              isDragActive ? "border-primary bg-primary/5" : "",
+              isDragActive ? "border-pa-green bg-pa-green-tint" : "border-pa-field-border bg-pa-field",
             ]
               .filter(Boolean)
               .join(" ")}
@@ -413,9 +398,9 @@ export function PupilUploadActivity({
               }
             }}
           >
-            <Upload className="h-5 w-5 text-muted-foreground" />
-            <p className="text-sm font-medium">Drag & drop your file here</p>
-            <p className="text-xs text-muted-foreground">or click to browse your device</p>
+            <Upload className="h-6 w-6 text-pa-muted-3" />
+            <p className="text-sm font-semibold text-pa-ink">Drag &amp; drop your file here</p>
+            <p className="text-xs text-pa-muted-3">or click to browse your device</p>
             <Button
               type="button"
               size="sm"
@@ -440,40 +425,40 @@ export function PupilUploadActivity({
             />
           </div>
           {selectedFileName ? (
-            <p className="text-xs text-muted-foreground">Uploading: {selectedFileName}</p>
+            <p className="text-xs text-pa-muted-3">Uploading: {selectedFileName}</p>
           ) : null}
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-pa-muted-3">
             Files are stored securely so your teacher can review them later.
           </p>
         </div>
       ) : (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-pa-muted-3">
           Uploading is disabled in read-only mode. Sign in as the pupil to submit work.
         </p>
       )}
 
       <div className="space-y-2">
-        <p className="text-sm font-medium text-foreground">Your uploads</p>
+        <p className="text-sm font-semibold text-pa-ink">Your uploads</p>
         {isPending ? (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2 text-xs text-pa-muted-3">
             <Loader2 className="h-3.5 w-3.5 animate-spin" /> Updating…
           </div>
         ) : null}
         {submissions.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No files uploaded yet.</p>
+          <p className="text-sm text-pa-muted-3">No files uploaded yet.</p>
         ) : (
           <ul className="space-y-2 text-sm">
             {submissions.map((file) => {
               const statusDisabled = isPending || statusPendingPath === file.path || !canUpload
               return (
-                <li key={file.path} className="rounded-md border border-border/60 px-3 py-2">
+                <li key={file.path} className="rounded-[14px] border-[1.5px] border-pa-field-border bg-pa-field px-3 py-2">
                   <div className="flex flex-col gap-2">
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                      <span className="truncate pr-4 font-medium" title={file.name}>
+                      <span className="truncate pr-4 font-medium text-pa-ink" title={file.name}>
                         {file.name}
                       </span>
                       <div className="flex items-center gap-2">
-                        <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Instructions</span>
+                        <span className="text-[11px] uppercase tracking-wide text-pa-muted-3">Instructions</span>
                         <Select
                           value={file.instructions || ""}
                           onValueChange={(value) => handleInstructionChange(file, value)}
@@ -491,7 +476,7 @@ export function PupilUploadActivity({
                         </Select>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Status</span>
+                        <span className="text-[11px] uppercase tracking-wide text-pa-muted-3">Status</span>
                         <Select
                           value={file.status}
                           onValueChange={(value) => handleStatusChange(file, value as SubmissionStatus)}

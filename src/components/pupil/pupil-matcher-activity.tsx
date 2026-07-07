@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react"
 import { toast } from "sonner"
-import { CheckCircle2, Loader2 } from "lucide-react"
 
 import type { LessonActivity, MatcherLayoutEntry } from "@/types"
 import {
@@ -16,7 +15,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Badge } from "@/components/ui/badge"
 import { triggerFeedbackRefresh } from "@/lib/feedback-events"
 
 interface PupilMatcherActivityProps {
@@ -130,17 +128,12 @@ export function PupilMatcherActivity({
   )
 
   return (
-    <div className="space-y-4 rounded-md border border-border bg-card p-4 shadow-sm">
-      <header className="flex flex-col gap-2">
-        <h4 className="text-lg font-semibold text-foreground">
-          {activity.title || "Match the key terms to their definitions"}
-        </h4>
-        {!canAnswer ? (
-          <p className="text-xs text-muted-foreground">
-            You can review this activity, but only pupils can select answers.
-          </p>
-        ) : null}
-      </header>
+    <div className="space-y-3">
+      {!canAnswer ? (
+        <p className="text-xs text-pa-muted-3">
+          You can review this activity, but only pupils can select answers.
+        </p>
+      ) : null}
 
       <ul className="space-y-3">
         {layout.map(({ pairId, promptSide }) => {
@@ -152,8 +145,11 @@ export function PupilMatcherActivity({
           const selected = answers[pairId] ?? ""
 
           return (
-            <li key={pairId} className="space-y-2 rounded-lg border border-border bg-background p-3">
-              <p className="text-sm font-medium text-foreground">
+            <li
+              key={pairId}
+              className="space-y-2 rounded-pa-box border-[1.5px] border-pa-field-border bg-pa-field p-4"
+            >
+              <p className="text-sm font-semibold text-pa-ink">
                 {promptText.trim() || "(missing text)"}
               </p>
               <Select
@@ -176,25 +172,6 @@ export function PupilMatcherActivity({
           )
         })}
       </ul>
-
-      <footer className="flex flex-wrap items-center gap-2 text-xs">
-        {isPending ? (
-          <span className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-1 text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-            Saving your answer…
-          </span>
-        ) : feedback ? (
-          <Badge
-            variant={feedback.type === "success" ? "default" : "destructive"}
-            className="inline-flex items-center gap-2"
-          >
-            {feedback.type === "success" ? (
-              <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
-            ) : null}
-            {feedback.message}
-          </Badge>
-        ) : null}
-      </footer>
     </div>
   )
 }

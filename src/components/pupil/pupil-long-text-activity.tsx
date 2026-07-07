@@ -6,7 +6,6 @@ import { toast } from "sonner"
 import type { LessonActivity } from "@/types"
 import { Button } from "@/components/ui/button"
 import { RichTextEditor } from "@/components/ui/rich-text-editor"
-import { getLongTextBody, getRichTextMarkup } from "@/components/lessons/activity-view/utils"
 import { saveLongTextAnswerAction } from "@/lib/server-updates"
 import { triggerFeedbackRefresh } from "@/lib/feedback-events"
 
@@ -42,8 +41,6 @@ export function PupilLongTextActivity({
 // ...
 // Render inside return
 
-  const longTextBody = useMemo(() => getLongTextBody(activity), [activity])
-  const questionMarkup = getRichTextMarkup(longTextBody.question)
   const canAnswerEffective = canAnswer
 
   const [answer, setAnswer] = useState(initialAnswer ?? "")
@@ -117,58 +114,41 @@ export function PupilLongTextActivity({
   }, [canAnswerEffective, feedback])
 
   return (
-    <div className="space-y-4 rounded-md border border-border bg-card p-4 shadow-sm">
-      <header className="flex flex-col gap-2">
-        <h4 className="text-lg font-semibold text-foreground">
-          {activity.title || "Long text question"}
-        </h4>
-      </header>
-
-      <section className="space-y-2">
-        {questionMarkup ? (
-          <div
-            className="prose prose-sm max-w-none text-foreground"
-            dangerouslySetInnerHTML={{ __html: questionMarkup }}
-          />
-        ) : (
-          <p className="text-base text-foreground">
-            {longTextBody.question?.trim() || "Your teacher will add the question soon."}
-          </p>
-        )}
-        {!canAnswerEffective ? (
-          <p className="text-xs text-muted-foreground">
-            You can review this question, but only pupils can enter an answer.
-          </p>
-        ) : null}
-      </section>
-
-      <section className="space-y-2">
-        <RichTextEditor
-          id={`long-text-answer-${activity.activity_id}`}
-          value={answer}
-          onChange={(value) => {
-            setAnswer(value)
-            setFeedback(null)
-          }}
-          placeholder="Type your response here"
-          disabled={!canAnswerEffective || isPending}
-        />
-        <p className={feedback ? (feedback.type === "success" ? "text-xs font-medium text-emerald-600" : "text-xs font-medium text-destructive") : "text-xs text-muted-foreground"}>
-          {helperMessage}
+    <div className="space-y-3">
+      {!canAnswerEffective ? (
+        <p className="text-xs text-pa-muted-3">
+          You can review this question, but only pupils can enter an answer.
         </p>
-      </section>
+      ) : null}
+
+      <RichTextEditor
+        id={`long-text-answer-${activity.activity_id}`}
+        value={answer}
+        onChange={(value) => {
+          setAnswer(value)
+          setFeedback(null)
+        }}
+        placeholder="Type your response here"
+        disabled={!canAnswerEffective || isPending}
+      />
+      <p className={feedback ? (feedback.type === "success" ? "text-xs font-medium text-pa-green" : "text-xs font-medium text-destructive") : "text-xs text-pa-muted-3"}>
+        {helperMessage}
+      </p>
 
       {canAnswerEffective ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={handleSave} disabled={isPending}>
+        <div className="space-y-2">
+          <Button
+            onClick={handleSave}
+            disabled={isPending}
+            className="h-auto w-full rounded-[14px] bg-pa-green py-3.5 text-[15px] font-bold text-white hover:bg-pa-green/90"
+          >
             {isPending ? "Saving…" : "Save answer"}
           </Button>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-pa-muted-3">
             You can edit your answer until your teacher marks the work.
           </p>
         </div>
       ) : null}
-
     </div>
   )
 }

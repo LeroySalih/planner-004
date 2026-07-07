@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react"
 import { toast } from "sonner"
-import { Loader2 } from "lucide-react"
 import {
   DndContext,
   DragOverlay,
@@ -55,7 +54,7 @@ function shuffle<T>(items: T[]): T[] {
 
 function ItemChipContent({ item }: { item: GroupItemsItemOption }) {
   return (
-    <div className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm shadow-sm">
+    <div className="flex items-center gap-2 rounded-pa-opt border-[1.5px] border-pa-field-border bg-pa-field px-4 py-[15px] text-[15px] text-pa-ink">
       {item.imageUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={item.imageUrl} alt="" className="h-12 w-12 rounded object-cover" />
@@ -111,11 +110,11 @@ function DropZone({
     <div
       ref={setNodeRef}
       className={cn(
-        "min-h-[100px] flex-1 space-y-2 rounded-lg border-2 border-dashed border-border bg-muted/20 p-3",
-        isOver && "border-primary bg-primary/10",
+        "min-h-[100px] flex-1 space-y-2 rounded-pa-box border-2 border-dashed border-pa-field-border bg-pa-field p-4",
+        isOver && "border-pa-green bg-pa-green-tint",
       )}
     >
-      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-pa-muted-3">{label}</p>
       <div className="flex flex-wrap gap-2">
         {itemIds.map((itemId) => {
           const item = itemsById.get(itemId)
@@ -220,17 +219,12 @@ export function PupilGroupItemsActivity({
   const activeItem = activeId ? itemsById.get(activeId) ?? null : null
 
   return (
-    <div className="space-y-4 rounded-md border border-border bg-card p-4 shadow-sm">
-      <header className="flex flex-col gap-2">
-        <h4 className="text-lg font-semibold text-foreground">
-          {title || "Drag each item into the correct group"}
-        </h4>
-        {!canAnswer ? (
-          <p className="text-xs text-muted-foreground">
-            You can review this activity, but only pupils can move items.
-          </p>
-        ) : null}
-      </header>
+    <div className="space-y-3">
+      {!canAnswer ? (
+        <p className="text-xs text-pa-muted-3">
+          You can review this activity, but only pupils can move items.
+        </p>
+      ) : null}
 
       <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <div className="flex flex-col gap-3 sm:flex-row">
@@ -258,17 +252,6 @@ export function PupilGroupItemsActivity({
           {activeItem ? <ItemChipContent item={activeItem} /> : null}
         </DragOverlay>
       </DndContext>
-
-      <footer className="flex flex-wrap items-center gap-2 text-xs">
-        {isPending ? (
-          <span className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-1 text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-            Saving…
-          </span>
-        ) : hasSaved ? (
-          <span className="rounded-full bg-muted px-3 py-1 text-muted-foreground">Saved</span>
-        ) : null}
-      </footer>
     </div>
   )
 }

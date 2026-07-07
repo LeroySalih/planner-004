@@ -246,14 +246,9 @@ export function PupilShareMyWorkActivity({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-start gap-2">
-        <div>
-          <h3 className="font-medium text-foreground">{activity.title || "Share my work"}</h3>
-          <p className="text-sm text-muted-foreground">
-            Upload images of your {collectionName} to share with classmates for peer review.
-          </p>
-        </div>
-      </div>
+      <p className="text-xs text-pa-muted-3">
+        Upload images of your {collectionName} to share with classmates for peer review.
+      </p>
 
       {/* Uploaded files grid */}
       {files.length > 0 && submissionId && (
@@ -265,11 +260,11 @@ export function PupilShareMyWorkActivity({
               onDragStart={() => handleDragStart(index)}
               onDragOver={(e) => handleDragOver(e, index)}
               onDragEnd={handleDragEnd}
-              className={`group relative overflow-hidden rounded-lg border bg-muted/30 ${
-                dragOverIndex === index ? "border-primary" : "border-border"
+              className={`group relative overflow-hidden rounded-[14px] border-[1.5px] bg-pa-field ${
+                dragOverIndex === index ? "border-pa-green" : "border-pa-field-border"
               }`}
             >
-              <div className="aspect-square w-full overflow-hidden bg-muted">
+              <div className="aspect-square w-full overflow-hidden bg-pa-field">
                 <img
                   src={buildImageUrl(index)}
                   alt={file.fileName}
@@ -279,14 +274,14 @@ export function PupilShareMyWorkActivity({
               </div>
               <div className="flex items-center justify-between px-2 py-1">
                 {canUpload && (
-                  <GripVertical className="h-4 w-4 cursor-grab text-muted-foreground" />
+                  <GripVertical className="h-4 w-4 cursor-grab text-pa-muted-3" />
                 )}
-                <span className="truncate text-xs text-muted-foreground">{file.fileName}</span>
+                <span className="truncate text-xs text-pa-muted-3">{file.fileName}</span>
                 {canUpload && (
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                    className="h-6 w-6 p-0 text-pa-muted-3 hover:text-destructive"
                     onClick={() => handleRemove(file.fileName)}
                     disabled={isPending}
                   >
@@ -311,8 +306,7 @@ export function PupilShareMyWorkActivity({
             onChange={(e) => handleUpload(e.target.files)}
           />
           <Button
-            variant="outline"
-            className="w-full gap-2"
+            className="h-auto w-full gap-2 rounded-[14px] bg-pa-green py-3.5 text-[15px] font-bold text-white hover:bg-pa-green/90"
             onClick={() => fileInputRef.current?.click()}
             disabled={isPending}
           >
@@ -323,7 +317,7 @@ export function PupilShareMyWorkActivity({
             )}
             {isPending ? "Uploading..." : "Upload images"}
           </Button>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-pa-muted-3">
             PNG, JPEG, GIF, or WebP. Max 5MB per image.
           </p>
         </div>
@@ -331,19 +325,19 @@ export function PupilShareMyWorkActivity({
 
       {/* Feedback received from reviewers */}
       {files.length > 0 && (
-        <div className="space-y-2 border-t pt-3">
+        <div className="space-y-2 border-t border-pa-field-border pt-3">
           <div className="flex items-center gap-2">
-            <MessageSquare className="h-4 w-4 text-muted-foreground" />
-            <h4 className="text-sm font-medium text-foreground">Feedback received</h4>
+            <MessageSquare className="h-4 w-4 text-pa-muted-3" />
+            <h4 className="text-sm font-semibold text-pa-ink">Feedback received</h4>
           </div>
 
           {commentsLoading ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="flex items-center gap-2 text-xs text-pa-muted-3">
               <Loader2 className="h-3 w-3 animate-spin" />
               Loading feedback...
             </div>
           ) : receivedComments.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-xs text-pa-muted-3">
               No feedback yet. Your classmates will be able to leave comments once they review your work.
             </p>
           ) : (
@@ -351,19 +345,19 @@ export function PupilShareMyWorkActivity({
               {receivedComments.map((comment) => (
                 <div
                   key={comment.commentId}
-                  className={`rounded-md border p-3 text-sm ${
+                  className={`rounded-pa-box border p-3 text-sm ${
                     comment.isFlagged
-                      ? "border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30"
-                      : "border-border bg-muted/30"
+                      ? "border-pa-amber-tint bg-pa-amber-tint"
+                      : "border-pa-field-border bg-pa-field"
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-xs text-muted-foreground">
+                    <span className="text-xs font-semibold text-pa-muted-3">
                       {comment.authorLabel}
                     </span>
                     <div className="flex items-center gap-1">
                       {comment.isFlagged ? (
-                        <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-300">
+                        <Badge variant="outline" className="text-[10px] text-pa-amber border-pa-amber-tint">
                           <AlertTriangle className="mr-1 h-3 w-3" />
                           Flagged
                         </Badge>
@@ -371,7 +365,7 @@ export function PupilShareMyWorkActivity({
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-6 gap-1 px-2 text-[10px] text-muted-foreground hover:text-amber-600"
+                          className="h-6 gap-1 px-2 text-[10px] text-pa-muted-3 hover:text-pa-amber"
                           onClick={() => handleFlagComment(comment.commentId)}
                           disabled={isPending}
                         >
@@ -381,7 +375,7 @@ export function PupilShareMyWorkActivity({
                       )}
                     </div>
                   </div>
-                  <p className="mt-1 text-foreground">{comment.commentText}</p>
+                  <p className="mt-1 text-pa-ink">{comment.commentText}</p>
                 </div>
               ))}
             </div>

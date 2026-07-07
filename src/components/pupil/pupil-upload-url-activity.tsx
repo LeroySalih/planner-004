@@ -8,10 +8,6 @@ import { z } from "zod"
 import type { LessonActivity } from "@/types"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import {
-  getRichTextMarkup,
-  getUploadUrlBody,
-} from "@/components/lessons/activity-view/utils"
 import { saveUploadUrlAnswerAction, toggleSubmissionFlagAction } from "@/lib/server-updates"
 import { triggerFeedbackRefresh } from "@/lib/feedback-events"
 
@@ -52,8 +48,6 @@ export function PupilUploadUrlActivity({
   feedbackText,
   modelAnswer,
 }: PupilUploadUrlActivityProps) {
-  const uploadUrlBody = useMemo(() => getUploadUrlBody(activity), [activity])
-  const questionMarkup = getRichTextMarkup(uploadUrlBody.question)
   const canAnswerEffective = canAnswer
 
   const [url, setUrl] = useState(initialAnswer ?? "")
@@ -199,100 +193,73 @@ export function PupilUploadUrlActivity({
   }, [canAnswerEffective, feedback, isPending, url, isValidUrl])
 
   return (
-    <div className="space-y-4 rounded-md border border-border bg-card p-4 shadow-sm">
-      <header className="flex flex-col gap-2">
-        <h4 className="text-lg font-semibold text-foreground">
-          {activity.title || "Upload URL"}
-        </h4>
-      </header>
-
+    <div className="space-y-3">
       {initialResubmitRequested && (
-        <div className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-700 dark:bg-amber-950/30">
-          <RotateCcw className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-          <div className="space-y-1">
-            <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
-              Resubmission requested
-            </p>
-            {resubmitNote && (
-              <p className="text-sm text-amber-600 dark:text-amber-300">{resubmitNote}</p>
-            )}
+        <div className="flex items-start gap-3 rounded-pa-box border border-pa-amber-tint bg-pa-amber-tint px-4 py-3 text-pa-amber">
+          <RotateCcw className="mt-0.5 h-4 w-4 shrink-0" />
+          <div className="space-y-0.5">
+            <p className="text-sm font-semibold">Resubmission requested</p>
+            {resubmitNote && <p className="text-sm opacity-90">{resubmitNote}</p>}
           </div>
         </div>
       )}
 
-      <section className="space-y-2">
-        {questionMarkup ? (
-          <div
-            className="prose prose-sm max-w-none text-foreground"
-            dangerouslySetInnerHTML={{ __html: questionMarkup }}
-          />
-        ) : (
-          <p className="text-base text-foreground">
-            {uploadUrlBody.question?.trim() || "Your teacher will add the question soon."}
-          </p>
-        )}
-        {!canAnswerEffective ? (
-          <p className="text-xs text-muted-foreground">
-            You can review this question, but only pupils can enter an answer.
-          </p>
-        ) : null}
-      </section>
+      {!canAnswerEffective ? (
+        <p className="text-xs text-pa-muted-3">
+          You can review this question, but only pupils can enter an answer.
+        </p>
+      ) : null}
 
-      <section className="space-y-2">
-        <div className="relative">
-            <Input
-            value={url}
-            onChange={(event) => {
-                setUrl(event.target.value)
-                setFeedback(null)
-            }}
-            onBlur={handleBlur}
-            placeholder="https://..."
-            disabled={!canAnswerEffective || isPending}
-            className={!isValidUrl && url.trim().length > 0 ? "border-destructive focus-visible:ring-destructive" : ""}
-            />
-            {url.trim().length > 0 && canAnswerEffective && !isPending && (
-                <Button
-                variant="ghost"
-                size="icon"
-                className="absolute right-1 top-1 h-8 w-8 text-muted-foreground hover:text-foreground"
-                onClick={handleClear}
-                title="Clear URL"
-                >
-                <X className="h-4 w-4" />
-                </Button>
-            )}
-        </div>
-        <div
-          className={cnFeedback(feedback)}
-        >
-          {helperMessage}
-        </div>
-      </section>
+      <div className="relative">
+        <Input
+          value={url}
+          onChange={(event) => {
+            setUrl(event.target.value)
+            setFeedback(null)
+          }}
+          onBlur={handleBlur}
+          placeholder="https://..."
+          disabled={!canAnswerEffective || isPending}
+          className={`rounded-pa-box border-[1.5px] border-pa-field-border bg-pa-field px-4 py-3.5 text-[15px] text-pa-ink outline-none placeholder:text-pa-muted-3 focus-visible:border-pa-green disabled:opacity-70 ${!isValidUrl && url.trim().length > 0 ? "border-destructive focus-visible:border-destructive" : ""}`}
+        />
+        {url.trim().length > 0 && canAnswerEffective && !isPending && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="absolute right-1 top-1 h-8 w-8 text-pa-muted-3 hover:text-pa-ink"
+            onClick={handleClear}
+            title="Clear URL"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
+      <div className={cnFeedback(feedback)}>{helperMessage}</div>
 
       {canAnswerEffective ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={handleSave} disabled={isPending || !isValidUrl || url.trim().length === 0}>
+        <div className="space-y-2">
+          <Button
+            onClick={handleSave}
+            disabled={isPending || !isValidUrl || url.trim().length === 0}
+            className="h-auto w-full rounded-[14px] bg-pa-green py-3.5 text-[15px] font-bold text-white hover:bg-pa-green/90"
+          >
             {isPending ? "Saving…" : "Save answer"}
           </Button>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-pa-muted-3">
             You can edit your answer until your teacher marks the work.
           </p>
         </div>
       ) : null}
-
-
-
     </div>
   )
 }
 
 function cnFeedback(feedback: { type: "success" | "error"; message: string } | null): string {
   if (!feedback) {
-    return "text-xs text-muted-foreground"
+    return "text-xs text-pa-muted-3"
   }
   if (feedback.type === "success") {
-    return "text-xs font-medium text-emerald-600"
+    return "text-xs font-medium text-pa-green"
   }
   return "text-xs font-medium text-destructive"
 }

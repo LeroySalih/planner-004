@@ -68,24 +68,17 @@ export function PupilDoFlashcardsActivity({
 
   if (!flashcardActivityId) {
     return (
-      <p className="text-sm text-muted-foreground">Flashcard set unavailable.</p>
+      <p className="text-sm text-pa-muted-3">Flashcard set unavailable.</p>
     )
   }
 
-  const maxMarks = activity.max_marks ?? 1
-  const scoreDisplay =
-    latestScore !== null ? `${Math.round(latestScore * maxMarks)}/${maxMarks}` : null
-
   return (
     <>
-      <div className="flex items-center gap-3">
-        {scoreDisplay && (
-          <span className="text-sm font-medium text-foreground">{scoreDisplay}</span>
-        )}
+      <div className="space-y-3">
         <Button
-          size="sm"
           onClick={handleOpen}
           disabled={loadingDeck}
+          className="h-auto w-full rounded-[14px] bg-pa-green py-3.5 text-[15px] font-bold text-white hover:bg-pa-green/90"
         >
           {loadingDeck ? "Loading…" : "Start Flashcards"}
         </Button>
