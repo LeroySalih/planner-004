@@ -64,6 +64,7 @@ interface LessonDetailClientProps {
   lessonActivities: LessonActivity[]
   unitLessons: LessonPickerOption[]
   availableMarkingGuidances: MarkingGuidance[]
+  viewerUserId: string
 }
 
 export function LessonDetailClient({
@@ -76,6 +77,7 @@ export function LessonDetailClient({
   lessonActivities,
   unitLessons,
   availableMarkingGuidances,
+  viewerUserId,
 }: LessonDetailClientProps) {
   const router = useRouter()
   const [currentLesson, setCurrentLesson] = useState<LessonWithObjectives>(lesson)
@@ -425,6 +427,7 @@ export function LessonDetailClient({
                     lessonLinks={currentLesson.lesson_links ?? []}
                     lessonObjectives={currentLesson.lesson_objectives ?? []}
                     className="bg-white/10 text-white hover:bg-white/20"
+                    previewHref={`/pupil-lessons/${encodeURIComponent(viewerUserId)}/lessons/${currentLesson.lesson_id}`}
                   />
                   <LessonShareButton
                     lessonId={currentLesson.lesson_id}

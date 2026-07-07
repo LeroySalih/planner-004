@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import Link from "next/link"
 import { Play } from "lucide-react"
 import { toast } from "sonner"
 
@@ -24,6 +25,12 @@ interface LessonPreviewLauncherProps {
   lessonLinks: LessonLinkInfo[]
   lessonObjectives: LessonLearningObjective[]
   className?: string
+  /**
+   * When set, "Preview lesson" opens the real pupil lesson view at this href
+   * (the teacher previews as themselves) instead of the in-app present-mode
+   * modal. This is the unified preview path.
+   */
+  previewHref?: string
 }
 
 const FILE_ACTIVITY_TYPES = new Set(["file-download", "upload-file", "voice"])
@@ -38,6 +45,7 @@ export function LessonPreviewLauncher({
   lessonLinks,
   lessonObjectives,
   className,
+  previewHref,
 }: LessonPreviewLauncherProps) {
   const [open, setOpen] = useState(false)
   const [fetchedLessonFiles, setFetchedLessonFiles] = useState<LessonFileInfo[]>([])
@@ -71,6 +79,18 @@ export function LessonPreviewLauncher({
 
   const handleOpen = () => {
     setOpen(true)
+  }
+
+  // Unified preview: navigate to the real pupil lesson view (teacher previews
+  // as themselves) in a new tab, keeping the lesson editor open.
+  if (previewHref) {
+    return (
+      <Button asChild type="button" variant="secondary" className={className}>
+        <Link href={previewHref} target="_blank" rel="noopener noreferrer">
+          <Play className="mr-2 h-4 w-4" /> Preview lesson
+        </Link>
+      </Button>
+    )
   }
 
   return (

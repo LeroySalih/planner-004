@@ -197,6 +197,7 @@ export default async function LessonDetailPage({
       lessonActivities={lessonPayload?.lessonActivities ?? []}
       unitLessons={lessonOptions}
       availableMarkingGuidances={markingGuidancesResult.data ?? []}
+      viewerUserId={profile.userId}
     />
   )
 }
