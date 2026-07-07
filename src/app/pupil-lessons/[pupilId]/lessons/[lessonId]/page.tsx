@@ -78,7 +78,6 @@ import { FeedbackVisibilityProvider, SseStatusIndicator } from "./feedback-visib
 import { SubmissionCommentInput } from "@/components/submission-comment-input"
 import {
   ActivityMotion,
-  ActivityReveal,
   LessonEnd,
   LessonHero,
   LessonScrollProgress,
@@ -242,6 +241,16 @@ function getActivityQuestion(activity: { body_data: unknown; title: string }): s
     }
   }
   return activity.title || ""
+}
+
+/** Type pill label/glyph for display-only activities (no marking chrome). */
+const DISPLAY_META: Record<string, { typeLabel: string; typeGlyph?: string }> = {
+  "display-image": { typeLabel: "Image", typeGlyph: "🖼" },
+  "show-video": { typeLabel: "Video", typeGlyph: "▶" },
+  "file-download": { typeLabel: "Download", typeGlyph: "⭳" },
+  "display-flashcards": { typeLabel: "Flashcards", typeGlyph: "🂠" },
+  text: { typeLabel: "Read", typeGlyph: "≡" },
+  voice: { typeLabel: "Audio", typeGlyph: "♪" },
 }
 
 function extractActivityLink(activity: { body_data: unknown; title: string }) {
@@ -1276,8 +1285,9 @@ export default async function PupilLessonFriendlyPage({
                     )
                   }
 
-                  return (
-                    <ActivityReveal key={activity.activity_id} index={index} total={totalActivities}>
+                  const displayMeta = DISPLAY_META[activity.type ?? ""] ?? { typeLabel: "Activity" }
+                  return shell(
+                    <>
                       {activity.type === "upload-file" ? (
                         <PupilUploadActivity
                           lessonId={lesson.lesson_id}
@@ -1622,7 +1632,8 @@ export default async function PupilLessonFriendlyPage({
                       <SubmissionCommentInput submissionId={submissionId} />
                     ) : null
                   })()}
-                    </ActivityReveal>
+                    </>,
+                    { ...displayMeta, hideMarking: true, question: "" },
                   )
                 })}
                 </div>

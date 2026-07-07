@@ -76,9 +76,13 @@ export function PupilActivityShell({
     >
       {/* Header: question leads (left), progress pill on the right */}
       <div className="flex items-start justify-between gap-[18px] px-1.5 pt-0.5 pb-[18px]">
-        <h1 className="m-0 max-w-[330px] font-[family-name:var(--font-pa-head)] text-[23px] font-semibold leading-[1.24] text-pretty text-pa-ink">
-          {question}
-        </h1>
+        {question ? (
+          <h1 className="m-0 max-w-[330px] font-[family-name:var(--font-pa-head)] text-[23px] font-semibold leading-[1.24] text-pretty text-pa-ink">
+            {question}
+          </h1>
+        ) : (
+          <span />
+        )}
         <div className="flex flex-none items-center gap-2.5 rounded-full border border-pa-card-border bg-pa-panel py-[5px] pl-3 pr-1.5">
           <span className="whitespace-nowrap text-xs font-semibold text-pa-muted-1">
             Activity {activityIndex} / {activityTotal}
