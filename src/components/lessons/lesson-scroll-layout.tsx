@@ -232,6 +232,37 @@ export function ActivityReveal({
   )
 }
 
+/**
+ * Bare scroll-reveal wrapper (no card chrome). The child provides its own card
+ * (e.g. a PupilActivityShell), so the card itself is what slides in from an
+ * alternating side. Used by the restyled pupil activities.
+ */
+export function ActivityMotion({
+  index,
+  children,
+}: {
+  index: number
+  children: React.ReactNode
+}) {
+  const { ref, inView } = useInView<HTMLDivElement>()
+  const fromLeft = index % 2 === 0
+  return (
+    <section className="flex min-h-screen scroll-mt-16 flex-col items-center justify-center py-[16vh]">
+      <div
+        ref={ref}
+        className={cn(
+          "w-full max-w-[540px] transition-all duration-700 ease-out will-change-transform",
+          inView
+            ? "translate-x-0 opacity-100 blur-0"
+            : cn("opacity-0 blur-sm", fromLeft ? "-translate-x-16" : "translate-x-16"),
+        )}
+      >
+        {children}
+      </div>
+    </section>
+  )
+}
+
 /** Closing celebration screen at the end of the lesson. */
 export function LessonEnd() {
   const { ref, inView } = useInView<HTMLDivElement>()

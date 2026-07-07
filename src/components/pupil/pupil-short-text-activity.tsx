@@ -6,15 +6,8 @@ import { Flag, Loader2, RotateCcw } from "lucide-react"
 
 import type { LessonActivity } from "@/types"
 import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
-import {
-  getRichTextMarkup,
-  getShortTextBody,
-} from "@/components/lessons/activity-view/utils"
 import { saveShortTextAnswerAction, toggleSubmissionFlagAction } from "@/lib/server-updates"
 import { triggerFeedbackRefresh } from "@/lib/feedback-events"
-import { ActivityProgressPanel } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/activity-progress-panel"
-import { useFeedbackVisibility } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/feedback-visibility-debug"
 
 interface PupilShortTextActivityProps {
   lessonId: string
@@ -59,34 +52,12 @@ export function PupilShortTextActivity({
   initialIsPendingMarking = false,
   submissionCount,
 }: PupilShortTextActivityProps) {
-  const shortTextBody = useMemo(() => getShortTextBody(activity), [activity])
-  const questionMarkup = getRichTextMarkup(shortTextBody.question)
   const canAnswerEffective = canAnswer
-
-  // Read live marking results from the page-level SSE context.
-  // When n8n marks this activity, FeedbackVisibilityProvider stores the result here
-  // and the component re-renders with the new score/feedback — no router.refresh() needed.
-  const { markingResults } = useFeedbackVisibility()
-  const contextResult = markingResults.get(activity.activity_id)
-
-  // Merge server-initial props with live context result.
-  // Context result wins when present (it's fresher than the server render).
-  const maxMarks = activity.max_marks ?? 1
-  const effectiveScoreLabel = contextResult
-    ? (contextResult.score !== null
-        ? `${Math.round(contextResult.score * maxMarks)}/${maxMarks}`
-        : "—")
-    : scoreLabelProp
-  const effectiveFeedbackText = contextResult ? contextResult.feedbackText : feedbackTextProp
 
   const [answer, setAnswer] = useState(initialAnswer ?? "")
   const [lastSaved, setLastSaved] = useState(initialAnswer ?? "")
   const [submissionId, setSubmissionId] = useState(initialSubmissionId ?? null)
   const [isFlagged, setIsFlagged] = useState(initialIsFlagged ?? false)
-
-  // Local optimistic pending state — set to true immediately after the pupil saves an answer.
-  // Cleared when a marking result arrives in context (effectiveIsPendingMarkingFromProps → false).
-  const [isPendingMarking, setIsPendingMarking] = useState(initialIsPendingMarking)
 
   const [feedback, setFeedback] = useState<FeedbackState>(
     initialAnswer ? { type: "success", message: "Answer saved" } : null,
@@ -104,34 +75,6 @@ export function PupilShortTextActivity({
     setIsFlagged(initialIsFlagged ?? false)
     setFeedback(nextAnswer ? { type: "success", message: "Answer saved" } : null)
   }, [initialAnswer, initialSubmissionId, initialIsFlagged, activity.activity_id])
-
-  // Sync isPendingMarking when the server re-renders with fresh props (e.g. manual browser refresh).
-  useEffect(() => {
-    setIsPendingMarking(initialIsPendingMarking)
-  }, [initialIsPendingMarking])
-
-  // When a marking result arrives in context, clear the optimistic pending state.
-  // We depend on contextResult directly — NOT on effectiveIsPendingMarkingFromProps — because
-  // that derived value is false both before (no context result, already-marked activity) and
-  // after (context result present) for re-submissions, so its dependency never changes.
-  useEffect(() => {
-    if (contextResult) {
-      console.log(`[PupilShortTextActivity ${activity.activity_id.slice(0, 8)}] context result received — clearing isPendingMarking`, contextResult)
-      setIsPendingMarking(false)
-    }
-  }, [contextResult, activity.activity_id])
-
-  // Debug: log effective state whenever it changes
-  useEffect(() => {
-    console.log(`[PupilShortTextActivity ${activity.activity_id.slice(0, 8)}] effective state`, {
-      fromContext: !!contextResult,
-      scoreLabel: effectiveScoreLabel,
-      feedbackText: effectiveFeedbackText,
-      isPendingMarking,
-      contextResult,
-    })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contextResult, isPendingMarking])
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -193,9 +136,6 @@ export function PupilShortTextActivity({
 
         setLastSaved(answer)
         setFeedback({ type: "success", message: "Answer saved" })
-        // Optimistic: show "awaiting marking" immediately — the SSE result will clear this
-        setIsPendingMarking(true)
-        console.log(`[PupilShortTextActivity ${activity.activity_id.slice(0, 8)}] answer saved — isPendingMarking set to true (optimistic)`)
         triggerFeedbackRefresh(lessonId)
       } finally {
         isSavingRef.current = false
@@ -247,118 +187,79 @@ export function PupilShortTextActivity({
   }, [canAnswerEffective, feedback, isPending])
 
   return (
-    <div className="space-y-4 rounded-md border border-border bg-card p-4 shadow-sm">
-      <header className="flex flex-col gap-2">
-        <h4 className="text-lg font-semibold text-foreground">
-          {activity.title || "Short text question"}
-        </h4>
-      </header>
-
+    <div className="space-y-3">
       {initialResubmitRequested && (
-        <div className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-700 dark:bg-amber-950/30">
-          <RotateCcw className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-          <div className="space-y-1">
-            <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
-              Resubmission requested
-            </p>
-            {resubmitNote && (
-              <p className="text-sm text-amber-600 dark:text-amber-300">{resubmitNote}</p>
-            )}
+        <div className="flex items-start gap-3 rounded-pa-box border border-pa-amber-tint bg-pa-amber-tint px-4 py-3 text-pa-amber">
+          <RotateCcw className="mt-0.5 h-4 w-4 shrink-0" />
+          <div className="space-y-0.5">
+            <p className="text-sm font-semibold">Resubmission requested</p>
+            {resubmitNote && <p className="text-sm opacity-90">{resubmitNote}</p>}
           </div>
         </div>
       )}
 
-      <section className="space-y-2">
-        {questionMarkup ? (
-          <div
-            className="prose prose-sm max-w-none text-foreground"
-            dangerouslySetInnerHTML={{ __html: questionMarkup }}
-          />
-        ) : (
-          <p className="text-base text-foreground">
-            {shortTextBody.question?.trim() || "Your teacher will add the question soon."}
-          </p>
-        )}
-        {!canAnswerEffective ? (
-          <p className="text-xs text-muted-foreground">
-            You can review this question, but only pupils can enter an answer.
-          </p>
-        ) : null}
-      </section>
-
-      <section className="space-y-2">
-        <Textarea
-          ref={textareaRef}
-          value={answer}
-          onChange={(event) => {
-            setAnswer(event.target.value)
-            setFeedback(null)
-          }}
-          onBlur={handleBlur}
-          placeholder="Type your short answer"
-          disabled={!canAnswerEffective || isPending}
-          className="resize-none overflow-hidden min-h-[80px]"
-        />
-        <div
-          className={cnFeedback(feedback)}
-        >
-          {helperMessage}
-        </div>
-      </section>
+      <textarea
+        ref={textareaRef}
+        value={answer}
+        onChange={(event) => {
+          setAnswer(event.target.value)
+          setFeedback(null)
+        }}
+        onBlur={handleBlur}
+        placeholder="Type your short answer…"
+        disabled={!canAnswerEffective || isPending}
+        className="min-h-[96px] w-full resize-none overflow-hidden rounded-pa-box border-[1.5px] border-pa-field-border bg-pa-field px-4 py-3.5 font-[family-name:var(--font-pa-body)] text-[15px] text-pa-ink outline-none placeholder:text-pa-muted-3 focus-visible:border-pa-green disabled:opacity-70"
+      />
+      <div className={cnFeedback(feedback)}>{helperMessage}</div>
 
       {canAnswerEffective ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={handleSave} disabled={isPending}>
+        <div className="space-y-2">
+          <Button
+            onClick={handleSave}
+            disabled={isPending}
+            className="h-auto w-full rounded-[14px] bg-pa-green py-3.5 text-[15px] font-bold text-white hover:bg-pa-green/90"
+          >
             {isPending ? "Saving…" : "Save answer"}
           </Button>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-pa-muted-3">
             You can edit your answer until your teacher marks the work.
           </p>
         </div>
+      ) : (
+        <p className="text-xs text-pa-muted-3">
+          You can review this question, but only pupils can enter an answer.
+        </p>
+      )}
+
+      {submissionId ? (
+        <div className="flex flex-col gap-2 border-t border-pa-field-border pt-3 sm:flex-row sm:items-center">
+          <Button
+            variant={isFlagged ? "destructive" : "outline"}
+            size="sm"
+            onClick={handleToggleFlag}
+            disabled={flagPending}
+            className="gap-2 self-start sm:self-auto"
+          >
+            <Flag className="h-4 w-4" />
+            {isFlagged ? "Unflag for review" : "Flag for review"}
+          </Button>
+          <p className="text-xs text-pa-muted-3">
+            {isFlagged
+              ? "You have flagged this answer for your teacher to review."
+              : "Flag this answer if you want your teacher to check it again."}
+          </p>
+        </div>
       ) : null}
-
-      <ActivityProgressPanel
-        assignmentIds={feedbackAssignmentIds}
-        lessonId={feedbackLessonId ?? lessonId}
-        initialVisible={feedbackInitiallyVisible}
-        show={true}
-        scoreLabel={effectiveScoreLabel}
-        feedbackText={effectiveFeedbackText}
-        modelAnswer={modelAnswer}
-        isMarked={!isPendingMarking && effectiveScoreLabel !== "In progress" && effectiveScoreLabel !== "No score yet"}
-        isPendingMarking={isPendingMarking}
-        submissionCount={submissionCount}
-        flagSlot={submissionId ? (
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <Button
-              variant={isFlagged ? "destructive" : "outline"}
-              size="sm"
-              onClick={handleToggleFlag}
-              disabled={flagPending}
-              className="gap-2 self-start sm:self-auto"
-            >
-              <Flag className="h-4 w-4" />
-              {isFlagged ? "Unflag for review" : "Flag for review"}
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              {isFlagged
-                ? "You have flagged this answer for your teacher to review."
-                : "Flag this answer if you want your teacher to check it again."}
-            </p>
-          </div>
-        ) : undefined}
-      />
-
     </div>
   )
 }
 
 function cnFeedback(feedback: FeedbackState): string {
   if (!feedback) {
-    return "text-xs text-muted-foreground"
+    return "text-xs text-pa-muted-3"
   }
   if (feedback.type === "success") {
-    return "text-xs font-medium text-emerald-600"
+    return "text-xs font-medium text-pa-green"
   }
   return "text-xs font-medium text-destructive"
 }

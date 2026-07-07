@@ -76,6 +76,7 @@ import {
 import { FeedbackVisibilityProvider, SseStatusIndicator } from "./feedback-visibility-debug"
 import { SubmissionCommentInput } from "@/components/submission-comment-input"
 import {
+  ActivityMotion,
   ActivityReveal,
   LessonEnd,
   LessonHero,
@@ -84,6 +85,7 @@ import {
   type ScrollObjective,
   type ScrollObjectiveCriterion,
 } from "@/components/lessons/lesson-scroll-layout"
+import { LiveActivityShell } from "./live-activity-shell"
 
 type McqOption = { id: string; text: string }
 
@@ -226,6 +228,19 @@ function looksLikeImageUrl(url: string | null | undefined) {
   const [base] = url.split("?")
   if (!base) return false
   return /\.(png|jpe?g|gif|webp|svg|bmp|heic|heif)$/i.test(base)
+}
+
+/** The heading shown in the Warm Study card header for an activity. */
+function getActivityQuestion(activity: { body_data: unknown; title: string }): string {
+  const body = activity.body_data
+  if (body && typeof body === "object") {
+    const record = body as Record<string, unknown>
+    for (const key of ["question", "task", "instructions"]) {
+      const value = record[key]
+      if (typeof value === "string" && value.trim().length > 0) return value.trim()
+    }
+  }
+  return activity.title || ""
 }
 
 function extractActivityLink(activity: { body_data: unknown; title: string }) {
@@ -1037,6 +1052,42 @@ export default async function PupilLessonFriendlyPage({
                   const modelAnswer = activityModelAnswerMap.get(activity.activity_id)
                   const showProgress = inputActivityTypes.has(activity.type ?? "")
 
+                  // Restyled types render inside the Warm Study shell (bare motion
+                  // wrapper + LiveActivityShell). Unconverted types fall through to
+                  // the legacy ActivityReveal path below.
+                  if (activity.type === "short-text-question") {
+                    return (
+                      <ActivityMotion key={activity.activity_id} index={index}>
+                        <LiveActivityShell
+                          activityId={activity.activity_id}
+                          question={getActivityQuestion(activity)}
+                          activityIndex={index + 1}
+                          activityTotal={totalActivities}
+                          typeLabel="Short answer"
+                          typeGlyph="✎"
+                          scoreLabel={formatScoreLabel(rawScore, activity.activity_id)}
+                          isMarked={typeof rawScore === "number"}
+                          isPendingMarking={rawScore === null}
+                          feedbackText={feedbackText}
+                          modelAnswer={modelAnswer}
+                          maxMarks={activity.max_marks ?? 1}
+                        >
+                          <PupilShortTextActivity
+                            lessonId={lesson.lesson_id}
+                            activity={activity}
+                            pupilId={pupilId}
+                            canAnswer={isPupilViewer}
+                            initialAnswer={shortTextDataMap.get(activity.activity_id)?.answer ?? ""}
+                            initialSubmissionId={shortTextDataMap.get(activity.activity_id)?.submissionId ?? null}
+                            initialIsFlagged={shortTextDataMap.get(activity.activity_id)?.isFlagged ?? false}
+                            initialResubmitRequested={shortTextDataMap.get(activity.activity_id)?.resubmitRequested ?? false}
+                            resubmitNote={shortTextDataMap.get(activity.activity_id)?.resubmitNote ?? null}
+                            feedbackAssignmentIds={assignmentIds}
+                          />
+                        </LiveActivityShell>
+                      </ActivityMotion>
+                    )
+                  }
 
                   return (
                     <ActivityReveal key={activity.activity_id} index={index} total={totalActivities}>
