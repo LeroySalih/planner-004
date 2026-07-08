@@ -83,6 +83,7 @@ import {
   type ScrollObjectiveCriterion,
 } from "@/components/lessons/lesson-scroll-layout"
 import { LiveActivityShell } from "./live-activity-shell"
+import { ActivitySidebar } from "@/components/lessons/activity-sidebar"
 
 type McqOption = { id: string; text: string }
 
@@ -949,6 +950,26 @@ export default async function PupilLessonFriendlyPage({
   }
   const totalActivities = runningActivityNumber
 
+  // Left-rail entries: one per activity (excluding section headings), with a
+  // score once marked or a "Marking" chip while awaiting a mark.
+  const sidebarItems = activities
+    .filter((activity) => activity.type !== "display-section")
+    .map((activity) => {
+      const raw = activityScoreMap.get(activity.activity_id)
+      return {
+        activityId: activity.activity_id,
+        anchorId: `activity-${activity.activity_id}`,
+        number: activityNumbers.get(activity.activity_id) ?? 0,
+        title:
+          activity.title?.trim() ||
+          getActivityQuestion(activity) ||
+          formatActivityType(activity.type),
+        scoreLabel:
+          typeof raw === "number" ? formatScoreLabel(raw, activity.activity_id) : undefined,
+        marking: raw === null,
+      }
+    })
+
   return (
     <FeedbackVisibilityProvider
       assignmentIds={assignmentIds}
@@ -957,6 +978,7 @@ export default async function PupilLessonFriendlyPage({
     >
       <main className="relative bg-gradient-to-b from-background via-background to-muted/40">
         <LessonScrollProgress />
+        <ActivitySidebar items={sidebarItems} />
 
         <LessonHero
           lessonTitle={lesson.title}
@@ -1013,7 +1035,7 @@ export default async function PupilLessonFriendlyPage({
                     body: ReactNode,
                     opts: { typeLabel: string; typeGlyph?: string; question?: string; hideMarking?: boolean },
                   ) => (
-                    <ActivityMotion key={activity.activity_id} index={index}>
+                    <ActivityMotion key={activity.activity_id} index={index} id={`activity-${activity.activity_id}`}>
                       <LiveActivityShell
                         activityId={activity.activity_id}
                         question={opts.question ?? getActivityQuestion(activity)}
