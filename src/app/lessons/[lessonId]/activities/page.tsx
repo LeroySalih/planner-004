@@ -1,11 +1,11 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
-import { ArrowLeft, ChevronRight } from "lucide-react"
+import { ArrowLeft, ChevronRight, Play } from "lucide-react"
 
 import { ActivityShareButton } from "@/components/activity-share-dialog"
 import { LessonActivityView } from "@/components/lessons/activity-view"
 import { computeSectionIndexMap } from "@/components/lessons/activity-view/utils"
-import { LessonPreviewLauncher } from "@/components/lessons/lesson-preview-launcher"
+import { getAuthenticatedProfile } from "@/lib/auth"
 import { LessonPlanDownloadButton } from "@/components/pdf/lesson-plan-download-button"
 import { Button } from "@/components/ui/button"
 import type { LessonFileInfo } from "@/components/units/lesson-sidebar"
@@ -24,6 +24,8 @@ export default async function LessonActivitiesOverviewPage({
   params: Promise<{ lessonId: string }>
 }) {
   const { lessonId } = await params
+
+  const profile = await getAuthenticatedProfile()
 
   const lessonResult = await readLessonAction(lessonId)
 
@@ -123,17 +125,17 @@ export default async function LessonActivitiesOverviewPage({
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <LessonPreviewLauncher
-                lessonId={lesson.lesson_id}
-                lessonTitle={lesson.title}
-                unitTitle={unitTitle}
-                activities={orderedActivities}
-                activityFilesMap={activityFilesMap}
-                lessonFiles={lessonFiles}
-                lessonLinks={lessonLinks}
-                lessonObjectives={lesson.lesson_objectives ?? []}
-                className="bg-white/10 text-white hover:bg-white/20"
-              />
+              {profile?.userId ? (
+                <Button asChild variant="secondary" className="bg-white/10 text-white hover:bg-white/20">
+                  <Link
+                    href={`/pupil-lessons/${encodeURIComponent(profile.userId)}/lessons/${lesson.lesson_id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <Play className="mr-2 h-4 w-4" /> Preview lesson
+                  </Link>
+                </Button>
+              ) : null}
               <LessonPlanDownloadButton
                 lessonId={lesson.lesson_id}
                 variant="secondary"

@@ -18,7 +18,6 @@ import {
 } from "lucide-react"
 
 import { requireAuthenticatedProfile } from "@/lib/auth"
-import { query } from "@/lib/db"
 import { resolveActivityImageUrl } from "@/lib/activity-assets"
 import { loadPupilLessonsSummaries } from "@/lib/pupil-lessons-data"
 import {
@@ -64,7 +63,6 @@ import {
   UploadSpreadsheetSubmissionBodySchema,
   UploadUrlSubmissionBodySchema,
 } from "@/types"
-import { ActivityProgressPanel } from "./activity-progress-panel"
 import { extractScoreFromSubmission } from "@/lib/scoring/activity-scores"
 import { fetchPupilActivityFeedbackMap, selectLatestFeedbackEntry } from "@/lib/feedback/pupil-activity-feedback"
 import {
@@ -74,8 +72,7 @@ import {
   getRichTextMarkup,
   getYouTubeThumbnailUrl,
 } from "@/components/lessons/activity-view/utils"
-import { FeedbackVisibilityProvider, SseStatusIndicator } from "./feedback-visibility-debug"
-import { SubmissionCommentInput } from "@/components/submission-comment-input"
+import { FeedbackVisibilityProvider } from "./feedback-visibility-debug"
 import {
   ActivityMotion,
   LessonEnd,
@@ -836,48 +833,6 @@ export default async function PupilLessonFriendlyPage({
   )
   const sketchRenderSubmissionMap = new Map(sketchRenderSubmissionEntries.map((entry) => [entry.activityId, entry.submission]))
 
-  // Unified map of activityId -> submissionId for activities where a submission exists
-  const activitySubmissionIdMap = new Map<string, string>()
-  for (const [activityId, data] of shortTextDataMap) {
-    if (data.submissionId) activitySubmissionIdMap.set(activityId, data.submissionId)
-  }
-  for (const [activityId, data] of uploadUrlDataMap) {
-    if (data.submissionId) activitySubmissionIdMap.set(activityId, data.submissionId)
-  }
-  for (const [activityId, data] of shareMyWorkDataMap) {
-    if (data.submissionId) activitySubmissionIdMap.set(activityId, data.submissionId)
-  }
-  for (const [activityId, submission] of sketchRenderSubmissionMap) {
-    if (submission?.submission_id) activitySubmissionIdMap.set(activityId, submission.submission_id)
-  }
-
-  // Submission event counts per activity for this pupil
-  const scorableActivityIds = activities
-    .filter((a) => ["multiple-choice-question", "short-text-question", "text-question", "upload-url", "upload-file"].includes(a.type ?? ""))
-    .map((a) => a.activity_id)
-
-  const submissionCountMap = new Map<string, number>()
-  if (scorableActivityIds.length > 0) {
-    try {
-      const { rows: submissionCountRows } = await query<{ activity_id: string; event_count: string }>(
-        `
-          SELECT activity_id, COUNT(*) as event_count
-          FROM activity_submission_events
-          WHERE lesson_id = $1
-            AND pupil_id = $2
-            AND activity_id = ANY($3::text[])
-          GROUP BY activity_id
-        `,
-        [lesson.lesson_id, pupilId, scorableActivityIds],
-      )
-      for (const row of submissionCountRows) {
-        submissionCountMap.set(row.activity_id, parseInt(row.event_count, 10))
-      }
-    } catch (err) {
-      console.error("[lesson-page] Failed to load submission event counts:", err)
-    }
-  }
-
   const isPupilViewer = profile.userId === pupilId
   const isTeacher = profile.isTeacher
 
@@ -944,16 +899,6 @@ export default async function PupilLessonFriendlyPage({
     return "No score yet"
   }
 
-
-  const inputActivityTypes = new Set([
-    "multiple-choice-question",
-    "short-text-question",
-    "long-text-question",
-    "text-question",
-    "upload-url",
-    "upload-file",
-    "do-flashcards",
-  ])
 
   // --- Scroll-layout data ---------------------------------------------------
   // Group success criteria under their learning objective for the opening hero.
@@ -1060,7 +1005,6 @@ export default async function PupilLessonFriendlyPage({
                   }
                   
                   const modelAnswer = activityModelAnswerMap.get(activity.activity_id)
-                  const showProgress = inputActivityTypes.has(activity.type ?? "")
 
                   // Restyled types render inside the Warm Study shell (bare motion
                   // wrapper + LiveActivityShell). Anything not covered here falls
@@ -1287,168 +1231,7 @@ export default async function PupilLessonFriendlyPage({
 
                   const displayMeta = DISPLAY_META[activity.type ?? ""] ?? { typeLabel: "Activity" }
                   return shell(
-                    <>
-                      {activity.type === "upload-file" ? (
-                        <PupilUploadActivity
-                          lessonId={lesson.lesson_id}
-                          activity={activity}
-                          pupilId={pupilId}
-                          instructions={extractUploadInstructions(activity)}
-                          initialSubmissions={submissionMap.get(activity.activity_id) ?? []}
-                          canUpload={isPupilViewer}
-                          feedbackAssignmentIds={assignmentIds}
-                          feedbackLessonId={lesson.lesson_id}
-                          feedbackInitiallyVisible={initialFeedbackVisible}
-                        />
-                      ) : activity.type === "upload-spreadsheet" ? (
-                        <PupilUploadSpreadsheetActivity
-                          lessonId={lesson.lesson_id}
-                          activity={activity}
-                          pupilId={pupilId}
-                          canUpload={isPupilViewer}
-                          initialFileName={uploadSpreadsheetFileNameMap.get(activity.activity_id) ?? null}
-                          feedbackAssignmentIds={assignmentIds}
-                          feedbackLessonId={lesson.lesson_id}
-                          feedbackInitiallyVisible={initialFeedbackVisible}
-                          scoreLabel={formatScoreLabel(rawScore, activity.activity_id)}
-                          feedbackText={feedbackText}
-                        />
-                      ) : activity.type === "upload-worksheet" ? (
-                        <PupilUploadWorksheetActivity
-                          lessonId={lesson.lesson_id}
-                          activity={activity}
-                          pupilId={pupilId}
-                          canUpload={isPupilViewer}
-                          initialFileName={uploadWorksheetFileNameMap.get(activity.activity_id) ?? null}
-                          initialFileUrl={uploadWorksheetFileUrlMap.get(activity.activity_id) ?? null}
-                          feedbackAssignmentIds={assignmentIds}
-                          feedbackLessonId={lesson.lesson_id}
-                          feedbackInitiallyVisible={initialFeedbackVisible}
-                          scoreLabel={formatScoreLabel(rawScore, activity.activity_id)}
-                          feedbackText={feedbackText}
-                        />
-                      ) : activity.type === "short-text-question" ? (
-                        <PupilShortTextActivity
-                          lessonId={lesson.lesson_id}
-                          activity={activity}
-                          pupilId={pupilId}
-                          canAnswer={isPupilViewer}
-                          initialAnswer={shortTextDataMap.get(activity.activity_id)?.answer ?? ""}
-                          initialSubmissionId={shortTextDataMap.get(activity.activity_id)?.submissionId ?? null}
-                          initialIsFlagged={shortTextDataMap.get(activity.activity_id)?.isFlagged ?? false}
-                          initialResubmitRequested={shortTextDataMap.get(activity.activity_id)?.resubmitRequested ?? false}
-                          resubmitNote={shortTextDataMap.get(activity.activity_id)?.resubmitNote ?? null}
-                          feedbackAssignmentIds={assignmentIds}
-                          feedbackLessonId={lesson.lesson_id}
-                          feedbackInitiallyVisible={initialFeedbackVisible}
-                          scoreLabel={formatScoreLabel(rawScore, activity.activity_id)}
-                          feedbackText={feedbackText}
-                          modelAnswer={modelAnswer}
-                          initialIsPendingMarking={rawScore === null}
-                          submissionCount={submissionCountMap.get(activity.activity_id)}
-                        />
-                      ) : activity.type === "long-text-question" || activity.type === "text-question" ? (
-                        <PupilLongTextActivity
-                          lessonId={lesson.lesson_id}
-                          activity={activity}
-                          pupilId={pupilId}
-                          canAnswer={isPupilViewer}
-                          initialAnswer={longTextAnswerMap.get(activity.activity_id) ?? ""}
-                          feedbackAssignmentIds={assignmentIds}
-                          feedbackLessonId={lesson.lesson_id}
-                          feedbackInitiallyVisible={initialFeedbackVisible}
-                          scoreLabel={formatScoreLabel(rawScore, activity.activity_id)}
-                          feedbackText={feedbackText}
-                          modelAnswer={modelAnswer}
-                        />
-                      ) : activity.type === "multiple-choice-question" ? (
-                        <PupilMcqActivity
-                          lessonId={lesson.lesson_id}
-                          activity={activity}
-                          pupilId={pupilId}
-                          canAnswer={isPupilViewer}
-                          initialSelection={mcqSelectionMap.get(activity.activity_id) ?? null}
-                          feedbackAssignmentIds={assignmentIds}
-                          feedbackLessonId={lesson.lesson_id}
-                          feedbackInitiallyVisible={initialFeedbackVisible}
-                          scoreLabel={formatScoreLabel(rawScore, activity.activity_id)}
-                          feedbackText={feedbackText}
-                          modelAnswer={modelAnswer}
-                        />
-                      ) : activity.type === "do-flashcards" ? (
-                        <PupilDoFlashcardsActivity
-                          activity={activity}
-                          pupilId={pupilId}
-                          initialScore={rawScore ?? null}
-                        />
-                      ) : activity.type === "matcher" ? (
-                        <PupilMatcherActivity
-                          lessonId={lesson.lesson_id}
-                          activity={activity}
-                          pupilId={pupilId}
-                          canAnswer={isPupilViewer}
-                          initialLayout={matcherDataMap.get(activity.activity_id)?.layout ?? []}
-                          initialAnswers={matcherDataMap.get(activity.activity_id)?.answers ?? {}}
-                        />
-                      ) : activity.type === "group-items" ? (
-                        <PupilGroupItemsActivity
-                          lessonId={lesson.lesson_id}
-                          activityId={activity.activity_id}
-                          title={activity.title}
-                          pupilId={pupilId}
-                          canAnswer={isPupilViewer}
-                          groups={groupItemsDataMap.get(activity.activity_id)?.groups ?? []}
-                          items={groupItemsDataMap.get(activity.activity_id)?.items ?? []}
-                          initialItemOrder={groupItemsDataMap.get(activity.activity_id)?.itemOrder ?? []}
-                          initialPlacements={groupItemsDataMap.get(activity.activity_id)?.placements ?? {}}
-                        />
-                      ) : activity.type === "feedback" ? (
-                        <PupilFeedbackActivity
-                          activity={activity}
-                          lessonId={lesson.lesson_id}
-                          assignmentIds={assignmentIds}
-                          initialVisible={initialFeedbackVisible}
-                        />
-                      ) : activity.type === "upload-url" ? (
-                        <PupilUploadUrlActivity
-                          lessonId={lesson.lesson_id}
-                          activity={activity}
-                          pupilId={pupilId}
-                          canAnswer={isPupilViewer}
-                          initialAnswer={uploadUrlDataMap.get(activity.activity_id)?.answer ?? ""}
-                          initialSubmissionId={uploadUrlDataMap.get(activity.activity_id)?.submissionId ?? null}
-                          initialIsFlagged={uploadUrlDataMap.get(activity.activity_id)?.isFlagged ?? false}
-                          initialResubmitRequested={uploadUrlDataMap.get(activity.activity_id)?.resubmitRequested ?? false}
-                          resubmitNote={uploadUrlDataMap.get(activity.activity_id)?.resubmitNote ?? null}
-                          feedbackAssignmentIds={assignmentIds}
-                          feedbackLessonId={lesson.lesson_id}
-                          feedbackInitiallyVisible={initialFeedbackVisible}
-                          scoreLabel={formatScoreLabel(rawScore, activity.activity_id)}
-                          feedbackText={feedbackText}
-                          modelAnswer={modelAnswer}
-                        />
-                      ) : activity.type === "sketch-render" ? (
-                        <PupilSketchRenderActivity
-                          activity={activity}
-                          userId={pupilId}
-                          submission={sketchRenderSubmissionMap.get(activity.activity_id) ?? null}
-                          assignmentId={assignmentIds[0]}
-                        />
-                      ) : activity.type === "share-my-work" ? (
-                        <PupilShareMyWorkActivity
-                          lessonId={lesson.lesson_id}
-                          activity={activity}
-                          pupilId={pupilId}
-                          canUpload={isPupilViewer}
-                          initialFiles={shareMyWorkDataMap.get(activity.activity_id)?.files ?? []}
-                          initialSubmissionId={shareMyWorkDataMap.get(activity.activity_id)?.submissionId ?? null}
-                        />
-                      ) : activity.type === "review-others-work" ? (
-                        <PupilReviewOthersWorkActivity
-                          activity={activity}
-                          pupilId={pupilId}
-                        />
-                      ) : activity.type === "file-download" && (activityFiles.length > 0 || linkUrl) ? (
+                    activity.type === "file-download" && (activityFiles.length > 0 || linkUrl) ? (
                          <div className="rounded-md bg-card p-4 border border-border/60">
                             <div className="flex items-start gap-3">
                               <div className="mt-0.5 rounded-full bg-primary/10 p-2 text-primary">
@@ -1612,27 +1395,7 @@ export default async function PupilLessonFriendlyPage({
                         </audio>
                       ) : null}
                     </>
-                  )}
-
-                  <ActivityProgressPanel
-                    assignmentIds={assignmentIds}
-                    lessonId={lesson.lesson_id}
-                    initialVisible={initialFeedbackVisible}
-                    show={showProgress && activity.type !== "short-text-question"}
-                    scoreLabel={formatScoreLabel(rawScore, activity.activity_id)}
-                    feedbackText={feedbackText}
-                    modelAnswer={modelAnswer}
-                    isMarked={typeof rawScore === "number"}
-                    isPendingMarking={rawScore === null}
-                    submissionCount={submissionCountMap.get(activity.activity_id)}
-                  />
-                  {(() => {
-                    const submissionId = activitySubmissionIdMap.get(activity.activity_id)
-                    return isPupilViewer && submissionId ? (
-                      <SubmissionCommentInput submissionId={submissionId} />
-                    ) : null
-                  })()}
-                    </>,
+                  ),
                     { ...displayMeta, hideMarking: true, question: "" },
                   )
                 })}

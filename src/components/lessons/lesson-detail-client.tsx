@@ -3,7 +3,7 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { LinkIcon, List, Target, Upload } from "lucide-react"
+import { LinkIcon, List, Play, Target, Upload } from "lucide-react"
 import { toast } from "sonner"
 
 import type {
@@ -27,7 +27,6 @@ import { LessonDetailPayloadSchema } from "@/lib/lesson-snapshot-schema"
 import { LessonFilesManager } from "@/components/lessons/lesson-files-manager"
 import { LessonLinksManager } from "@/components/lessons/lesson-links-manager"
 import { LessonActivitiesManager } from "@/components/lessons/lesson-activities-manager"
-import { LessonPreviewLauncher } from "@/components/lessons/lesson-preview-launcher"
 import { LessonObjectivesSidebar } from "@/components/lessons/lesson-objectives-sidebar"
 import { LessonShareButton } from "@/components/lessons/lesson-share-button"
 import { LessonPlanDownloadButton } from "@/components/pdf/lesson-plan-download-button"
@@ -419,16 +418,15 @@ export function LessonDetailClient({
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <h1 className="text-3xl font-semibold text-white">{currentLesson.title}</h1>
                 <div className="flex items-center gap-2">
-                  <LessonPreviewLauncher
-                    lessonId={currentLesson.lesson_id}
-                    lessonTitle={currentLesson.title}
-                    unitTitle={currentUnit?.title ?? currentLesson.unit_id}
-                    activities={lessonActivitiesState}
-                    lessonLinks={currentLesson.lesson_links ?? []}
-                    lessonObjectives={currentLesson.lesson_objectives ?? []}
-                    className="bg-white/10 text-white hover:bg-white/20"
-                    previewHref={`/pupil-lessons/${encodeURIComponent(viewerUserId)}/lessons/${currentLesson.lesson_id}`}
-                  />
+                  <Button asChild variant="secondary" className="bg-white/10 text-white hover:bg-white/20">
+                    <Link
+                      href={`/pupil-lessons/${encodeURIComponent(viewerUserId)}/lessons/${currentLesson.lesson_id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <Play className="mr-2 h-4 w-4" /> Preview lesson
+                    </Link>
+                  </Button>
                   <LessonShareButton
                     lessonId={currentLesson.lesson_id}
                     lessonTitle={currentLesson.title}
