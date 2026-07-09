@@ -1036,7 +1036,7 @@ export default async function PupilLessonFriendlyPage({
                     body: ReactNode,
                     opts: { typeLabel: string; typeGlyph?: string; question?: string; hideMarking?: boolean },
                   ) => (
-                    <ActivityMotion key={activity.activity_id} index={index} id={`activity-${activity.activity_id}`}>
+                    <ActivityMotion key={activity.activity_id} id={`activity-${activity.activity_id}`}>
                       <LiveActivityShell
                         activityId={activity.activity_id}
                         question={opts.question ?? getActivityQuestion(activity)}

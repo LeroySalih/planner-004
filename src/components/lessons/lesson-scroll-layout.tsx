@@ -243,27 +243,22 @@ export function ActivityReveal({
  * alternating side. Used by the restyled pupil activities.
  */
 export function ActivityMotion({
-  index,
   id,
   children,
 }: {
-  index: number
   /** Anchor id for scroll-to (e.g. from the activity sidebar). */
   id?: string
   children: React.ReactNode
 }) {
   const { ref, inView } = useInView<HTMLDivElement>()
-  const fromLeft = index % 2 === 0
   return (
     <section className="flex min-h-screen flex-col items-center justify-center py-[16vh]">
       <div
         id={id}
         ref={ref}
         className={cn(
-          "w-full max-w-[540px] scroll-mt-24 transition-all duration-700 ease-out will-change-transform",
-          inView
-            ? "translate-x-0 opacity-100 blur-0"
-            : cn("opacity-0 blur-sm", fromLeft ? "-translate-x-16" : "translate-x-16"),
+          "w-full max-w-[540px] scroll-mt-24 transition-opacity duration-700 ease-out",
+          inView ? "opacity-100" : "opacity-0",
         )}
       >
         {children}

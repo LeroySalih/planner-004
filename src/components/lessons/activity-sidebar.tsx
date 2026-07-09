@@ -55,9 +55,13 @@ export function ActivitySidebar({
     return () => observer.disconnect()
   }, [items, titleAnchorId])
 
-  const handleClick = (event: React.MouseEvent, anchorId: string) => {
+  const handleClick = (
+    event: React.MouseEvent,
+    anchorId: string,
+    block: ScrollLogicalPosition = "center",
+  ) => {
     event.preventDefault()
-    document.getElementById(anchorId)?.scrollIntoView({ behavior: "smooth", block: "start" })
+    document.getElementById(anchorId)?.scrollIntoView({ behavior: "smooth", block })
     setActiveId(anchorId)
   }
 
@@ -80,7 +84,7 @@ export function ActivitySidebar({
           <li>
             <a
               href={`#${titleAnchorId}`}
-              onClick={(event) => handleClick(event, titleAnchorId)}
+              onClick={(event) => handleClick(event, titleAnchorId, "start")}
               className={cn(
                 "flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors",
                 activeId === titleAnchorId
