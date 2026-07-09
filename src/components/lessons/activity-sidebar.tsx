@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { Home } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { pupilActivityFontClass } from "@/components/pupil-activity/fonts"
 
@@ -19,15 +20,25 @@ export interface ActivitySidebarItem {
  * Sticky (fixed) left rail listing a lesson's activities. Clicking an entry
  * smooth-scrolls to that activity; the entry for the activity currently in view
  * is highlighted. Shows the score once available, or a "Marking" chip while a
- * submission is awaiting its mark. Hidden below xl (needs margin room).
+ * submission is awaiting its mark. Hidden on phones. A leading "Title screen"
+ * entry scrolls back to the top of the lesson.
  */
-export function ActivitySidebar({ items }: { items: ActivitySidebarItem[] }) {
-  const [activeId, setActiveId] = useState<string | null>(null)
+export function ActivitySidebar({
+  items,
+  titleAnchorId = "lesson-top",
+  titleLabel = "Title screen",
+}: {
+  items: ActivitySidebarItem[]
+  titleAnchorId?: string
+  titleLabel?: string
+}) {
+  const [activeId, setActiveId] = useState<string | null>(titleAnchorId)
 
   useEffect(() => {
     if (items.length === 0 || typeof IntersectionObserver === "undefined") return
-    const elements = items
-      .map((item) => document.getElementById(item.anchorId))
+    const anchorIds = [titleAnchorId, ...items.map((item) => item.anchorId)]
+    const elements = anchorIds
+      .map((anchorId) => document.getElementById(anchorId))
       .filter((el): el is HTMLElement => el !== null)
     if (elements.length === 0) return
 
@@ -42,7 +53,7 @@ export function ActivitySidebar({ items }: { items: ActivitySidebarItem[] }) {
     )
     elements.forEach((el) => observer.observe(el))
     return () => observer.disconnect()
-  }, [items])
+  }, [items, titleAnchorId])
 
   const handleClick = (event: React.MouseEvent, anchorId: string) => {
     event.preventDefault()
@@ -66,6 +77,28 @@ export function ActivitySidebar({ items }: { items: ActivitySidebarItem[] }) {
           Activities
         </p>
         <ol className="flex-1 space-y-0.5 overflow-y-auto px-2 pb-3">
+          <li>
+            <a
+              href={`#${titleAnchorId}`}
+              onClick={(event) => handleClick(event, titleAnchorId)}
+              className={cn(
+                "flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors",
+                activeId === titleAnchorId
+                  ? "bg-pa-green-tint text-pa-ink"
+                  : "text-pa-muted-1 hover:bg-pa-green-tint/60 hover:text-pa-ink",
+              )}
+            >
+              <span
+                className={cn(
+                  "grid h-5 w-5 flex-none place-items-center rounded-full",
+                  activeId === titleAnchorId ? "bg-pa-green text-white" : "bg-pa-field text-pa-muted-2",
+                )}
+              >
+                <Home className="h-3 w-3" />
+              </span>
+              <span className="min-w-0 flex-1 truncate">{titleLabel}</span>
+            </a>
+          </li>
           {items.map((item) => {
             const active = activeId === item.anchorId
             return (

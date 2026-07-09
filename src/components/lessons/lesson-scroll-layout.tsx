@@ -39,6 +39,7 @@ export function LessonScrollProgress() {
 
 /** Full-height opening screen: unit → lesson title → objectives + criteria. */
 export function LessonHero({
+  id,
   lessonTitle,
   unitTitle,
   objectives,
@@ -47,6 +48,7 @@ export function LessonHero({
   backLabel = "Back",
   greetingName,
 }: {
+  id?: string
   lessonTitle: string
   unitTitle: string
   objectives: ScrollObjective[]
@@ -61,7 +63,10 @@ export function LessonHero({
   const hasObjectives = objectives.some((o) => o.title) || ungroupedCriteria.length > 0
 
   return (
-    <section className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-6 py-24 text-center">
+    <section
+      id={id}
+      className="relative flex min-h-screen scroll-mt-20 flex-col items-center justify-center overflow-hidden px-6 py-24 text-center"
+    >
       <div
         aria-hidden
         className="pointer-events-none absolute -top-1/3 left-1/2 h-[70vh] w-[70vh] -translate-x-1/2 rounded-full bg-primary/10 blur-3xl"

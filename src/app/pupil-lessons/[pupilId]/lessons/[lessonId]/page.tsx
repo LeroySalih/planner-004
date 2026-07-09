@@ -981,6 +981,7 @@ export default async function PupilLessonFriendlyPage({
         <ActivitySidebar items={sidebarItems} />
 
         <LessonHero
+          id="lesson-top"
           lessonTitle={lesson.title}
           unitTitle={unit?.title ?? ""}
           objectives={heroObjectives}
