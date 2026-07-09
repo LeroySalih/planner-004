@@ -33,7 +33,7 @@ import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
 import { RichTextEditor } from "@/components/ui/rich-text-editor"
@@ -65,7 +65,11 @@ import {
 } from "@/components/lessons/activity-view/utils"
 import { LessonActivityView } from "@/components/lessons/activity-view"
 import { MediaImage } from "@/components/ui/media-image"
-import { isScorableActivityType, SCORABLE_ACTIVITY_TYPES } from "@/dino.config"
+import {
+  isExperimentalActivityType,
+  isScorableActivityType,
+  SCORABLE_ACTIVITY_TYPES,
+} from "@/dino.config"
 
 interface ActivityFileInfo {
   name: string
@@ -88,31 +92,40 @@ interface LessonActivitySuccessCriterionOption {
 }
 
 const ACTIVITY_TYPES = [
-  { value: "text", label: "Text" },
-  { value: "long-text-question", label: "Long text question" },
-  { value: "file-download", label: "File download" },
-  { value: "upload-file", label: "Upload file" },
-  { value: "upload-url", label: "Upload URL" },
-  { value: "upload-spreadsheet", label: "Upload spreadsheet" },
-  { value: "upload-worksheet", label: "Upload exam question" },
-  { value: "display-image", label: "Display image" },
-  { value: "display-flashcards", label: "Flashcards" },
-  { value: "display-section", label: "Display Section" },
-  { value: "do-flashcards", label: "Do Flashcards" },
-  { value: "show-video", label: "Show video" },
-  { value: "multiple-choice-question", label: "Multiple choice question" },
-  { value: "matcher", label: "Matcher" },
-  { value: "group-items", label: "Group Items" },
-  { value: "short-text-question", label: "Short text question" },
-  { value: "feedback", label: "Feedback" },
-  { value: "text-question", label: "Text question" },
-  { value: "voice", label: "Voice recording" },
-  { value: "sketch-render", label: "Render Sketch" },
-  { value: "share-my-work", label: "Share my work" },
-  { value: "review-others-work", label: "Review others' work" },
+  // Display (view-only)
+  { value: "text", label: "Display Text", group: "display" },
+  { value: "file-download", label: "Display File Download", group: "display" },
+  { value: "display-image", label: "Display Image", group: "display" },
+  { value: "display-section", label: "Display Section", group: "display" },
+  { value: "show-video", label: "Display Video", group: "display" },
+  // Interactive (pupil provides input)
+  { value: "upload-file", label: "Upload File", group: "interactive" },
+  { value: "upload-url", label: "Upload URL", group: "interactive" },
+  { value: "upload-spreadsheet", label: "Upload Spreadsheet", group: "interactive" },
+  { value: "upload-worksheet", label: "Upload Exam Question", group: "interactive" },
+  { value: "multiple-choice-question", label: "Multiple Choice Question", group: "interactive" },
+  { value: "matcher", label: "Matcher", group: "interactive" },
+  { value: "group-items", label: "Group Items", group: "interactive" },
+  { value: "short-text-question", label: "Short Text Question", group: "interactive" },
+  { value: "voice", label: "Voice Recording", group: "interactive" },
+  // Experimental (hidden unless the teacher enables them in their profile)
+  { value: "display-flashcards", label: "Display Flashcards", group: "experimental" },
+  { value: "long-text-question", label: "Long Text Question", group: "experimental" },
+  { value: "do-flashcards", label: "Do Flashcards", group: "experimental" },
+  { value: "feedback", label: "Feedback", group: "experimental" },
+  { value: "text-question", label: "Text Question", group: "experimental" },
+  { value: "sketch-render", label: "Render Sketch", group: "experimental" },
+  { value: "share-my-work", label: "Share My Work", group: "experimental" },
+  { value: "review-others-work", label: "Review Others' Work", group: "experimental" },
 ] as const
 
 type ActivityTypeValue = (typeof ACTIVITY_TYPES)[number]["value"]
+
+const ACTIVITY_TYPE_GROUPS = [
+  { key: "display", label: "Display" },
+  { key: "interactive", label: "Interactive" },
+  { key: "experimental", label: "Experimental" },
+] as const
 
 const SUMMATIVE_ELIGIBLE_ACTIVITY_LABELS = ACTIVITY_TYPES.filter((entry) =>
   SCORABLE_ACTIVITY_TYPES.includes(entry.value),
@@ -132,6 +145,7 @@ interface LessonActivitiesManagerProps {
   initialActivities: LessonActivity[]
   availableSuccessCriteria: LessonActivitySuccessCriterionOption[]
   availableMarkingGuidances: MarkingGuidance[]
+  showExperimental: boolean
 }
 
 export function LessonActivitiesManager({
@@ -140,6 +154,7 @@ export function LessonActivitiesManager({
   initialActivities,
   availableSuccessCriteria,
   availableMarkingGuidances,
+  showExperimental,
 }: LessonActivitiesManagerProps) {
   const router = useRouter()
   const [activities, setActivities] = useState<LessonActivity[]>(() => sortActivities(initialActivities))
@@ -1630,6 +1645,7 @@ ${scs[0] ? `SC: ${scs[0].title}` : ""}
         availableMarkingGuidances={availableMarkingGuidances}
         onFilePresenceChange={handleFilePresenceChange}
         allActivities={activities}
+        showExperimental={showExperimental}
       />
 
       <Dialog
@@ -1888,6 +1904,7 @@ interface LessonActivityEditorSheetProps {
   availableMarkingGuidances: MarkingGuidance[]
   onFilePresenceChange?: (activityId: string, hasFiles: boolean) => void
   allActivities: LessonActivity[]
+  showExperimental: boolean
 }
 
 function LessonActivityEditorSheet({
@@ -1905,6 +1922,7 @@ function LessonActivityEditorSheet({
   availableMarkingGuidances,
   onFilePresenceChange,
   allActivities,
+  showExperimental,
 }: LessonActivityEditorSheetProps) {
   const isCreateMode = mode === "create"
   const [title, setTitle] = useState("")
@@ -3759,11 +3777,31 @@ function LessonActivityEditorSheet({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {ACTIVITY_TYPES.map((item) => (
-                  <SelectItem key={item.value} value={item.value}>
-                    {item.label}
-                  </SelectItem>
-                ))}
+                {ACTIVITY_TYPE_GROUPS.map((group) => {
+                  // Experimental types are hidden unless the teacher has opted
+                  // in, but always keep the group visible when the activity
+                  // being edited is itself experimental so its type stays
+                  // selectable.
+                  const showExperimentalGroup =
+                    showExperimental || isExperimentalActivityType(type)
+                  if (group.key === "experimental" && !showExperimentalGroup) {
+                    return null
+                  }
+                  const groupItems = ACTIVITY_TYPES.filter(
+                    (item) => item.group === group.key,
+                  )
+                  if (groupItems.length === 0) return null
+                  return (
+                    <SelectGroup key={group.key}>
+                      <SelectLabel>{group.label}</SelectLabel>
+                      {groupItems.map((item) => (
+                        <SelectItem key={item.value} value={item.value}>
+                          {item.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  )
+                })}
               </SelectContent>
             </Select>
           </div>

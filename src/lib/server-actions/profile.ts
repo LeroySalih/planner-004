@@ -81,11 +81,13 @@ export type UpdateCurrentProfileResult = z.infer<
 >;
 export type UpdateProfileDetailInput = UpdateCurrentProfileInput & {
   profileId: string;
+  showExperimentalActivities: boolean;
 };
 export type UpdateProfileDetailResult = UpdateCurrentProfileResult;
 
 const UpdateProfileDetailInputSchema = ProfileNameInputSchema.extend({
   profileId: z.string().min(1, "Profile identifier is required."),
+  showExperimentalActivities: z.boolean().default(false),
 });
 
 const UpdatePasswordInputSchema = z.object({
@@ -231,9 +233,10 @@ export async function readProfileDetailAction(
     first_name: string | null;
     last_name: string | null;
     is_teacher: boolean | null;
+    show_experimental_activities: boolean | null;
   }>(
     `
-      select user_id, email, first_name, last_name, is_teacher
+      select user_id, email, first_name, last_name, is_teacher, show_experimental_activities
       from profiles
       where user_id = $1
       limit 1
@@ -260,6 +263,7 @@ export async function readProfileDetailAction(
     first_name: profileRow.first_name ?? null,
     last_name: profileRow.last_name ?? null,
     is_teacher: Boolean(profileRow.is_teacher ?? false),
+    show_experimental_activities: Boolean(profileRow.show_experimental_activities ?? false),
   });
 
   return ReadCurrentProfileResultSchema.parse({
@@ -282,7 +286,7 @@ export async function updateProfileDetailAction(
     });
   }
 
-  const { profileId, firstName, lastName } = parsed.data;
+  const { profileId, firstName, lastName, showExperimentalActivities } = parsed.data;
 
   const authProfile = await requireAuthenticatedProfile();
   const { rows, rowCount } = await query<{
@@ -291,15 +295,17 @@ export async function updateProfileDetailAction(
     first_name: string | null;
     last_name: string | null;
     is_teacher: boolean | null;
+    show_experimental_activities: boolean | null;
   }>(
     `
       update profiles
       set first_name = $1,
-          last_name = $2
-      where user_id = $3
-      returning user_id, email, first_name, last_name, is_teacher
+          last_name = $2,
+          show_experimental_activities = $3
+      where user_id = $4
+      returning user_id, email, first_name, last_name, is_teacher, show_experimental_activities
     `,
-    [firstName, lastName, profileId],
+    [firstName, lastName, showExperimentalActivities, profileId],
   );
 
   if (rowCount === 0) {
@@ -326,6 +332,7 @@ export async function updateProfileDetailAction(
     first_name: updatedRow.first_name ?? null,
     last_name: updatedRow.last_name ?? null,
     is_teacher: Boolean(updatedRow.is_teacher ?? false),
+    show_experimental_activities: Boolean(updatedRow.show_experimental_activities ?? false),
   });
 
   return UpdateCurrentProfileResultSchema.parse({

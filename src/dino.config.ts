@@ -12,6 +12,7 @@ export const SCORABLE_ACTIVITY_TYPES = Object.freeze([
   "do-flashcards",
   "matcher",
   "group-items",
+  "voice",
 ]);
 
 export const NON_SCORABLE_ACTIVITY_TYPES = Object.freeze([
@@ -20,14 +21,36 @@ export const NON_SCORABLE_ACTIVITY_TYPES = Object.freeze([
   "display-flashcards",
   "file-download",
   "show-video",
-  "voice",
   "share-my-work",
   "review-others-work",
   "display-section",
 ]);
 
+// Experimental activity types are hidden from lesson designers unless the
+// teacher profile has "Show Experimental Activities" enabled. This is
+// orthogonal to scorability — an experimental type may be scorable or not.
+export const EXPERIMENTAL_ACTIVITY_TYPES = Object.freeze([
+  "long-text-question",
+  "display-flashcards",
+  "do-flashcards",
+  "feedback",
+  "text-question",
+  "sketch-render",
+  "share-my-work",
+  "review-others-work",
+]);
+
 const SCORABLE_ACTIVITY_TYPE_SET = new Set(SCORABLE_ACTIVITY_TYPES);
 const NON_SCORABLE_ACTIVITY_TYPE_SET = new Set(NON_SCORABLE_ACTIVITY_TYPES);
+const EXPERIMENTAL_ACTIVITY_TYPE_SET = new Set(EXPERIMENTAL_ACTIVITY_TYPES);
+
+export function isExperimentalActivityType(
+  type: string | null | undefined,
+): boolean {
+  const normalized = normalizeActivityType(type);
+  if (!normalized) return false;
+  return EXPERIMENTAL_ACTIVITY_TYPE_SET.has(normalized);
+}
 
 export function normalizeActivityType(type: string | null | undefined): string {
   return (type ?? "").trim().toLowerCase();

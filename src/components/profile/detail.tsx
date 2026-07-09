@@ -31,11 +31,13 @@ export async function ProfileDetailForm({ profileId }: ProfileDetailFormProps) {
 
     const firstName = (formData.get("firstName") ?? "").toString()
     const lastName = (formData.get("lastName") ?? "").toString()
+    const showExperimentalActivities = formData.get("showExperimentalActivities") === "on"
 
     const updateResult = await updateProfileDetailAction({
       profileId,
       firstName,
       lastName,
+      showExperimentalActivities,
     })
 
     if (!updateResult.success) {

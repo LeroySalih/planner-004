@@ -32,6 +32,9 @@ export function ProfileFormClient({ profile, action, initialState }: ProfileForm
   const [formState, formAction, pending] = useActionState(action, initialState)
   const [firstName, setFirstName] = useState(profile.first_name ?? "")
   const [lastName, setLastName] = useState(profile.last_name ?? "")
+  const [showExperimental, setShowExperimental] = useState(
+    Boolean(profile.show_experimental_activities),
+  )
 
   const email = useMemo(() => profile.email ?? "", [profile.email])
   const isTeacher = useMemo(() => Boolean(profile.is_teacher), [profile.is_teacher])
@@ -42,6 +45,7 @@ export function ProfileFormClient({ profile, action, initialState }: ProfileForm
       if (updated) {
         setFirstName(updated.first_name ?? "")
         setLastName(updated.last_name ?? "")
+        setShowExperimental(Boolean(updated.show_experimental_activities))
       }
 
       if (formState.message) {
@@ -101,6 +105,22 @@ export function ProfileFormClient({ profile, action, initialState }: ProfileForm
           aria-readonly="true"
           className="pointer-events-none opacity-60"
           data-testid="is_teacher_switch"
+        />
+      </div>
+
+      <div className="flex items-center justify-between rounded-md border border-border px-4 py-3">
+        <div>
+          <p className="text-sm font-medium text-foreground">Show experimental activities</p>
+          <p className="text-xs text-muted-foreground">
+            Reveal in-progress activity types in the lesson designer&apos;s activity picker.
+          </p>
+        </div>
+        <Switch
+          name="showExperimentalActivities"
+          checked={showExperimental}
+          onCheckedChange={setShowExperimental}
+          disabled={pending}
+          data-testid="show_experimental_activities_switch"
         />
       </div>
 

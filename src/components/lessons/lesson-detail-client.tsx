@@ -64,6 +64,7 @@ interface LessonDetailClientProps {
   unitLessons: LessonPickerOption[]
   availableMarkingGuidances: MarkingGuidance[]
   viewerUserId: string
+  showExperimentalActivities: boolean
 }
 
 export function LessonDetailClient({
@@ -77,6 +78,7 @@ export function LessonDetailClient({
   unitLessons,
   availableMarkingGuidances,
   viewerUserId,
+  showExperimentalActivities,
 }: LessonDetailClientProps) {
   const router = useRouter()
   const [currentLesson, setCurrentLesson] = useState<LessonWithObjectives>(lesson)
@@ -546,6 +548,7 @@ export function LessonDetailClient({
               initialActivities={lessonActivitiesState}
               availableSuccessCriteria={lessonSuccessCriteria}
               availableMarkingGuidances={availableMarkingGuidances}
+              showExperimental={showExperimentalActivities}
             />
           </CardContent>
         </Card>
