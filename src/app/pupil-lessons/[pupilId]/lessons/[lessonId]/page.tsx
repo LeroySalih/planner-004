@@ -976,8 +976,9 @@ export default async function PupilLessonFriendlyPage({
       lessonId={lesson.lesson_id}
       initialVisible={initialFeedbackVisible}
     >
-      <main className="relative bg-gradient-to-b from-background via-background to-muted/40">
+      <main className="relative bg-gradient-to-b from-background via-background to-muted/40 md:pl-56">
         <LessonScrollProgress />
+        <ActivitySidebar items={sidebarItems} />
 
         <LessonHero
           lessonTitle={lesson.title}
@@ -989,12 +990,7 @@ export default async function PupilLessonFriendlyPage({
           greetingName={summary?.name ?? null}
         />
 
-        <div className="mx-auto flex w-full max-w-6xl gap-6 pb-40 pt-16">
-          <aside className="hidden w-52 shrink-0 pl-4 md:block">
-            <ActivitySidebar items={sidebarItems} />
-          </aside>
-
-          <div className="min-w-0 flex-1 px-6">
+        <div className="mx-auto w-full max-w-3xl px-6 pb-40 pt-16">
           {activities.length === 0 ? (
             <p className="text-center text-muted-foreground">
               There aren&apos;t any activities attached yet.
@@ -1475,7 +1471,6 @@ export default async function PupilLessonFriendlyPage({
           </div>
 
           <LessonEnd />
-          </div>
         </div>
       </main>
     </FeedbackVisibilityProvider>
