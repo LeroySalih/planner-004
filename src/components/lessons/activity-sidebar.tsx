@@ -58,7 +58,7 @@ export function ActivitySidebar({ items }: { items: ActivitySidebarItem[] }) {
       className={cn(
         pupilActivityFontClass,
         "font-[family-name:var(--font-pa-body)]",
-        "fixed left-4 top-24 z-30 hidden w-56 2xl:block",
+        "sticky top-24",
       )}
     >
       <div className="flex max-h-[calc(100vh-7rem)] flex-col overflow-hidden rounded-pa-panel border border-pa-card-border bg-pa-card/90 shadow-[0_12px_40px_-28px_rgba(20,35,27,0.45)] backdrop-blur">
