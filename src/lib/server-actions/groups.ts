@@ -284,6 +284,7 @@ export async function readGroupsAction(options?: {
   routeTag?: string;
   currentProfile?: AuthenticatedProfile | null;
   filter?: string | null;
+  includeInactive?: boolean;
 }) {
   const routeTag = options?.routeTag ?? "/groups:readGroups";
 
@@ -318,7 +319,9 @@ export async function readGroupsAction(options?: {
         const queryStart = Date.now();
         const filters: Array<string | boolean> = [];
         const values: Array<string | boolean> = [];
-        filters.push("g.active = true");
+        if (!options?.includeInactive) {
+          filters.push("g.active = true");
+        }
 
         if (options?.filter && options.filter.trim().length > 0) {
           const pattern = `%${options.filter.trim().replace(/\?/g, "%")}%`;

@@ -8,14 +8,15 @@ import { GroupsPageClient } from "./groups-page-client"
 export default async function GroupsIndexPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string }>
+  searchParams: Promise<{ q?: string; inactive?: string }>
 }) {
   const teacherProfile = await requireTeacherProfile()
-  const { q: rawFilter = "" } = await searchParams
+  const { q: rawFilter = "", inactive } = await searchParams
   const filter = rawFilter.trim()
+  const includeInactive = inactive === "true"
 
   const [result, subjectsResult] = await Promise.all([
-    readGroupsAction({ currentProfile: teacherProfile, filter }),
+    readGroupsAction({ currentProfile: teacherProfile, filter, includeInactive }),
     readSubjectsAction({ routeTag: "/groups", currentProfile: teacherProfile }),
   ])
   const groups = result.data ?? []
@@ -25,6 +26,7 @@ export default async function GroupsIndexPage({
       <GroupsPageClient
         groups={groups}
         initialFilter={filter}
+        initialShowInactive={includeInactive}
         error={result.error ?? null}
         currentProfile={teacherProfile}
         subjects={subjects}

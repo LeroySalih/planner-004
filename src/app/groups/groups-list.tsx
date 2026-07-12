@@ -31,8 +31,12 @@ export function GroupsList({
     <section className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
       {groups.map((group) => {
         const selected = selectedIds.has(group.group_id)
+        const isInactive = group.active === false
         return (
-          <Card key={group.group_id} className="overflow-hidden border-slate-200 shadow-sm">
+          <Card
+            key={group.group_id}
+            className={`overflow-hidden border-slate-200 shadow-sm ${isInactive ? "opacity-70" : ""}`}
+          >
             <CardHeader className="flex flex-row items-center justify-between space-y-0 border-b border-slate-100 bg-slate-50/80 py-3">
               <div className="flex items-center gap-3">
                 <Checkbox
@@ -41,6 +45,11 @@ export function GroupsList({
                   aria-label={`Select ${group.group_id}`}
                 />
                 <CardTitle className="text-base font-semibold text-slate-900">{group.group_id}</CardTitle>
+                {isInactive ? (
+                  <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600">
+                    Inactive
+                  </span>
+                ) : null}
               </div>
               <Button
                 size="icon"

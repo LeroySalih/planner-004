@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
+import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Select,
@@ -38,16 +39,18 @@ import {
 interface GroupsPageClientProps {
   groups: Group[]
   initialFilter: string
+  initialShowInactive: boolean
   error: string | null
   currentProfile: AuthenticatedProfile
   subjects: string[]
 }
 
-export function GroupsPageClient({ groups: initialGroups, initialFilter, error, currentProfile, subjects }: GroupsPageClientProps) {
+export function GroupsPageClient({ groups: initialGroups, initialFilter, initialShowInactive, error, currentProfile, subjects }: GroupsPageClientProps) {
   const router = useRouter()
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [editingGroup, setEditingGroup] = useState<Group | null>(null)
   const [filter, setFilter] = useState(() => initialFilter)
+  const [showInactive, setShowInactive] = useState(() => initialShowInactive)
   const [activeJoinCode, setActiveJoinCode] = useState<string | null>(null)
   const [siteUrl, setSiteUrl] = useState<string>("")
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
@@ -57,6 +60,10 @@ export function GroupsPageClient({ groups: initialGroups, initialFilter, error, 
   useEffect(() => {
     setFilter(initialFilter)
   }, [initialFilter])
+
+  useEffect(() => {
+    setShowInactive(initialShowInactive)
+  }, [initialShowInactive])
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -136,15 +143,27 @@ export function GroupsPageClient({ groups: initialGroups, initialFilter, error, 
     [groups, selectedIds],
   )
 
-  const handleFilterChange = useCallback((nextFilter: string) => {
-    setFilter(nextFilter)
+  const navigate = useCallback((nextFilter: string, nextShowInactive: boolean) => {
     const params = new URLSearchParams()
     if (nextFilter.trim().length > 0) {
       params.set("q", nextFilter.trim())
     }
+    if (nextShowInactive) {
+      params.set("inactive", "true")
+    }
     const queryString = params.toString()
     router.replace(queryString ? `/groups?${queryString}` : "/groups")
   }, [router])
+
+  const handleFilterChange = useCallback((nextFilter: string) => {
+    setFilter(nextFilter)
+    navigate(nextFilter, showInactive)
+  }, [navigate, showInactive])
+
+  const handleToggleInactive = useCallback((nextShowInactive: boolean) => {
+    setShowInactive(nextShowInactive)
+    navigate(filter, nextShowInactive)
+  }, [navigate, filter])
 
   const handleJoinCodeClick = useCallback((code: string | null) => {
     if (!code) {
@@ -193,7 +212,21 @@ export function GroupsPageClient({ groups: initialGroups, initialFilter, error, 
         </div>
       ) : null}
 
-      <GroupsFilterControls value={filter} onValueChange={handleFilterChange} />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex-1">
+          <GroupsFilterControls value={filter} onValueChange={handleFilterChange} />
+        </div>
+        <div className="flex items-center gap-2 sm:mt-6 sm:self-center">
+          <Switch
+            id="show-inactive"
+            checked={showInactive}
+            onCheckedChange={handleToggleInactive}
+          />
+          <Label htmlFor="show-inactive" className="text-sm text-slate-700">
+            View inactive
+          </Label>
+        </div>
+      </div>
 
       {groups.length === 0 && !error ? (
         <div className="mt-6 rounded-lg border border-dashed border-border px-4 py-6 text-sm text-slate-600">
