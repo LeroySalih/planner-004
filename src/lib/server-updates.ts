@@ -10,6 +10,8 @@ export {
   type LeaveGroupResult,
   listPupilsWithGroupsAction,
   type ProfileGroupsResult,
+  promoteGroupsAction,
+  type PromoteGroupsResult,
   readGroupAction,
   readGroupsAction,
   readProfileGroupsForCurrentUserAction,

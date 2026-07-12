@@ -25,6 +25,7 @@ import {
 } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { withTelemetry } from "@/lib/telemetry";
+import { computePromotedGroupId } from "@/lib/groups/promote";
 
 const GroupReturnValue = z.object({
   data: GroupWithMembershipSchema.nullable(),
@@ -1048,6 +1049,174 @@ export async function updateGroupMemberRoleAction(
   return UpdateGroupMemberRoleReturnSchema.parse({
     success: true,
     error: null,
+  });
+}
+
+const PromoteGroupsInputSchema = z.object({
+  groupIds: z.array(z.string().min(1)).min(1),
+});
+
+const PromoteGroupResultSchema = z.object({
+  sourceGroupId: z.string(),
+  newGroupId: z.string().nullable(),
+  success: z.boolean(),
+  error: z.string().nullable(),
+});
+
+const PromoteGroupsReturnSchema = z.object({
+  success: z.boolean(),
+  error: z.string().nullable(),
+  results: z.array(PromoteGroupResultSchema),
+});
+
+export type PromoteGroupResult = z.infer<typeof PromoteGroupResultSchema>;
+export type PromoteGroupsResult = z.infer<typeof PromoteGroupsReturnSchema>;
+
+/**
+ * Promote one or more groups into the next school year. For each group we:
+ *   1. compute the next-year group id (e.g. 25-7A-DT → 26-8A-DT),
+ *   2. create that group (same subject, a fresh join code),
+ *   3. copy every membership (teachers and pupils) across,
+ *   4. disable the source group.
+ * Each group is promoted in its own transaction so one failure does not roll
+ * back the others.
+ */
+export async function promoteGroupsAction(
+  input: { groupIds: string[] },
+  options?: { currentProfile?: AuthenticatedProfile | null },
+): Promise<PromoteGroupsResult> {
+  const parsed = PromoteGroupsInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return PromoteGroupsReturnSchema.parse({
+      success: false,
+      error: "Select at least one group to promote.",
+      results: [],
+    });
+  }
+
+  const profile = options?.currentProfile ??
+    (await requireAuthenticatedProfile());
+  if (!profile.isTeacher) {
+    return PromoteGroupsReturnSchema.parse({
+      success: false,
+      error: "You do not have permission to promote groups.",
+      results: [],
+    });
+  }
+
+  // De-duplicate while preserving order.
+  const groupIds = Array.from(new Set(parsed.data.groupIds));
+  const client = createPgClient();
+  const results: PromoteGroupResult[] = [];
+
+  try {
+    await client.connect();
+
+    for (const sourceGroupId of groupIds) {
+      const newGroupId = computePromotedGroupId(sourceGroupId);
+
+      if (!newGroupId) {
+        results.push({
+          sourceGroupId,
+          newGroupId: null,
+          success: false,
+          error:
+            `Could not work out the next-year name for "${sourceGroupId}".`,
+        });
+        continue;
+      }
+
+      try {
+        await client.query("begin");
+
+        const { rows: sourceRows } = await client.query(
+          "select subject from groups where group_id = $1 limit 1",
+          [sourceGroupId],
+        );
+        const source = sourceRows[0] ?? null;
+        if (!source) {
+          throw new Error("Group not found.");
+        }
+
+        const { rows: existingRows } = await client.query(
+          "select 1 from groups where group_id = $1 limit 1",
+          [newGroupId],
+        );
+        if (existingRows.length > 0) {
+          throw new Error(`Target group "${newGroupId}" already exists.`);
+        }
+
+        await client.query(
+          "insert into groups (group_id, subject, join_code, active) values ($1, $2, $3, true)",
+          [newGroupId, source.subject, generateJoinCode()],
+        );
+
+        await client.query(
+          `
+          insert into group_membership (group_id, user_id)
+          select $1::text, source.user_id
+          from group_membership source
+          where source.group_id = $2
+          on conflict do nothing
+          `,
+          [newGroupId, sourceGroupId],
+        );
+
+        await client.query(
+          "update groups set active = false where group_id = $1",
+          [sourceGroupId],
+        );
+
+        await client.query("commit");
+
+        results.push({
+          sourceGroupId,
+          newGroupId,
+          success: true,
+          error: null,
+        });
+      } catch (error) {
+        try {
+          await client.query("rollback");
+        } catch {
+          // ignore rollback errors
+        }
+        console.error("[groups] Failed to promote group", {
+          sourceGroupId,
+          newGroupId,
+          error,
+        });
+        results.push({
+          sourceGroupId,
+          newGroupId,
+          success: false,
+          error: error instanceof Error ? error.message : "Unable to promote group.",
+        });
+      }
+    }
+  } catch (error) {
+    console.error("[groups] Failed to promote groups", error);
+    return PromoteGroupsReturnSchema.parse({
+      success: false,
+      error: error instanceof Error ? error.message : "Unable to promote groups.",
+      results,
+    });
+  } finally {
+    try {
+      await client.end();
+    } catch {
+      // ignore close errors
+    }
+  }
+
+  revalidatePath("/groups");
+  revalidatePath("/");
+
+  const anySucceeded = results.some((result) => result.success);
+  return PromoteGroupsReturnSchema.parse({
+    success: anySucceeded,
+    error: null,
+    results,
   });
 }
 

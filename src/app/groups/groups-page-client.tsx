@@ -2,17 +2,28 @@
 
 import React, { useCallback, useEffect, useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
-import { Plus, X } from "lucide-react"
+import { ArrowUpCircle, Plus, X } from "lucide-react"
 import { toast } from "sonner"
 
 import type { Group } from "@/types"
 import type { AuthenticatedProfile } from "@/lib/server-actions/groups"
-import { createGroupAction, updateGroupAction } from "@/lib/server-updates"
+import { createGroupAction, promoteGroupsAction, updateGroupAction } from "@/lib/server-updates"
+import { computePromotedGroupId } from "@/lib/groups/promote"
 import { GroupsFilterControls } from "./groups-filter-controls"
 import { GroupsList } from "./groups-list"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -39,6 +50,9 @@ export function GroupsPageClient({ groups: initialGroups, initialFilter, error, 
   const [filter, setFilter] = useState(() => initialFilter)
   const [activeJoinCode, setActiveJoinCode] = useState<string | null>(null)
   const [siteUrl, setSiteUrl] = useState<string>("")
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
+  const [promoteTargets, setPromoteTargets] = useState<Group[] | null>(null)
+  const [isPromoting, startPromoteTransition] = useTransition()
 
   useEffect(() => {
     setFilter(initialFilter)
@@ -51,6 +65,76 @@ export function GroupsPageClient({ groups: initialGroups, initialFilter, error, 
   }, [])
 
   const groups = useMemo(() => sortGroups(initialGroups), [initialGroups])
+
+  // Drop any selections whose group is no longer listed (e.g. after promotion).
+  useEffect(() => {
+    setSelectedIds((previous) => {
+      const available = new Set(groups.map((group) => group.group_id))
+      const next = new Set([...previous].filter((id) => available.has(id)))
+      return next.size === previous.size ? previous : next
+    })
+  }, [groups])
+
+  const handleToggleSelect = useCallback((groupId: string, selected: boolean) => {
+    setSelectedIds((previous) => {
+      const next = new Set(previous)
+      if (selected) {
+        next.add(groupId)
+      } else {
+        next.delete(groupId)
+      }
+      return next
+    })
+  }, [])
+
+  const handleSelectAll = useCallback(() => {
+    setSelectedIds(new Set(groups.map((group) => group.group_id)))
+  }, [groups])
+
+  const handleDeselectAll = useCallback(() => {
+    setSelectedIds(new Set())
+  }, [])
+
+  const runPromotion = useCallback(
+    (targets: Group[]) => {
+      const groupIds = targets.map((group) => group.group_id)
+      startPromoteTransition(async () => {
+        const response = await promoteGroupsAction({ groupIds })
+
+        const succeeded = response.results.filter((result) => result.success)
+        const failed = response.results.filter((result) => !result.success)
+
+        if (succeeded.length > 0) {
+          toast.success(
+            `Promoted ${succeeded.length} group${succeeded.length > 1 ? "s" : ""}`,
+            {
+              description: succeeded
+                .map((result) => `${result.sourceGroupId} → ${result.newGroupId}`)
+                .join("\n"),
+            },
+          )
+        }
+
+        if (response.error || failed.length > 0) {
+          toast.error(response.error ?? "Some groups could not be promoted", {
+            description: failed
+              .map((result) => `${result.sourceGroupId}: ${result.error ?? "Failed"}`)
+              .join("\n"),
+          })
+        }
+
+        setPromoteTargets(null)
+        setSelectedIds(new Set())
+        router.refresh()
+      })
+    },
+    [router],
+  )
+
+  const selectedGroups = useMemo(
+    () => groups.filter((group) => selectedIds.has(group.group_id)),
+    [groups, selectedIds],
+  )
 
   const handleFilterChange = useCallback((nextFilter: string) => {
     setFilter(nextFilter)
@@ -117,7 +201,46 @@ export function GroupsPageClient({ groups: initialGroups, initialFilter, error, 
         </div>
       ) : null}
 
-      <GroupsList groups={groups} onEdit={setEditingGroup} onJoinCodeClick={handleJoinCodeClick} />
+      {groups.length > 0 ? (
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <Button type="button" size="sm" variant="outline" onClick={handleSelectAll}>
+              Select all
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={handleDeselectAll}
+              disabled={selectedIds.size === 0}
+            >
+              Deselect all
+            </Button>
+            <span className="text-sm text-slate-600">
+              {selectedIds.size} selected
+            </span>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => setPromoteTargets(selectedGroups)}
+            disabled={selectedIds.size === 0 || isPromoting}
+          >
+            <ArrowUpCircle className="mr-2 h-4 w-4" />
+            Promote selected
+          </Button>
+        </div>
+      ) : null}
+
+      <GroupsList
+        groups={groups}
+        onEdit={setEditingGroup}
+        onJoinCodeClick={handleJoinCodeClick}
+        selectedIds={selectedIds}
+        onToggleSelect={handleToggleSelect}
+        onPromote={(group) => setPromoteTargets([group])}
+        isPromoting={isPromoting}
+      />
 
       <CreateGroupsSidebar
         isOpen={isCreateOpen}
@@ -132,6 +255,15 @@ export function GroupsPageClient({ groups: initialGroups, initialFilter, error, 
         onClose={() => setEditingGroup(null)}
         onUpdated={() => router.refresh()}
         currentProfile={currentProfile}
+      />
+
+      <PromoteConfirmDialog
+        targets={promoteTargets}
+        isPromoting={isPromoting}
+        onCancel={() => {
+          if (!isPromoting) setPromoteTargets(null)
+        }}
+        onConfirm={runPromotion}
       />
 
       <Dialog
@@ -171,6 +303,75 @@ export function GroupsPageClient({ groups: initialGroups, initialFilter, error, 
 
 function sortGroups(groups: Group[]) {
   return [...groups].sort((a, b) => a.group_id.localeCompare(b.group_id))
+}
+
+interface PromoteConfirmDialogProps {
+  targets: Group[] | null
+  isPromoting: boolean
+  onCancel: () => void
+  onConfirm: (targets: Group[]) => void
+}
+
+function PromoteConfirmDialog({ targets, isPromoting, onCancel, onConfirm }: PromoteConfirmDialogProps) {
+  const open = targets !== null && targets.length > 0
+
+  const mappings = useMemo(
+    () =>
+      (targets ?? []).map((group) => ({
+        group,
+        newGroupId: computePromotedGroupId(group.group_id),
+      })),
+    [targets],
+  )
+
+  const validCount = mappings.filter((mapping) => mapping.newGroupId !== null).length
+
+  return (
+    <AlertDialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) onCancel()
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            Promote {mappings.length} group{mappings.length === 1 ? "" : "s"}?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            Each group is copied into the next school year with all its teachers and pupils. The
+            original group is then disabled.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        <ul className="max-h-64 space-y-1 overflow-y-auto rounded-md border border-slate-200 bg-slate-50/60 p-3 text-sm">
+          {mappings.map(({ group, newGroupId }) => (
+            <li key={group.group_id} className="flex items-center justify-between gap-3">
+              <span className="font-mono text-slate-800">{group.group_id}</span>
+              {newGroupId ? (
+                <span className="font-mono text-slate-800">→ {newGroupId}</span>
+              ) : (
+                <span className="text-destructive">Cannot be promoted</span>
+              )}
+            </li>
+          ))}
+        </ul>
+
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={isPromoting}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={isPromoting || validCount === 0}
+            onClick={(event) => {
+              event.preventDefault()
+              if (targets) onConfirm(targets)
+            }}
+          >
+            {isPromoting ? "Promoting..." : "Promote"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
 }
 
 interface CreateGroupsSidebarProps {
