@@ -584,11 +584,13 @@ interface EditGroupSidebarProps {
 function EditGroupSidebar({ group, onClose, onUpdated, currentProfile }: EditGroupSidebarProps) {
   const [groupId, setGroupId] = useState(group?.group_id ?? "")
   const [subject, setSubject] = useState(group?.subject ?? "")
+  const [active, setActive] = useState(group?.active ?? true)
   const [isPending, startTransition] = useTransition()
 
   useEffect(() => {
     setGroupId(group?.group_id ?? "")
     setSubject(group?.subject ?? "")
+    setActive(group?.active ?? true)
   }, [group])
 
   if (!group) {
@@ -610,7 +612,7 @@ function EditGroupSidebar({ group, onClose, onUpdated, currentProfile }: EditGro
     }
 
     startTransition(async () => {
-      const response = await updateGroupAction(group.group_id, trimmedId, trimmedSubject, { currentProfile })
+      const response = await updateGroupAction(group.group_id, trimmedId, trimmedSubject, { currentProfile, active })
 
       if (!response.success) {
         toast.error("Failed to update group", {
@@ -625,7 +627,7 @@ function EditGroupSidebar({ group, onClose, onUpdated, currentProfile }: EditGro
           group_id: trimmedId,
           subject: trimmedSubject,
           join_code: group.join_code,
-          active: group.active,
+          active,
         },
         group.group_id,
       )
@@ -669,6 +671,21 @@ function EditGroupSidebar({ group, onClose, onUpdated, currentProfile }: EditGro
               <Label htmlFor="edit-group-join-code">Join code</Label>
               <Input id="edit-group-join-code" value={group.join_code ?? ""} readOnly disabled={isPending} />
               <p className="text-xs text-muted-foreground">Join codes are generated automatically and cannot be edited.</p>
+            </div>
+
+            <div className="flex items-center justify-between rounded-md border border-border px-4 py-3">
+              <div>
+                <p className="text-sm font-medium text-foreground">Active</p>
+                <p className="text-xs text-muted-foreground">
+                  Inactive groups are hidden from the directory unless &ldquo;View inactive&rdquo; is on.
+                </p>
+              </div>
+              <Switch
+                checked={active}
+                onCheckedChange={setActive}
+                disabled={isPending}
+                aria-label="Toggle group active"
+              />
             </div>
 
             <div className="flex flex-col gap-3 pt-2">

@@ -468,12 +468,13 @@ export async function updateGroupAction(
   oldGroupId: string,
   newGroupId: string,
   subject: string,
-  options?: { currentProfile?: AuthenticatedProfile | null },
+  options?: { currentProfile?: AuthenticatedProfile | null; active?: boolean },
 ) {
   console.log("[v0] Server action started for group update:", {
     oldGroupId,
     newGroupId,
     subject,
+    active: options?.active,
   });
 
   const profile = options?.currentProfile ??
@@ -489,9 +490,15 @@ export async function updateGroupAction(
 
   try {
     await client.connect();
+    const setClauses = ["group_id = $2", "subject = $3"];
+    const values: Array<string | boolean> = [oldGroupId, newGroupId, subject];
+    if (typeof options?.active === "boolean") {
+      values.push(options.active);
+      setClauses.push(`active = $${values.length}`);
+    }
     const { rowCount } = await client.query(
-      "update groups set group_id = $2, subject = $3 where group_id = $1",
-      [oldGroupId, newGroupId, subject],
+      `update groups set ${setClauses.join(", ")} where group_id = $1`,
+      values,
     );
 
     if (rowCount === 0) {
