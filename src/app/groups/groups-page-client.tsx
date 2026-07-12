@@ -2,12 +2,12 @@
 
 import React, { useCallback, useEffect, useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowUpCircle, Plus, X } from "lucide-react"
+import { ArrowUpCircle, Plus, PowerOff, X } from "lucide-react"
 import { toast } from "sonner"
 
 import type { Group } from "@/types"
 import type { AuthenticatedProfile } from "@/lib/server-actions/groups"
-import { createGroupAction, promoteGroupsAction, updateGroupAction } from "@/lib/server-updates"
+import { createGroupAction, deactivateGroupsAction, promoteGroupsAction, updateGroupAction } from "@/lib/server-updates"
 import { computePromotedGroupId } from "@/lib/groups/promote"
 import { GroupsFilterControls } from "./groups-filter-controls"
 import { GroupsList } from "./groups-list"
@@ -56,6 +56,8 @@ export function GroupsPageClient({ groups: initialGroups, initialFilter, initial
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const [promoteTargets, setPromoteTargets] = useState<Group[] | null>(null)
   const [isPromoting, startPromoteTransition] = useTransition()
+  const [isDeactivateOpen, setIsDeactivateOpen] = useState(false)
+  const [isDeactivating, startDeactivateTransition] = useTransition()
 
   useEffect(() => {
     setFilter(initialFilter)
@@ -142,6 +144,23 @@ export function GroupsPageClient({ groups: initialGroups, initialFilter, initial
     () => groups.filter((group) => selectedIds.has(group.group_id)),
     [groups, selectedIds],
   )
+
+  const runDeactivation = useCallback(() => {
+    const groupIds = [...selectedIds]
+    startDeactivateTransition(async () => {
+      const response = await deactivateGroupsAction({ groupIds })
+
+      if (response.success) {
+        toast.success(`Deactivated ${response.count} group${response.count === 1 ? "" : "s"}`)
+      } else {
+        toast.error(response.error ?? "Unable to deactivate groups")
+      }
+
+      setIsDeactivateOpen(false)
+      setSelectedIds(new Set())
+      router.refresh()
+    })
+  }, [selectedIds, router])
 
   const navigate = useCallback((nextFilter: string, nextShowInactive: boolean) => {
     const params = new URLSearchParams()
@@ -253,15 +272,27 @@ export function GroupsPageClient({ groups: initialGroups, initialFilter, initial
               {selectedIds.size} selected
             </span>
           </div>
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => setPromoteTargets(selectedGroups)}
-            disabled={selectedIds.size === 0 || isPromoting}
-          >
-            <ArrowUpCircle className="mr-2 h-4 w-4" />
-            Promote selected
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setIsDeactivateOpen(true)}
+              disabled={selectedIds.size === 0 || isDeactivating || isPromoting}
+            >
+              <PowerOff className="mr-2 h-4 w-4" />
+              Deactivate selected
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => setPromoteTargets(selectedGroups)}
+              disabled={selectedIds.size === 0 || isPromoting || isDeactivating}
+            >
+              <ArrowUpCircle className="mr-2 h-4 w-4" />
+              Promote selected
+            </Button>
+          </div>
         </div>
       ) : null}
 
@@ -289,6 +320,37 @@ export function GroupsPageClient({ groups: initialGroups, initialFilter, initial
         onUpdated={() => router.refresh()}
         currentProfile={currentProfile}
       />
+
+      <AlertDialog
+        open={isDeactivateOpen}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen && !isDeactivating) setIsDeactivateOpen(false)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Deactivate {selectedIds.size} group{selectedIds.size === 1 ? "" : "s"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Deactivated groups are hidden from the directory unless &ldquo;View inactive&rdquo; is on.
+              You can reactivate a group any time from its edit panel.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeactivating}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isDeactivating || selectedIds.size === 0}
+              onClick={(event) => {
+                event.preventDefault()
+                runDeactivation()
+              }}
+            >
+              {isDeactivating ? "Deactivating..." : "Deactivate"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <PromoteConfirmDialog
         targets={promoteTargets}

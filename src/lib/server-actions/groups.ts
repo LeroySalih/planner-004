@@ -1062,6 +1062,76 @@ export async function updateGroupMemberRoleAction(
   });
 }
 
+const DeactivateGroupsInputSchema = z.object({
+  groupIds: z.array(z.string().min(1)).min(1),
+});
+
+const DeactivateGroupsReturnSchema = z.object({
+  success: z.boolean(),
+  error: z.string().nullable(),
+  count: z.number().default(0),
+});
+
+export type DeactivateGroupsResult = z.infer<typeof DeactivateGroupsReturnSchema>;
+
+/** Mark one or more groups inactive in a single update. Teacher-only. */
+export async function deactivateGroupsAction(
+  input: { groupIds: string[] },
+  options?: { currentProfile?: AuthenticatedProfile | null },
+): Promise<DeactivateGroupsResult> {
+  const parsed = DeactivateGroupsInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return DeactivateGroupsReturnSchema.parse({
+      success: false,
+      error: "Select at least one group to deactivate.",
+      count: 0,
+    });
+  }
+
+  const profile = options?.currentProfile ??
+    (await requireAuthenticatedProfile());
+  if (!profile.isTeacher) {
+    return DeactivateGroupsReturnSchema.parse({
+      success: false,
+      error: "You do not have permission to deactivate groups.",
+      count: 0,
+    });
+  }
+
+  const groupIds = Array.from(new Set(parsed.data.groupIds));
+  const client = createPgClient();
+
+  try {
+    await client.connect();
+    const { rowCount } = await client.query(
+      "update groups set active = false where group_id = any($1::text[])",
+      [groupIds],
+    );
+
+    revalidatePath("/groups");
+    revalidatePath("/");
+
+    return DeactivateGroupsReturnSchema.parse({
+      success: true,
+      error: null,
+      count: rowCount ?? 0,
+    });
+  } catch (error) {
+    console.error("[groups] Failed to deactivate groups", error);
+    return DeactivateGroupsReturnSchema.parse({
+      success: false,
+      error: error instanceof Error ? error.message : "Unable to deactivate groups.",
+      count: 0,
+    });
+  } finally {
+    try {
+      await client.end();
+    } catch {
+      // ignore close errors
+    }
+  }
+}
+
 const PromoteGroupsInputSchema = z.object({
   groupIds: z.array(z.string().min(1)).min(1),
 });

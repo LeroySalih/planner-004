@@ -1,6 +1,8 @@
 export {
   addGroupMemberAction,
   createGroupAction,
+  deactivateGroupsAction,
+  type DeactivateGroupsResult,
   deleteGroupAction,
   type GroupActionResult,
   importGroupMembersAction,
