@@ -1156,10 +1156,9 @@ export type PromoteGroupsResult = z.infer<typeof PromoteGroupsReturnSchema>;
  * Promote one or more groups into the next school year. For each group we:
  *   1. compute the next-year group id (e.g. 25-7A-DT → 26-8A-DT),
  *   2. create that group (same subject, a fresh join code),
- *   3. copy every membership (teachers and pupils) across,
- *   4. disable the source group.
- * Each group is promoted in its own transaction so one failure does not roll
- * back the others.
+ *   3. copy every membership (teachers and pupils) across.
+ * The source group is left untouched (it stays active). Each group is promoted
+ * in its own transaction so one failure does not roll back the others.
  */
 export async function promoteGroupsAction(
   input: { groupIds: string[] },
@@ -1240,11 +1239,6 @@ export async function promoteGroupsAction(
           on conflict do nothing
           `,
           [newGroupId, sourceGroupId],
-        );
-
-        await client.query(
-          "update groups set active = false where group_id = $1",
-          [sourceGroupId],
         );
 
         await client.query("commit");

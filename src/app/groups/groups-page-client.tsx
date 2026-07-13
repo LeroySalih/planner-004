@@ -435,7 +435,7 @@ function PromoteConfirmDialog({ targets, isPromoting, onCancel, onConfirm }: Pro
           </AlertDialogTitle>
           <AlertDialogDescription>
             Each group is copied into the next school year with all its teachers and pupils. The
-            original group is then disabled.
+            original group stays active.
           </AlertDialogDescription>
         </AlertDialogHeader>
 
