@@ -226,10 +226,11 @@ export async function readGroupSowLessonsAction(
               ) AS score
        FROM planner_assignments pa
        JOIN lessons l ON l.lesson_id = pa.lesson_id
-       JOIN half_terms h1 ON h1.year = $2 AND h1.name = 'H1'
-       JOIN half_terms h6 ON h6.year = $2 AND h6.name = 'H6'
+       JOIN (
+         SELECT MIN(start_date) AS start_date, MAX(end_date) AS end_date
+         FROM half_terms WHERE year = $2
+       ) h ON pa.week_start_date BETWEEN h.start_date AND h.end_date
        WHERE pa.group_id = $1
-         AND pa.week_start_date BETWEEN h1.start_date AND h6.end_date
        ORDER BY pa.week_start_date, pa.lesson_id`,
       [groupId, year],
     )
