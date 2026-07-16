@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { query } from '@/lib/db'
 import { requireTeacherProfile, requireRole, requireTeacherOrAdminAccess } from '@/lib/auth'
 import { HalfTermSchema, SowHalfTermUnitSchema, TeacherGroupSchema } from '@/types'
+import { validateHalfTermDates } from '@/lib/academic-year'
 
 // ── Return shapes ─────────────────────────────────────────────────────────────
 
@@ -56,6 +57,10 @@ export async function upsertHalfTermAction(
 ): Promise<z.infer<typeof HalfTermResult>> {
   try {
     await requireRole('admin')
+    const validationError = validateHalfTermDates(year, startDate, endDate)
+    if (validationError) {
+      return HalfTermResult.parse({ data: null, error: validationError })
+    }
     const { rows } = await query<Record<string, unknown>>(
       `INSERT INTO half_terms (year, name, start_date, end_date)
        VALUES ($1, $2, $3, $4)

@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { upsertHalfTermAction, readHalfTermsAction } from '@/lib/server-updates'
 import { toast } from 'sonner'
 import type { HalfTerm } from '@/types'
-import { academicYearLabel } from '@/lib/academic-year'
+import { academicYearLabel, validateHalfTermDates } from '@/lib/academic-year'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -66,6 +66,11 @@ export function HalfTermManager({ year: initialYear, activeYears, initialHalfTer
       toast.error('Set both dates before saving')
       return
     }
+    const validationError = validateHalfTermDates(year, ht.start_date, ht.end_date)
+    if (validationError) {
+      toast.error(validationError)
+      return
+    }
     setSaving(name)
     const { error, data } = await upsertHalfTermAction(year, name, ht.start_date, ht.end_date)
     setSaving(null)
@@ -74,6 +79,14 @@ export function HalfTermManager({ year: initialYear, activeYears, initialHalfTer
       setHalfTerms((prev) => prev.map((h) => h.name === name ? data : h))
     }
     toast.success(`${name} saved`)
+  }
+
+  // Live validation for a half-term: only flag once both dates are entered, so
+  // a card isn't marked red while it's still being filled in.
+  function errorFor(name: string): string | null {
+    const ht = halfTerms.find((h) => h.name === name)
+    if (!ht?.start_date || !ht?.end_date) return null
+    return validateHalfTermDates(year, ht.start_date, ht.end_date)
   }
 
   return (
@@ -92,39 +105,58 @@ export function HalfTermManager({ year: initialYear, activeYears, initialHalfTer
         </Select>
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {NAMES.map((name) => (
-          <div
-            key={name}
-            className="rounded-lg border border-[var(--color-border)] bg-[var(--color-background-secondary)] p-4 space-y-2"
-          >
-            <p className="font-medium text-sm">{name}</p>
-            <label className="block text-xs text-[var(--color-text-secondary)]">
-              Start
-              <input
-                type="date"
-                value={getValue(name, 'start_date')}
-                onChange={(e) => handleChange(name, 'start_date', e.target.value)}
-                className="mt-0.5 w-full rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-2 py-1 text-sm"
-              />
-            </label>
-            <label className="block text-xs text-[var(--color-text-secondary)]">
-              End
-              <input
-                type="date"
-                value={getValue(name, 'end_date')}
-                onChange={(e) => handleChange(name, 'end_date', e.target.value)}
-                className="mt-0.5 w-full rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-2 py-1 text-sm"
-              />
-            </label>
-            <Button
-              size="sm"
-              onClick={() => handleSave(name)}
-              disabled={saving === name}
+        {NAMES.map((name) => {
+          const error = errorFor(name)
+          const hasError = error !== null
+          return (
+            <div
+              key={name}
+              className={
+                hasError
+                  ? 'rounded-lg border border-red-500 bg-red-50 p-4 space-y-2'
+                  : 'rounded-lg border border-[var(--color-border)] bg-[var(--color-background-secondary)] p-4 space-y-2'
+              }
             >
-              {saving === name ? 'Saving…' : 'Save'}
-            </Button>
-          </div>
-        ))}
+              <p className={hasError ? 'font-medium text-sm text-red-700' : 'font-medium text-sm'}>{name}</p>
+              <label className="block text-xs text-[var(--color-text-secondary)]">
+                Start
+                <input
+                  type="date"
+                  value={getValue(name, 'start_date')}
+                  onChange={(e) => handleChange(name, 'start_date', e.target.value)}
+                  aria-invalid={hasError}
+                  className={
+                    hasError
+                      ? 'mt-0.5 w-full rounded border border-red-500 bg-[var(--color-background-primary)] px-2 py-1 text-sm'
+                      : 'mt-0.5 w-full rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-2 py-1 text-sm'
+                  }
+                />
+              </label>
+              <label className="block text-xs text-[var(--color-text-secondary)]">
+                End
+                <input
+                  type="date"
+                  value={getValue(name, 'end_date')}
+                  onChange={(e) => handleChange(name, 'end_date', e.target.value)}
+                  aria-invalid={hasError}
+                  className={
+                    hasError
+                      ? 'mt-0.5 w-full rounded border border-red-500 bg-[var(--color-background-primary)] px-2 py-1 text-sm'
+                      : 'mt-0.5 w-full rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-2 py-1 text-sm'
+                  }
+                />
+              </label>
+              {hasError ? <p className="text-xs text-red-600">{error}</p> : null}
+              <Button
+                size="sm"
+                onClick={() => handleSave(name)}
+                disabled={saving === name || hasError}
+              >
+                {saving === name ? 'Saving…' : 'Save'}
+              </Button>
+            </div>
+          )
+        })}
       </div>
     </div>
   )
