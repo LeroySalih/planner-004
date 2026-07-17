@@ -4,7 +4,7 @@ import type { ChangeEvent, DragEvent } from "react"
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { Download, GripVertical, Loader2, Pencil, Play, Plus, Trash2 } from "lucide-react"
+import { ChevronDown, ChevronUp, Download, GripVertical, Loader2, Pencil, Play, Plus, Trash2 } from "lucide-react"
 
 import type {
   FeedbackActivityBody,
@@ -47,19 +47,23 @@ import {
   getGroupItemsBody,
   getMatcherBody,
   getMcqBody,
+  getSequenceBody,
   getShortTextBody,
   getVoiceBody,
   getYouTubeThumbnailUrl,
   isAbsoluteUrl,
   createDefaultGroupItemsBody,
   createDefaultMatcherBody,
+  createDefaultSequenceBody,
   createGroupItemsGroupId,
   createGroupItemsItemId,
   createMatcherPairId,
+  createSequenceTermId,
   type GroupItemsBody,
   type ImageBody,
   type MatcherBody,
   type McqBody,
+  type SequenceBody,
   type ShortTextBody,
   type VoiceBody,
 } from "@/components/lessons/activity-view/utils"
@@ -106,6 +110,7 @@ const ACTIVITY_TYPES = [
   { value: "multiple-choice-question", label: "Multiple Choice Question", group: "interactive" },
   { value: "matcher", label: "Matcher", group: "interactive" },
   { value: "group-items", label: "Group Items", group: "interactive" },
+  { value: "sequence", label: "Sequence", group: "interactive" },
   { value: "short-text-question", label: "Short Text Question", group: "interactive" },
   { value: "voice", label: "Voice Recording", group: "interactive" },
   // Experimental (hidden unless the teacher enables them in their profile)
@@ -1953,6 +1958,7 @@ function LessonActivityEditorSheet({
   const [mcqBody, setMcqBody] = useState<McqBody>(() => createDefaultMcqBody())
   const [matcherBody, setMatcherBody] = useState<MatcherBody>(() => createDefaultMatcherBody())
   const [groupItemsBody, setGroupItemsBody] = useState<GroupItemsBody>(() => createDefaultGroupItemsBody())
+  const [sequenceBody, setSequenceBody] = useState<SequenceBody>(() => createDefaultSequenceBody())
   const [feedbackBody, setFeedbackBody] = useState<FeedbackActivityBody>(() => createDefaultFeedbackBody())
   const [shortTextBody, setShortTextBody] = useState<ShortTextBody>(() => createDefaultShortTextBody())
   const [uploadSpreadsheetBody, setUploadSpreadsheetBody] = useState<UploadSpreadsheetActivityBody>(() =>
@@ -2253,6 +2259,51 @@ function LessonActivityEditorSheet({
       return { ...current, items: current.items.filter((item) => item.id !== itemId) }
     })
   }, [updateGroupItemsBody])
+
+  const sequenceValidationMessage = useMemo(() => validateSequenceBody(sequenceBody), [sequenceBody])
+
+  const updateSequenceBody = useCallback((updater: (current: SequenceBody) => SequenceBody) => {
+    setSequenceBody((previous) => normalizeSequenceBody(updater(normalizeSequenceBody(previous))))
+  }, [])
+
+  const handleSequenceTermTextChange = useCallback((termId: string, value: string) => {
+    updateSequenceBody((current) => ({
+      ...current,
+      terms: current.terms.map((term) => (term.id === termId ? { ...term, text: value } : term)),
+    }))
+  }, [updateSequenceBody])
+
+  const handleSequenceAddTerm = useCallback(() => {
+    updateSequenceBody((current) => {
+      if (current.terms.length >= 12) {
+        toast.error("You can add up to 12 terms.")
+        return current
+      }
+      const used = new Set(current.terms.map((term) => term.id))
+      const id = createSequenceTermId(used)
+      return { ...current, terms: [...current.terms, { id, text: "" }] }
+    })
+  }, [updateSequenceBody])
+
+  const handleSequenceRemoveTerm = useCallback((termId: string) => {
+    updateSequenceBody((current) => {
+      if (current.terms.length <= 2) {
+        toast.error("Keep at least 2 terms.")
+        return current
+      }
+      return { ...current, terms: current.terms.filter((term) => term.id !== termId) }
+    })
+  }, [updateSequenceBody])
+
+  const handleSequenceMoveTerm = useCallback((index: number, direction: -1 | 1) => {
+    updateSequenceBody((current) => {
+      const target = index + direction
+      if (target < 0 || target >= current.terms.length) return current
+      const terms = [...current.terms]
+      ;[terms[index], terms[target]] = [terms[target], terms[index]]
+      return { ...current, terms }
+    })
+  }, [updateSequenceBody])
 
   const handleShortTextQuestionChange = useCallback((value: string) => {
     setShortTextBody((current) => ({ ...current, question: value }))
@@ -2796,6 +2847,7 @@ function LessonActivityEditorSheet({
       setMcqBody(createDefaultMcqBody())
       setMatcherBody(createDefaultMatcherBody())
       setGroupItemsBody(createDefaultGroupItemsBody())
+      setSequenceBody(createDefaultSequenceBody())
       setShortTextBody(createDefaultShortTextBody())
       setUploadSpreadsheetBody(createDefaultUploadSpreadsheetBody())
       setUploadWorksheetBody(createDefaultUploadWorksheetBody())
@@ -2859,6 +2911,11 @@ function LessonActivityEditorSheet({
         setGroupItemsBody(normalizeGroupItemsBody(getGroupItemsBody(activity)))
       } else {
         setGroupItemsBody(createDefaultGroupItemsBody())
+      }
+      if (ensuredType === "sequence") {
+        setSequenceBody(normalizeSequenceBody(getSequenceBody(activity)))
+      } else {
+        setSequenceBody(createDefaultSequenceBody())
       }
       if (ensuredType === "short-text-question") {
         setShortTextBody(normalizeShortTextBody(getShortTextBody(activity)))
@@ -2933,6 +2990,7 @@ function LessonActivityEditorSheet({
       setMcqBody(createDefaultMcqBody())
       setMatcherBody(createDefaultMatcherBody())
       setGroupItemsBody(createDefaultGroupItemsBody())
+      setSequenceBody(createDefaultSequenceBody())
       setShortTextBody(createDefaultShortTextBody())
       setUploadSpreadsheetBody(createDefaultUploadSpreadsheetBody())
       setUploadWorksheetBody(createDefaultUploadWorksheetBody())
@@ -3205,6 +3263,15 @@ function LessonActivityEditorSheet({
         setGroupItemsBody(normalizeGroupItemsBody(getGroupItemsBody(activity)))
       } else {
         setGroupItemsBody(createDefaultGroupItemsBody())
+      }
+      return
+    }
+
+    if (type === "sequence") {
+      if (activity) {
+        setSequenceBody(normalizeSequenceBody(getSequenceBody(activity)))
+      } else {
+        setSequenceBody(createDefaultSequenceBody())
       }
       return
     }
@@ -3641,6 +3708,13 @@ function LessonActivityEditorSheet({
         return
       }
       bodyData = preparedGroupItemsBody
+    } else if (type === "sequence") {
+      const { bodyData: preparedSequenceBody, error } = prepareSequenceBodyForSave(sequenceBody)
+      if (error) {
+        toast.error(error)
+        return
+      }
+      bodyData = preparedSequenceBody
     } else if (type === "short-text-question") {
       if (shortTextValidationMessage) {
         toast.error(shortTextValidationMessage)
@@ -3745,6 +3819,7 @@ function LessonActivityEditorSheet({
     (type === "multiple-choice-question" && mcqValidationMessage !== null) ||
     (type === "matcher" && matcherValidationMessage !== null) ||
     (type === "group-items" && groupItemsValidationMessage !== null) ||
+    (type === "sequence" && sequenceValidationMessage !== null) ||
     (type === "short-text-question" && shortTextValidationMessage !== null) ||
     (type === "upload-spreadsheet" && uploadSpreadsheetValidationMessage !== null) ||
     (type === "upload-worksheet" && uploadWorksheetValidationMessage !== null)
@@ -4299,6 +4374,79 @@ function LessonActivityEditorSheet({
                 <p>Add 2-4 groups and 2-12 items. Every group needs a name and every item needs text and a correct group.</p>
                 {groupItemsValidationMessage ? (
                   <p className="text-destructive">{groupItemsValidationMessage}</p>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          {type === "sequence" ? (
+            <div className="rounded-md border border-border bg-muted/20 p-4 space-y-4">
+              <div className="space-y-3">
+                <Label className="text-xs font-medium text-muted-foreground">Terms (in correct order)</Label>
+                <div className="space-y-2">
+                  {sequenceBody.terms.map((term, index) => (
+                    <div key={term.id} className="flex items-center gap-2">
+                      <span className="w-6 text-center text-xs font-semibold text-muted-foreground">
+                        {index + 1}
+                      </span>
+                      <Input
+                        value={term.text}
+                        onChange={(event) => handleSequenceTermTextChange(term.id, event.target.value)}
+                        placeholder={`Term ${index + 1}`}
+                        disabled={isPending}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleSequenceMoveTerm(index, -1)}
+                        disabled={isPending || index === 0}
+                        aria-label="Move term up"
+                      >
+                        <ChevronUp className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleSequenceMoveTerm(index, 1)}
+                        disabled={isPending || index === sequenceBody.terms.length - 1}
+                        aria-label="Move term down"
+                      >
+                        <ChevronDown className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleSequenceRemoveTerm(term.id)}
+                        disabled={isPending || sequenceBody.terms.length <= 2}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSequenceAddTerm}
+                  disabled={isPending || sequenceBody.terms.length >= 12}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add term
+                </Button>
+              </div>
+
+              <div className="space-y-1 text-xs text-muted-foreground">
+                <p>
+                  Add 2-12 terms in the order pupils should arrange them. Pupils see them shuffled and drag
+                  them into order. Tip: set &ldquo;Marks available&rdquo; to the number of terms to award one mark
+                  per correctly-ordered item.
+                </p>
+                {sequenceValidationMessage ? (
+                  <p className="text-destructive">{sequenceValidationMessage}</p>
                 ) : null}
               </div>
             </div>
@@ -5317,5 +5465,49 @@ function prepareGroupItemsBodyForSave(body: GroupItemsBody): { bodyData: GroupIt
     return { bodyData: normalized, error: validation }
   }
   return { bodyData: normalized, error: null }
+}
+
+function normalizeSequenceBody(body: SequenceBody): SequenceBody {
+  const usedIds = new Set<string>()
+  const terms = (body.terms ?? []).map((term) => {
+    let id = typeof term.id === "string" && term.id.trim() !== "" ? term.id.trim() : ""
+    if (!id || usedIds.has(id)) {
+      id = createSequenceTermId(usedIds)
+    }
+    usedIds.add(id)
+    return { id, text: typeof term.text === "string" ? term.text : "" }
+  })
+
+  if (terms.length === 0) {
+    return createDefaultSequenceBody()
+  }
+
+  return { terms }
+}
+
+function validateSequenceBody(body: SequenceBody): string | null {
+  const normalized = normalizeSequenceBody(body)
+  if (normalized.terms.length < 2) {
+    return "Add at least 2 terms."
+  }
+  if (normalized.terms.length > 12) {
+    return "You can add up to 12 terms."
+  }
+  if (normalized.terms.some((term) => term.text.trim().length === 0)) {
+    return "Every term needs text."
+  }
+  return null
+}
+
+function prepareSequenceBodyForSave(body: SequenceBody): { bodyData: SequenceBody; error: string | null } {
+  const normalized = normalizeSequenceBody(body)
+  const validation = validateSequenceBody(normalized)
+  if (validation) {
+    return { bodyData: normalized, error: validation }
+  }
+  return {
+    bodyData: { terms: normalized.terms.map((term) => ({ id: term.id, text: term.text.trim() })) },
+    error: null,
+  }
 }
 

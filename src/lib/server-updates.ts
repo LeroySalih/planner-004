@@ -200,6 +200,7 @@ export {
   readSubmissionByIdAction,
   upsertGroupItemsSubmissionAction,
   upsertMatcherSubmissionAction,
+  upsertSequenceSubmissionAction,
   upsertMcqSubmissionAction,
 } from "./server-actions/submissions";
 

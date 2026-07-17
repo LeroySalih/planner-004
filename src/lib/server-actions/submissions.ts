@@ -10,6 +10,8 @@ import {
   MatcherSubmissionBodySchema,
   McqActivityBodySchema,
   McqSubmissionBodySchema,
+  SequenceActivityBodySchema,
+  SequenceSubmissionBodySchema,
   ShortTextActivityBodySchema,
   ShortTextSubmissionBodySchema,
   type Submission,
@@ -19,6 +21,7 @@ import {
 } from "@/types";
 import { query } from "@/lib/db";
 import { isScorableActivityType } from "@/dino.config";
+import { scoreSequence } from "@/lib/scoring/sequence";
 import {
   computeAverageSuccessCriteriaScore,
   fetchActivitySuccessCriteriaIds,
@@ -66,6 +69,12 @@ const GroupItemsSubmissionInputSchema = z.object({
   userId: z.string().min(1),
   itemOrder: z.array(z.string()).min(1),
   placements: z.record(z.string(), z.string().nullable()),
+});
+
+const SequenceSubmissionInputSchema = z.object({
+  activityId: z.string().min(1),
+  userId: z.string().min(1),
+  order: z.array(z.string()).min(1),
 });
 
 const LessonActivitySummaryRowSchema = z.object({
@@ -604,6 +613,89 @@ export async function readLessonSubmissionSummariesAction(
           summary.averageScore = averageScore;
         }
         for (const submission of submissionList) {
+          addMarksContribution(
+            submission.user_id,
+            computeSubmissionMarks(submission.body, activityType, maxMarks),
+          );
+        }
+      } else if (activityType === "sequence") {
+        // Only each pupil's most recent attempt counts toward the score.
+        const latestByUser = new Map<string, Submission>();
+        for (const submission of submissionList) {
+          const existing = latestByUser.get(submission.user_id);
+          if (!existing || submission.attempt_number > existing.attempt_number) {
+            latestByUser.set(submission.user_id, submission);
+          }
+        }
+        const latestList = Array.from(latestByUser.values());
+
+        const scoreEntries = latestList
+          .map((submission) => {
+            const parsedSubmission = SequenceSubmissionBodySchema.safeParse(
+              submission.body,
+            );
+            if (!parsedSubmission.success) {
+              return null;
+            }
+            const overrideScore =
+              typeof parsedSubmission.data.teacher_override_score === "number" &&
+                Number.isFinite(parsedSubmission.data.teacher_override_score)
+                ? parsedSubmission.data.teacher_override_score
+                : null;
+            const baseScore =
+              typeof parsedSubmission.data.score === "number" &&
+                Number.isFinite(parsedSubmission.data.score)
+                ? parsedSubmission.data.score
+                : null;
+            const effectiveScore = overrideScore ?? baseScore ?? 0;
+            const successCriteriaScores = normaliseSuccessCriteriaScores({
+              successCriteriaIds,
+              existingScores: parsedSubmission.data.success_criteria_scores,
+              fillValue: effectiveScore,
+            });
+            const averagedScore =
+              computeAverageSuccessCriteriaScore(successCriteriaScores) ??
+                effectiveScore;
+            return {
+              userId: submission.user_id,
+              score: averagedScore,
+              isCorrect: parsedSubmission.data.is_correct === true,
+              successCriteriaScores,
+            };
+          })
+          .filter(
+            (entry): entry is {
+              userId: string;
+              score: number;
+              isCorrect: boolean;
+              successCriteriaScores: Record<string, number | null>;
+            } => entry !== null,
+          );
+
+        summary.scores = scoreEntries.map((entry) => ({
+          userId: entry.userId,
+          score: entry.score,
+          accuracy: null,
+          isCorrect: entry.isCorrect,
+          successCriteriaScores: entry.successCriteriaScores,
+        }));
+        const sequenceAccuracyByUser = computeAccuracyByUser(summary.scores);
+        summary.scores = summary.scores.map((entry) => ({
+          ...entry,
+          accuracy: sequenceAccuracyByUser.get(entry.userId) ?? null,
+        }));
+        summary.correctCount = scoreEntries.filter((entry) =>
+          entry.isCorrect
+        ).length;
+
+        if (scoreEntries.length > 0) {
+          const activitiesScore = scoreEntries.reduce(
+            (acc, entry) => acc + entry.score,
+            0,
+          );
+          summary.averageScore = activitiesScore / scoreEntries.length;
+        }
+        for (const submission of latestList) {
           addMarksContribution(
             submission.user_id,
             computeSubmissionMarks(submission.body, activityType, maxMarks),
@@ -1205,6 +1297,157 @@ export async function upsertGroupItemsSubmissionAction(
     return { success: true, error: null, data: parsed.data };
   } catch (error) {
     console.error("[submissions] Failed to insert group-items submission:", error);
+    const message = error instanceof Error
+      ? error.message
+      : "Unable to insert submission.";
+    return {
+      success: false,
+      error: message,
+      data: null as Submission | null,
+    };
+  }
+}
+
+export async function upsertSequenceSubmissionAction(
+  input: z.infer<typeof SequenceSubmissionInputSchema>,
+) {
+  const payload = SequenceSubmissionInputSchema.parse(input);
+  let activity:
+    | { body_data: unknown; lesson_id: string | null; max_marks: number }
+    | null = null;
+  try {
+    const { rows } = await query<
+      { body_data: unknown; lesson_id: string | null; max_marks: number }
+    >(
+      "select body_data, lesson_id, max_marks from activities where activity_id = $1 limit 1",
+      [payload.activityId],
+    );
+    activity = rows[0] ?? null;
+  } catch (error) {
+    console.error(
+      "[submissions] Failed to load activity for sequence submission:",
+      error,
+    );
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unable to load activity.",
+      data: null as Submission | null,
+    };
+  }
+
+  if (!activity) {
+    return {
+      success: false,
+      error: "Activity not found for submission.",
+      data: null as Submission | null,
+    };
+  }
+
+  const parsedActivity = SequenceActivityBodySchema.safeParse(activity.body_data);
+  if (!parsedActivity.success) {
+    console.error(
+      "[submissions] Invalid sequence activity body:",
+      parsedActivity.error,
+    );
+    return {
+      success: false,
+      error: "Activity is not configured correctly.",
+      data: null as Submission | null,
+    };
+  }
+  const lessonId = activity.lesson_id ??
+    (await getActivityLessonId(payload.activityId));
+
+  const sequenceBody = parsedActivity.data;
+  const correctOrder = sequenceBody.terms.map((term) => term.id);
+  const validIds = new Set(correctOrder);
+
+  // Keep only known term ids, then append any missing terms so the order always
+  // covers every term (guards against a term being removed after a pupil started).
+  const submittedOrder = payload.order.filter((id) => validIds.has(id));
+  for (const id of correctOrder) {
+    if (!submittedOrder.includes(id)) submittedOrder.push(id);
+  }
+
+  const { score, correctIds } = scoreSequence(correctOrder, submittedOrder);
+  const isCorrect = score === 1;
+  const maxMarks = activity.max_marks;
+  const marksAwarded = Math.min(maxMarks, Math.round(score * maxMarks));
+
+  const successCriteriaIds = await fetchActivitySuccessCriteriaIds(
+    payload.activityId,
+  );
+  const successCriteriaScores = normaliseSuccessCriteriaScores({
+    successCriteriaIds,
+    fillValue: score,
+  });
+
+  const attemptNumber = await getNextAttemptNumber(
+    payload.activityId,
+    payload.userId,
+  );
+
+  const submissionBody = SequenceSubmissionBodySchema.parse({
+    order: submittedOrder,
+    correctIds,
+    score,
+    is_correct: isCorrect,
+    attempts: attemptNumber,
+    marks: marksAwarded,
+    auto_marks: marksAwarded,
+    success_criteria_scores: successCriteriaScores,
+    teacher_override_score: null,
+    teacher_feedback: null,
+  });
+
+  const timestamp = new Date().toISOString();
+
+  try {
+    const { rows } = await query(
+      `
+        insert into submissions (activity_id, user_id, attempt_number, body, submitted_at)
+        values ($1, $2, $3, $4, $5)
+        returning *
+      `,
+      [payload.activityId, payload.userId, attemptNumber, submissionBody, timestamp],
+    );
+
+    const parsed = SubmissionSchema.safeParse(rows?.[0]);
+    if (!parsed.success) {
+      console.error(
+        "[submissions] Failed to parse inserted sequence submission:",
+        parsed.error,
+      );
+      return {
+        success: false,
+        error: "Invalid submission data.",
+        data: null as Submission | null,
+      };
+    }
+
+    await clearResubmitRequest(payload.activityId, payload.userId);
+
+    await logActivitySubmissionEvent({
+      submissionId: parsed.data.submission_id,
+      activityId: payload.activityId,
+      lessonId,
+      pupilId: payload.userId,
+      fileName: null,
+      submittedAt: parsed.data.submitted_at ?? timestamp,
+    });
+
+    void emitSubmissionEvent("submission.updated", {
+      submissionId: parsed.data.submission_id,
+      activityId: payload.activityId,
+      pupilId: payload.userId,
+      submittedAt: parsed.data.submitted_at ?? timestamp,
+      submissionStatus: "inprogress",
+      isFlagged: false,
+    });
+
+    return { success: true, error: null, data: parsed.data };
+  } catch (error) {
+    console.error("[submissions] Failed to insert sequence submission:", error);
     const message = error instanceof Error
       ? error.message
       : "Unable to insert submission.";

@@ -41,6 +41,7 @@ import { PupilUploadWorksheetActivity } from "@/components/pupil/pupil-upload-wo
 import { PupilMcqActivity } from "@/components/pupil/pupil-mcq-activity"
 import { PupilMatcherActivity } from "@/components/pupil/pupil-matcher-activity"
 import { PupilGroupItemsActivity } from "@/components/pupil/pupil-group-items-activity"
+import { PupilSequenceActivity } from "@/components/pupil/pupil-sequence-activity"
 import { PupilDoFlashcardsActivity } from "@/components/pupil/pupil-do-flashcards-activity"
 import { PupilFeedbackActivity } from "@/components/pupil/pupil-feedback-activity"
 import { PupilShortTextActivity } from "@/components/pupil/pupil-short-text-activity"
@@ -54,6 +55,8 @@ import { MediaImage } from "@/components/ui/media-image"
 import {
   GroupItemsActivityBodySchema,
   GroupItemsSubmissionBodySchema,
+  SequenceActivityBodySchema,
+  SequenceSubmissionBodySchema,
   LegacyMcqSubmissionBodySchema,
   LongTextSubmissionBodySchema,
   MatcherSubmissionBodySchema,
@@ -165,6 +168,15 @@ function getLongTextBodyServer(activity: { body_data: unknown }) {
         : ""
 
   return { question }
+}
+
+function shuffleArray<T>(items: T[]): T[] {
+  const result = [...items]
+  for (let i = result.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[result[i], result[j]] = [result[j], result[i]]
+  }
+  return result
 }
 
 function formatDateLabel(value: string | null | undefined) {
@@ -659,6 +671,50 @@ export default async function PupilLessonFriendlyPage({
   )
 
   const groupItemsDataMap = new Map(groupItemsSubmissionEntries.map((entry) => [entry.activityId, entry]))
+
+  const sequenceActivities = activities.filter((activity) => activity.type === "sequence")
+
+  const sequenceSubmissionEntries = await Promise.all(
+    sequenceActivities.map(async (activity) => {
+      const parsedActivityBody = SequenceActivityBodySchema.safeParse(activity.body_data)
+      const terms = parsedActivityBody.success
+        ? parsedActivityBody.data.terms.map((term) => ({ id: term.id, text: term.text }))
+        : []
+      const termIds = terms.map((term) => term.id)
+
+      const result = await getLatestSubmissionForActivityAction(activity.activity_id, pupilId)
+      let savedOrder: string[] = []
+      let correctIds: string[] = []
+      let attempts = 0
+      if (!result.error && result.data) {
+        const parsedBody = SequenceSubmissionBodySchema.safeParse(result.data.body)
+        if (parsedBody.success) {
+          savedOrder = parsedBody.data.order
+          correctIds = parsedBody.data.correctIds
+          attempts = result.data.attempt_number
+        }
+      }
+
+      // Display order: the pupil's saved arrangement if still valid, otherwise a
+      // shuffle. The correct order is never sent to the client.
+      const validSaved =
+        savedOrder.length === termIds.length && termIds.every((id) => savedOrder.includes(id))
+      const displayOrder = validSaved ? savedOrder : shuffleArray(termIds)
+      const termsById = new Map(terms.map((term) => [term.id, term]))
+      const orderedTerms = displayOrder
+        .map((id) => termsById.get(id))
+        .filter((term): term is { id: string; text: string } => Boolean(term))
+
+      return {
+        activityId: activity.activity_id,
+        terms: orderedTerms,
+        correctIds,
+        attempts,
+      }
+    }),
+  )
+
+  const sequenceDataMap = new Map(sequenceSubmissionEntries.map((entry) => [entry.activityId, entry]))
 
   const shortTextActivities = activities.filter((activity) => activity.type === "short-text-question")
   const longTextActivities = activities.filter(
@@ -1193,6 +1249,21 @@ export default async function PupilLessonFriendlyPage({
                         initialPlacements={groupItemsDataMap.get(activity.activity_id)?.placements ?? {}}
                       />,
                       { typeLabel: "Sort into groups", typeGlyph: "▤" },
+                    )
+                  }
+
+                  if (activity.type === "sequence") {
+                    return shell(
+                      <PupilSequenceActivity
+                        lessonId={lesson.lesson_id}
+                        activityId={activity.activity_id}
+                        pupilId={pupilId}
+                        canAnswer={isPupilViewer}
+                        terms={sequenceDataMap.get(activity.activity_id)?.terms ?? []}
+                        initialCorrectIds={sequenceDataMap.get(activity.activity_id)?.correctIds ?? []}
+                        initialAttempts={sequenceDataMap.get(activity.activity_id)?.attempts ?? 0}
+                      />,
+                      { typeLabel: "Put in order", typeGlyph: "↕" },
                     )
                   }
 

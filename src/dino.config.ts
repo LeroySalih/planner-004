@@ -13,6 +13,7 @@ export const SCORABLE_ACTIVITY_TYPES = Object.freeze([
   "matcher",
   "group-items",
   "voice",
+  "sequence",
 ]);
 
 export const NON_SCORABLE_ACTIVITY_TYPES = Object.freeze([

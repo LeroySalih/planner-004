@@ -855,6 +855,41 @@ export type GroupItemsItem = z.infer<typeof GroupItemsItemSchema>;
 export type GroupItemsActivityBody = z.infer<typeof GroupItemsActivityBodySchema>;
 export type GroupItemsSubmissionBody = z.infer<typeof GroupItemsSubmissionBodySchema>;
 
+// ── Sequence activity ──────────────────────────────────────────────────────
+export const SequenceTermSchema = z.object({
+    id: z.string().min(1),
+    text: z.string().min(1).max(200),
+});
+
+// Terms are stored in their CORRECT order; the array index is the position.
+export const SequenceActivityBodySchema = z
+    .object({
+        terms: z.array(SequenceTermSchema).min(2).max(12),
+    })
+    .passthrough();
+
+export const SequenceSubmissionBodySchema = z
+    .object({
+        order: z.array(z.string()).default([]), // pupil's arrangement (term ids)
+        correctIds: z.array(z.string()).default([]), // ids forming the longest correct run
+        score: z.number().min(0).max(1).nullable().default(null),
+        is_correct: z.boolean().default(false),
+        attempts: z.number().int().min(0).default(0),
+        marks: z.number().int().min(0).nullable().optional(),
+        auto_marks: z.number().int().min(0).nullable().optional(),
+        marks_override: z.number().int().min(0).nullable().optional(),
+        teacher_override_score: z.number().min(0).max(1).nullable().optional(),
+        teacher_feedback: z.string().nullable().optional(),
+        success_criteria_scores: z
+            .record(z.string(), z.number().min(0).max(1).nullable())
+            .default({}),
+    })
+    .passthrough();
+
+export type SequenceTerm = z.infer<typeof SequenceTermSchema>;
+export type SequenceActivityBody = z.infer<typeof SequenceActivityBodySchema>;
+export type SequenceSubmissionBody = z.infer<typeof SequenceSubmissionBodySchema>;
+
 export const PupilActivityFeedbackRowSchema = z.object({
     feedback_id: z.string(),
     activity_id: z.string(),

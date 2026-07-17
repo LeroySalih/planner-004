@@ -368,6 +368,62 @@ export function getGroupItemsBody(activity: LessonActivity): GroupItemsBody {
   return items.length > 0 ? { groups, items } : createDefaultGroupItemsBody();
 }
 
+export interface SequenceTermBody {
+  id: string;
+  text: string;
+}
+
+export interface SequenceBody {
+  // Terms in their correct order (index = position).
+  terms: SequenceTermBody[];
+}
+
+export function createSequenceTermId(used: Set<string>): string {
+  let index = 1;
+  let candidate = `term-${index}`;
+  while (used.has(candidate)) {
+    index += 1;
+    candidate = `term-${index}`;
+  }
+  return candidate;
+}
+
+export function createDefaultSequenceBody(): SequenceBody {
+  return {
+    terms: [
+      { id: "term-1", text: "" },
+      { id: "term-2", text: "" },
+      { id: "term-3", text: "" },
+    ],
+  };
+}
+
+export function getSequenceBody(activity: LessonActivity): SequenceBody {
+  if (!activity.body_data || typeof activity.body_data !== "object") {
+    return createDefaultSequenceBody();
+  }
+
+  const record = activity.body_data as Record<string, unknown>;
+  const rawTerms = Array.isArray(record.terms) ? record.terms : [];
+
+  const usedTermIds = new Set<string>();
+  const terms = rawTerms
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const term = entry as Record<string, unknown>;
+      let id = typeof term.id === "string" && term.id.trim() !== "" ? term.id.trim() : "";
+      if (!id || usedTermIds.has(id)) {
+        id = createSequenceTermId(usedTermIds);
+      }
+      usedTermIds.add(id);
+      const text = typeof term.text === "string" ? term.text : "";
+      return { id, text };
+    })
+    .filter((term): term is SequenceTermBody => term !== null);
+
+  return terms.length > 0 ? { terms } : createDefaultSequenceBody();
+}
+
 export function getShortTextBody(activity: LessonActivity): ShortTextBody {
   if (!activity.body_data || typeof activity.body_data !== "object") {
     return { question: "", modelAnswer: "" };

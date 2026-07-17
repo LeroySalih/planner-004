@@ -21,6 +21,7 @@ import {
   getImageBody,
   getFlashcardsText,
   getGroupItemsBody,
+  getSequenceBody,
   getLongTextBody,
   getMatcherBody,
   getMcqBody,
@@ -997,6 +998,35 @@ function GroupItemsPresentView({ activity }: { activity: LessonActivity }) {
   )
 }
 
+function SequencePresentView({ activity }: { activity: LessonActivity }) {
+  const sequence = getSequenceBody(activity)
+
+  return (
+    <div className="space-y-4">
+      <h3 className="text-2xl font-semibold text-foreground">
+        {activity.title?.trim() || "Put in order"}
+      </h3>
+      <p className="text-sm text-muted-foreground">
+        Pupils see these terms shuffled and drag them into order. This preview shows the correct order.
+      </p>
+
+      <ol className="space-y-2">
+        {sequence.terms.map((term, index) => (
+          <li
+            key={term.id}
+            className="flex items-center gap-3 rounded-lg border border-border bg-card p-3 text-sm text-foreground"
+          >
+            <span className="grid h-6 w-6 flex-none place-items-center rounded-full bg-muted text-xs font-bold">
+              {index + 1}
+            </span>
+            <span>{term.text.trim() || "(missing text)"}</span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  )
+}
+
 function ActivityPresentView({
   activity,
   files,
@@ -1410,6 +1440,10 @@ function ActivityPresentView({
     return wrap(<GroupItemsPresentView activity={activity} />)
   }
 
+  if (activity.type === "sequence") {
+    return wrap(<SequencePresentView activity={activity} />)
+  }
+
   if (activity.type === "sketch-render") {
     const rawBody = (activity.body_data ?? {}) as Record<string, unknown>
     const instructions = typeof rawBody.instructions === "string" ? rawBody.instructions : ""
@@ -1622,6 +1656,25 @@ function ActivityEditView({ activity, resolvedImageUrl }: LessonActivityEditView
             </li>
           ))}
         </ul>
+      </div>
+    )
+  }
+
+  if (activity.type === "sequence") {
+    const sequence = getSequenceBody(activity)
+
+    return (
+      <div className="space-y-2 text-sm text-muted-foreground">
+        <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+          Correct order
+        </p>
+        <ol className="space-y-1">
+          {sequence.terms.map((term, index) => (
+            <li key={term.id} className="rounded-md border border-border/60 bg-muted/30 p-2 text-foreground">
+              {index + 1}. {term.text.trim() || "(missing text)"}
+            </li>
+          ))}
+        </ol>
       </div>
     )
   }
