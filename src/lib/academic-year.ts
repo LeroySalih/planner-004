@@ -8,6 +8,17 @@ export function academicYearLabel(year: number): string {
   return `${year}/${String(year + 1).slice(2)}`
 }
 
+/**
+ * Infer the academic year from a group id whose first segment is the 2-digit
+ * school year, e.g. "26-8B-DT" → 2026. Returns null when the prefix isn't a
+ * 2-digit number, so callers can fall back to the current academic year.
+ */
+export function academicYearFromGroupId(groupId: string): number | null {
+  const match = groupId.trim().match(/^(\d{2})(?:-|$)/)
+  if (!match) return null
+  return 2000 + Number(match[1])
+}
+
 export function availableAcademicYears(year: number = currentAcademicYear()): number[] {
   return [year - 1, year, year + 1]
 }

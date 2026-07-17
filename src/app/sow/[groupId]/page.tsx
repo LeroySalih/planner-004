@@ -10,7 +10,7 @@ import {
 import type { SowWeekLesson } from '@/lib/server-updates'
 import { SowClient } from './sow-client'
 import { notFound } from 'next/navigation'
-import { currentAcademicYear, fetchActiveAcademicYears } from '@/lib/academic-year'
+import { academicYearFromGroupId, currentAcademicYear, fetchActiveAcademicYears } from '@/lib/academic-year'
 import type { HalfTerm, SowHalfTermUnit, Unit } from '@/types'
 
 type YearData = {
@@ -45,8 +45,14 @@ export default async function SowDetailPage({
   const targetTeacherId = teacherId ?? profile.userId
   await requireTeacherOrAdminAccess(targetTeacherId)
 
-  const year = currentAcademicYear()
   const years = await fetchActiveAcademicYears()
+  // Default to the group's own academic year (from its id prefix, e.g.
+  // "26-8B-DT" → 2026/27), falling back to the current year when the prefix
+  // isn't a recognised active year.
+  const derivedYear = academicYearFromGroupId(groupId)
+  const year = derivedYear != null && years.includes(derivedYear)
+    ? derivedYear
+    : currentAcademicYear()
 
   const [groupsResult, unitsResult, initialData] = await Promise.all([
     readTeacherGroupsForSowAction(targetTeacherId),
