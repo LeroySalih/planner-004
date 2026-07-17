@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import type { HalfTerm, SowHalfTermUnit } from '@/types'
 
 const HALF_TERM_NAMES = ['H1', 'H2', 'H3', 'H4', 'H5', 'H6'] as const
@@ -68,12 +69,13 @@ export function SowHalfTermTable({ halfTerms, htUnits }: Props) {
                         </span>
                       ) : (
                         cellUnits.map((cu) => (
-                          <span
+                          <Link
                             key={cu.unit_id}
-                            className="inline-flex items-center gap-1 rounded-full bg-[var(--color-background-secondary)] border border-[var(--color-border)] px-2 py-0.5 text-xs"
+                            href={`/units/${encodeURIComponent(cu.unit_id)}`}
+                            className="inline-flex items-center gap-1 rounded-full bg-[var(--color-background-secondary)] border border-[var(--color-border)] px-2 py-0.5 text-xs hover:border-[var(--color-text-primary)] hover:text-[var(--color-text-primary)]"
                           >
                             {cu.unit_name ?? cu.unit_id}
-                          </span>
+                          </Link>
                         ))
                       )}
                     </div>
