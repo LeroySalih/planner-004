@@ -993,8 +993,11 @@ useEffect(() => {
       const isPptx =
         name.endsWith(".pptx") ||
         file.type === "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-      if (!isPdf && !isPptx) {
-        toast.error("Please choose a PDF or PowerPoint (.pptx) file.")
+      const isDocx =
+        name.endsWith(".docx") ||
+        file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      if (!isPdf && !isPptx && !isDocx) {
+        toast.error("Please choose a PDF, PowerPoint (.pptx) or Word (.docx) file.")
         return
       }
       if (file.size > 10 * 1024 * 1024) {
@@ -1388,13 +1391,13 @@ ${scs[0] ? `SC: ${scs[0].title}` : ""}
             <div>
               <h3 className="text-sm font-semibold text-muted-foreground">Slides</h3>
               <p className="text-xs text-muted-foreground">
-                Import a PDF or PowerPoint (.pptx) deck as one image activity per page (max 10 pages, 10MB). Slides are added to the end of the lesson.
+                Import a PDF, PowerPoint (.pptx) or Word (.docx) file as one image activity per page (max 10 pages, 10MB). Pages are added to the end of the lesson.
               </p>
             </div>
             <input
               ref={pdfInputRef}
               type="file"
-              accept="application/pdf,.pdf,.pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+              accept="application/pdf,.pdf,.pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
               className="hidden"
               onChange={handleImportSlides}
             />

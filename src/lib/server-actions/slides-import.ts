@@ -13,6 +13,8 @@ const MAX_BYTES = 10 * 1024 * 1024
 const LESSON_FILES_BUCKET = "lessons"
 const PPTX_MIME =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+const DOCX_MIME =
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 export interface ImportSlidesResult {
   success: boolean
@@ -47,10 +49,12 @@ export async function importSlidesAction(
   const name = file.name.toLowerCase()
   const isPdf = file.type === "application/pdf" || name.endsWith(".pdf")
   const isPptx = file.type === PPTX_MIME || name.endsWith(".pptx")
-  if (!isPdf && !isPptx) {
+  const isDocx = file.type === DOCX_MIME || name.endsWith(".docx")
+  const needsConversion = isPptx || isDocx
+  if (!isPdf && !needsConversion) {
     return {
       success: false,
-      error: "Please upload a PDF or PowerPoint (.pptx) file.",
+      error: "Please upload a PDF, PowerPoint (.pptx) or Word (.docx) file.",
       created: 0,
     }
   }
@@ -60,9 +64,9 @@ export async function importSlidesAction(
 
   const uploaded = Buffer.from(await file.arrayBuffer())
 
-  // Normalise to a PDF: PPTX goes through Gotenberg; PDFs are used as-is.
+  // Normalise to a PDF: office documents go through Gotenberg; PDFs are used as-is.
   let pdfBuffer: Buffer
-  if (isPptx) {
+  if (needsConversion) {
     const { pdf, error } = await convertToPdfViaGotenberg(uploaded, file.name)
     if (error || !pdf) {
       return { success: false, error: error ?? "Could not convert the file.", created: 0 }
@@ -81,7 +85,7 @@ export async function importSlidesAction(
   }
 
   const storage = createLocalStorageClient(LESSON_FILES_BUCKET)
-  const baseTitle = file.name.replace(/\.(pdf|pptx)$/i, "").trim() || "Slide"
+  const baseTitle = file.name.replace(/\.(pdf|pptx|docx)$/i, "").trim() || "Slide"
 
   let created = 0
   for (let index = 0; index < pages.length; index += 1) {
