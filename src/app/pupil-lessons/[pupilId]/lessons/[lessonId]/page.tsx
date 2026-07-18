@@ -42,6 +42,7 @@ import { PupilMcqActivity } from "@/components/pupil/pupil-mcq-activity"
 import { PupilMatcherActivity } from "@/components/pupil/pupil-matcher-activity"
 import { PupilGroupItemsActivity } from "@/components/pupil/pupil-group-items-activity"
 import { PupilSequenceActivity } from "@/components/pupil/pupil-sequence-activity"
+import { ImageLightbox } from "@/components/pupil/image-lightbox"
 import { PupilDoFlashcardsActivity } from "@/components/pupil/pupil-do-flashcards-activity"
 import { PupilFeedbackActivity } from "@/components/pupil/pupil-feedback-activity"
 import { PupilShortTextActivity } from "@/components/pupil/pupil-short-text-activity"
@@ -1468,14 +1469,10 @@ export default async function PupilLessonFriendlyPage({
                                   />
                                 </div>
                                 <div className="flex justify-end">
-                                  <Link
-                                    href={resolvedImageUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-xs font-medium text-primary underline-offset-4 hover:underline"
-                                  >
-                                    Open full image
-                                  </Link>
+                                  <ImageLightbox
+                                    src={resolvedImageUrl}
+                                    alt={activity.title || "Lesson activity image"}
+                                  />
                                 </div>
                               </figure>
                             ) : (
