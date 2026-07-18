@@ -19,6 +19,7 @@ import {
   deleteActivityFileAction,
   deleteLessonActivityAction,
   getActivityFileDownloadUrlAction,
+  importPdfSlidesAction,
   listActivityFilesAction,
   readLessonAssignmentsAction,
   readGroupsAction,
@@ -172,6 +173,8 @@ export function LessonActivitiesManager({
   const pendingReorderRef = useRef<{ next: LessonActivity[]; previous: LessonActivity[] } | null>(null)
   const activityListItemRefs = useRef<Map<string, HTMLLIElement>>(new Map())
   const [isUploading, setIsUploading] = useState(false)
+  const [isImportingPdf, setIsImportingPdf] = useState(false)
+  const pdfInputRef = useRef<HTMLInputElement | null>(null)
   const [mdPasteDialogOpen, setMdPasteDialogOpen] = useState(false)
   const [mdPasteContent, setMdPasteContent] = useState("")
   const [voicePreviewState, setVoicePreviewState] = useState<
@@ -979,6 +982,46 @@ useEffect(() => {
     [lessonId, router, startTransition, unitId],
   )
 
+  const handleImportPdf = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0]
+      event.target.value = "" // allow re-selecting the same file
+      if (!file) return
+
+      if (!file.name.toLowerCase().endsWith(".pdf") && file.type !== "application/pdf") {
+        toast.error("Please choose a PDF file.")
+        return
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        toast.error("The PDF exceeds the 10MB limit.")
+        return
+      }
+
+      setIsImportingPdf(true)
+      try {
+        const formData = new FormData()
+        formData.append("unitId", unitId)
+        formData.append("lessonId", lessonId)
+        formData.append("file", file)
+        const result = await importPdfSlidesAction(formData)
+
+        if (result.created > 0) {
+          toast.success(`Imported ${result.created} slide${result.created === 1 ? "" : "s"}`)
+          router.refresh()
+        }
+        if (!result.success || result.error) {
+          toast.error(result.error ?? "Unable to import the PDF.")
+        }
+      } catch (error) {
+        console.error("[lesson-activities] PDF import failed", error)
+        toast.error("Unable to import the PDF.")
+      } finally {
+        setIsImportingPdf(false)
+      }
+    },
+    [unitId, lessonId, router],
+  )
+
   const handleDownloadTemplate = useCallback(() => {
     // Build unique LOs and SCs from availableSuccessCriteria
     const loMap = new Map<string, string>()
@@ -1332,6 +1375,37 @@ ${scs[0] ? `SC: ${scs[0].title}` : ""}
                 <Plus className="mr-2 h-4 w-4" /> Add Activity
               </Button>
             </div>
+          </div>
+        </section>
+
+        <section className="space-y-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-muted-foreground">Slides</h3>
+              <p className="text-xs text-muted-foreground">
+                Import a PDF deck as one image activity per page (max 10 pages, 10MB). Slides are added to the end of the lesson.
+              </p>
+            </div>
+            <input
+              ref={pdfInputRef}
+              type="file"
+              accept="application/pdf,.pdf"
+              className="hidden"
+              onChange={handleImportPdf}
+            />
+            <Button
+              onClick={() => pdfInputRef.current?.click()}
+              variant="outline"
+              disabled={isBusy || isImportingPdf}
+              className="w-full sm:w-auto"
+            >
+              {isImportingPdf ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
+              Upload Slides PDF
+            </Button>
           </div>
         </section>
 
