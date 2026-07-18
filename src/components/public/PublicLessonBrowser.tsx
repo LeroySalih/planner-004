@@ -82,12 +82,12 @@ export function PublicLessonBrowser({ lessons, returnTo }: PublicLessonBrowserPr
   const handleBack = () => setSelectedLesson(null)
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      {/* Left panel */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden border-r border-border">
+    <div className="flex min-h-screen flex-col-reverse md:h-screen md:flex-row md:overflow-hidden">
+      {/* Left panel — below the sign-in panel on mobile (flex-col-reverse), left column on desktop */}
+      <div className="flex min-w-0 flex-1 flex-col md:overflow-hidden md:border-r md:border-border">
         {selectedLesson ? (
           /* State 2: inline lesson view */
-          <div className="flex flex-1 flex-col overflow-hidden">
+          <div className="flex flex-1 flex-col md:overflow-hidden">
             <div className="flex-shrink-0 border-b border-border px-6 py-4">
               <button
                 type="button"
@@ -97,7 +97,7 @@ export function PublicLessonBrowser({ lessons, returnTo }: PublicLessonBrowserPr
                 ← Back to lessons
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto px-6 py-6">
+            <div className="px-6 py-6 md:flex-1 md:overflow-y-auto">
               <p className="mb-1 text-xs text-muted-foreground">
                 {selectedLesson.curriculumTitle} › {selectedLesson.unitTitle}
               </p>
@@ -112,10 +112,10 @@ export function PublicLessonBrowser({ lessons, returnTo }: PublicLessonBrowserPr
           </div>
         ) : (
           /* State 1: single scrollable panel — hero + filter chips + unit cards */
-          <div className="flex flex-1 flex-col overflow-y-auto">
+          <div className="flex flex-col md:flex-1 md:overflow-y-auto">
 
-            {/* Hero section — scrolls with the page */}
-            <div className="relative flex h-[50vh] flex-shrink-0 items-center overflow-hidden border-b border-border bg-amber-50 dark:bg-amber-950/20">
+            {/* Hero section — hidden on mobile so sign-in + units lead */}
+            <div className="relative hidden h-[50vh] flex-shrink-0 items-center overflow-hidden border-b border-border bg-amber-50 dark:bg-amber-950/20 md:flex">
               {/* Text content */}
               <div className="relative z-10 flex h-full w-full flex-col justify-center px-10 sm:w-1/2">
                 <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-amber-600 dark:text-amber-400">
@@ -186,7 +186,7 @@ export function PublicLessonBrowser({ lessons, returnTo }: PublicLessonBrowserPr
                   No public lessons available yet.
                 </p>
               ) : (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                   {filteredUnits.map((unit) => (
                     <PublicUnitCard
                       key={unit.unitId}
@@ -204,8 +204,8 @@ export function PublicLessonBrowser({ lessons, returnTo }: PublicLessonBrowserPr
         )}
       </div>
 
-      {/* Right panel — fixed width, never scrolls */}
-      <div className="flex w-80 flex-shrink-0 flex-col justify-center gap-6 p-8">
+      {/* Right panel — sign-in; on top on mobile (flex-col-reverse), fixed-width right column on desktop */}
+      <div className="flex w-full flex-shrink-0 flex-col justify-center gap-6 border-b border-border p-8 md:w-80 md:border-b-0">
         {selectedLesson ? (
           /* State 2 right: sign-in prompt */
           <div className="flex flex-col gap-4 text-center">
