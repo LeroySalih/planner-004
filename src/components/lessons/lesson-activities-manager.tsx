@@ -4,7 +4,7 @@ import type { ChangeEvent, DragEvent } from "react"
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { ChevronDown, ChevronUp, Download, GripVertical, Loader2, Pencil, Play, Plus, Trash2 } from "lucide-react"
+import { ChevronDown, ChevronUp, ClipboardPaste, Download, GripVertical, Loader2, Pencil, Play, Plus, Trash2 } from "lucide-react"
 
 import type {
   FeedbackActivityBody,
@@ -2835,6 +2835,35 @@ function LessonActivityEditorSheet({
     })
   }
 
+  const handlePasteImageFromClipboard = async () => {
+    if (typeof navigator === "undefined" || !navigator.clipboard?.read) {
+      toast.error("Clipboard paste isn't supported here", {
+        description: "Use “Browse image”, or paste with Ctrl/Cmd+V.",
+      })
+      return
+    }
+    try {
+      const items = await navigator.clipboard.read()
+      for (const item of items) {
+        const imageType = item.types.find((t) => t.startsWith("image/"))
+        if (!imageType) continue
+        const blob = await item.getType(imageType)
+        const ext = imageType.split("/")[1]?.split("+")[0] || "png"
+        const file = new File([blob], `pasted-${Date.now()}.${ext}`, { type: imageType })
+        processImageFile(file)
+        return
+      }
+      toast.error("No image in the clipboard", {
+        description: "Copy an image (e.g. a screenshot), then try again.",
+      })
+    } catch (error) {
+      console.error("[lesson-activities] clipboard paste failed", error)
+      toast.error("Couldn’t read the clipboard", {
+        description: "Your browser may have blocked clipboard access. Use “Browse image” instead.",
+      })
+    }
+  }
+
   const handleImageInputChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null
     processImageFile(file)
@@ -4133,15 +4162,27 @@ function LessonActivityEditorSheet({
               >
                 <p className="text-sm font-medium">Drag and drop an image here</p>
                 <p className="text-xs text-muted-foreground">PNG, JPG, or GIF up to a few megabytes.</p>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => imageInputRef.current?.click()}
-                  disabled={isPending}
-                >
-                  Browse image
-                </Button>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => imageInputRef.current?.click()}
+                    disabled={isPending}
+                  >
+                    Browse image
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={handlePasteImageFromClipboard}
+                    disabled={isPending}
+                  >
+                    <ClipboardPaste className="mr-2 h-4 w-4" />
+                    Paste from Clipboard
+                  </Button>
+                </div>
                 <input
                   ref={imageInputRef}
                   type="file"
