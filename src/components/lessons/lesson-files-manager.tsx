@@ -30,21 +30,24 @@ interface LessonFilesManagerProps {
   initialFiles: LessonFileInfo[]
 }
 
-const dateFormatter = new Intl.DateTimeFormat("en-US", {
-  year: "numeric",
-  month: "short",
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: false,
-  timeZone: "UTC",
-})
+const MONTH_ABBREVIATIONS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+]
 
+// Formatted manually from UTC parts (not Intl.DateTimeFormat) so the server and
+// client render identical strings — combining date + time via ICU inserts
+// "at" on some runtimes and "," on others, which breaks hydration.
 const formatTimestamp = (value?: string | null) => {
   if (!value) return null
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null
-  return dateFormatter.format(date)
+  const day = String(date.getUTCDate()).padStart(2, "0")
+  const month = MONTH_ABBREVIATIONS[date.getUTCMonth()]
+  const year = date.getUTCFullYear()
+  const hours = String(date.getUTCHours()).padStart(2, "0")
+  const minutes = String(date.getUTCMinutes()).padStart(2, "0")
+  return `${month} ${day}, ${year}, ${hours}:${minutes}`
 }
 
 export function LessonFilesManager({ unitId, lessonId, initialFiles }: LessonFilesManagerProps) {

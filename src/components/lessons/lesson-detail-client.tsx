@@ -452,28 +452,60 @@ export function LessonDetailClient({
           </div>
         </header>
 
-        <div className="grid gap-6 lg:grid-cols-3">
-          <Card>
-            <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <CardTitle className="flex items-center gap-2 text-xl font-semibold">
-                <Target className="h-5 w-5 text-primary" />
-                Learning Objectives
-              </CardTitle>
-              <Button size="sm" variant="outline" onClick={() => setIsObjectivesSidebarOpen(true)}>
-                Edit Objectives
-              </Button>
-            </CardHeader>
-            <CardContent>
-              {groupedLearningObjectives.length > 0 ? (
-                <ul className="space-y-4">
-                  {groupedLearningObjectives.map((group) => (
-                    <li key={group.key} className="space-y-3 rounded-md border border-border p-4">
-                      <div className="font-medium">
-                        {group.objective?.title ?? "Unassigned success criteria"}
-                      </div>
-                      <ul className="space-y-2 list-disc pl-6 text-sm text-muted-foreground">
-                        {group.criteria.map((criterion) => (
-                          <li key={criterion.id}>
+        <Card>
+          <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle className="flex items-center gap-2 text-xl font-semibold">
+              <Target className="h-5 w-5 text-primary" />
+              Learning Objectives
+            </CardTitle>
+            <Button size="sm" variant="outline" onClick={() => setIsObjectivesSidebarOpen(true)}>
+              Edit Objectives
+            </Button>
+          </CardHeader>
+          <CardContent>
+            {groupedLearningObjectives.length > 0 ? (
+              <div className="overflow-hidden rounded-md border border-border">
+                <table className="w-full table-fixed border-collapse text-sm">
+                  <tbody>
+                    {groupedLearningObjectives.map((group, groupIndex) => {
+                      const criteria = group.criteria
+                      const loCell = (
+                        <td
+                          rowSpan={Math.max(criteria.length, 1)}
+                          className={cn(
+                            "w-1/3 border-r border-border px-4 py-3 align-top font-medium",
+                            groupIndex > 0 && "border-t border-border",
+                          )}
+                        >
+                          {group.objective?.title ?? "Unassigned success criteria"}
+                        </td>
+                      )
+
+                      if (criteria.length === 0) {
+                        return (
+                          <tr key={group.key}>
+                            {loCell}
+                            <td
+                              className={cn(
+                                "px-4 py-3 align-top text-muted-foreground",
+                                groupIndex > 0 && "border-t border-border",
+                              )}
+                            >
+                              No success criteria linked.
+                            </td>
+                          </tr>
+                        )
+                      }
+
+                      return criteria.map((criterion, critIndex) => (
+                        <tr key={criterion.id}>
+                          {critIndex === 0 ? loCell : null}
+                          <td
+                            className={cn(
+                              "px-4 py-3 align-top",
+                              (critIndex > 0 || groupIndex > 0) && "border-t border-border",
+                            )}
+                          >
                             {criterion.level ? (
                               <span className="font-semibold text-primary">
                                 Level {criterion.level}:
@@ -487,20 +519,41 @@ export function LessonDetailClient({
                                 Inactive
                               </Badge>
                             ) : null}
-                          </li>
-                        ))}
-                      </ul>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  No success criteria are linked to this lesson yet.
-                </p>
-              )}
-            </CardContent>
-          </Card>
+                          </td>
+                        </tr>
+                      ))
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No success criteria are linked to this lesson yet.
+              </p>
+            )}
+          </CardContent>
+        </Card>
 
+        <Card>
+          <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle className="flex items-center gap-2 text-xl font-semibold">
+              <List className="h-5 w-5 text-primary" />
+              Lesson Activities
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <LessonActivitiesManager
+              unitId={currentUnit?.unit_id ?? currentLesson.unit_id}
+              lessonId={currentLesson.lesson_id}
+              initialActivities={lessonActivitiesState}
+              availableSuccessCriteria={lessonSuccessCriteria}
+              availableMarkingGuidances={availableMarkingGuidances}
+              showExperimental={showExperimentalActivities}
+            />
+          </CardContent>
+        </Card>
+
+        <div className="grid gap-6 lg:grid-cols-2">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-xl font-semibold">
@@ -533,25 +586,6 @@ export function LessonDetailClient({
             </CardContent>
           </Card>
         </div>
-
-        <Card>
-          <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <CardTitle className="flex items-center gap-2 text-xl font-semibold">
-              <List className="h-5 w-5 text-primary" />
-              Lesson Activities
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <LessonActivitiesManager
-              unitId={currentUnit?.unit_id ?? currentLesson.unit_id}
-              lessonId={currentLesson.lesson_id}
-              initialActivities={lessonActivitiesState}
-              availableSuccessCriteria={lessonSuccessCriteria}
-              availableMarkingGuidances={availableMarkingGuidances}
-              showExperimental={showExperimentalActivities}
-            />
-          </CardContent>
-        </Card>
       </main>
 
       <Suspense fallback={null}>
