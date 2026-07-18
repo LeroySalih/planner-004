@@ -4,26 +4,30 @@ import { revalidatePath } from "next/cache"
 
 import { requireTeacherProfile } from "@/lib/auth"
 import { rasterizePdfToJpegs } from "@/lib/pdf/rasterize-pdf"
+import { convertToPdfViaGotenberg } from "@/lib/pdf/gotenberg"
 import { createLessonActivityAction } from "@/lib/server-actions/lesson-activities"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 
 const MAX_PAGES = 10
 const MAX_BYTES = 10 * 1024 * 1024
 const LESSON_FILES_BUCKET = "lessons"
+const PPTX_MIME =
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 
-export interface ImportPdfSlidesResult {
+export interface ImportSlidesResult {
   success: boolean
   error: string | null
   created: number
 }
 
 /**
- * Import a PDF slide deck: rasterize each page to a JPEG and append one
+ * Import a slide deck (.pdf or .pptx): obtain a PDF (PDFs pass through, PPTX is
+ * converted via Gotenberg), rasterize each page to a JPEG, and append one
  * `display-image` activity per page to the end of the lesson. Teacher-only.
  */
-export async function importPdfSlidesAction(
+export async function importSlidesAction(
   formData: FormData,
-): Promise<ImportPdfSlidesResult> {
+): Promise<ImportSlidesResult> {
   const profile = await requireTeacherProfile()
 
   const lessonId = formData.get("lessonId")
@@ -40,26 +44,44 @@ export async function importPdfSlidesAction(
     return { success: false, error: "No file provided.", created: 0 }
   }
 
-  const isPdf = file.type === "application/pdf" ||
-    file.name.toLowerCase().endsWith(".pdf")
-  if (!isPdf) {
-    return { success: false, error: "Please upload a PDF file.", created: 0 }
+  const name = file.name.toLowerCase()
+  const isPdf = file.type === "application/pdf" || name.endsWith(".pdf")
+  const isPptx = file.type === PPTX_MIME || name.endsWith(".pptx")
+  if (!isPdf && !isPptx) {
+    return {
+      success: false,
+      error: "Please upload a PDF or PowerPoint (.pptx) file.",
+      created: 0,
+    }
   }
   if (file.size > MAX_BYTES) {
-    return { success: false, error: "The PDF exceeds the 10MB limit.", created: 0 }
+    return { success: false, error: "The file exceeds the 10MB limit.", created: 0 }
   }
 
-  const buffer = Buffer.from(await file.arrayBuffer())
-  const { pages, error } = await rasterizePdfToJpegs(buffer, { maxPages: MAX_PAGES })
+  const uploaded = Buffer.from(await file.arrayBuffer())
+
+  // Normalise to a PDF: PPTX goes through Gotenberg; PDFs are used as-is.
+  let pdfBuffer: Buffer
+  if (isPptx) {
+    const { pdf, error } = await convertToPdfViaGotenberg(uploaded, file.name)
+    if (error || !pdf) {
+      return { success: false, error: error ?? "Could not convert the file.", created: 0 }
+    }
+    pdfBuffer = pdf
+  } else {
+    pdfBuffer = uploaded
+  }
+
+  const { pages, error } = await rasterizePdfToJpegs(pdfBuffer, { maxPages: MAX_PAGES })
   if (error) {
     return { success: false, error, created: 0 }
   }
   if (pages.length === 0) {
-    return { success: false, error: "No pages found in the PDF.", created: 0 }
+    return { success: false, error: "No pages found in the file.", created: 0 }
   }
 
   const storage = createLocalStorageClient(LESSON_FILES_BUCKET)
-  const baseTitle = file.name.replace(/\.pdf$/i, "").trim() || "Slide"
+  const baseTitle = file.name.replace(/\.(pdf|pptx)$/i, "").trim() || "Slide"
 
   let created = 0
   for (let index = 0; index < pages.length; index += 1) {

@@ -4,7 +4,10 @@ const nextConfig: NextConfig = {
   output: "standalone",
   experimental: {
     serverActions: {
-      bodySizeLimit: "5mb",
+      // Must exceed the 10MB slide-import cap (with headroom for multipart
+      // encoding overhead) so uploads reach the action instead of being
+      // rejected with "An unexpected response was received from the server."
+      bodySizeLimit: "12mb",
     },
   },
   async headers() {

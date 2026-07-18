@@ -185,9 +185,9 @@ export {
 } from "./server-actions/lesson-activities";
 
 export {
-  importPdfSlidesAction,
-  type ImportPdfSlidesResult,
-} from "./server-actions/pdf-import";
+  importSlidesAction,
+  type ImportSlidesResult,
+} from "./server-actions/slides-import";
 
 export {
   linkLessonSuccessCriterionAction,

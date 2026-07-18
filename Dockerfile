@@ -32,7 +32,8 @@ ENV NODE_ENV production
 
 # libheif-examples: provides heif-convert for HEIC/HEIF → JPEG conversion
 # libde265-0: H.265/HEVC decoder required by libheif to read iPhone HEIC files
-RUN apt-get update && apt-get install -y --no-install-recommends libheif-examples libde265-0 && rm -rf /var/lib/apt/lists/*
+# poppler-utils: provides pdftoppm/pdfinfo for the slide-import (PDF → page images)
+RUN apt-get update && apt-get install -y --no-install-recommends libheif-examples libde265-0 poppler-utils && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system --gid 1001 nodejs
 RUN useradd --system --uid 1001 nextjs
