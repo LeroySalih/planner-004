@@ -42,7 +42,9 @@ const nextConfig: NextConfig = {
 
     return [
       {
-        source: "/(.*)",
+        // Exclude the sandboxed webpage-activity route so it can set its own
+        // (stricter, sandboxed) Content-Security-Policy on the response.
+        source: "/((?!api/activity-webpage/).*)",
         headers: securityHeaders,
       },
     ];

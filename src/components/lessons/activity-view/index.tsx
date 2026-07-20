@@ -20,6 +20,7 @@ import {
   getFeedbackBody,
   getImageBody,
   getFlashcardsText,
+  getDisplayWebpageBody,
   getGroupItemsBody,
   getSequenceBody,
   getLongTextBody,
@@ -455,6 +456,20 @@ function ActivityShortView({
         showImageBorder={showImageBorder}
         onImageClick={onImageClick}
       />
+    )
+  } else if (activity.type === "display-webpage") {
+    const webpage = getDisplayWebpageBody(activity)
+    content = webpage.htmlFile ? (
+      <a
+        href={`/api/activity-webpage/${encodeURIComponent(activity.activity_id)}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+      >
+        Open webpage ({webpage.htmlFile})
+      </a>
+    ) : (
+      <p className="text-sm text-muted-foreground">No HTML file uploaded yet.</p>
     )
   } else if (activity.type === "sketch-render") {
     content = <LessonActivityViewSketchRender activity={activity} />

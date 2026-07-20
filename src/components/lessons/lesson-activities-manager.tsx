@@ -45,6 +45,7 @@ import {
   computeSectionIndexMap,
   getFeedbackBody,
   getDisplaySectionBody,
+  getDisplayWebpageBody,
   getGroupItemsBody,
   getMatcherBody,
   getMcqBody,
@@ -101,6 +102,7 @@ const ACTIVITY_TYPES = [
   { value: "text", label: "Display Text", group: "display" },
   { value: "file-download", label: "Display File Download", group: "display" },
   { value: "display-image", label: "Display Image", group: "display" },
+  { value: "display-webpage", label: "Display Webpage", group: "display" },
   { value: "display-section", label: "Display Section", group: "display" },
   { value: "show-video", label: "Display Video", group: "display" },
   // Interactive (pupil provides input)
@@ -565,8 +567,10 @@ useEffect(() => {
   }) => {
     startTransition(async () => {
       if (mode === "create") {
-        if (type === "display-image" && imageSubmission) {
-          const createBody = imageSubmission.pendingFile ? { imageFile: null, imageUrl: null, fileUrl: null } : bodyData
+        if ((type === "display-image" || type === "display-webpage") && imageSubmission) {
+          const createBody = imageSubmission.pendingFile
+            ? (type === "display-webpage" ? { htmlFile: null } : { imageFile: null, imageUrl: null, fileUrl: null })
+            : bodyData
 
         const createResult = await createLessonActivityAction(unitId, lessonId, {
           title,
@@ -609,7 +613,7 @@ useEffect(() => {
             }
 
             const finalizeResult = await updateLessonActivityAction(unitId, lessonId, createdActivity.activity_id, {
-              bodyData: imageSubmission.finalBody ?? { imageFile: imageSubmission.pendingFile.name },
+              bodyData: imageSubmission.finalBody ?? (type === "display-webpage" ? { htmlFile: imageSubmission.pendingFile.name } : { imageFile: imageSubmission.pendingFile.name }),
             })
 
             if (!finalizeResult.success || !finalizeResult.data) {
@@ -698,7 +702,7 @@ useEffect(() => {
         return
       }
 
-      if (type === "display-image" && imageSubmission) {
+      if ((type === "display-image" || type === "display-webpage") && imageSubmission) {
         const pendingFile = imageSubmission.pendingFile
         const previousFileName = imageSubmission.previousFileName
 
@@ -760,11 +764,13 @@ useEffect(() => {
             toast.error("Unable to remove the existing image", {
               description: deleteResult.error ?? "Please try again later.",
             })
-            // Attempt to restore the previous body so the image remains referenced
+            // Attempt to restore the previous body so the file remains referenced
             await updateLessonActivityAction(unitId, lessonId, activityId, {
               title,
               type,
-              bodyData: { imageFile: previousFileName, fileUrl: previousFileName },
+              bodyData: type === "display-webpage"
+                ? { htmlFile: previousFileName }
+                : { imageFile: previousFileName, fileUrl: previousFileName },
             })
             return
           }
@@ -1964,7 +1970,7 @@ interface ImageSubmissionPayload {
   pendingFile: File | null
   shouldDeleteExisting: boolean
   previousFileName: string | null
-  finalBody: ImageBody | null
+  finalBody: Record<string, unknown> | null
 }
 
 interface LessonActivityEditorSheetProps {
@@ -2033,6 +2039,7 @@ function LessonActivityEditorSheet({
   const [isFileDragActive, setIsFileDragActive] = useState(false)
   const [imageBody, setImageBody] = useState<ImageBody | null>(null)
   const [pendingImageFile, setPendingImageFile] = useState<File | null>(null)
+  const [pendingHtmlFile, setPendingHtmlFile] = useState<File | null>(null)
   const [shouldDeleteExistingImage, setShouldDeleteExistingImage] = useState(false)
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null)
   const [isImageLoading, setIsImageLoading] = useState(false)
@@ -2489,6 +2496,7 @@ function LessonActivityEditorSheet({
   const startTimeRef = useRef<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const imageInputRef = useRef<HTMLInputElement | null>(null)
+  const htmlInputRef = useRef<HTMLInputElement | null>(null)
   const pendingImageObjectUrlRef = useRef<string | null>(null)
   const originalImageBodyRef = useRef<ImageBody | null>(null)
 
@@ -2502,6 +2510,7 @@ function LessonActivityEditorSheet({
     setImageBody(defaultBody)
     originalImageBodyRef.current = defaultBody
     setPendingImageFile(null)
+    setPendingHtmlFile(null)
     setShouldDeleteExistingImage(false)
     setImagePreviewUrl(null)
     setIsImageLoading(false)
@@ -2564,6 +2573,7 @@ function LessonActivityEditorSheet({
       originalImageBodyRef.current = nextBody
       setShouldDeleteExistingImage(false)
       setPendingImageFile(null)
+      setPendingHtmlFile(null)
       setIsImageDragActive(false)
 
       const rawBody = nextBody as Record<string, unknown>
@@ -2871,6 +2881,23 @@ function LessonActivityEditorSheet({
     event.target.value = ""
   }
 
+  const handleHtmlInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null
+    event.target.value = ""
+    if (!file) return
+    const name = file.name.toLowerCase()
+    const okType = name.endsWith(".html") || name.endsWith(".htm") || file.type === "text/html"
+    if (!okType) {
+      toast.error("Please choose an HTML file (.html).")
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("The HTML file exceeds the 5MB limit.")
+      return
+    }
+    setPendingHtmlFile(file)
+  }
+
   const handleImageDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault()
     setIsImageDragActive(false)
@@ -2894,6 +2921,7 @@ function LessonActivityEditorSheet({
         pendingImageObjectUrlRef.current = null
       }
       setPendingImageFile(null)
+      setPendingHtmlFile(null)
       setShouldDeleteExistingImage(false)
       if (isCreateMode) {
         resetImageState()
@@ -2919,6 +2947,7 @@ function LessonActivityEditorSheet({
       fileUrl: null,
     }))
     setPendingImageFile(null)
+    setPendingHtmlFile(null)
     if (!isCreateMode) {
       const original = originalImageBodyRef.current
       const hadOriginal = Boolean(
@@ -3798,6 +3827,25 @@ function LessonActivityEditorSheet({
             : null,
         finalBody: sanitizedBody,
       }
+    } else if (type === "display-webpage") {
+      const previousBody = activity ? getDisplayWebpageBody(activity) : { htmlFile: null }
+      const nextFileName = pendingHtmlFile
+        ? pendingHtmlFile.name
+        : previousBody.htmlFile
+      const sanitizedBody = nextFileName ? { htmlFile: nextFileName } : null
+
+      if (!nextFileName) {
+        toast.error("Upload an HTML file for this webpage activity.")
+        return
+      }
+
+      bodyData = sanitizedBody
+      imageSubmission = {
+        pendingFile: pendingHtmlFile ?? null,
+        shouldDeleteExisting: false,
+        previousFileName: previousBody.htmlFile,
+        finalBody: sanitizedBody,
+      }
     } else if (type === "multiple-choice-question") {
       const { bodyData: preparedMcqBody, error } = prepareMcqBodyForSave(mcqBody)
       if (error) {
@@ -4246,6 +4294,55 @@ function LessonActivityEditorSheet({
                   </Button>
                 </div>
               )}
+            </div>
+          ) : null}
+
+          {type === "display-webpage" ? (
+            <div className="space-y-3 rounded-md border border-border p-4">
+              <div className="flex h-28 flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed border-muted-foreground/40 p-4 text-center">
+                <p className="text-sm font-medium">Upload a self-contained HTML file</p>
+                <p className="text-xs text-muted-foreground">
+                  A single .html up to 5MB. It opens in a new tab, sandboxed — inline styles/scripts only, no external resources.
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => htmlInputRef.current?.click()}
+                  disabled={isPending}
+                >
+                  Browse HTML
+                </Button>
+                <input
+                  ref={htmlInputRef}
+                  type="file"
+                  accept=".html,.htm,text/html"
+                  className="hidden"
+                  onChange={handleHtmlInputChange}
+                />
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                {pendingHtmlFile
+                  ? `Selected file: ${pendingHtmlFile.name} (${formatFileSize(pendingHtmlFile.size)}) — replaces the current file on save.`
+                  : (() => {
+                      const current = activity ? getDisplayWebpageBody(activity).htmlFile : null
+                      return current ? `Current file: ${current}` : "No HTML file selected."
+                    })()}
+              </p>
+
+              {pendingHtmlFile ? (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setPendingHtmlFile(null)}
+                    disabled={isPending}
+                  >
+                    Discard file
+                  </Button>
+                </div>
+              ) : null}
             </div>
           ) : null}
 

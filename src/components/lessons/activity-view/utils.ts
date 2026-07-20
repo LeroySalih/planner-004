@@ -368,6 +368,22 @@ export function getGroupItemsBody(activity: LessonActivity): GroupItemsBody {
   return items.length > 0 ? { groups, items } : createDefaultGroupItemsBody();
 }
 
+export interface DisplayWebpageBody {
+  htmlFile: string | null;
+}
+
+export function getDisplayWebpageBody(activity: LessonActivity): DisplayWebpageBody {
+  if (!activity.body_data || typeof activity.body_data !== "object") {
+    return { htmlFile: null };
+  }
+  const record = activity.body_data as Record<string, unknown>;
+  const htmlFile =
+    typeof record.htmlFile === "string" && record.htmlFile.trim() !== ""
+      ? record.htmlFile.trim()
+      : null;
+  return { htmlFile };
+}
+
 export interface SequenceTermBody {
   id: string;
   text: string;

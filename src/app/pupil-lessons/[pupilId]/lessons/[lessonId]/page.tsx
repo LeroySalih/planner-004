@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   Download,
   FileIcon,
+  Globe,
   HelpCircle,
   Link as LinkIcon,
   Lock,
@@ -257,6 +258,7 @@ function getActivityQuestion(activity: { body_data: unknown; title: string }): s
 /** Type pill label/glyph for display-only activities (no marking chrome). */
 const DISPLAY_META: Record<string, { typeLabel: string; typeGlyph?: string }> = {
   "display-image": { typeLabel: "Image", typeGlyph: "🖼" },
+  "display-webpage": { typeLabel: "Webpage", typeGlyph: "🌐" },
   "show-video": { typeLabel: "Video", typeGlyph: "▶" },
   "file-download": { typeLabel: "Download", typeGlyph: "⭳" },
   "display-flashcards": { typeLabel: "Flashcards", typeGlyph: "🂠" },
@@ -1326,7 +1328,28 @@ export default async function PupilLessonFriendlyPage({
 
                   const displayMeta = DISPLAY_META[activity.type ?? ""] ?? { typeLabel: "Activity" }
                   return shell(
-                    activity.type === "file-download" && (activityFiles.length > 0 || linkUrl) ? (
+                    activity.type === "display-webpage" ? (
+                      <div className="rounded-md bg-card p-4 border border-border/60">
+                        <div className="flex items-start gap-3">
+                          <div className="mt-0.5 rounded-full bg-primary/10 p-2 text-primary">
+                            <Globe className="h-5 w-5" />
+                          </div>
+                          <div className="space-y-1">
+                            <h3 className="font-medium leading-none text-foreground">{activity.title}</h3>
+                            <p className="text-sm text-muted-foreground">Open this page in a new tab.</p>
+                            <Button asChild size="sm" variant="outline" className="mt-2 gap-2">
+                              <a
+                                href={`/api/activity-webpage/${encodeURIComponent(activity.activity_id)}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <Globe className="h-4 w-4" /> Open webpage
+                              </a>
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : activity.type === "file-download" && (activityFiles.length > 0 || linkUrl) ? (
                          <div className="rounded-md bg-card p-4 border border-border/60">
                             <div className="flex items-start gap-3">
                               <div className="mt-0.5 rounded-full bg-primary/10 p-2 text-primary">
