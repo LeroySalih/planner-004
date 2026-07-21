@@ -420,7 +420,9 @@ export function PupilUploadWorksheetActivity({
   }, [])
 
   const hasImages = imageUrls.length > 0
-  const hasSubmission = markStatus !== null
+  // While the pupil is staging a new batch, hide the previous submission's
+  // images/status so the new upload clearly replaces the old one.
+  const hasSubmission = markStatus !== null && !(stagedSubmit && stagedFiles.length > 0)
 
   return (
     <div className="space-y-3">
