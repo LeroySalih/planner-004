@@ -240,17 +240,20 @@ export async function POST(request: Request) {
         })
       } catch (err) {
         console.error(`${tag} Worksheet marking invoke failed — setting marking-error`, err)
+        // Debug: surface the real error (includes the webhook URL + status) so
+        // the failing call can be diagnosed from the UI.
+        const debugMessage = err instanceof Error ? err.message : "Could not send your work for marking."
         try {
           await client.query(
             `update submissions set mark_status = 'marking-error', mark_error = $1 where submission_id = $2`,
-            ["Could not send your work for marking. Please try again.", submissionId],
+            [debugMessage, submissionId],
           )
           void emitSubmissionEvent("submission.updated", {
             submissionId,
             activityId,
             pupilId: userId,
             markStatus: "marking-error",
-            markError: "Could not send your work for marking. Please try again.",
+            markError: debugMessage,
           })
         } catch (updateErr) {
           console.error(`${tag} Failed to set marking-error`, updateErr)

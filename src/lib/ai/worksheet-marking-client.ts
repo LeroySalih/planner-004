@@ -45,6 +45,8 @@ export async function invokeWorksheetMarking(params: WorksheetMarkingParams): Pr
 
   if (!response.ok) {
     const errorText = await response.text()
-    throw new Error(`n8n worksheet-marking webhook failed (${response.status}): ${errorText}`)
+    throw new Error(
+      `n8n worksheet-marking webhook failed (${response.status}) at ${url}: ${errorText.slice(0, 300)}`,
+    )
   }
 }
