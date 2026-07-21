@@ -190,6 +190,11 @@ export {
 } from "./server-actions/slides-import";
 
 export {
+  uploadWorksheetTeacherFileAction,
+  type UploadWorksheetTeacherFileResult,
+} from "./server-actions/worksheet-assets";
+
+export {
   linkLessonSuccessCriterionAction,
   listLessonsSuccessCriteriaAction,
   listLessonSuccessCriteriaAction,

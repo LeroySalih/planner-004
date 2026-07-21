@@ -26,6 +26,7 @@ import {
   reorderLessonActivitiesAction,
   updateLessonActivityAction,
   uploadActivitiesFromMarkdownAction,
+  uploadWorksheetTeacherFileAction,
 } from "@/lib/server-updates"
 import { parseActivitiesMarkdown } from "@/lib/parse-activities-markdown"
 import { Badge } from "@/components/ui/badge"
@@ -556,20 +557,15 @@ useEffect(() => {
   ): Promise<MarkWorksheetImage[]> => {
     const out: MarkWorksheetImage[] = []
     for (const file of files) {
-      const safeName = `${prefix}-${Date.now()}-${file.name}`.replace(/\s+/g, "_")
-      const renamed = new File([file], safeName, { type: file.type })
       const fd = new FormData()
-      fd.append("unitId", unitId)
       fd.append("lessonId", lessonId)
       fd.append("activityId", targetActivityId)
-      fd.append("file", renamed)
-      const res = await fetch("/api/activity-files/upload", { method: "POST", body: fd })
-      const json = await res.json().catch(() => ({ success: false, error: "Upload failed" }))
-      if (!json.success) throw new Error(json.error ?? "Failed to upload image")
-      out.push({
-        filePath: `lessons/${lessonId}/activities/${targetActivityId}/${safeName}`,
-        fileName: safeName,
-      })
+      fd.append("prefix", prefix)
+      fd.append("file", file)
+      // PDFs are rasterized to images server-side; images are stored as-is.
+      const result = await uploadWorksheetTeacherFileAction(fd)
+      if (result.error) throw new Error(result.error)
+      out.push(...result.images)
     }
     return out
   }
@@ -5001,15 +4997,15 @@ function LessonActivityEditorSheet({
           {type === "mark-worksheet" ? (
             <div className="space-y-4 rounded-md border border-border bg-muted/20 p-4">
               {([
-                { key: "worksheet" as const, label: "Worksheet images (shown context for the AI)", images: markWorksheetBody.worksheetImages, pending: pendingWorksheetFiles, ref: worksheetInputRef, setPending: setPendingWorksheetFiles },
-                { key: "answer" as const, label: "Answer-sheet images (required)", images: markWorksheetBody.answerImages, pending: pendingAnswerFiles, ref: answerInputRef, setPending: setPendingAnswerFiles },
+                { key: "worksheet" as const, label: "Worksheet files (images or PDF)", images: markWorksheetBody.worksheetImages, pending: pendingWorksheetFiles, ref: worksheetInputRef, setPending: setPendingWorksheetFiles },
+                { key: "answer" as const, label: "Answer-sheet files (images or PDF, required)", images: markWorksheetBody.answerImages, pending: pendingAnswerFiles, ref: answerInputRef, setPending: setPendingAnswerFiles },
               ]).map((section) => (
                 <div key={section.key} className="space-y-2">
                   <Label className="text-xs font-medium text-muted-foreground">{section.label}</Label>
                   <input
                     ref={section.ref}
                     type="file"
-                    accept="image/*"
+                    accept="image/*,application/pdf,.pdf"
                     multiple
                     className="hidden"
                     onChange={(event) => {
@@ -5019,7 +5015,7 @@ function LessonActivityEditorSheet({
                     }}
                   />
                   <Button type="button" size="sm" variant="outline" onClick={() => section.ref.current?.click()} disabled={isPending}>
-                    <Plus className="mr-2 h-4 w-4" /> Add images
+                    <Plus className="mr-2 h-4 w-4" /> Upload files
                   </Button>
                   {(section.images.length > 0 || section.pending.length > 0) ? (
                     <ul className="space-y-1 text-xs text-muted-foreground">
