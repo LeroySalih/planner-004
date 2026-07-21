@@ -501,21 +501,23 @@ export function PupilUploadWorksheetActivity({
             <div className="space-y-2">
               <div className="flex flex-wrap gap-2">
                 {stagedFiles.map((entry, index) => (
-                  <div key={entry.url} className="relative h-20 w-20 shrink-0 rounded-[14px]">
-                    <img
-                      src={entry.url}
-                      alt={entry.file.name}
-                      className="h-full w-full rounded-[14px] border-[1.5px] border-pa-field-border bg-pa-field object-cover"
-                    />
+                  <div key={entry.url} className="relative inline-block shrink-0">
+                    <div className="h-16 w-16 overflow-hidden rounded-[14px] border-[1.5px] border-pa-field-border bg-pa-field">
+                      <img
+                        src={entry.url}
+                        alt={entry.file.name}
+                        className="h-16 w-16 object-cover"
+                      />
+                    </div>
                     <button
                       type="button"
                       onClick={() => removeStagedFile(index)}
                       disabled={isPending}
-                      className="absolute -right-2 -top-2 grid h-7 w-7 place-items-center rounded-full bg-red-600 text-white shadow-md ring-2 ring-white transition hover:bg-red-700 disabled:opacity-50"
+                      className="absolute -right-2 -top-2 grid h-6 w-6 place-items-center rounded-full bg-red-600 text-white shadow-md ring-2 ring-white transition hover:bg-red-700 disabled:opacity-50"
                       aria-label={`Remove ${entry.file.name}`}
                       title="Remove this photo"
                     >
-                      <X className="h-4 w-4" />
+                      <X className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 ))}
