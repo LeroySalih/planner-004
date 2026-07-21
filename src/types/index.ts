@@ -683,6 +683,22 @@ export type UploadWorksheetSubmissionBody = z.infer<
     typeof UploadWorksheetSubmissionBodySchema
 >;
 
+// Mark Worksheet — teacher uploads worksheet + answer-sheet images and marking
+// guidance; pupil images are AI-marked directly (no OCR). The pupil submission
+// reuses UploadWorksheetSubmissionBodySchema (images[] + marking fields).
+export const MarkWorksheetActivityBodySchema = z
+    .object({
+        worksheetImages: z.array(WorksheetImageSchema).default([]),
+        answerImages: z.array(WorksheetImageSchema).default([]),
+        markingGuidance: z.string().optional().default(""),
+        markingGuidanceId: z.string().optional(),
+    })
+    .passthrough();
+
+export type MarkWorksheetActivityBody = z.infer<
+    typeof MarkWorksheetActivityBodySchema
+>;
+
 export const LongTextActivityBodySchema = z
     .object({
         question: z.string().min(1),

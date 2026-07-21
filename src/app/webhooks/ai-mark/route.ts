@@ -27,14 +27,17 @@ export const dynamic = "force-dynamic";
 const SHORT_TEXT_ACTIVITY_TYPE = "short-text-question";
 const UPLOAD_SPREADSHEET_ACTIVITY_TYPE = "upload-spreadsheet";
 const UPLOAD_WORKSHEET_ACTIVITY_TYPE = "upload-worksheet";
+const MARK_WORKSHEET_ACTIVITY_TYPE = "mark-worksheet";
 const AI_MARKABLE_ACTIVITY_TYPES = new Set([
   SHORT_TEXT_ACTIVITY_TYPE,
   UPLOAD_SPREADSHEET_ACTIVITY_TYPE,
   UPLOAD_WORKSHEET_ACTIVITY_TYPE,
+  MARK_WORKSHEET_ACTIVITY_TYPE,
 ]);
 const FILE_SUBMISSION_ACTIVITY_TYPES = new Set([
   UPLOAD_SPREADSHEET_ACTIVITY_TYPE,
   UPLOAD_WORKSHEET_ACTIVITY_TYPE,
+  MARK_WORKSHEET_ACTIVITY_TYPE,
 ]);
 const SHORT_TEXT_CORRECTNESS_THRESHOLD = 0.8;
 
@@ -530,11 +533,12 @@ async function applyAiMarkToSubmission({
   { updated: boolean; payload: AssignmentResultsRealtimePayload | null }
 > {
   const isFileSubmission = FILE_SUBMISSION_ACTIVITY_TYPES.has(activityType ?? "");
-  const submissionSchema = activityType === UPLOAD_WORKSHEET_ACTIVITY_TYPE
-    ? UploadWorksheetSubmissionBodySchema
-    : activityType === UPLOAD_SPREADSHEET_ACTIVITY_TYPE
-      ? UploadSpreadsheetSubmissionBodySchema
-      : ShortTextSubmissionBodySchema;
+  const submissionSchema =
+    activityType === UPLOAD_WORKSHEET_ACTIVITY_TYPE || activityType === MARK_WORKSHEET_ACTIVITY_TYPE
+      ? UploadWorksheetSubmissionBodySchema
+      : activityType === UPLOAD_SPREADSHEET_ACTIVITY_TYPE
+        ? UploadSpreadsheetSubmissionBodySchema
+        : ShortTextSubmissionBodySchema;
 
   const parsedBody = submissionSchema.safeParse(
     submission.body ?? {},

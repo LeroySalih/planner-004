@@ -30,6 +30,8 @@ interface PupilUploadWorksheetActivityProps {
   feedbackInitiallyVisible?: boolean
   scoreLabel?: string
   feedbackText?: string | null
+  /** Submission endpoint — defaults to the exam (OCR) flow; mark-worksheet passes its own. */
+  uploadEndpoint?: string
 }
 
 function buildFileUrl(filePath: string): string {
@@ -76,6 +78,7 @@ export function PupilUploadWorksheetActivity({
   feedbackInitiallyVisible = false,
   scoreLabel = "In progress",
   feedbackText,
+  uploadEndpoint = "/api/pupil-submission/upload-worksheet",
 }: PupilUploadWorksheetActivityProps) {
   const [isPending, startTransition] = useTransition()
   const [isDragActive, setIsDragActive] = useState(false)
@@ -254,7 +257,7 @@ export function PupilUploadWorksheetActivity({
 
           let result: { success: boolean; error?: string; imagePaths?: string[] }
           try {
-            const response = await fetch("/api/pupil-submission/upload-worksheet", {
+            const response = await fetch(uploadEndpoint, {
               method: "POST",
               body: formData,
             })

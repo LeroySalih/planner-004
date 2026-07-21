@@ -47,9 +47,13 @@ import {
   getDisplaySectionBody,
   getDisplayWebpageBody,
   getGroupItemsBody,
+  getMarkWorksheetBody,
   getMatcherBody,
   getMcqBody,
   getSequenceBody,
+  createDefaultMarkWorksheetBody,
+  type MarkWorksheetBody,
+  type MarkWorksheetImage,
   getShortTextBody,
   getVoiceBody,
   getYouTubeThumbnailUrl,
@@ -109,7 +113,8 @@ const ACTIVITY_TYPES = [
   { value: "upload-file", label: "Upload File", group: "interactive" },
   { value: "upload-url", label: "Upload URL", group: "interactive" },
   { value: "upload-spreadsheet", label: "Upload Spreadsheet", group: "interactive" },
-  { value: "upload-worksheet", label: "Upload Exam Question", group: "interactive" },
+  { value: "upload-worksheet", label: "Upload Exam", group: "interactive" },
+  { value: "mark-worksheet", label: "Upload Worksheet", group: "interactive" },
   { value: "multiple-choice-question", label: "Multiple Choice Question", group: "interactive" },
   { value: "matcher", label: "Matcher", group: "interactive" },
   { value: "group-items", label: "Group Items", group: "interactive" },
@@ -544,6 +549,31 @@ useEffect(() => {
     [lessonId, unitId],
   )
 
+  const uploadTeacherImages = async (
+    targetActivityId: string,
+    files: File[],
+    prefix: string,
+  ): Promise<MarkWorksheetImage[]> => {
+    const out: MarkWorksheetImage[] = []
+    for (const file of files) {
+      const safeName = `${prefix}-${Date.now()}-${file.name}`.replace(/\s+/g, "_")
+      const renamed = new File([file], safeName, { type: file.type })
+      const fd = new FormData()
+      fd.append("unitId", unitId)
+      fd.append("lessonId", lessonId)
+      fd.append("activityId", targetActivityId)
+      fd.append("file", renamed)
+      const res = await fetch("/api/activity-files/upload", { method: "POST", body: fd })
+      const json = await res.json().catch(() => ({ success: false, error: "Upload failed" }))
+      if (!json.success) throw new Error(json.error ?? "Failed to upload image")
+      out.push({
+        filePath: `lessons/${lessonId}/activities/${targetActivityId}/${safeName}`,
+        fileName: safeName,
+      })
+    }
+    return out
+  }
+
   const handleEditorSubmit = ({
     mode,
     activityId,
@@ -551,6 +581,7 @@ useEffect(() => {
     type,
     bodyData,
     imageSubmission,
+    markWorksheetSubmission,
     successCriteriaIds,
     maxMarks,
     pendingUploadFiles = [],
@@ -561,12 +592,56 @@ useEffect(() => {
     type: ActivityTypeValue
     bodyData: unknown
     imageSubmission?: ImageSubmissionPayload
+    markWorksheetSubmission?: MarkWorksheetSubmissionPayload
     successCriteriaIds: string[]
     maxMarks: number
     pendingUploadFiles?: File[]
   }) => {
     startTransition(async () => {
       if (mode === "create") {
+        if (type === "mark-worksheet" && markWorksheetSubmission) {
+          const createResult = await createLessonActivityAction(unitId, lessonId, {
+            title,
+            type,
+            bodyData: {
+              worksheetImages: markWorksheetSubmission.existingWorksheet,
+              answerImages: markWorksheetSubmission.existingAnswer,
+              markingGuidance: markWorksheetSubmission.markingGuidance,
+              markingGuidanceId: markWorksheetSubmission.markingGuidanceId,
+            },
+            successCriteriaIds,
+            maxMarks,
+          })
+          if (!createResult.success || !createResult.data) {
+            toast.error("Unable to create activity", { description: createResult.error ?? "Please try again later." })
+            return
+          }
+          const created = createResult.data
+          try {
+            const newWorksheet = await uploadTeacherImages(created.activity_id, markWorksheetSubmission.pendingWorksheet, "worksheet")
+            const newAnswer = await uploadTeacherImages(created.activity_id, markWorksheetSubmission.pendingAnswer, "answer")
+            await updateLessonActivityAction(unitId, lessonId, created.activity_id, {
+              bodyData: {
+                worksheetImages: [...markWorksheetSubmission.existingWorksheet, ...newWorksheet],
+                answerImages: [...markWorksheetSubmission.existingAnswer, ...newAnswer],
+                markingGuidance: markWorksheetSubmission.markingGuidance,
+                markingGuidanceId: markWorksheetSubmission.markingGuidanceId,
+              },
+            })
+          } catch (err) {
+            toast.error("Failed to upload worksheet images", {
+              description: err instanceof Error ? err.message : "Please try again later.",
+            })
+            await deleteLessonActivityAction(unitId, lessonId, created.activity_id)
+            return
+          }
+          setActivities((prev) => sortActivities([...prev, created]))
+          toast.success("Activity created")
+          closeEditor()
+          router.refresh()
+          return
+        }
+
         if ((type === "display-image" || type === "display-webpage") && imageSubmission) {
           const createBody = imageSubmission.pendingFile
             ? (type === "display-webpage" ? { htmlFile: null } : { imageFile: null, imageUrl: null, fileUrl: null })
@@ -700,6 +775,41 @@ useEffect(() => {
           description: "Missing activity identifier.",
         })
         return
+      }
+
+      if (type === "mark-worksheet" && markWorksheetSubmission) {
+        try {
+          const newWorksheet = await uploadTeacherImages(activityId, markWorksheetSubmission.pendingWorksheet, "worksheet")
+          const newAnswer = await uploadTeacherImages(activityId, markWorksheetSubmission.pendingAnswer, "answer")
+          const updateResult = await updateLessonActivityAction(unitId, lessonId, activityId, {
+            title,
+            type,
+            bodyData: {
+              worksheetImages: [...markWorksheetSubmission.existingWorksheet, ...newWorksheet],
+              answerImages: [...markWorksheetSubmission.existingAnswer, ...newAnswer],
+              markingGuidance: markWorksheetSubmission.markingGuidance,
+              markingGuidanceId: markWorksheetSubmission.markingGuidanceId,
+            },
+            successCriteriaIds,
+            maxMarks,
+          })
+          if (!updateResult.success || !updateResult.data) {
+            toast.error("Unable to update activity", { description: updateResult.error ?? "Please try again later." })
+            return
+          }
+          setActivities((prev) =>
+            sortActivities(prev.map((item) => (item.activity_id === activityId ? updateResult.data! : item))),
+          )
+          toast.success("Activity updated")
+          closeEditor()
+          router.refresh()
+          return
+        } catch (err) {
+          toast.error("Failed to upload worksheet images", {
+            description: err instanceof Error ? err.message : "Please try again later.",
+          })
+          return
+        }
       }
 
       if ((type === "display-image" || type === "display-webpage") && imageSubmission) {
@@ -1973,6 +2083,15 @@ interface ImageSubmissionPayload {
   finalBody: Record<string, unknown> | null
 }
 
+interface MarkWorksheetSubmissionPayload {
+  pendingWorksheet: File[]
+  pendingAnswer: File[]
+  existingWorksheet: MarkWorksheetImage[]
+  existingAnswer: MarkWorksheetImage[]
+  markingGuidance: string
+  markingGuidanceId?: string
+}
+
 interface LessonActivityEditorSheetProps {
   mode: "create" | "edit"
   activity: LessonActivity | null
@@ -1986,6 +2105,7 @@ interface LessonActivityEditorSheetProps {
     type: ActivityTypeValue
     bodyData: unknown
     imageSubmission?: ImageSubmissionPayload
+    markWorksheetSubmission?: MarkWorksheetSubmissionPayload
     successCriteriaIds: string[]
     maxMarks: number
   }) => void
@@ -2056,6 +2176,13 @@ function LessonActivityEditorSheet({
   const [uploadWorksheetBody, setUploadWorksheetBody] = useState<UploadWorksheetActivityBody>(() =>
     createDefaultUploadWorksheetBody(),
   )
+  const [markWorksheetBody, setMarkWorksheetBody] = useState<MarkWorksheetBody>(() =>
+    createDefaultMarkWorksheetBody(),
+  )
+  const [pendingWorksheetFiles, setPendingWorksheetFiles] = useState<File[]>([])
+  const [pendingAnswerFiles, setPendingAnswerFiles] = useState<File[]>([])
+  const worksheetInputRef = useRef<HTMLInputElement | null>(null)
+  const answerInputRef = useRef<HTMLInputElement | null>(null)
   const [maxMarks, setMaxMarks] = useState(1)
   const [selectedSuccessCriteriaIds, setSelectedSuccessCriteriaIds] = useState<string[]>([])
   const [shareMyWorkName, setShareMyWorkName] = useState("")
@@ -2991,6 +3118,9 @@ function LessonActivityEditorSheet({
       setShortTextBody(createDefaultShortTextBody())
       setUploadSpreadsheetBody(createDefaultUploadSpreadsheetBody())
       setUploadWorksheetBody(createDefaultUploadWorksheetBody())
+      setMarkWorksheetBody(createDefaultMarkWorksheetBody())
+      setPendingWorksheetFiles([])
+      setPendingAnswerFiles([])
       setFeedbackBody(createDefaultFeedbackBody())
       setSelectedSuccessCriteriaIds([])
       setDisplayType("")
@@ -3072,6 +3202,13 @@ function LessonActivityEditorSheet({
       } else {
         setUploadWorksheetBody(createDefaultUploadWorksheetBody())
       }
+      if (ensuredType === "mark-worksheet") {
+        setMarkWorksheetBody(getMarkWorksheetBody(activity))
+      } else {
+        setMarkWorksheetBody(createDefaultMarkWorksheetBody())
+      }
+      setPendingWorksheetFiles([])
+      setPendingAnswerFiles([])
       if (ensuredType === "feedback") {
         setFeedbackBody(
           syncFeedbackBodyWithGroups(
@@ -3134,6 +3271,9 @@ function LessonActivityEditorSheet({
       setShortTextBody(createDefaultShortTextBody())
       setUploadSpreadsheetBody(createDefaultUploadSpreadsheetBody())
       setUploadWorksheetBody(createDefaultUploadWorksheetBody())
+      setMarkWorksheetBody(createDefaultMarkWorksheetBody())
+      setPendingWorksheetFiles([])
+      setPendingAnswerFiles([])
       setFeedbackBody(createDefaultFeedbackBody())
       setSelectedSuccessCriteriaIds([])
     }
@@ -3227,6 +3367,9 @@ function LessonActivityEditorSheet({
         setVideoUrl("")
         setRawBody("")
         setUploadWorksheetBody(createDefaultUploadWorksheetBody())
+      setMarkWorksheetBody(createDefaultMarkWorksheetBody())
+      setPendingWorksheetFiles([])
+      setPendingAnswerFiles([])
         return
       }
 
@@ -3440,6 +3583,13 @@ function LessonActivityEditorSheet({
       } else {
         setUploadWorksheetBody(createDefaultUploadWorksheetBody())
       }
+      return
+    }
+
+    if (type === "mark-worksheet") {
+      setMarkWorksheetBody(activity ? getMarkWorksheetBody(activity) : createDefaultMarkWorksheetBody())
+      setPendingWorksheetFiles([])
+      setPendingAnswerFiles([])
       return
     }
 
@@ -3753,6 +3903,7 @@ function LessonActivityEditorSheet({
 
     let bodyData: unknown
     let imageSubmission: ImageSubmissionPayload | undefined
+    let markWorksheetSubmission: MarkWorksheetSubmissionPayload | undefined
 
     if (type === "voice") {
       if (isCreateMode) {
@@ -3892,6 +4043,31 @@ function LessonActivityEditorSheet({
         return
       }
       bodyData = normalizedUploadWorksheetBody
+    } else if (type === "mark-worksheet") {
+      if (markWorksheetBody.answerImages.length === 0 && pendingAnswerFiles.length === 0) {
+        toast.error("Upload at least one answer-sheet image.")
+        return
+      }
+      const hasGuidance =
+        markWorksheetBody.markingGuidance.trim().length > 0 || Boolean(markWorksheetBody.markingGuidanceId)
+      if (!hasGuidance) {
+        toast.error("Provide marking guidance text or select a guidance template.")
+        return
+      }
+      bodyData = {
+        worksheetImages: markWorksheetBody.worksheetImages,
+        answerImages: markWorksheetBody.answerImages,
+        markingGuidance: markWorksheetBody.markingGuidance.trim(),
+        markingGuidanceId: markWorksheetBody.markingGuidanceId,
+      }
+      markWorksheetSubmission = {
+        pendingWorksheet: pendingWorksheetFiles,
+        pendingAnswer: pendingAnswerFiles,
+        existingWorksheet: markWorksheetBody.worksheetImages,
+        existingAnswer: markWorksheetBody.answerImages,
+        markingGuidance: markWorksheetBody.markingGuidance.trim(),
+        markingGuidanceId: markWorksheetBody.markingGuidanceId,
+      }
     } else if (type === "feedback") {
       bodyData = syncFeedbackBodyWithGroups(normalizeFeedbackBody(feedbackBody), assignedGroups)
     } else if (type === "share-my-work") {
@@ -3964,6 +4140,7 @@ function LessonActivityEditorSheet({
       type,
       bodyData,
       imageSubmission,
+      markWorksheetSubmission,
       successCriteriaIds: sanitizedSuccessCriteriaIds,
       maxMarks,
       ...submissionPayload,
@@ -4818,6 +4995,104 @@ function LessonActivityEditorSheet({
               {uploadWorksheetValidationMessage ? (
                 <p className="mt-1 text-xs text-destructive">{uploadWorksheetValidationMessage}</p>
               ) : null}
+            </div>
+          ) : null}
+
+          {type === "mark-worksheet" ? (
+            <div className="space-y-4 rounded-md border border-border bg-muted/20 p-4">
+              {([
+                { key: "worksheet" as const, label: "Worksheet images (shown context for the AI)", images: markWorksheetBody.worksheetImages, pending: pendingWorksheetFiles, ref: worksheetInputRef, setPending: setPendingWorksheetFiles },
+                { key: "answer" as const, label: "Answer-sheet images (required)", images: markWorksheetBody.answerImages, pending: pendingAnswerFiles, ref: answerInputRef, setPending: setPendingAnswerFiles },
+              ]).map((section) => (
+                <div key={section.key} className="space-y-2">
+                  <Label className="text-xs font-medium text-muted-foreground">{section.label}</Label>
+                  <input
+                    ref={section.ref}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={(event) => {
+                      const files = Array.from(event.target.files ?? [])
+                      event.target.value = ""
+                      if (files.length > 0) section.setPending((prev) => [...prev, ...files])
+                    }}
+                  />
+                  <Button type="button" size="sm" variant="outline" onClick={() => section.ref.current?.click()} disabled={isPending}>
+                    <Plus className="mr-2 h-4 w-4" /> Add images
+                  </Button>
+                  {(section.images.length > 0 || section.pending.length > 0) ? (
+                    <ul className="space-y-1 text-xs text-muted-foreground">
+                      {section.images.map((img) => (
+                        <li key={img.filePath} className="flex items-center justify-between gap-2">
+                          <span className="truncate">{img.fileName}</span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              setMarkWorksheetBody((prev) =>
+                                section.key === "worksheet"
+                                  ? { ...prev, worksheetImages: prev.worksheetImages.filter((i) => i.filePath !== img.filePath) }
+                                  : { ...prev, answerImages: prev.answerImages.filter((i) => i.filePath !== img.filePath) },
+                              )
+                            }
+                            disabled={isPending}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </li>
+                      ))}
+                      {section.pending.map((file, index) => (
+                        <li key={`${section.key}-pending-${index}`} className="flex items-center justify-between gap-2">
+                          <span className="truncate">{file.name} (new)</span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => section.setPending((prev) => prev.filter((_, i) => i !== index))}
+                            disabled={isPending}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ))}
+
+              <div className="space-y-1">
+                <Label className="text-xs font-medium text-muted-foreground">Marking guidance template (optional)</Label>
+                <select
+                  className="w-full rounded-md border border-border bg-background px-2 py-1 text-sm"
+                  value={markWorksheetBody.markingGuidanceId ?? ""}
+                  onChange={(event) =>
+                    setMarkWorksheetBody((prev) => ({ ...prev, markingGuidanceId: event.target.value || undefined }))
+                  }
+                  disabled={isPending}
+                >
+                  <option value="">None</option>
+                  {availableMarkingGuidances.map((guidance) => (
+                    <option key={guidance.id} value={guidance.id}>{guidance.title}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground">Additional marking guidance</Label>
+                <RichTextEditor
+                  id="mark-worksheet-guidance"
+                  value={markWorksheetBody.markingGuidance}
+                  onChange={(value) => setMarkWorksheetBody((prev) => ({ ...prev, markingGuidance: value }))}
+                  placeholder="Describe how the AI should mark the pupil's worksheet"
+                  disabled={isPending}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Marking guidance and the answer-sheet images are sent to the AI (not shown to the pupil). Pupils upload their
+                completed worksheet images, which are marked directly (no OCR).
+              </p>
             </div>
           ) : null}
 

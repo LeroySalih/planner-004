@@ -526,11 +526,12 @@ export async function readLessonSubmissionSummariesAction(
         }
       } else if (
         activityType === "upload-spreadsheet" ||
-        activityType === "upload-worksheet"
+        activityType === "upload-worksheet" ||
+        activityType === "mark-worksheet"
       ) {
-        const submissionBodySchema = activityType === "upload-worksheet"
-          ? UploadWorksheetSubmissionBodySchema
-          : UploadSpreadsheetSubmissionBodySchema;
+        const submissionBodySchema = activityType === "upload-spreadsheet"
+          ? UploadSpreadsheetSubmissionBodySchema
+          : UploadWorksheetSubmissionBodySchema;
         const scoreEntries = submissionList
           .map((submission) => {
             const parsedSubmission = submissionBodySchema.safeParse(

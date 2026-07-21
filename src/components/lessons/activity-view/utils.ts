@@ -368,6 +368,50 @@ export function getGroupItemsBody(activity: LessonActivity): GroupItemsBody {
   return items.length > 0 ? { groups, items } : createDefaultGroupItemsBody();
 }
 
+export interface MarkWorksheetImage {
+  filePath: string;
+  fileName: string;
+}
+
+export interface MarkWorksheetBody {
+  worksheetImages: MarkWorksheetImage[];
+  answerImages: MarkWorksheetImage[];
+  markingGuidance: string;
+  markingGuidanceId?: string;
+}
+
+export function createDefaultMarkWorksheetBody(): MarkWorksheetBody {
+  return { worksheetImages: [], answerImages: [], markingGuidance: "", markingGuidanceId: undefined };
+}
+
+export function getMarkWorksheetBody(activity: LessonActivity): MarkWorksheetBody {
+  const record =
+    activity.body_data && typeof activity.body_data === "object"
+      ? (activity.body_data as Record<string, unknown>)
+      : {};
+  const toImages = (value: unknown): MarkWorksheetImage[] =>
+    Array.isArray(value)
+      ? value
+          .map((entry) => {
+            if (!entry || typeof entry !== "object") return null;
+            const e = entry as Record<string, unknown>;
+            const filePath = typeof e.filePath === "string" ? e.filePath : "";
+            const fileName = typeof e.fileName === "string" ? e.fileName : "";
+            return filePath && fileName ? { filePath, fileName } : null;
+          })
+          .filter((x): x is MarkWorksheetImage => x !== null)
+      : [];
+  return {
+    worksheetImages: toImages(record.worksheetImages),
+    answerImages: toImages(record.answerImages),
+    markingGuidance: typeof record.markingGuidance === "string" ? record.markingGuidance : "",
+    markingGuidanceId:
+      typeof record.markingGuidanceId === "string" && record.markingGuidanceId.trim() !== ""
+        ? record.markingGuidanceId
+        : undefined,
+  };
+}
+
 export interface DisplayWebpageBody {
   htmlFile: string | null;
 }

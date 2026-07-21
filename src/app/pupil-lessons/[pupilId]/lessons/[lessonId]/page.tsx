@@ -487,7 +487,9 @@ export default async function PupilLessonFriendlyPage({
   )
   const uploadSpreadsheetFileNameMap = new Map(uploadSpreadsheetFileNameEntries)
 
-  const uploadWorksheetActivities = activities.filter((activity) => activity.type === "upload-worksheet")
+  const uploadWorksheetActivities = activities.filter(
+    (activity) => activity.type === "upload-worksheet" || activity.type === "mark-worksheet",
+  )
   const uploadWorksheetFileEntries = await Promise.all(
     uploadWorksheetActivities.map(async (activity) => {
       const result = await getLatestSubmissionForActivityAction(activity.activity_id, pupilId)
@@ -1221,6 +1223,22 @@ export default async function PupilLessonFriendlyPage({
                         feedbackAssignmentIds={assignmentIds}
                       />,
                       { typeLabel: "Worksheet", typeGlyph: "▦", question: activity.title || "Upload a worksheet" },
+                    )
+                  }
+
+                  if (activity.type === "mark-worksheet") {
+                    return shell(
+                      <PupilUploadWorksheetActivity
+                        lessonId={lesson.lesson_id}
+                        activity={activity}
+                        pupilId={pupilId}
+                        canUpload={isPupilViewer}
+                        initialFileName={uploadWorksheetFileNameMap.get(activity.activity_id) ?? null}
+                        initialFileUrl={uploadWorksheetFileUrlMap.get(activity.activity_id) ?? null}
+                        feedbackAssignmentIds={assignmentIds}
+                        uploadEndpoint="/api/pupil-submission/mark-worksheet"
+                      />,
+                      { typeLabel: "Worksheet", typeGlyph: "▦", question: activity.title || "Upload your worksheet" },
                     )
                   }
 

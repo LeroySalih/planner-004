@@ -10,10 +10,11 @@ const UPLOAD_ENDPOINTS: Record<string, string> = {
   "upload-file": "/api/pupil-submission/upload",
   "upload-spreadsheet": "/api/pupil-submission/upload-spreadsheet",
   "upload-worksheet": "/api/pupil-submission/upload-worksheet",
+  "mark-worksheet": "/api/pupil-submission/mark-worksheet",
 }
 
 // These types auto-enqueue AI marking server-side when a groupAssignmentId is sent.
-const AI_MARKED_TYPES = new Set(["upload-spreadsheet", "upload-worksheet"])
+const AI_MARKED_TYPES = new Set(["upload-spreadsheet", "upload-worksheet", "mark-worksheet"])
 
 type TeacherSubmissionDropzoneProps = {
   enabled: boolean
@@ -45,7 +46,7 @@ export function TeacherSubmissionDropzone({
   const uploadInProgress = useRef(false)
 
   const endpoint = UPLOAD_ENDPOINTS[activityType]
-  const isWorksheet = activityType === "upload-worksheet"
+  const isWorksheet = activityType === "upload-worksheet" || activityType === "mark-worksheet"
   const canUpload =
     enabled && Boolean(endpoint) && !disabled && !isPending && lessonId.length > 0 && pupilId.length > 0
 
@@ -62,7 +63,7 @@ export function TeacherSubmissionDropzone({
       }
       // upload-worksheet accepts multiple images under the "files" field; the
       // other upload routes take a single file under "file".
-      const isWorksheet = activityType === "upload-worksheet"
+      const isWorksheet = activityType === "upload-worksheet" || activityType === "mark-worksheet"
       const selected = isWorksheet ? files : [files[0]]
 
       startTransition(async () => {

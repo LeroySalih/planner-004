@@ -517,10 +517,10 @@ export function extractScoreFromSubmission(
     };
   }
 
-  if (activityType === "upload-spreadsheet" || activityType === "upload-worksheet") {
-    const submissionBodySchema = activityType === "upload-worksheet"
-      ? UploadWorksheetSubmissionBodySchema
-      : UploadSpreadsheetSubmissionBodySchema;
+  if (activityType === "upload-spreadsheet" || activityType === "upload-worksheet" || activityType === "mark-worksheet") {
+    const submissionBodySchema = activityType === "upload-spreadsheet"
+      ? UploadSpreadsheetSubmissionBodySchema
+      : UploadWorksheetSubmissionBodySchema;
     const parsed = submissionBodySchema.safeParse(submissionBody);
     const fallbackScores = normaliseSuccessCriteriaScores({
       successCriteriaIds,
@@ -533,7 +533,7 @@ export function extractScoreFromSubmission(
         fileName?: string | null;
         images?: unknown[];
       };
-      const pupilAnswer = activityType === "upload-worksheet"
+      const pupilAnswer = activityType !== "upload-spreadsheet"
         ? typeof worksheetData.extractedText === "string" && worksheetData.extractedText.trim()
           ? worksheetData.extractedText
           : worksheetData.fileName?.trim()
