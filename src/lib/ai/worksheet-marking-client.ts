@@ -11,10 +11,12 @@ export interface WorksheetMarkingParams {
   group_assignment_id?: string
   max_marks: number
   marking_guidance: string
-  /** The pupil's submitted worksheet images. */
-  pupil_images: WorksheetMarkingImage[]
+  /** The teacher's original (blank) worksheet images. */
+  worksheet_images: WorksheetMarkingImage[]
   /** The teacher's answer-sheet / model-answer images. */
   answer_images: WorksheetMarkingImage[]
+  /** The pupil's submitted (completed) worksheet images. */
+  pupil_images: WorksheetMarkingImage[]
 }
 
 /**

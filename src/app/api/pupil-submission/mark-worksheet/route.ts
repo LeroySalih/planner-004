@@ -152,7 +152,8 @@ export async function POST(request: Request) {
   try {
     await client.connect()
 
-    // Load the activity's teacher config (answer images + guidance + max_marks).
+    // Load the activity's teacher config (worksheet + answer images + guidance + max_marks).
+    let worksheetImages: Array<{ filePath: string; fileName: string }> = []
     let answerImages: Array<{ filePath: string; fileName: string }> = []
     let markingGuidanceText = ""
     let markingGuidanceId: string | undefined
@@ -167,6 +168,7 @@ export async function POST(request: Request) {
         maxMarks = Number(row.max_marks) || 1
         const parsed = MarkWorksheetActivityBodySchema.safeParse(row.body_data)
         if (parsed.success) {
+          worksheetImages = parsed.data.worksheetImages
           answerImages = parsed.data.answerImages
           markingGuidanceText = parsed.data.markingGuidance
           markingGuidanceId = parsed.data.markingGuidanceId
@@ -224,7 +226,11 @@ export async function POST(request: Request) {
           return out
         }
 
-        const [pupilB64, answerB64] = await Promise.all([toBase64(images), toBase64(answerImages)])
+        const [pupilB64, answerB64, worksheetB64] = await Promise.all([
+          toBase64(images),
+          toBase64(answerImages),
+          toBase64(worksheetImages),
+        ])
         const markingGuidance = await resolveMarkingGuidance(markingGuidanceText, markingGuidanceId)
 
         await invokeWorksheetMarking({
@@ -235,8 +241,9 @@ export async function POST(request: Request) {
           webhook_url: `${callbackBase}/webhooks/ai-mark`,
           max_marks: maxMarks,
           marking_guidance: markingGuidance,
-          pupil_images: pupilB64,
+          worksheet_images: worksheetB64,
           answer_images: answerB64,
+          pupil_images: pupilB64,
         })
       } catch (err) {
         console.error(`${tag} Worksheet marking invoke failed — setting marking-error`, err)
