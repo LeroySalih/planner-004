@@ -121,7 +121,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: "File exceeds 10MB limit" }, { status: 413 })
     }
 
-    const filePath = buildSubmissionPath(lessonId, activityId, pupilStorageKey, file.name)
+    // Unique stored name so re-uploading a photo with the same filename doesn't
+    // collide with a previous attempt (which failed the upload and left the old
+    // photo showing). Keep the original name for display.
+    const storedName = `${crypto.randomUUID().slice(0, 8)}-${file.name}`.replace(/\s+/g, "_")
+    const filePath = buildSubmissionPath(lessonId, activityId, pupilStorageKey, storedName)
     let arrayBuffer: ArrayBuffer
     try {
       arrayBuffer = await file.arrayBuffer()
