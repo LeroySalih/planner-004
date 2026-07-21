@@ -36,7 +36,9 @@ const nextConfig: NextConfig = {
       },
       {
         key: "Permissions-Policy",
-        value: "camera=(), microphone=(), geolocation=(), interest-cohort=()",
+        // Allow the camera on our own origin (pupils photograph worksheets);
+        // `camera=()` disallowed it everywhere and could blank the capture feed.
+        value: "camera=(self), microphone=(), geolocation=(), interest-cohort=()",
       },
     ];
 

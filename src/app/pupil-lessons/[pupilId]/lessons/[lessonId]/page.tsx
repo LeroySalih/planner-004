@@ -1237,6 +1237,7 @@ export default async function PupilLessonFriendlyPage({
                         initialFileUrl={uploadWorksheetFileUrlMap.get(activity.activity_id) ?? null}
                         feedbackAssignmentIds={assignmentIds}
                         uploadEndpoint="/api/pupil-submission/mark-worksheet"
+                        stagedSubmit
                       />,
                       { typeLabel: "Worksheet", typeGlyph: "▦", question: activity.title || "Upload your worksheet" },
                     )

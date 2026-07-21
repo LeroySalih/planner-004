@@ -32,6 +32,8 @@ interface PupilUploadWorksheetActivityProps {
   feedbackText?: string | null
   /** Submission endpoint — defaults to the exam (OCR) flow; mark-worksheet passes its own. */
   uploadEndpoint?: string
+  /** When true, files are staged and uploaded together on an explicit Submit (no OCR text editing). */
+  stagedSubmit?: boolean
 }
 
 function buildFileUrl(filePath: string): string {
@@ -79,6 +81,7 @@ export function PupilUploadWorksheetActivity({
   scoreLabel = "In progress",
   feedbackText,
   uploadEndpoint = "/api/pupil-submission/upload-worksheet",
+  stagedSubmit = false,
 }: PupilUploadWorksheetActivityProps) {
   const [isPending, startTransition] = useTransition()
   const [isDragActive, setIsDragActive] = useState(false)
@@ -96,6 +99,8 @@ export function PupilUploadWorksheetActivity({
   const [latestSubmissionId, setLatestSubmissionId] = useState<string | null>(null)
   const latestSubmissionIdRef = useRef<string | null>(null)
   const [saving, setSaving] = useState(false)
+  // Staged (not-yet-uploaded) files for the explicit-submit flow.
+  const [stagedFiles, setStagedFiles] = useState<Array<{ file: File; url: string }>>([])
 
   // Fallback: show legacy single-file info if no submission yet
   const [legacyFileName, setLegacyFileName] = useState<string | null>(initialFileName)
@@ -286,8 +291,8 @@ export function PupilUploadWorksheetActivity({
             )
           }
 
-          // Set status to reading while OCR runs
-          setMarkStatus("reading")
+          // Exam flow runs OCR first ("reading"); worksheet flow goes straight to marking.
+          setMarkStatus(stagedSubmit ? "marking" : "reading")
           setDraftText("")
 
           // Reload to get latest submission ID for SSE matching
@@ -297,8 +302,44 @@ export function PupilUploadWorksheetActivity({
         }
       })
     },
-    [activity.activity_id, feedbackAssignmentIds, lessonId, pupilId, loadLatestSubmission],
+    [activity.activity_id, feedbackAssignmentIds, lessonId, pupilId, loadLatestSubmission, stagedSubmit, uploadEndpoint],
   )
+
+  const addStagedFiles = useCallback((incoming: FileList | File[]) => {
+    const files = Array.from(incoming ?? []).filter((file) => file.size > 0)
+    const valid: Array<{ file: File; url: string }> = []
+    for (const file of files) {
+      const lowerName = file.name.toLowerCase()
+      const okExt = ALLOWED_EXTENSIONS.some((ext) => lowerName.endsWith(ext)) ||
+        lowerName.endsWith(".heic") || lowerName.endsWith(".heif")
+      if (!okExt) {
+        toast.error(`Skipped ${file.name}`, { description: "Only JPEG or PNG photos are allowed." })
+        continue
+      }
+      if (file.size > MAX_FILE_SIZE_BYTES) {
+        toast.error(`Skipped ${file.name}`, { description: "File exceeds 10MB limit." })
+        continue
+      }
+      valid.push({ file, url: URL.createObjectURL(file) })
+    }
+    if (valid.length > 0) setStagedFiles((prev) => [...prev, ...valid])
+  }, [])
+
+  const removeStagedFile = useCallback((index: number) => {
+    setStagedFiles((prev) => {
+      const target = prev[index]
+      if (target) URL.revokeObjectURL(target.url)
+      return prev.filter((_, i) => i !== index)
+    })
+  }, [])
+
+  const submitStagedFiles = useCallback(() => {
+    if (stagedFiles.length === 0) return
+    const files = stagedFiles.map((entry) => entry.file)
+    beginUpload(files)
+    stagedFiles.forEach((entry) => URL.revokeObjectURL(entry.url))
+    setStagedFiles([])
+  }, [beginUpload, stagedFiles])
 
   const handleFileChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
@@ -310,10 +351,14 @@ export function PupilUploadWorksheetActivity({
       if (!files || files.length === 0) {
         return
       }
-      beginUpload(files)
+      if (stagedSubmit) {
+        addStagedFiles(files)
+      } else {
+        beginUpload(files)
+      }
       event.target.value = ""
     },
-    [beginUpload, isPending],
+    [addStagedFiles, beginUpload, isPending, stagedSubmit],
   )
 
   const handleDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
@@ -335,8 +380,12 @@ export function PupilUploadWorksheetActivity({
     if (!files || files.length === 0) {
       return
     }
-    beginUpload(files)
-  }, [beginUpload, canUpload, uploadDisabled])
+    if (stagedSubmit) {
+      addStagedFiles(files)
+    } else {
+      beginUpload(files)
+    }
+  }, [addStagedFiles, beginUpload, canUpload, stagedSubmit, uploadDisabled])
 
   const handleSaveAndRemark = useCallback(async () => {
     if (!latestSubmissionId) return
@@ -385,7 +434,9 @@ export function PupilUploadWorksheetActivity({
       {canUpload ? (
         <div className="space-y-3">
           <label className="text-sm font-medium text-pa-ink" htmlFor={`upload-worksheet-${activity.activity_id}`}>
-            Upload a photo of your completed exam question
+            {stagedSubmit
+              ? "Add photos of your completed worksheet, then submit"
+              : "Upload a photo of your completed exam question"}
           </label>
           <div
             onDragOver={handleDragOver}
@@ -445,6 +496,42 @@ export function PupilUploadWorksheetActivity({
               <Loader2 className="h-3.5 w-3.5 animate-spin" /> Uploading…
             </div>
           ) : null}
+
+          {stagedSubmit && stagedFiles.length > 0 ? (
+            <div className="space-y-2">
+              <div className="flex flex-wrap gap-2">
+                {stagedFiles.map((entry, index) => (
+                  <div key={entry.url} className="relative h-16 w-16 shrink-0 overflow-hidden rounded-[14px] border-[1.5px] border-pa-field-border bg-pa-field">
+                    <img src={entry.url} alt={entry.file.name} className="h-full w-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => removeStagedFile(index)}
+                      disabled={isPending}
+                      className="absolute right-0.5 top-0.5 grid h-5 w-5 place-items-center rounded-full bg-black/60 text-white"
+                      aria-label={`Remove ${entry.file.name}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <Button
+                type="button"
+                onClick={submitStagedFiles}
+                disabled={isPending}
+                className="h-auto w-full rounded-[14px] bg-pa-green py-3.5 text-[15px] font-bold text-white hover:bg-pa-green/90"
+              >
+                {isPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Submitting…
+                  </>
+                ) : (
+                  `Submit ${stagedFiles.length} photo${stagedFiles.length > 1 ? "s" : ""} for marking`
+                )}
+              </Button>
+            </div>
+          ) : null}
+
           <p className="text-xs text-pa-muted-3">
             Photos are stored securely so your teacher can review them later. You can re-upload at any time.
           </p>
@@ -488,6 +575,21 @@ export function PupilUploadWorksheetActivity({
               </p>
             </div>
           ) : markStatus === "waiting" || markStatus === "marking" || markStatus === "marked" ? (
+            stagedSubmit ? (
+              <div className="flex items-center gap-2 text-sm text-pa-muted-3">
+                {markStatus === "marked" ? (
+                  <>
+                    <CheckCircle2 className="h-4 w-4 text-pa-green" />
+                    <span>Marked — feedback appears when your teacher releases it.</span>
+                  </>
+                ) : (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Marking your work…</span>
+                  </>
+                )}
+              </div>
+            ) : (
             <div className="space-y-2">
               <label className="text-sm font-medium text-pa-ink">
                 Extracted answer — you can correct any mistakes before re-marking
@@ -521,6 +623,7 @@ export function PupilUploadWorksheetActivity({
                 </Button>
               )}
             </div>
+            )
           ) : null}
         </div>
       ) : legacyFileName ? (
