@@ -335,10 +335,17 @@ export function PupilUploadWorksheetActivity({
 
   const submitStagedFiles = useCallback(() => {
     if (stagedFiles.length === 0) return
-    const files = stagedFiles.map((entry) => entry.file)
-    beginUpload(files)
-    stagedFiles.forEach((entry) => URL.revokeObjectURL(entry.url))
+    const entries = stagedFiles
+    const files = entries.map((entry) => entry.file)
+    // Replace the displayed photo(s) with the new batch immediately — this must
+    // not depend on the AI/marking step (which runs server-side after upload).
+    // Keep the preview object URLs alive (they're now shown) until the server
+    // URLs arrive via beginUpload/loadLatestSubmission.
+    setImageUrls(entries.map((entry) => ({ url: entry.url, name: entry.file.name })))
+    setMarkStatus("marking")
+    setMarkError(null)
     setStagedFiles([])
+    beginUpload(files)
   }, [beginUpload, stagedFiles])
 
   const handleFileChange = useCallback(
