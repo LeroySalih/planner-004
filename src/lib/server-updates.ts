@@ -194,6 +194,8 @@ export {
   type UploadWorksheetTeacherFileResult,
 } from "./server-actions/worksheet-assets";
 
+export { resendWorksheetForMarkingAction } from "./server-actions/worksheet-remark";
+
 export {
   linkLessonSuccessCriterionAction,
   listLessonsSuccessCriteriaAction,

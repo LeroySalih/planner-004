@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, useTransition, type ChangeEvent } from "react"
 import { toast } from "sonner"
-import { CheckCircle2, Loader2, Upload, X } from "lucide-react"
+import { CheckCircle2, Loader2, RefreshCw, Upload, X } from "lucide-react"
 
 import type { LessonActivity } from "@/types"
 import { UploadWorksheetSubmissionBodySchema } from "@/types"
@@ -13,6 +13,7 @@ import { getRichTextMarkup } from "@/components/lessons/activity-view/utils"
 import {
   editWorksheetTextAction,
   getLatestSubmissionForActivityAction,
+  resendWorksheetForMarkingAction,
 } from "@/lib/server-updates"
 
 const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".heic", ".heif"]
@@ -420,6 +421,28 @@ export function PupilUploadWorksheetActivity({
     }
   }, [activity.activity_id, draftText, feedbackAssignmentIds, latestSubmissionId, pupilId])
 
+  const [isResending, setIsResending] = useState(false)
+  const handleResend = useCallback(async () => {
+    setIsResending(true)
+    setMarkStatus("marking")
+    setMarkError(null)
+    try {
+      const result = await resendWorksheetForMarkingAction({
+        activityId: activity.activity_id,
+        pupilId,
+        groupAssignmentId: feedbackAssignmentIds[0],
+      })
+      if (!result.success) {
+        toast.error("Couldn't resend for marking", { description: result.error ?? "Please try again." })
+      } else {
+        toast.success("Resent for marking")
+      }
+      await loadLatestSubmission()
+    } finally {
+      setIsResending(false)
+    }
+  }, [activity.activity_id, pupilId, feedbackAssignmentIds, loadLatestSubmission])
+
   const openLightbox = useCallback((url: string, name: string) => {
     setLightboxUrl(url)
     setLightboxName(name)
@@ -576,6 +599,27 @@ export function PupilUploadWorksheetActivity({
                 </button>
               ))}
             </div>
+          ) : null}
+
+          {/* Resend the already-uploaded images to the AI marking flow. */}
+          {stagedSubmit && hasImages && canUpload ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleResend}
+              disabled={isResending}
+              className="w-full gap-2"
+            >
+              {isResending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" /> Resending…
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="h-4 w-4" /> Resend to AI for marking
+                </>
+              )}
+            </Button>
           ) : null}
 
           {/* Mark status rendering */}
