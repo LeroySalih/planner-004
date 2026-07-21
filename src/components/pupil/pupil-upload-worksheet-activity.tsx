@@ -434,7 +434,6 @@ export function PupilUploadWorksheetActivity({
               id={`upload-worksheet-${activity.activity_id}`}
               type="file"
               accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif"
-              capture="environment"
               multiple
               className="hidden"
               disabled={uploadDisabled}
