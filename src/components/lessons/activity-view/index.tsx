@@ -22,6 +22,7 @@ import {
   getFlashcardsText,
   getDisplayWebpageBody,
   getGroupItemsBody,
+  getMarkWorksheetBody,
   getSequenceBody,
   getLongTextBody,
   getMatcherBody,
@@ -368,6 +369,17 @@ function ActivityShortView({
       </div>
     ) : (
       <p className="text-sm text-muted-foreground">Upload Exam Question task awaiting setup.</p>
+    )
+  } else if (activity.type === "mark-worksheet") {
+    const markWorksheet = getMarkWorksheetBody(activity)
+    content = (
+      <div className="space-y-1 text-sm text-muted-foreground">
+        <p className="text-xs font-semibold uppercase tracking-wide text-primary">Upload Worksheet</p>
+        <p>
+          {markWorksheet.answerImages.length} answer-sheet image(s), {markWorksheet.worksheetImages.length} worksheet image(s).
+          {" "}Pupils upload their work for AI marking.
+        </p>
+      </div>
     )
   } else if (activity.type === "feedback") {
     const feedback = getFeedbackBody(activity)
@@ -1313,6 +1325,30 @@ function ActivityPresentView({
           Pupils can upload their spreadsheet from the student lesson page. Their submission is saved under this activity.
         </p>
       </div>
+    )
+  }
+
+  if (activity.type === "mark-worksheet") {
+    const markWorksheet = getMarkWorksheetBody(activity)
+    return wrap(
+      <div className="space-y-4">
+        <p className="text-muted-foreground">Pupils upload their completed worksheet; the AI marks it against your answer sheet.</p>
+        {markWorksheet.worksheetImages.length > 0 ? (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {markWorksheet.worksheetImages.map((img) => (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={img.filePath}
+                src={`/api/files/${img.filePath.split("/").map(encodeURIComponent).join("/")}`}
+                alt={img.fileName}
+                className="w-full rounded-md border border-border"
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No worksheet images uploaded.</p>
+        )}
+      </div>,
     )
   }
 

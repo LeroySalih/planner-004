@@ -15,6 +15,7 @@ import {
   McqActivityBodySchema,
   McqSubmissionBodySchema,
   ShortTextActivityBodySchema,
+  MarkWorksheetActivityBodySchema,
   ShortTextSubmissionBodySchema,
   UploadSpreadsheetActivityBodySchema,
   UploadUrlActivityBodySchema,
@@ -612,6 +613,16 @@ export async function readAssignmentResultsAction(
             );
             if (parsedBody.success) {
               question = normaliseRichText(parsedBody.data.task);
+              activityGuidanceMetadata.set(activity.activity_id, {
+                markingGuidance: normaliseRichText(parsedBody.data.markingGuidance),
+                markingGuidanceId: parsedBody.data.markingGuidanceId ?? null,
+              });
+            }
+          } else if (type === "mark-worksheet") {
+            const parsedBody = MarkWorksheetActivityBodySchema.safeParse(
+              activity.body_data,
+            );
+            if (parsedBody.success) {
               activityGuidanceMetadata.set(activity.activity_id, {
                 markingGuidance: normaliseRichText(parsedBody.data.markingGuidance),
                 markingGuidanceId: parsedBody.data.markingGuidanceId ?? null,
@@ -2127,10 +2138,10 @@ export async function readActivityMarkingGuidanceAction(
     if (!activity) {
       return ReadActivityMarkingGuidanceResultSchema.parse({ data: null, error: "Activity not found." });
     }
-    if (activity.type !== "upload-worksheet") {
+    if (activity.type !== "upload-worksheet" && activity.type !== "mark-worksheet") {
       return ReadActivityMarkingGuidanceResultSchema.parse({
         data: null,
-        error: "Marking guidance can only be edited for upload-worksheet activities.",
+        error: "Marking guidance can only be edited for worksheet activities.",
       });
     }
 
@@ -2161,10 +2172,10 @@ export async function updateActivityMarkingGuidanceAction(
         error: "Activity not found.",
       });
     }
-    if (activity.type !== "upload-worksheet") {
+    if (activity.type !== "upload-worksheet" && activity.type !== "mark-worksheet") {
       return UpdateActivityMarkingGuidanceResultSchema.parse({
         success: false,
-        error: "Marking guidance can only be edited for upload-worksheet activities.",
+        error: "Marking guidance can only be edited for worksheet activities.",
       });
     }
 

@@ -469,7 +469,7 @@ async function convertImageBlobToPng(blob: Blob): Promise<Blob> {
 
 // Activity types whose pupil response is a downloadable file in storage,
 // listed/signed via listPupilActivitySubmissionsAction / getPupilActivitySubmissionUrlAction.
-const UPLOAD_LISTING_ACTIVITY_TYPES = new Set(["upload-file", "upload-spreadsheet", "upload-worksheet"])
+const UPLOAD_LISTING_ACTIVITY_TYPES = new Set(["upload-file", "upload-spreadsheet", "upload-worksheet", "mark-worksheet"])
 
 function isUploadListingActivityType(type: string): boolean {
   return UPLOAD_LISTING_ACTIVITY_TYPES.has(type)
@@ -540,7 +540,7 @@ export function AssignmentResultsDashboard({
   useEffect(() => {
     const lessonId = matrixState.lesson?.lessonId
     const activityType = selection?.activity.type
-    const isWorksheet = activityType === "upload-worksheet"
+    const isWorksheet = activityType === "upload-worksheet" || activityType === "mark-worksheet"
     const isUploadActivity = isWorksheet || activityType === "upload-spreadsheet"
 
     if (isWorksheet) {
@@ -2989,7 +2989,7 @@ export function AssignmentResultsDashboard({
                                 Edit Subject Guidance
                               </button>
                             )}
-                            {isAdmin && selection.activity.type === "upload-worksheet" && (
+                            {isAdmin && (selection.activity.type === "upload-worksheet" || selection.activity.type === "mark-worksheet") && (
                               <button
                                 type="button"
                                 onClick={() => handleOpenQuestionGuidanceEditor(selection.activity.activityId)}
@@ -3877,7 +3877,8 @@ export function AssignmentResultsDashboard({
                       <TabsTrigger value="override" className="flex-1">Override</TabsTrigger>
                       {(selection.activity.type === "short-text-question" ||
                         selection.activity.type === "upload-spreadsheet" ||
-                        selection.activity.type === "upload-worksheet") && (
+                        selection.activity.type === "upload-worksheet" ||
+                        selection.activity.type === "mark-worksheet") && (
                         <TabsTrigger value="auto" className="flex-1">Automatic score</TabsTrigger>
                       )}
                       <TabsTrigger value="attempts" className="flex-1">Attempts</TabsTrigger>
@@ -4051,7 +4052,7 @@ export function AssignmentResultsDashboard({
                                   Edit Subject Guidance
                                 </button>
                               )}
-                              {isAdmin && selection.activity.type === "upload-worksheet" && (
+                              {isAdmin && (selection.activity.type === "upload-worksheet" || selection.activity.type === "mark-worksheet") && (
                                 <button
                                   type="button"
                                   onClick={() => handleOpenQuestionGuidanceEditor(selection.activity.activityId)}
@@ -4250,7 +4251,7 @@ export function AssignmentResultsDashboard({
                 )
                 const autoFeedbackHtml = renderFeedbackMarkup(extracted.autoFeedback)
                 const overrideFeedbackHtml = renderFeedbackMarkup(extracted.feedback)
-                const isWorksheet = selection.activity.type === "upload-worksheet"
+                const isWorksheet = selection.activity.type === "upload-worksheet" || selection.activity.type === "mark-worksheet"
 
                 const handleTeacherSaveAndRemark = async () => {
                   if (!viewingAttempt) return
