@@ -9,6 +9,15 @@ import { MarkWorksheetActivityBodySchema, UploadWorksheetSubmissionBodySchema } 
 
 const LESSON_FILES_BUCKET = "lessons"
 
+/** Infer an image MIME type from a filename, for building data URIs. */
+function inferImageMime(fileName: string): string {
+  const n = fileName.toLowerCase()
+  if (n.endsWith(".png")) return "image/png"
+  if (n.endsWith(".webp")) return "image/webp"
+  if (n.endsWith(".gif")) return "image/gif"
+  return "image/jpeg"
+}
+
 async function resolveMarkingGuidance(guidance: string, guidanceId: string | undefined): Promise<string> {
   const parts: string[] = []
   if (guidanceId) {
@@ -81,7 +90,7 @@ export async function resendWorksheetForMarkingAction(input: {
   void emitSubmissionEvent("submission.updated", { submissionId, activityId, pupilId, markStatus: "marking" })
 
   const storage = createLocalStorageClient(LESSON_FILES_BUCKET)
-  const toBase64 = async (
+  const toImages = async (
     list: Array<{ filePath: string; fileName: string }>,
   ): Promise<WorksheetMarkingImage[]> => {
     const out: WorksheetMarkingImage[] = []
@@ -90,16 +99,17 @@ export async function resendWorksheetForMarkingAction(input: {
       if (error || !stream) throw new Error(`Failed to read image at ${img.filePath}`)
       const chunks: Buffer[] = []
       for await (const chunk of stream) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
-      out.push({ base64: Buffer.concat(chunks).toString("base64"), fileName: img.fileName })
+      const base64 = Buffer.concat(chunks).toString("base64")
+      out.push({ data_url: `data:${inferImageMime(img.fileName)};base64,${base64}`, fileName: img.fileName })
     }
     return out
   }
 
   try {
     const [pupilB64, answerB64, worksheetB64] = await Promise.all([
-      toBase64(pupilImages),
-      toBase64(answerImages),
-      toBase64(worksheetImages),
+      toImages(pupilImages),
+      toImages(answerImages),
+      toImages(worksheetImages),
     ])
     const markingGuidance = await resolveMarkingGuidance(markingGuidanceText, markingGuidanceId)
     const callbackBase = (process.env.AI_MARKING_CALLBACK_URL ?? "").replace(/\/$/, "")

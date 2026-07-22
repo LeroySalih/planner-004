@@ -19,6 +19,15 @@ function buildSubmissionPath(lessonId: string, activityId: string, pupilStorageK
   return `lessons/${lessonId}/activities/${activityId}/${pupilStorageKey}/${fileName}`
 }
 
+/** Infer an image MIME type from a filename, for building data URIs. */
+function inferImageMime(fileName: string): string {
+  const n = fileName.toLowerCase()
+  if (n.endsWith(".png")) return "image/png"
+  if (n.endsWith(".webp")) return "image/webp"
+  if (n.endsWith(".gif")) return "image/gif"
+  return "image/jpeg"
+}
+
 function createPgClient() {
   const connectionString = process.env.DATABASE_URL
   if (!connectionString) throw new Error("DATABASE_URL is not configured")
@@ -212,7 +221,7 @@ export async function POST(request: Request) {
       try {
         const callbackBase = (process.env.AI_MARKING_CALLBACK_URL ?? "").replace(/\/$/, "")
 
-        const toBase64 = async (list: Array<{ filePath: string; fileName: string }>): Promise<WorksheetMarkingImage[]> => {
+        const toImages = async (list: Array<{ filePath: string; fileName: string }>): Promise<WorksheetMarkingImage[]> => {
           const out: WorksheetMarkingImage[] = []
           for (const img of list) {
             const { stream, error: streamError } = await storage.getFileStream(img.filePath)
@@ -221,15 +230,16 @@ export async function POST(request: Request) {
             }
             const chunks: Buffer[] = []
             for await (const chunk of stream) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
-            out.push({ base64: Buffer.concat(chunks).toString("base64"), fileName: img.fileName })
+            const base64 = Buffer.concat(chunks).toString("base64")
+            out.push({ data_url: `data:${inferImageMime(img.fileName)};base64,${base64}`, fileName: img.fileName })
           }
           return out
         }
 
         const [pupilB64, answerB64, worksheetB64] = await Promise.all([
-          toBase64(images),
-          toBase64(answerImages),
-          toBase64(worksheetImages),
+          toImages(images),
+          toImages(answerImages),
+          toImages(worksheetImages),
         ])
         const markingGuidance = await resolveMarkingGuidance(markingGuidanceText, markingGuidanceId)
 

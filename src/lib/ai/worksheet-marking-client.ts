@@ -1,5 +1,6 @@
 export interface WorksheetMarkingImage {
-  base64: string
+  /** Ready-to-use data URI, e.g. "data:image/jpeg;base64,...", for vision models. */
+  data_url: string
   fileName: string
 }
 
