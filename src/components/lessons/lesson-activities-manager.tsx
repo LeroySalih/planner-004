@@ -4,7 +4,7 @@ import type { ChangeEvent, DragEvent } from "react"
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { ChevronDown, ChevronUp, ClipboardPaste, Download, GripVertical, Loader2, Pencil, Play, Plus, Trash2 } from "lucide-react"
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ClipboardPaste, Download, GripVertical, Loader2, Pencil, Play, Plus, Trash2, X } from "lucide-react"
 
 import type {
   FeedbackActivityBody,
@@ -2116,6 +2116,11 @@ interface LessonActivityEditorSheetProps {
   showExperimental: boolean
 }
 
+/** Build the /api/files URL for a stored lesson asset path. */
+function buildLessonFileUrl(filePath: string): string {
+  return `/api/files/${filePath.split("/").map(encodeURIComponent).join("/")}`
+}
+
 function LessonActivityEditorSheet({
   mode,
   activity,
@@ -2179,6 +2184,23 @@ function LessonActivityEditorSheet({
   const [pendingAnswerFiles, setPendingAnswerFiles] = useState<File[]>([])
   const worksheetInputRef = useRef<HTMLInputElement | null>(null)
   const answerInputRef = useRef<HTMLInputElement | null>(null)
+  // Full-screen gallery viewer for stored worksheet/answer files.
+  const [worksheetViewer, setWorksheetViewer] = useState<{
+    open: boolean
+    items: Array<{ url: string; name: string }>
+    index: number
+  }>({ open: false, items: [], index: 0 })
+  const currentViewerItem = worksheetViewer.items[worksheetViewer.index] ?? null
+  const viewerPrev = () =>
+    setWorksheetViewer((v) => ({
+      ...v,
+      index: v.items.length === 0 ? 0 : (v.index - 1 + v.items.length) % v.items.length,
+    }))
+  const viewerNext = () =>
+    setWorksheetViewer((v) => ({
+      ...v,
+      index: v.items.length === 0 ? 0 : (v.index + 1) % v.items.length,
+    }))
   const [maxMarks, setMaxMarks] = useState(1)
   const [selectedSuccessCriteriaIds, setSelectedSuccessCriteriaIds] = useState<string[]>([])
   const [shareMyWorkName, setShareMyWorkName] = useState("")
@@ -5019,9 +5041,22 @@ function LessonActivityEditorSheet({
                   </Button>
                   {(section.images.length > 0 || section.pending.length > 0) ? (
                     <ul className="space-y-1 text-xs text-muted-foreground">
-                      {section.images.map((img) => (
+                      {section.images.map((img, imgIndex) => (
                         <li key={img.filePath} className="flex items-center justify-between gap-2">
-                          <span className="truncate">{img.fileName}</span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setWorksheetViewer({
+                                open: true,
+                                items: section.images.map((i) => ({ url: buildLessonFileUrl(i.filePath), name: i.fileName })),
+                                index: imgIndex,
+                              })
+                            }
+                            className="min-w-0 flex-1 truncate text-left underline-offset-2 hover:text-foreground hover:underline"
+                            title={`View ${img.fileName}`}
+                          >
+                            {img.fileName}
+                          </button>
                           <Button
                             type="button"
                             variant="ghost"
@@ -5089,6 +5124,79 @@ function LessonActivityEditorSheet({
                 Marking guidance and the answer-sheet images are sent to the AI (not shown to the pupil). Pupils upload their
                 completed worksheet images, which are marked directly (no OCR).
               </p>
+
+              {/* Full-screen gallery viewer for stored worksheet/answer files. */}
+              <Dialog
+                open={worksheetViewer.open}
+                onOpenChange={(open) => setWorksheetViewer((v) => ({ ...v, open }))}
+              >
+                <DialogContent
+                  showCloseButton={false}
+                  className="h-[90vh] max-h-[90vh] w-[95vw] max-w-[95vw] p-0 gap-0 flex flex-col sm:max-w-4xl"
+                  onKeyDown={(event) => {
+                    if (worksheetViewer.items.length < 2) return
+                    if (event.key === "ArrowLeft") {
+                      event.preventDefault()
+                      viewerPrev()
+                    } else if (event.key === "ArrowRight") {
+                      event.preventDefault()
+                      viewerNext()
+                    }
+                  }}
+                >
+                  <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
+                    <DialogTitle className="min-w-0 truncate text-base font-medium">
+                      {currentViewerItem?.name}
+                      {worksheetViewer.items.length > 1 ? (
+                        <span className="ml-2 text-sm font-normal text-muted-foreground">
+                          {worksheetViewer.index + 1} / {worksheetViewer.items.length}
+                        </span>
+                      ) : null}
+                    </DialogTitle>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 shrink-0 p-0"
+                      onClick={() => setWorksheetViewer((v) => ({ ...v, open: false }))}
+                    >
+                      <X className="h-4 w-4" />
+                      <span className="sr-only">Close</span>
+                    </Button>
+                  </div>
+                  <div className="relative flex flex-1 min-h-0 items-center justify-center bg-muted/30 p-4">
+                    {currentViewerItem ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={currentViewerItem.url}
+                        alt={currentViewerItem.name}
+                        className="max-h-full max-w-full rounded-lg object-contain"
+                      />
+                    ) : null}
+                    {worksheetViewer.items.length > 1 ? (
+                      <>
+                        <Button
+                          variant="secondary"
+                          size="icon"
+                          onClick={viewerPrev}
+                          className="absolute left-3 top-1/2 h-10 w-10 -translate-y-1/2 rounded-full shadow-md"
+                          aria-label="Previous file"
+                        >
+                          <ChevronLeft className="h-5 w-5" />
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="icon"
+                          onClick={viewerNext}
+                          className="absolute right-3 top-1/2 h-10 w-10 -translate-y-1/2 rounded-full shadow-md"
+                          aria-label="Next file"
+                        >
+                          <ChevronRight className="h-5 w-5" />
+                        </Button>
+                      </>
+                    ) : null}
+                  </div>
+                </DialogContent>
+              </Dialog>
             </div>
           ) : null}
 

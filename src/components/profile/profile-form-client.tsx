@@ -108,21 +108,23 @@ export function ProfileFormClient({ profile, action, initialState }: ProfileForm
         />
       </div>
 
-      <div className="flex items-center justify-between rounded-md border border-border px-4 py-3">
-        <div>
-          <p className="text-sm font-medium text-foreground">Show experimental activities</p>
-          <p className="text-xs text-muted-foreground">
-            Reveal in-progress activity types in the lesson designer&apos;s activity picker.
-          </p>
+      {isTeacher ? (
+        <div className="flex items-center justify-between rounded-md border border-border px-4 py-3">
+          <div>
+            <p className="text-sm font-medium text-foreground">Show experimental activities</p>
+            <p className="text-xs text-muted-foreground">
+              Reveal in-progress activity types in the lesson designer&apos;s activity picker.
+            </p>
+          </div>
+          <Switch
+            name="showExperimentalActivities"
+            checked={showExperimental}
+            onCheckedChange={setShowExperimental}
+            disabled={pending}
+            data-testid="show_experimental_activities_switch"
+          />
         </div>
-        <Switch
-          name="showExperimentalActivities"
-          checked={showExperimental}
-          onCheckedChange={setShowExperimental}
-          disabled={pending}
-          data-testid="show_experimental_activities_switch"
-        />
-      </div>
+      ) : null}
 
       <Button type="submit" disabled={pending} className="w-full">
         {pending ? (
