@@ -1112,6 +1112,7 @@ export default async function PupilLessonFriendlyPage({
                         feedbackText={feedbackText}
                         modelAnswer={modelAnswer}
                         maxMarks={activity.max_marks ?? 1}
+                        viewerIsTeacher={isTeacher}
                       >
                         {body}
                       </LiveActivityShell>

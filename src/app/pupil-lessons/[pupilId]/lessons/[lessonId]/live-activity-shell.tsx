@@ -24,6 +24,8 @@ export interface LiveActivityShellProps {
   modelAnswer?: string | null
   maxMarks?: number
   teacher?: { name: string; initials: string }
+  /** Teachers previewing see AI marking feedback even before it is released to pupils. */
+  viewerIsTeacher?: boolean
 
   children: ReactNode
 }
@@ -51,6 +53,7 @@ export function LiveActivityShell({
   modelAnswer,
   maxMarks = 1,
   teacher,
+  viewerIsTeacher = false,
   children,
 }: LiveActivityShellProps) {
   const { currentVisible, markingResults } = useFeedbackVisibility()
@@ -59,7 +62,10 @@ export function LiveActivityShell({
   // Context (live) result wins over the server-rendered values.
   const isMarkedLive = isMarked || Boolean(contextResult)
   const isPendingLive = contextResult ? false : isPendingMarking
-  const released = !hideMarking && currentVisible && isMarkedLive && !isPendingLive
+  // Teachers previewing see AI feedback as soon as it is marked, even if it has
+  // not been released to pupils (e.g. an unassigned lesson preview).
+  const released = !hideMarking && (currentVisible || viewerIsTeacher) && isMarkedLive && !isPendingLive
+  const teacherPreview = released && viewerIsTeacher && !currentVisible
 
   const effectiveScoreMark = contextResult
     ? contextResult.score !== null
@@ -76,6 +82,11 @@ export function LiveActivityShell({
 
   const feedbackNode: ReactNode = (
     <>
+      {teacherPreview ? (
+        <p className="mb-2 rounded-pa-box bg-pa-amber-tint px-3 py-1.5 text-[11px] font-semibold text-pa-amber">
+          Preview — pupils can&apos;t see this until you release feedback for the assignment.
+        </p>
+      ) : null}
       {feedbackMarkup ? (
         <div dangerouslySetInnerHTML={{ __html: feedbackMarkup }} />
       ) : (
