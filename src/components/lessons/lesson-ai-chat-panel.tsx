@@ -1,32 +1,39 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useId, useRef, useState } from "react"
 import { toast } from "sonner"
-import { Check, Loader2, Plus, Send, Sparkles, X } from "lucide-react"
+import { Check, Loader2, Pencil, Plus, Send, Sparkles, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
   confirmProposedActivityAction,
   readLessonChatAction,
   sendLessonChatMessageAction,
+  updateProposalInChatAction,
   clearLessonChatAction,
 } from "@/lib/server-actions/lesson-chat"
 import type { ProposedActivity } from "@/lib/ai/lesson-chat-gemini"
 
 type ProposalStatus = "pending" | "adding" | "added" | "discarded"
+type CardProposal = ProposedActivity & { _status: ProposalStatus }
 
 interface ChatMessage {
+  messageId?: string
   role: "user" | "assistant"
   content: string
-  proposals: Array<ProposedActivity & { _status: ProposalStatus }>
+  proposals: CardProposal[]
 }
 
 interface LessonAiChatPanelProps {
   lessonId: string
-  /** Success criteria for chip labels: id → short description. */
   successCriteria: Array<{ id: string; label: string }>
   onClose: () => void
   onActivityCreated: (activity: unknown) => void
+}
+
+function stripStatus(p: CardProposal): ProposedActivity {
+  const { _status: _drop, ...rest } = p
+  return rest
 }
 
 export function LessonAiChatPanel({
@@ -51,6 +58,7 @@ export function LessonAiChatPanel({
       if (cancelled || !res.success) return
       setMessages(
         res.data.map((m) => ({
+          messageId: m.message_id,
           role: m.role,
           content: m.content,
           proposals: (m.proposals ?? []).map((p) => ({ ...p, _status: "pending" as ProposalStatus })),
@@ -82,6 +90,7 @@ export function LessonAiChatPanel({
       setMessages((prev) => [
         ...prev,
         {
+          messageId: res.messageId ?? undefined,
           role: "assistant",
           content: res.message,
           proposals: res.proposals.map((p) => ({ ...p, _status: "pending" as ProposalStatus })),
@@ -92,7 +101,7 @@ export function LessonAiChatPanel({
     }
   }, [input, lessonId, sending])
 
-  const updateProposal = (mi: number, pi: number, status: ProposalStatus) => {
+  const setStatus = (mi: number, pi: number, status: ProposalStatus) => {
     setMessages((prev) =>
       prev.map((m, i) =>
         i === mi ? { ...m, proposals: m.proposals.map((p, j) => (j === pi ? { ...p, _status: status } : p)) } : m,
@@ -100,16 +109,27 @@ export function LessonAiChatPanel({
     )
   }
 
+  const editProposal = (mi: number, pi: number, patch: Partial<ProposedActivity>) => {
+    setMessages((prev) =>
+      prev.map((m, i) =>
+        i === mi ? { ...m, proposals: m.proposals.map((p, j) => (j === pi ? { ...p, ...patch } : p)) } : m,
+      ),
+    )
+  }
+
   const addProposal = useCallback(
-    async (mi: number, pi: number, proposal: ProposedActivity) => {
-      updateProposal(mi, pi, "adding")
-      const res = await confirmProposedActivityAction({ lessonId, proposal })
+    async (mi: number, pi: number, messageId: string | undefined, proposal: CardProposal) => {
+      const clean = stripStatus(proposal)
+      setStatus(mi, pi, "adding")
+      const res = await confirmProposedActivityAction({ lessonId, proposal: clean })
       if (!res.success) {
         toast.error("Couldn't add activity", { description: res.error ?? "Please try again." })
-        updateProposal(mi, pi, "pending")
+        setStatus(mi, pi, "pending")
         return
       }
-      updateProposal(mi, pi, "added")
+      setStatus(mi, pi, "added")
+      // Persist the (possibly edited) proposal back into the chat so it stays correct.
+      if (messageId) void updateProposalInChatAction({ messageId, proposalIndex: pi, proposal: clean })
       toast.success("Activity added to the lesson")
       if (res.activity) onActivityCreated(res.activity)
     },
@@ -164,8 +184,9 @@ export function LessonAiChatPanel({
                 key={pi}
                 proposal={p}
                 scLabel={scLabel}
-                onAdd={() => addProposal(mi, pi, p)}
-                onDiscard={() => updateProposal(mi, pi, "discarded")}
+                onEdit={(patch) => editProposal(mi, pi, patch)}
+                onAdd={() => addProposal(mi, pi, m.messageId, p)}
+                onDiscard={() => setStatus(mi, pi, "discarded")}
               />
             ))}
           </div>
@@ -206,17 +227,27 @@ export function LessonAiChatPanel({
 function ProposalCard({
   proposal,
   scLabel,
+  onEdit,
   onAdd,
   onDiscard,
 }: {
-  proposal: ProposedActivity & { _status: ProposalStatus }
+  proposal: CardProposal
   scLabel: (id: string) => string
+  onEdit: (patch: Partial<ProposedActivity>) => void
   onAdd: () => void
   onDiscard: () => void
 }) {
+  const [editing, setEditing] = useState(false)
+  const radioName = useId()
   const isMcq = proposal.type === "multiple-choice-question"
   const discarded = proposal._status === "discarded"
   const added = proposal._status === "added"
+  const options = proposal.options ?? []
+
+  const setOptionText = (i: number, text: string) =>
+    onEdit({ options: options.map((o, j) => (j === i ? { ...o, text } : o)) })
+  const setCorrect = (i: number) =>
+    onEdit({ options: options.map((o, j) => ({ ...o, correct: j === i })) })
 
   return (
     <div
@@ -229,27 +260,67 @@ function ProposalCard({
         <span className="rounded-full bg-pa-green-tint px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-pa-green">
           {isMcq ? "MCQ" : "Short answer"}
         </span>
-        <span className="truncate text-xs font-medium text-muted-foreground">{proposal.title}</span>
+        {editing ? (
+          <input
+            value={proposal.title}
+            onChange={(e) => onEdit({ title: e.target.value })}
+            className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-0.5 text-xs"
+            placeholder="Title"
+          />
+        ) : (
+          <span className="truncate text-xs font-medium text-muted-foreground">{proposal.title}</span>
+        )}
       </div>
 
-      <p className="font-medium text-foreground">{proposal.question}</p>
+      {editing ? (
+        <textarea
+          value={proposal.question}
+          onChange={(e) => onEdit({ question: e.target.value })}
+          rows={2}
+          className="mt-1 w-full resize-none rounded border border-border bg-background px-2 py-1 text-sm"
+          placeholder="Question"
+        />
+      ) : (
+        <p className="font-medium text-foreground">{proposal.question}</p>
+      )}
 
       {isMcq ? (
         <ul className="mt-2 space-y-1">
-          {(proposal.options ?? []).map((opt, i) => (
-            <li
-              key={i}
-              className={
-                opt.correct
-                  ? "flex items-center gap-1.5 font-semibold text-pa-green"
-                  : "flex items-center gap-1.5 text-muted-foreground"
-              }
-            >
-              {opt.correct ? <Check className="h-3.5 w-3.5" /> : <span className="w-3.5" />}
-              {opt.text}
+          {options.map((opt, i) => (
+            <li key={i} className="flex items-center gap-1.5">
+              {editing ? (
+                <>
+                  <input
+                    type="radio"
+                    name={radioName}
+                    checked={opt.correct}
+                    onChange={() => setCorrect(i)}
+                    className="accent-pa-green"
+                    title="Mark correct"
+                  />
+                  <input
+                    value={opt.text}
+                    onChange={(e) => setOptionText(i, e.target.value)}
+                    className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-0.5 text-sm"
+                  />
+                </>
+              ) : (
+                <span className={opt.correct ? "flex items-center gap-1.5 font-semibold text-pa-green" : "flex items-center gap-1.5 text-muted-foreground"}>
+                  {opt.correct ? <Check className="h-3.5 w-3.5" /> : <span className="w-3.5" />}
+                  {opt.text}
+                </span>
+              )}
             </li>
           ))}
         </ul>
+      ) : editing ? (
+        <textarea
+          value={proposal.modelAnswer ?? ""}
+          onChange={(e) => onEdit({ modelAnswer: e.target.value })}
+          rows={2}
+          className="mt-2 w-full resize-none rounded border border-border bg-background px-2 py-1 text-xs"
+          placeholder="Model answer (used for AI marking)"
+        />
       ) : proposal.modelAnswer ? (
         <p className="mt-2 text-xs text-muted-foreground">
           <span className="font-semibold">Model answer:</span> {proposal.modelAnswer}
@@ -273,22 +344,20 @@ function ProposalCard({
           </span>
         ) : discarded ? (
           <span className="text-xs text-muted-foreground">Discarded</span>
+        ) : editing ? (
+          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setEditing(false)}>
+            Done
+          </Button>
         ) : (
           <>
+            <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => setEditing(true)}>
+              <Pencil className="h-3.5 w-3.5" /> Edit
+            </Button>
             <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onDiscard}>
               Discard
             </Button>
-            <Button
-              size="sm"
-              className="h-7 gap-1 text-xs"
-              onClick={onAdd}
-              disabled={proposal._status === "adding"}
-            >
-              {proposal._status === "adding" ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Plus className="h-3.5 w-3.5" />
-              )}
+            <Button size="sm" className="h-7 gap-1 text-xs" onClick={onAdd} disabled={proposal._status === "adding"}>
+              {proposal._status === "adding" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
               Add
             </Button>
           </>

@@ -118,14 +118,14 @@ export async function readLessonChatAction(lessonId: string): Promise<{
 export async function sendLessonChatMessageAction(input: {
   lessonId: string
   message: string
-}): Promise<{ success: boolean; message: string; proposals: ProposedActivity[]; error: string | null }> {
+}): Promise<{ success: boolean; messageId: string | null; message: string; proposals: ProposedActivity[]; error: string | null }> {
   const profile = await requireTeacherProfile()
-  if (!profile) return { success: false, message: "", proposals: [], error: "Unauthorized" }
+  if (!profile) return { success: false, messageId: null, message: "", proposals: [], error: "Unauthorized" }
 
   const lessonId = input.lessonId?.trim()
   const userMessage = input.message?.trim()
   if (!lessonId || !userMessage) {
-    return { success: false, message: "", proposals: [], error: "Missing lesson or message." }
+    return { success: false, messageId: null, message: "", proposals: [], error: "Missing lesson or message." }
   }
 
   try {
@@ -149,16 +149,41 @@ export async function sendLessonChatMessageAction(input: {
       successCriteriaIds: (p.successCriteriaIds ?? []).filter((id) => context.validScIds.has(id)),
     }))
 
-    await query(
-      `insert into lesson_chat_messages (lesson_id, teacher_id, role, content, proposals) values ($1, $2, 'assistant', $3, $4::jsonb)`,
+    const { rows: inserted } = await query<{ message_id: string }>(
+      `insert into lesson_chat_messages (lesson_id, teacher_id, role, content, proposals) values ($1, $2, 'assistant', $3, $4::jsonb) returning message_id`,
       [lessonId, profile.userId, reply.message, JSON.stringify(proposals)],
     )
 
-    return { success: true, message: reply.message, proposals, error: null }
+    return { success: true, messageId: inserted[0]?.message_id ?? null, message: reply.message, proposals, error: null }
   } catch (err) {
     const message = err instanceof Error ? err.message : "Chat failed."
     console.error("[lesson-chat] send failed", err)
-    return { success: false, message: "", proposals: [], error: message }
+    return { success: false, messageId: null, message: "", proposals: [], error: message }
+  }
+}
+
+/** Persist an edited proposal back into a stored assistant message (keeps the
+ * chat consistent with what the teacher added/changed). */
+export async function updateProposalInChatAction(input: {
+  messageId: string
+  proposalIndex: number
+  proposal: ProposedActivity
+}): Promise<{ success: boolean; error: string | null }> {
+  const profile = await requireTeacherProfile()
+  if (!profile) return { success: false, error: "Unauthorized" }
+  const { messageId, proposalIndex, proposal } = input
+  if (!messageId || proposalIndex < 0 || !proposal) return { success: false, error: "Missing parameters." }
+  try {
+    await query(
+      `update lesson_chat_messages
+         set proposals = jsonb_set(coalesce(proposals, '[]'::jsonb), array[$2::text], $3::jsonb, false)
+       where message_id = $1`,
+      [messageId, String(proposalIndex), JSON.stringify(proposal)],
+    )
+    return { success: true, error: null }
+  } catch (err) {
+    console.error("[lesson-chat] update proposal failed", err)
+    return { success: false, error: "Failed to update chat." }
   }
 }
 
