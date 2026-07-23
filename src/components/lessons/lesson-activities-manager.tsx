@@ -5005,7 +5005,7 @@ function LessonActivityEditorSheet({
                   <input
                     ref={section.ref}
                     type="file"
-                    accept="image/*,application/pdf,.pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    accept="image/*,application/pdf,.pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.doc,application/msword"
                     multiple
                     className="hidden"
                     onChange={(event) => {
