@@ -160,8 +160,9 @@ export function LessonAiChatPanel({
       <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
         {messages.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Ask me to generate multiple‑choice or short‑answer questions from this lesson&apos;s
-            objectives and existing activities. e.g. <em>&quot;Make 3 MCQs on the key vocabulary.&quot;</em>
+            Ask me to add activities — multiple‑choice, short‑answer, display text, a section
+            heading, or a video — from this lesson&apos;s objectives and existing activities. e.g.{" "}
+            <em>&quot;Add a &lsquo;Warm up&rsquo; section then 3 MCQs on the key vocabulary.&quot;</em>
           </p>
         ) : null}
 
@@ -211,7 +212,7 @@ export function LessonAiChatPanel({
               }
             }}
             rows={2}
-            placeholder="Ask the AI to create MCQ / short‑answer activities…"
+            placeholder="Ask the AI to create activities…"
             className="flex-1 resize-none rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus-visible:border-pa-green"
             disabled={sending}
           />
@@ -240,6 +241,12 @@ function ProposalCard({
   const [editing, setEditing] = useState(false)
   const radioName = useId()
   const isMcq = proposal.type === "multiple-choice-question"
+  const isStq = proposal.type === "short-text-question"
+  const isText = proposal.type === "text"
+  const isSection = proposal.type === "display-section"
+  const isVideo = proposal.type === "show-video"
+  const hasQuestion = isMcq || isStq
+  const typeLabel = isMcq ? "MCQ" : isStq ? "Short answer" : isText ? "Text" : isSection ? "Section" : "Video"
   const discarded = proposal._status === "discarded"
   const added = proposal._status === "added"
   const options = proposal.options ?? []
@@ -258,7 +265,7 @@ function ProposalCard({
     >
       <div className="mb-1 flex items-center justify-between gap-2">
         <span className="rounded-full bg-pa-green-tint px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-pa-green">
-          {isMcq ? "MCQ" : "Short answer"}
+          {typeLabel}
         </span>
         {editing ? (
           <input
@@ -272,17 +279,19 @@ function ProposalCard({
         )}
       </div>
 
-      {editing ? (
-        <textarea
-          value={proposal.question}
-          onChange={(e) => onEdit({ question: e.target.value })}
-          rows={2}
-          className="mt-1 w-full resize-none rounded border border-border bg-background px-2 py-1 text-sm"
-          placeholder="Question"
-        />
-      ) : (
-        <p className="font-medium text-foreground">{proposal.question}</p>
-      )}
+      {hasQuestion ? (
+        editing ? (
+          <textarea
+            value={proposal.question ?? ""}
+            onChange={(e) => onEdit({ question: e.target.value })}
+            rows={2}
+            className="mt-1 w-full resize-none rounded border border-border bg-background px-2 py-1 text-sm"
+            placeholder="Question"
+          />
+        ) : (
+          <p className="font-medium text-foreground">{proposal.question}</p>
+        )
+      ) : null}
 
       {isMcq ? (
         <ul className="mt-2 space-y-1">
@@ -313,18 +322,58 @@ function ProposalCard({
             </li>
           ))}
         </ul>
-      ) : editing ? (
-        <textarea
-          value={proposal.modelAnswer ?? ""}
-          onChange={(e) => onEdit({ modelAnswer: e.target.value })}
-          rows={2}
-          className="mt-2 w-full resize-none rounded border border-border bg-background px-2 py-1 text-xs"
-          placeholder="Model answer (used for AI marking)"
-        />
-      ) : proposal.modelAnswer ? (
-        <p className="mt-2 text-xs text-muted-foreground">
-          <span className="font-semibold">Model answer:</span> {proposal.modelAnswer}
-        </p>
+      ) : isStq ? (
+        editing ? (
+          <textarea
+            value={proposal.modelAnswer ?? ""}
+            onChange={(e) => onEdit({ modelAnswer: e.target.value })}
+            rows={2}
+            className="mt-2 w-full resize-none rounded border border-border bg-background px-2 py-1 text-xs"
+            placeholder="Model answer (used for AI marking)"
+          />
+        ) : proposal.modelAnswer ? (
+          <p className="mt-2 text-xs text-muted-foreground">
+            <span className="font-semibold">Model answer:</span> {proposal.modelAnswer}
+          </p>
+        ) : null
+      ) : isText ? (
+        editing ? (
+          <textarea
+            value={proposal.text ?? ""}
+            onChange={(e) => onEdit({ text: e.target.value })}
+            rows={4}
+            className="mt-1 w-full resize-none rounded border border-border bg-background px-2 py-1 text-sm"
+            placeholder="Text to display to pupils"
+          />
+        ) : (
+          <p className="whitespace-pre-wrap text-foreground">{proposal.text}</p>
+        )
+      ) : isSection ? (
+        editing ? (
+          <input
+            value={proposal.text ?? ""}
+            onChange={(e) => onEdit({ text: e.target.value })}
+            className="mt-1 w-full rounded border border-border bg-background px-2 py-1 text-sm font-semibold"
+            placeholder="Section heading"
+          />
+        ) : (
+          <p className="text-base font-semibold text-foreground">{proposal.text}</p>
+        )
+      ) : isVideo ? (
+        editing ? (
+          <input
+            value={proposal.videoUrl ?? ""}
+            onChange={(e) => onEdit({ videoUrl: e.target.value })}
+            className="mt-1 w-full rounded border border-border bg-background px-2 py-1 text-sm"
+            placeholder="Video URL (e.g. YouTube link)"
+          />
+        ) : proposal.videoUrl ? (
+          <a href={proposal.videoUrl} target="_blank" rel="noreferrer" className="mt-1 block break-all text-xs text-pa-green underline">
+            {proposal.videoUrl}
+          </a>
+        ) : (
+          <p className="mt-1 text-xs italic text-muted-foreground">No video URL yet — click Edit to add one.</p>
+        )
       ) : null}
 
       {proposal.successCriteriaIds && proposal.successCriteriaIds.length > 0 ? (

@@ -53,14 +53,22 @@ async function getLessonChatContext(lessonId: string): Promise<LessonChatContext
 
   const systemText = [
     "You are an assistant that helps a teacher author lesson activities for the lesson below.",
-    "You can ONLY propose two activity types: multiple-choice-question (MCQ) and short-text-question (STQ).",
+    "You can propose these activity types:",
+    "- multiple-choice-question (MCQ)",
+    "- short-text-question (STQ)",
+    "- text (Display Text: informational content shown to pupils)",
+    "- display-section (Display Section: a heading that groups the activities that follow it)",
+    "- show-video (Display Video: embeds a video)",
     "You never create activities yourself — you return proposals as structured data; the teacher confirms them.",
     "",
-    "Rules:",
-    "- MCQ: provide 2–4 options; each option has `text` and a `correct` boolean, with EXACTLY ONE option marked correct: true.",
-    "- STQ: provide a concise modelAnswer used for AI marking.",
-    "- Align each proposal to the lesson's success criteria where sensible, using successCriteriaIds — you may ONLY use the SC IDs listed below; never invent IDs.",
-    "- Keep questions clear and grade-appropriate; base them on the lesson's objectives and existing activities unless the teacher says otherwise.",
+    "Each proposal always includes every field; fill the ones relevant to its type and leave the rest empty (\"\" or []):",
+    "- MCQ: set `question`; set `options` to 2–4 items, each with `text` and a `correct` boolean, EXACTLY ONE correct: true.",
+    "- STQ: set `question` and a concise `modelAnswer` (used for AI marking).",
+    "- text: set `text` to the content to display (a few clear sentences).",
+    "- display-section: set `text` to the section heading.",
+    "- show-video: set `videoUrl` ONLY if the teacher gave you a URL — never invent a video URL; otherwise leave it empty for the teacher to fill.",
+    "- Align MCQ/STQ to the lesson's success criteria where sensible, using successCriteriaIds — you may ONLY use the SC IDs listed below; never invent IDs. Display types have no success criteria.",
+    "- Keep content clear and grade-appropriate; base it on the lesson's objectives and existing activities unless the teacher says otherwise.",
     "- Put a short conversational reply in `message` and the activities in `proposals` (empty array if none this turn).",
     "",
     `Lesson: ${lessonTitle}`,
@@ -209,6 +217,7 @@ export async function confirmProposedActivityAction(input: {
   const successCriteriaIds = (proposal.successCriteriaIds ?? []).filter((id) => context.validScIds.has(id))
 
   let bodyData: unknown
+  let linkSuccessCriteria = false
   if (proposal.type === "multiple-choice-question") {
     const rawOptions = proposal.options ?? []
     const options = rawOptions.map((o, i) => ({ id: `opt-${i + 1}`, text: o.text }))
@@ -217,11 +226,19 @@ export async function confirmProposedActivityAction(input: {
     const parsed = McqActivityBodySchema.safeParse(built)
     if (!parsed.success) return { success: false, error: "Invalid MCQ proposal.", activity: null }
     bodyData = parsed.data
+    linkSuccessCriteria = true
   } else if (proposal.type === "short-text-question") {
     const built = { question: proposal.question, modelAnswer: proposal.modelAnswer ?? "" }
     const parsed = ShortTextActivityBodySchema.safeParse(built)
     if (!parsed.success) return { success: false, error: "Invalid STQ proposal.", activity: null }
     bodyData = parsed.data
+    linkSuccessCriteria = true
+  } else if (proposal.type === "text") {
+    bodyData = { text: proposal.text ?? "" }
+  } else if (proposal.type === "display-section") {
+    bodyData = { description: proposal.text ?? "" }
+  } else if (proposal.type === "show-video") {
+    bodyData = { fileUrl: proposal.videoUrl ?? "" }
   } else {
     return { success: false, error: "Unsupported activity type.", activity: null }
   }
@@ -230,8 +247,8 @@ export async function confirmProposedActivityAction(input: {
     title: proposal.title,
     type: proposal.type,
     bodyData,
-    successCriteriaIds,
-    maxMarks: proposal.maxMarks,
+    successCriteriaIds: linkSuccessCriteria ? successCriteriaIds : undefined,
+    maxMarks: linkSuccessCriteria ? proposal.maxMarks : undefined,
   })
 
   return { success: result.success, error: result.error ?? null, activity: result.data ?? null }

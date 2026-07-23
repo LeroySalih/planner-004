@@ -12,14 +12,26 @@ export interface ChatTurn {
   content: string
 }
 
+export type ProposedActivityType =
+  | "multiple-choice-question"
+  | "short-text-question"
+  | "text"
+  | "display-section"
+  | "show-video"
+
 export interface ProposedActivity {
-  type: "multiple-choice-question" | "short-text-question"
+  type: ProposedActivityType
   title: string
-  question: string
+  /** MCQ/STQ only: the question stem. */
+  question?: string
   /** MCQ only: 2–4 answer options, each flagged correct/incorrect. */
   options?: Array<{ text: string; correct: boolean }>
   /** STQ only: the model answer used for AI marking. */
   modelAnswer?: string
+  /** Display Text: the content. Display Section: the heading. */
+  text?: string
+  /** Display Video: the video URL. */
+  videoUrl?: string
   /** Success-criteria IDs (must come from the lesson's real SCs). */
   successCriteriaIds?: string[]
   maxMarks?: number
@@ -39,9 +51,20 @@ const RESPONSE_SCHEMA = {
       items: {
         type: "OBJECT",
         properties: {
-          type: { type: "STRING", enum: ["multiple-choice-question", "short-text-question"] },
+          type: {
+            type: "STRING",
+            enum: [
+              "multiple-choice-question",
+              "short-text-question",
+              "text",
+              "display-section",
+              "show-video",
+            ],
+          },
           title: { type: "STRING" },
           question: { type: "STRING" },
+          text: { type: "STRING" },
+          videoUrl: { type: "STRING" },
           options: {
             type: "ARRAY",
             items: {
@@ -57,7 +80,10 @@ const RESPONSE_SCHEMA = {
           successCriteriaIds: { type: "ARRAY", items: { type: "STRING" } },
           maxMarks: { type: "INTEGER" },
         },
-        required: ["type", "title", "question"],
+        // Require the content fields so controlled generation always emits them
+        // (Gemini drops optional fields); the model fills the relevant one for
+        // the chosen type and leaves the others empty.
+        required: ["type", "title", "question", "text", "videoUrl", "modelAnswer", "options"],
       },
     },
   },
