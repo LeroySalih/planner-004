@@ -166,19 +166,19 @@ export async function sendLessonChatMessageAction(input: {
 export async function confirmProposedActivityAction(input: {
   lessonId: string
   proposal: ProposedActivity
-}): Promise<{ success: boolean; error: string | null }> {
+}): Promise<{ success: boolean; error: string | null; activity: unknown }> {
   const profile = await requireTeacherProfile()
-  if (!profile) return { success: false, error: "Unauthorized" }
+  if (!profile) return { success: false, error: "Unauthorized", activity: null }
 
   const { lessonId, proposal } = input
-  if (!lessonId || !proposal) return { success: false, error: "Missing parameters." }
+  if (!lessonId || !proposal) return { success: false, error: "Missing parameters.", activity: null }
 
   const { rows } = await query<{ unit_id: string | null }>(
     `select unit_id from lessons where lesson_id = $1 limit 1`,
     [lessonId],
   )
   const unitId = rows[0]?.unit_id
-  if (!unitId) return { success: false, error: "Lesson has no unit." }
+  if (!unitId) return { success: false, error: "Lesson has no unit.", activity: null }
 
   const context = await getLessonChatContext(lessonId)
   const successCriteriaIds = (proposal.successCriteriaIds ?? []).filter((id) => context.validScIds.has(id))
@@ -189,15 +189,15 @@ export async function confirmProposedActivityAction(input: {
     const idx = proposal.correctOptionIndex ?? 0
     const built = { question: proposal.question, options, correctOptionId: `opt-${idx + 1}` }
     const parsed = McqActivityBodySchema.safeParse(built)
-    if (!parsed.success) return { success: false, error: "Invalid MCQ proposal." }
+    if (!parsed.success) return { success: false, error: "Invalid MCQ proposal.", activity: null }
     bodyData = parsed.data
   } else if (proposal.type === "short-text-question") {
     const built = { question: proposal.question, modelAnswer: proposal.modelAnswer ?? "" }
     const parsed = ShortTextActivityBodySchema.safeParse(built)
-    if (!parsed.success) return { success: false, error: "Invalid STQ proposal." }
+    if (!parsed.success) return { success: false, error: "Invalid STQ proposal.", activity: null }
     bodyData = parsed.data
   } else {
-    return { success: false, error: "Unsupported activity type." }
+    return { success: false, error: "Unsupported activity type.", activity: null }
   }
 
   const result = await createLessonActivityAction(unitId, lessonId, {
@@ -208,7 +208,7 @@ export async function confirmProposedActivityAction(input: {
     maxMarks: proposal.maxMarks,
   })
 
-  return { success: result.success, error: result.error ?? null }
+  return { success: result.success, error: result.error ?? null, activity: result.data ?? null }
 }
 
 /** Clear a lesson's chat history. */

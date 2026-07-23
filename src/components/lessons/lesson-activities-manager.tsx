@@ -4,7 +4,8 @@ import type { ChangeEvent, DragEvent } from "react"
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ClipboardPaste, Download, GripVertical, Loader2, Pencil, Play, Plus, Trash2, X } from "lucide-react"
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ClipboardPaste, Download, GripVertical, Loader2, Pencil, Play, Plus, Sparkles, Trash2, X } from "lucide-react"
+import { LessonAiChatPanel } from "@/components/lessons/lesson-ai-chat-panel"
 
 import type {
   FeedbackActivityBody,
@@ -173,6 +174,18 @@ export function LessonActivitiesManager({
   const router = useRouter()
   const [activities, setActivities] = useState<LessonActivity[]>(() => sortActivities(initialActivities))
   const [isPending, startTransition] = useTransition()
+  const [aiChatOpen, setAiChatOpen] = useState(false)
+
+  // Append an AI-created activity to the list (deduped), for live insert.
+  const handleAiActivityCreated = useCallback((activity: unknown) => {
+    const created = activity as LessonActivity | null
+    if (!created?.activity_id) return
+    setActivities((prev) =>
+      prev.some((a) => a.activity_id === created.activity_id)
+        ? prev
+        : sortActivities([...prev, created]),
+    )
+  }, [])
 
   // Live-update activity images when async doc conversion (Gotenberg) completes,
   // so Word-document worksheet/answer pages appear without a manual refresh.
@@ -1541,6 +1554,13 @@ ${scs[0] ? `SC: ${scs[0].title}` : ""}
                 Paste Activities
               </Button>
               <Button
+                onClick={() => setAiChatOpen(true)}
+                variant="outline"
+                className="w-full border-pa-green/50 text-pa-green hover:bg-pa-green-tint sm:w-auto"
+              >
+                <Sparkles className="mr-2 h-4 w-4" /> Create with AI
+              </Button>
+              <Button
                 onClick={() => openEditor(NEW_ACTIVITY_ID)}
                 disabled={isBusy}
                 className="w-full sm:w-auto"
@@ -1899,6 +1919,22 @@ ${scs[0] ? `SC: ${scs[0].title}` : ""}
         allActivities={activities}
         showExperimental={showExperimental}
       />
+
+      {aiChatOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex justify-end bg-black/30"
+          onClick={() => setAiChatOpen(false)}
+        >
+          <div className="h-full" onClick={(event) => event.stopPropagation()}>
+            <LessonAiChatPanel
+              lessonId={lessonId}
+              successCriteria={availableSuccessCriteria.map((sc) => ({ id: sc.successCriteriaId, label: sc.title }))}
+              onClose={() => setAiChatOpen(false)}
+              onActivityCreated={handleAiActivityCreated}
+            />
+          </div>
+        </div>
+      ) : null}
 
       <Dialog
         open={imageModal.open}
