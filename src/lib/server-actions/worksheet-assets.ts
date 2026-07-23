@@ -104,7 +104,13 @@ export async function uploadWorksheetTeacherFileAction(
         { lessonId, activityId, group, rawFilePath: rawPath, fileName: file.name, uploadedBy: profile.userId },
         { processAfterSeconds: DOC_CONVERT_DELAY_SECS },
       )
-      void triggerJobProcessor()
+      // The job is delayed so the caller's activity save writes body_data first.
+      // An immediate trigger would run before the job is due (and find nothing),
+      // so schedule the trigger for just after the delay. The processor also
+      // self-chains if more jobs remain.
+      setTimeout(() => {
+        void triggerJobProcessor()
+      }, (DOC_CONVERT_DELAY_SECS + 2) * 1000)
       return { images: [], pending: [{ fileName: file.name }], error: null }
     }
 
