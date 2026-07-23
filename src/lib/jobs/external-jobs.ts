@@ -106,6 +106,7 @@ export async function processNextJobs(): Promise<{ processed: number; remaining:
         select job_id
         from external_jobs
         where status='pending' and process_after <= now() and attempts < max_attempts
+          and job_type <> 'ai_mark'
         order by process_after asc
         limit $1
         for update skip locked
@@ -136,7 +137,7 @@ export async function processNextJobs(): Promise<{ processed: number; remaining:
   const processed = results.filter((r) => r.status === "fulfilled").length;
 
   const { rows: countRows } = await query<{ count: string }>(
-    `select count(*)::text as count from external_jobs where status='pending' and process_after <= now() and attempts < max_attempts`,
+    `select count(*)::text as count from external_jobs where status='pending' and process_after <= now() and attempts < max_attempts and job_type <> 'ai_mark'`,
   );
   const remaining = parseInt(countRows[0]?.count ?? "0", 10);
 
@@ -148,7 +149,8 @@ export async function recoverStuckJobs(): Promise<void> {
   await query(
     `update external_jobs
        set status='pending', updated_at=now()
-     where status='processing' and updated_at < now() - make_interval(mins => $1)`,
+     where status='processing' and updated_at < now() - make_interval(mins => $1)
+       and job_type <> 'ai_mark'`,
     [STUCK_JOB_MINUTES],
   );
 }
@@ -156,7 +158,7 @@ export async function recoverStuckJobs(): Promise<void> {
 /** Prune old completed jobs so the table stays small. Keeps errors for review. */
 export async function pruneDoneJobs(): Promise<void> {
   await query(
-    `delete from external_jobs where status='done' and updated_at < now() - interval '7 days'`,
+    `delete from external_jobs where status='done' and updated_at < now() - interval '7 days' and job_type <> 'ai_mark'`,
   );
 }
 

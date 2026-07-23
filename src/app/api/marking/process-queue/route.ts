@@ -48,8 +48,8 @@ export async function POST(request: Request) {
       const { rows } = await import("@/lib/db").then((m) =>
         m.query(
           `select
-             (select count(*) from ai_marking_queue q join submissions s on s.submission_id=q.submission_id where s.mark_status='waiting' and q.process_after<=now() and q.attempts<3)
-           + (select count(*) from ai_marking_queue q join revision_answers r on r.answer_id=q.submission_id::uuid where q.assignment_id='revision' and r.status='pending_marking' and q.process_after<=now() and q.attempts<3)
+             (select count(*) from external_jobs j join submissions s on s.submission_id=j.payload->>'submissionId' where j.job_type='ai_mark' and s.mark_status='waiting' and j.process_after<=now() and j.attempts<j.max_attempts)
+           + (select count(*) from external_jobs j join revision_answers r on r.answer_id=(j.payload->>'submissionId')::uuid where j.job_type='ai_mark' and j.payload->>'assignmentId'='revision' and r.status='pending_marking' and j.process_after<=now() and j.attempts<j.max_attempts)
              as count`,
         )
       );

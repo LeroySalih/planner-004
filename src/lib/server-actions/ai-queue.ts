@@ -13,25 +13,34 @@ export async function readAiMarkingQueueAction() {
     const { rows } = await query(
       `
       SELECT
-        q.*,
+        q.job_id as queue_id,
+        q.payload->>'submissionId' as submission_id,
+        q.payload->>'assignmentId' as assignment_id,
+        q.status,
+        q.attempts,
+        q.last_error,
+        q.process_after,
+        q.created_at,
+        q.updated_at,
         COALESCE(p.first_name, rp.first_name) as first_name,
         COALESCE(p.last_name, rp.last_name) as last_name,
         COALESCE(a.title, ra_act.title) as activity_title,
-        CASE WHEN q.assignment_id = 'revision' THEN 'Revision' ELSE 'Lesson' END as source_type,
+        CASE WHEN q.payload->>'assignmentId' = 'revision' THEN 'Revision' ELSE 'Lesson' END as source_type,
         s.mark_status,
         s.mark_error
-      FROM ai_marking_queue q
+      FROM external_jobs q
       -- Regular submissions
-      LEFT JOIN submissions s ON s.submission_id = q.submission_id AND q.assignment_id != 'revision'
+      LEFT JOIN submissions s ON s.submission_id = q.payload->>'submissionId' AND q.payload->>'assignmentId' != 'revision'
       LEFT JOIN profiles p ON p.user_id = s.user_id
       LEFT JOIN activities a ON a.activity_id = s.activity_id
 
       -- Revision answers
-      LEFT JOIN revision_answers ra ON ra.answer_id::text = q.submission_id AND q.assignment_id = 'revision'
+      LEFT JOIN revision_answers ra ON ra.answer_id::text = q.payload->>'submissionId' AND q.payload->>'assignmentId' = 'revision'
       LEFT JOIN revisions r ON r.revision_id = ra.revision_id
       LEFT JOIN profiles rp ON rp.user_id = r.pupil_id
       LEFT JOIN activities ra_act ON ra_act.activity_id = ra.activity_id
 
+      WHERE q.job_type = 'ai_mark'
       ORDER BY q.process_after ASC
       LIMIT 100
       `,
@@ -41,18 +50,18 @@ export async function readAiMarkingQueueAction() {
       `
       SELECT
         (
-          select count(*) from ai_marking_queue q
-          left join submissions s on s.submission_id = q.submission_id
-          left join revision_answers r on q.assignment_id = 'revision' and r.answer_id = q.submission_id::uuid
-          where s.mark_status = 'waiting' or r.status = 'pending_marking'
+          select count(*) from external_jobs q
+          left join submissions s on s.submission_id = q.payload->>'submissionId'
+          left join revision_answers r on q.payload->>'assignmentId' = 'revision' and r.answer_id = (q.payload->>'submissionId')::uuid
+          where q.job_type = 'ai_mark' and (s.mark_status = 'waiting' or r.status = 'pending_marking')
         ) as waiting,
         (
-          select count(*) from ai_marking_queue q
-          left join submissions s on s.submission_id = q.submission_id
-          left join revision_answers r on q.assignment_id = 'revision' and r.answer_id = q.submission_id::uuid
-          where s.mark_status = 'marking' or r.status = 'marking'
+          select count(*) from external_jobs q
+          left join submissions s on s.submission_id = q.payload->>'submissionId'
+          left join revision_answers r on q.payload->>'assignmentId' = 'revision' and r.answer_id = (q.payload->>'submissionId')::uuid
+          where q.job_type = 'ai_mark' and (s.mark_status = 'marking' or r.status = 'marking')
         ) as marking,
-        (select count(*) from ai_marking_queue) as total
+        (select count(*) from external_jobs where job_type = 'ai_mark') as total
       `,
     );
 
@@ -70,21 +79,21 @@ export async function readAiMarkingQueueAction() {
 export async function retryQueueItemAction(queueId: string) {
   try {
     await query(
-      `UPDATE ai_marking_queue SET attempts = 0, process_after = now() WHERE queue_id = $1`,
+      `UPDATE external_jobs SET status = 'pending', attempts = 0, process_after = now(), updated_at = now() WHERE job_id = $1`,
       [queueId],
     );
     // Reset linked submission back to waiting state
     await query(
       `UPDATE submissions SET mark_status = 'waiting'
-       WHERE submission_id = (SELECT submission_id FROM ai_marking_queue WHERE queue_id = $1)`,
+       WHERE submission_id = (SELECT payload->>'submissionId' FROM external_jobs WHERE job_id = $1)`,
       [queueId],
     );
     // Reset linked revision answer back to pending_marking (no-op for non-revision rows)
     await query(
       `UPDATE revision_answers SET status = 'pending_marking'
        WHERE answer_id = (
-         SELECT submission_id::uuid FROM ai_marking_queue
-         WHERE queue_id = $1 AND assignment_id = 'revision'
+         SELECT (payload->>'submissionId')::uuid FROM external_jobs
+         WHERE job_id = $1 AND payload->>'assignmentId' = 'revision'
        )`,
       [queueId],
     );
@@ -145,7 +154,7 @@ export async function readAiMarkingLogsAction() {
 
 export async function clearAiMarkingQueueAction() {
   try {
-    await query(`DELETE FROM ai_marking_queue`);
+    await query(`DELETE FROM external_jobs WHERE job_type = 'ai_mark'`);
     await logQueueEvent("info", "Queue manually cleared");
     revalidatePath("/ai-queue");
     return { success: true };

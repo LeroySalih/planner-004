@@ -81,19 +81,30 @@ export async function enqueueMarkingTasks(
       `update submissions set mark_status='waiting', mark_error=null where submission_id=$1`,
       [task.submissionId],
     );
-    await query(
-      `
-        insert into ai_marking_queue (submission_id, assignment_id, attempts, process_after)
-        values ($1, $2, 0, now() + make_interval(secs => $3))
-        on conflict (submission_id) do update set
-          assignment_id = excluded.assignment_id,
-          attempts = 0,
-          process_after = now() + make_interval(secs => $3),
-          updated_at = now()
-      `,
-      [task.submissionId, assignmentId, delaySecs],
-    );
+    await enqueueAiMarkJob(task.submissionId, assignmentId, delaySecs);
   }
+}
+
+/**
+ * Insert (or reset) a single `ai_mark` job on the unified external_jobs queue —
+ * one active job per submission. Used by enqueueMarkingTasks and the revision
+ * flow. The entity's own status (submissions.mark_status / revision_answers.status)
+ * gates claiming; this only manages the job row.
+ */
+export async function enqueueAiMarkJob(
+  submissionId: string,
+  assignmentId: string,
+  delaySecs = 0,
+) {
+  await query(
+    `delete from external_jobs where job_type='ai_mark' and status in ('pending','processing') and payload->>'submissionId' = $1`,
+    [submissionId],
+  );
+  await query(
+    `insert into external_jobs (job_type, payload, process_after)
+     values ('ai_mark', jsonb_build_object('submissionId', $1::text, 'assignmentId', $2::text), now() + make_interval(secs => $3))`,
+    [submissionId, assignmentId, delaySecs],
+  );
 }
 
 export async function processNextQueueItem() {
@@ -107,21 +118,23 @@ export async function processNextQueueItem() {
     submission_id: string;
     assignment_id: string;
     attempts: number;
+    job_id: string;
   }>(
     `
     update submissions s
     set mark_status = 'marking'
     from (
-      select q.submission_id, q.assignment_id, q.attempts
-      from ai_marking_queue q
-      join submissions sub on sub.submission_id = q.submission_id
-      where sub.mark_status = 'waiting' and q.process_after <= now() and q.attempts < 3
-      order by q.process_after asc
+      select j.job_id, (j.payload->>'submissionId') as submission_id, (j.payload->>'assignmentId') as assignment_id, j.attempts
+      from external_jobs j
+      join submissions sub on sub.submission_id = j.payload->>'submissionId'
+      where j.job_type = 'ai_mark' and j.status = 'pending'
+        and sub.mark_status = 'waiting' and j.process_after <= now() and j.attempts < j.max_attempts
+      order by j.process_after asc
       limit $1
-      for update of q skip locked
+      for update of j skip locked
     ) picked
     where s.submission_id = picked.submission_id
-    returning s.submission_id, picked.assignment_id as assignment_id, picked.attempts as attempts
+    returning picked.submission_id as submission_id, picked.assignment_id as assignment_id, picked.attempts as attempts, picked.job_id as job_id
     `,
     [BATCH_SIZE],
   );
@@ -131,20 +144,21 @@ export async function processNextQueueItem() {
     submission_id: string;
     assignment_id: string;
     attempts: number;
+    job_id: string;
   }>(
     `update revision_answers ra set status='marking'
      from (
-       select q.submission_id, q.assignment_id, q.attempts
-       from ai_marking_queue q
-       join revision_answers r on r.answer_id = q.submission_id::uuid
-       where q.assignment_id = 'revision' and r.status = 'pending_marking'
-         and q.process_after <= now() and q.attempts < 3
-       order by q.process_after asc
+       select j.job_id, (j.payload->>'submissionId') as submission_id, (j.payload->>'assignmentId') as assignment_id, j.attempts
+       from external_jobs j
+       join revision_answers r on r.answer_id = (j.payload->>'submissionId')::uuid
+       where j.job_type = 'ai_mark' and j.status = 'pending' and j.payload->>'assignmentId' = 'revision'
+         and r.status = 'pending_marking' and j.process_after <= now() and j.attempts < j.max_attempts
+       order by j.process_after asc
        limit $1
-       for update of q skip locked
+       for update of j skip locked
      ) picked
      where ra.answer_id = picked.submission_id::uuid
-     returning ra.answer_id as submission_id, picked.assignment_id as assignment_id, picked.attempts as attempts`,
+     returning ra.answer_id as submission_id, picked.assignment_id as assignment_id, picked.attempts as attempts, picked.job_id as job_id`,
     [BATCH_SIZE],
   );
 
@@ -153,6 +167,13 @@ export async function processNextQueueItem() {
   if (claimed.length === 0) {
     return { processed: 0, remaining: 0 };
   }
+
+  // Mark the claimed jobs as processing (the claim above transitioned the
+  // entity status; this transitions the job row so recovery can find it).
+  await query(
+    `update external_jobs set status='processing', updated_at=now() where job_id = any($1::uuid[])`,
+    [claimed.map((item) => item.job_id)],
+  );
 
   await logQueueEvent(
     "info",
@@ -167,8 +188,8 @@ export async function processNextQueueItem() {
   // 3. Check remaining
   const { rows: countRows } = await query(
     `select
-       (select count(*) from ai_marking_queue q join submissions s on s.submission_id=q.submission_id where s.mark_status='waiting' and q.process_after<=now() and q.attempts<3)
-     + (select count(*) from ai_marking_queue q join revision_answers r on r.answer_id=q.submission_id::uuid where q.assignment_id='revision' and r.status='pending_marking' and q.process_after<=now() and q.attempts<3)
+       (select count(*) from external_jobs j join submissions s on s.submission_id=j.payload->>'submissionId' where j.job_type='ai_mark' and s.mark_status='waiting' and j.process_after<=now() and j.attempts<j.max_attempts)
+     + (select count(*) from external_jobs j join revision_answers r on r.answer_id=(j.payload->>'submissionId')::uuid where j.job_type='ai_mark' and j.payload->>'assignmentId'='revision' and r.status='pending_marking' and j.process_after<=now() and j.attempts<j.max_attempts)
        as count`,
   );
   const remainingCount = parseInt((countRows[0] as any).count, 10);
@@ -191,6 +212,7 @@ async function processSingleItem(
     submission_id: string;
     assignment_id: string;
     attempts: number;
+    job_id: string;
   },
   callbackUrl?: string,
 ) {
@@ -254,14 +276,14 @@ async function processSingleItem(
         { type: context.type },
       );
 
-      // Unsupported: mark the submission as errored and drop the queue row so we don't retry
+      // Unsupported: mark the submission as errored and error the job so we don't retry
       await query(
         `update submissions set mark_status='marking-error', mark_error='Unsupported activity type' where submission_id=$1`,
         [item.submission_id],
       );
       await query(
-        `delete from ai_marking_queue where submission_id=$1`,
-        [item.submission_id],
+        `update external_jobs set status='error', last_error='Unsupported activity type', updated_at=now() where job_id=$1`,
+        [item.job_id],
       );
       void emitSubmissionEvent("submission.updated", {
         submissionId: item.submission_id,
@@ -481,36 +503,33 @@ async function processSingleItem(
       error: errorMessage,
     });
 
-    const { rows: bumped } = await query<{ attempts: number }>(
-      `update ai_marking_queue
+    const { rows: bumped } = await query<{ attempts: number; max_attempts: number }>(
+      `update external_jobs
          set attempts = attempts + 1,
              last_error = $1,
-             process_after = now() + interval '30 seconds',
              updated_at = now()
-       where submission_id = $2
-       returning attempts`,
-      [errorMessage, item.submission_id],
+       where job_id = $2
+       returning attempts, max_attempts`,
+      [errorMessage, item.job_id],
     );
     const attemptsNow = bumped[0]?.attempts ?? 3;
+    const maxAttempts = bumped[0]?.max_attempts ?? 3;
     const isRevision = item.assignment_id === "revision";
-    if (attemptsNow >= 3) {
+    if (attemptsNow >= maxAttempts) {
+      // Final failure: leave the job as 'error' (retained for observability).
+      await query(
+        `update external_jobs set status='error', process_after=now() where job_id=$1`,
+        [item.job_id],
+      );
       if (isRevision) {
         await query(
           `update revision_answers set status='pending_manual' where answer_id=$1`,
-          [item.submission_id],
-        );
-        await query(
-          `delete from ai_marking_queue where submission_id=$1`,
           [item.submission_id],
         );
       } else {
         await query(
           `update submissions set mark_status='marking-error', mark_error=$1 where submission_id=$2`,
           [errorMessage, item.submission_id],
-        );
-        await query(
-          `delete from ai_marking_queue where submission_id=$1`,
-          [item.submission_id],
         );
         const { rows: idRows } = await query<{ activity_id: string; user_id: string }>(
           `select activity_id, user_id from submissions where submission_id=$1`,
@@ -525,6 +544,12 @@ async function processSingleItem(
         });
       }
     } else {
+      // Transient failure: return the job to the pending pool with backoff so it
+      // is re-claimed after the entity status is reset below.
+      await query(
+        `update external_jobs set status='pending', process_after=now() + interval '30 seconds' where job_id=$1`,
+        [item.job_id],
+      );
       if (isRevision) {
         await query(
           `update revision_answers set status='pending_marking' where answer_id=$1`,
@@ -543,7 +568,10 @@ async function processSingleItem(
 }
 
 export async function resolveQueueItem(submissionId: string) {
-  await query(`delete from ai_marking_queue where submission_id=$1`, [submissionId]);
+  await query(
+    `update external_jobs set status='done', updated_at=now() where job_type='ai_mark' and payload->>'submissionId'=$1`,
+    [submissionId],
+  );
 }
 
 export async function triggerQueueProcessor(baseUrl?: string) {
@@ -579,21 +607,30 @@ export async function triggerQueueProcessor(baseUrl?: string) {
 }
 
 export async function pruneCompletedQueueItems() {
-  await query(
-    `delete from ai_marking_queue q using submissions s where s.submission_id = q.submission_id and s.mark_status in ('marked', 'marking-error')`,
-  );
-  await query(
-    `delete from ai_marking_queue q using revision_answers r where r.answer_id=q.submission_id::uuid and r.status in ('marked','pending_manual')`,
-  );
+  // Remove finished ai_mark jobs. Errors are retained for review (pruned by the
+  // generic 7-day sweep only for other job types).
+  await query(`delete from external_jobs where job_type='ai_mark' and status='done'`);
 }
 
 export async function recoverStuckItems() {
   await query(
     `update submissions set mark_status='waiting'
      where mark_status='marking'
-       and submission_id in (select submission_id from ai_marking_queue where updated_at < now() - interval '10 minutes')`,
+       and submission_id in (
+         select payload->>'submissionId' from external_jobs
+         where job_type='ai_mark' and status='processing' and updated_at < now() - interval '10 minutes'
+       )`,
   );
   await query(
-    `update revision_answers set status='pending_marking' where status='marking' and answer_id in (select submission_id::uuid from ai_marking_queue where updated_at < now() - interval '10 minutes')`,
+    `update revision_answers set status='pending_marking'
+     where status='marking'
+       and answer_id in (
+         select (payload->>'submissionId')::uuid from external_jobs
+         where job_type='ai_mark' and status='processing' and updated_at < now() - interval '10 minutes'
+       )`,
+  );
+  await query(
+    `update external_jobs set status='pending', updated_at=now()
+     where job_type='ai_mark' and status='processing' and updated_at < now() - interval '10 minutes'`,
   );
 }

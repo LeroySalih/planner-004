@@ -175,17 +175,11 @@ export async function saveRevisionAnswer(
         const answerId = answerRows[0]?.answer_id;
 
         if (answerId) {
-            await query(
-                `insert into ai_marking_queue (submission_id, assignment_id, attempts, process_after)
-                 values ($1, 'revision', 0, now())
-                 on conflict (submission_id) do update set attempts = 0, process_after = now(), updated_at = now()`,
-                [answerId],
-            );
-
             // Log and trigger
-            const { logQueueEvent, triggerQueueProcessor } = await import(
+            const { enqueueAiMarkJob, logQueueEvent, triggerQueueProcessor } = await import(
                 "@/lib/ai/marking-queue"
             );
+            await enqueueAiMarkJob(answerId, "revision");
             await logQueueEvent(
                 "info",
                 `Queued revision answer ${answerId} for marking`,
