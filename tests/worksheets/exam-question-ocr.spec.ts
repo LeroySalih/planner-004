@@ -279,16 +279,33 @@ test.describe("Worksheet OCR → edit → mark", () => {
     expect(ocrBody).toMatchObject({ success: true });
 
     // ====================================================================
-    // Assert extractedText + mark_status via DB (robust — no UI polling race)
+    // Assert extractedText + mark_status via DB. The OCR webhook now enqueues a
+    // webhook_apply job, so the transcript is stored asynchronously — drive the
+    // processor and poll until the text lands.
     // ====================================================================
-    const submissionAfterOcr = await queryDb<{ body: Record<string, unknown>; mark_status: string }>(
-      `SELECT body, mark_status FROM submissions WHERE submission_id = $1 LIMIT 1`,
-      [submissionId],
-    );
-    expect(submissionAfterOcr).toHaveLength(1);
-    const bodyAfterOcr = submissionAfterOcr[0].body as Record<string, unknown>;
-    expect(bodyAfterOcr.extractedText).toContain("pupil's hand-written answer");
-    expect(["waiting", "marking"]).toContain(submissionAfterOcr[0].mark_status);
+    const queueSecretForOcr = process.env.MARKING_QUEUE_SECRET;
+    let bodyAfterOcr: Record<string, unknown> | undefined;
+    let ocrMarkStatus: string | undefined;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (queueSecretForOcr) {
+        await request
+          .post("/api/jobs/process", { headers: { Authorization: `Bearer ${queueSecretForOcr}` } })
+          .catch(() => {});
+      }
+      const rows = await queryDb<{ body: Record<string, unknown>; mark_status: string }>(
+        `SELECT body, mark_status FROM submissions WHERE submission_id = $1 LIMIT 1`,
+        [submissionId],
+      );
+      const extracted = rows[0]?.body?.extractedText;
+      if (rows.length === 1 && typeof extracted === "string" && extracted.includes("pupil's hand-written answer")) {
+        bodyAfterOcr = rows[0].body as Record<string, unknown>;
+        ocrMarkStatus = rows[0].mark_status;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    expect(bodyAfterOcr?.extractedText).toContain("pupil's hand-written answer");
+    expect(["waiting", "marking", "marked"]).toContain(ocrMarkStatus);
 
     // ====================================================================
     // Simulate marking callback: POST /webhooks/ai-mark
