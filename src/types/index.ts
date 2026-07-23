@@ -1261,6 +1261,7 @@ export const AssignmentResultMatrixSchema = z.object({
             lessonId: z.string(),
             title: z.string().default(""),
             unitId: z.string().nullable(),
+            unitTitle: z.string().nullable().default(null),
         })
         .nullable(),
     assignment: z

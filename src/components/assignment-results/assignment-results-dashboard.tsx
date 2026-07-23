@@ -3142,8 +3142,30 @@ export function AssignmentResultsDashboard({
                     <span className="text-foreground">{matrixState.group?.groupId ?? "Not available"}</span>
                   </p>
                   <p>
-                    <span className="font-medium text-muted-foreground">Lesson ID:</span>{" "}
-                    <span className="text-foreground">{matrixState.lesson?.lessonId ?? "Not available"}</span>
+                    <span className="font-medium text-muted-foreground">Lesson:</span>{" "}
+                    {matrixState.lesson?.lessonId ? (
+                      <Link
+                        href={`/lessons/${encodeURIComponent(matrixState.lesson.lessonId)}`}
+                        className="text-foreground hover:underline"
+                      >
+                        {matrixState.lesson.title || "Untitled lesson"}
+                      </Link>
+                    ) : (
+                      <span className="text-foreground">Not available</span>
+                    )}
+                  </p>
+                  <p>
+                    <span className="font-medium text-muted-foreground">Unit:</span>{" "}
+                    {matrixState.lesson?.unitId ? (
+                      <Link
+                        href={`/units/${encodeURIComponent(matrixState.lesson.unitId)}`}
+                        className="text-foreground hover:underline"
+                      >
+                        {matrixState.lesson.unitTitle || matrixState.lesson.unitId}
+                      </Link>
+                    ) : (
+                      <span className="text-foreground">Not available</span>
+                    )}
                   </p>
                 </div>
                 <div className="mt-2 flex items-start justify-between gap-3 rounded-md border border-border/60 bg-muted/40 px-3 py-3">

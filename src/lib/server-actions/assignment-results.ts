@@ -261,7 +261,7 @@ export async function readAssignmentResultsAction(
               [groupId],
             ),
             query(
-              "select lesson_id, unit_id, title from lessons where lesson_id = $1 limit 1",
+              "select l.lesson_id, l.unit_id, l.title, u.title as unit_title from lessons l left join units u on u.unit_id = l.unit_id where l.lesson_id = $1 limit 1",
               [lessonId],
             ),
             query(
@@ -1209,6 +1209,7 @@ export async function readAssignmentResultsAction(
             lessonId: lessonRow.lesson_id,
             title: lessonRow.title ?? "Untitled lesson",
             unitId: lessonRow.unit_id ?? null,
+            unitTitle: lessonRow.unit_title ?? null,
           },
           assignment: assignmentRow
             ? {
