@@ -133,9 +133,10 @@ export async function POST(request: Request) {
   try {
     await client.connect()
 
-    // Store with 'waiting' when there is an assignment to mark against (the
-    // queue will pick it up); otherwise leave unmarked (no assignment = no AI).
-    const initialMarkStatus = groupAssignmentId ? "waiting" : null
+    // Marking runs against the assignment when there is one; otherwise (pupil
+    // viewing the lesson directly) fall back to the "revision" sentinel that the
+    // marking queue + ai-mark webhook accept, so the work is still marked.
+    const markingAssignmentId = groupAssignmentId ?? "revision"
     try {
       const submissionBody = UploadWorksheetSubmissionBodySchema.parse({
         images,
@@ -147,10 +148,10 @@ export async function POST(request: Request) {
       const { rows: newRows } = await client.query(
         `
           insert into submissions (activity_id, user_id, attempt_number, body, submitted_at, submission_status, mark_status)
-          values ($1, $2, $3, $4, $5, 'submitted', $6)
+          values ($1, $2, $3, $4, $5, 'submitted', 'waiting')
           returning submission_id
         `,
-        [activityId, userId, attemptNumber, submissionBody, submittedAt, initialMarkStatus],
+        [activityId, userId, attemptNumber, submissionBody, submittedAt],
       )
       submissionId = newRows[0]?.submission_id ?? null
       await clearResubmitRequest(activityId, userId)
@@ -163,9 +164,9 @@ export async function POST(request: Request) {
 
     // Route AI marking through the shared queue (single pathway). The queue
     // processor reads the pupil + teacher images and calls the worksheet flow.
-    if (submissionId && groupAssignmentId) {
+    if (submissionId) {
       try {
-        await enqueueMarkingTasks(groupAssignmentId, [{ submissionId }])
+        await enqueueMarkingTasks(markingAssignmentId, [{ submissionId }])
         void triggerQueueProcessor()
         void emitSubmissionEvent("submission.updated", { submissionId, activityId, pupilId: userId, markStatus: "waiting" })
       } catch (err) {

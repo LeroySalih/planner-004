@@ -25,9 +25,9 @@ export async function resendWorksheetForMarkingAction(input: {
   if (profile.userId !== pupilId && !hasRole(profile, "teacher")) {
     return { success: false, error: "You are not allowed to resend for this pupil." }
   }
-  if (!groupAssignmentId) {
-    return { success: false, error: "No assignment to mark against." }
-  }
+  // Fall back to the "revision" sentinel when there is no assignment (pupil
+  // viewing the lesson directly), so re-marking still works.
+  const markingAssignmentId = groupAssignmentId ?? "revision"
 
   // Latest submission — must exist and have uploaded images.
   const { rows: subRows } = await query<{ submission_id: string; body: unknown }>(
@@ -43,7 +43,7 @@ export async function resendWorksheetForMarkingAction(input: {
   const submissionId = sub.submission_id
 
   try {
-    await enqueueMarkingTasks(groupAssignmentId, [{ submissionId }])
+    await enqueueMarkingTasks(markingAssignmentId, [{ submissionId }])
     void triggerQueueProcessor()
     void emitSubmissionEvent("submission.updated", { submissionId, activityId, pupilId, markStatus: "waiting" })
     return { success: true, error: null }
