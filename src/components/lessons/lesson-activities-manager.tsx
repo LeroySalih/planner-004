@@ -554,20 +554,23 @@ useEffect(() => {
     targetActivityId: string,
     files: File[],
     prefix: string,
-  ): Promise<MarkWorksheetImage[]> => {
+  ): Promise<{ images: MarkWorksheetImage[]; pendingCount: number }> => {
     const out: MarkWorksheetImage[] = []
+    let pendingCount = 0
     for (const file of files) {
       const fd = new FormData()
       fd.append("lessonId", lessonId)
       fd.append("activityId", targetActivityId)
       fd.append("prefix", prefix)
       fd.append("file", file)
-      // PDFs are rasterized to images server-side; images are stored as-is.
+      // Images stored as-is; PDFs rasterized server-side; Word docs are
+      // converted asynchronously via the queue (reported in `pending`).
       const result = await uploadWorksheetTeacherFileAction(fd)
       if (result.error) throw new Error(result.error)
       out.push(...result.images)
+      pendingCount += result.pending.length
     }
-    return out
+    return { images: out, pendingCount }
   }
 
   const handleEditorSubmit = ({
@@ -613,13 +616,15 @@ useEffect(() => {
             return
           }
           const created = createResult.data
+          let createPendingCount = 0
           try {
             const newWorksheet = await uploadTeacherImages(created.activity_id, markWorksheetSubmission.pendingWorksheet, "worksheet")
             const newAnswer = await uploadTeacherImages(created.activity_id, markWorksheetSubmission.pendingAnswer, "answer")
+            createPendingCount = newWorksheet.pendingCount + newAnswer.pendingCount
             await updateLessonActivityAction(unitId, lessonId, created.activity_id, {
               bodyData: {
-                worksheetImages: [...markWorksheetSubmission.existingWorksheet, ...newWorksheet],
-                answerImages: [...markWorksheetSubmission.existingAnswer, ...newAnswer],
+                worksheetImages: [...markWorksheetSubmission.existingWorksheet, ...newWorksheet.images],
+                answerImages: [...markWorksheetSubmission.existingAnswer, ...newAnswer.images],
                 markingGuidance: markWorksheetSubmission.markingGuidance,
                 markingGuidanceId: markWorksheetSubmission.markingGuidanceId,
               },
@@ -632,6 +637,11 @@ useEffect(() => {
             return
           }
           setActivities((prev) => sortActivities([...prev, created]))
+          if (createPendingCount > 0) {
+            toast.info(`Converting ${createPendingCount} Word document${createPendingCount > 1 ? "s" : ""}`, {
+              description: "The pages will appear on this activity shortly — reopen it to see them.",
+            })
+          }
           toast.success("Activity created")
           closeEditor()
           router.refresh()
@@ -777,12 +787,13 @@ useEffect(() => {
         try {
           const newWorksheet = await uploadTeacherImages(activityId, markWorksheetSubmission.pendingWorksheet, "worksheet")
           const newAnswer = await uploadTeacherImages(activityId, markWorksheetSubmission.pendingAnswer, "answer")
+          const editPendingCount = newWorksheet.pendingCount + newAnswer.pendingCount
           const updateResult = await updateLessonActivityAction(unitId, lessonId, activityId, {
             title,
             type,
             bodyData: {
-              worksheetImages: [...markWorksheetSubmission.existingWorksheet, ...newWorksheet],
-              answerImages: [...markWorksheetSubmission.existingAnswer, ...newAnswer],
+              worksheetImages: [...markWorksheetSubmission.existingWorksheet, ...newWorksheet.images],
+              answerImages: [...markWorksheetSubmission.existingAnswer, ...newAnswer.images],
               markingGuidance: markWorksheetSubmission.markingGuidance,
               markingGuidanceId: markWorksheetSubmission.markingGuidanceId,
             },
@@ -796,6 +807,11 @@ useEffect(() => {
           setActivities((prev) =>
             sortActivities(prev.map((item) => (item.activity_id === activityId ? updateResult.data! : item))),
           )
+          if (editPendingCount > 0) {
+            toast.info(`Converting ${editPendingCount} Word document${editPendingCount > 1 ? "s" : ""}`, {
+              description: "The pages will appear on this activity shortly — reopen it to see them.",
+            })
+          }
           toast.success("Activity updated")
           closeEditor()
           router.refresh()
