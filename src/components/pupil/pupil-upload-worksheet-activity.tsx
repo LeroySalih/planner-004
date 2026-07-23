@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type ChangeEvent } from "react"
 import { toast } from "sonner"
-import { CheckCircle2, Download, Loader2, RefreshCw, Upload, X } from "lucide-react"
+import { CheckCircle2, ChevronLeft, ChevronRight, Download, Eye, Loader2, RefreshCw, Upload, X } from "lucide-react"
 
 import type { LessonActivity } from "@/types"
 import { MarkWorksheetActivityBodySchema, UploadWorksheetSubmissionBodySchema } from "@/types"
@@ -87,8 +87,8 @@ export function PupilUploadWorksheetActivity({
   const [isPending, startTransition] = useTransition()
   const [isDragActive, setIsDragActive] = useState(false)
   const [isLightboxOpen, setIsLightboxOpen] = useState(false)
-  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
-  const [lightboxName, setLightboxName] = useState<string | null>(null)
+  const [lightboxItems, setLightboxItems] = useState<Array<{ url: string; name: string }>>([])
+  const [lightboxIndex, setLightboxIndex] = useState(0)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const uploadInProgress = useRef(false)
 
@@ -116,6 +116,10 @@ export function PupilUploadWorksheetActivity({
     const parsed = MarkWorksheetActivityBodySchema.safeParse(activity.body_data)
     return parsed.success ? parsed.data.worksheetImages : []
   }, [activity.body_data])
+  const worksheetFileItems = useMemo(
+    () => worksheetFiles.map((file) => ({ url: buildFileUrl(file.filePath), name: file.fileName })),
+    [worksheetFiles],
+  )
 
   const uploadDisabled = !canUpload || isPending
 
@@ -450,11 +454,22 @@ export function PupilUploadWorksheetActivity({
     }
   }, [activity.activity_id, pupilId, feedbackAssignmentIds, loadLatestSubmission])
 
-  const openLightbox = useCallback((url: string, name: string) => {
-    setLightboxUrl(url)
-    setLightboxName(name)
+  const openLightbox = useCallback((items: Array<{ url: string; name: string }>, index: number) => {
+    if (items.length === 0) return
+    setLightboxItems(items)
+    setLightboxIndex(Math.max(0, Math.min(index, items.length - 1)))
     setIsLightboxOpen(true)
   }, [])
+
+  const showPrevImage = useCallback(() => {
+    setLightboxIndex((i) => (lightboxItems.length === 0 ? 0 : (i - 1 + lightboxItems.length) % lightboxItems.length))
+  }, [lightboxItems.length])
+
+  const showNextImage = useCallback(() => {
+    setLightboxIndex((i) => (lightboxItems.length === 0 ? 0 : (i + 1) % lightboxItems.length))
+  }, [lightboxItems.length])
+
+  const lightboxCurrent = lightboxItems[lightboxIndex] ?? null
 
   const hasImages = imageUrls.length > 0
   // While the pupil is staging a new batch, hide the previous submission's
@@ -474,16 +489,30 @@ export function PupilUploadWorksheetActivity({
         <div className="space-y-2">
           <p className="text-sm font-medium text-pa-ink">Worksheet</p>
           <div className="flex flex-col gap-1.5">
-            {worksheetFiles.map((file) => (
-              <a
+            {worksheetFiles.map((file, index) => (
+              <div
                 key={file.filePath}
-                href={buildFileUrl(file.filePath)}
-                download={file.fileName}
-                className="flex items-center gap-2 rounded-[12px] border-[1.5px] border-pa-field-border bg-pa-field px-3 py-2 text-sm text-pa-ink transition hover:border-pa-green"
+                className="flex items-center gap-2 rounded-[12px] border-[1.5px] border-pa-field-border bg-pa-field px-3 py-2 text-sm text-pa-ink"
               >
-                <Download className="h-4 w-4 shrink-0 text-pa-muted-3" />
-                <span className="truncate">{file.fileName}</span>
-              </a>
+                <button
+                  type="button"
+                  onClick={() => openLightbox(worksheetFileItems, index)}
+                  className="flex min-w-0 flex-1 items-center gap-2 text-left transition hover:text-pa-green"
+                  title={`View ${file.fileName}`}
+                >
+                  <Eye className="h-4 w-4 shrink-0 text-pa-muted-3" />
+                  <span className="truncate">{file.fileName}</span>
+                </button>
+                <a
+                  href={buildFileUrl(file.filePath)}
+                  download={file.fileName}
+                  className="shrink-0 text-pa-muted-3 transition hover:text-pa-green"
+                  title={`Download ${file.fileName}`}
+                  aria-label={`Download ${file.fileName}`}
+                >
+                  <Download className="h-4 w-4" />
+                </a>
+              </div>
             ))}
           </div>
         </div>
@@ -613,11 +642,11 @@ export function PupilUploadWorksheetActivity({
           {/* Thumbnails */}
           {hasImages ? (
             <div className="flex flex-wrap gap-2">
-              {imageUrls.map((img) => (
+              {imageUrls.map((img, idx) => (
                 <button
                   key={img.url}
                   type="button"
-                  onClick={() => openLightbox(img.url, img.name)}
+                  onClick={() => openLightbox(imageUrls, idx)}
                   className="h-16 w-16 shrink-0 overflow-hidden rounded-[14px] border-[1.5px] border-pa-field-border bg-pa-field"
                   title={img.name}
                 >
@@ -718,7 +747,7 @@ export function PupilUploadWorksheetActivity({
           {legacyFileUrl ? (
             <button
               type="button"
-              onClick={() => openLightbox(legacyFileUrl, legacyFileName ?? "Uploaded file")}
+              onClick={() => openLightbox([{ url: legacyFileUrl, name: legacyFileName ?? "Uploaded file" }], 0)}
               className="h-12 w-12 shrink-0 overflow-hidden rounded-[10px] border-[1.5px] border-pa-field-border bg-white"
             >
               <img src={legacyFileUrl} alt={legacyFileName ?? "Uploaded"} className="h-full w-full object-cover" loading="lazy" />
@@ -733,26 +762,65 @@ export function PupilUploadWorksheetActivity({
         </div>
       ) : null}
 
-      {/* Lightbox */}
+      {/* Lightbox / gallery viewer */}
       <Dialog open={isLightboxOpen} onOpenChange={setIsLightboxOpen}>
         <DialogContent
           showCloseButton={false}
           className="h-[90vh] max-h-[90vh] w-[95vw] max-w-[95vw] p-0 gap-0 flex flex-col sm:max-w-3xl"
+          onKeyDown={(event) => {
+            if (lightboxItems.length < 2) return
+            if (event.key === "ArrowLeft") {
+              event.preventDefault()
+              showPrevImage()
+            } else if (event.key === "ArrowRight") {
+              event.preventDefault()
+              showNextImage()
+            }
+          }}
         >
-          <div className="flex items-center justify-between border-b px-4 py-3">
-            <DialogTitle className="text-base font-medium">{lightboxName}</DialogTitle>
-            <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => setIsLightboxOpen(false)}>
+          <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
+            <DialogTitle className="min-w-0 truncate text-base font-medium">
+              {lightboxCurrent?.name}
+              {lightboxItems.length > 1 ? (
+                <span className="ml-2 text-sm font-normal text-muted-foreground">
+                  {lightboxIndex + 1} / {lightboxItems.length}
+                </span>
+              ) : null}
+            </DialogTitle>
+            <Button variant="ghost" size="sm" className="h-8 w-8 shrink-0 p-0" onClick={() => setIsLightboxOpen(false)}>
               <X className="h-4 w-4" />
               <span className="sr-only">Close</span>
             </Button>
           </div>
-          <div className="flex flex-1 min-h-0 items-center justify-center bg-muted/30 p-4">
-            {lightboxUrl ? (
+          <div className="relative flex flex-1 min-h-0 items-center justify-center bg-muted/30 p-4">
+            {lightboxCurrent ? (
               <img
-                src={lightboxUrl}
-                alt={lightboxName ?? "Uploaded exam question"}
+                src={lightboxCurrent.url}
+                alt={lightboxCurrent.name}
                 className="max-h-full max-w-full object-contain rounded-lg"
               />
+            ) : null}
+            {lightboxItems.length > 1 ? (
+              <>
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  onClick={showPrevImage}
+                  className="absolute left-3 top-1/2 h-10 w-10 -translate-y-1/2 rounded-full shadow-md"
+                  aria-label="Previous file"
+                >
+                  <ChevronLeft className="h-5 w-5" />
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  onClick={showNextImage}
+                  className="absolute right-3 top-1/2 h-10 w-10 -translate-y-1/2 rounded-full shadow-md"
+                  aria-label="Next file"
+                >
+                  <ChevronRight className="h-5 w-5" />
+                </Button>
+              </>
             ) : null}
           </div>
         </DialogContent>
