@@ -134,9 +134,11 @@ export async function POST(request: Request) {
     await client.connect()
 
     // Marking runs against the assignment when there is one; otherwise (pupil
-    // viewing the lesson directly) fall back to the "revision" sentinel that the
-    // marking queue + ai-mark webhook accept, so the work is still marked.
-    const markingAssignmentId = groupAssignmentId ?? "revision"
+    // viewing the lesson directly) fall back to a synthetic id. It must NOT be
+    // "revision" (that routes the callback to /webhooks/ai-mark-revision, which
+    // only handles revision answers) but must still decode ("__") so the ai-mark
+    // webhook accepts it and applies the mark to the submission.
+    const markingAssignmentId = groupAssignmentId ?? "self__study"
     try {
       const submissionBody = UploadWorksheetSubmissionBodySchema.parse({
         images,

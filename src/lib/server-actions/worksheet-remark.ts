@@ -25,9 +25,10 @@ export async function resendWorksheetForMarkingAction(input: {
   if (profile.userId !== pupilId && !hasRole(profile, "teacher")) {
     return { success: false, error: "You are not allowed to resend for this pupil." }
   }
-  // Fall back to the "revision" sentinel when there is no assignment (pupil
-  // viewing the lesson directly), so re-marking still works.
-  const markingAssignmentId = groupAssignmentId ?? "revision"
+  // Fall back to a synthetic id when there is no assignment (pupil viewing the
+  // lesson directly). Must not be "revision" (that routes the callback to the
+  // revision webhook) but must decode ("__") so the ai-mark webhook applies it.
+  const markingAssignmentId = groupAssignmentId ?? "self__study"
 
   // Latest submission — must exist and have uploaded images.
   const { rows: subRows } = await query<{ submission_id: string; body: unknown }>(
