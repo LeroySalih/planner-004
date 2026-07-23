@@ -4,6 +4,7 @@ import { query } from "@/lib/db";
 import { convertToPdfViaGotenberg } from "@/lib/pdf/gotenberg";
 import { rasterizePdfToJpegs } from "@/lib/pdf/rasterize-pdf";
 import { createLocalStorageClient } from "@/lib/storage/local-storage";
+import { emitLessonEvent } from "@/lib/sse/topics";
 import { MarkWorksheetActivityBodySchema } from "@/types";
 import type { ExternalJob } from "../external-jobs";
 
@@ -88,7 +89,15 @@ export async function handleDocConvert(job: ExternalJob): Promise<{ images: Arra
     [activityId, JSON.stringify(nextBody)],
   );
 
-  // 5. Remove the transient raw document.
+  // 5. Notify the open lesson designer so the pages appear without a refresh.
+  void emitLessonEvent("activity.images-updated", {
+    lessonId,
+    activityId,
+    worksheetImages: nextBody.worksheetImages,
+    answerImages: nextBody.answerImages,
+  });
+
+  // 6. Remove the transient raw document.
   try {
     await storage.remove([rawFilePath]);
   } catch (err) {

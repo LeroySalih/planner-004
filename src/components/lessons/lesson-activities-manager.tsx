@@ -174,6 +174,43 @@ export function LessonActivitiesManager({
   const [activities, setActivities] = useState<LessonActivity[]>(() => sortActivities(initialActivities))
   const [isPending, startTransition] = useTransition()
 
+  // Live-update activity images when async doc conversion (Gotenberg) completes,
+  // so Word-document worksheet/answer pages appear without a manual refresh.
+  useEffect(() => {
+    const source = new EventSource("/sse?topics=lessons")
+    source.onmessage = (event) => {
+      let envelope: { topic?: string; type?: string; payload?: unknown }
+      try {
+        envelope = JSON.parse(event.data)
+      } catch {
+        return
+      }
+      if (envelope.topic !== "lessons" || envelope.type !== "activity.images-updated") return
+      const payload = envelope.payload as {
+        lessonId?: string
+        activityId?: string
+        worksheetImages?: unknown
+        answerImages?: unknown
+      } | null
+      if (!payload || payload.lessonId !== lessonId || !payload.activityId) return
+      setActivities((prev) =>
+        prev.map((activity) =>
+          activity.activity_id === payload.activityId
+            ? {
+                ...activity,
+                body_data: {
+                  ...(activity.body_data as Record<string, unknown>),
+                  ...(payload.worksheetImages !== undefined ? { worksheetImages: payload.worksheetImages } : {}),
+                  ...(payload.answerImages !== undefined ? { answerImages: payload.answerImages } : {}),
+                },
+              }
+            : activity,
+        ),
+      )
+    }
+    return () => source.close()
+  }, [lessonId])
+
   const [editorActivityId, setEditorActivityId] = useState<string | null>(null)
   const [isEditorOpen, setIsEditorOpen] = useState(false)
   const [draggingId, setDraggingId] = useState<string | null>(null)
