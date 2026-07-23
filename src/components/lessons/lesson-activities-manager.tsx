@@ -4997,15 +4997,15 @@ function LessonActivityEditorSheet({
           {type === "mark-worksheet" ? (
             <div className="space-y-4 rounded-md border border-border bg-muted/20 p-4">
               {([
-                { key: "worksheet" as const, label: "Worksheet files (images or PDF)", images: markWorksheetBody.worksheetImages, pending: pendingWorksheetFiles, ref: worksheetInputRef, setPending: setPendingWorksheetFiles },
-                { key: "answer" as const, label: "Answer-sheet files (images or PDF, required)", images: markWorksheetBody.answerImages, pending: pendingAnswerFiles, ref: answerInputRef, setPending: setPendingAnswerFiles },
+                { key: "worksheet" as const, label: "Worksheet files (images, PDF or Word)", images: markWorksheetBody.worksheetImages, pending: pendingWorksheetFiles, ref: worksheetInputRef, setPending: setPendingWorksheetFiles },
+                { key: "answer" as const, label: "Answer-sheet files (images, PDF or Word, required)", images: markWorksheetBody.answerImages, pending: pendingAnswerFiles, ref: answerInputRef, setPending: setPendingAnswerFiles },
               ]).map((section) => (
                 <div key={section.key} className="space-y-2">
                   <Label className="text-xs font-medium text-muted-foreground">{section.label}</Label>
                   <input
                     ref={section.ref}
                     type="file"
-                    accept="image/*,application/pdf,.pdf"
+                    accept="image/*,application/pdf,.pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                     multiple
                     className="hidden"
                     onChange={(event) => {

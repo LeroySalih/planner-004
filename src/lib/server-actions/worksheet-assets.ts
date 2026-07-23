@@ -1,6 +1,7 @@
 "use server"
 
 import { requireTeacherProfile } from "@/lib/auth"
+import { convertToPdfViaGotenberg } from "@/lib/pdf/gotenberg"
 import { rasterizePdfToJpegs } from "@/lib/pdf/rasterize-pdf"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 
@@ -8,6 +9,7 @@ const LESSON_FILES_BUCKET = "lessons"
 const MAX_PDF_PAGES = 20
 const MAX_BYTES = 10 * 1024 * 1024
 const IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".gif", ".webp"]
+const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 export interface WorksheetTeacherImage {
   filePath: string
@@ -50,9 +52,10 @@ export async function uploadWorksheetTeacherFileAction(
 
   const name = file.name.toLowerCase()
   const isPdf = file.type === "application/pdf" || name.endsWith(".pdf")
+  const isDocx = file.type === DOCX_MIME || name.endsWith(".docx")
   const isImage = file.type.startsWith("image/") || IMAGE_EXTENSIONS.some((ext) => name.endsWith(ext))
-  if (!isPdf && !isImage) {
-    return { images: [], error: "Only PDF or image files are allowed." }
+  if (!isPdf && !isDocx && !isImage) {
+    return { images: [], error: "Only PDF, Word (.docx), or image files are allowed." }
   }
 
   const storage = createLocalStorageClient(LESSON_FILES_BUCKET)
@@ -73,10 +76,18 @@ export async function uploadWorksheetTeacherFileAction(
 
   try {
     const buffer = Buffer.from(await file.arrayBuffer())
-    if (isPdf) {
-      const { pages, error } = await rasterizePdfToJpegs(buffer, { maxPages: MAX_PDF_PAGES })
+    if (isPdf || isDocx) {
+      // .docx has no image renderer of its own — convert to PDF (Gotenberg),
+      // then rasterize. PDFs skip straight to rasterization.
+      let pdfBuffer: Buffer = buffer
+      if (isDocx) {
+        const { pdf, error } = await convertToPdfViaGotenberg(buffer, file.name)
+        if (error || !pdf) return { images: [], error: error ?? "Could not convert the document." }
+        pdfBuffer = pdf
+      }
+      const { pages, error } = await rasterizePdfToJpegs(pdfBuffer, { maxPages: MAX_PDF_PAGES })
       if (error) return { images: [], error }
-      const base = file.name.replace(/\.pdf$/i, "").replace(/[^a-z0-9-]/gi, "_")
+      const base = file.name.replace(/\.(pdf|docx)$/i, "").replace(/[^a-z0-9-]/gi, "_")
       for (let i = 0; i < pages.length; i += 1) {
         await store(pages[i], `${prefix}-${stamp}-${base}-${i + 1}.jpg`, "image/jpeg")
       }
