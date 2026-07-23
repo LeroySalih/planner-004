@@ -18,6 +18,12 @@ export type ProposedActivityType =
   | "text"
   | "display-section"
   | "show-video"
+  | "upload-file"
+  | "upload-url"
+  | "voice"
+  | "matcher"
+  | "group-items"
+  | "sequence"
 
 export interface ProposedActivity {
   type: ProposedActivityType
@@ -28,10 +34,21 @@ export interface ProposedActivity {
   options?: Array<{ text: string; correct: boolean }>
   /** STQ only: the model answer used for AI marking. */
   modelAnswer?: string
-  /** Display Text: the content. Display Section: the heading. */
+  /**
+   * Multi-purpose text: Display Text content, Display Section heading, or the
+   * pupil-facing prompt for upload-file / upload-url / voice.
+   */
   text?: string
   /** Display Video: the video URL. */
   videoUrl?: string
+  /** Matcher: 2–8 term/definition pairs. */
+  pairs?: Array<{ term: string; definition: string }>
+  /** Group Items: 2–4 group (bucket) names. */
+  groups?: string[]
+  /** Group Items: 2–12 items, each assigned to a group by its name. */
+  items?: Array<{ text: string; group: string }>
+  /** Sequence: 2–12 terms in the CORRECT order. */
+  sequence?: string[]
   /** Success-criteria IDs (must come from the lesson's real SCs). */
   successCriteriaIds?: string[]
   maxMarks?: number
@@ -59,6 +76,12 @@ const RESPONSE_SCHEMA = {
               "text",
               "display-section",
               "show-video",
+              "upload-file",
+              "upload-url",
+              "voice",
+              "matcher",
+              "group-items",
+              "sequence",
             ],
           },
           title: { type: "STRING" },
@@ -77,13 +100,34 @@ const RESPONSE_SCHEMA = {
             },
           },
           modelAnswer: { type: "STRING" },
+          pairs: {
+            type: "ARRAY",
+            items: {
+              type: "OBJECT",
+              properties: { term: { type: "STRING" }, definition: { type: "STRING" } },
+              required: ["term", "definition"],
+            },
+          },
+          groups: { type: "ARRAY", items: { type: "STRING" } },
+          items: {
+            type: "ARRAY",
+            items: {
+              type: "OBJECT",
+              properties: { text: { type: "STRING" }, group: { type: "STRING" } },
+              required: ["text", "group"],
+            },
+          },
+          sequence: { type: "ARRAY", items: { type: "STRING" } },
           successCriteriaIds: { type: "ARRAY", items: { type: "STRING" } },
           maxMarks: { type: "INTEGER" },
         },
         // Require the content fields so controlled generation always emits them
-        // (Gemini drops optional fields); the model fills the relevant one for
+        // (Gemini drops optional fields); the model fills the relevant ones for
         // the chosen type and leaves the others empty.
-        required: ["type", "title", "question", "text", "videoUrl", "modelAnswer", "options"],
+        required: [
+          "type", "title", "question", "text", "videoUrl", "modelAnswer",
+          "options", "pairs", "groups", "items", "sequence",
+        ],
       },
     },
   },

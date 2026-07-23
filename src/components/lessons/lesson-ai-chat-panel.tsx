@@ -160,9 +160,10 @@ export function LessonAiChatPanel({
       <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
         {messages.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Ask me to add activities — multiple‑choice, short‑answer, display text, a section
-            heading, or a video — from this lesson&apos;s objectives and existing activities. e.g.{" "}
-            <em>&quot;Add a &lsquo;Warm up&rsquo; section then 3 MCQs on the key vocabulary.&quot;</em>
+            Ask me to add activities — questions (MCQ / short answer), display text, sections,
+            video, uploads, voice, matcher, grouping and sequencing — from this lesson&apos;s
+            objectives and existing activities. e.g.{" "}
+            <em>&quot;Add a &lsquo;Warm up&rsquo; section, then 3 MCQs and a matcher on the key vocabulary.&quot;</em>
           </p>
         ) : null}
 
@@ -245,16 +246,55 @@ function ProposalCard({
   const isText = proposal.type === "text"
   const isSection = proposal.type === "display-section"
   const isVideo = proposal.type === "show-video"
+  const isUploadFile = proposal.type === "upload-file"
+  const isUploadUrl = proposal.type === "upload-url"
+  const isVoice = proposal.type === "voice"
+  const isPromptType = isUploadFile || isUploadUrl || isVoice
+  const isMatcher = proposal.type === "matcher"
+  const isGroup = proposal.type === "group-items"
+  const isSequence = proposal.type === "sequence"
   const hasQuestion = isMcq || isStq
-  const typeLabel = isMcq ? "MCQ" : isStq ? "Short answer" : isText ? "Text" : isSection ? "Section" : "Video"
+  const typeLabel = isMcq
+    ? "MCQ"
+    : isStq
+      ? "Short answer"
+      : isText
+        ? "Text"
+        : isSection
+          ? "Section"
+          : isVideo
+            ? "Video"
+            : isUploadFile
+              ? "Upload file"
+              : isUploadUrl
+                ? "Upload URL"
+                : isVoice
+                  ? "Voice"
+                  : isMatcher
+                    ? "Matcher"
+                    : isGroup
+                      ? "Group items"
+                      : "Sequence"
   const discarded = proposal._status === "discarded"
   const added = proposal._status === "added"
   const options = proposal.options ?? []
+  const pairs = proposal.pairs ?? []
+  const groups = proposal.groups ?? []
+  const groupItems = proposal.items ?? []
+  const sequence = proposal.sequence ?? []
 
   const setOptionText = (i: number, text: string) =>
     onEdit({ options: options.map((o, j) => (j === i ? { ...o, text } : o)) })
   const setCorrect = (i: number) =>
     onEdit({ options: options.map((o, j) => ({ ...o, correct: j === i })) })
+  const setPair = (i: number, patch: Partial<{ term: string; definition: string }>) =>
+    onEdit({ pairs: pairs.map((p, j) => (j === i ? { ...p, ...patch } : p)) })
+  const setGroupName = (i: number, name: string) =>
+    onEdit({ groups: groups.map((g, j) => (j === i ? name : g)) })
+  const setItem = (i: number, patch: Partial<{ text: string; group: string }>) =>
+    onEdit({ items: groupItems.map((it, j) => (j === i ? { ...it, ...patch } : it)) })
+  const setTerm = (i: number, text: string) =>
+    onEdit({ sequence: sequence.map((t, j) => (j === i ? text : t)) })
 
   return (
     <div
@@ -374,6 +414,120 @@ function ProposalCard({
         ) : (
           <p className="mt-1 text-xs italic text-muted-foreground">No video URL yet — click Edit to add one.</p>
         )
+      ) : null}
+
+      {isPromptType ? (
+        editing ? (
+          <textarea
+            value={proposal.text ?? ""}
+            onChange={(e) => onEdit({ text: e.target.value })}
+            rows={2}
+            className="mt-1 w-full resize-none rounded border border-border bg-background px-2 py-1 text-sm"
+            placeholder="Instructions for pupils"
+          />
+        ) : (
+          <p className="text-foreground">{proposal.text}</p>
+        )
+      ) : null}
+
+      {isMatcher ? (
+        <ul className="mt-2 space-y-1">
+          {pairs.map((p, i) => (
+            <li key={i} className="flex items-center gap-1.5">
+              {editing ? (
+                <>
+                  <input
+                    value={p.term}
+                    onChange={(e) => setPair(i, { term: e.target.value })}
+                    className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-0.5 text-sm"
+                    placeholder="Term"
+                  />
+                  <span className="text-muted-foreground">→</span>
+                  <input
+                    value={p.definition}
+                    onChange={(e) => setPair(i, { definition: e.target.value })}
+                    className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-0.5 text-sm"
+                    placeholder="Definition"
+                  />
+                </>
+              ) : (
+                <span className="text-foreground">
+                  <span className="font-semibold">{p.term}</span>
+                  <span className="text-muted-foreground"> → {p.definition}</span>
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {isGroup ? (
+        <div className="mt-2 space-y-2">
+          <div className="flex flex-wrap gap-1">
+            {groups.map((g, i) =>
+              editing ? (
+                <input
+                  key={i}
+                  value={g}
+                  onChange={(e) => setGroupName(i, e.target.value)}
+                  className="w-24 rounded border border-border bg-background px-2 py-0.5 text-xs font-semibold"
+                  placeholder="Group"
+                />
+              ) : (
+                <span key={i} className="rounded-full bg-pa-green-tint px-2 py-0.5 text-[10px] font-bold text-pa-green">
+                  {g}
+                </span>
+              ),
+            )}
+          </div>
+          <ul className="space-y-1">
+            {groupItems.map((it, i) => (
+              <li key={i} className="flex items-center gap-1.5">
+                {editing ? (
+                  <>
+                    <input
+                      value={it.text}
+                      onChange={(e) => setItem(i, { text: e.target.value })}
+                      className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-0.5 text-sm"
+                      placeholder="Item"
+                    />
+                    <select
+                      value={it.group}
+                      onChange={(e) => setItem(i, { group: e.target.value })}
+                      className="rounded border border-border bg-background px-1 py-0.5 text-xs"
+                    >
+                      {groups.map((g, j) => (
+                        <option key={j} value={g}>{g}</option>
+                      ))}
+                    </select>
+                  </>
+                ) : (
+                  <span className="text-foreground">
+                    {it.text} <span className="text-muted-foreground">→ {it.group}</span>
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {isSequence ? (
+        <ol className="mt-2 list-decimal space-y-1 pl-5">
+          {sequence.map((t, i) => (
+            <li key={i} className="text-foreground">
+              {editing ? (
+                <input
+                  value={t}
+                  onChange={(e) => setTerm(i, e.target.value)}
+                  className="w-full rounded border border-border bg-background px-2 py-0.5 text-sm"
+                />
+              ) : (
+                t
+              )}
+            </li>
+          ))}
+        </ol>
       ) : null}
 
       {proposal.successCriteriaIds && proposal.successCriteriaIds.length > 0 ? (

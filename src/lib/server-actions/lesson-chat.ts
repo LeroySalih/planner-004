@@ -4,7 +4,14 @@ import { requireTeacherProfile } from "@/lib/auth"
 import { query } from "@/lib/db"
 import { readAllLearningObjectivesAction } from "@/lib/server-actions/learning-objectives"
 import { createLessonActivityAction } from "@/lib/server-actions/lesson-activities"
-import { McqActivityBodySchema, ShortTextActivityBodySchema } from "@/types"
+import {
+  GroupItemsActivityBodySchema,
+  MatcherActivityBodySchema,
+  McqActivityBodySchema,
+  SequenceActivityBodySchema,
+  ShortTextActivityBodySchema,
+  UploadUrlActivityBodySchema,
+} from "@/types"
 import {
   generateLessonChatReply,
   type ChatTurn,
@@ -59,6 +66,12 @@ async function getLessonChatContext(lessonId: string): Promise<LessonChatContext
     "- text (Display Text: informational content shown to pupils)",
     "- display-section (Display Section: a heading that groups the activities that follow it)",
     "- show-video (Display Video: embeds a video)",
+    "- upload-file (pupils upload a file)",
+    "- upload-url (pupils submit a link)",
+    "- voice (pupils record a voice response)",
+    "- matcher (pupils match terms to definitions)",
+    "- group-items (pupils sort items into named groups)",
+    "- sequence (pupils arrange items into the correct order)",
     "You never create activities yourself — you return proposals as structured data; the teacher confirms them.",
     "",
     "Each proposal always includes every field; fill the ones relevant to its type and leave the rest empty (\"\" or []):",
@@ -67,7 +80,11 @@ async function getLessonChatContext(lessonId: string): Promise<LessonChatContext
     "- text: set `text` to the content to display (a few clear sentences).",
     "- display-section: set `text` to the section heading.",
     "- show-video: set `videoUrl` ONLY if the teacher gave you a URL — never invent a video URL; otherwise leave it empty for the teacher to fill.",
-    "- Align MCQ/STQ to the lesson's success criteria where sensible, using successCriteriaIds — you may ONLY use the SC IDs listed below; never invent IDs. Display types have no success criteria.",
+    "- upload-file / upload-url / voice: set `text` to the pupil-facing instructions/prompt.",
+    "- matcher: set `pairs` to 2–8 items, each with a `term` and its `definition`.",
+    "- group-items: set `groups` to 2–4 group names, and `items` to 2–12 items, each with `text` and a `group` that EXACTLY matches one of the group names.",
+    "- sequence: set `sequence` to 2–12 short items in the CORRECT order (first to last).",
+    "- Align scorable activities to the lesson's success criteria where sensible, using successCriteriaIds — you may ONLY use the SC IDs listed below; never invent IDs. Display types (text, section, video) have no success criteria.",
     "- Keep content clear and grade-appropriate; base it on the lesson's objectives and existing activities unless the teacher says otherwise.",
     "- Put a short conversational reply in `message` and the activities in `proposals` (empty array if none this turn).",
     "",
@@ -239,6 +256,42 @@ export async function confirmProposedActivityAction(input: {
     bodyData = { description: proposal.text ?? "" }
   } else if (proposal.type === "show-video") {
     bodyData = { fileUrl: proposal.videoUrl ?? "" }
+  } else if (proposal.type === "upload-file") {
+    bodyData = { instructions: proposal.text ?? "" }
+    linkSuccessCriteria = true
+  } else if (proposal.type === "upload-url") {
+    const built = { question: proposal.text ?? "" }
+    const parsed = UploadUrlActivityBodySchema.safeParse(built)
+    if (!parsed.success) return { success: false, error: "Invalid Upload URL proposal.", activity: null }
+    bodyData = parsed.data
+    linkSuccessCriteria = true
+  } else if (proposal.type === "voice") {
+    bodyData = { audioFile: null, instructions: proposal.text ?? "" }
+    linkSuccessCriteria = true
+  } else if (proposal.type === "matcher") {
+    const pairs = (proposal.pairs ?? []).map((p, i) => ({ id: `pair-${i + 1}`, term: p.term, definition: p.definition }))
+    const parsed = MatcherActivityBodySchema.safeParse({ pairs })
+    if (!parsed.success) return { success: false, error: "Invalid Matcher proposal (need 2–8 term/definition pairs).", activity: null }
+    bodyData = parsed.data
+    linkSuccessCriteria = true
+  } else if (proposal.type === "group-items") {
+    const groups = (proposal.groups ?? []).map((name, i) => ({ id: `grp-${i + 1}`, name }))
+    const byName = new Map(groups.map((g) => [g.name.trim().toLowerCase(), g.id]))
+    const items = (proposal.items ?? []).map((it, i) => ({
+      id: `item-${i + 1}`,
+      text: it.text,
+      groupId: byName.get((it.group ?? "").trim().toLowerCase()) ?? groups[0]?.id ?? "",
+    }))
+    const parsed = GroupItemsActivityBodySchema.safeParse({ groups, items })
+    if (!parsed.success) return { success: false, error: "Invalid Group Items proposal (2–4 groups, 2–12 items).", activity: null }
+    bodyData = parsed.data
+    linkSuccessCriteria = true
+  } else if (proposal.type === "sequence") {
+    const terms = (proposal.sequence ?? []).map((text, i) => ({ id: `term-${i + 1}`, text }))
+    const parsed = SequenceActivityBodySchema.safeParse({ terms })
+    if (!parsed.success) return { success: false, error: "Invalid Sequence proposal (need 2–12 items).", activity: null }
+    bodyData = parsed.data
+    linkSuccessCriteria = true
   } else {
     return { success: false, error: "Unsupported activity type.", activity: null }
   }
