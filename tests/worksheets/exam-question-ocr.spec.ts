@@ -317,16 +317,34 @@ test.describe("Worksheet OCR → edit → mark", () => {
 
     // ====================================================================
     // Assert ai_marks + mark_status via DB
+    //
+    // The webhook now enqueues a `webhook_apply` job rather than applying the
+    // mark inline, so marking is eventually consistent. Drive the job processor
+    // and poll until the mark lands.
     // ====================================================================
-    const submissionAfterMark = await queryDb<{ body: Record<string, unknown>; mark_status: string }>(
-      `SELECT body, mark_status FROM submissions WHERE submission_id = $1 LIMIT 1`,
-      [submissionId],
-    );
-    expect(submissionAfterMark).toHaveLength(1);
-    const bodyAfterMark = submissionAfterMark[0].body as Record<string, unknown>;
-    expect(typeof bodyAfterMark.ai_marks).toBe("number");
-    expect(submissionAfterMark[0].mark_status).toBe("marked");
-    expect(typeof bodyAfterMark.ai_model_feedback).toBe("string");
+    const queueSecret = process.env.MARKING_QUEUE_SECRET;
+    let bodyAfterMark: Record<string, unknown> | undefined;
+    let markStatusAfter: string | undefined;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (queueSecret) {
+        await request
+          .post("/api/jobs/process", { headers: { Authorization: `Bearer ${queueSecret}` } })
+          .catch(() => {});
+      }
+      const rows = await queryDb<{ body: Record<string, unknown>; mark_status: string }>(
+        `SELECT body, mark_status FROM submissions WHERE submission_id = $1 LIMIT 1`,
+        [submissionId],
+      );
+      if (rows.length === 1 && rows[0].mark_status === "marked") {
+        bodyAfterMark = rows[0].body as Record<string, unknown>;
+        markStatusAfter = rows[0].mark_status;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    expect(markStatusAfter).toBe("marked");
+    expect(typeof bodyAfterMark?.ai_marks).toBe("number");
+    expect(typeof bodyAfterMark?.ai_model_feedback).toBe("string");
 
     // ====================================================================
     // TEACHER — sign back in and view results

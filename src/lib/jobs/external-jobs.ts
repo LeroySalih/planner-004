@@ -14,7 +14,7 @@ import { query } from "@/lib/db";
  * marks the job failed and schedules a retry until `max_attempts` is reached.
  */
 
-export type ExternalJobType = "doc_convert";
+export type ExternalJobType = "doc_convert" | "webhook_apply";
 
 export type ExternalJob = {
   job_id: string;
@@ -55,6 +55,10 @@ async function dispatchJob(job: ExternalJob): Promise<unknown> {
     case "doc_convert": {
       const { handleDocConvert } = await import("./handlers/doc-convert");
       return handleDocConvert(job);
+    }
+    case "webhook_apply": {
+      const { handleWebhookApply } = await import("./handlers/webhook-apply");
+      return handleWebhookApply(job);
     }
     default:
       throw new Error(`Unknown external job type: ${(job as ExternalJob).job_type}`);
