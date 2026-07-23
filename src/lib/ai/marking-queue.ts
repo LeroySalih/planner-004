@@ -1,5 +1,6 @@
 import { query, withDbClient } from "@/lib/db";
 import {
+  MarkWorksheetActivityBodySchema,
   ShortTextActivityBodySchema,
   ShortTextSubmissionBodySchema,
   UploadSpreadsheetActivityBodySchema,
@@ -8,9 +9,19 @@ import {
   UploadWorksheetSubmissionBodySchema,
 } from "@/types";
 import { invokeAiMarking } from "./ai-marking-client";
+import { invokeWorksheetMarking, type WorksheetMarkingImage } from "./worksheet-marking-client";
 import { parseSpreadsheet } from "@/lib/spreadsheet/parse-xlsx";
 import { createLocalStorageClient } from "@/lib/storage/local-storage";
 import { emitSubmissionEvent } from "@/lib/sse/topics";
+
+/** Infer an image MIME type from a filename, for building data URIs. */
+function inferImageMime(fileName: string): string {
+  const n = fileName.toLowerCase();
+  if (n.endsWith(".png")) return "image/png";
+  if (n.endsWith(".webp")) return "image/webp";
+  if (n.endsWith(".gif")) return "image/gif";
+  return "image/jpeg";
+}
 
 // The marking AI agent expects question/model_answer/marking_guidance/pupil_answer
 // on every request. Fall back to "Not Set" so no field is ever empty/undefined.
@@ -235,7 +246,7 @@ async function processSingleItem(
       throw new Error("Submission or activity context missing");
     }
 
-    const SUPPORTED_TYPES = new Set(["short-text-question", "upload-spreadsheet", "upload-worksheet"]);
+    const SUPPORTED_TYPES = new Set(["short-text-question", "upload-spreadsheet", "upload-worksheet", "mark-worksheet"]);
     if (!SUPPORTED_TYPES.has(context.type as string)) {
       await logQueueEvent(
         "warn",
@@ -358,6 +369,69 @@ async function processSingleItem(
       );
 
       await invokeAiMarking(doParams);
+    } else if (context.type === "mark-worksheet") {
+      // Mark Worksheet: no OCR. Send the pupil's images plus the teacher's
+      // worksheet + answer-sheet images and guidance directly to the
+      // ai-mark-worksheet flow (invokeWorksheetMarking), not the OCR agent.
+      const parsedActivity = MarkWorksheetActivityBodySchema.parse(
+        context.activity_body,
+      );
+      const parsedSubmission = UploadWorksheetSubmissionBodySchema.parse(
+        context.submission_body ?? {},
+      );
+
+      const storage = createLocalStorageClient("lessons");
+      const toImages = async (
+        list: Array<{ filePath: string; fileName: string }>,
+      ): Promise<WorksheetMarkingImage[]> => {
+        const out: WorksheetMarkingImage[] = [];
+        for (const img of list) {
+          const { stream, error: streamError } = await storage.getFileStream(img.filePath);
+          if (streamError || !stream) {
+            throw new Error(
+              `Failed to read image at ${img.filePath}: ${streamError?.message ?? "no stream"}`,
+            );
+          }
+          const chunks: Buffer[] = [];
+          for await (const chunk of stream) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+          const base64 = Buffer.concat(chunks).toString("base64");
+          out.push({ data_url: `data:${inferImageMime(img.fileName)};base64,${base64}`, fileName: img.fileName });
+        }
+        return out;
+      };
+
+      const [pupilImages, answerImages, worksheetImages] = await Promise.all([
+        toImages(parsedSubmission.images),
+        toImages(parsedActivity.answerImages),
+        toImages(parsedActivity.worksheetImages),
+      ]);
+
+      const resolvedMarkingGuidance = await resolveUploadWorksheetMarkingGuidance(
+        parsedActivity.markingGuidance,
+        parsedActivity.markingGuidanceId,
+      );
+
+      if (!effectiveCallbackUrl) {
+        throw new Error("Callback URL not configured for worksheet marking");
+      }
+
+      await logQueueEvent(
+        "info",
+        `Triggering ai-mark-worksheet for submission ${item.submission_id}`,
+      );
+
+      await invokeWorksheetMarking({
+        submission_id: item.submission_id,
+        activity_id: context.activity_id as string,
+        pupil_id: context.pupil_id as string,
+        group_assignment_id: item.assignment_id,
+        webhook_url: effectiveCallbackUrl,
+        max_marks: typeof context.max_marks === "number" ? context.max_marks : 1,
+        marking_guidance: resolvedMarkingGuidance,
+        worksheet_images: worksheetImages,
+        answer_images: answerImages,
+        pupil_images: pupilImages,
+      });
     } else {
       const parsedActivity = UploadWorksheetActivityBodySchema.parse(
         context.activity_body,

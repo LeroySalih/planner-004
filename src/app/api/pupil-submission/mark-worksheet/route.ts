@@ -6,8 +6,8 @@ import { query } from "@/lib/db"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 import { emitSubmissionEvent } from "@/lib/sse/topics"
 import { logActivitySubmissionEvent } from "@/lib/activity-logging"
-import { invokeWorksheetMarking, type WorksheetMarkingImage } from "@/lib/ai/worksheet-marking-client"
-import { MarkWorksheetActivityBodySchema, UploadWorksheetSubmissionBodySchema } from "@/types"
+import { enqueueMarkingTasks, triggerQueueProcessor } from "@/lib/ai/marking-queue"
+import { UploadWorksheetSubmissionBodySchema } from "@/types"
 import { clearResubmitRequest, getNextAttemptNumber } from "@/lib/server-actions/submission-attempts"
 
 const LESSON_FILES_BUCKET = "lessons"
@@ -17,15 +17,6 @@ const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "application/octe
 
 function buildSubmissionPath(lessonId: string, activityId: string, pupilStorageKey: string, fileName: string) {
   return `lessons/${lessonId}/activities/${activityId}/${pupilStorageKey}/${fileName}`
-}
-
-/** Infer an image MIME type from a filename, for building data URIs. */
-function inferImageMime(fileName: string): string {
-  const n = fileName.toLowerCase()
-  if (n.endsWith(".png")) return "image/png"
-  if (n.endsWith(".webp")) return "image/webp"
-  if (n.endsWith(".gif")) return "image/gif"
-  return "image/jpeg"
 }
 
 function createPgClient() {
@@ -44,25 +35,6 @@ async function resolvePupilStorageKey(pupilId: string): Promise<string> {
   )
   const email = rows?.[0]?.email?.trim()
   return email && email.length > 0 ? email : pupilId
-}
-
-/** Prepend the selected marking-guidance template's content to the free-text guidance. */
-async function resolveMarkingGuidance(guidance: string, guidanceId: string | undefined): Promise<string> {
-  const parts: string[] = []
-  if (guidanceId) {
-    try {
-      const { rows } = await query<{ content: string | null }>(
-        `select content from marking_guidances where id = $1 limit 1`,
-        [guidanceId],
-      )
-      const content = rows?.[0]?.content?.trim()
-      if (content) parts.push(content)
-    } catch (err) {
-      console.error("[pupil-mark-worksheet] Failed to load marking guidance", err)
-    }
-  }
-  if (guidance.trim()) parts.push(guidance.trim())
-  return parts.join("\n\n")
 }
 
 export async function POST(request: Request) {
@@ -161,32 +133,9 @@ export async function POST(request: Request) {
   try {
     await client.connect()
 
-    // Load the activity's teacher config (worksheet + answer images + guidance + max_marks).
-    let worksheetImages: Array<{ filePath: string; fileName: string }> = []
-    let answerImages: Array<{ filePath: string; fileName: string }> = []
-    let markingGuidanceText = ""
-    let markingGuidanceId: string | undefined
-    let maxMarks = 1
-    try {
-      const { rows } = await client.query(
-        `select body_data, coalesce(max_marks, 1) as max_marks from activities where activity_id = $1 limit 1`,
-        [activityId],
-      )
-      const row = rows[0]
-      if (row) {
-        maxMarks = Number(row.max_marks) || 1
-        const parsed = MarkWorksheetActivityBodySchema.safeParse(row.body_data)
-        if (parsed.success) {
-          worksheetImages = parsed.data.worksheetImages
-          answerImages = parsed.data.answerImages
-          markingGuidanceText = parsed.data.markingGuidance
-          markingGuidanceId = parsed.data.markingGuidanceId
-        }
-      }
-    } catch (err) {
-      console.error(`${tag} Failed to load activity config`, err)
-    }
-
+    // Store with 'waiting' when there is an assignment to mark against (the
+    // queue will pick it up); otherwise leave unmarked (no assignment = no AI).
+    const initialMarkStatus = groupAssignmentId ? "waiting" : null
     try {
       const submissionBody = UploadWorksheetSubmissionBodySchema.parse({
         images,
@@ -198,10 +147,10 @@ export async function POST(request: Request) {
       const { rows: newRows } = await client.query(
         `
           insert into submissions (activity_id, user_id, attempt_number, body, submitted_at, submission_status, mark_status)
-          values ($1, $2, $3, $4, $5, 'submitted', 'marking')
+          values ($1, $2, $3, $4, $5, 'submitted', $6)
           returning submission_id
         `,
-        [activityId, userId, attemptNumber, submissionBody, submittedAt],
+        [activityId, userId, attemptNumber, submissionBody, submittedAt, initialMarkStatus],
       )
       submissionId = newRows[0]?.submission_id ?? null
       await clearResubmitRequest(activityId, userId)
@@ -212,65 +161,27 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: "Unable to record submission." }, { status: 500 })
     }
 
-    if (submissionId) {
-      void emitSubmissionEvent("submission.updated", { submissionId, activityId, pupilId: userId, markStatus: "marking" })
-    }
-
-    // Send images directly to the AI-MARK-WORKSHEET flow (no OCR).
-    if (submissionId) {
+    // Route AI marking through the shared queue (single pathway). The queue
+    // processor reads the pupil + teacher images and calls the worksheet flow.
+    if (submissionId && groupAssignmentId) {
       try {
-        const callbackBase = (process.env.AI_MARKING_CALLBACK_URL ?? "").replace(/\/$/, "")
-
-        const toImages = async (list: Array<{ filePath: string; fileName: string }>): Promise<WorksheetMarkingImage[]> => {
-          const out: WorksheetMarkingImage[] = []
-          for (const img of list) {
-            const { stream, error: streamError } = await storage.getFileStream(img.filePath)
-            if (streamError || !stream) {
-              throw new Error(`Failed to read image at ${img.filePath}: ${streamError?.message ?? "no stream"}`)
-            }
-            const chunks: Buffer[] = []
-            for await (const chunk of stream) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
-            const base64 = Buffer.concat(chunks).toString("base64")
-            out.push({ data_url: `data:${inferImageMime(img.fileName)};base64,${base64}`, fileName: img.fileName })
-          }
-          return out
-        }
-
-        const [pupilB64, answerB64, worksheetB64] = await Promise.all([
-          toImages(images),
-          toImages(answerImages),
-          toImages(worksheetImages),
-        ])
-        const markingGuidance = await resolveMarkingGuidance(markingGuidanceText, markingGuidanceId)
-
-        await invokeWorksheetMarking({
-          submission_id: submissionId,
-          activity_id: activityId,
-          pupil_id: userId,
-          group_assignment_id: groupAssignmentId ?? undefined,
-          webhook_url: `${callbackBase}/webhooks/ai-mark`,
-          max_marks: maxMarks,
-          marking_guidance: markingGuidance,
-          worksheet_images: worksheetB64,
-          answer_images: answerB64,
-          pupil_images: pupilB64,
-        })
+        await enqueueMarkingTasks(groupAssignmentId, [{ submissionId }])
+        void triggerQueueProcessor()
+        void emitSubmissionEvent("submission.updated", { submissionId, activityId, pupilId: userId, markStatus: "waiting" })
       } catch (err) {
-        console.error(`${tag} Worksheet marking invoke failed — setting marking-error`, err)
-        // Debug: surface the real error (includes the webhook URL + status) so
-        // the failing call can be diagnosed from the UI.
-        const debugMessage = err instanceof Error ? err.message : "Could not send your work for marking."
+        console.error(`${tag} Failed to enqueue for marking — setting marking-error`, err)
+        const message = err instanceof Error ? err.message : "Could not send your work for marking."
         try {
           await client.query(
             `update submissions set mark_status = 'marking-error', mark_error = $1 where submission_id = $2`,
-            [debugMessage, submissionId],
+            [message, submissionId],
           )
           void emitSubmissionEvent("submission.updated", {
             submissionId,
             activityId,
             pupilId: userId,
             markStatus: "marking-error",
-            markError: debugMessage,
+            markError: message,
           })
         } catch (updateErr) {
           console.error(`${tag} Failed to set marking-error`, updateErr)
