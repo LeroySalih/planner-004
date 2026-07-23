@@ -57,7 +57,7 @@ async function getLessonChatContext(lessonId: string): Promise<LessonChatContext
     "You never create activities yourself — you return proposals as structured data; the teacher confirms them.",
     "",
     "Rules:",
-    "- MCQ: provide 2–4 options and correctOptionIndex (0-based).",
+    "- MCQ: provide 2–4 options; each option has `text` and a `correct` boolean, with EXACTLY ONE option marked correct: true.",
     "- STQ: provide a concise modelAnswer used for AI marking.",
     "- Align each proposal to the lesson's success criteria where sensible, using successCriteriaIds — you may ONLY use the SC IDs listed below; never invent IDs.",
     "- Keep questions clear and grade-appropriate; base them on the lesson's objectives and existing activities unless the teacher says otherwise.",
@@ -185,9 +185,10 @@ export async function confirmProposedActivityAction(input: {
 
   let bodyData: unknown
   if (proposal.type === "multiple-choice-question") {
-    const options = (proposal.options ?? []).map((text, i) => ({ id: `opt-${i + 1}`, text }))
-    const idx = proposal.correctOptionIndex ?? 0
-    const built = { question: proposal.question, options, correctOptionId: `opt-${idx + 1}` }
+    const rawOptions = proposal.options ?? []
+    const options = rawOptions.map((o, i) => ({ id: `opt-${i + 1}`, text: o.text }))
+    const correctIdx = rawOptions.findIndex((o) => o.correct)
+    const built = { question: proposal.question, options, correctOptionId: `opt-${(correctIdx >= 0 ? correctIdx : 0) + 1}` }
     const parsed = McqActivityBodySchema.safeParse(built)
     if (!parsed.success) return { success: false, error: "Invalid MCQ proposal.", activity: null }
     bodyData = parsed.data

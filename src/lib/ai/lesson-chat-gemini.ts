@@ -16,10 +16,8 @@ export interface ProposedActivity {
   type: "multiple-choice-question" | "short-text-question"
   title: string
   question: string
-  /** MCQ only: 2–4 answer options. */
-  options?: string[]
-  /** MCQ only: 0-based index into options of the correct answer. */
-  correctOptionIndex?: number
+  /** MCQ only: 2–4 answer options, each flagged correct/incorrect. */
+  options?: Array<{ text: string; correct: boolean }>
   /** STQ only: the model answer used for AI marking. */
   modelAnswer?: string
   /** Success-criteria IDs (must come from the lesson's real SCs). */
@@ -44,8 +42,17 @@ const RESPONSE_SCHEMA = {
           type: { type: "STRING", enum: ["multiple-choice-question", "short-text-question"] },
           title: { type: "STRING" },
           question: { type: "STRING" },
-          options: { type: "ARRAY", items: { type: "STRING" } },
-          correctOptionIndex: { type: "INTEGER" },
+          options: {
+            type: "ARRAY",
+            items: {
+              type: "OBJECT",
+              properties: {
+                text: { type: "STRING" },
+                correct: { type: "BOOLEAN" },
+              },
+              required: ["text", "correct"],
+            },
+          },
           modelAnswer: { type: "STRING" },
           successCriteriaIds: { type: "ARRAY", items: { type: "STRING" } },
           maxMarks: { type: "INTEGER" },

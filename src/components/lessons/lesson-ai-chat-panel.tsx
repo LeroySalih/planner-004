@@ -240,13 +240,13 @@ function ProposalCard({
             <li
               key={i}
               className={
-                i === (proposal.correctOptionIndex ?? -1)
+                opt.correct
                   ? "flex items-center gap-1.5 font-semibold text-pa-green"
                   : "flex items-center gap-1.5 text-muted-foreground"
               }
             >
-              {i === (proposal.correctOptionIndex ?? -1) ? <Check className="h-3.5 w-3.5" /> : <span className="w-3.5" />}
-              {opt}
+              {opt.correct ? <Check className="h-3.5 w-3.5" /> : <span className="w-3.5" />}
+              {opt.text}
             </li>
           ))}
         </ul>
