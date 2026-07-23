@@ -1,11 +1,11 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState, useTransition, type ChangeEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type ChangeEvent } from "react"
 import { toast } from "sonner"
-import { CheckCircle2, Loader2, RefreshCw, Upload, X } from "lucide-react"
+import { CheckCircle2, Download, Loader2, RefreshCw, Upload, X } from "lucide-react"
 
 import type { LessonActivity } from "@/types"
-import { UploadWorksheetSubmissionBodySchema } from "@/types"
+import { MarkWorksheetActivityBodySchema, UploadWorksheetSubmissionBodySchema } from "@/types"
 import type { MarkStatus } from "@/dino.config"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
@@ -109,6 +109,13 @@ export function PupilUploadWorksheetActivity({
 
   const task = (activity.body_data as any)?.task ?? ""
   const hasTask = typeof task === "string" && task.trim().length > 0
+
+  // Teacher-uploaded worksheet files (mark-worksheet only) — pupils can download
+  // these to work from. Never expose answerImages (the answer sheet).
+  const worksheetFiles = useMemo(() => {
+    const parsed = MarkWorksheetActivityBodySchema.safeParse(activity.body_data)
+    return parsed.success ? parsed.data.worksheetImages : []
+  }, [activity.body_data])
 
   const uploadDisabled = !canUpload || isPending
 
@@ -461,6 +468,25 @@ export function PupilUploadWorksheetActivity({
           className="prose prose-sm max-w-none text-pa-muted-3"
           dangerouslySetInnerHTML={{ __html: getRichTextMarkup(task) ?? "" }}
         />
+      ) : null}
+
+      {worksheetFiles.length > 0 ? (
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-pa-ink">Worksheet</p>
+          <div className="flex flex-col gap-1.5">
+            {worksheetFiles.map((file) => (
+              <a
+                key={file.filePath}
+                href={buildFileUrl(file.filePath)}
+                download={file.fileName}
+                className="flex items-center gap-2 rounded-[12px] border-[1.5px] border-pa-field-border bg-pa-field px-3 py-2 text-sm text-pa-ink transition hover:border-pa-green"
+              >
+                <Download className="h-4 w-4 shrink-0 text-pa-muted-3" />
+                <span className="truncate">{file.fileName}</span>
+              </a>
+            ))}
+          </div>
+        </div>
       ) : null}
 
       {canUpload ? (
