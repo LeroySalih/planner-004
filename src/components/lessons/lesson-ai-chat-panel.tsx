@@ -80,7 +80,7 @@ interface LessonAiChatPanelProps {
 }
 
 function stripStatus(p: CardProposal): ProposedActivity {
-  const { _status: _drop, ...rest } = p
+  const { _status: _drop, status: _drop2, ...rest } = p
   return rest
 }
 
@@ -175,7 +175,10 @@ export function LessonAiChatPanel({
           messageId: m.message_id,
           role: m.role,
           content: m.content,
-          proposals: (m.proposals ?? []).map((p) => ({ ...p, _status: "pending" as ProposalStatus })),
+          proposals: (m.proposals ?? []).map((p) => ({
+            ...p,
+            _status: (p.status === "added" || p.status === "discarded" ? p.status : "pending") as ProposalStatus,
+          })),
         })),
       )
     })
@@ -287,13 +290,21 @@ export function LessonAiChatPanel({
         return
       }
       setStatus(mi, pi, "added")
-      // Persist the (possibly edited) proposal back into the chat so it stays correct.
-      if (messageId) void updateProposalInChatAction({ messageId, proposalIndex: pi, proposal: clean })
+      // Persist the (possibly edited) proposal + its "added" status so reopening
+      // the chat shows what was added.
+      if (messageId) void updateProposalInChatAction({ messageId, proposalIndex: pi, proposal: { ...clean, status: "added" } })
       toast.success("Activity added to the lesson")
       if (res.activity) onActivityCreated(res.activity)
     },
     [lessonId, onActivityCreated],
   )
+
+  const discardProposal = useCallback((mi: number, pi: number, messageId: string | undefined, proposal: CardProposal) => {
+    setStatus(mi, pi, "discarded")
+    if (messageId) {
+      void updateProposalInChatAction({ messageId, proposalIndex: pi, proposal: { ...stripStatus(proposal), status: "discarded" } })
+    }
+  }, [])
 
   const handleClear = useCallback(async () => {
     await clearLessonChatAction(lessonId)
@@ -357,7 +368,7 @@ export function LessonAiChatPanel({
                 scLabel={scLabel}
                 onEdit={(patch) => editProposal(mi, pi, patch)}
                 onAdd={() => addProposal(mi, pi, m.messageId, p)}
-                onDiscard={() => setStatus(mi, pi, "discarded")}
+                onDiscard={() => discardProposal(mi, pi, m.messageId, p)}
               />
             ))}
           </div>

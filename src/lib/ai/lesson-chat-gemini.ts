@@ -69,6 +69,8 @@ export interface ProposedActivity {
   fileRef?: string
   fileName?: string
   fileKind?: "image" | "html" | "file"
+  /** Persisted outcome so reopening the chat shows what was added/discarded. */
+  status?: "added" | "discarded"
 }
 
 export interface ChatAttachment {
