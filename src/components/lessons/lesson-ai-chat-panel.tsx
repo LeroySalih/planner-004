@@ -290,18 +290,25 @@ export function LessonAiChatPanel({
     async (mi: number, pi: number, messageId: string | undefined, proposal: CardProposal) => {
       const clean = stripStatus(proposal)
       setStatus(mi, pi, "adding")
-      const res = await confirmProposedActivityAction({ lessonId, proposal: clean })
-      if (!res.success) {
-        toast.error("Couldn't add activity", { description: res.error ?? "Please try again." })
+      try {
+        const res = await confirmProposedActivityAction({ lessonId, proposal: clean })
+        if (!res.success) {
+          toast.error("Couldn't add activity", { description: res.error ?? "Please try again." })
+          setStatus(mi, pi, "pending")
+          return
+        }
+        setStatus(mi, pi, "added")
+        // Persist the (possibly edited) proposal + its "added" status so reopening
+        // the chat shows what was added.
+        if (messageId) void updateProposalInChatAction({ messageId, proposalIndex: pi, proposal: { ...clean, status: "added" } })
+        toast.success("Activity added to the lesson")
+        if (res.activity) onActivityCreated(res.activity)
+      } catch (err) {
+        // Rejected (network/timeout) — reset so the Add button doesn't spin forever.
+        const msg = err instanceof Error ? err.message : "Couldn't add activity. Please try again."
+        toast.error("Couldn't add activity", { description: msg })
         setStatus(mi, pi, "pending")
-        return
       }
-      setStatus(mi, pi, "added")
-      // Persist the (possibly edited) proposal + its "added" status so reopening
-      // the chat shows what was added.
-      if (messageId) void updateProposalInChatAction({ messageId, proposalIndex: pi, proposal: { ...clean, status: "added" } })
-      toast.success("Activity added to the lesson")
-      if (res.activity) onActivityCreated(res.activity)
     },
     [lessonId, onActivityCreated],
   )

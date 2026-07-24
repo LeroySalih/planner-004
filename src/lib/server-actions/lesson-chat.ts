@@ -443,8 +443,14 @@ export async function confirmProposedActivityAction(input: {
   const unitId = rows[0]?.unit_id
   if (!unitId) return { success: false, error: "Lesson has no unit.", activity: null }
 
-  const context = await getLessonChatContext(lessonId)
-  const successCriteriaIds = (proposal.successCriteriaIds ?? []).filter((id) => context.validScIds.has(id))
+  // Only re-fetch the lesson context (LOs/SCs) when there are SC IDs to validate
+  // — avoids a heavy query on every Add.
+  const proposedScIds = proposal.successCriteriaIds ?? []
+  let successCriteriaIds: string[] = []
+  if (proposedScIds.length > 0) {
+    const context = await getLessonChatContext(lessonId)
+    successCriteriaIds = proposedScIds.filter((id) => context.validScIds.has(id))
+  }
 
   let bodyData: unknown
   let linkSuccessCriteria = false
