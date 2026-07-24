@@ -24,6 +24,9 @@ export type ProposedActivityType =
   | "matcher"
   | "group-items"
   | "sequence"
+  | "display-image"
+  | "file-download"
+  | "display-webpage"
 
 export interface ProposedActivity {
   type: ProposedActivityType
@@ -49,9 +52,25 @@ export interface ProposedActivity {
   items?: Array<{ text: string; group: string }>
   /** Sequence: 2–12 terms in the CORRECT order. */
   sequence?: string[]
+  /** File types (display-image/file-download/display-webpage): the attached file this proposal uses. */
+  attachmentId?: string
+  /** Display Image: concise alt text. */
+  imageAlt?: string
   /** Success-criteria IDs (must come from the lesson's real SCs). */
   successCriteriaIds?: string[]
   maxMarks?: number
+  // ── Server-injected (resolved from attachmentId; not produced by the model) ──
+  fileRef?: string
+  fileName?: string
+  fileKind?: "image" | "html" | "file"
+}
+
+export interface ChatAttachment {
+  attachmentId: string
+  fileName: string
+  kind: "image" | "html" | "file"
+  /** Downscaled data URI for images, sent to the model as vision input. */
+  dataUrl?: string
 }
 
 export interface LessonChatReply {
@@ -82,12 +101,17 @@ const RESPONSE_SCHEMA = {
               "matcher",
               "group-items",
               "sequence",
+              "display-image",
+              "file-download",
+              "display-webpage",
             ],
           },
           title: { type: "STRING" },
           question: { type: "STRING" },
           text: { type: "STRING" },
           videoUrl: { type: "STRING" },
+          attachmentId: { type: "STRING" },
+          imageAlt: { type: "STRING" },
           options: {
             type: "ARRAY",
             items: {
@@ -126,7 +150,7 @@ const RESPONSE_SCHEMA = {
         // the chosen type and leaves the others empty.
         required: [
           "type", "title", "question", "text", "videoUrl", "modelAnswer",
-          "options", "pairs", "groups", "items", "sequence",
+          "options", "pairs", "groups", "items", "sequence", "attachmentId", "imageAlt",
         ],
       },
     },
@@ -143,16 +167,31 @@ export async function generateLessonChatReply(params: {
   systemText: string
   history: ChatTurn[]
   userMessage: string
+  attachments?: ChatAttachment[]
 }): Promise<LessonChatReply> {
   const apiKey = process.env.GOOGLE_API_KEY ?? process.env.GEMINI_API_KEY
   if (!apiKey) throw new Error("GOOGLE_API_KEY is not configured.")
+
+  const attachments = params.attachments ?? []
+  const attachmentNote = attachments.length
+    ? "\n\nAttached files (reference by attachmentId):\n" +
+      attachments.map((a) => `- ${a.attachmentId}: ${a.kind} "${a.fileName}"`).join("\n")
+    : ""
+
+  const userParts: Array<Record<string, unknown>> = [{ text: params.userMessage + attachmentNote }]
+  for (const a of attachments) {
+    if (a.kind === "image" && a.dataUrl) {
+      const m = /^data:(.+?);base64,(.*)$/.exec(a.dataUrl)
+      userParts.push({ inlineData: { mimeType: m ? m[1] : "image/jpeg", data: m ? m[2] : a.dataUrl } })
+    }
+  }
 
   const contents = [
     ...params.history.map((turn) => ({
       role: turn.role === "assistant" ? "model" : "user",
       parts: [{ text: turn.content }],
     })),
-    { role: "user", parts: [{ text: params.userMessage }] },
+    { role: "user", parts: userParts },
   ]
 
   const payload = {

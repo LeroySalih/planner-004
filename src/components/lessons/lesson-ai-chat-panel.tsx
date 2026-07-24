@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react"
 import { toast } from "sonner"
-import { Check, Loader2, Pencil, Plus, Send, Sparkles, X } from "lucide-react"
+import { Check, FileText, Loader2, Paperclip, Pencil, Plus, Send, Sparkles, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -10,9 +10,40 @@ import {
   readLessonChatAction,
   sendLessonChatMessageAction,
   updateProposalInChatAction,
+  uploadLessonChatAttachmentAction,
   clearLessonChatAction,
 } from "@/lib/server-actions/lesson-chat"
 import type { ProposedActivity } from "@/lib/ai/lesson-chat-gemini"
+
+function buildFileUrl(filePath: string): string {
+  return `/api/files/${filePath.split("/").map(encodeURIComponent).join("/")}`
+}
+
+/** Downscale an image to a JPEG data URI (~max px) for cheap vision input. */
+async function downscaleImage(file: File, max = 768): Promise<string> {
+  const bitmap = await createImageBitmap(file)
+  const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height))
+  const w = Math.round(bitmap.width * scale)
+  const h = Math.round(bitmap.height * scale)
+  const canvas = document.createElement("canvas")
+  canvas.width = w
+  canvas.height = h
+  canvas.getContext("2d")?.drawImage(bitmap, 0, 0, w, h)
+  return canvas.toDataURL("image/jpeg", 0.8)
+}
+
+function attachmentKind(file: File): "image" | "html" | "file" {
+  if (file.type.startsWith("image/")) return "image"
+  if (file.type === "text/html" || /\.html?$/i.test(file.name)) return "html"
+  return "file"
+}
+
+interface ComposerAttachment {
+  id: string
+  file: File
+  kind: "image" | "html" | "file"
+  previewUrl?: string
+}
 
 type ProposalStatus = "pending" | "adding" | "added" | "discarded"
 type CardProposal = ProposedActivity & { _status: ProposalStatus }
@@ -45,7 +76,30 @@ export function LessonAiChatPanel({
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const attachSeq = useRef(0)
+
+  const addFiles = useCallback((files: File[]) => {
+    const next = files
+      .filter((f) => f.size > 0)
+      .map((file) => {
+        attachSeq.current += 1
+        const kind = attachmentKind(file)
+        return {
+          id: `att${attachSeq.current}`,
+          file,
+          kind,
+          previewUrl: kind === "image" ? URL.createObjectURL(file) : undefined,
+        }
+      })
+    if (next.length) setAttachments((prev) => [...prev, ...next])
+  }, [])
+
+  const removeAttachment = useCallback((id: string) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id))
+  }, [])
 
   const scLabel = useCallback(
     (id: string) => successCriteria.find((sc) => sc.id === id)?.label ?? id,
@@ -76,12 +130,28 @@ export function LessonAiChatPanel({
 
   const send = useCallback(async () => {
     const text = input.trim()
-    if (!text || sending) return
+    const atts = attachments
+    if ((!text && atts.length === 0) || sending) return
     setInput("")
+    setAttachments([])
     setSending(true)
-    setMessages((prev) => [...prev, { role: "user", content: text, proposals: [] }])
+    const note = atts.length ? ` [${atts.map((a) => a.file.name).join(", ")}]` : ""
+    setMessages((prev) => [...prev, { role: "user", content: text + note, proposals: [] }])
     try {
-      const res = await sendLessonChatMessageAction({ lessonId, message: text })
+      const uploaded: Array<{ attachmentId: string; tempRef: string; fileName: string; kind: "image" | "html" | "file"; dataUrl?: string }> = []
+      for (const a of atts) {
+        const fd = new FormData()
+        fd.append("lessonId", lessonId)
+        fd.append("file", a.file)
+        const up = await uploadLessonChatAttachmentAction(fd)
+        if (!up.success) {
+          toast.error(`Couldn't attach ${a.file.name}`, { description: up.error ?? "Please try again." })
+          continue
+        }
+        const dataUrl = a.kind === "image" ? await downscaleImage(a.file).catch(() => undefined) : undefined
+        uploaded.push({ attachmentId: a.id, tempRef: up.tempRef, fileName: up.fileName, kind: up.kind, dataUrl })
+      }
+      const res = await sendLessonChatMessageAction({ lessonId, message: text, attachments: uploaded })
       if (!res.success) {
         toast.error("Chat failed", { description: res.error ?? "Please try again." })
         setMessages((prev) => [...prev, { role: "assistant", content: res.error ?? "Something went wrong.", proposals: [] }])
@@ -99,7 +169,7 @@ export function LessonAiChatPanel({
     } finally {
       setSending(false)
     }
-  }, [input, lessonId, sending])
+  }, [input, attachments, lessonId, sending])
 
   const setStatus = (mi: number, pi: number, status: ProposalStatus) => {
     setMessages((prev) =>
@@ -201,11 +271,77 @@ export function LessonAiChatPanel({
         ) : null}
       </div>
 
-      <div className="border-t border-border p-3">
+      <div
+        className="border-t border-border p-3"
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          e.preventDefault()
+          if (e.dataTransfer.files?.length) addFiles(Array.from(e.dataTransfer.files))
+        }}
+      >
+        {attachments.length > 0 ? (
+          <div className="mb-2 flex flex-wrap gap-2">
+            {attachments.map((a) => (
+              <div key={a.id} className="relative">
+                {a.kind === "image" && a.previewUrl ? (
+                  <img src={a.previewUrl} alt={a.file.name} className="h-14 w-14 rounded object-cover" />
+                ) : (
+                  <div className="flex h-14 w-24 items-center gap-1 rounded border border-border bg-muted px-2 text-[10px] text-muted-foreground">
+                    <FileText className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">{a.file.name}</span>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => removeAttachment(a.id)}
+                  className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full bg-red-600 text-white ring-2 ring-card"
+                  aria-label="Remove"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
         <div className="flex items-end gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="image/*,.html,.htm,application/pdf,application/*,text/*"
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files?.length) addFiles(Array.from(e.target.files))
+              e.target.value = ""
+            }}
+          />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-9 w-9 shrink-0 p-0"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={sending}
+            aria-label="Attach a file"
+            title="Attach an image, .html or file"
+          >
+            <Paperclip className="h-4 w-4" />
+          </Button>
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onPaste={(e) => {
+              const files: File[] = []
+              for (const item of e.clipboardData?.items ?? []) {
+                if (item.kind === "file") {
+                  const f = item.getAsFile()
+                  if (f) files.push(f)
+                }
+              }
+              if (files.length) {
+                e.preventDefault()
+                addFiles(files)
+              }
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault()
@@ -213,11 +349,15 @@ export function LessonAiChatPanel({
               }
             }}
             rows={2}
-            placeholder="Ask the AI to create activities…"
+            placeholder="Ask the AI, or paste/attach an image or file…"
             className="flex-1 resize-none rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus-visible:border-pa-green"
             disabled={sending}
           />
-          <Button onClick={() => void send()} disabled={sending || !input.trim()} className="h-9 w-9 shrink-0 p-0">
+          <Button
+            onClick={() => void send()}
+            disabled={sending || (!input.trim() && attachments.length === 0)}
+            className="h-9 w-9 shrink-0 p-0"
+          >
             <Send className="h-4 w-4" />
           </Button>
         </div>
@@ -253,28 +393,27 @@ function ProposalCard({
   const isMatcher = proposal.type === "matcher"
   const isGroup = proposal.type === "group-items"
   const isSequence = proposal.type === "sequence"
+  const isDisplayImage = proposal.type === "display-image"
+  const isFileDownload = proposal.type === "file-download"
+  const isWebpage = proposal.type === "display-webpage"
   const hasQuestion = isMcq || isStq
-  const typeLabel = isMcq
-    ? "MCQ"
-    : isStq
-      ? "Short answer"
-      : isText
-        ? "Text"
-        : isSection
-          ? "Section"
-          : isVideo
-            ? "Video"
-            : isUploadFile
-              ? "Upload file"
-              : isUploadUrl
-                ? "Upload URL"
-                : isVoice
-                  ? "Voice"
-                  : isMatcher
-                    ? "Matcher"
-                    : isGroup
-                      ? "Group items"
-                      : "Sequence"
+  const TYPE_LABELS: Record<string, string> = {
+    "multiple-choice-question": "MCQ",
+    "short-text-question": "Short answer",
+    text: "Text",
+    "display-section": "Section",
+    "show-video": "Video",
+    "upload-file": "Upload file",
+    "upload-url": "Upload URL",
+    voice: "Voice",
+    matcher: "Matcher",
+    "group-items": "Group items",
+    sequence: "Sequence",
+    "display-image": "Image",
+    "file-download": "File",
+    "display-webpage": "Webpage",
+  }
+  const typeLabel = TYPE_LABELS[proposal.type] ?? "Activity"
   const discarded = proposal._status === "discarded"
   const added = proposal._status === "added"
   const options = proposal.options ?? []
@@ -528,6 +667,38 @@ function ProposalCard({
             </li>
           ))}
         </ol>
+      ) : null}
+
+      {isDisplayImage ? (
+        <div className="mt-2 space-y-2">
+          {proposal.fileRef ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={buildFileUrl(proposal.fileRef)}
+              alt={proposal.imageAlt ?? ""}
+              className="max-h-40 w-full rounded object-contain"
+            />
+          ) : null}
+          {editing ? (
+            <input
+              value={proposal.imageAlt ?? ""}
+              onChange={(e) => onEdit({ imageAlt: e.target.value })}
+              className="w-full rounded border border-border bg-background px-2 py-1 text-xs"
+              placeholder="Alt text"
+            />
+          ) : proposal.imageAlt ? (
+            <p className="text-xs text-muted-foreground">
+              <span className="font-semibold">Alt:</span> {proposal.imageAlt}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {isFileDownload || isWebpage ? (
+        <div className="mt-2 flex items-center gap-1.5 text-sm text-foreground">
+          <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="truncate">{proposal.fileName ?? "file"}</span>
+        </div>
       ) : null}
 
       {proposal.successCriteriaIds && proposal.successCriteriaIds.length > 0 ? (

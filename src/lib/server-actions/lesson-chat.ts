@@ -12,13 +12,99 @@ import {
   ShortTextActivityBodySchema,
   UploadUrlActivityBodySchema,
 } from "@/types"
+import { createLocalStorageClient } from "@/lib/storage/local-storage"
 import {
   generateLessonChatReply,
+  type ChatAttachment,
   type ChatTurn,
   type ProposedActivity,
 } from "@/lib/ai/lesson-chat-gemini"
 
 const HISTORY_WINDOW = 20
+const LESSON_FILES_BUCKET = "lessons"
+
+function inferChatFileKind(fileName: string, contentType: string): "image" | "html" | "file" {
+  const n = fileName.toLowerCase()
+  if (contentType.startsWith("image/") || /\.(jpe?g|png|gif|webp)$/.test(n)) return "image"
+  if (contentType === "text/html" || /\.html?$/.test(n)) return "html"
+  return "file"
+}
+
+function inferChatFileMime(fileName: string): string {
+  const n = fileName.toLowerCase()
+  if (n.endsWith(".png")) return "image/png"
+  if (n.endsWith(".gif")) return "image/gif"
+  if (n.endsWith(".webp")) return "image/webp"
+  if (n.endsWith(".jpg") || n.endsWith(".jpeg")) return "image/jpeg"
+  if (n.endsWith(".html") || n.endsWith(".htm")) return "text/html"
+  return "application/octet-stream"
+}
+
+/**
+ * Upload a chat attachment to a per-lesson temp path. Returns a `tempRef` the
+ * client passes back on send; on confirm the file is copied into the created
+ * activity's folder.
+ */
+export async function uploadLessonChatAttachmentAction(
+  formData: FormData,
+): Promise<{ success: boolean; tempRef: string; fileName: string; kind: "image" | "html" | "file"; error: string | null }> {
+  const profile = await requireTeacherProfile()
+  if (!profile) return { success: false, tempRef: "", fileName: "", kind: "file", error: "Unauthorized" }
+
+  const lessonId = formData.get("lessonId")
+  const file = formData.get("file")
+  if (typeof lessonId !== "string" || !lessonId.trim()) {
+    return { success: false, tempRef: "", fileName: "", kind: "file", error: "Missing lesson." }
+  }
+  if (!(file instanceof File)) {
+    return { success: false, tempRef: "", fileName: "", kind: "file", error: "No file provided." }
+  }
+  if (file.size > 15 * 1024 * 1024) {
+    return { success: false, tempRef: "", fileName: "", kind: "file", error: "File exceeds 15MB." }
+  }
+
+  const cleanName = file.name.replace(/\s+/g, "_")
+  const kind = inferChatFileKind(cleanName, file.type)
+  const storedName = `${crypto.randomUUID().slice(0, 8)}-${cleanName}`
+  const tempRef = `${LESSON_FILES_BUCKET}/${lessonId}/activities/_chat/${storedName}`
+
+  try {
+    const buffer = Buffer.from(await file.arrayBuffer())
+    const storage = createLocalStorageClient(LESSON_FILES_BUCKET)
+    const { error } = await storage.upload(tempRef, buffer, {
+      contentType: file.type || inferChatFileMime(cleanName),
+      uploadedBy: profile.userId,
+      originalPath: tempRef,
+    })
+    if (error) return { success: false, tempRef: "", fileName: "", kind, error: error.message }
+    return { success: true, tempRef, fileName: cleanName, kind, error: null }
+  } catch (err) {
+    console.error("[lesson-chat] attachment upload failed", err)
+    return { success: false, tempRef: "", fileName: "", kind, error: "Upload failed." }
+  }
+}
+
+/** Copy a chat temp file into the created activity's folder. */
+async function copyChatFileToActivity(
+  tempRef: string,
+  lessonId: string,
+  activityId: string,
+  fileName: string,
+  uploadedBy: string,
+): Promise<void> {
+  const storage = createLocalStorageClient(LESSON_FILES_BUCKET)
+  const { stream, error } = await storage.getFileStream(tempRef)
+  if (error || !stream) throw new Error(`Could not read attachment at ${tempRef}`)
+  const chunks: Buffer[] = []
+  for await (const chunk of stream) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+  const dest = `${LESSON_FILES_BUCKET}/${lessonId}/activities/${activityId}/${fileName}`
+  const { error: upErr } = await storage.upload(dest, Buffer.concat(chunks), {
+    contentType: inferChatFileMime(fileName),
+    uploadedBy,
+    originalPath: dest,
+  })
+  if (upErr) throw new Error(upErr.message)
+}
 
 interface LessonChatContext {
   unitId: string | null
@@ -72,6 +158,9 @@ async function getLessonChatContext(lessonId: string): Promise<LessonChatContext
     "- matcher (pupils match terms to definitions)",
     "- group-items (pupils sort items into named groups)",
     "- sequence (pupils arrange items into the correct order)",
+    "- display-image (show an image; only when the teacher attaches an image)",
+    "- file-download (offer a file to download; only when the teacher attaches a file)",
+    "- display-webpage (embed an .html page; only when the teacher attaches an .html file)",
     "You never create activities yourself — you return proposals as structured data; the teacher confirms them.",
     "",
     "Each proposal always includes every field; fill the ones relevant to its type and leave the rest empty (\"\" or []):",
@@ -84,7 +173,8 @@ async function getLessonChatContext(lessonId: string): Promise<LessonChatContext
     "- matcher: set `pairs` to 2–8 items, each with a `term` and its `definition`.",
     "- group-items: set `groups` to 2–4 group names, and `items` to 2–12 items, each with `text` and a `group` that EXACTLY matches one of the group names.",
     "- sequence: set `sequence` to 2–12 short items in the CORRECT order (first to last).",
-    "- Align scorable activities to the lesson's success criteria where sensible, using successCriteriaIds — you may ONLY use the SC IDs listed below; never invent IDs. Display types (text, section, video) have no success criteria.",
+    "- display-image / file-download / display-webpage: ONLY propose when a matching file is attached this turn; set `attachmentId` to that attachment's id. For display-image, also set a concise `imageAlt` describing the image. Never propose these without an attachment.",
+    "- Align scorable activities to the lesson's success criteria where sensible, using successCriteriaIds — you may ONLY use the SC IDs listed below; never invent IDs. Display types (text, section, video, image, file, webpage) have no success criteria.",
     "- Keep content clear and grade-appropriate; base it on the lesson's objectives and existing activities unless the teacher says otherwise.",
     "- Put a short conversational reply in `message` and the activities in `proposals` (empty array if none this turn).",
     "",
@@ -143,13 +233,15 @@ export async function readLessonChatAction(lessonId: string): Promise<{
 export async function sendLessonChatMessageAction(input: {
   lessonId: string
   message: string
+  attachments?: Array<{ attachmentId: string; tempRef: string; fileName: string; kind: "image" | "html" | "file"; dataUrl?: string }>
 }): Promise<{ success: boolean; messageId: string | null; message: string; proposals: ProposedActivity[]; error: string | null }> {
   const profile = await requireTeacherProfile()
   if (!profile) return { success: false, messageId: null, message: "", proposals: [], error: "Unauthorized" }
 
   const lessonId = input.lessonId?.trim()
-  const userMessage = input.message?.trim()
-  if (!lessonId || !userMessage) {
+  const userMessage = input.message?.trim() ?? ""
+  const attachments = input.attachments ?? []
+  if (!lessonId || (!userMessage && attachments.length === 0)) {
     return { success: false, messageId: null, message: "", proposals: [], error: "Missing lesson or message." }
   }
 
@@ -157,22 +249,30 @@ export async function sendLessonChatMessageAction(input: {
     const context = await getLessonChatContext(lessonId)
     const history = await loadHistory(lessonId)
 
+    const attachNote = attachments.length ? ` [attached: ${attachments.map((a) => a.fileName).join(", ")}]` : ""
     await query(
       `insert into lesson_chat_messages (lesson_id, teacher_id, role, content) values ($1, $2, 'user', $3)`,
-      [lessonId, profile.userId, userMessage],
+      [lessonId, profile.userId, userMessage + attachNote],
     )
 
     const reply = await generateLessonChatReply({
       systemText: context.systemText,
       history,
-      userMessage,
+      userMessage: userMessage || "(see attached files)",
+      attachments: attachments.map((a) => ({ attachmentId: a.attachmentId, fileName: a.fileName, kind: a.kind, dataUrl: a.dataUrl })),
     })
 
-    // Keep only proposals that reference valid SC IDs (drop hallucinated ones).
-    const proposals = reply.proposals.map((p) => ({
-      ...p,
-      successCriteriaIds: (p.successCriteriaIds ?? []).filter((id) => context.validScIds.has(id)),
-    }))
+    const byAttachmentId = new Map(attachments.map((a) => [a.attachmentId, a]))
+
+    // Filter hallucinated SC IDs and resolve any attachmentId into a stored file ref.
+    const proposals = reply.proposals.map((p) => {
+      const att = p.attachmentId ? byAttachmentId.get(p.attachmentId) : undefined
+      return {
+        ...p,
+        successCriteriaIds: (p.successCriteriaIds ?? []).filter((id) => context.validScIds.has(id)),
+        ...(att ? { fileRef: att.tempRef, fileName: att.fileName, fileKind: att.kind } : {}),
+      }
+    })
 
     const { rows: inserted } = await query<{ message_id: string }>(
       `insert into lesson_chat_messages (lesson_id, teacher_id, role, content, proposals) values ($1, $2, 'assistant', $3, $4::jsonb) returning message_id`,
@@ -292,6 +392,42 @@ export async function confirmProposedActivityAction(input: {
     if (!parsed.success) return { success: false, error: "Invalid Sequence proposal (need 2–12 items).", activity: null }
     bodyData = parsed.data
     linkSuccessCriteria = true
+  } else if (
+    proposal.type === "display-image" ||
+    proposal.type === "file-download" ||
+    proposal.type === "display-webpage"
+  ) {
+    // File-backed types: create the activity (body references the filename),
+    // then copy the attached chat file into the activity's folder.
+    const fileRef = proposal.fileRef
+    const fileName = (proposal.fileName ?? "").replace(/\s+/g, "_")
+    if (!fileRef || !fileName) {
+      return { success: false, error: "This proposal has no attached file.", activity: null }
+    }
+    if (proposal.type === "display-webpage" && !/\.html?$/i.test(fileName)) {
+      return { success: false, error: "Display Webpage needs an .html file.", activity: null }
+    }
+    let fileBody: unknown
+    if (proposal.type === "display-image") fileBody = { imageFile: fileName, imageAlt: proposal.imageAlt ?? "" }
+    else if (proposal.type === "file-download") fileBody = { fileUrl: fileName, fileName }
+    else fileBody = { htmlFile: fileName }
+
+    const created = await createLessonActivityAction(unitId, lessonId, {
+      title: proposal.title,
+      type: proposal.type,
+      bodyData: fileBody,
+    })
+    if (!created.success || !created.data) {
+      return { success: false, error: created.error ?? "Could not create activity.", activity: null }
+    }
+    const activityId = (created.data as { activity_id: string }).activity_id
+    try {
+      await copyChatFileToActivity(fileRef, lessonId, activityId, fileName, profile.userId)
+    } catch (err) {
+      console.error("[lesson-chat] copy attachment failed", err)
+      return { success: false, error: "Activity created but the file could not be attached.", activity: created.data }
+    }
+    return { success: true, error: null, activity: created.data }
   } else {
     return { success: false, error: "Unsupported activity type.", activity: null }
   }
