@@ -338,7 +338,7 @@ export function LessonAiChatPanel({
             ref={fileInputRef}
             type="file"
             multiple
-            accept="image/*,.html,.htm,application/pdf,application/*,text/*"
+            accept="image/*,.html,.htm,.pptx,.ppt,application/pdf,application/*,text/*"
             className="hidden"
             onChange={(e) => {
               if (e.target.files?.length) addFiles(Array.from(e.target.files))

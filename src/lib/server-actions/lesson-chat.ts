@@ -15,12 +15,16 @@ import {
   UploadWorksheetActivityBodySchema,
 } from "@/types"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
+import { convertToPdfViaGotenberg } from "@/lib/pdf/gotenberg"
+import { rasterizePdfToJpegs } from "@/lib/pdf/rasterize-pdf"
 import {
   generateLessonChatReply,
   type ChatAttachment,
   type ChatTurn,
   type ProposedActivity,
 } from "@/lib/ai/lesson-chat-gemini"
+
+const MAX_SLIDES = 20
 
 const HISTORY_WINDOW = 20
 const LESSON_FILES_BUCKET = "lessons"
@@ -61,8 +65,8 @@ export async function uploadLessonChatAttachmentAction(
   if (!(file instanceof File)) {
     return { success: false, tempRef: "", fileName: "", kind: "file", error: "No file provided." }
   }
-  if (file.size > 15 * 1024 * 1024) {
-    return { success: false, tempRef: "", fileName: "", kind: "file", error: "File exceeds 15MB." }
+  if (file.size > 25 * 1024 * 1024) {
+    return { success: false, tempRef: "", fileName: "", kind: "file", error: "File exceeds 25MB." }
   }
 
   const cleanName = file.name.replace(/\s+/g, "_")
@@ -106,6 +110,52 @@ async function copyChatFileToActivity(
     originalPath: dest,
   })
   if (upErr) throw new Error(upErr.message)
+}
+
+/**
+ * Convert an attached PowerPoint (already at `tempRef`) into one Display Image
+ * proposal per slide, reusing the slides-import pipeline (Gotenberg pptx -> PDF,
+ * poppler PDF -> JPEGs). Slide images are stored in the lesson chat temp folder;
+ * the teacher confirms which slides to add.
+ */
+async function convertPptxToSlideProposals(
+  tempRef: string,
+  fileName: string,
+  lessonId: string,
+  uploadedBy: string,
+): Promise<ProposedActivity[]> {
+  const storage = createLocalStorageClient(LESSON_FILES_BUCKET)
+  const { stream, error } = await storage.getFileStream(tempRef)
+  if (error || !stream) throw new Error(`Could not read PowerPoint at ${tempRef}`)
+  const chunks: Buffer[] = []
+  for await (const chunk of stream) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+
+  const { pdf, error: convertError } = await convertToPdfViaGotenberg(Buffer.concat(chunks), fileName)
+  if (convertError || !pdf) throw new Error(convertError ?? "PowerPoint conversion failed.")
+  const { pages, error: rasterError } = await rasterizePdfToJpegs(pdf, { maxPages: MAX_SLIDES })
+  if (rasterError) throw new Error(rasterError)
+
+  const base = fileName.replace(/\.pptx?$/i, "").replace(/[^a-z0-9-]/gi, "_") || "slides"
+  const proposals: ProposedActivity[] = []
+  for (let i = 0; i < pages.length; i += 1) {
+    const slideName = `${base}-slide-${i + 1}.jpg`
+    const ref = `${LESSON_FILES_BUCKET}/${lessonId}/activities/_chat/${crypto.randomUUID().slice(0, 8)}-${slideName}`
+    const { error: upErr } = await storage.upload(ref, pages[i], {
+      contentType: "image/jpeg",
+      uploadedBy,
+      originalPath: ref,
+    })
+    if (upErr) throw new Error(upErr.message)
+    proposals.push({
+      type: "display-image",
+      title: `${base} — Slide ${i + 1}`,
+      imageAlt: "",
+      fileRef: ref,
+      fileName: slideName,
+      fileKind: "image",
+    })
+  }
+  return proposals
 }
 
 interface LessonChatContext {
@@ -251,10 +301,33 @@ export async function sendLessonChatMessageAction(input: {
   }
 
   try {
+    const attachNote = attachments.length ? ` [attached: ${attachments.map((a) => a.fileName).join(", ")}]` : ""
+
+    // PowerPoint → slides path: deterministic conversion, no model call. Each
+    // slide becomes a Display Image proposal the teacher can pick or discard.
+    const slideSources = attachments.filter((a) => /\.pptx?$/i.test(a.fileName))
+    if (slideSources.length > 0) {
+      await query(
+        `insert into lesson_chat_messages (lesson_id, teacher_id, role, content) values ($1, $2, 'user', $3)`,
+        [lessonId, profile.userId, userMessage + attachNote],
+      )
+      const slideProposals: ProposedActivity[] = []
+      for (const source of slideSources) {
+        slideProposals.push(...(await convertPptxToSlideProposals(source.tempRef, source.fileName, lessonId, profile.userId)))
+      }
+      const message = slideProposals.length
+        ? `Converted your PowerPoint into ${slideProposals.length} slide${slideProposals.length > 1 ? "s" : ""}. Choose which to add as Display Images.`
+        : "I couldn't extract any slides from that PowerPoint."
+      const { rows: inserted } = await query<{ message_id: string }>(
+        `insert into lesson_chat_messages (lesson_id, teacher_id, role, content, proposals) values ($1, $2, 'assistant', $3, $4::jsonb) returning message_id`,
+        [lessonId, profile.userId, message, JSON.stringify(slideProposals)],
+      )
+      return { success: true, messageId: inserted[0]?.message_id ?? null, message, proposals: slideProposals, error: null }
+    }
+
     const context = await getLessonChatContext(lessonId)
     const history = await loadHistory(lessonId)
 
-    const attachNote = attachments.length ? ` [attached: ${attachments.map((a) => a.fileName).join(", ")}]` : ""
     await query(
       `insert into lesson_chat_messages (lesson_id, teacher_id, role, content) values ($1, $2, 'user', $3)`,
       [lessonId, profile.userId, userMessage + attachNote],
