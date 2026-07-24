@@ -174,11 +174,21 @@ const RESPONSE_SCHEMA = {
  * `systemText` carries the lesson context (LOs, success criteria with IDs, and
  * existing activities); `history` is the bounded conversation window.
  */
+export interface ActivityReference {
+  label: string
+  kind: "image" | "text"
+  /** Downscaled data URI for image activities, sent as vision. */
+  dataUrl?: string
+  /** Text content for text activities. */
+  text?: string
+}
+
 export async function generateLessonChatReply(params: {
   systemText: string
   history: ChatTurn[]
   userMessage: string
   attachments?: ChatAttachment[]
+  references?: ActivityReference[]
 }): Promise<LessonChatReply> {
   const apiKey = process.env.GOOGLE_API_KEY ?? process.env.GEMINI_API_KEY
   if (!apiKey) throw new Error("GOOGLE_API_KEY is not configured.")
@@ -189,11 +199,27 @@ export async function generateLessonChatReply(params: {
       attachments.map((a) => `- ${a.attachmentId}: ${a.kind} "${a.fileName}"`).join("\n")
     : ""
 
-  const userParts: Array<Record<string, unknown>> = [{ text: params.userMessage + attachmentNote }]
+  const references = params.references ?? []
+  const referenceNote = references.length
+    ? "\n\nExisting lesson activities to use as reference (context only — do NOT recreate them; base the new activities on them):\n" +
+      references
+        .map((r) => (r.kind === "text" ? `- "${r.label}": ${r.text ?? ""}` : `- "${r.label}" (image shown below)`))
+        .join("\n")
+    : ""
+
+  const userParts: Array<Record<string, unknown>> = [
+    { text: params.userMessage + attachmentNote + referenceNote },
+  ]
   for (const a of attachments) {
     if (a.kind === "image" && a.dataUrl) {
       const m = /^data:(.+?);base64,(.*)$/.exec(a.dataUrl)
       userParts.push({ inlineData: { mimeType: m ? m[1] : "image/jpeg", data: m ? m[2] : a.dataUrl } })
+    }
+  }
+  for (const r of references) {
+    if (r.kind === "image" && r.dataUrl) {
+      const m = /^data:(.+?);base64,(.*)$/.exec(r.dataUrl)
+      userParts.push({ inlineData: { mimeType: m ? m[1] : "image/jpeg", data: m ? m[2] : r.dataUrl } })
     }
   }
 

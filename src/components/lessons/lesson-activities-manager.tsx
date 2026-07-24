@@ -187,6 +187,34 @@ export function LessonActivitiesManager({
     )
   }, [])
 
+  // Existing activities the teacher can reference in the AI chat (image → vision,
+  // text → context).
+  const referenceableActivities = useMemo(
+    () =>
+      activities
+        .map((a) => {
+          const body = (a.body_data ?? {}) as Record<string, unknown>
+          let imageUrl: string | undefined
+          let text: string | undefined
+          if (a.type === "display-image") {
+            const imageFile = typeof body.imageFile === "string" ? body.imageFile : null
+            const imageUrlAbs = typeof body.imageUrl === "string" ? body.imageUrl : null
+            const fileUrl = typeof body.fileUrl === "string" ? body.fileUrl : null
+            if (imageUrlAbs && /^https?:/i.test(imageUrlAbs)) imageUrl = imageUrlAbs
+            else if (imageFile) imageUrl = buildLessonFileUrl(`lessons/${lessonId}/activities/${a.activity_id}/${imageFile}`)
+            else if (fileUrl) imageUrl = /^https?:/i.test(fileUrl) ? fileUrl : buildLessonFileUrl(`lessons/${lessonId}/activities/${a.activity_id}/${fileUrl}`)
+          } else {
+            const cand = [body.text, body.description, body.question, body.task].find(
+              (v) => typeof v === "string" && (v as string).trim().length > 0,
+            )
+            if (typeof cand === "string") text = cand
+          }
+          return { activityId: a.activity_id, title: a.title ?? "Untitled", type: a.type, imageUrl, text }
+        })
+        .filter((r) => r.imageUrl || r.text),
+    [activities, lessonId],
+  )
+
   // Live-update activity images when async doc conversion (Gotenberg) completes,
   // so Word-document worksheet/answer pages appear without a manual refresh.
   useEffect(() => {
@@ -1929,6 +1957,7 @@ ${scs[0] ? `SC: ${scs[0].title}` : ""}
             <LessonAiChatPanel
               lessonId={lessonId}
               successCriteria={availableSuccessCriteria.map((sc) => ({ id: sc.successCriteriaId, label: sc.title }))}
+              referenceableActivities={referenceableActivities}
               onClose={() => setAiChatOpen(false)}
               onActivityCreated={handleAiActivityCreated}
             />

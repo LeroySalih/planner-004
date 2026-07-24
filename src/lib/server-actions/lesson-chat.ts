@@ -26,6 +26,36 @@ import {
 
 const MAX_SLIDES = 20
 
+/** Short text summary of an activity's content, so the model can reference it. */
+function summariseActivityBody(type: string, bodyData: unknown): string {
+  const b = (bodyData ?? {}) as Record<string, unknown>
+  const s = (v: unknown, n = 160) => (typeof v === "string" ? v.trim().replace(/\s+/g, " ").slice(0, n) : "")
+  switch (type) {
+    case "multiple-choice-question":
+    case "short-text-question":
+      return s(b.question)
+    case "text":
+      return s(b.text)
+    case "display-section":
+      return s(b.description)
+    case "upload-worksheet":
+    case "upload-spreadsheet":
+      return s(b.task)
+    case "matcher":
+      return Array.isArray(b.pairs) ? (b.pairs as Array<{ term?: string }>).map((p) => p.term).filter(Boolean).join(", ") : ""
+    case "group-items":
+      return Array.isArray(b.groups) ? "groups: " + (b.groups as Array<{ name?: string }>).map((g) => g.name).filter(Boolean).join(", ") : ""
+    case "sequence":
+      return Array.isArray(b.terms) ? (b.terms as Array<{ text?: string }>).map((t) => t.text).filter(Boolean).join(" → ") : ""
+    case "display-image":
+      return "[image]"
+    case "show-video":
+      return "[video]"
+    default:
+      return ""
+  }
+}
+
 const HISTORY_WINDOW = 20
 const LESSON_FILES_BUCKET = "lessons"
 
@@ -191,9 +221,8 @@ async function getLessonChatContext(lessonId: string): Promise<LessonChatContext
     [lessonId],
   )
   const activityLines = activityRows.map((a) => {
-    const body = (a.body_data ?? {}) as { question?: string }
-    const q = typeof body.question === "string" && body.question.trim() ? ` — "${body.question.trim().slice(0, 120)}"` : ""
-    return `  • ${a.title ?? "Untitled"} (${a.type ?? "unknown"})${q}`
+    const summary = summariseActivityBody(a.type ?? "", a.body_data)
+    return `  • ${a.title ?? "Untitled"} (${a.type ?? "unknown"})${summary ? ` — ${summary}` : ""}`
   })
 
   const systemText = [
@@ -289,6 +318,7 @@ export async function sendLessonChatMessageAction(input: {
   lessonId: string
   message: string
   attachments?: Array<{ attachmentId: string; tempRef: string; fileName: string; kind: "image" | "html" | "file"; dataUrl?: string }>
+  references?: Array<{ label: string; kind: "image" | "text"; dataUrl?: string; text?: string }>
 }): Promise<{ success: boolean; messageId: string | null; message: string; proposals: ProposedActivity[]; error: string | null }> {
   const profile = await requireTeacherProfile()
   if (!profile) return { success: false, messageId: null, message: "", proposals: [], error: "Unauthorized" }
@@ -296,12 +326,16 @@ export async function sendLessonChatMessageAction(input: {
   const lessonId = input.lessonId?.trim()
   const userMessage = input.message?.trim() ?? ""
   const attachments = input.attachments ?? []
-  if (!lessonId || (!userMessage && attachments.length === 0)) {
+  const references = input.references ?? []
+  if (!lessonId || (!userMessage && attachments.length === 0 && references.length === 0)) {
     return { success: false, messageId: null, message: "", proposals: [], error: "Missing lesson or message." }
   }
 
   try {
-    const attachNote = attachments.length ? ` [attached: ${attachments.map((a) => a.fileName).join(", ")}]` : ""
+    const refNoteParts = references.length ? [`referenced: ${references.map((r) => r.label).join(", ")}`] : []
+    const attachParts = attachments.length ? [`attached: ${attachments.map((a) => a.fileName).join(", ")}`] : []
+    const noteBits = [...attachParts, ...refNoteParts]
+    const attachNote = noteBits.length ? ` [${noteBits.join("; ")}]` : ""
 
     // PowerPoint → slides path: deterministic conversion, no model call. Each
     // slide becomes a Display Image proposal the teacher can pick or discard.
@@ -336,8 +370,9 @@ export async function sendLessonChatMessageAction(input: {
     const reply = await generateLessonChatReply({
       systemText: context.systemText,
       history,
-      userMessage: userMessage || "(see attached files)",
+      userMessage: userMessage || "(see attached / referenced items)",
       attachments: attachments.map((a) => ({ attachmentId: a.attachmentId, fileName: a.fileName, kind: a.kind, dataUrl: a.dataUrl })),
+      references,
     })
 
     const byAttachmentId = new Map(attachments.map((a) => [a.attachmentId, a]))

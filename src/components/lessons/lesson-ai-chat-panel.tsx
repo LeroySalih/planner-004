@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react"
 import { toast } from "sonner"
-import { Check, Copy, FileText, Loader2, Paperclip, Pencil, Plus, Send, Sparkles, Square, X } from "lucide-react"
+import { AtSign, Check, Copy, FileText, Loader2, Paperclip, Pencil, Plus, Send, Sparkles, Square, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -19,9 +19,9 @@ function buildFileUrl(filePath: string): string {
   return `/api/files/${filePath.split("/").map(encodeURIComponent).join("/")}`
 }
 
-/** Downscale an image to a JPEG data URI (~max px) for cheap vision input. */
-async function downscaleImage(file: File, max = 768): Promise<string> {
-  const bitmap = await createImageBitmap(file)
+/** Downscale an image blob to a JPEG data URI (~max px) for cheap vision input. */
+async function downscaleBlob(blob: Blob, max = 768): Promise<string> {
+  const bitmap = await createImageBitmap(blob)
   const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height))
   const w = Math.round(bitmap.width * scale)
   const h = Math.round(bitmap.height * scale)
@@ -30,6 +30,13 @@ async function downscaleImage(file: File, max = 768): Promise<string> {
   canvas.height = h
   canvas.getContext("2d")?.drawImage(bitmap, 0, 0, w, h)
   return canvas.toDataURL("image/jpeg", 0.8)
+}
+
+const downscaleImage = (file: File, max = 768) => downscaleBlob(file, max)
+
+async function downscaleImageFromUrl(url: string, max = 768): Promise<string> {
+  const res = await fetch(url)
+  return downscaleBlob(await res.blob(), max)
 }
 
 function attachmentKind(file: File): "image" | "html" | "file" {
@@ -55,9 +62,18 @@ interface ChatMessage {
   proposals: CardProposal[]
 }
 
+interface ReferenceableActivity {
+  activityId: string
+  title: string
+  type: string
+  imageUrl?: string
+  text?: string
+}
+
 interface LessonAiChatPanelProps {
   lessonId: string
   successCriteria: Array<{ id: string; label: string }>
+  referenceableActivities: ReferenceableActivity[]
   onClose: () => void
   onActivityCreated: (activity: unknown) => void
 }
@@ -70,6 +86,7 @@ function stripStatus(p: CardProposal): ProposedActivity {
 export function LessonAiChatPanel({
   lessonId,
   successCriteria,
+  referenceableActivities,
   onClose,
   onActivityCreated,
 }: LessonAiChatPanelProps) {
@@ -103,6 +120,34 @@ export function LessonAiChatPanel({
     setAttachments((prev) => prev.filter((a) => a.id !== id))
   }, [])
 
+  // References to existing lesson activities (sent as context: image → vision, text → note).
+  const [references, setReferences] = useState<
+    Array<{ activityId: string; label: string; kind: "image" | "text"; dataUrl?: string; text?: string }>
+  >([])
+  const [refPickerOpen, setRefPickerOpen] = useState(false)
+
+  const addReference = useCallback(
+    async (activity: ReferenceableActivity) => {
+      setRefPickerOpen(false)
+      if (references.some((r) => r.activityId === activity.activityId)) return
+      if (activity.imageUrl) {
+        const dataUrl = await downscaleImageFromUrl(activity.imageUrl).catch(() => undefined)
+        if (!dataUrl) {
+          toast.error(`Couldn't load "${activity.title}"`)
+          return
+        }
+        setReferences((prev) => [...prev, { activityId: activity.activityId, label: activity.title, kind: "image", dataUrl }])
+      } else if (activity.text) {
+        setReferences((prev) => [...prev, { activityId: activity.activityId, label: activity.title, kind: "text", text: activity.text }])
+      }
+    },
+    [references],
+  )
+
+  const removeReference = useCallback((activityId: string) => {
+    setReferences((prev) => prev.filter((r) => r.activityId !== activityId))
+  }, [])
+
   const scLabel = useCallback(
     (id: string) => successCriteria.find((sc) => sc.id === id)?.label ?? id,
     [successCriteria],
@@ -133,13 +178,19 @@ export function LessonAiChatPanel({
   const send = useCallback(async () => {
     const text = input.trim()
     const atts = attachments
-    if ((!text && atts.length === 0) || sending) return
+    const refs = references
+    if ((!text && atts.length === 0 && refs.length === 0) || sending) return
     const myId = (activeSendRef.current += 1)
     const isCurrent = () => activeSendRef.current === myId
     setInput("")
     setAttachments([])
+    setReferences([])
     setSending(true)
-    const note = atts.length ? ` [${atts.map((a) => a.file.name).join(", ")}]` : ""
+    const noteBits = [
+      ...(atts.length ? [atts.map((a) => a.file.name).join(", ")] : []),
+      ...(refs.length ? [`ref: ${refs.map((r) => r.label).join(", ")}`] : []),
+    ]
+    const note = noteBits.length ? ` [${noteBits.join("; ")}]` : ""
     setMessages((prev) => [...prev, { role: "user", content: text + note, proposals: [] }])
     try {
       const uploaded: Array<{ attachmentId: string; tempRef: string; fileName: string; kind: "image" | "html" | "file"; dataUrl?: string }> = []
@@ -156,7 +207,12 @@ export function LessonAiChatPanel({
         const dataUrl = a.kind === "image" ? await downscaleImage(a.file).catch(() => undefined) : undefined
         uploaded.push({ attachmentId: a.id, tempRef: up.tempRef, fileName: up.fileName, kind: up.kind, dataUrl })
       }
-      const res = await sendLessonChatMessageAction({ lessonId, message: text, attachments: uploaded })
+      const res = await sendLessonChatMessageAction({
+        lessonId,
+        message: text,
+        attachments: uploaded,
+        references: refs.map((r) => ({ label: r.label, kind: r.kind, dataUrl: r.dataUrl, text: r.text })),
+      })
       if (!isCurrent()) return // cancelled by the user; ignore the result
       if (!res.success) {
         toast.error("Chat failed", { description: res.error ?? "Please try again." })
@@ -175,7 +231,7 @@ export function LessonAiChatPanel({
     } finally {
       if (isCurrent()) setSending(false)
     }
-  }, [input, attachments, lessonId, sending])
+  }, [input, attachments, references, lessonId, sending])
 
   // Cancel an in-flight submit: invalidate the turn so its result is ignored,
   // and reset the composer to ready.
@@ -302,13 +358,59 @@ export function LessonAiChatPanel({
       </div>
 
       <div
-        className="border-t border-border p-3"
+        className="relative border-t border-border p-3"
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => {
           e.preventDefault()
           if (e.dataTransfer.files?.length) addFiles(Array.from(e.dataTransfer.files))
         }}
       >
+        {refPickerOpen ? (
+          <div className="absolute bottom-full left-3 z-10 mb-1 max-h-60 w-72 overflow-y-auto rounded-md border border-border bg-card p-1 shadow-lg">
+            {referenceableActivities.length === 0 ? (
+              <p className="px-2 py-1.5 text-xs text-muted-foreground">No activities to reference yet.</p>
+            ) : (
+              referenceableActivities.map((a) => (
+                <button
+                  key={a.activityId}
+                  type="button"
+                  onClick={() => void addReference(a)}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-muted"
+                >
+                  {a.imageUrl ? (
+                    <img src={a.imageUrl} alt="" className="h-6 w-6 shrink-0 rounded object-cover" />
+                  ) : (
+                    <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  )}
+                  <span className="min-w-0 flex-1 truncate">{a.title}</span>
+                  <span className="shrink-0 text-[10px] text-muted-foreground">{a.type}</span>
+                </button>
+              ))
+            )}
+          </div>
+        ) : null}
+
+        {references.length > 0 ? (
+          <div className="mb-2 flex flex-wrap gap-1">
+            {references.map((r) => (
+              <span
+                key={r.activityId}
+                className="inline-flex items-center gap-1 rounded-full bg-pa-green-tint px-2 py-0.5 text-[11px] text-pa-green"
+              >
+                <AtSign className="h-3 w-3" /> {r.label}
+                <button
+                  type="button"
+                  onClick={() => removeReference(r.activityId)}
+                  className="ml-0.5 text-pa-green/70 hover:text-pa-green"
+                  aria-label={`Remove reference ${r.label}`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : null}
+
         {attachments.length > 0 ? (
           <div className="mb-2 flex flex-wrap gap-2">
             {attachments.map((a) => (
@@ -352,9 +454,20 @@ export function LessonAiChatPanel({
             onClick={() => fileInputRef.current?.click()}
             disabled={sending}
             aria-label="Attach a file"
-            title="Attach an image, .html or file"
+            title="Attach an image, .html, PowerPoint or file"
           >
             <Paperclip className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-9 w-9 shrink-0 p-0"
+            onClick={() => setRefPickerOpen((v) => !v)}
+            disabled={sending}
+            aria-label="Reference an existing activity"
+            title="Reference an existing activity"
+          >
+            <AtSign className="h-4 w-4" />
           </Button>
           <textarea
             ref={textareaRef}
@@ -396,7 +509,7 @@ export function LessonAiChatPanel({
           ) : (
             <Button
               onClick={() => void send()}
-              disabled={!input.trim() && attachments.length === 0}
+              disabled={!input.trim() && attachments.length === 0 && references.length === 0}
               className="h-9 w-9 shrink-0 p-0"
               aria-label="Send"
             >
