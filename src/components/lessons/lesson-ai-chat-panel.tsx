@@ -244,6 +244,13 @@ export function LessonAiChatPanel({
           proposals: res.proposals.map((p) => ({ ...p, _status: "pending" as ProposalStatus })),
         },
       ])
+    } catch (err) {
+      // The server action rejected (e.g. missing key, DB/migration issue, auth).
+      // Surface it instead of failing silently.
+      if (!isCurrent()) return
+      const msg = err instanceof Error ? err.message : "The chat request failed. Please try again."
+      toast.error("Chat failed", { description: msg })
+      setMessages((prev) => [...prev, { role: "assistant", content: `⚠️ ${msg}`, proposals: [] }])
     } finally {
       if (isCurrent()) setSending(false)
     }
