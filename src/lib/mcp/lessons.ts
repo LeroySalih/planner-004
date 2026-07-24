@@ -221,3 +221,18 @@ export async function uploadLessonFile(
     url: `/api/files/${urlParts}`,
   }
 }
+
+export async function removeSuccessCriterionFromLesson(
+  lessonId: string,
+  successCriteriaId: string,
+): Promise<{ lesson_id: string; success_criteria_id: string; removed: boolean }> {
+  let removed = false
+  await withDbClient(async (client) => {
+    const { rowCount } = await client.query(
+      'delete from lesson_success_criteria where lesson_id = $1 and success_criteria_id = $2',
+      [lessonId, successCriteriaId],
+    )
+    removed = (rowCount ?? 0) > 0
+  })
+  return { lesson_id: lessonId, success_criteria_id: successCriteriaId, removed }
+}

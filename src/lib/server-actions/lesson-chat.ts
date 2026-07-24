@@ -4,6 +4,7 @@ import { requireTeacherProfile } from "@/lib/auth"
 import { query } from "@/lib/db"
 import { readAllLearningObjectivesAction } from "@/lib/server-actions/learning-objectives"
 import { createLessonActivityAction } from "@/lib/server-actions/lesson-activities"
+import { createLearningObjective, createSuccessCriterion } from "@/lib/mcp/losc"
 import {
   GroupItemsActivityBodySchema,
   MatcherActivityBodySchema,
@@ -193,6 +194,8 @@ interface LessonChatContext {
   lessonTitle: string
   systemText: string
   validScIds: Set<string>
+  validLoIds: Set<string>
+  validAoIds: Set<string>
 }
 
 /** Gather the lesson's LOs, success criteria (with IDs) and existing activities. */
@@ -208,12 +211,36 @@ async function getLessonChatContext(lessonId: string): Promise<LessonChatContext
   const los = loResult.data ?? []
 
   const validScIds = new Set<string>()
-  const loLines = los.map((lo) => {
+  const validLoIds = new Set<string>()
+  const validAoIds = new Set<string>()
+  // Group LOs under their assessment objective so the model can pick a real
+  // parent AO/LO when it proposes a new LO or SC.
+  const aoGroups = new Map<string, { code: string; title: string; loBlocks: string[] }>()
+  for (const lo of los) {
+    const aoId = lo.assessment_objective_id ?? ""
+    if (aoId) validAoIds.add(aoId)
+    if (lo.learning_objective_id) validLoIds.add(lo.learning_objective_id)
     const scLines = (lo.success_criteria ?? []).map((sc) => {
       if (sc.success_criteria_id) validScIds.add(sc.success_criteria_id)
-      return `    - [${sc.success_criteria_id}] ${sc.description ?? ""}`
+      const lvl = typeof sc.level === "number" ? ` (L${sc.level})` : ""
+      return `      - [${sc.success_criteria_id}] ${sc.description ?? ""}${lvl}`
     })
-    return `  • ${lo.title ?? "Untitled objective"}\n${scLines.join("\n")}`
+    const loBlock = `    LO [${lo.learning_objective_id}] ${lo.title ?? "Untitled objective"}\n${scLines.join("\n")}`
+    const key = aoId || "__none__"
+    if (!aoGroups.has(key)) {
+      aoGroups.set(key, {
+        code: lo.assessment_objective_code ?? "",
+        title: lo.assessment_objective_title ?? "",
+        loBlocks: [],
+      })
+    }
+    aoGroups.get(key)!.loBlocks.push(loBlock)
+  }
+  const loLines = Array.from(aoGroups.entries()).map(([aoId, g]) => {
+    const header = aoId === "__none__"
+      ? `  AO (unassigned)`
+      : `  AO [${aoId}] ${g.code}${g.code && g.title ? " — " : ""}${g.title}`
+    return `${header}\n${g.loBlocks.join("\n")}`
   })
 
   const { rows: activityRows } = await query<{ title: string | null; type: string | null; body_data: unknown }>(
@@ -244,7 +271,10 @@ async function getLessonChatContext(lessonId: string): Promise<LessonChatContext
     "- display-webpage (embed an .html page; only when the teacher attaches an .html file)",
     "- upload-worksheet (Upload Exam: pupils photograph a completed exam question; AI marks it)",
     "- upload-spreadsheet (pupils upload a spreadsheet; AI marks it)",
-    "You never create activities yourself — you return proposals as structured data; the teacher confirms them.",
+    "You can also propose new curriculum items (NOT activities):",
+    "- learning-objective (a new learning objective under an existing assessment objective)",
+    "- success-criterion (a new success criterion under an existing learning objective)",
+    "You never create activities or curriculum items yourself — you return proposals as structured data; the teacher confirms them.",
     "",
     "Each proposal always includes every field; fill the ones relevant to its type and leave the rest empty (\"\" or []):",
     "- MCQ: set `question`; set `options` to 2–4 items, each with `text` and a `correct` boolean, EXACTLY ONE correct: true.",
@@ -258,20 +288,23 @@ async function getLessonChatContext(lessonId: string): Promise<LessonChatContext
     "- sequence: set `sequence` to 2–12 short items in the CORRECT order (first to last).",
     "- display-image / file-download / display-webpage: ONLY propose when a matching file is attached this turn; set `attachmentId` to that attachment's id. For display-image, also set a concise `imageAlt` describing the image. Never propose these without an attachment.",
     "- upload-worksheet (Upload Exam) and upload-spreadsheet: set `task` (clear instructions for pupils) and `markingGuidance` (how the AI should mark it). Both are required.",
+    "- learning-objective: set `title` to the objective wording, `assessmentObjectiveId` to the parent AO's ID from the list below (you may ONLY use an AO ID listed there; never invent one), and optionally `specRef`.",
+    "- success-criterion: set `description` to the criterion wording, `level` to an integer 1–9, and `learningObjectiveId` to the parent LO's ID from the list below (you may ONLY use an LO ID listed there; never invent one).",
+    "- Only propose learning-objective / success-criterion when the teacher asks to develop the curriculum, or when the lesson genuinely lacks a suitable objective/criterion for what they want. Prefer reusing existing ones.",
     "- Align scorable activities to the lesson's success criteria where sensible, using successCriteriaIds — you may ONLY use the SC IDs listed below; never invent IDs. Display types (text, section, video, image, file, webpage) have no success criteria.",
     "- Keep content clear and grade-appropriate; base it on the lesson's objectives and existing activities unless the teacher says otherwise.",
     "- Put a short conversational reply in `message` and the activities in `proposals` (empty array if none this turn).",
     "",
     `Lesson: ${lessonTitle}`,
     "",
-    "Learning objectives and success criteria (IDs in brackets):",
+    "Assessment objectives (AO), learning objectives (LO) and success criteria (IDs in brackets):",
     loLines.length ? loLines.join("\n") : "  (none defined)",
     "",
     "Existing activities in this lesson:",
     activityLines.length ? activityLines.join("\n") : "  (none yet)",
   ].join("\n")
 
-  return { unitId, lessonTitle, systemText, validScIds }
+  return { unitId, lessonTitle, systemText, validScIds, validLoIds, validAoIds }
 }
 
 /** Load a bounded window of prior chat turns for the model. */
@@ -435,6 +468,37 @@ export async function confirmProposedActivityAction(input: {
 
   const { lessonId, proposal } = input
   if (!lessonId || !proposal) return { success: false, error: "Missing parameters.", activity: null }
+
+  // Curriculum authoring proposals create LOs/SCs (not activities). Validate the
+  // proposed parent ID against the lesson's real curriculum before writing.
+  if (proposal.type === "learning-objective" || proposal.type === "success-criterion") {
+    const context = await getLessonChatContext(lessonId)
+    try {
+      if (proposal.type === "learning-objective") {
+        const aoId = proposal.assessmentObjectiveId ?? ""
+        if (!context.validAoIds.has(aoId)) {
+          return { success: false, error: "That assessment objective is not part of this lesson's curriculum.", activity: null }
+        }
+        const title = (proposal.title ?? "").trim()
+        if (!title) return { success: false, error: "The learning objective needs a title.", activity: null }
+        const lo = await createLearningObjective(aoId, title, proposal.specRef?.trim() || null)
+        return { success: true, error: null, activity: lo }
+      }
+      const loId = proposal.learningObjectiveId ?? ""
+      if (!context.validLoIds.has(loId)) {
+        return { success: false, error: "That learning objective is not part of this lesson's curriculum.", activity: null }
+      }
+      const description = (proposal.description ?? "").trim()
+      if (!description) return { success: false, error: "The success criterion needs a description.", activity: null }
+      const level = typeof proposal.level === "number" && proposal.level >= 1 && proposal.level <= 9 ? Math.round(proposal.level) : 1
+      const sc = await createSuccessCriterion(loId, description, level)
+      return { success: true, error: null, activity: sc }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to create curriculum item."
+      console.error("[lesson-chat] curriculum proposal failed", err)
+      return { success: false, error: message, activity: null }
+    }
+  }
 
   const { rows } = await query<{ unit_id: string | null }>(
     `select unit_id from lessons where lesson_id = $1 limit 1`,

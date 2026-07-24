@@ -345,3 +345,82 @@ export async function createSuccessCriterion(
   if (!result) throw new Error('Failed to create success criterion')
   return result
 }
+
+// ── Updates ────────────────────────────────────────────────────────────────
+// COALESCE keeps the existing value when a field is omitted (null).
+
+export async function updateAssessmentObjective(
+  assessmentObjectiveId: string,
+  patch: { code?: string | null; title?: string | null },
+): Promise<AssessmentObjectiveRecord> {
+  let result: AssessmentObjectiveRecord | null = null
+  await withDbClient(async (client) => {
+    const { rows } = await client.query<AssessmentObjectiveRecord>(
+      `update assessment_objectives
+         set code = coalesce($2, code), title = coalesce($3, title)
+       where assessment_objective_id = $1
+       returning assessment_objective_id, curriculum_id, code, title, order_index`,
+      [assessmentObjectiveId, patch.code?.trim() ?? null, patch.title?.trim() ?? null],
+    )
+    if (!rows[0]) throw new Error(`Assessment objective ${assessmentObjectiveId} not found`)
+    result = rows[0]
+  })
+  if (!result) throw new Error('Failed to update assessment objective')
+  return result
+}
+
+export async function updateLearningObjective(
+  learningObjectiveId: string,
+  patch: { title?: string | null; specRef?: string | null; active?: boolean | null },
+): Promise<LearningObjectiveRecord> {
+  let result: LearningObjectiveRecord | null = null
+  await withDbClient(async (client) => {
+    const { rows } = await client.query<LearningObjectiveRecord>(
+      `update learning_objectives
+         set title = coalesce($2, title),
+             spec_ref = coalesce($3, spec_ref),
+             active = coalesce($4, active)
+       where learning_objective_id = $1
+       returning learning_objective_id, assessment_objective_id, title, spec_ref, active, order_index`,
+      [learningObjectiveId, patch.title?.trim() ?? null, patch.specRef?.trim() ?? null, patch.active ?? null],
+    )
+    if (!rows[0]) throw new Error(`Learning objective ${learningObjectiveId} not found`)
+    result = rows[0]
+  })
+  if (!result) throw new Error('Failed to update learning objective')
+  return result
+}
+
+export async function updateSuccessCriterion(
+  successCriteriaId: string,
+  patch: { description?: string | null; level?: number | null; active?: boolean | null },
+): Promise<SuccessCriterionRecord> {
+  let result: SuccessCriterionRecord | null = null
+  await withDbClient(async (client) => {
+    const { rows } = await client.query<SuccessCriterionRecord>(
+      `update success_criteria
+         set description = coalesce($2, description),
+             level = coalesce($3, level),
+             active = coalesce($4, active)
+       where success_criteria_id = $1
+       returning success_criteria_id, learning_objective_id, description, level, order_index, active`,
+      [successCriteriaId, patch.description?.trim() ?? null, patch.level ?? null, patch.active ?? null],
+    )
+    if (!rows[0]) throw new Error(`Success criterion ${successCriteriaId} not found`)
+    result = rows[0]
+  })
+  if (!result) throw new Error('Failed to update success criterion')
+  return result
+}
+
+// ── Soft delete (deactivate) ───────────────────────────────────────────────
+// Set active=false rather than hard-delete: pupil work / links reference these
+// rows and there are no FK cascades, so deleting would orphan scores.
+
+export async function deactivateLearningObjective(learningObjectiveId: string): Promise<LearningObjectiveRecord> {
+  return updateLearningObjective(learningObjectiveId, { active: false })
+}
+
+export async function deactivateSuccessCriterion(successCriteriaId: string): Promise<SuccessCriterionRecord> {
+  return updateSuccessCriterion(successCriteriaId, { active: false })
+}
