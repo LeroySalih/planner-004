@@ -165,18 +165,28 @@ export async function generateLessonChatReply(params: {
     },
   }
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
-    {
-      method: "POST",
-      headers: { "x-goog-api-key": apiKey, "content-type": "application/json" },
-      body: JSON.stringify(payload),
-    },
-  )
-
-  const text = await response.text()
-  if (!response.ok) {
-    throw new Error(`Gemini ${response.status}: ${text.slice(0, 500)}`)
+  // Gemini occasionally returns 503 (UNAVAILABLE, transient overload) or 429;
+  // retry those a few times with backoff before surfacing the error.
+  const MAX_ATTEMPTS = 4
+  let text = ""
+  let status = 0
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
+      {
+        method: "POST",
+        headers: { "x-goog-api-key": apiKey, "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      },
+    )
+    status = response.status
+    text = await response.text()
+    if (response.ok) break
+    if ((status === 503 || status === 429) && attempt < MAX_ATTEMPTS - 1) {
+      await new Promise((r) => setTimeout(r, 1500 * (attempt + 1))) // 1.5s, 3s, 4.5s
+      continue
+    }
+    throw new Error(`Gemini ${status}: ${text.slice(0, 500)}`)
   }
 
   let data: unknown
