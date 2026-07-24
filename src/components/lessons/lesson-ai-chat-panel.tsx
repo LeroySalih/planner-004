@@ -396,6 +396,7 @@ function ProposalCard({
   const isDisplayImage = proposal.type === "display-image"
   const isFileDownload = proposal.type === "file-download"
   const isWebpage = proposal.type === "display-webpage"
+  const isTaskMarked = proposal.type === "upload-worksheet" || proposal.type === "upload-spreadsheet"
   const hasQuestion = isMcq || isStq
   const TYPE_LABELS: Record<string, string> = {
     "multiple-choice-question": "MCQ",
@@ -412,6 +413,8 @@ function ProposalCard({
     "display-image": "Image",
     "file-download": "File",
     "display-webpage": "Webpage",
+    "upload-worksheet": "Upload Exam",
+    "upload-spreadsheet": "Upload Spreadsheet",
   }
   const typeLabel = TYPE_LABELS[proposal.type] ?? "Activity"
   const discarded = proposal._status === "discarded"
@@ -698,6 +701,35 @@ function ProposalCard({
         <div className="mt-2 flex items-center gap-1.5 text-sm text-foreground">
           <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="truncate">{proposal.fileName ?? "file"}</span>
+        </div>
+      ) : null}
+
+      {isTaskMarked ? (
+        <div className="mt-1 space-y-2">
+          {editing ? (
+            <textarea
+              value={proposal.task ?? ""}
+              onChange={(e) => onEdit({ task: e.target.value })}
+              rows={2}
+              className="w-full resize-none rounded border border-border bg-background px-2 py-1 text-sm"
+              placeholder="Task (instructions for pupils)"
+            />
+          ) : (
+            <p className="font-medium text-foreground">{proposal.task}</p>
+          )}
+          {editing ? (
+            <textarea
+              value={proposal.markingGuidance ?? ""}
+              onChange={(e) => onEdit({ markingGuidance: e.target.value })}
+              rows={2}
+              className="w-full resize-none rounded border border-border bg-background px-2 py-1 text-xs"
+              placeholder="Marking guidance (how the AI should mark it)"
+            />
+          ) : proposal.markingGuidance ? (
+            <p className="text-xs text-muted-foreground">
+              <span className="font-semibold">Marking:</span> {proposal.markingGuidance}
+            </p>
+          ) : null}
         </div>
       ) : null}
 

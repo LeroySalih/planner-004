@@ -27,6 +27,8 @@ export type ProposedActivityType =
   | "display-image"
   | "file-download"
   | "display-webpage"
+  | "upload-worksheet"
+  | "upload-spreadsheet"
 
 export interface ProposedActivity {
   type: ProposedActivityType
@@ -56,6 +58,10 @@ export interface ProposedActivity {
   attachmentId?: string
   /** Display Image: concise alt text. */
   imageAlt?: string
+  /** Upload Exam / Upload Spreadsheet: what pupils should do. */
+  task?: string
+  /** Upload Exam / Upload Spreadsheet: how the AI should mark it. */
+  markingGuidance?: string
   /** Success-criteria IDs (must come from the lesson's real SCs). */
   successCriteriaIds?: string[]
   maxMarks?: number
@@ -104,6 +110,8 @@ const RESPONSE_SCHEMA = {
               "display-image",
               "file-download",
               "display-webpage",
+              "upload-worksheet",
+              "upload-spreadsheet",
             ],
           },
           title: { type: "STRING" },
@@ -112,6 +120,8 @@ const RESPONSE_SCHEMA = {
           videoUrl: { type: "STRING" },
           attachmentId: { type: "STRING" },
           imageAlt: { type: "STRING" },
+          task: { type: "STRING" },
+          markingGuidance: { type: "STRING" },
           options: {
             type: "ARRAY",
             items: {
@@ -151,6 +161,7 @@ const RESPONSE_SCHEMA = {
         required: [
           "type", "title", "question", "text", "videoUrl", "modelAnswer",
           "options", "pairs", "groups", "items", "sequence", "attachmentId", "imageAlt",
+          "task", "markingGuidance",
         ],
       },
     },

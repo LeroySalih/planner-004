@@ -10,7 +10,9 @@ import {
   McqActivityBodySchema,
   SequenceActivityBodySchema,
   ShortTextActivityBodySchema,
+  UploadSpreadsheetActivityBodySchema,
   UploadUrlActivityBodySchema,
+  UploadWorksheetActivityBodySchema,
 } from "@/types"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 import {
@@ -161,6 +163,8 @@ async function getLessonChatContext(lessonId: string): Promise<LessonChatContext
     "- display-image (show an image; only when the teacher attaches an image)",
     "- file-download (offer a file to download; only when the teacher attaches a file)",
     "- display-webpage (embed an .html page; only when the teacher attaches an .html file)",
+    "- upload-worksheet (Upload Exam: pupils photograph a completed exam question; AI marks it)",
+    "- upload-spreadsheet (pupils upload a spreadsheet; AI marks it)",
     "You never create activities yourself — you return proposals as structured data; the teacher confirms them.",
     "",
     "Each proposal always includes every field; fill the ones relevant to its type and leave the rest empty (\"\" or []):",
@@ -174,6 +178,7 @@ async function getLessonChatContext(lessonId: string): Promise<LessonChatContext
     "- group-items: set `groups` to 2–4 group names, and `items` to 2–12 items, each with `text` and a `group` that EXACTLY matches one of the group names.",
     "- sequence: set `sequence` to 2–12 short items in the CORRECT order (first to last).",
     "- display-image / file-download / display-webpage: ONLY propose when a matching file is attached this turn; set `attachmentId` to that attachment's id. For display-image, also set a concise `imageAlt` describing the image. Never propose these without an attachment.",
+    "- upload-worksheet (Upload Exam) and upload-spreadsheet: set `task` (clear instructions for pupils) and `markingGuidance` (how the AI should mark it). Both are required.",
     "- Align scorable activities to the lesson's success criteria where sensible, using successCriteriaIds — you may ONLY use the SC IDs listed below; never invent IDs. Display types (text, section, video, image, file, webpage) have no success criteria.",
     "- Keep content clear and grade-appropriate; base it on the lesson's objectives and existing activities unless the teacher says otherwise.",
     "- Put a short conversational reply in `message` and the activities in `proposals` (empty array if none this turn).",
@@ -390,6 +395,18 @@ export async function confirmProposedActivityAction(input: {
     const terms = (proposal.sequence ?? []).map((text, i) => ({ id: `term-${i + 1}`, text }))
     const parsed = SequenceActivityBodySchema.safeParse({ terms })
     if (!parsed.success) return { success: false, error: "Invalid Sequence proposal (need 2–12 items).", activity: null }
+    bodyData = parsed.data
+    linkSuccessCriteria = true
+  } else if (proposal.type === "upload-worksheet") {
+    const built = { task: proposal.task ?? "", markingGuidance: proposal.markingGuidance ?? "" }
+    const parsed = UploadWorksheetActivityBodySchema.safeParse(built)
+    if (!parsed.success) return { success: false, error: "Invalid Upload Exam proposal (need a task and marking guidance).", activity: null }
+    bodyData = parsed.data
+    linkSuccessCriteria = true
+  } else if (proposal.type === "upload-spreadsheet") {
+    const built = { task: proposal.task ?? "", markingGuidance: proposal.markingGuidance ?? "" }
+    const parsed = UploadSpreadsheetActivityBodySchema.safeParse(built)
+    if (!parsed.success) return { success: false, error: "Invalid Upload Spreadsheet proposal (need a task and marking guidance).", activity: null }
     bodyData = parsed.data
     linkSuccessCriteria = true
   } else if (
