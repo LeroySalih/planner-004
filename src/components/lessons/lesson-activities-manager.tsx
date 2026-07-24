@@ -195,6 +195,7 @@ export function LessonActivitiesManager({
         .map((a) => {
           const body = (a.body_data ?? {}) as Record<string, unknown>
           let imageUrl: string | undefined
+          let htmlUrl: string | undefined
           let text: string | undefined
           if (a.type === "display-image") {
             const imageFile = typeof body.imageFile === "string" ? body.imageFile : null
@@ -203,15 +204,32 @@ export function LessonActivitiesManager({
             if (imageUrlAbs && /^https?:/i.test(imageUrlAbs)) imageUrl = imageUrlAbs
             else if (imageFile) imageUrl = buildLessonFileUrl(`lessons/${lessonId}/activities/${a.activity_id}/${imageFile}`)
             else if (fileUrl) imageUrl = /^https?:/i.test(fileUrl) ? fileUrl : buildLessonFileUrl(`lessons/${lessonId}/activities/${a.activity_id}/${fileUrl}`)
+          } else if (a.type === "display-webpage") {
+            htmlUrl = `/api/activity-webpage/${a.activity_id}`
           } else {
-            const cand = [body.text, body.description, body.question, body.task].find(
+            const scalar = [body.text, body.description, body.question, body.task].find(
               (v) => typeof v === "string" && (v as string).trim().length > 0,
             )
-            if (typeof cand === "string") text = cand
+            if (typeof scalar === "string") {
+              text = scalar
+            } else if (Array.isArray(body.pairs)) {
+              text = (body.pairs as Array<{ term?: string; definition?: string }>)
+                .map((p) => `${p.term ?? ""} = ${p.definition ?? ""}`)
+                .join("; ")
+            } else if (Array.isArray(body.terms)) {
+              text = (body.terms as Array<{ text?: string }>).map((t) => t.text).filter(Boolean).join(" → ")
+            } else if (Array.isArray(body.groups)) {
+              const groups = (body.groups as Array<{ name?: string }>).map((g) => g.name).filter(Boolean).join(", ")
+              const items = (Array.isArray(body.items) ? (body.items as Array<{ text?: string }>) : [])
+                .map((it) => it.text)
+                .filter(Boolean)
+                .join(", ")
+              text = `Groups: ${groups}. Items: ${items}`
+            }
           }
-          return { activityId: a.activity_id, title: a.title ?? "Untitled", type: a.type, imageUrl, text }
+          return { activityId: a.activity_id, title: a.title ?? "Untitled", type: a.type, imageUrl, htmlUrl, text }
         })
-        .filter((r) => r.imageUrl || r.text),
+        .filter((r) => r.imageUrl || r.htmlUrl || r.text),
     [activities, lessonId],
   )
 

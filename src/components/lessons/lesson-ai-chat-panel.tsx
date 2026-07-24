@@ -67,6 +67,7 @@ interface ReferenceableActivity {
   title: string
   type: string
   imageUrl?: string
+  htmlUrl?: string
   text?: string
 }
 
@@ -137,6 +138,18 @@ export function LessonAiChatPanel({
           return
         }
         setReferences((prev) => [...prev, { activityId: activity.activityId, label: activity.title, kind: "image", dataUrl }])
+      } else if (activity.htmlUrl) {
+        const html = await fetch(activity.htmlUrl)
+          .then((r) => (r.ok ? r.text() : ""))
+          .catch(() => "")
+        if (!html) {
+          toast.error(`Couldn't load "${activity.title}"`)
+          return
+        }
+        setReferences((prev) => [
+          ...prev,
+          { activityId: activity.activityId, label: activity.title, kind: "text", text: `[Webpage HTML]\n${html.slice(0, 6000)}` },
+        ])
       } else if (activity.text) {
         setReferences((prev) => [...prev, { activityId: activity.activityId, label: activity.title, kind: "text", text: activity.text }])
       }
