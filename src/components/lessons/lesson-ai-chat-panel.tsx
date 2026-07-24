@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react"
 import { toast } from "sonner"
-import { Check, FileText, Loader2, Paperclip, Pencil, Plus, Send, Sparkles, X } from "lucide-react"
+import { Check, Copy, FileText, Loader2, Paperclip, Pencil, Plus, Send, Sparkles, Square, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -79,7 +79,9 @@ export function LessonAiChatPanel({
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const attachSeq = useRef(0)
+  const activeSendRef = useRef(0)
 
   const addFiles = useCallback((files: File[]) => {
     const next = files
@@ -132,6 +134,8 @@ export function LessonAiChatPanel({
     const text = input.trim()
     const atts = attachments
     if ((!text && atts.length === 0) || sending) return
+    const myId = (activeSendRef.current += 1)
+    const isCurrent = () => activeSendRef.current === myId
     setInput("")
     setAttachments([])
     setSending(true)
@@ -144,6 +148,7 @@ export function LessonAiChatPanel({
         fd.append("lessonId", lessonId)
         fd.append("file", a.file)
         const up = await uploadLessonChatAttachmentAction(fd)
+        if (!isCurrent()) return
         if (!up.success) {
           toast.error(`Couldn't attach ${a.file.name}`, { description: up.error ?? "Please try again." })
           continue
@@ -152,6 +157,7 @@ export function LessonAiChatPanel({
         uploaded.push({ attachmentId: a.id, tempRef: up.tempRef, fileName: up.fileName, kind: up.kind, dataUrl })
       }
       const res = await sendLessonChatMessageAction({ lessonId, message: text, attachments: uploaded })
+      if (!isCurrent()) return // cancelled by the user; ignore the result
       if (!res.success) {
         toast.error("Chat failed", { description: res.error ?? "Please try again." })
         setMessages((prev) => [...prev, { role: "assistant", content: res.error ?? "Something went wrong.", proposals: [] }])
@@ -167,9 +173,23 @@ export function LessonAiChatPanel({
         },
       ])
     } finally {
-      setSending(false)
+      if (isCurrent()) setSending(false)
     }
   }, [input, attachments, lessonId, sending])
+
+  // Cancel an in-flight submit: invalidate the turn so its result is ignored,
+  // and reset the composer to ready.
+  const stop = useCallback(() => {
+    activeSendRef.current += 1
+    setSending(false)
+  }, [])
+
+  // Copy a previous message into the composer to edit and resend (no tokens).
+  const reuseMessage = useCallback((content: string) => {
+    const clean = content.replace(/\s*\[attached:[^\]]*\]\s*$/, "")
+    setInput((prev) => (prev.trim() ? `${prev}\n${clean}` : clean))
+    textareaRef.current?.focus()
+  }, [])
 
   const setStatus = (mi: number, pi: number, status: ProposalStatus) => {
     setMessages((prev) =>
@@ -240,14 +260,24 @@ export function LessonAiChatPanel({
         {messages.map((m, mi) => (
           <div key={mi} className={m.role === "user" ? "flex justify-end" : "space-y-2"}>
             {m.content ? (
-              <div
-                className={
-                  m.role === "user"
-                    ? "max-w-[85%] rounded-2xl rounded-br-sm bg-pa-green px-3 py-2 text-sm text-white"
-                    : "max-w-[95%] rounded-2xl rounded-bl-sm bg-muted px-3 py-2 text-sm text-foreground"
-                }
-              >
-                {m.content}
+              <div className={m.role === "user" ? "flex flex-col items-end gap-0.5" : "flex flex-col items-start gap-0.5"}>
+                <div
+                  className={
+                    m.role === "user"
+                      ? "max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-pa-green px-3 py-2 text-sm text-white"
+                      : "max-w-[95%] whitespace-pre-wrap rounded-2xl rounded-bl-sm bg-muted px-3 py-2 text-sm text-foreground"
+                  }
+                >
+                  {m.content}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => reuseMessage(m.content)}
+                  className="flex items-center gap-1 text-[10px] text-muted-foreground transition hover:text-foreground"
+                  title="Copy into the message box to edit and resend"
+                >
+                  <Copy className="h-3 w-3" /> Reuse
+                </button>
               </div>
             ) : null}
 
@@ -327,6 +357,7 @@ export function LessonAiChatPanel({
             <Paperclip className="h-4 w-4" />
           </Button>
           <textarea
+            ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onPaste={(e) => {
@@ -353,13 +384,25 @@ export function LessonAiChatPanel({
             className="flex-1 resize-none rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus-visible:border-pa-green"
             disabled={sending}
           />
-          <Button
-            onClick={() => void send()}
-            disabled={sending || (!input.trim() && attachments.length === 0)}
-            className="h-9 w-9 shrink-0 p-0"
-          >
-            <Send className="h-4 w-4" />
-          </Button>
+          {sending ? (
+            <Button
+              onClick={stop}
+              className="h-9 w-9 shrink-0 bg-red-600 p-0 text-white hover:bg-red-700"
+              aria-label="Stop"
+              title="Stop"
+            >
+              <Square className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button
+              onClick={() => void send()}
+              disabled={!input.trim() && attachments.length === 0}
+              className="h-9 w-9 shrink-0 p-0"
+              aria-label="Send"
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          )}
         </div>
       </div>
     </div>
