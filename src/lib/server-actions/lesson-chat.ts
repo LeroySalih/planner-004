@@ -18,6 +18,7 @@ import {
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 import { convertToPdfViaGotenberg } from "@/lib/pdf/gotenberg"
 import { rasterizePdfToJpegs } from "@/lib/pdf/rasterize-pdf"
+import { extractPdfImages } from "@/lib/pdf/extract-pdf-images"
 import {
   generateImage,
   generateLessonChatReply,
@@ -29,6 +30,31 @@ import {
 const MAX_SLIDES = 20
 // Cap AI-generated images per message to bound latency and cost.
 const MAX_GENERATED_IMAGES = 3
+// Inline PDF cap (base64 pushes ~33% larger; keep well under Gemini's request limit).
+const MAX_PDF_INLINE_BYTES = 15 * 1024 * 1024
+const MAX_PDF_IMAGES = 20
+
+// Guidance appended when a PDF is attached, so the model converts a Formative-style
+// lesson printout into ordered activity proposals (one per labelled block).
+const PDF_CONVERSION_INSTRUCTIONS = [
+  "",
+  "",
+  "A PDF is attached. If it is a Formative (or similar) lesson printout, convert it into activity proposals — one per labelled block, IN DOCUMENT ORDER:",
+  "- 'Text' blocks → a `text` (Display Text) activity; preserve headings, bold and bullet lists as Markdown in `text`.",
+  "- A section divider/heading between blocks → a `display-section` (set `text` to the heading).",
+  "- 'Multiple Choice' → multiple-choice-question. The correct answer is NOT marked on the sheet — infer it from the reading text and general knowledge; set exactly one option correct:true.",
+  "- 'True or False' → multiple-choice-question with exactly two options 'True' and 'False'; infer which is correct.",
+  "- 'Fill in the Blank' → short-text-question; keep the sentence in `question` with the blank shown as '_______' where it appears, and put the missing word(s) in `modelAnswer`.",
+  "- 'Numeric' → short-text-question; the correct value is NOT on the sheet, so COMPUTE it and put it in `modelAnswer` (use the surrounding slides/section for context, e.g. binary/denary conversions).",
+  "- 'Short Answer' and 'Free Response' (exam-style, multi-part, with marks) → short-text-question; put the full question (parts (a)/(b)/(i)/(ii) and their marks) in `question`, and a concise mark scheme / expected points in `modelAnswer`.",
+  "- 'Matching' → matcher; infer the correct term/definition pairing (it is not marked on the sheet). matcher supports 2–8 pairs — if the block has MORE than 8 pairs, instead emit `conversion-failed` (set `title` to the block label and `text` explaining it exceeds the 8-pair matcher limit).",
+  "- 'Categorise'/'Categorize'/'Sort' (items into buckets) → group-items; set `groups` to the 2–4 bucket names and `items` to 2–12 entries, each with `text` and the `group` name it belongs to. The correct grouping is NOT marked — infer it. If there are more than 4 groups or more than 12 items, emit conversion-failed instead (title = block label, text = the limit exceeded).",
+  "- 'Ordering'/'Order'/'Sequence'/'Arrange' (put items in the right order) → sequence; set `sequence` to 2–12 items in the CORRECT order, first to last. The order is NOT marked — infer it. If there are more than 12 items, emit conversion-failed instead.",
+  "- Embedded images/diagrams (including Formative 'Image' blocks) → display-image; set `attachmentId` to the matching provided pdfimg-N attachment and write a concise `imageAlt`. Only use image attachmentIds that were provided; do NOT set imagePrompt for these.",
+  "- Skip page headers, name/class/date fields, 'Final Score' and generic instructions.",
+  "- If a block cannot be confidently converted to any supported activity, emit a `conversion-failed` proposal: set `title` to the block's label/heading and `text` to a short note of what it was and why it could not be converted.",
+  "Return every block in order.",
+].join("\n")
 
 /** Short text summary of an activity's content, so the model can reference it. */
 function summariseActivityBody(type: string, bodyData: unknown): string {
@@ -396,6 +422,54 @@ export async function sendLessonChatMessageAction(input: {
       return { success: true, messageId: inserted[0]?.message_id ?? null, message, proposals: slideProposals, error: null }
     }
 
+    // PDF path: send the PDF(s) to the model for native document understanding
+    // plus any embedded images (so the model can reference them in display-image
+    // proposals). The model returns ordered activity proposals as usual.
+    const pdfSources = attachments.filter((a) => /\.pdf$/i.test(a.fileName))
+    const documents: Array<{ mimeType: string; base64: string }> = []
+    const extractedImageAttachments: typeof attachments = []
+    let pdfNote = ""
+    if (pdfSources.length > 0) {
+      const pdfStorage = createLocalStorageClient(LESSON_FILES_BUCKET)
+      let imgSeq = 0
+      for (const pdf of pdfSources) {
+        const { stream, error } = await pdfStorage.getFileStream(pdf.tempRef)
+        if (error || !stream) continue
+        const chunks: Buffer[] = []
+        for await (const c of stream) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c))
+        const pdfBuffer = Buffer.concat(chunks)
+
+        if (pdfBuffer.byteLength <= MAX_PDF_INLINE_BYTES) {
+          documents.push({ mimeType: "application/pdf", base64: pdfBuffer.toString("base64") })
+        } else {
+          pdfNote += `\n(Note: "${pdf.fileName}" is too large to read in full.)`
+        }
+
+        const { images } = await extractPdfImages(pdfBuffer, MAX_PDF_IMAGES)
+        for (const img of images) {
+          imgSeq += 1
+          const fileName = `${pdf.fileName.replace(/\.pdf$/i, "")}-img-${imgSeq}.png`
+          const ref = `${LESSON_FILES_BUCKET}/${lessonId}/activities/_chat/${crypto.randomUUID().slice(0, 8)}-${fileName}`
+          const { error: upErr } = await pdfStorage.upload(ref, img.buffer, {
+            contentType: img.mimeType,
+            uploadedBy: profile.userId,
+            originalPath: ref,
+          })
+          if (upErr) continue
+          extractedImageAttachments.push({
+            attachmentId: `pdfimg-${imgSeq}`,
+            tempRef: ref,
+            fileName,
+            kind: "image",
+            dataUrl: `data:${img.mimeType};base64,${img.buffer.toString("base64")}`,
+          })
+        }
+      }
+      if (documents.length > 0 || extractedImageAttachments.length > 0) {
+        pdfNote = PDF_CONVERSION_INSTRUCTIONS + pdfNote
+      }
+    }
+
     const context = await getLessonChatContext(lessonId)
     const history = await loadHistory(lessonId)
 
@@ -404,15 +478,17 @@ export async function sendLessonChatMessageAction(input: {
       [lessonId, profile.userId, userMessage + attachNote],
     )
 
+    const modelAttachments = [...attachments, ...extractedImageAttachments]
     const reply = await generateLessonChatReply({
       systemText: context.systemText,
       history,
-      userMessage: userMessage || "(see attached / referenced items)",
-      attachments: attachments.map((a) => ({ attachmentId: a.attachmentId, fileName: a.fileName, kind: a.kind, dataUrl: a.dataUrl })),
+      documents,
+      userMessage: (userMessage || "(see attached / referenced items)") + pdfNote,
+      attachments: modelAttachments.map((a) => ({ attachmentId: a.attachmentId, fileName: a.fileName, kind: a.kind, dataUrl: a.dataUrl })),
       references,
     })
 
-    const byAttachmentId = new Map(attachments.map((a) => [a.attachmentId, a]))
+    const byAttachmentId = new Map(modelAttachments.map((a) => [a.attachmentId, a]))
 
     // Filter hallucinated SC IDs, resolve any attachmentId into a stored file ref,
     // and render any AI-requested images (display-image with an imagePrompt and no

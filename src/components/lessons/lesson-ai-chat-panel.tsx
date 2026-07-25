@@ -593,6 +593,7 @@ function ProposalCard({
   const isTaskMarked = proposal.type === "upload-worksheet" || proposal.type === "upload-spreadsheet"
   const isLo = proposal.type === "learning-objective"
   const isSc = proposal.type === "success-criterion"
+  const isConversionFailed = proposal.type === "conversion-failed"
   const hasQuestion = isMcq || isStq
   const TYPE_LABELS: Record<string, string> = {
     "multiple-choice-question": "MCQ",
@@ -613,6 +614,7 @@ function ProposalCard({
     "upload-spreadsheet": "Upload Spreadsheet",
     "learning-objective": "Learning objective",
     "success-criterion": "Success criterion",
+    "conversion-failed": "Couldn't convert",
   }
   const typeLabel = TYPE_LABELS[proposal.type] ?? "Activity"
   const discarded = proposal._status === "discarded"
@@ -640,11 +642,16 @@ function ProposalCard({
     <div
       className={[
         "rounded-lg border bg-background p-3 text-sm transition",
-        discarded ? "border-border/60 opacity-50" : "border-pa-green/40",
+        discarded ? "border-border/60 opacity-50" : isConversionFailed ? "border-amber-400/70" : "border-pa-green/40",
       ].join(" ")}
     >
       <div className="mb-1 flex items-center justify-between gap-2">
-        <span className="rounded-full bg-pa-green-tint px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-pa-green">
+        <span
+          className={[
+            "rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide",
+            isConversionFailed ? "bg-amber-100 text-amber-700" : "bg-pa-green-tint text-pa-green",
+          ].join(" ")}
+        >
           {typeLabel}
         </span>
         {editing ? (
@@ -658,6 +665,12 @@ function ProposalCard({
           <span className="truncate text-xs font-medium text-muted-foreground">{proposal.title}</span>
         )}
       </div>
+
+      {isConversionFailed ? (
+        <p className="mt-1 text-amber-700 dark:text-amber-500">
+          {proposal.text || "This section of the PDF couldn't be converted to an activity — add it manually."}
+        </p>
+      ) : null}
 
       {hasQuestion ? (
         editing ? (
@@ -1003,7 +1016,11 @@ function ProposalCard({
             <Check className="h-3.5 w-3.5" /> Added
           </span>
         ) : discarded ? (
-          <span className="text-xs text-muted-foreground">Discarded</span>
+          <span className="text-xs text-muted-foreground">Dismissed</span>
+        ) : isConversionFailed ? (
+          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onDiscard}>
+            Dismiss
+          </Button>
         ) : editing ? (
           <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setEditing(false)}>
             Done

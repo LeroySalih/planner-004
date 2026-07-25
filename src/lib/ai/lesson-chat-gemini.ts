@@ -31,6 +31,7 @@ export type ProposedActivityType =
   | "upload-spreadsheet"
   | "learning-objective"
   | "success-criterion"
+  | "conversion-failed"
 
 export interface ProposedActivity {
   type: ProposedActivityType
@@ -133,6 +134,7 @@ const RESPONSE_SCHEMA = {
               "upload-spreadsheet",
               "learning-objective",
               "success-criterion",
+              "conversion-failed",
             ],
           },
           title: { type: "STRING" },
@@ -217,6 +219,8 @@ export async function generateLessonChatReply(params: {
   userMessage: string
   attachments?: ChatAttachment[]
   references?: ActivityReference[]
+  /** Documents (e.g. PDFs) sent for native understanding, as base64 + mime type. */
+  documents?: Array<{ mimeType: string; base64: string }>
 }): Promise<LessonChatReply> {
   const apiKey = process.env.GOOGLE_API_KEY ?? process.env.GEMINI_API_KEY
   if (!apiKey) throw new Error("GOOGLE_API_KEY is not configured.")
@@ -235,9 +239,13 @@ export async function generateLessonChatReply(params: {
         .join("\n")
     : ""
 
+  const documents = params.documents ?? []
   const userParts: Array<Record<string, unknown>> = [
     { text: params.userMessage + attachmentNote + referenceNote },
   ]
+  for (const d of documents) {
+    userParts.push({ inlineData: { mimeType: d.mimeType, data: d.base64 } })
+  }
   for (const a of attachments) {
     if (a.kind === "image" && a.dataUrl) {
       const m = /^data:(.+?);base64,(.*)$/.exec(a.dataUrl)
