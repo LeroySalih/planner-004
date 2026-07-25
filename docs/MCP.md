@@ -99,6 +99,14 @@ Creates a new assessment objective under a curriculum. `order_index` is computed
 
 ---
 
+#### `update_assessment_objective`
+Updates an assessment objective's `code` and/or `title`. Omitted fields keep their current value. (Assessment objectives have no `active` flag, so there is no delete tool.)
+
+**Input:** `{ assessment_objective_id: string, code?: string, title?: string }`  
+**Output:** `{ assessment_objective: { assessment_objective_id, curriculum_id, code, title, order_index } | null }`
+
+---
+
 ### Learning Objectives & Success Criteria
 
 #### `create_learning_objective`
@@ -109,11 +117,43 @@ Creates a learning objective under an assessment objective. Validates the AO exi
 
 ---
 
+#### `update_learning_objective`
+Updates a learning objective's `title`, `spec_ref`, and/or `active`. Omitted fields keep their current value.
+
+**Input:** `{ learning_objective_id: string, title?: string, spec_ref?: string, active?: boolean }`  
+**Output:** `{ learning_objective: { learning_objective_id, assessment_objective_id, title, spec_ref, active, order_index } | null }`
+
+---
+
+#### `delete_learning_objective`
+**Soft-delete** — sets `active = false` rather than removing the row, so pupil work and links that reference it are preserved (there are no FK cascades). Reactivate via `update_learning_objective` with `active: true`.
+
+**Input:** `{ learning_objective_id: string }`  
+**Output:** `{ learning_objective: { learning_objective_id, active } | null }`
+
+---
+
 #### `create_success_criterion`
 Creates a success criterion under a learning objective. Validates the LO exists. `level` must be 1–9. `order_index` computed automatically.
 
 **Input:** `{ learning_objective_id: string, description: string, level: number }`  
 **Output:** `{ success_criterion: { success_criteria_id, learning_objective_id, description, level, order_index, active } | null }`
+
+---
+
+#### `update_success_criterion`
+Updates a success criterion's `description`, `level` (1–9), and/or `active`. Omitted fields keep their current value.
+
+**Input:** `{ success_criteria_id: string, description?: string, level?: number, active?: boolean }`  
+**Output:** `{ success_criterion: { success_criteria_id, learning_objective_id, description, level, order_index, active } | null }`
+
+---
+
+#### `delete_success_criterion`
+**Soft-delete** — sets `active = false` rather than removing the row, preserving referencing pupil work and links. Reactivate via `update_success_criterion` with `active: true`. To remove a criterion from a single lesson or activity without deactivating it entirely, use the unlink tools below.
+
+**Input:** `{ success_criteria_id: string }`  
+**Output:** `{ success_criterion: { success_criteria_id, active } | null }`
 
 ---
 
@@ -169,6 +209,14 @@ Links a success criterion to a lesson. The parent learning objective is automati
 
 ---
 
+#### `remove_success_criterion_from_lesson`
+Unlinks a success criterion from a lesson (deletes the `lesson_success_criteria` row only; the criterion and the lesson's learning-objective link are left intact). `removed` is `false` if no such link existed.
+
+**Input:** `{ lesson_id: string, success_criteria_id: string }`  
+**Output:** `{ lesson_id, success_criteria_id, removed }`
+
+---
+
 ### Activities
 
 #### `get_activities_for_lesson`
@@ -220,6 +268,14 @@ Links a success criterion to an activity via `activity_success_criteria`. Valida
 
 **Input:** `{ activity_id: string, success_criteria_id: string }`  
 **Output:** `{ link: { activity_id, success_criteria_id, already_linked } | null }`
+
+---
+
+#### `remove_success_criterion_from_activity`
+Unlinks a success criterion from an activity (deletes the `activity_success_criteria` row only; the criterion itself is untouched). `removed` is `false` if no such link existed.
+
+**Input:** `{ activity_id: string, success_criteria_id: string }`  
+**Output:** `{ activity_id, success_criteria_id, removed }`
 
 ---
 

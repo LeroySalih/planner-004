@@ -16,10 +16,15 @@ import {
   createAssessmentObjective,
   createLearningObjective,
   createSuccessCriterion,
+  updateAssessmentObjective,
+  updateLearningObjective,
+  updateSuccessCriterion,
+  deactivateLearningObjective,
+  deactivateSuccessCriterion,
 } from '@/lib/mcp/losc'
 import { listUnits, findUnitsByTitle, createUnit } from '@/lib/mcp/units'
-import { listLessonsForUnit, createLesson, addSuccessCriterionToLesson, uploadLessonFile } from '@/lib/mcp/lessons'
-import { ACTIVITY_TYPES, listActivitiesForLesson, createActivity, updateActivity, addSuccessCriterionToActivity, removeActivity, uploadActivityFile } from '@/lib/mcp/activities'
+import { listLessonsForUnit, createLesson, addSuccessCriterionToLesson, removeSuccessCriterionFromLesson, uploadLessonFile } from '@/lib/mcp/lessons'
+import { ACTIVITY_TYPES, listActivitiesForLesson, createActivity, updateActivity, addSuccessCriterionToActivity, removeSuccessCriterionFromActivity, removeActivity, uploadActivityFile } from '@/lib/mcp/activities'
 
 // Force Node.js runtime — MCP SDK is not compatible with the Edge runtime.
 export const runtime = 'nodejs'
@@ -569,6 +574,249 @@ function createMcpServer(baseUrl = ''): McpServer {
         return {
           content: [{ type: 'text' as const, text: message }],
           structuredContent: { success_criterion: null },
+        }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'update_assessment_objective',
+    {
+      title: 'Update assessment objective',
+      description: 'Update an assessment objective. Omitted fields keep their current value.',
+      inputSchema: {
+        assessment_objective_id: z.string().min(1).describe('Assessment objective identifier.'),
+        code: z.string().min(1).optional().describe('New code (e.g. AO1).'),
+        title: z.string().min(1).optional().describe('New title.'),
+      },
+      outputSchema: {
+        assessment_objective: z.object({
+          assessment_objective_id: z.string(),
+          curriculum_id: z.string(),
+          code: z.string(),
+          title: z.string(),
+          order_index: z.number(),
+        }).nullable(),
+      },
+    },
+    async ({ assessment_objective_id, code, title }) => {
+      try {
+        const assessment_objective = await updateAssessmentObjective(assessment_objective_id, { code: code ?? null, title: title ?? null })
+        return {
+          content: [{ type: 'text' as const, text: `Updated assessment objective ${assessment_objective.assessment_objective_id} • ${assessment_objective.code} ${assessment_objective.title}` }],
+          structuredContent: { assessment_objective },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to update assessment objective'
+        return {
+          content: [{ type: 'text' as const, text: message }],
+          structuredContent: { assessment_objective: null },
+        }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'update_learning_objective',
+    {
+      title: 'Update learning objective',
+      description: 'Update a learning objective. Omitted fields keep their current value.',
+      inputSchema: {
+        learning_objective_id: z.string().min(1).describe('Learning objective identifier.'),
+        title: z.string().min(1).optional().describe('New title.'),
+        spec_ref: z.string().min(1).optional().describe('New specification reference.'),
+        active: z.boolean().optional().describe('Set false to deactivate, true to reactivate.'),
+      },
+      outputSchema: {
+        learning_objective: z.object({
+          learning_objective_id: z.string(),
+          assessment_objective_id: z.string(),
+          title: z.string(),
+          spec_ref: z.string().nullable(),
+          active: z.boolean(),
+          order_index: z.number(),
+        }).nullable(),
+      },
+    },
+    async ({ learning_objective_id, title, spec_ref, active }) => {
+      try {
+        const learning_objective = await updateLearningObjective(learning_objective_id, { title: title ?? null, specRef: spec_ref ?? null, active: active ?? null })
+        return {
+          content: [{ type: 'text' as const, text: `Updated learning objective ${learning_objective.learning_objective_id} • ${learning_objective.title}` }],
+          structuredContent: { learning_objective },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to update learning objective'
+        return {
+          content: [{ type: 'text' as const, text: message }],
+          structuredContent: { learning_objective: null },
+        }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'update_success_criterion',
+    {
+      title: 'Update success criterion',
+      description: 'Update a success criterion. Omitted fields keep their current value.',
+      inputSchema: {
+        success_criteria_id: z.string().min(1).describe('Success criterion identifier.'),
+        description: z.string().min(1).optional().describe('New description.'),
+        level: z.number().int().min(1).max(9).optional().describe('New level (1–9).'),
+        active: z.boolean().optional().describe('Set false to deactivate, true to reactivate.'),
+      },
+      outputSchema: {
+        success_criterion: z.object({
+          success_criteria_id: z.string(),
+          learning_objective_id: z.string(),
+          description: z.string(),
+          level: z.number(),
+          order_index: z.number(),
+          active: z.boolean(),
+        }).nullable(),
+      },
+    },
+    async ({ success_criteria_id, description, level, active }) => {
+      try {
+        const success_criterion = await updateSuccessCriterion(success_criteria_id, { description: description ?? null, level: level ?? null, active: active ?? null })
+        return {
+          content: [{ type: 'text' as const, text: `Updated success criterion ${success_criterion.success_criteria_id} (level ${success_criterion.level})` }],
+          structuredContent: { success_criterion },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to update success criterion'
+        return {
+          content: [{ type: 'text' as const, text: message }],
+          structuredContent: { success_criterion: null },
+        }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'delete_learning_objective',
+    {
+      title: 'Delete learning objective',
+      description: 'Soft-delete a learning objective (sets active=false). Pupil work referencing it is preserved.',
+      inputSchema: {
+        learning_objective_id: z.string().min(1).describe('Learning objective identifier.'),
+      },
+      outputSchema: {
+        learning_objective: z.object({
+          learning_objective_id: z.string(),
+          active: z.boolean(),
+        }).nullable(),
+      },
+    },
+    async ({ learning_objective_id }) => {
+      try {
+        const lo = await deactivateLearningObjective(learning_objective_id)
+        return {
+          content: [{ type: 'text' as const, text: `Deactivated learning objective ${lo.learning_objective_id}` }],
+          structuredContent: { learning_objective: { learning_objective_id: lo.learning_objective_id, active: lo.active } },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to delete learning objective'
+        return {
+          content: [{ type: 'text' as const, text: message }],
+          structuredContent: { learning_objective: null },
+        }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'delete_success_criterion',
+    {
+      title: 'Delete success criterion',
+      description: 'Soft-delete a success criterion (sets active=false). Pupil work referencing it is preserved.',
+      inputSchema: {
+        success_criteria_id: z.string().min(1).describe('Success criterion identifier.'),
+      },
+      outputSchema: {
+        success_criterion: z.object({
+          success_criteria_id: z.string(),
+          active: z.boolean(),
+        }).nullable(),
+      },
+    },
+    async ({ success_criteria_id }) => {
+      try {
+        const sc = await deactivateSuccessCriterion(success_criteria_id)
+        return {
+          content: [{ type: 'text' as const, text: `Deactivated success criterion ${sc.success_criteria_id}` }],
+          structuredContent: { success_criterion: { success_criteria_id: sc.success_criteria_id, active: sc.active } },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to delete success criterion'
+        return {
+          content: [{ type: 'text' as const, text: message }],
+          structuredContent: { success_criterion: null },
+        }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'remove_success_criterion_from_lesson',
+    {
+      title: 'Remove success criterion from lesson',
+      description: 'Unlink a success criterion from a lesson (removes the link only; the criterion itself is untouched).',
+      inputSchema: {
+        lesson_id: z.string().min(1).describe('Lesson identifier.'),
+        success_criteria_id: z.string().min(1).describe('Success criterion identifier.'),
+      },
+      outputSchema: {
+        lesson_id: z.string(),
+        success_criteria_id: z.string(),
+        removed: z.boolean(),
+      },
+    },
+    async ({ lesson_id, success_criteria_id }) => {
+      try {
+        const result = await removeSuccessCriterionFromLesson(lesson_id, success_criteria_id)
+        return {
+          content: [{ type: 'text' as const, text: result.removed ? `Unlinked success criterion ${success_criteria_id} from lesson ${lesson_id}` : `No link existed between success criterion ${success_criteria_id} and lesson ${lesson_id}` }],
+          structuredContent: result,
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to remove success criterion from lesson'
+        return {
+          content: [{ type: 'text' as const, text: message }],
+          structuredContent: { lesson_id, success_criteria_id, removed: false },
+        }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'remove_success_criterion_from_activity',
+    {
+      title: 'Remove success criterion from activity',
+      description: 'Unlink a success criterion from an activity (removes the link only; the criterion itself is untouched).',
+      inputSchema: {
+        activity_id: z.string().min(1).describe('Activity identifier.'),
+        success_criteria_id: z.string().min(1).describe('Success criterion identifier.'),
+      },
+      outputSchema: {
+        activity_id: z.string(),
+        success_criteria_id: z.string(),
+        removed: z.boolean(),
+      },
+    },
+    async ({ activity_id, success_criteria_id }) => {
+      try {
+        const result = await removeSuccessCriterionFromActivity(activity_id, success_criteria_id)
+        return {
+          content: [{ type: 'text' as const, text: result.removed ? `Unlinked success criterion ${success_criteria_id} from activity ${activity_id}` : `No link existed between success criterion ${success_criteria_id} and activity ${activity_id}` }],
+          structuredContent: result,
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to remove success criterion from activity'
+        return {
+          content: [{ type: 'text' as const, text: message }],
+          structuredContent: { activity_id, success_criteria_id, removed: false },
         }
       }
     },

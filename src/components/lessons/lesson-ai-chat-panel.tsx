@@ -591,6 +591,8 @@ function ProposalCard({
   const isFileDownload = proposal.type === "file-download"
   const isWebpage = proposal.type === "display-webpage"
   const isTaskMarked = proposal.type === "upload-worksheet" || proposal.type === "upload-spreadsheet"
+  const isLo = proposal.type === "learning-objective"
+  const isSc = proposal.type === "success-criterion"
   const hasQuestion = isMcq || isStq
   const TYPE_LABELS: Record<string, string> = {
     "multiple-choice-question": "MCQ",
@@ -609,6 +611,8 @@ function ProposalCard({
     "display-webpage": "Webpage",
     "upload-worksheet": "Upload Exam",
     "upload-spreadsheet": "Upload Spreadsheet",
+    "learning-objective": "Learning objective",
+    "success-criterion": "Success criterion",
   }
   const typeLabel = TYPE_LABELS[proposal.type] ?? "Activity"
   const discarded = proposal._status === "discarded"
@@ -924,6 +928,62 @@ function ProposalCard({
               <span className="font-semibold">Marking:</span> {proposal.markingGuidance}
             </p>
           ) : null}
+        </div>
+      ) : null}
+
+      {isLo ? (
+        <div className="mt-1 space-y-2">
+          {editing ? (
+            <input
+              value={proposal.specRef ?? ""}
+              onChange={(e) => onEdit({ specRef: e.target.value })}
+              className="w-full rounded border border-border bg-background px-2 py-1 text-xs"
+              placeholder="Spec reference (optional)"
+            />
+          ) : proposal.specRef ? (
+            <p className="text-xs text-muted-foreground">
+              <span className="font-semibold">Spec ref:</span> {proposal.specRef}
+            </p>
+          ) : null}
+          <p className="text-[10px] italic text-muted-foreground">
+            New learning objective under assessment objective {proposal.assessmentObjectiveId ?? "?"}
+          </p>
+        </div>
+      ) : null}
+
+      {isSc ? (
+        <div className="mt-1 space-y-2">
+          {editing ? (
+            <textarea
+              value={proposal.description ?? ""}
+              onChange={(e) => onEdit({ description: e.target.value })}
+              rows={2}
+              className="w-full resize-none rounded border border-border bg-background px-2 py-1 text-sm"
+              placeholder="Success criterion"
+            />
+          ) : (
+            <p className="text-foreground">{proposal.description}</p>
+          )}
+          {editing ? (
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              Level
+              <input
+                type="number"
+                min={1}
+                max={9}
+                value={proposal.level ?? 1}
+                onChange={(e) => onEdit({ level: Number(e.target.value) })}
+                className="w-16 rounded border border-border bg-background px-2 py-0.5 text-sm"
+              />
+            </label>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              <span className="font-semibold">Level:</span> {proposal.level ?? 1}
+            </p>
+          )}
+          <p className="text-[10px] italic text-muted-foreground">
+            New success criterion under learning objective {proposal.learningObjectiveId ?? "?"}
+          </p>
         </div>
       ) : null}
 

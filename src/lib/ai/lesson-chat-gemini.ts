@@ -29,6 +29,8 @@ export type ProposedActivityType =
   | "display-webpage"
   | "upload-worksheet"
   | "upload-spreadsheet"
+  | "learning-objective"
+  | "success-criterion"
 
 export interface ProposedActivity {
   type: ProposedActivityType
@@ -65,6 +67,17 @@ export interface ProposedActivity {
   /** Success-criteria IDs (must come from the lesson's real SCs). */
   successCriteriaIds?: string[]
   maxMarks?: number
+  // ── Curriculum authoring (learning-objective / success-criterion) ──
+  /** learning-objective: parent assessment objective ID (must be a real AO from the context). */
+  assessmentObjectiveId?: string
+  /** learning-objective: optional specification reference. */
+  specRef?: string
+  /** success-criterion: parent learning objective ID (must be a real LO from the context). */
+  learningObjectiveId?: string
+  /** success-criterion: the criterion text. */
+  description?: string
+  /** success-criterion: level 1–9. */
+  level?: number
   // ── Server-injected (resolved from attachmentId; not produced by the model) ──
   fileRef?: string
   fileName?: string
@@ -114,10 +127,17 @@ const RESPONSE_SCHEMA = {
               "display-webpage",
               "upload-worksheet",
               "upload-spreadsheet",
+              "learning-objective",
+              "success-criterion",
             ],
           },
           title: { type: "STRING" },
           question: { type: "STRING" },
+          assessmentObjectiveId: { type: "STRING" },
+          specRef: { type: "STRING" },
+          learningObjectiveId: { type: "STRING" },
+          description: { type: "STRING" },
+          level: { type: "INTEGER" },
           text: { type: "STRING" },
           videoUrl: { type: "STRING" },
           attachmentId: { type: "STRING" },
@@ -164,6 +184,7 @@ const RESPONSE_SCHEMA = {
           "type", "title", "question", "text", "videoUrl", "modelAnswer",
           "options", "pairs", "groups", "items", "sequence", "attachmentId", "imageAlt",
           "task", "markingGuidance",
+          "assessmentObjectiveId", "learningObjectiveId", "description", "level",
         ],
       },
     },

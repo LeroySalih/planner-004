@@ -356,3 +356,18 @@ export async function removeActivity(
 
   return { activity_id: activityId, lesson_id: lessonId }
 }
+
+export async function removeSuccessCriterionFromActivity(
+  activityId: string,
+  successCriteriaId: string,
+): Promise<{ activity_id: string; success_criteria_id: string; removed: boolean }> {
+  let removed = false
+  await withDbClient(async (client) => {
+    const { rowCount } = await client.query(
+      'delete from activity_success_criteria where activity_id = $1 and success_criteria_id = $2',
+      [activityId, successCriteriaId],
+    )
+    removed = (rowCount ?? 0) > 0
+  })
+  return { activity_id: activityId, success_criteria_id: successCriteriaId, removed }
+}

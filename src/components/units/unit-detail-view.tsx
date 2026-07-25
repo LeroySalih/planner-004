@@ -1,7 +1,8 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Calendar, Edit2, Target, Users } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { Calendar, Edit2, Sparkles, Target, Users } from "lucide-react"
 import { toast } from "sonner"
 
 import type { Assignment, Group, Groups, Subjects, Unit, UnitJobPayload } from "@/types"
@@ -18,6 +19,7 @@ import { UnitReportDocxDownloadButton } from "@/components/docx/unit-report-docx
 import { DuplicateUnitTrigger } from "@/components/units/duplicate-unit-trigger"
 import { LessonsPanel } from "@/components/units/lessons-panel"
 import { UnitEditSidebar } from "@/components/units/unit-edit-sidebar"
+import { UnitAiChatPanel } from "@/components/units/unit-ai-chat-panel"
 import { UnitFilesPanel } from "@/components/units/unit-files-panel"
 const UNIT_UPDATE_EVENT = "unit:update"
 const UNIT_DEACTIVATE_EVENT = "unit:deactivate"
@@ -52,7 +54,9 @@ export function UnitDetailView({
   lessons,
   unitFiles,
 }: UnitDetailViewProps) {
+  const router = useRouter()
   const [isUnitSidebarOpen, setIsUnitSidebarOpen] = useState(false)
+  const [isChatOpen, setIsChatOpen] = useState(false)
   const [currentUnit, setCurrentUnit] = useState<Unit>(unit)
   const optimisticSnapshotRef = useRef<Unit | null>(null)
   const pendingJobsRef = useRef(new Map<string, Unit>())
@@ -314,6 +318,10 @@ export function UnitDetailView({
             <UnitReportDownloadButton unitId={currentUnit.unit_id} />
             <UnitReportDocxDownloadButton unitId={currentUnit.unit_id} />
             <DuplicateUnitTrigger unitId={currentUnit.unit_id} unitTitle={currentUnit.title} variant="outline" />
+            <Button variant="outline" onClick={() => setIsChatOpen(true)}>
+              <Sparkles className="mr-2 h-4 w-4" />
+              Develop with AI
+            </Button>
             <Button onClick={() => setIsUnitSidebarOpen(true)}>
               <Edit2 className="mr-2 h-4 w-4" />
               Edit Unit
@@ -514,6 +522,38 @@ export function UnitDetailView({
         onOptimisticUpdate={handleOptimisticUpdate}
         onJobQueued={handleJobQueued}
       />
+
+      {isChatOpen ? (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/30" onClick={() => setIsChatOpen(false)}>
+          <div className="h-full" onClick={(e) => e.stopPropagation()}>
+            <UnitAiChatPanel
+              unitId={currentUnit.unit_id}
+              lessons={lessons.map((l) => ({ id: l.lesson_id, title: l.title ?? "Untitled lesson" }))}
+              learningObjectives={learningObjectives.map((lo) => ({
+                id: lo.learning_objective_id,
+                label: lo.title || lo.learning_objective_id,
+              }))}
+              assessmentObjectives={Array.from(
+                new Map(
+                  learningObjectives
+                    .filter((lo) => lo.assessment_objective_id)
+                    .map((lo) => [
+                      lo.assessment_objective_id as string,
+                      {
+                        id: lo.assessment_objective_id as string,
+                        label: [lo.assessment_objective_code, lo.assessment_objective_title]
+                          .filter(Boolean)
+                          .join(" — ") || (lo.assessment_objective_id as string),
+                      },
+                    ]),
+                ).values(),
+              )}
+              onClose={() => setIsChatOpen(false)}
+              onChanged={() => router.refresh()}
+            />
+          </div>
+        </div>
+      ) : null}
     </>
   )
 }
