@@ -1,5 +1,6 @@
 import { query, withDbClient } from '@/lib/db'
 import { assertUnitIsInactive, assertLessonUnitIsInactive } from '@/lib/mcp/guards'
+import { assertScAllowedForLesson, assertLoAllowedForLesson } from '@/lib/curriculum/unit-curriculum-guard'
 import { createLocalStorageClient } from '@/lib/storage/local-storage'
 
 export type LessonSummary = {
@@ -101,6 +102,7 @@ export async function addSuccessCriterionToLesson(
 
   await withDbClient(async (client) => {
     await assertLessonUnitIsInactive(client, lessonId)
+    await assertScAllowedForLesson(client, lessonId, successCriteriaId)
 
     // Validate lesson exists (already confirmed by guard, but kept for clarity)
     const { rows: lessonRows } = await client.query<{ lesson_id: string }>(
@@ -116,6 +118,7 @@ export async function addSuccessCriterionToLesson(
     )
     if (!scRows[0]) throw new Error(`Success criterion ${successCriteriaId} not found`)
     const learningObjectiveId = scRows[0].learning_objective_id
+    await assertLoAllowedForLesson(client, lessonId, learningObjectiveId)
 
     // Insert SC link (skip if already linked)
     const { rowCount: scInserted } = await client.query(

@@ -38,6 +38,10 @@ import { LessonDetailPayloadSchema } from "@/lib/lesson-snapshot-schema";
 import { Client } from "pg";
 import { query, withDbClient } from "@/lib/db";
 import { emitLessonEvent } from "@/lib/sse/topics";
+import {
+  assertLoAllowedForLesson,
+  assertScAllowedForLesson,
+} from "@/lib/curriculum/unit-curriculum-guard";
 
 const LessonsReturnValue = z.object({
   data: LessonsWithObjectivesSchema.nullable(),
@@ -409,6 +413,10 @@ export async function createLessonAction(
       createdLessonId = lessonRow.lesson_id;
 
       if (sanitizedObjectiveIds.length > 0) {
+        for (const learningObjectiveId of sanitizedObjectiveIds) {
+          await assertLoAllowedForLesson(client, lessonRow.lesson_id, learningObjectiveId);
+        }
+
         const values: unknown[] = [];
         const placeholders: string[] = [];
         sanitizedObjectiveIds.forEach((learningObjectiveId, index) => {
@@ -574,6 +582,10 @@ export async function updateLessonAction(
       }
 
       if (idsToInsert.length > 0) {
+        for (const learningObjectiveId of idsToInsert) {
+          await assertLoAllowedForLesson(client, lessonId, learningObjectiveId);
+        }
+
         const values: unknown[] = [];
         const placeholders: string[] = [];
         idsToInsert.forEach((learningObjectiveId) => {
@@ -666,6 +678,10 @@ async function applyLessonSuccessCriteriaUpdate(
     );
 
     if (idsToInsert.length > 0) {
+      for (const id of idsToInsert) {
+        await assertScAllowedForLesson(client, payload.lessonId, id);
+      }
+
       const values: unknown[] = [];
       const placeholders: string[] = [];
       idsToInsert.forEach((id) => {
@@ -970,6 +986,12 @@ export async function createLessonLearningObjectiveAction(input: {
             units: [],
           };
 
+          await assertScAllowedForLesson(
+            client,
+            payload.lessonId,
+            createdCriterion.success_criteria_id,
+          );
+
           await client.query(
             `
               insert into lesson_success_criteria (lesson_id, success_criteria_id)
@@ -990,6 +1012,12 @@ export async function createLessonLearningObjectiveAction(input: {
                 : -1;
               return value > max ? value : max;
             }, -1) + 1;
+
+          await assertLoAllowedForLesson(
+            client,
+            payload.lessonId,
+            insertedObjective.learning_objective_id,
+          );
 
           await client.query(
             `

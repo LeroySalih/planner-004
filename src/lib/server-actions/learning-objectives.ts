@@ -5,6 +5,7 @@ import { z } from "zod"
 
 import { LearningObjectiveSchema, SuccessCriteriaSchema } from "@/types"
 import { query, withDbClient } from "@/lib/db"
+import { assertScAllowedForUnit, UnitCurriculumMismatchError } from "@/lib/curriculum/unit-curriculum-guard"
 import { withTelemetry } from "@/lib/telemetry"
 import { Client } from "pg"
 
@@ -571,13 +572,14 @@ export async function createLearningObjectiveAction(
         const unitValues: unknown[] = []
         const unitPlaceholders: string[] = []
 
-        insertedCriteria.forEach((row, idx) => {
+        for (let idx = 0; idx < insertedCriteria.length; idx++) {
           const unitIds = filteredCriteria[idx].unit_ids ?? []
-          unitIds.forEach((unitId) => {
-            unitValues.push(row.success_criteria_id, unitId)
+          for (const unitId of unitIds) {
+            await assertScAllowedForUnit(client, unitId, insertedCriteria[idx].success_criteria_id)
+            unitValues.push(insertedCriteria[idx].success_criteria_id, unitId)
             unitPlaceholders.push(`($${unitValues.length - 1}, $${unitValues.length})`)
-          })
-        })
+          }
+        }
 
         if (unitPlaceholders.length > 0) {
           await client.query(
@@ -591,6 +593,9 @@ export async function createLearningObjectiveAction(
       }
     })
   } catch (creationError) {
+    if (creationError instanceof UnitCurriculumMismatchError) {
+      return LearningObjectiveReturnValue.parse({ data: null, error: creationError.message })
+    }
     console.error("[v0] Failed to create learning objective:", creationError)
     const message = creationError instanceof Error ? creationError.message : "Unable to create learning objective."
     return LearningObjectiveReturnValue.parse({ data: null, error: message })
@@ -713,10 +718,11 @@ export async function updateLearningObjectiveAction(
         if (unitsToAdd.length > 0) {
           const values: Array<unknown> = []
           const placeholders: string[] = []
-          unitsToAdd.forEach((unitId, index) => {
+          for (const unitId of unitsToAdd) {
+            await assertScAllowedForUnit(client, unitId, criterion.success_criteria_id!)
             values.push(criterion.success_criteria_id, unitId)
             placeholders.push(`($${values.length - 1}, $${values.length})`)
-          })
+          }
 
           await client.query(
             `
@@ -763,13 +769,14 @@ export async function updateLearningObjectiveAction(
         const unitValues: unknown[] = []
         const unitPlaceholders: string[] = []
 
-        insertedRows.forEach((row, idx) => {
+        for (let idx = 0; idx < insertedRows.length; idx++) {
           const units = inserts[idx].unit_ids ?? []
-          units.forEach((unitId) => {
-            unitValues.push(row.success_criteria_id, unitId)
+          for (const unitId of units) {
+            await assertScAllowedForUnit(client, unitId, insertedRows[idx].success_criteria_id)
+            unitValues.push(insertedRows[idx].success_criteria_id, unitId)
             unitPlaceholders.push(`($${unitValues.length - 1}, $${unitValues.length})`)
-          })
-        })
+          }
+        }
 
         if (unitPlaceholders.length > 0) {
           await client.query(
@@ -783,6 +790,9 @@ export async function updateLearningObjectiveAction(
       }
     })
   } catch (updateError) {
+    if (updateError instanceof UnitCurriculumMismatchError) {
+      return LearningObjectiveReturnValue.parse({ data: null, error: updateError.message })
+    }
     console.error("[v0] Failed to update learning objective:", updateError)
     const message = updateError instanceof Error ? updateError.message : "Unable to update learning objective."
     return LearningObjectiveReturnValue.parse({ data: null, error: message })

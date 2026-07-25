@@ -1,6 +1,7 @@
 import { query, withDbClient } from '@/lib/db'
 import { SCORABLE_ACTIVITY_TYPES, NON_SCORABLE_ACTIVITY_TYPES } from '@/dino.config'
 import { assertLessonUnitIsInactive } from '@/lib/mcp/guards'
+import { assertScAllowedForActivity } from '@/lib/curriculum/unit-curriculum-guard'
 import { createLocalStorageClient } from '@/lib/storage/local-storage'
 
 export const ACTIVITY_TYPES = [...SCORABLE_ACTIVITY_TYPES, ...NON_SCORABLE_ACTIVITY_TYPES] as const
@@ -305,6 +306,7 @@ export async function addSuccessCriterionToActivity(
     )
     if (!actRows[0]) throw new Error(`Activity ${activityId} not found`)
     await assertLessonUnitIsInactive(client, actRows[0].lesson_id)
+    await assertScAllowedForActivity(client, activityId, successCriteriaId)
 
     // Validate SC exists
     const { rows: scRows } = await client.query<{ success_criteria_id: string }>(

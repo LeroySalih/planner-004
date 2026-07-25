@@ -693,8 +693,9 @@ export async function duplicateUnitAction(unitId: string) {
     description: string | null
     year: number | null
     active: boolean
+    curriculum_id: string | null
   }>(
-    `select unit_id, title, subject, description, year, active
+    `select unit_id, title, subject, description, year, active, curriculum_id
      from units where unit_id = $1 limit 1`,
     [unitId],
   )
@@ -792,9 +793,9 @@ export async function duplicateUnitAction(unitId: string) {
       await client.query("begin")
       try {
         await client.query(
-          `insert into units (unit_id, title, subject, description, year, active)
-           values ($1, $2, $3, $4, $5, true)`,
-          [newUnitId, newTitle, sourceUnit.subject, sourceUnit.description, sourceUnit.year],
+          `insert into units (unit_id, title, subject, description, year, active, curriculum_id)
+           values ($1, $2, $3, $4, $5, true, $6)`,
+          [newUnitId, newTitle, sourceUnit.subject, sourceUnit.description, sourceUnit.year, sourceUnit.curriculum_id],
         )
 
         for (const lesson of lessons) {

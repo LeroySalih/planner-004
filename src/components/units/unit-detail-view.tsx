@@ -20,6 +20,8 @@ import { DuplicateUnitTrigger } from "@/components/units/duplicate-unit-trigger"
 import { LessonsPanel } from "@/components/units/lessons-panel"
 import { UnitEditSidebar } from "@/components/units/unit-edit-sidebar"
 import { UnitAiChatPanel } from "@/components/units/unit-ai-chat-panel"
+import { UnitCurriculumSelector } from "@/components/units/unit-curriculum-selector"
+import type { UnitCurriculumState } from "@/lib/server-actions/unit-curriculum"
 import { UnitFilesPanel } from "@/components/units/unit-files-panel"
 const UNIT_UPDATE_EVENT = "unit:update"
 const UNIT_DEACTIVATE_EVENT = "unit:deactivate"
@@ -43,6 +45,8 @@ interface UnitDetailViewProps {
   learningObjectives: LearningObjectiveWithCriteria[]
   lessons: LessonWithObjectives[]
   unitFiles: { name: string; path: string; created_at?: string; updated_at?: string; size?: number }[]
+  curricula: { curriculum_id: string; subject: string | null; title: string }[]
+  curriculumState: UnitCurriculumState | null
 }
 
 export function UnitDetailView({
@@ -53,6 +57,8 @@ export function UnitDetailView({
   learningObjectives,
   lessons,
   unitFiles,
+  curricula,
+  curriculumState,
 }: UnitDetailViewProps) {
   const router = useRouter()
   const [isUnitSidebarOpen, setIsUnitSidebarOpen] = useState(false)
@@ -312,6 +318,16 @@ export function UnitDetailView({
               <Badge variant="outline">Subject: {currentUnit.subject}</Badge>
               {currentUnit.year ? <Badge variant="secondary">Year {currentUnit.year}</Badge> : null}
               <span className="text-sm">Unit ID: {currentUnit.unit_id}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Curriculum:</span>
+              <UnitCurriculumSelector
+                unitId={currentUnit.unit_id}
+                subject={currentUnit.subject}
+                curricula={curricula}
+                initialCurriculumId={curriculumState?.curriculumId ?? null}
+                locked={curriculumState?.locked ?? false}
+              />
             </div>
           </div>
           <div className="flex gap-2 self-start">
