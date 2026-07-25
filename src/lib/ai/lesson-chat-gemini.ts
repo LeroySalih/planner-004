@@ -60,6 +60,10 @@ export interface ProposedActivity {
   attachmentId?: string
   /** Display Image: concise alt text. */
   imageAlt?: string
+  /** Display Image: set to a detailed image description ONLY when the teacher asks
+   * you to generate/create an image (and none is attached). The server renders it
+   * with the image model and fills fileRef. Leave empty when an image is attached. */
+  imagePrompt?: string
   /** Upload Exam / Upload Spreadsheet: what pupils should do. */
   task?: string
   /** Upload Exam / Upload Spreadsheet: how the AI should mark it. */
@@ -142,6 +146,7 @@ const RESPONSE_SCHEMA = {
           videoUrl: { type: "STRING" },
           attachmentId: { type: "STRING" },
           imageAlt: { type: "STRING" },
+          imagePrompt: { type: "STRING" },
           task: { type: "STRING" },
           markingGuidance: { type: "STRING" },
           options: {
@@ -183,7 +188,7 @@ const RESPONSE_SCHEMA = {
         required: [
           "type", "title", "question", "text", "videoUrl", "modelAnswer",
           "options", "pairs", "groups", "items", "sequence", "attachmentId", "imageAlt",
-          "task", "markingGuidance",
+          "imagePrompt", "task", "markingGuidance",
           "assessmentObjectiveId", "learningObjectiveId", "description", "level",
         ],
       },
@@ -316,4 +321,62 @@ export async function generateLessonChatReply(params: {
     message: typeof parsed.message === "string" ? parsed.message : "",
     proposals,
   }
+}
+
+const IMAGE_MODEL = "gemini-3.1-flash-image"
+
+/**
+ * Generate an image from a text prompt using a Gemini flash-image model. Returns
+ * the raw image bytes + mime type (the model replies with inline base64 image
+ * data). Throws on failure so callers can skip the proposal gracefully.
+ */
+export async function generateImage(prompt: string): Promise<{ buffer: Buffer; mimeType: string }> {
+  const apiKey = process.env.GOOGLE_API_KEY ?? process.env.GEMINI_API_KEY
+  if (!apiKey) throw new Error("GOOGLE_API_KEY is not configured.")
+
+  const payload = {
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    generationConfig: { responseModalities: ["TEXT", "IMAGE"] },
+  }
+
+  const MAX_ATTEMPTS = 3
+  let lastError = ""
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${IMAGE_MODEL}:generateContent`,
+      {
+        method: "POST",
+        headers: { "x-goog-api-key": apiKey, "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      },
+    )
+    const text = await response.text()
+    if (!response.ok) {
+      lastError = `Gemini image ${response.status}: ${text.slice(0, 300)}`
+      if ((response.status === 503 || response.status === 429) && attempt < MAX_ATTEMPTS - 1) {
+        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)))
+        continue
+      }
+      throw new Error(lastError)
+    }
+
+    let data: unknown
+    try {
+      data = JSON.parse(text)
+    } catch {
+      throw new Error("Gemini image model returned a non-JSON response.")
+    }
+    const parts =
+      (data as { candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { mimeType?: string; data?: string } }> } }> })
+        ?.candidates?.[0]?.content?.parts ?? []
+    const imagePart = parts.find((p) => p.inlineData?.data)
+    if (!imagePart?.inlineData?.data) {
+      throw new Error("The image model did not return an image (it may have been blocked by a safety filter).")
+    }
+    return {
+      buffer: Buffer.from(imagePart.inlineData.data, "base64"),
+      mimeType: imagePart.inlineData.mimeType ?? "image/png",
+    }
+  }
+  throw new Error(lastError || "Image generation failed.")
 }

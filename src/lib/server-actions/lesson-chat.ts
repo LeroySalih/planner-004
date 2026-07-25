@@ -19,6 +19,7 @@ import { createLocalStorageClient } from "@/lib/storage/local-storage"
 import { convertToPdfViaGotenberg } from "@/lib/pdf/gotenberg"
 import { rasterizePdfToJpegs } from "@/lib/pdf/rasterize-pdf"
 import {
+  generateImage,
   generateLessonChatReply,
   type ChatAttachment,
   type ChatTurn,
@@ -26,6 +27,8 @@ import {
 } from "@/lib/ai/lesson-chat-gemini"
 
 const MAX_SLIDES = 20
+// Cap AI-generated images per message to bound latency and cost.
+const MAX_GENERATED_IMAGES = 3
 
 /** Short text summary of an activity's content, so the model can reference it. */
 function summariseActivityBody(type: string, bodyData: unknown): string {
@@ -286,7 +289,8 @@ async function getLessonChatContext(lessonId: string): Promise<LessonChatContext
     "- matcher: set `pairs` to 2–8 items, each with a `term` and its `definition`.",
     "- group-items: set `groups` to 2–4 group names, and `items` to 2–12 items, each with `text` and a `group` that EXACTLY matches one of the group names.",
     "- sequence: set `sequence` to 2–12 short items in the CORRECT order (first to last).",
-    "- display-image / file-download / display-webpage: ONLY propose when a matching file is attached this turn; set `attachmentId` to that attachment's id. For display-image, also set a concise `imageAlt` describing the image. Never propose these without an attachment.",
+    "- display-image / file-download / display-webpage: propose when a matching file is attached this turn; set `attachmentId` to that attachment's id. For display-image, also set a concise `imageAlt`.",
+    "- Generating an image: if the teacher explicitly asks you to create/generate/draw an image (and none is attached), propose a display-image with `imagePrompt` set to a detailed, self-contained description for an image model (style, subject, composition, labels) and a concise `imageAlt`; leave `attachmentId` empty. Only do this when explicitly asked — never invent images otherwise. file-download and display-webpage still require an attachment.",
     "- upload-worksheet (Upload Exam) and upload-spreadsheet: set `task` (clear instructions for pupils) and `markingGuidance` (how the AI should mark it). Both are required.",
     "- learning-objective: set `title` to the objective wording, `assessmentObjectiveId` to the parent AO's ID from the list below (you may ONLY use an AO ID listed there; never invent one), and optionally `specRef`.",
     "- success-criterion: set `description` to the criterion wording, `level` to an integer 1–9, and `learningObjectiveId` to the parent LO's ID from the list below (you may ONLY use an LO ID listed there; never invent one).",
@@ -410,22 +414,59 @@ export async function sendLessonChatMessageAction(input: {
 
     const byAttachmentId = new Map(attachments.map((a) => [a.attachmentId, a]))
 
-    // Filter hallucinated SC IDs and resolve any attachmentId into a stored file ref.
-    const proposals = reply.proposals.map((p) => {
-      const att = p.attachmentId ? byAttachmentId.get(p.attachmentId) : undefined
-      return {
-        ...p,
-        successCriteriaIds: (p.successCriteriaIds ?? []).filter((id) => context.validScIds.has(id)),
-        ...(att ? { fileRef: att.tempRef, fileName: att.fileName, fileKind: att.kind } : {}),
-      }
-    })
+    // Filter hallucinated SC IDs, resolve any attachmentId into a stored file ref,
+    // and render any AI-requested images (display-image with an imagePrompt and no
+    // attachment) via the image model, storing them like the pptx slide flow.
+    let generatedImages = 0
+    const imageNotes: string[] = []
+    const storage = createLocalStorageClient(LESSON_FILES_BUCKET)
+    const resolved = await Promise.all(
+      reply.proposals.map(async (p): Promise<ProposedActivity | null> => {
+        const att = p.attachmentId ? byAttachmentId.get(p.attachmentId) : undefined
+        const base: ProposedActivity = {
+          ...p,
+          successCriteriaIds: (p.successCriteriaIds ?? []).filter((id) => context.validScIds.has(id)),
+          ...(att ? { fileRef: att.tempRef, fileName: att.fileName, fileKind: att.kind } : {}),
+        }
+
+        const wantsGeneratedImage =
+          p.type === "display-image" && !att && !base.fileRef && (p.imagePrompt ?? "").trim().length > 0
+        if (!wantsGeneratedImage) return base
+
+        if (generatedImages >= MAX_GENERATED_IMAGES) {
+          imageNotes.push(`Skipped generating an image for “${p.title}” (max ${MAX_GENERATED_IMAGES} per message).`)
+          return null
+        }
+        generatedImages += 1
+        try {
+          const { buffer, mimeType } = await generateImage(p.imagePrompt!.trim())
+          const ext = mimeType.includes("png") ? "png" : mimeType.includes("webp") ? "webp" : "jpg"
+          const safe = (p.title || "image").replace(/[^a-z0-9-]/gi, "_").slice(0, 40) || "image"
+          const fileName = `${safe}.${ext}`
+          const ref = `${LESSON_FILES_BUCKET}/${lessonId}/activities/_chat/${crypto.randomUUID().slice(0, 8)}-${fileName}`
+          const { error: upErr } = await storage.upload(ref, buffer, {
+            contentType: mimeType,
+            uploadedBy: profile.userId,
+            originalPath: ref,
+          })
+          if (upErr) throw new Error(upErr.message)
+          return { ...base, fileRef: ref, fileName, fileKind: "image" }
+        } catch (err) {
+          console.error("[lesson-chat] image generation failed", err)
+          imageNotes.push(`Couldn't generate the image for “${p.title}”: ${err instanceof Error ? err.message : "unknown error"}`)
+          return null
+        }
+      }),
+    )
+    const proposals = resolved.filter((p): p is ProposedActivity => p !== null)
+    const finalMessage = imageNotes.length ? [reply.message, ...imageNotes].filter(Boolean).join("\n\n") : reply.message
 
     const { rows: inserted } = await query<{ message_id: string }>(
       `insert into lesson_chat_messages (lesson_id, teacher_id, role, content, proposals) values ($1, $2, 'assistant', $3, $4::jsonb) returning message_id`,
-      [lessonId, profile.userId, reply.message, JSON.stringify(proposals)],
+      [lessonId, profile.userId, finalMessage, JSON.stringify(proposals)],
     )
 
-    return { success: true, messageId: inserted[0]?.message_id ?? null, message: reply.message, proposals, error: null }
+    return { success: true, messageId: inserted[0]?.message_id ?? null, message: finalMessage, proposals, error: null }
   } catch (err) {
     const message = err instanceof Error ? err.message : "Chat failed."
     console.error("[lesson-chat] send failed", err)
