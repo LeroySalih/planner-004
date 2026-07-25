@@ -16,6 +16,11 @@ import {
   ShortTextActivityBodySchema,
 } from "@/types";
 import { query, withDbClient } from "@/lib/db";
+import {
+  assertScAllowedForActivity,
+  type Queryable,
+  UnitCurriculumMismatchError,
+} from "@/lib/curriculum/unit-curriculum-guard";
 import { withTelemetry } from "@/lib/telemetry";
 import { isScorableActivityType } from "@/dino.config";
 import { enqueueLessonMutationJob } from "@/lib/lesson-job-runner";
@@ -254,6 +259,10 @@ export async function createLessonActivityAction(
       }
 
       if (successCriteriaIds.length > 0) {
+        const newActivityId = createdActivity.activity_id as string;
+        for (const scId of successCriteriaIds) {
+          await assertScAllowedForActivity(client, newActivityId, scId);
+        }
         await client.query(
           `
             insert into activity_success_criteria (activity_id, success_criteria_id)
@@ -264,6 +273,9 @@ export async function createLessonActivityAction(
       }
     });
   } catch (error) {
+    if (error instanceof UnitCurriculumMismatchError) {
+      return { success: false, error: error.message, data: null };
+    }
     console.error("[v0] Failed to create lesson activity:", error);
     const message = error instanceof Error
       ? error.message
@@ -479,6 +491,10 @@ export async function updateLessonActivityAction(
       }
 
       if (toInsert.length > 0) {
+        const dbHandle = { query } as unknown as Queryable;
+        for (const scId of toInsert) {
+          await assertScAllowedForActivity(dbHandle, activityId, scId);
+        }
         await query(
           `
             insert into activity_success_criteria (activity_id, success_criteria_id)
@@ -488,6 +504,9 @@ export async function updateLessonActivityAction(
         );
       }
     } catch (error) {
+      if (error instanceof UnitCurriculumMismatchError) {
+        return { success: false, error: error.message, data: null };
+      }
       console.error(
         "[v0] Failed to update activity success criteria links:",
         error,
@@ -715,6 +734,9 @@ export async function uploadActivitiesFromMarkdownAction(
           }
 
           if (activity.successCriteriaIds.length > 0) {
+            for (const scId of activity.successCriteriaIds) {
+              await assertScAllowedForActivity(client, createdId, scId);
+            }
             await client.query(
               `
                 insert into activity_success_criteria (activity_id, success_criteria_id)

@@ -246,6 +246,13 @@ JOIN curricula c ON c.subject = u.subject
 
 A single unit subject can match multiple curricula — use `DISTINCT ON (l.lesson_id)` when you need one row per lesson.
 
+### Unit ↔ curriculum link (one curriculum per unit)
+
+`units.curriculum_id` (nullable FK → `curricula`) ties a unit to a single curriculum. A unit may only be assigned LOs/SCs from that curriculum. Enforcement is centralised in **`src/lib/curriculum/unit-curriculum-guard.ts`** — call the appropriate `assert…AllowedFor…` helper from ANY new path that links an SC/LO to a unit, lesson, or activity (app actions, MCP helpers, AI chat). The four assignment surfaces are `success_criteria_units`, `lessons_learning_objective`, `lesson_success_criteria`, `activity_success_criteria`. First assignment fixes the unit's curriculum; a mismatch throws `UnitCurriculumMismatchError`. Items under a bespoke unit-owned AO (`assessment_objectives.curriculum_id` null) are exempt.
+
+- Audit/backfill: `npx tsx scripts/audit-unit-curricula.ts [--dry-run]` (auto-sets single-curriculum units; reports multi-curriculum ones).
+- Admin remediation: `/admin/unit-curricula` — "keep this curriculum" removes the other curricula's LOs/SCs from the unit AND from its lessons/activities via `removeCurriculumFromUnit`.
+
 ### Nullable boolean columns — use IS NOT FALSE
 
 Several `active` columns default to `NULL` in production rows. `WHERE active = true` silently excludes those rows. Always write:

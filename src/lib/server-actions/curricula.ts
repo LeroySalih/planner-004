@@ -18,10 +18,22 @@ import {
 import { query, withDbClient } from "@/lib/db"
 import { requireRole } from "@/lib/auth"
 import {
+  assertScAllowedForUnit,
+  UnitCurriculumMismatchError,
+  type Queryable,
+} from "@/lib/curriculum/unit-curriculum-guard"
+import {
   fetchSuccessCriteriaForLearningObjectives,
   type NormalizedSuccessCriterion,
 } from "./learning-objectives"
 import { withTelemetry } from "@/lib/telemetry"
+
+// `query` from @/lib/db constrains its row generic, so expose it through the
+// guard's Queryable shape (the guard calls it with typed row generics).
+const guardDb: Queryable = {
+  query: <T = Record<string, unknown>>(sql: string, params?: unknown[]) =>
+    query(sql, params) as Promise<{ rows: T[] }>,
+}
 
 const CurriculaReturnValue = z.object({
   data: CurriculaSchema.nullable(),
@@ -964,6 +976,17 @@ export async function createCurriculumSuccessCriterionAction(
     }
 
     if (sanitizedUnits.length > 0) {
+      try {
+        for (const unitId of sanitizedUnits) {
+          await assertScAllowedForUnit(guardDb, unitId, data.success_criteria_id)
+        }
+      } catch (guardError) {
+        if (guardError instanceof UnitCurriculumMismatchError) {
+          return SuccessCriterionReturnValue.parse({ data: null, error: guardError.message })
+        }
+        throw guardError
+      }
+
       await query(
         `
           insert into success_criteria_units (success_criteria_id, unit_id)
@@ -1143,6 +1166,17 @@ export async function updateCurriculumSuccessCriterionAction(
       }
 
       if (toInsert.length > 0) {
+        try {
+          for (const unitId of toInsert) {
+            await assertScAllowedForUnit(guardDb, unitId, successCriterionId)
+          }
+        } catch (guardError) {
+          if (guardError instanceof UnitCurriculumMismatchError) {
+            return SuccessCriterionReturnValue.parse({ data: null, error: guardError.message })
+          }
+          throw guardError
+        }
+
         await query(
           `
             insert into success_criteria_units (success_criteria_id, unit_id)

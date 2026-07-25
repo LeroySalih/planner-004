@@ -19,6 +19,8 @@ import {
   listUnitFilesAction,
 } from "@/lib/server-updates"
 import { requireTeacherProfile } from "@/lib/auth"
+import { readCurriculaAction } from "@/lib/server-actions/curricula"
+import { readUnitCurriculumStateAction } from "@/lib/server-actions/unit-curriculum"
 import { withTelemetry } from "@/lib/telemetry"
 
 export default async function UnitDetailPage({
@@ -39,6 +41,8 @@ export default async function UnitDetailPage({
     learningObjectivesResult,
     lessonsResult,
     unitFilesResult,
+    curriculaResult,
+    curriculumStateResult,
   ] = await withTelemetry(
     {
       routeTag: "/units/[unitId]",
@@ -58,6 +62,8 @@ export default async function UnitDetailPage({
         }),
         readLessonsByUnitAction(unitId, { routeTag: "/units/[unitId]", authEndTime: authEnd }),
         listUnitFilesAction(unitId, { routeTag: "/units/[unitId]", authEndTime: authEnd }),
+        readCurriculaAction({ routeTag: "/units/[unitId]", authEndTime: authEnd }),
+        readUnitCurriculumStateAction(unitId),
       ]),
   )
 
@@ -117,6 +123,8 @@ export default async function UnitDetailPage({
           learningObjectives={learningObjectivesResult.data ?? []}
           lessons={lessonsResult.data ?? []}
           unitFiles={unitFilesResult.data ?? []}
+          curricula={curriculaResult.data ?? []}
+          curriculumState={curriculumStateResult.data ?? null}
         />
       </main>
     </Suspense>

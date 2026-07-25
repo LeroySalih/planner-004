@@ -9,6 +9,7 @@ import {
 } from "@/types"
 import { requireTeacherProfile } from "@/lib/auth"
 import { query } from "@/lib/db"
+import { assertScAllowedForLesson, type Queryable } from "@/lib/curriculum/unit-curriculum-guard"
 
 const LessonSuccessCriteriaReturnValue = z.object({
   data: LessonSuccessCriteriaSchema.default([]),
@@ -136,6 +137,8 @@ export async function linkLessonSuccessCriterionAction(input: z.infer<typeof mut
   const payload = mutateInputSchema.parse(input)
 
   try {
+    await assertScAllowedForLesson({ query } as Queryable, payload.lessonId, payload.successCriteriaId)
+
     await query(
       `
         insert into lesson_success_criteria (lesson_id, success_criteria_id)
