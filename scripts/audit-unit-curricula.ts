@@ -1,5 +1,8 @@
 import * as dotenv from "dotenv"
+// Dev keeps env in .env; the production build uses .env.build. Load both — dotenv
+// does not override already-set vars, so whichever is present populates the env.
 dotenv.config()
+dotenv.config({ path: ".env.build" })
 import { Pool } from "pg"
 
 // Audit + backfill for the unit↔curriculum link.
