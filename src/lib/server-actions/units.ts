@@ -177,8 +177,9 @@ export async function createUnitAction(
   subject: string,
   description: string | null = null,
   year: number | null = null,
+  curriculumId: string | null = null,
 ) {
-  console.log("[v0] Server action started for unit creation:", { unitId, title, subject, year })
+  console.log("[v0] Server action started for unit creation:", { unitId, title, subject, year, curriculumId })
 
   const sanitizedYear =
     typeof year === "number" && Number.isFinite(year)
@@ -193,11 +194,11 @@ export async function createUnitAction(
     try {
       const { rows } = await query(
         `
-          insert into units (unit_id, title, subject, description, year, active)
-          values ($1, $2, $3, $4, $5, true)
+          insert into units (unit_id, title, subject, description, year, active, curriculum_id)
+          values ($1, $2, $3, $4, $5, true, $6)
           returning unit_id, title, subject, description, active, year
         `,
-        [finalUnitId, title, subject, description, sanitizedYear],
+        [finalUnitId, title, subject, description, sanitizedYear, curriculumId],
       )
 
       const data = rows[0] ?? null

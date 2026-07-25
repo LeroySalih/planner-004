@@ -4,6 +4,7 @@ import { Suspense } from "react"
 import { performance } from "node:perf_hooks"
 
 import { readSubjectsAction, readUnitsAction } from "@/lib/server-updates"
+import { readCurriculaAction } from "@/lib/server-actions/curricula"
 import { requireTeacherProfile } from "@/lib/auth"
 import { withTelemetry } from "@/lib/telemetry"
 import { UnitSearchControls } from "./unit-search-controls"
@@ -28,7 +29,7 @@ export default async function UnitsPage({
   const subjectFilter = (resolvedSearchParams.subject ?? "").trim() || null
   const includeInactive = (resolvedSearchParams.inactive ?? "").trim() === "1"
 
-  const [unitsResult, subjectsResult] = await withTelemetry(
+  const [unitsResult, subjectsResult, curriculaResult] = await withTelemetry(
     {
       routeTag: "/units",
       functionName: "UnitsPage.loadData",
@@ -46,11 +47,13 @@ export default async function UnitsPage({
           includeInactive,
         }),
         readSubjectsAction({ routeTag: "/units", authEndTime: authEnd, currentProfile: teacherProfile }),
+        readCurriculaAction({ routeTag: "/units", authEndTime: authEnd }),
       ]),
   )
 
   const { data: units, error: unitsError } = unitsResult
   const { data: subjects, error: subjectsError } = subjectsResult
+  const curricula = curriculaResult.data ?? []
 
   if (unitsError) {
     return (
@@ -87,7 +90,7 @@ export default async function UnitsPage({
             <h1 className="text-3xl font-bold text-balance">Units Overview</h1>
           </div>
           <div className="ml-auto">
-            <AddUnitTrigger subjects={subjects ?? []} />
+            <AddUnitTrigger subjects={subjects ?? []} curricula={curricula} />
           </div>
         </div>
 

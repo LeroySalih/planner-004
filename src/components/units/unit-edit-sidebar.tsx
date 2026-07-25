@@ -19,23 +19,37 @@ import {
   triggerUnitUpdateJobAction,
 } from "@/lib/server-updates"
 import { createUnitAction } from "@/lib/server-actions/units"
+import { setUnitCurriculumAction } from "@/lib/server-actions/unit-curriculum"
+
+interface CurriculumOption {
+  curriculum_id: string
+  subject: string | null
+  title: string
+}
 
 interface UnitEditSidebarProps {
   unit: Unit
   subjects: Subjects
+  curricula: CurriculumOption[]
   isOpen: boolean
   onClose: () => void
   onOptimisticUpdate?: (unit: Unit) => void
   onJobQueued?: (jobId: string) => void
+  /** Edit mode only: current curriculum + whether the choice is locked. */
+  initialCurriculumId?: string | null
+  curriculumLocked?: boolean
 }
 
 export function UnitEditSidebar({
   unit,
   subjects,
+  curricula,
   isOpen,
   onClose,
   onOptimisticUpdate,
   onJobQueued,
+  initialCurriculumId = null,
+  curriculumLocked = false,
 }: UnitEditSidebarProps) {
   const isCreateMode = !unit.unit_id
   const [formState, setFormState] = useState({
@@ -44,6 +58,7 @@ export function UnitEditSidebar({
     subject: unit.subject,
     description: unit.description ?? "",
     year: unit.year?.toString() ?? "",
+    curriculumId: initialCurriculumId ?? "",
   })
   const previousUnitRef = useRef<Unit | null>(null)
   const lastUpdateJobIdRef = useRef<string | null>(null)
@@ -90,8 +105,9 @@ export function UnitEditSidebar({
       subject: unit.subject,
       description: unit.description ?? "",
       year: unit.year?.toString() ?? "",
+      curriculumId: initialCurriculumId ?? "",
     })
-  }, [isOpen, unit])
+  }, [isOpen, unit, initialCurriculumId])
 
   useEffect(() => {
     if (!isCreateMode) return
@@ -226,6 +242,7 @@ export function UnitEditSidebar({
             trimmedSubject,
             sanitizedDescription,
             parsedYear,
+            formState.curriculumId || null,
           )
 
           if (result.error || !result.data) {
@@ -259,9 +276,31 @@ export function UnitEditSidebar({
     formData.set("description", formState.description)
     formData.set("year", formState.year)
 
+    const curriculumChanged = !curriculumLocked && formState.curriculumId !== (initialCurriculumId ?? "")
+
     expectUpdateResponseRef.current = true
     startTransition(() => {
-      triggerUpdateUnit(formData)
+      void (async () => {
+        // Persist the curriculum first (direct, lock-checked). If it fails, abort
+        // before queueing the rest of the update.
+        if (curriculumChanged) {
+          const res = await setUnitCurriculumAction({
+            unitId: unit.unit_id,
+            curriculumId: formState.curriculumId || null,
+            expectedSubject: trimmedSubject,
+          })
+          if (!res.success) {
+            expectUpdateResponseRef.current = false
+            toast.error(res.error ?? "Couldn't set the curriculum.")
+            if (previousUnitRef.current) {
+              onOptimisticUpdateRef.current?.(previousUnitRef.current)
+              previousUnitRef.current = null
+            }
+            return
+          }
+        }
+        triggerUpdateUnit(formData)
+      })()
     })
   }
 
@@ -336,8 +375,16 @@ export function UnitEditSidebar({
               <Label htmlFor="unit-subject">Subject</Label>
               <Select
                 value={formState.subject}
-                onValueChange={(value) => setFormState((prev) => ({ ...prev, subject: value }))}
-                disabled={isPending || subjects.length === 0}
+                onValueChange={(value) =>
+                  setFormState((prev) => ({
+                    ...prev,
+                    subject: value,
+                    // Curricula are subject-specific — clear the choice when the
+                    // subject changes (unless the curriculum is locked).
+                    curriculumId: curriculumLocked ? prev.curriculumId : "",
+                  }))
+                }
+                disabled={isPending || curriculumLocked || subjects.length === 0}
               >
                 <SelectTrigger id="unit-subject">
                   <SelectValue placeholder="Choose a subject" />
@@ -350,6 +397,59 @@ export function UnitEditSidebar({
                   ))}
                 </SelectContent>
               </Select>
+              {curriculumLocked ? (
+                <p className="text-xs text-muted-foreground">
+                  Subject is locked because objectives are already assigned to this unit.
+                </p>
+              ) : null}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="unit-curriculum">Curriculum</Label>
+              {(() => {
+                const options = curricula.filter((c) => c.subject === formState.subject)
+                const lockedTitle =
+                  curricula.find((c) => c.curriculum_id === formState.curriculumId)?.title ?? null
+                if (curriculumLocked) {
+                  return (
+                    <>
+                      <Input value={lockedTitle ?? "—"} disabled readOnly />
+                      <p className="text-xs text-muted-foreground">
+                        Curriculum is locked once an objective or success criterion has been assigned. Change it via Admin
+                        → Unit Curricula.
+                      </p>
+                    </>
+                  )
+                }
+                return (
+                  <>
+                    <Select
+                      value={formState.curriculumId}
+                      onValueChange={(value) => setFormState((prev) => ({ ...prev, curriculumId: value }))}
+                      disabled={isPending || options.length === 0}
+                    >
+                      <SelectTrigger id="unit-curriculum">
+                        <SelectValue
+                          placeholder={
+                            options.length ? "Choose a curriculum" : "No curricula for this subject"
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {options.map((c) => (
+                          <SelectItem key={c.curriculum_id} value={c.curriculum_id}>
+                            {c.title}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Only this curriculum&apos;s objectives can be assigned to the unit. It locks once the first is
+                      assigned.
+                    </p>
+                  </>
+                )
+              })()}
             </div>
 
             <div className="space-y-2">

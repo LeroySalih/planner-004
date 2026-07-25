@@ -82,9 +82,12 @@ export async function readUnitCurriculumStateAction(unitId: string): Promise<{
 export async function setUnitCurriculumAction(input: {
   unitId: string
   curriculumId: string | null
+  /** Subject being saved this turn (edit sidebar may change it async); used for
+   * the curriculum↔subject match check instead of the unit's stored subject. */
+  expectedSubject?: string
 }): Promise<{ success: boolean; error: string | null }> {
   await requireRole("teacher")
-  const { unitId, curriculumId } = input
+  const { unitId, curriculumId, expectedSubject } = input
   if (!unitId) return { success: false, error: "Missing unit." }
 
   try {
@@ -112,7 +115,8 @@ export async function setUnitCurriculumAction(input: {
         [curriculumId],
       )
       if (!cRows[0]) return { success: false, error: "Curriculum not found." }
-      if ((cRows[0].subject ?? null) !== (unitRows[0].subject ?? null)) {
+      const subjectToMatch = expectedSubject ?? unitRows[0].subject ?? null
+      if ((cRows[0].subject ?? null) !== subjectToMatch) {
         return { success: false, error: "That curriculum belongs to a different subject." }
       }
     }

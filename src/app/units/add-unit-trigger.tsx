@@ -12,9 +12,10 @@ const UnitEditSidebar = dynamic(() => import("@/components/units/unit-edit-sideb
 
 type AddUnitTriggerProps = {
   subjects: Subjects
+  curricula: { curriculum_id: string; subject: string | null; title: string }[]
 }
 
-export function AddUnitTrigger({ subjects }: AddUnitTriggerProps) {
+export function AddUnitTrigger({ subjects, curricula }: AddUnitTriggerProps) {
   const [isOpen, setIsOpen] = useState(false)
 
   // Fake empty unit to reuse edit sidebar for creation.
@@ -33,6 +34,7 @@ export function AddUnitTrigger({ subjects }: AddUnitTriggerProps) {
       <UnitEditSidebar
         unit={placeholderUnit}
         subjects={subjects}
+        curricula={curricula}
         isOpen={isOpen}
         onClose={() => setIsOpen(false)}
         onOptimisticUpdate={() => {
