@@ -322,6 +322,7 @@ async function getLessonChatContext(lessonId: string): Promise<LessonChatContext
     "- success-criterion: set `description` to the criterion wording, `level` to an integer 1–9, and `learningObjectiveId` to the parent LO's ID from the list below (you may ONLY use an LO ID listed there; never invent one).",
     "- Only propose learning-objective / success-criterion when the teacher asks to develop the curriculum, or when the lesson genuinely lacks a suitable objective/criterion for what they want. Prefer reusing existing ones.",
     "- Align scorable activities to the lesson's success criteria where sensible, using successCriteriaIds — you may ONLY use the SC IDs listed below; never invent IDs. Display types (text, section, video, image, file, webpage) have no success criteria.",
+    "- For mathematical notation in any text/question/option/answer, write LaTeX using \\( … \\) for inline maths and $$ … $$ for display maths (do NOT use bare single $). It is rendered with KaTeX.",
     "- Keep content clear and grade-appropriate; base it on the lesson's objectives and existing activities unless the teacher says otherwise.",
     "- Put a short conversational reply in `message` and the activities in `proposals` (empty array if none this turn).",
     "",
@@ -744,12 +745,19 @@ export async function confirmProposedActivityAction(input: {
     return { success: false, error: "Unsupported activity type.", activity: null }
   }
 
+  // The model may emit maxMarks as 0 or omit it; only forward a valid (>=1)
+  // value, otherwise let the create action apply its default.
+  const safeMaxMarks =
+    linkSuccessCriteria && typeof proposal.maxMarks === "number" && proposal.maxMarks >= 1
+      ? Math.round(proposal.maxMarks)
+      : undefined
+
   const result = await createLessonActivityAction(unitId, lessonId, {
     title: proposal.title,
     type: proposal.type,
     bodyData,
     successCriteriaIds: linkSuccessCriteria ? successCriteriaIds : undefined,
-    maxMarks: linkSuccessCriteria ? proposal.maxMarks : undefined,
+    maxMarks: safeMaxMarks,
   })
 
   return { success: result.success, error: result.error ?? null, activity: result.data ?? null }
