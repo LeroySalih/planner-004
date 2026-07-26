@@ -15,6 +15,7 @@ import {
 } from "@dnd-kit/core"
 
 import { upsertGroupItemsSubmissionAction } from "@/lib/server-updates"
+import { RichInline } from "@/components/lessons/activity-view/rich-inline"
 import { cn } from "@/lib/utils"
 import { triggerFeedbackRefresh } from "@/lib/feedback-events"
 
@@ -59,7 +60,7 @@ function ItemChipContent({ item }: { item: GroupItemsItemOption }) {
         // eslint-disable-next-line @next/next/no-img-element
         <img src={item.imageUrl} alt="" className="h-12 w-12 rounded object-cover" />
       ) : null}
-      <span>{item.text}</span>
+      <span><RichInline text={item.text} /></span>
     </div>
   )
 }
@@ -114,7 +115,7 @@ function DropZone({
         isOver && "border-pa-green bg-pa-green-tint",
       )}
     >
-      <p className="text-xs font-semibold uppercase tracking-wide text-pa-muted-3">{label}</p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-pa-muted-3"><RichInline text={label} /></p>
       <div className="flex flex-wrap gap-2">
         {itemIds.map((itemId) => {
           const item = itemsById.get(itemId)

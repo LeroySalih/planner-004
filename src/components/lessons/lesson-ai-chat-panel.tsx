@@ -79,6 +79,21 @@ interface LessonAiChatPanelProps {
   onActivityCreated: (activity: unknown) => void
 }
 
+// Proposal types that become scorable activities (get success criteria + max
+// marks) — mirrors the linkSuccessCriteria set in confirmProposedActivityAction.
+const SCORABLE_PROPOSAL_TYPES = new Set([
+  "multiple-choice-question",
+  "short-text-question",
+  "upload-file",
+  "upload-url",
+  "voice",
+  "matcher",
+  "group-items",
+  "sequence",
+  "upload-worksheet",
+  "upload-spreadsheet",
+])
+
 function stripStatus(p: CardProposal): ProposedActivity {
   const { _status: _drop, status: _drop2, ...rest } = p
   return rest
@@ -594,6 +609,7 @@ function ProposalCard({
   const isLo = proposal.type === "learning-objective"
   const isSc = proposal.type === "success-criterion"
   const isConversionFailed = proposal.type === "conversion-failed"
+  const isScorable = SCORABLE_PROPOSAL_TYPES.has(proposal.type)
   const hasQuestion = isMcq || isStq
   const TYPE_LABELS: Record<string, string> = {
     "multiple-choice-question": "MCQ",
@@ -1007,6 +1023,20 @@ function ProposalCard({
               {scLabel(id)}
             </span>
           ))}
+        </div>
+      ) : null}
+
+      {isScorable ? (
+        <div className="mt-2 flex items-center gap-2">
+          <label className="text-xs font-medium text-muted-foreground">Max marks</label>
+          <input
+            type="number"
+            min={1}
+            value={proposal.maxMarks && proposal.maxMarks >= 1 ? proposal.maxMarks : 1}
+            disabled={added || discarded}
+            onChange={(e) => onEdit({ maxMarks: Math.max(1, Math.round(Number(e.target.value) || 1)) })}
+            className="w-16 rounded border border-border bg-background px-2 py-0.5 text-sm disabled:opacity-60"
+          />
         </div>
       ) : null}
 

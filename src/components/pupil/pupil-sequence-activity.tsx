@@ -18,6 +18,7 @@ import { upsertSequenceSubmissionAction } from "@/lib/server-updates"
 import { SequenceSubmissionBodySchema } from "@/types"
 import { cn } from "@/lib/utils"
 import { triggerFeedbackRefresh } from "@/lib/feedback-events"
+import { RichInline } from "@/components/lessons/activity-view/rich-inline"
 import { useFeedbackVisibility } from "@/app/pupil-lessons/[pupilId]/lessons/[lessonId]/feedback-visibility-debug"
 
 interface SequenceTermOption {
@@ -68,7 +69,7 @@ function RowContent({
       <span className="grid h-6 w-6 flex-none place-items-center rounded-full bg-pa-field-border/40 font-[family-name:var(--font-pa-num)] text-xs font-bold text-pa-muted-2">
         {index + 1}
       </span>
-      <span className="flex-1">{text}</span>
+      <span className="flex-1"><RichInline text={text} /></span>
       {state === "correct" ? (
         <span aria-hidden className="text-pa-green">
           ✓

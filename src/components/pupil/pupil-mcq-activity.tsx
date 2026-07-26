@@ -17,6 +17,7 @@ import {
 } from "@/lib/server-updates"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { cn } from "@/lib/utils"
+import { getRichTextMarkup } from "@/components/lessons/activity-view/utils"
 import { triggerFeedbackRefresh } from "@/lib/feedback-events"
 
 interface PupilMcqActivityProps {
@@ -239,9 +240,10 @@ export function PupilMcqActivity({
                 >
                   {String.fromCharCode(65 + index)}
                 </span>
-                <span className={cn("text-[15.5px] text-pa-ink", isSelected && "font-semibold")}>
-                  {optionText}
-                </span>
+                <span
+                  className={cn("prose prose-sm max-w-none text-[15.5px] text-pa-ink [&_p]:my-0 [&_p]:inline", isSelected && "font-semibold")}
+                  dangerouslySetInnerHTML={{ __html: getRichTextMarkup(optionText) ?? optionText }}
+                />
               </label>
             )
           })}

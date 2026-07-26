@@ -2,6 +2,7 @@
 
 import { useId, useState, type ReactNode } from "react"
 import { cn } from "@/lib/utils"
+import { getRichTextMarkup } from "@/components/lessons/activity-view/utils"
 import { pupilActivityFontClass } from "./fonts"
 
 export interface PupilActivityShellProps {
@@ -77,9 +78,12 @@ export function PupilActivityShell({
       {/* Header: question leads (left), progress pill on the right */}
       <div className="flex items-start justify-between gap-[18px] px-1.5 pt-0.5 pb-[18px]">
         {question ? (
-          <h1 className="m-0 max-w-[330px] font-[family-name:var(--font-pa-head)] text-[23px] font-semibold leading-[1.24] text-pretty text-pa-ink">
-            {question}
-          </h1>
+          <div
+            role="heading"
+            aria-level={1}
+            className="m-0 max-w-[330px] font-[family-name:var(--font-pa-head)] text-[23px] font-semibold leading-[1.24] text-pretty text-pa-ink [&_p]:m-0"
+            dangerouslySetInnerHTML={{ __html: getRichTextMarkup(question) ?? question }}
+          />
         ) : (
           <span />
         )}

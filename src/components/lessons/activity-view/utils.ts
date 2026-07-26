@@ -9,6 +9,26 @@ import type {
   UploadWorksheetActivityBody,
 } from "@/types";
 import { marked } from "marked";
+import katex from "katex";
+
+// LaTeX maths in authored activity content. We render only UNAMBIGUOUS delimiters
+// — $$…$$ / \[…\] (block) and \(…\) (inline) — and deliberately NOT bare $…$, so
+// literal dollar signs in prose are never mistaken for maths. Math is rendered to
+// HTML via KaTeX before markdown runs (so markdown never mangles subscripts etc.),
+// then swapped back in after.
+const MATH_PATTERNS: Array<{ re: RegExp; display: boolean }> = [
+  { re: /\$\$([\s\S]+?)\$\$/g, display: true },
+  { re: /\\\[([\s\S]+?)\\\]/g, display: true },
+  { re: /\\\(([\s\S]+?)\\\)/g, display: false },
+];
+
+function renderMath(expression: string, displayMode: boolean): string {
+  try {
+    return katex.renderToString(expression, { displayMode, throwOnError: false });
+  } catch {
+    return displayMode ? `$$${expression}$$` : `\\(${expression}\\)`;
+  }
+}
 
 export interface VoiceBody {
   audioFile: string | null;
@@ -641,13 +661,25 @@ export function getRichTextMarkup(value: string): string | null {
       .replace(/\n{3,}/g, "\n\n")
       .trim();
 
+    // Extract maths into placeholders (rendered via KaTeX) before markdown runs.
+    const mathPlaceholders: string[] = [];
+    for (const { re, display } of MATH_PATTERNS) {
+      cleaned = cleaned.replace(re, (_match, expr: string) => {
+        mathPlaceholders.push(renderMath(expr.trim(), display));
+        return `@@MATH_PLACEHOLDER_${mathPlaceholders.length - 1}@@`;
+      });
+    }
+
     // Parse markdown (synchronous by default in newer marked versions,
     // but marked.parse can be async if extensions are used.
     // Usually it returns string if no async options are on).
     // We force it to be treated as string for safety or handle promise if needed.
     // Standard basic usage:
     const parsed = marked.parse(cleaned, { async: false, breaks: true }) as string;
-    return parsed;
+    return parsed.replace(
+      /@@MATH_PLACEHOLDER_(\d+)@@/g,
+      (_m, i: string) => mathPlaceholders[Number(i)] ?? "",
+    );
   } catch (error) {
     console.error("Failed to parse markdown:", error);
     // Fallback to basic escaping if markdown parsing fails

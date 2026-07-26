@@ -7,6 +7,7 @@ import type { LessonActivity, MatcherLayoutEntry } from "@/types"
 import {
   getMatcherBody,
 } from "@/components/lessons/activity-view/utils"
+import { RichInline } from "@/components/lessons/activity-view/rich-inline"
 import { upsertMatcherSubmissionAction } from "@/lib/server-updates"
 import {
   Select,
@@ -150,7 +151,7 @@ export function PupilMatcherActivity({
               className="space-y-2 rounded-pa-box border-[1.5px] border-pa-field-border bg-pa-field p-4"
             >
               <p className="text-sm font-semibold text-pa-ink">
-                {promptText.trim() || "(missing text)"}
+                <RichInline text={promptText.trim() || "(missing text)"} />
               </p>
               <Select
                 value={selected}
@@ -163,7 +164,7 @@ export function PupilMatcherActivity({
                 <SelectContent>
                   {options.map((option) => (
                     <SelectItem key={option.id} value={option.id}>
-                      {option.label.trim() || "(missing text)"}
+                      <RichInline text={option.label.trim() || "(missing text)"} />
                     </SelectItem>
                   ))}
                 </SelectContent>

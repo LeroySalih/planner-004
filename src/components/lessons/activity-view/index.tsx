@@ -35,6 +35,7 @@ import {
   getVoiceBody,
   isAbsoluteUrl,
 } from "@/components/lessons/activity-view/utils"
+import { RichInline } from "@/components/lessons/activity-view/rich-inline"
 import {
   getActivityFileDownloadUrlAction,
   readLessonSubmissionSummariesAction,
@@ -880,7 +881,10 @@ function McqPresentView({
               )}
             >
               <div className="space-y-1">
-                <p className="text-sm font-medium text-foreground">{optionText}</p>
+                <div
+                  className="prose prose-sm max-w-none text-sm font-medium text-foreground [&_p]:my-0"
+                  dangerouslySetInnerHTML={{ __html: getRichTextMarkup(optionText) ?? optionText }}
+                />
                 <p className="text-xs text-muted-foreground">Choice {index + 1}</p>
               </div>
               {revealEnabled && isCorrect ? (
@@ -964,7 +968,7 @@ function MatcherPresentView({
                 Term {index + 1}
               </p>
               <p className="text-sm font-medium text-foreground">
-                {pair.term.trim() || `Term ${index + 1}`}
+                <RichInline text={pair.term.trim() || `Term ${index + 1}`} />
               </p>
             </div>
             <div>
@@ -972,7 +976,7 @@ function MatcherPresentView({
                 Definition
               </p>
               <p className="text-sm text-foreground">
-                {pair.definition.trim() || "No definition provided"}
+                <RichInline text={pair.definition.trim() || "No definition provided"} />
               </p>
             </div>
             {revealEnabled ? (
@@ -1004,7 +1008,7 @@ function GroupItemsPresentView({ activity }: { activity: LessonActivity }) {
         {groupItems.groups.map((group, index) => (
           <div key={group.id} className="space-y-2 rounded-lg border border-border bg-card p-3">
             <p className="text-sm font-semibold text-foreground">
-              {group.name.trim() || `Group ${index + 1}`}
+              <RichInline text={group.name.trim() || `Group ${index + 1}`} />
             </p>
             <ul className="space-y-1">
               {groupItems.items
@@ -1014,7 +1018,7 @@ function GroupItemsPresentView({ activity }: { activity: LessonActivity }) {
                     key={item.id}
                     className="rounded-md border border-border/60 bg-muted/30 p-2 text-sm text-foreground"
                   >
-                    {item.text.trim() || "(missing text)"}
+                    <RichInline text={item.text.trim() || "(missing text)"} />
                   </li>
                 ))}
             </ul>
@@ -1046,7 +1050,7 @@ function SequencePresentView({ activity }: { activity: LessonActivity }) {
             <span className="grid h-6 w-6 flex-none place-items-center rounded-full bg-muted text-xs font-bold">
               {index + 1}
             </span>
-            <span>{term.text.trim() || "(missing text)"}</span>
+            <span><RichInline text={term.text.trim() || "(missing text)"} /></span>
           </li>
         ))}
       </ol>
@@ -1646,7 +1650,10 @@ function ActivityEditView({ activity, resolvedImageUrl }: LessonActivityEditView
                 option.id === mcq.correctOptionId && "font-medium text-primary",
               )}
             >
-              {option.text.trim() || "Untitled option"}
+              <span
+                className="prose prose-sm max-w-none inline [&_p]:my-0 [&_p]:inline"
+                dangerouslySetInnerHTML={{ __html: getRichTextMarkup(option.text) ?? (option.text.trim() || "Untitled option") }}
+              />
               {option.id === mcq.correctOptionId ? (
                 <span className="ml-1 text-xs uppercase tracking-wide text-primary/80">
                   Correct
@@ -1671,10 +1678,10 @@ function ActivityEditView({ activity, resolvedImageUrl }: LessonActivityEditView
           {matcher.pairs.map((pair, index) => (
             <li key={pair.id} className="rounded-md border border-border/60 bg-muted/30 p-2">
               <p className="font-medium text-foreground">
-                {pair.term.trim() || `Term ${index + 1}`}
+                <RichInline text={pair.term.trim() || `Term ${index + 1}`} />
               </p>
               <p className="text-xs text-muted-foreground">
-                {pair.definition.trim() || "No definition provided"}
+                <RichInline text={pair.definition.trim() || "No definition provided"} />
               </p>
             </li>
           ))}
@@ -1695,13 +1702,13 @@ function ActivityEditView({ activity, resolvedImageUrl }: LessonActivityEditView
           {groupItems.groups.map((group, index) => (
             <li key={group.id} className="rounded-md border border-border/60 bg-muted/30 p-2">
               <p className="font-medium text-foreground">
-                {group.name.trim() || `Group ${index + 1}`}
+                <RichInline text={group.name.trim() || `Group ${index + 1}`} />
               </p>
               <ul className="mt-1 space-y-1 pl-3 text-xs text-muted-foreground">
                 {groupItems.items
                   .filter((item) => item.groupId === group.id)
                   .map((item) => (
-                    <li key={item.id}>{item.text.trim() || "(missing text)"}</li>
+                    <li key={item.id}><RichInline text={item.text.trim() || "(missing text)"} /></li>
                   ))}
               </ul>
             </li>
@@ -1722,7 +1729,7 @@ function ActivityEditView({ activity, resolvedImageUrl }: LessonActivityEditView
         <ol className="space-y-1">
           {sequence.terms.map((term, index) => (
             <li key={term.id} className="rounded-md border border-border/60 bg-muted/30 p-2 text-foreground">
-              {index + 1}. {term.text.trim() || "(missing text)"}
+              {index + 1}. <RichInline text={term.text.trim() || "(missing text)"} />
             </li>
           ))}
         </ol>
