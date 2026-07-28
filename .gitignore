@@ -72,3 +72,7 @@ logs
 # Local files that should never be committed
 dt.mr-salih.uk
 dino_schema_*.sql
+
+# Superseded by compose.yml + Dockerfile-dino/Dockerfile-n8n (kept locally, not deployed)
+/Dockerfile
+/docker-compose.yml
