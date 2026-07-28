@@ -108,7 +108,9 @@ services:
       - .env
     environment:
       NODE_ENV: production
-      #DATABASE_URL: ${DATABASE_URL}
+      # Built from the POSTGRES_* vars in .env (compose interpolates ${...} at up
+      # time); DB name is the restored "dino". Host "db" = the postgres service.
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/dino?sslmode=disable
     volumes:
       - ./files:/app/files
     logging:
