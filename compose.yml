@@ -75,7 +75,7 @@ services:
       - N8N_HOST=${N8N_HOST}
       - N8N_PORT=5678
       - N8N_PROTOCOL=https
-      - WEBHOOK_URL=https://${N8N_HOST}/
+      - N8N_WEBHOOK_URL=https://${N8N_HOST}/
       - N8N_EDITOR_BASE_URL=https://${N8N_HOST}
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
       - GENERIC_TIMEZONE=${TIMEZONE}
@@ -84,6 +84,11 @@ services:
       - CLAUDE_API_KEY=${CLAUDE_API_KEY}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      # Pin values whose defaults change in future n8n versions (silences deprecation warnings)
+      - N8N_UNVERIFIED_PACKAGES_ENABLED=true
+      - N8N_RUNNERS_TASK_TIMEOUT=300
+      - N8N_COMPRESSION_NODE_MAX_DECOMPRESSED_SIZE_BYTES=2147483648
+      - N8N_COMPRESSION_NODE_MAX_ZIP_ENTRIES=5000
     volumes:
       - n8n_data:/home/node/.n8n
       - ./downloads:/home/node/downloads
