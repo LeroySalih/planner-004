@@ -57,7 +57,7 @@ services:
       - dino-app
 
   n8n:
-    image: n8nio/n8n:latest
+    image: dino-n8n:latest
     build:
       context: .
       dockerfile: Dockerfile-n8n
