@@ -1,0 +1,129 @@
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TOKEN}
+    networks:
+      - dino-app
+
+  db:
+    image: pgvector/pgvector:pg17
+    container_name: dino_postgres
+    restart: unless-stopped
+    # Key settings pulled from .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      BACKUP_PASSPHRASE: ${BACKUP_PASSPHRASE}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    # Internal network so your Next.js app can reach it by hostname "db"
+    networks:
+      - dino-app
+    # Volumes:
+    # 1) Persistent database data
+    # 2) Host<->container shared backup/restore directory
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./backups:/backups
+      - ./src/migrations:/migrations
+
+    # Optional but handy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    container_name: gotenberg
+    restart: unless-stopped
+    command:
+      - "gotenberg"
+      - "--api-timeout=120s"
+      - "--api-enable-basic-auth"
+      - "--chromium-disable-routes=true"
+    environment:
+      GOTENBERG_API_BASIC_AUTH_USERNAME: ${GOTENBERG_USERNAME}
+      GOTENBERG_API_BASIC_AUTH_PASSWORD: ${GOTENBERG_PASSWORD}
+    # No published ports — reached only via the tunnel on the internal network
+
+    networks:
+      - dino-app
+
+  n8n:
+    image: n8nio/n8n:latest
+    build:
+      context: .
+      dockerfile: Dockerfile-n8n
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=${POSTGRES_N8N_DB}
+      - DB_POSTGRESDB_USER=${POSTGRES_USER}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      - N8N_HOST=${N8N_HOST}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=https
+      - WEBHOOK_URL=https://${N8N_HOST}/
+      - N8N_EDITOR_BASE_URL=https://${N8N_HOST}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - GENERIC_TIMEZONE=${TIMEZONE}
+      - TZ=${TIMEZONE}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - CLAUDE_API_KEY=${CLAUDE_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./downloads:/home/node/downloads
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - dino-app
+
+
+  dino-app:
+    build:
+      context: .
+      dockerfile: Dockerfile-dino
+    container_name: planner-web
+    restart: unless-stopped
+    # Expose port 3000 on the host
+    ports:
+      - "3000:3000"
+    # Load environment variables for production
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      #DATABASE_URL: ${DATABASE_URL}
+    volumes:
+      - ./files:/app/files
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Attach to the shared external network with Postgres
+    networks:
+      - dino-app
+
+networks:
+  dino-app:
+    name: dino-app
+
+volumes:
+  db_data:
+  n8n_data:

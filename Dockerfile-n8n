@@ -1,0 +1,23 @@
+FROM debian:bookworm-slim AS builder
+RUN apt-get update && apt-get install -y curl xz-utils
+# 1. Download Static FFmpeg
+RUN curl -L https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz -o /tmp/ffmpeg.tar.xz && \
+    mkdir -p /tmp/ffmpeg && \
+    tar -xJf /tmp/ffmpeg.tar.xz -C /tmp/ffmpeg --strip-components=1
+# 2. Download yt-dlp
+RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && \
+    chmod a+rx /usr/local/bin/yt-dlp
+# 3. Download a PORTABLE Python 3.11 (Standalone)
+# This version doesn't need an OS installer or libraries
+RUN curl -L https://github.com/indygreg/python-build-standalone/releases/download/20240107/cpython-3.11.7+20240107-x86_64-unknown-linux-musl-install_only.tar.gz -o /tmp/python.tar.gz && \
+    mkdir -p /opt/python && \
+    tar -xzf /tmp/python.tar.gz -C /opt/python --strip-components=1
+# Stage 2: The n8n Final Image
+FROM n8nio/n8n:latest
+USER root
+# Copy the tools from the builder
+COPY --from=builder /usr/local/bin/yt-dlp /usr/local/bin/yt-dlp
+COPY --from=builder /tmp/ffmpeg/ffmpeg /usr/local/bin/ffmpeg
+COPY --from=builder /tmp/ffmpeg/ffprobe /usr/local/bin/ffprobe
+# Copy the Portable Python
+COPY --from=builder /opt/python /opt/python
