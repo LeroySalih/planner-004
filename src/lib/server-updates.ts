@@ -105,6 +105,7 @@ export type { PupilTask, PupilTaskGroup } from "./server-actions/tasks";
 export {
   checkLessonAccessForPupilAction,
   readLessonAssignmentsAction,
+  readLessonAssignmentsForLessonAction,
 } from "./server-actions/lesson-assignments";
 
 export { readLessonAssignmentScoreSummariesAction } from "./server-actions/lesson-assignment-scores";

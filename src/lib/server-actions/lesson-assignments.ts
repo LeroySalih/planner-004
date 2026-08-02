@@ -45,6 +45,54 @@ export async function readLessonAssignmentsAction() {
   }
 }
 
+const LessonAssignmentSummarySchema = z.object({
+  group_id: z.string(),
+  start_date: z.string(),
+});
+
+const LessonAssignmentSummariesReturnValue = z.object({
+  data: z.array(LessonAssignmentSummarySchema).nullable(),
+  error: z.string().nullable(),
+});
+
+/**
+ * Groups a lesson has been assigned to, with the assignment date. Ordered
+ * newest first. Used by the lesson detail page to list assignments; the date
+ * links to /results/assignments/{group_id}__{lesson_id}.
+ */
+export async function readLessonAssignmentsForLessonAction(lessonId: string) {
+  try {
+    const { rows } = await query<{
+      group_id: string;
+      start_date: string | Date | null;
+    }>(
+      `
+        select group_id, start_date
+        from lesson_assignments
+        where lesson_id = $1
+        order by start_date desc nulls last, group_id asc
+      `,
+      [lessonId],
+    );
+    const data = (rows ?? []).map((row) => ({
+      group_id: row.group_id,
+      start_date: normalizeDateOnly(row.start_date) ??
+        (row.start_date instanceof Date
+          ? row.start_date.toISOString().slice(0, 10)
+          : (row.start_date ?? "")),
+    }));
+    return LessonAssignmentSummariesReturnValue.parse({ data, error: null });
+  } catch (error) {
+    const message = error instanceof Error
+      ? error.message
+      : "Unable to load lesson assignments.";
+    return LessonAssignmentSummariesReturnValue.parse({
+      data: null,
+      error: message,
+    });
+  }
+}
+
 export async function checkLessonAccessForPupilAction(
   pupilId: string,
   lessonId: string,
