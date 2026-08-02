@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, useEffect, useMemo, useState, useTransition, type ReactNode } from "react"
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react"
 import type { LessonActivity } from "@/types"
 import { ActivityImagePreview } from "@/components/lessons/activity-image-preview"
 import { Badge } from "@/components/ui/badge"
@@ -40,7 +40,6 @@ import {
   getActivityFileDownloadUrlAction,
   readLessonSubmissionSummariesAction,
   listShortTextSubmissionsAction,
-  markShortTextActivityAction,
   overrideShortTextSubmissionScoreAction,
   readProfileGroupsForCurrentUserAction,
 } from "@/lib/server-updates"
@@ -2283,7 +2282,6 @@ function ShortTextPresentView({
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
-  const [isMarking, startMarkingTransition] = useTransition()
   const [overrideSaving, setOverrideSaving] = useState<string | null>(null)
 
   useEffect(() => {
@@ -2394,39 +2392,6 @@ function ShortTextPresentView({
     const last = row.profile?.lastName?.trim() ?? ""
     const combined = `${first} ${last}`.trim()
     return combined || row.userId
-  }
-
-  const handleMarkWork = () => {
-    if (totalSubmissions === 0) {
-      toast.error("There are no pupil answers to mark yet.")
-      return
-    }
-
-    startMarkingTransition(() => {
-      void (async () => {
-        try {
-          const result = await markShortTextActivityAction({
-            activityId: activity.activity_id,
-            lessonId,
-          })
-
-          if (!result.success) {
-            toast.error("Unable to mark work", {
-              description: result.error ?? "Please try again shortly.",
-            })
-          } else {
-            toast.success("Submission marked.")
-            setRefreshKey((previous) => previous + 1)
-            triggerFeedbackRefresh(lessonId ?? null)
-          }
-        } catch (error) {
-          console.error("[short-text] Failed to mark submissions:", error)
-          toast.error("Unable to mark work", {
-            description: error instanceof Error ? error.message : "Unexpected error occurred.",
-          })
-        }
-      })()
-    })
   }
 
   const handleOverrideChange = (submissionId: string, value: string) => {
@@ -2554,23 +2519,11 @@ function ShortTextPresentView({
         </section>
       ) : (
       <section className="space-y-3 rounded-md border border-border bg-muted/10 p-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h3 className="text-sm font-semibold text-foreground">Pupil responses</h3>
-            <p className="text-xs text-muted-foreground">
-              Marking runs the AI scorer across every saved answer. Overrides take priority.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              onClick={handleMarkWork}
-              disabled={isMarking || totalSubmissions === 0}
-            >
-              {isMarking ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Mark work
-            </Button>
-          </div>
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">Pupil responses</h3>
+          <p className="text-xs text-muted-foreground">
+            Answers are marked automatically by AI when pupils save. Overrides take priority.
+          </p>
         </div>
         <div className="space-y-1">
           <Progress value={progressValue} className="h-2" />

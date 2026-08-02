@@ -7,6 +7,7 @@ import { PublicLessonNav } from "@/components/public/PublicLessonNav"
 import {
   readActiveMarkingGuidancesForSubjectAction,
   readAllLearningObjectivesAction,
+  readLessonAssignmentsForLessonAction,
   readLessonDetailBootstrapAction,
   readLessonReferenceDataAction,
   readPublicLessonActivitiesAction,
@@ -139,6 +140,8 @@ export default async function LessonDetailPage({
     ? await readActiveMarkingGuidancesForSubjectAction(lessonSubject)
     : { data: [], error: null }
 
+  const lessonAssignmentsResult = await readLessonAssignmentsForLessonAction(lesson.lesson_id)
+
   if (referenceResult.error || learningObjectivesResult.error) {
     return (
       <div className="container mx-auto space-y-4 p-6">
@@ -197,6 +200,7 @@ export default async function LessonDetailPage({
       lessonActivities={lessonPayload?.lessonActivities ?? []}
       unitLessons={lessonOptions}
       availableMarkingGuidances={markingGuidancesResult.data ?? []}
+      lessonAssignments={lessonAssignmentsResult.data ?? []}
       viewerUserId={profile.userId}
       showExperimentalActivities={profile.showExperimentalActivities}
     />

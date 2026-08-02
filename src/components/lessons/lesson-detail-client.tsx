@@ -46,6 +46,15 @@ interface LessonPickerOption {
   title: string
 }
 
+// Formats a date-only "YYYY-MM-DD" string as DD-MM-YYYY (project convention)
+// without constructing a Date, which would shift the day across timezones.
+function formatAssignmentDate(dateOnly: string): string {
+  const parts = dateOnly.split("-")
+  if (parts.length !== 3) return dateOnly || "—"
+  const [year, month, day] = parts
+  return `${day}-${month}-${year}`
+}
+
 interface LessonDetailClientProps {
   lesson: LessonWithObjectives
   unit: Unit | null
@@ -63,6 +72,7 @@ interface LessonDetailClientProps {
   lessonActivities: LessonActivity[]
   unitLessons: LessonPickerOption[]
   availableMarkingGuidances: MarkingGuidance[]
+  lessonAssignments: { group_id: string; start_date: string }[]
   viewerUserId: string
   showExperimentalActivities: boolean
 }
@@ -77,6 +87,7 @@ export function LessonDetailClient({
   lessonActivities,
   unitLessons,
   availableMarkingGuidances,
+  lessonAssignments,
   viewerUserId,
   showExperimentalActivities,
 }: LessonDetailClientProps) {
@@ -451,6 +462,53 @@ export function LessonDetailClient({
             </div>
           </div>
         </header>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-xl font-semibold">
+              <List className="h-5 w-5 text-primary" />
+              Assignments
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {lessonAssignments.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                This lesson has not been assigned to any class groups yet.
+              </p>
+            ) : (
+              <div className="overflow-hidden rounded-md border border-border">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                    <tr>
+                      <th className="px-4 py-2 font-medium">Class group</th>
+                      <th className="px-4 py-2 font-medium">Date assigned</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lessonAssignments.map((assignment) => (
+                      <tr
+                        key={`${assignment.group_id}-${assignment.start_date}`}
+                        className="border-t border-border"
+                      >
+                        <td className="px-4 py-2">{assignment.group_id}</td>
+                        <td className="px-4 py-2">
+                          <Link
+                            href={`/results/assignments/${encodeURIComponent(
+                              `${assignment.group_id}__${currentLesson.lesson_id}`,
+                            )}`}
+                            className="text-primary underline-offset-4 hover:underline"
+                          >
+                            {formatAssignmentDate(assignment.start_date)}
+                          </Link>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
