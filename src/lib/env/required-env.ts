@@ -35,9 +35,8 @@ export const REQUIRED_ENV: readonly string[] = [
   "N8N_OCR_WEBHOOK_URL",
   "N8N_OCR_AUTH",
 
-  // OCR / scoring
+  // OCR
   "IMAGE_OCR_SERVICE_KEY", // src/app/webhooks/image-to-text/route.ts
-  "OPEN_AI_KEY", // src/lib/ai/short-text-scoring.ts
 
   // PDF rendering (Gotenberg)
   "GOTENBERG_URL",
