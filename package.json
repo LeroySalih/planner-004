@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "check:env": "npx tsx scripts/check-env.ts",
     "test": "npx playwright test",
     "record-test": "sh -c 'npx playwright codegen http://localhost:3000 --output tests/$1/$2.spec.ts' --",
     "db:prod2dev": "bash ./bin/prod2dev.sh",
