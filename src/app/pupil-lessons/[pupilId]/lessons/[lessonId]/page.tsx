@@ -1055,7 +1055,7 @@ export default async function PupilLessonFriendlyPage({
 
         <div className="mx-auto w-full max-w-3xl px-6 pb-40 pt-16">
           {activities.length > 0 ? (
-            <PupilPhotoAnswersTrigger lessonId={lessonId} />
+            <PupilPhotoAnswersTrigger lessonId={lessonId} assignmentId={assignmentIds[0]} />
           ) : null}
           {activities.length === 0 ? (
             <p className="text-center text-muted-foreground">
