@@ -51,9 +51,7 @@ export const REQUIRED_ENV: readonly string[] = [
  */
 export const REQUIRED_ONE_OF: readonly (readonly string[])[] = [
   ["GOOGLE_API_KEY", "GEMINI_API_KEY"], // Gemini/Google AI key (lesson+unit chat, OCR, sketch)
-  ["MARK_SERVICE_KEY", "AI_MARK_SERVICE_KEY"], // ai-mark webhook service key
-  ["AI_MARK_URL", "NEXT_PUBLIC_AI_MARK_URL"], // ai-mark endpoint
-  ["AI_MARK_WEBHOOK_URL", "NEXT_PUBLIC_AI_MARK_WEBHOOK_URL"], // ai-mark webhook
+  ["MARK_SERVICE_KEY", "AI_MARK_SERVICE_KEY"], // ai-mark webhook callback service key
 ] as const
 
 /**
