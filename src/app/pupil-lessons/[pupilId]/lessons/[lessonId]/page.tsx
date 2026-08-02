@@ -88,6 +88,7 @@ import {
   type ScrollObjectiveCriterion,
 } from "@/components/lessons/lesson-scroll-layout"
 import { LiveActivityShell } from "./live-activity-shell"
+import { PupilPhotoAnswersTrigger } from "@/components/pupil/pupil-photo-answers-trigger"
 import { ActivitySidebar } from "@/components/lessons/activity-sidebar"
 
 type McqOption = { id: string; text: string }
@@ -1053,6 +1054,9 @@ export default async function PupilLessonFriendlyPage({
         />
 
         <div className="mx-auto w-full max-w-3xl px-6 pb-40 pt-16">
+          {activities.length > 0 ? (
+            <PupilPhotoAnswersTrigger lessonId={lessonId} />
+          ) : null}
           {activities.length === 0 ? (
             <p className="text-center text-muted-foreground">
               There aren&apos;t any activities attached yet.
