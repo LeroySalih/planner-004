@@ -4,17 +4,10 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
 import {
-  LessonActivitySchema,
-  ShortTextActivityBodySchema,
   ShortTextSubmissionBodySchema,
   SubmissionSchema,
   type Submission,
-  type LessonActivity,
 } from "@/types"
-import {
-  scoreShortTextAnswers,
-  type ShortTextEvaluationResult,
-} from "@/lib/ai/short-text-scoring"
 import { fetchActivitySuccessCriteriaIds, normaliseSuccessCriteriaScores } from "@/lib/scoring/success-criteria"
 import { getActivityLessonId, logActivitySubmissionEvent } from "@/lib/activity-logging"
 import { emitSubmissionEvent } from "@/lib/sse/topics"
@@ -38,11 +31,6 @@ const ShortTextSubmissionsQuerySchema = z.object({
   user_id: z.string(),
   submitted_at: z.union([z.string(), z.date()]).nullable(),
   body: z.unknown().nullable(),
-})
-
-const MarkShortTextInputSchema = z.object({
-  activityId: z.string().min(1),
-  lessonId: z.string().optional(),
 })
 
 const ManualAiMarkingInputSchema = z.object({
@@ -243,45 +231,6 @@ export async function listShortTextSubmissionsAction(activityId: string) {
   }
 }
 
-export async function markShortTextActivityAction(input: z.infer<typeof MarkShortTextInputSchema>) {
-  const payload = MarkShortTextInputSchema.parse(input)
-
-  try {
-    const { rows } = await query(
-      `
-        select *
-        from activities
-        where activity_id = $1
-        limit 1
-      `,
-      [payload.activityId],
-    )
-    const activity = rows[0] ?? null
-
-    if (!activity) {
-      return { success: false, error: "Activity not found." }
-    }
-
-    const parsedActivity = LessonActivitySchema.safeParse(activity)
-    if (!parsedActivity.success) {
-      return { success: false, error: "Invalid activity data." }
-    }
-
-    const { data, error } = await markShortTextActivityHelper(parsedActivity.data)
-
-    if (error) {
-      return { success: false, error, data: null as Submission | null }
-    }
-
-    deferRevalidate(`/lessons/${payload.lessonId ?? ""}`)
-    return { success: true, error: null, data }
-  } catch (error) {
-    console.error("[short-text] Failed to mark short text activity:", error)
-    const message = error instanceof Error ? error.message : "Unable to mark activity."
-    return { success: false, error: message, data: null as Submission | null }
-  }
-}
-
 export async function overrideShortTextSubmissionScoreAction(
   input: z.infer<typeof OverrideShortTextScoreSchema>,
 ) {
@@ -421,115 +370,6 @@ export async function toggleSubmissionFlagAction(input: z.infer<typeof ToggleSub
   }
 }
 
-async function markShortTextActivityHelper(activity: LessonActivity) {
-  const parsedActivityBody = ShortTextActivityBodySchema.safeParse(activity.body_data)
-
-  if (!parsedActivityBody.success) {
-    return {
-      success: false as const,
-      error: "Invalid activity body.",
-      data: null as Submission | null,
-    }
-  }
-
-  const successCriteriaIds = await fetchActivitySuccessCriteriaIds(activity.activity_id)
-
-  let submission: Submission | null = null
-  try {
-    const { rows } = await query(
-      `
-        select submission_id, activity_id, user_id, submitted_at, body
-        from submissions
-        where activity_id = $1
-        order by attempt_number desc
-        limit 1
-      `,
-      [activity.activity_id],
-    )
-    const row = rows[0] ?? null
-    submission =
-      row && typeof row.submission_id === "string"
-        ? (row as Submission)
-        : null
-  } catch (error) {
-    console.error("[short-text] Failed to load submission for scoring:", error)
-    return { success: false as const, error: "Unable to load submission.", data: null }
-  }
-
-  if (!submission) {
-    return {
-      success: false as const,
-      error: "No submission to score.",
-      data: null,
-    }
-  }
-
-  const parsedSubmission = ShortTextSubmissionBodySchema.safeParse(submission.body)
-  if (!parsedSubmission.success) {
-    return {
-      success: false as const,
-      error: "Invalid submission payload.",
-      data: null,
-    }
-  }
-
-  let scored: ShortTextEvaluationResult[] = []
-  try {
-    scored = await scoreShortTextAnswers(
-      parsedActivityBody.data.question,
-      parsedActivityBody.data.modelAnswer,
-      [
-        {
-          submissionId: submission.submission_id,
-          answer: parsedSubmission.data.answer,
-        },
-      ],
-      activity.max_marks,
-    )
-  } catch (error) {
-    console.error("[short-text] Failed to score short text answers:", error)
-    return { success: false as const, error: "Unable to score submission.", data: null }
-  }
-
-  const scoredResult = scored[0]
-  const maxMarks = activity.max_marks
-  const normalizedScores = normaliseSuccessCriteriaScores({
-    successCriteriaIds,
-    existingScores: parsedSubmission.data.success_criteria_scores,
-    fillValue: maxMarks > 0 ? (scoredResult.marks ?? 0) / maxMarks : null,
-  })
-
-  const updatedBody = ShortTextSubmissionBodySchema.parse({
-    ...parsedSubmission.data,
-    ai_marks: scoredResult.marks,
-    ai_model_feedback: null,
-    is_correct: maxMarks > 0 && (scoredResult.marks ?? 0) / maxMarks >= SHORT_TEXT_CORRECTNESS_THRESHOLD,
-    success_criteria_scores: normalizedScores,
-  })
-
-  try {
-    const { rows } = await query(
-      `
-        update submissions
-        set body = $1
-        where submission_id = $2
-        returning *
-      `,
-      [updatedBody, submission.submission_id],
-    )
-
-    const savedRow = rows[0] ?? null
-
-    return {
-      success: true as const,
-      error: null,
-      data: savedRow ? SubmissionSchema.parse(savedRow) : null,
-    }
-  } catch (error) {
-    console.error("[short-text] Failed to persist scored submission:", error)
-    return { success: false as const, error: "Unable to save scored submission.", data: null }
-  }
-}
 const deferRevalidate = (path: string) => {
   if (path.includes("/lessons/")) {
     return
