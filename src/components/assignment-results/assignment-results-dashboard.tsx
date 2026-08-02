@@ -907,10 +907,9 @@ export function AssignmentResultsDashboard({
       return
     }
 
-    // Reuses the same generic, activity-type-agnostic marking-queue pipeline
-    // as handleColumnAiMark's "Mark All" button, rather than the legacy
-    // AI_MARK_URL action (which only supports question/model-answer payloads
-    // and can't represent a file-upload submission).
+    // Uses the generic, activity-type-agnostic marking-queue pipeline
+    // (queue -> n8n) shared with handleColumnAiMark's "Mark All" button, so it
+    // handles every submission type including file uploads.
     const submissionsToMark = groupedRows
       .map((row) => row.cells[activityIndex]?.submissionId)
       .filter((submissionId): submissionId is string => Boolean(submissionId))

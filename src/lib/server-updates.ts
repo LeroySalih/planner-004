@@ -97,7 +97,6 @@ export {
   updateActivityMarkingGuidanceAction,
   updateAssignmentFeedbackVisibilityAction,
 } from "./server-actions/assignment-results";
-export { requestAiMarkAction } from "./server-actions/ai-mark";
 export { requestResubmissionAction } from "./server-actions/resubmit";
 export { readPupilTasksAction } from "./server-actions/tasks";
 export type { PupilTask, PupilTaskGroup } from "./server-actions/tasks";
@@ -221,7 +220,6 @@ export { readSubmissionAttemptsAction } from "./server-actions/submission-attemp
 
 export {
   listShortTextSubmissionsAction,
-  markShortTextActivityAction,
   overrideShortTextSubmissionScoreAction,
   saveShortTextAnswerAction,
   toggleSubmissionFlagAction,
