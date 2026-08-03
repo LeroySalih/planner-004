@@ -913,7 +913,17 @@ export default async function PupilLessonFriendlyPage({
         ),
       )
     : []
-  const assignmentIds = assignments.map((assignment) => assignment.assignmentId)
+  const realAssignmentIds = assignments.map((assignment) => assignment.assignmentId)
+  // Teacher preview self-test: when a teacher previews a lesson that isn't
+  // assigned to them, give the page a synthetic assignment id so their own
+  // answers still enqueue for AI marking (queue -> n8n). Marking is applied to
+  // the teacher's submission by (activity_id, user_id); the synthetic id only
+  // shapes the queue payload and the realtime channel, so LiveActivityShell
+  // (which shows feedback to teachers as soon as it's marked) surfaces it live.
+  const isTeacherPreview = isTeacher && realAssignmentIds.length === 0
+  const assignmentIds = isTeacherPreview
+    ? [`preview__${lesson.lesson_id}`]
+    : realAssignmentIds
   const initialFeedbackVisible = assignments.some((assignment) => assignment.feedbackVisible)
 
   const activityScoreMap = new Map<string, number | null | undefined>()
