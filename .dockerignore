@@ -4,3 +4,15 @@ node_modules
 .worktrees
 *.log
 .env*
+
+# Runtime data — bind-mounted at run time, must never be baked into the image
+files/
+backups/
+downloads/
+logs/
+
+# Backup / dump artifacts that can sit in the project dir
+*.tar.gz
+*.dump
+*.dump.gz
+*.dump.gz.gpg
