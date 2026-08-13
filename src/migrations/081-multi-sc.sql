@@ -1,4 +1,4 @@
--- 072-multi-sc.sql
+-- 081-multi-sc.sql
 -- Per-success-criterion marking.
 --
 -- Every SC becomes binary (0-1) or levelled (0-n ascending descriptors).

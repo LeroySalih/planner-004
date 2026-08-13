@@ -216,7 +216,7 @@ criterion, worth 1 mark under the derived model.
 
 **Answer: convert those criteria to levelled(3) first**, with placeholder
 descriptors, so the 3-mark ceiling is preserved. Teachers rewrite the
-descriptors in the curriculum builder. Implemented in migration `073`.
+descriptors in the curriculum builder. Implemented in migration `082`.
 
 ### Q13 — Those criteria are shared; converting them inflates 132 MCQs to 3 marks
 66 criteria are involved but they touch 480 activities, not 286.

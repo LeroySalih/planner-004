@@ -1,6 +1,6 @@
--- 073-multi-sc-backfill.sql
+-- 082-multi-sc-backfill.sql
 --
--- Data backfill for per-criterion marking. Requires 072-multi-sc.sql.
+-- Data backfill for per-criterion marking. Requires 081-multi-sc.sql.
 --
 -- Two steps, both idempotent:
 --

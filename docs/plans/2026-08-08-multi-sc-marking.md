@@ -23,7 +23,7 @@ database `postgres-multi-sc`.
 
 ## STATUS: Tasks 1–11 implemented (2026-08-11)
 
-Build and typecheck clean. Migrations `072` and `073` applied to the worktree DB.
+Build and typecheck clean. Migrations `081` and `082` applied to the worktree DB.
 
 **Corrections made during implementation** (the plan as written was wrong on
 these; the decisions doc records the reasoning):
@@ -35,7 +35,7 @@ these; the decisions doc records the reasoning):
 - **Task 3** backfill was destructive as specified — it would have dropped 286
   STQs from 3 marks to 1. Resolved by Q12/Q13: convert those criteria to
   levelled(3), cap deterministic types at 1 mark, exclude non-scorable types.
-  Both steps live in migration `073`, not a script, so they apply to production.
+  Both steps live in migration `082`, not a script, so they apply to production.
 - **Task 5** listed three queue bugs. There was a fourth and worse one: the
   claim was an `UPDATE submissions ... FROM (picked jobs)`, and Postgres updates
   a target row at most once per statement, so N criterion jobs on one submission
@@ -55,7 +55,7 @@ these; the decisions doc records the reasoning):
 
 **Apply migrations with:**
 ```bash
-docker exec -i postgres17 psql -U leroy -d postgres-multi-sc < src/migrations/072-multi-sc.sql
+docker exec -i postgres17 psql -U leroy -d postgres-multi-sc < src/migrations/081-multi-sc.sql
 ```
 (`psql` is not installed on the host; the `postgres` role does not exist in the
 container — use `-U leroy`.)
@@ -87,7 +87,7 @@ callback arrived.
 ### Task 1: DB Migration — schema and legacy backfill
 
 **Files:**
-- Create: `src/migrations/072-multi-sc.sql`
+- Create: `src/migrations/081-multi-sc.sql`
 
 **Step 1: Write the migration**
 
@@ -163,7 +163,7 @@ referencing SCs deleted since the submission was marked.
 **Step 3: Apply and verify**
 
 ```bash
-docker exec -i postgres17 psql -U leroy -d postgres-multi-sc < src/migrations/072-multi-sc.sql
+docker exec -i postgres17 psql -U leroy -d postgres-multi-sc < src/migrations/081-multi-sc.sql
 docker exec -i postgres17 psql -U leroy -d postgres-multi-sc -c \
   "select provenance, count(*) from submission_sc_marks group by 1;"
 ```
