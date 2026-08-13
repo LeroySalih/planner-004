@@ -12,6 +12,12 @@ export interface WorksheetMarkingParams {
   group_assignment_id?: string
   max_marks: number
   marking_guidance: string
+  // Set when this call assesses a single success criterion; max_marks is then
+  // that criterion's ceiling. See CriterionMarkingParams in ai-marking-client.
+  success_criteria_id?: string
+  sc_type?: "binary" | "levelled"
+  sc_description?: string
+  descriptors?: string[]
   /** The teacher's original (blank) worksheet images. */
   worksheet_images: WorksheetMarkingImage[]
   /** The teacher's answer-sheet / model-answer images. */

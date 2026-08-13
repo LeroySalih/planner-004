@@ -44,6 +44,7 @@ import {
   updateCurriculumLearningObjectiveAction,
   updateCurriculumSuccessCriterionAction,
 } from "@/lib/server-updates"
+import { CriterionTypeEditor, type ScType } from "./_components/criterion-type-editor"
 import { parseLoScMarkdown, type ParseLoScResult } from "@/lib/parse-lo-sc-markdown"
 import { useToast } from "@/components/ui/use-toast"
 import { createExportBasename } from "@/lib/export-utils"
@@ -65,6 +66,8 @@ type SuccessCriterion = {
   units: string[]
   active: boolean
   orderIndex: number
+  scType: ScType
+  descriptors: string[]
 }
 
 type LessonObjective = {
@@ -144,6 +147,8 @@ function mapCurriculumToAssessmentObjectives(curriculum: CurriculumDetail): Asse
                 units: criterion.units ?? [],
                 active: criterion.active ?? true,
                 orderIndex: criterion.order_index ?? criterionIndex,
+                scType: criterion.sc_type === "levelled" ? "levelled" : "binary",
+                descriptors: criterion.descriptors ?? [],
               })),
           })),
       }
@@ -769,6 +774,40 @@ export default function CurriculumPrototypeClient({
       await refreshCurriculum({ aoId: targetAo.id, loId: targetLo.id, scId: scResult.data.success_criteria_id })
       showToast("success", "Success criterion added.")
     })
+  }
+
+  /**
+   * Apply a criterion's new type/descriptors to local state after the editor
+   * has persisted them. The editor owns the server round-trip; this keeps the
+   * builder's tree in step without a refetch.
+   */
+  const updateCriterionTyping = (
+    aoIndex: number,
+    loIndex: number,
+    criterionId: string,
+    next: { scType: ScType; descriptors: string[] },
+  ) => {
+    setAssessmentObjectives((prev) =>
+      prev.map((ao, currentAoIndex) =>
+        currentAoIndex !== aoIndex
+          ? ao
+          : {
+              ...ao,
+              lessonObjectives: ao.lessonObjectives.map((lo, currentLoIndex) =>
+                currentLoIndex !== loIndex
+                  ? lo
+                  : {
+                      ...lo,
+                      successCriteria: lo.successCriteria.map((sc) =>
+                        sc.id === criterionId
+                          ? { ...sc, scType: next.scType, descriptors: next.descriptors }
+                          : sc,
+                      ),
+                    },
+              ),
+            },
+      ),
+    )
   }
 
   const startEditingCriterion = (aoIndex: number, loIndex: number, criterion: SuccessCriterion) => {
@@ -1732,6 +1771,17 @@ export default function CurriculumPrototypeClient({
                                   )}
                                 </div>
                               </div>
+
+                              <CriterionTypeEditor
+                                criterionId={sc.id}
+                                curriculumId={curriculumId}
+                                scType={sc.scType}
+                                descriptors={sc.descriptors}
+                                onToast={showToast}
+                                onChange={(next) =>
+                                  updateCriterionTyping(aoIndex, loIndex, sc.id, next)
+                                }
+                              />
                             </div>
                           )
                         })}

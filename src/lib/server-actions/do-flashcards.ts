@@ -2,6 +2,7 @@
 
 import { query } from "@/lib/db"
 import { withTelemetry } from "@/lib/telemetry"
+import { propagateDeterministicScMarks } from "@/lib/scoring/aggregate-sc-marks"
 
 export async function upsertDoFlashcardsSubmissionAction(input: {
   doActivityId: string
@@ -42,7 +43,9 @@ export async function upsertDoFlashcardsSubmissionAction(input: {
             `,
             [doActivityId, pupilId, body],
           )
-          return { data: { submissionId: result.rows[0].submission_id }, error: null }
+          const newId = result.rows[0].submission_id
+          await propagateDeterministicScMarks(newId, doActivityId, score)
+          return { data: { submissionId: newId }, error: null }
         } else {
           // Subsequent attempts: UPDATE existing row
           await query(
@@ -53,6 +56,10 @@ export async function upsertDoFlashcardsSubmissionAction(input: {
             `,
             [body, submissionId],
           )
+          // Q6b: mirror the session score onto each linked criterion so
+          // coverage reporting sees it. Flashcards are fractional, not
+          // right/wrong, so the score is propagated proportionally.
+          await propagateDeterministicScMarks(submissionId, doActivityId, score)
           return { data: { submissionId }, error: null }
         }
       } catch (error) {

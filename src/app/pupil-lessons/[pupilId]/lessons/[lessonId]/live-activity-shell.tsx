@@ -3,6 +3,7 @@
 import { useMemo, type ReactNode } from "react"
 import { renderFeedbackMarkup } from "@/lib/markdown-latex"
 import { PupilActivityShell } from "@/components/pupil-activity/pupil-activity-shell"
+import { CriterionBreakdown } from "@/components/lessons/criterion-breakdown"
 import { useFeedbackVisibility } from "./feedback-visibility-debug"
 
 export interface LiveActivityShellProps {
@@ -92,6 +93,11 @@ export function LiveActivityShell({
       ) : (
         <p className="text-pa-muted-2">No written feedback yet.</p>
       )}
+      {/* Per-criterion breakdown (Q11). Renders nothing when the activity has
+          no criteria, so it is safe to include unconditionally here. */}
+      <div className="mt-3">
+        <CriterionBreakdown activityId={activityId} />
+      </div>
       {modelAnswerMarkup ? (
         <div className="mt-3 border-t border-pa-green-border pt-3">
           <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.06em] text-pa-muted-2">

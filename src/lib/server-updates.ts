@@ -242,6 +242,7 @@ export { fetchLessonLinkMetadataAction } from "./server-actions/link-metadata";
 export {
   batchCreateLosAndScsAction,
   checkSuccessCriteriaUsageAction,
+  countActivitiesUsingCriterionAction,
   createCurriculumAction,
   moveLearningObjectiveAction,
   readCurriculaWithAOsAction,
@@ -258,11 +259,13 @@ export {
   reorderCurriculumAssessmentObjectivesAction,
   reorderCurriculumLearningObjectivesAction,
   reorderCurriculumSuccessCriteriaAction,
+  setSuccessCriterionDescriptorsAction,
   unassignSuccessCriteriaFromActivitiesAction,
   updateCurriculumAction,
   updateCurriculumAssessmentObjectiveAction,
   updateCurriculumLearningObjectiveAction,
   updateCurriculumSuccessCriterionAction,
+  updateSuccessCriterionTypeAction,
 } from "./server-actions/curricula";
 
 export {

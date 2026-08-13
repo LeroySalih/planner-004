@@ -2,6 +2,7 @@ import { query, withDbClient } from '@/lib/db'
 import { SCORABLE_ACTIVITY_TYPES, NON_SCORABLE_ACTIVITY_TYPES } from '@/dino.config'
 import { assertLessonUnitIsInactive } from '@/lib/mcp/guards'
 import { assertScAllowedForActivity } from '@/lib/curriculum/unit-curriculum-guard'
+import { recalculateActivityMaxMarks } from '@/lib/scoring/derive-max-marks'
 import { createLocalStorageClient } from '@/lib/storage/local-storage'
 
 export const ACTIVITY_TYPES = [...SCORABLE_ACTIVITY_TYPES, ...NON_SCORABLE_ACTIVITY_TYPES] as const
@@ -322,6 +323,8 @@ export async function addSuccessCriterionToActivity(
       [activityId, successCriteriaId],
     )
 
+    await recalculateActivityMaxMarks(client, activityId)
+
     result = {
       activity_id: activityId,
       success_criteria_id: successCriteriaId,
@@ -370,6 +373,10 @@ export async function removeSuccessCriterionFromActivity(
       [activityId, successCriteriaId],
     )
     removed = (rowCount ?? 0) > 0
+
+    if (removed) {
+      await recalculateActivityMaxMarks(client, activityId)
+    }
   })
   return { activity_id: activityId, success_criteria_id: successCriteriaId, removed }
 }
