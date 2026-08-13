@@ -17,6 +17,24 @@ export const SCORABLE_ACTIVITY_TYPES = Object.freeze([
   "sequence",
 ]);
 
+// Activity types scored deterministically in-app from a single right/wrong
+// outcome — no model call is involved. Their max_marks is capped at 1 however
+// many success criteria they carry: a right/wrong activity is worth one mark.
+// The criteria still receive per-SC marks (the activity's own result is
+// propagated to each) so curriculum coverage reporting works, but attaching
+// more criteria must not inflate the activity's weight in an aggregate.
+export const DETERMINISTIC_ACTIVITY_TYPES = Object.freeze([
+  "multiple-choice-question",
+  "matcher",
+  "sequence",
+  "group-items",
+  "do-flashcards",
+]);
+
+export function isDeterministicActivityType(type: string | null | undefined): boolean {
+  return typeof type === "string" && DETERMINISTIC_ACTIVITY_TYPES.includes(type);
+}
+
 export const NON_SCORABLE_ACTIVITY_TYPES = Object.freeze([
   "text",
   "display-image",

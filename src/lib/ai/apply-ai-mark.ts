@@ -10,9 +10,10 @@ import {
 } from "@/types";
 import {
   clampScore,
-  fetchActivitySuccessCriteriaIds,
-  normaliseSuccessCriteriaScores,
+  fetchCriterionForMarking,
+  fetchSubmissionScMarks,
 } from "@/lib/scoring/success-criteria";
+import { recordCriterionMark } from "@/lib/scoring/aggregate-sc-marks";
 import {
   type AssignmentResultsRealtimePayload,
   publishAssignmentResultsEvents,
@@ -61,6 +62,9 @@ const ResultEntrySchema = z
     score: z.number().min(0).optional(),
     max_marks: z.number().min(0).optional(),
     feedback: z.string().optional().nullable(),
+    // Present when the call assessed a single criterion. Its absence means the
+    // legacy whole-activity path (activities with no criteria attached).
+    success_criteria_id: z.string().optional().nullable(),
   })
   .refine((value) => value.pupilid || value.pupilId || value.pupil_id, {
     message: "pupil identifier is required",
@@ -155,7 +159,6 @@ export async function applyAiMarkPayload(json: unknown): Promise<ApplyAiMarkResu
     };
   }
 
-  const successCriteriaIds = await fetchActivitySuccessCriteriaIds(parsed.data.activity_id);
   const pupilIds = parsed.data.results
     .map((entry) => resolveResultPupilId(entry))
     .filter((value): value is string => typeof value === "string" && value.length > 0);
@@ -187,6 +190,38 @@ export async function applyAiMarkPayload(json: unknown): Promise<ApplyAiMarkResu
     const existingSubmission = submissionsByPupil.get(resultPupilId) ?? null;
 
     try {
+      // Per-criterion result: record it and let the gather decide whether the
+      // submission is now complete. Never touches the whole-activity path.
+      const resultCriterionId = result.success_criteria_id?.trim() || null;
+      if (resultCriterionId) {
+        if (!existingSubmission) {
+          await logQueueEvent("warn", "Per-criterion result with no submission", {
+            pupilId: resultPupilId,
+            successCriteriaId: resultCriterionId,
+          });
+          summary.skipped += 1;
+          continue;
+        }
+
+        const applied = await applyCriterionResult({
+          submission: existingSubmission,
+          activityId: parsed.data.activity_id,
+          pupilId: resultPupilId,
+          successCriteriaId: resultCriterionId,
+          result,
+        });
+
+        if (applied.recorded) {
+          summary.updated += 1;
+          if (applied.payload) realtimeEvents.push(applied.payload);
+        } else {
+          summary.skipped += 1;
+        }
+
+        await resolveQueueItem(existingSubmission.submission_id, resultCriterionId);
+        continue;
+      }
+
       if (existingSubmission) {
         const updated = await applyAiMarkToSubmission({
           submission: existingSubmission,
@@ -194,7 +229,6 @@ export async function applyAiMarkPayload(json: unknown): Promise<ApplyAiMarkResu
           activityId: parsed.data.activity_id,
           activityType: activityRow.type,
           maxMarks: activityRow.max_marks ?? 1,
-          successCriteriaIds,
           answerFallback: answersByPupil.get(resultPupilId) ?? null,
           pupilId: resultPupilId,
         });
@@ -218,7 +252,6 @@ export async function applyAiMarkPayload(json: unknown): Promise<ApplyAiMarkResu
           pupilId: resultPupilId,
           result,
           maxMarks: activityRow.max_marks ?? 1,
-          successCriteriaIds,
           answer: answersByPupil.get(resultPupilId) ?? null,
         });
         if (created?.created) {
@@ -309,13 +342,115 @@ function resolveAiMarks(
   return 0;
 }
 
+/**
+ * Apply a single criterion's result.
+ *
+ * The model was told this criterion's ceiling as `max_marks`, so the reply is
+ * converted back to whole marks in the range 0..available. A levelled criterion
+ * with 3 descriptors yields 0, 1, 2 or 3 — never a fraction.
+ */
+async function applyCriterionResult({
+  submission,
+  activityId,
+  pupilId,
+  successCriteriaId,
+  result,
+}: {
+  submission: Record<string, unknown>;
+  activityId: string;
+  pupilId: string;
+  successCriteriaId: string;
+  result: ResultEntry;
+}): Promise<{ recorded: boolean; payload: AssignmentResultsRealtimePayload | null }> {
+  const criterion = await fetchCriterionForMarking(successCriteriaId);
+  if (!criterion) {
+    await logQueueEvent("error", "Per-criterion result names an unknown criterion", {
+      successCriteriaId,
+    });
+    return { recorded: false, payload: null };
+  }
+
+  const available = criterion.available;
+
+  // marks_awarded is already in criterion marks; score is a 0-1 fraction of the
+  // criterion. Either way, land on a whole number of marks within range.
+  const rawAwarded = typeof result.marks_awarded === "number"
+    ? result.marks_awarded
+    : (typeof result.score === "number" ? result.score * available : 0);
+  const awarded = Math.max(0, Math.min(available, Math.round(rawAwarded)));
+
+  const submissionId = submission.submission_id as string;
+
+  const outcome = await recordCriterionMark({
+    submissionId,
+    activityId,
+    successCriteriaId,
+    awarded,
+    available,
+    feedback: (result.feedback?.trim() ?? "") || null,
+  });
+
+  await logQueueEvent("info", "Recorded criterion mark", {
+    submissionId,
+    successCriteriaId,
+    awarded,
+    available,
+    recorded: outcome.recorded,
+    expected: outcome.expected,
+    complete: outcome.complete,
+  });
+
+  if (!outcome.complete) {
+    // Still waiting on sibling criteria — no score is published yet.
+    return { recorded: true, payload: null };
+  }
+
+  void emitSubmissionEvent("submission.updated", {
+    submissionId,
+    activityId,
+    pupilId,
+    markStatus: "marked",
+    markedAt: new Date().toISOString(),
+  });
+
+  const marks = await fetchSubmissionScMarks(submissionId);
+  const criterionScores = marks.reduce<Record<string, number>>((acc, mark) => {
+    acc[mark.successCriteriaId] = mark.available > 0 ? mark.awarded / mark.available : 0;
+    return acc;
+  }, {});
+
+  await insertPupilActivityFeedbackEntry({
+    activityId,
+    pupilId,
+    submissionId,
+    source: "ai",
+    score: outcome.aggregate?.normalised ?? null,
+    feedbackText: marks
+      .map((mark) => mark.feedback?.trim())
+      .filter((text): text is string => Boolean(text && text.length > 0))
+      .join("\n\n") || null,
+    createdBy: null,
+  });
+
+  return {
+    recorded: true,
+    payload: buildRealtimePayload({
+      submissionId,
+      pupilId,
+      activityId,
+      aiScore: outcome.aggregate?.normalised ?? null,
+      aiFeedback: null,
+      successCriteriaScores: criterionScores,
+    }),
+  };
+}
+
 async function applyAiMarkToSubmission({
   submission,
   result,
   activityId,
   activityType,
   maxMarks,
-  successCriteriaIds,
   answerFallback,
   pupilId,
 }: {
@@ -324,7 +459,6 @@ async function applyAiMarkToSubmission({
   activityId: string;
   activityType: string | null;
   maxMarks: number;
-  successCriteriaIds: string[];
   answerFallback: string | null;
   pupilId: string;
 }): Promise<{ updated: boolean; payload: AssignmentResultsRealtimePayload | null }> {
@@ -372,10 +506,14 @@ async function applyAiMarkToSubmission({
     is_correct: computeIsCorrect(effectiveScore ?? null),
     teacher_feedback: teacherFeedback,
     ai_model_feedback: nextAiFeedback,
-    success_criteria_scores: normaliseSuccessCriteriaScores({
-      successCriteriaIds,
-      fillValue: effectiveScore ?? 0,
-    }),
+    // Do NOT uniform-fill per-criterion scores from the overall score. That
+    // fabricated per-SC detail that looked like real assessment. Criterion
+    // marks now arrive one per callback and are written by recordCriterionMark;
+    // this path only runs for activities with no criteria, where the map is
+    // legitimately empty. Anything already present is preserved, not clobbered.
+    success_criteria_scores:
+      (baseBody as { success_criteria_scores?: Record<string, number | null> })
+        .success_criteria_scores ?? {},
   });
 
   await query(`update submissions set body = $1 where submission_id = $2`, [nextBody, submission.submission_id]);
@@ -420,19 +558,19 @@ async function createAiMarkedSubmission({
   pupilId,
   result,
   maxMarks,
-  successCriteriaIds,
   answer,
 }: {
   activityId: string;
   pupilId: string;
   result: ResultEntry;
   maxMarks: number;
-  successCriteriaIds: string[];
   answer: string | null;
 }): Promise<{ created: boolean; payload: AssignmentResultsRealtimePayload | null }> {
   const marks = resolveAiMarks(result, maxMarks);
   const score = maxMarks > 0 ? marks / maxMarks : 0;
-  const successCriteriaScores = normaliseSuccessCriteriaScores({ successCriteriaIds, fillValue: score });
+  // No uniform fill — see applyAiMarkToSubmission. A brand-new submission has
+  // no criterion marks yet; they arrive via recordCriterionMark.
+  const successCriteriaScores: Record<string, number | null> = {};
 
   const submissionBody = ShortTextSubmissionBodySchema.parse({
     answer: answer ?? "",

@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { CriterionMarksPanel } from "@/components/assignment-results/criterion-marks-panel"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { RichTextEditor } from "@/components/ui/rich-text-editor"
@@ -4324,6 +4325,10 @@ export function AssignmentResultsDashboard({
                         <p className="text-sm text-foreground">{extracted.question}</p>
                       </div>
                     ) : null}
+
+                    <div className="rounded-md border border-border/60 bg-muted/40 p-3">
+                      <CriterionMarksPanel submissionId={viewingAttempt.submission_id} />
+                    </div>
 
                     {isWorksheet ? (
                       <div className="space-y-3 rounded-md border border-border/60 bg-muted/40 p-3">

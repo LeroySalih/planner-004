@@ -6,7 +6,23 @@ import { setDefaultAutoSelectFamily } from "node:net";
 // same way curl does, sequentially over the resolved address family.
 setDefaultAutoSelectFamily(false);
 
-export interface ShortTextMarkingParams {
+/**
+ * Fields identifying the single success criterion a marking call assesses.
+ *
+ * When present, the model judges THAT criterion only and `max_marks` is the
+ * criterion's ceiling (1 for binary, n for levelled), not the activity's. The
+ * callback must echo `success_criteria_id` back on each result so the reply can
+ * be matched to the criterion that produced it.
+ */
+export interface CriterionMarkingParams {
+  success_criteria_id?: string;
+  sc_type?: "binary" | "levelled";
+  sc_description?: string;
+  /** Ascending descriptors, lowest first. Empty for binary criteria. */
+  descriptors?: string[];
+}
+
+export interface ShortTextMarkingParams extends CriterionMarkingParams {
   question: string;
   model_answer: string;
   marking_guidance: string;
@@ -26,11 +42,12 @@ export interface SpreadsheetCell {
   result?: string | number | boolean | null;
 }
 
-export interface SpreadsheetMarkingParams {
+export interface SpreadsheetMarkingParams extends CriterionMarkingParams {
   task: string;
   marking_guidance: string;
   spreadsheet_base64: string;
   spreadsheet_data: Array<{ sheetName: string; rows: SpreadsheetCell[][] }>;
+  max_marks?: number;
   webhook_url?: string;
   group_assignment_id?: string;
   activity_id?: string;

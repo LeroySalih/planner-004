@@ -309,6 +309,9 @@ export const SuccessCriterionSchema = z.object({
         ) => (typeof val === "number" && Number.isFinite(val) ? val : 0)),
     active: z.boolean().default(true),
     units: z.array(z.string()).default([]),
+    sc_type: z.enum(["binary", "levelled"]).default("binary"),
+    /** Ascending descriptors, lowest first. Empty for binary criteria. */
+    descriptors: z.array(z.string()).default([]),
 });
 
 export const SuccessCriteriaSchema = z.array(SuccessCriterionSchema);
@@ -346,13 +349,49 @@ export type LessonSuccessCriterion = z.infer<
 >;
 export type LessonSuccessCriteria = z.infer<typeof LessonSuccessCriteriaSchema>;
 
+/**
+ * A criterion is binary (0 or 1) or levelled (0..n over n ascending
+ * descriptors). Intrinsic to the criterion, so it is the same everywhere the
+ * criterion appears.
+ */
+export const ScTypeSchema = z.enum(["binary", "levelled"]);
+export type ScType = z.infer<typeof ScTypeSchema>;
+
+/** One rung of a levelled criterion. level_index runs 1..n, lowest first. */
+export const SuccessCriterionDescriptorSchema = z.object({
+    level_index: z.number().int().min(1),
+    descriptor: z.string().min(1),
+});
+export type SuccessCriterionDescriptor = z.infer<
+    typeof SuccessCriterionDescriptorSchema
+>;
+
+/**
+ * One criterion's marks on a submission. provenance distinguishes real AI
+ * assessment from teacher overrides and from pre-cutover migrated uniform fill.
+ */
+export const SubmissionScMarkSchema = z.object({
+    success_criteria_id: z.string(),
+    awarded: z.number().int().min(0),
+    available: z.number().int().min(1),
+    feedback: z.string().nullable().default(null),
+    provenance: z.enum(["ai", "teacher", "legacy"]),
+});
+export type SubmissionScMark = z.infer<typeof SubmissionScMarkSchema>;
+
+export const SubmissionScMarksSchema = z.array(SubmissionScMarkSchema);
+
 export const ActivitySuccessCriterionSchema = z.object({
     success_criteria_id: z.string(),
     learning_objective_id: z.string().nullable().optional(),
     title: z.string().min(1),
     description: z.string().nullable().optional(),
+    // NOTE: `level` is the criterion's own attainment level (the [L3] notation
+    // from the curriculum builder), NOT the descriptor count. See sc_type.
     level: z.number().nullable().optional(),
     active: z.boolean().nullable().optional(),
+    sc_type: ScTypeSchema.default("binary"),
+    descriptors: z.array(SuccessCriterionDescriptorSchema).default([]),
 });
 
 export const ActivitySuccessCriteriaSchema = z.array(

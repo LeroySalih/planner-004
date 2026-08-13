@@ -13,6 +13,7 @@ import { invokeWorksheetMarking, type WorksheetMarkingImage } from "./worksheet-
 import { parseSpreadsheet } from "@/lib/spreadsheet/parse-xlsx";
 import { createLocalStorageClient } from "@/lib/storage/local-storage";
 import { emitSubmissionEvent } from "@/lib/sse/topics";
+import { fetchCriterionForMarking } from "@/lib/scoring/success-criteria";
 
 /** Infer an image MIME type from a filename, for building data URIs. */
 function inferImageMime(fileName: string): string {
@@ -81,7 +82,42 @@ export async function enqueueMarkingTasks(
       `update submissions set mark_status='waiting', mark_error=null where submission_id=$1`,
       [task.submissionId],
     );
-    await enqueueAiMarkJob(task.submissionId, assignmentId, delaySecs);
+
+    // Fan out: one job per success criterion, so each is marked, retried and
+    // resolved independently. Activities with no criteria keep the single
+    // whole-activity job (successCriteriaId null).
+    const { rows: criteriaRows } = await query<{ success_criteria_id: string }>(
+      `select acs.success_criteria_id
+       from submissions s
+       join activity_success_criteria acs on acs.activity_id = s.activity_id
+       where s.submission_id = $1
+       order by acs.success_criteria_id`,
+      [task.submissionId],
+    );
+
+    const criteriaIds = (criteriaRows ?? []).map((row) => row.success_criteria_id);
+
+    if (criteriaIds.length === 0) {
+      await enqueueAiMarkJob(task.submissionId, assignmentId, delaySecs);
+      continue;
+    }
+
+    // Clear any prior per-criterion results so a re-mark starts clean. Teacher
+    // overrides survive — they are authoritative and must not be re-marked.
+    await query(
+      `delete from submission_sc_marks
+       where submission_id = $1 and provenance <> 'teacher'`,
+      [task.submissionId],
+    );
+
+    for (const criterionId of criteriaIds) {
+      await enqueueAiMarkJob(task.submissionId, assignmentId, delaySecs, criterionId);
+    }
+
+    await logQueueEvent(
+      "info",
+      `Fanned out ${criteriaIds.length} criterion jobs for submission ${task.submissionId}`,
+    );
   }
 }
 
@@ -95,15 +131,27 @@ export async function enqueueAiMarkJob(
   submissionId: string,
   assignmentId: string,
   delaySecs = 0,
+  successCriteriaId: string | null = null,
 ) {
+  // Dedupe on the (submission, criterion) pair, NOT the submission alone —
+  // deleting by submission id would wipe the sibling criteria's jobs as each
+  // one is enqueued. `is not distinct from` matches the null used by the
+  // whole-activity path.
   await query(
-    `delete from external_jobs where job_type='ai_mark' and status in ('pending','processing') and payload->>'submissionId' = $1`,
-    [submissionId],
+    `delete from external_jobs
+     where job_type='ai_mark' and status in ('pending','processing')
+       and payload->>'submissionId' = $1
+       and payload->>'successCriteriaId' is not distinct from $2`,
+    [submissionId, successCriteriaId],
   );
   await query(
     `insert into external_jobs (job_type, payload, process_after)
-     values ('ai_mark', jsonb_build_object('submissionId', $1::text, 'assignmentId', $2::text), now() + make_interval(secs => $3))`,
-    [submissionId, assignmentId, delaySecs],
+     values ('ai_mark', jsonb_build_object(
+       'submissionId', $1::text,
+       'assignmentId', $2::text,
+       'successCriteriaId', $4::text
+     ), now() + make_interval(secs => $3))`,
+    [submissionId, assignmentId, delaySecs, successCriteriaId],
   );
 }
 
@@ -114,32 +162,62 @@ export async function processNextQueueItem() {
 
   // 1. Claim a batch of submissions by their mark_status
   // We use the global query pool directly so we don't lock a single client for the duration
+  // Claim the JOB rows, not the submission rows.
+  //
+  // Two things were wrong here for fan-out:
+  //
+  //  1. The predicate required `sub.mark_status = 'waiting'` and set it to
+  //     'marking', so the first criterion claimed made every sibling
+  //     permanently unclaimable.
+  //  2. More subtly, the statement was an UPDATE on `submissions` driven by
+  //     picked jobs. Postgres updates a given target row at most once per
+  //     statement, so N criterion jobs sharing one submission collapsed to a
+  //     SINGLE claim per batch and the rest were silently dropped.
+  //
+  // The claim now updates external_jobs directly — one row per job, no
+  // collapsing — and the submission's coarse status is set in a separate
+  // statement below.
   const { rows } = await query<{
     submission_id: string;
     assignment_id: string;
+    success_criteria_id: string | null;
     attempts: number;
     job_id: string;
   }>(
     `
-    update submissions s
-    set mark_status = 'marking'
-    from (
-      select j.job_id, (j.payload->>'submissionId') as submission_id, (j.payload->>'assignmentId') as assignment_id, j.attempts
+    with picked as (
+      select j.job_id
       from external_jobs j
       join submissions sub on sub.submission_id = j.payload->>'submissionId'
       where j.job_type = 'ai_mark' and j.status = 'pending'
-        and sub.mark_status = 'waiting' and j.process_after <= now() and j.attempts < j.max_attempts
+        and sub.mark_status in ('waiting', 'marking')
+        and j.process_after <= now() and j.attempts < j.max_attempts
       order by j.process_after asc
       limit $1
       for update of j skip locked
-    ) picked
-    where s.submission_id = picked.submission_id
-    returning picked.submission_id as submission_id, picked.assignment_id as assignment_id, picked.attempts as attempts, picked.job_id as job_id
+    )
+    update external_jobs j
+    set status = 'processing', updated_at = now()
+    from picked
+    where j.job_id = picked.job_id
+    returning j.job_id as job_id,
+              (j.payload->>'submissionId') as submission_id,
+              (j.payload->>'assignmentId') as assignment_id,
+              (j.payload->>'successCriteriaId') as success_criteria_id,
+              j.attempts as attempts
     `,
     [BATCH_SIZE],
   );
 
+  if (rows.length > 0) {
+    await query(
+      `update submissions set mark_status='marking' where submission_id = any($1::text[])`,
+      [Array.from(new Set(rows.map((row) => row.submission_id)))],
+    );
+  }
+
   // 1b. Claim a batch of revision answers by their own status lifecycle
+  // Revisions are not fanned out per criterion — one job per answer, as before.
   const { rows: revClaimed } = await query<{
     submission_id: string;
     assignment_id: string;
@@ -168,12 +246,15 @@ export async function processNextQueueItem() {
     return { processed: 0, remaining: 0 };
   }
 
-  // Mark the claimed jobs as processing (the claim above transitioned the
-  // entity status; this transitions the job row so recovery can find it).
-  await query(
-    `update external_jobs set status='processing', updated_at=now() where job_id = any($1::uuid[])`,
-    [claimed.map((item) => item.job_id)],
-  );
+  // The submission claim already transitioned its job rows to 'processing'.
+  // The revision claim transitions the answer, not the job, so its jobs still
+  // need moving so recovery can find them.
+  if (revClaimed.length > 0) {
+    await query(
+      `update external_jobs set status='processing', updated_at=now() where job_id = any($1::uuid[])`,
+      [revClaimed.map((item) => item.job_id)],
+    );
+  }
 
   await logQueueEvent(
     "info",
@@ -211,15 +292,20 @@ async function processSingleItem(
   item: {
     submission_id: string;
     assignment_id: string;
+    success_criteria_id?: string | null;
     attempts: number;
     job_id: string;
   },
   callbackUrl?: string,
 ) {
+  const criterionId = item.success_criteria_id ?? null;
+
   try {
     await logQueueEvent(
       "info",
-      `Processing submission ${item.submission_id} (Attempt ${item.attempts})`,
+      `Processing submission ${item.submission_id}` +
+        (criterionId ? ` criterion ${criterionId}` : "") +
+        ` (Attempt ${item.attempts})`,
     );
 
     // 2. Fetch context for DO function
@@ -316,6 +402,30 @@ async function processSingleItem(
       }
     }
 
+    // When this job targets a single criterion, the model is asked to assess
+    // that criterion alone and max_marks becomes the criterion's ceiling — not
+    // the activity's.
+    const criterion = criterionId
+      ? await fetchCriterionForMarking(criterionId)
+      : null;
+
+    if (criterionId && !criterion) {
+      throw new Error(`Success criterion ${criterionId} not found`);
+    }
+
+    const criterionParams = criterion
+      ? {
+        success_criteria_id: criterion.successCriteriaId,
+        sc_type: criterion.scType,
+        sc_description: criterion.description,
+        descriptors: criterion.descriptors,
+      }
+      : {};
+
+    const effectiveMaxMarks = criterion
+      ? criterion.available
+      : (typeof context.max_marks === "number" ? context.max_marks : 1);
+
     if (context.type === "short-text-question") {
       const parsedActivity = ShortTextActivityBodySchema.parse(
         context.activity_body,
@@ -331,7 +441,8 @@ async function processSingleItem(
           (parsedActivity as { markingGuidance?: unknown }).markingGuidance,
         ),
         pupil_answer: parsedSubmission.answer || "",
-        max_marks: typeof context.max_marks === "number" ? context.max_marks : 1,
+        max_marks: effectiveMaxMarks,
+        ...criterionParams,
         webhook_url: effectiveCallbackUrl,
         group_assignment_id: item.assignment_id,
         activity_id: context.activity_id as string,
@@ -378,6 +489,8 @@ async function processSingleItem(
         marking_guidance: parsedActivity.markingGuidance,
         spreadsheet_base64: spreadsheetBase64,
         spreadsheet_data: spreadsheetData,
+        max_marks: effectiveMaxMarks,
+        ...criterionParams,
         webhook_url: effectiveCallbackUrl,
         group_assignment_id: item.assignment_id,
         activity_id: context.activity_id as string,
@@ -448,7 +561,8 @@ async function processSingleItem(
         pupil_id: context.pupil_id as string,
         group_assignment_id: item.assignment_id,
         webhook_url: effectiveCallbackUrl,
-        max_marks: typeof context.max_marks === "number" ? context.max_marks : 1,
+        max_marks: effectiveMaxMarks,
+        ...criterionParams,
         marking_guidance: resolvedMarkingGuidance,
         worksheet_images: worksheetImages,
         answer_images: answerImages,
@@ -475,7 +589,8 @@ async function processSingleItem(
         model_answer: "Not Set",
         marking_guidance: markingFieldOrNotSet(resolvedMarkingGuidance),
         pupil_answer: parsedSubmissionBody.extractedText ?? "",
-        max_marks: typeof context.max_marks === "number" ? context.max_marks : 1,
+        max_marks: effectiveMaxMarks,
+        ...criterionParams,
         webhook_url: effectiveCallbackUrl,
         group_assignment_id: item.assignment_id,
         activity_id: context.activity_id as string,
@@ -527,10 +642,23 @@ async function processSingleItem(
           [item.submission_id],
         );
       } else {
+        const failureNote = criterionId
+          ? `Criterion ${criterionId}: ${errorMessage}`
+          : errorMessage;
         await query(
           `update submissions set mark_status='marking-error', mark_error=$1 where submission_id=$2`,
-          [errorMessage, item.submission_id],
+          [failureNote, item.submission_id],
         );
+        // Q5: a submission fails as a whole. Close the sibling criterion jobs
+        // so they do not sit pending forever behind a submission that will
+        // never aggregate. Their completed results stay in submission_sc_marks,
+        // so a retrigger only re-runs what actually failed.
+        if (criterionId) {
+          await abandonSiblingCriterionJobs(
+            item.submission_id,
+            `Abandoned: criterion ${criterionId} failed permanently`,
+          );
+        }
         const { rows: idRows } = await query<{ activity_id: string; user_id: string }>(
           `select activity_id, user_id from submissions where submission_id=$1`,
           [item.submission_id],
@@ -540,7 +668,7 @@ async function processSingleItem(
           activityId: idRows[0]?.activity_id ?? "",
           pupilId: idRows[0]?.user_id ?? "",
           markStatus: "marking-error",
-          markError: errorMessage,
+          markError: failureNote,
         });
       }
     } else {
@@ -567,10 +695,48 @@ async function processSingleItem(
   }
 }
 
-export async function resolveQueueItem(submissionId: string) {
+/**
+ * Resolve a finished job. When a criterion id is supplied only that criterion's
+ * job is closed — resolving by submission alone would close sibling criteria
+ * that are still in flight.
+ */
+export async function resolveQueueItem(
+  submissionId: string,
+  successCriteriaId: string | null = null,
+) {
+  if (successCriteriaId === null) {
+    await query(
+      `update external_jobs set status='done', updated_at=now()
+       where job_type='ai_mark' and payload->>'submissionId'=$1
+         and payload->>'successCriteriaId' is null`,
+      [submissionId],
+    );
+    return;
+  }
+
   await query(
-    `update external_jobs set status='done', updated_at=now() where job_type='ai_mark' and payload->>'submissionId'=$1`,
-    [submissionId],
+    `update external_jobs set status='done', updated_at=now()
+     where job_type='ai_mark' and payload->>'submissionId'=$1
+       and payload->>'successCriteriaId'=$2`,
+    [submissionId, successCriteriaId],
+  );
+}
+
+/**
+ * Close every outstanding criterion job for a submission. Used when one
+ * criterion fails permanently: the submission is failed as a whole (no partial
+ * scores), so the siblings have nothing left to contribute.
+ */
+export async function abandonSiblingCriterionJobs(
+  submissionId: string,
+  reason: string,
+) {
+  await query(
+    `update external_jobs
+     set status='error', last_error=$2, updated_at=now()
+     where job_type='ai_mark' and status in ('pending','processing')
+       and payload->>'submissionId'=$1`,
+    [submissionId, reason],
   );
 }
 
@@ -613,12 +779,23 @@ export async function pruneCompletedQueueItems() {
 }
 
 export async function recoverStuckItems() {
+  // Only reset a submission to 'waiting' once NO criterion job for it is still
+  // progressing. With fan-out, one stalled criterion must not drag a submission
+  // whose siblings are mid-flight back to 'waiting'.
   await query(
     `update submissions set mark_status='waiting'
      where mark_status='marking'
        and submission_id in (
          select payload->>'submissionId' from external_jobs
          where job_type='ai_mark' and status='processing' and updated_at < now() - interval '10 minutes'
+       )
+       and submission_id not in (
+         select payload->>'submissionId' from external_jobs
+         where job_type='ai_mark'
+           and (
+             status='pending'
+             or (status='processing' and updated_at >= now() - interval '10 minutes')
+           )
        )`,
   );
   await query(

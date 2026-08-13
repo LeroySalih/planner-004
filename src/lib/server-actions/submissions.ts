@@ -27,6 +27,7 @@ import {
   fetchActivitySuccessCriteriaIds,
   normaliseSuccessCriteriaScores,
 } from "@/lib/scoring/success-criteria";
+import { propagateDeterministicScMarks } from "@/lib/scoring/aggregate-sc-marks";
 import {
   getActivityLessonId,
   logActivitySubmissionEvent,
@@ -951,6 +952,15 @@ export async function upsertMcqSubmissionAction(
 
     await clearResubmitRequest(payload.activityId, payload.userId);
 
+    // Q6b: deterministic types never reach a model, so their single
+    // right/wrong outcome is propagated to each linked criterion for coverage
+    // reporting. The activity's own max_marks stays capped at 1.
+    await propagateDeterministicScMarks(
+      parsed.data.submission_id,
+      payload.activityId,
+      isCorrect ? 1 : 0,
+    );
+
     await logActivitySubmissionEvent({
       submissionId: parsed.data.submission_id,
       activityId: payload.activityId,
@@ -1113,6 +1123,15 @@ export async function upsertMatcherSubmissionAction(
     }
 
     await clearResubmitRequest(payload.activityId, payload.userId);
+
+    // Q6b: deterministic types never reach a model, so their single
+    // right/wrong outcome is propagated to each linked criterion for coverage
+    // reporting. The activity's own max_marks stays capped at 1.
+    await propagateDeterministicScMarks(
+      parsed.data.submission_id,
+      payload.activityId,
+      isCorrect ? 1 : 0,
+    );
 
     await logActivitySubmissionEvent({
       submissionId: parsed.data.submission_id,
@@ -1277,6 +1296,15 @@ export async function upsertGroupItemsSubmissionAction(
 
     await clearResubmitRequest(payload.activityId, payload.userId);
 
+    // Q6b: deterministic types never reach a model, so their single
+    // right/wrong outcome is propagated to each linked criterion for coverage
+    // reporting. The activity's own max_marks stays capped at 1.
+    await propagateDeterministicScMarks(
+      parsed.data.submission_id,
+      payload.activityId,
+      isCorrect ? 1 : 0,
+    );
+
     await logActivitySubmissionEvent({
       submissionId: parsed.data.submission_id,
       activityId: payload.activityId,
@@ -1427,6 +1455,15 @@ export async function upsertSequenceSubmissionAction(
     }
 
     await clearResubmitRequest(payload.activityId, payload.userId);
+
+    // Q6b: deterministic types never reach a model, so their single
+    // right/wrong outcome is propagated to each linked criterion for coverage
+    // reporting. The activity's own max_marks stays capped at 1.
+    await propagateDeterministicScMarks(
+      parsed.data.submission_id,
+      payload.activityId,
+      isCorrect ? 1 : 0,
+    );
 
     await logActivitySubmissionEvent({
       submissionId: parsed.data.submission_id,

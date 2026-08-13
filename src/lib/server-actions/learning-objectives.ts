@@ -161,7 +161,17 @@ async function readLearningObjectivesWithCriteria(options: {
                sc.level,
                sc.description,
                sc.order_index,
-               sc.active
+               sc.active,
+               sc.sc_type,
+               coalesce(
+                 array(
+                   select d.descriptor
+                   from success_criteria_descriptors d
+                   where d.success_criteria_id = sc.success_criteria_id
+                   order by d.level_index
+                 ),
+                 '{}'
+               ) as descriptors
         from success_criteria sc
         where sc.learning_objective_id = any($1::text[])
       `,
@@ -178,6 +188,8 @@ async function readLearningObjectivesWithCriteria(options: {
         order_index: row.order_index,
         active: row.active ?? true,
         units: [],
+        sc_type: row.sc_type === "levelled" ? "levelled" : "binary",
+        descriptors: row.descriptors ?? [],
       }
       const bucket = successCriteriaMap.get(row.learning_objective_id) ?? []
       bucket.push(entry)
@@ -349,11 +361,16 @@ export async function readAllLearningObjectivesAction(
 export type NormalizedSuccessCriterion = {
   success_criteria_id: string
   learning_objective_id: string
+  // NOTE: `level` is the criterion's own attainment level (the [L3] notation),
+  // NOT the descriptor count. Marks available come from sc_type + descriptors.
   level: number
   description: string
   order_index: number | null
   active: boolean
   units: string[]
+  sc_type: "binary" | "levelled"
+  /** Ascending descriptors, lowest first. Empty for binary criteria. */
+  descriptors: string[]
 }
 
 
@@ -381,7 +398,22 @@ export async function fetchSuccessCriteriaForLearningObjectives(
       description: string | null
       order_index: number | null
       active: boolean | null
+      sc_type: string | null
+      descriptors: string[] | null
     }> = []
+
+    // Ascending descriptors for levelled criteria, lowest rung first.
+    const descriptorsSelect = `
+      coalesce(
+        array(
+          select d.descriptor
+          from success_criteria_descriptors d
+          where d.success_criteria_id = sc.success_criteria_id
+          order by d.level_index
+        ),
+        '{}'
+      ) as descriptors
+    `
 
     if (filterUnitId) {
       const { rows } = await client.query(
@@ -391,7 +423,9 @@ export async function fetchSuccessCriteriaForLearningObjectives(
                  sc.level,
                  sc.description,
                  sc.order_index,
-                 sc.active
+                 sc.active,
+                 sc.sc_type,
+                 ${descriptorsSelect}
           from success_criteria sc
           join success_criteria_units scu on scu.success_criteria_id = sc.success_criteria_id
           where scu.unit_id = $1
@@ -402,14 +436,16 @@ export async function fetchSuccessCriteriaForLearningObjectives(
     } else if (learningObjectiveIds.length > 0) {
       const { rows } = await client.query(
         `
-          select success_criteria_id,
-                 learning_objective_id,
-                 level,
-                 description,
-                 order_index,
-                 active
-          from success_criteria
-          where learning_objective_id = any($1::text[])
+          select sc.success_criteria_id,
+                 sc.learning_objective_id,
+                 sc.level,
+                 sc.description,
+                 sc.order_index,
+                 sc.active,
+                 sc.sc_type,
+                 ${descriptorsSelect}
+          from success_criteria sc
+          where sc.learning_objective_id = any($1::text[])
         `,
         [learningObjectiveIds],
       )
@@ -449,6 +485,8 @@ export async function fetchSuccessCriteriaForLearningObjectives(
         order_index: criterion.order_index ?? 0,
         active: criterion.active ?? true,
         units: unitsByCriterion.get(criterion.success_criteria_id) ?? [],
+        sc_type: criterion.sc_type === "levelled" ? "levelled" : "binary",
+        descriptors: criterion.descriptors ?? [],
       })
       successCriteriaMap.set(criterion.learning_objective_id, bucket)
       loadedLearningObjectiveIds.add(criterion.learning_objective_id)

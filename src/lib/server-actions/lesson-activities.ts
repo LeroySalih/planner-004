@@ -21,6 +21,7 @@ import {
   type Queryable,
   UnitCurriculumMismatchError,
 } from "@/lib/curriculum/unit-curriculum-guard";
+import { recalculateActivityMaxMarks } from "@/lib/scoring/derive-max-marks";
 import { withTelemetry } from "@/lib/telemetry";
 import { isScorableActivityType } from "@/dino.config";
 import { enqueueLessonMutationJob } from "@/lib/lesson-job-runner";
@@ -270,6 +271,12 @@ export async function createLessonActivityAction(
           `,
           [createdActivity.activity_id, successCriteriaIds],
         );
+        await recalculateActivityMaxMarks(client, newActivityId);
+        const { rows: refreshed } = await client.query(
+          "select * from activities where activity_id = $1",
+          [newActivityId],
+        );
+        createdActivity = refreshed[0] ?? createdActivity;
       }
     });
   } catch (error) {
@@ -502,6 +509,10 @@ export async function updateLessonActivityAction(
           `,
           [activityId, toInsert],
         );
+      }
+
+      if (toInsert.length > 0 || toDelete.length > 0) {
+        await recalculateActivityMaxMarks({ query } as Queryable, activityId);
       }
     } catch (error) {
       if (error instanceof UnitCurriculumMismatchError) {
@@ -744,6 +755,7 @@ export async function uploadActivitiesFromMarkdownAction(
               `,
               [createdId, activity.successCriteriaIds],
             );
+            await recalculateActivityMaxMarks(client, createdId);
           }
 
           nextOrder++;

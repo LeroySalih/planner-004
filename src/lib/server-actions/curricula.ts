@@ -26,6 +26,10 @@ import {
   fetchSuccessCriteriaForLearningObjectives,
   type NormalizedSuccessCriterion,
 } from "./learning-objectives"
+import {
+  countActivitiesUsingCriterion,
+  recalculateMaxMarksForCriterion,
+} from "@/lib/scoring/derive-max-marks"
 import { withTelemetry } from "@/lib/telemetry"
 
 // `query` from @/lib/db constrains its row generic, so expose it through the
@@ -1608,3 +1612,169 @@ export async function unassignSuccessCriteriaFromActivitiesAction(
   }
 }
 
+
+// ---------------------------------------------------------------------------
+// Success criterion type and descriptors
+//
+// A criterion is binary (worth 1 mark) or levelled (0..n over n ascending
+// descriptors, worth n marks). The type is intrinsic to the criterion, so
+// changing it changes activities.max_marks everywhere the criterion is used —
+// both actions below fan the recalculation out to every affected activity.
+// ---------------------------------------------------------------------------
+
+const ScTypeUpdateReturnValue = z.object({
+  data: z
+    .object({
+      success_criteria_id: z.string(),
+      sc_type: z.enum(["binary", "levelled"]),
+      affected_activities: z.number(),
+    })
+    .nullable(),
+  error: z.string().nullable(),
+})
+
+/**
+ * How many activities use a criterion. Called before a destructive edit
+ * (levelled -> binary deletes descriptors) so the teacher sees the blast radius.
+ */
+export async function countActivitiesUsingCriterionAction(successCriteriaId: string) {
+  await requireRole("teacher")
+
+  try {
+    const count = await countActivitiesUsingCriterion(successCriteriaId)
+    return { data: { count }, error: null }
+  } catch (error) {
+    console.error("[curricula] countActivitiesUsingCriterionAction:error", error)
+    return { data: null, error: "Unable to count activities using this criterion." }
+  }
+}
+
+/**
+ * Switch a criterion between binary and levelled.
+ *
+ * levelled -> binary deletes the descriptors: a binary criterion has none, and
+ * leaving orphans would silently restore the old mark count on the next switch
+ * back. The teacher is warned via countActivitiesUsingCriterionAction first.
+ */
+export async function updateSuccessCriterionTypeAction(
+  successCriteriaId: string,
+  curriculumId: string,
+  scType: "binary" | "levelled",
+) {
+  await requireRole("teacher")
+
+  try {
+    let affectedActivities = 0
+
+    await withDbClient(async (client) => {
+      await client.query("BEGIN")
+      try {
+        await client.query(
+          "update success_criteria set sc_type = $1 where success_criteria_id = $2",
+          [scType, successCriteriaId],
+        )
+
+        if (scType === "binary") {
+          await client.query(
+            "delete from success_criteria_descriptors where success_criteria_id = $1",
+            [successCriteriaId],
+          )
+        }
+
+        affectedActivities = await recalculateMaxMarksForCriterion(client, successCriteriaId)
+        await client.query("COMMIT")
+      } catch (innerError) {
+        await client.query("ROLLBACK")
+        throw innerError
+      }
+    })
+
+    revalidatePath(`/curriculum/${curriculumId}`)
+
+    return ScTypeUpdateReturnValue.parse({
+      data: {
+        success_criteria_id: successCriteriaId,
+        sc_type: scType,
+        affected_activities: affectedActivities,
+      },
+      error: null,
+    })
+  } catch (error) {
+    console.error("[curricula] updateSuccessCriterionTypeAction:error", error)
+    return ScTypeUpdateReturnValue.parse({
+      data: null,
+      error: error instanceof Error ? error.message : "Unable to update criterion type.",
+    })
+  }
+}
+
+/**
+ * Replace a levelled criterion's descriptors wholesale. The array is the full
+ * ordered list, lowest rung first; level_index is rewritten contiguously from 1
+ * so reordering and deletion cannot leave gaps.
+ */
+export async function setSuccessCriterionDescriptorsAction(
+  successCriteriaId: string,
+  curriculumId: string,
+  descriptors: string[],
+) {
+  await requireRole("teacher")
+
+  const cleaned = descriptors
+    .map((descriptor) => descriptor.trim())
+    .filter((descriptor) => descriptor.length > 0)
+
+  if (cleaned.length === 0) {
+    return {
+      data: null,
+      error: "A levelled criterion needs at least one descriptor.",
+    }
+  }
+
+  try {
+    let affectedActivities = 0
+
+    await withDbClient(async (client) => {
+      await client.query("BEGIN")
+      try {
+        await client.query(
+          "delete from success_criteria_descriptors where success_criteria_id = $1",
+          [successCriteriaId],
+        )
+        await client.query(
+          `insert into success_criteria_descriptors (success_criteria_id, level_index, descriptor)
+           select $1, ordinality::int, descriptor
+           from unnest($2::text[]) with ordinality as t(descriptor, ordinality)`,
+          [successCriteriaId, cleaned],
+        )
+        await client.query(
+          "update success_criteria set sc_type = 'levelled' where success_criteria_id = $1",
+          [successCriteriaId],
+        )
+
+        affectedActivities = await recalculateMaxMarksForCriterion(client, successCriteriaId)
+        await client.query("COMMIT")
+      } catch (innerError) {
+        await client.query("ROLLBACK")
+        throw innerError
+      }
+    })
+
+    revalidatePath(`/curriculum/${curriculumId}`)
+
+    return {
+      data: {
+        success_criteria_id: successCriteriaId,
+        descriptors: cleaned,
+        affected_activities: affectedActivities,
+      },
+      error: null,
+    }
+  } catch (error) {
+    console.error("[curricula] setSuccessCriterionDescriptorsAction:error", error)
+    return {
+      data: null,
+      error: error instanceof Error ? error.message : "Unable to save descriptors.",
+    }
+  }
+}

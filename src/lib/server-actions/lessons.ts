@@ -1681,6 +1681,8 @@ async function enrichLessonsWithSuccessCriteria<
               order_index: null,
               active: true,
               units: [],
+              sc_type: "binary",
+              descriptors: [],
             };
             const list = loCriteriaMap.get(learningObjectiveId) ?? [];
             list.push(normalized);
@@ -1802,6 +1804,8 @@ async function enrichLessonsWithSuccessCriteria<
           order_index: null,
           active: true,
           units: [],
+          sc_type: "binary",
+          descriptors: [],
         });
         loCriteriaMap.set(learningObjectiveId, list);
       }
@@ -2052,6 +2056,10 @@ async function enrichLessonsWithSuccessCriteria<
             order_index: index,
             active: true,
             units: [],
+            // This lesson-display path does not load criterion typing; marks
+            // come from activities.max_marks, not from these rows.
+            sc_type: "binary" as const,
+            descriptors: [],
           })),
           assessment_objective: metadata.assessment_objective_id
             ? {
