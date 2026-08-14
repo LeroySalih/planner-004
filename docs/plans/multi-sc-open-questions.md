@@ -149,7 +149,11 @@ the SC, so they are authored where SCs are authored.
   `sc_type` and descriptors.
 - Not shown in the activity editor beyond what is needed to pick an SC.
 
-### Q9 — New n8n flow, or extend the existing `ai-mark` flow?
+### Q9 — New n8n flow, or extend the existing `ai-mark` flow? — **SUPERSEDED**
+n8n was removed on 2026-08-14; the worker calls Gemini directly and the
+criterion is known at call time, so no echo-back contract is needed. The
+decision below is kept as a record of what was chosen at the time.
+
 The callback must now carry `success_criteria_id`.
 
 **Answer: extend the existing flow.** Same n8n webhook, same

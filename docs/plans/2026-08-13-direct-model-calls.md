@@ -1,5 +1,10 @@
 # Replace n8n with direct Gemini calls
 
+> **STATUS: done (merged 2026-08-14).** n8n is removed from marking and OCR.
+> Migration `084` drains the queue at cutover. The living description of the
+> pipeline is the "AI Marking Pipeline" section of CLAUDE.md — prefer that; this
+> document records why the change was made.
+
 **Goal:** remove n8n from the marking and OCR paths. DINO calls Gemini directly
 from the queue worker and applies the result in the same pass.
 

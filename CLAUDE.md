@@ -179,6 +179,63 @@ Files placed in `public/` are served at the root URL with no auth — e.g. `publ
 
 **Report Levels**: Use boundary helper in `src/lib/levels/index.ts` for level lookups - update centrally if scale changes.
 
+## AI Marking Pipeline
+
+**Models are called directly from the server — there is no n8n.** The queue
+worker calls Gemini and applies the result in the same pass:
+
+```
+external_jobs (ai_mark) ──▶ markWithGemini() ──▶ applyAiMarkPayload()
+```
+
+There are no marking webhooks. A failed model call throws, which the existing
+`attempts` / `process_after` backoff in `external_jobs` retries, and a permanent
+failure lands the submission in `marking-error`.
+
+- `src/lib/ai/gemini-client.ts` — shared transport: retry on 429/500/503, optional `responseSchema`
+- `src/lib/ai/gemini-marking.ts` — the marking prompt, text and vision
+- `src/lib/ai/gemini-ocr.ts` — worksheet transcription
+- `src/lib/ai/marking-queue.ts` — claim, fan out, call, apply, resolve
+- `src/lib/ai/apply-ai-mark.ts` — applies a result; **returns `ok:false` for
+  permanent problems rather than throwing**, so callers must check it or the job
+  resolves and the submission is stranded in `marking`
+
+Requires `GOOGLE_API_KEY` (or `GEMINI_API_KEY`). `GEMINI_MARKING_MODEL`
+overrides the model. `AI_MARKING_CALLBACK_URL` is still required but now only
+supplies the app's own origin for self-triggering the queue processor.
+
+### Per-criterion marking
+
+An activity with success criteria is marked **once per criterion** — one
+`external_jobs` row each, one model call each, assessed independently.
+
+- `success_criteria.sc_type` is `binary` (0–1) or `levelled` (0–n over n
+  ascending `success_criteria_descriptors`). **Not** the pre-existing
+  `success_criteria.level` column, which is unrelated attainment metadata.
+- `activities.max_marks` is **derived** for any activity with criteria:
+  `Σ(binary → 1, levelled → n)`. Deterministic types (`DETERMINISTIC_ACTIVITY_TYPES`)
+  cap at 1; non-scorable types are excluded. Recalculate via
+  `src/lib/scoring/derive-max-marks.ts` from every surface that changes a
+  criterion's type, descriptors or activity links — criteria are shared, so one
+  edit can change `max_marks` on many activities.
+- `submission_sc_marks` is authoritative. The normalised aggregate is cached to
+  `body.ai_model_score` because that is what `compute_submission_base_score`
+  reads, so existing reporting works unchanged.
+- `provenance` is `ai` | `teacher` | `legacy`. Teacher rows survive a re-mark.
+  `legacy` rows were migrated from the old uniform fill and are derived, not
+  real assessment.
+- **Teacher marks and comments always override.** `effectiveCriterionFeedback`
+  in `aggregate-sc-marks.ts` is the single rule: a teacher's comment wins; if
+  the teacher changed the mark without commenting, the AI's comment is
+  suppressed rather than left contradicting the new mark.
+- The prompt must state that **0 is a valid score**. Without it the model
+  anchors to the lowest descriptor and silently inflates every mark.
+
+Gather is concurrency-sensitive: `processNextQueueItem` runs a batch through
+`Promise.allSettled`, so sibling criterion results for one submission arrive
+together. `recordCriterionMark` takes `select … for update` on the submission
+row before deciding whether the set is complete.
+
 ## Scoring Conventions
 
 **Always use `compute_submission_base_score(body, activity_type)`** when computing a submission score in SQL. This is the canonical PostgreSQL function (defined in `schema.sql`) and handles all score fields in the correct priority order:

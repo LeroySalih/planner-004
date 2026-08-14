@@ -8,8 +8,9 @@ Every SC becomes binary (0–1) or levelled (0–n descriptors). Activities fan 
 one model call per SC; results are gathered and summed into the activity score.
 
 **Architecture:** DINO coordinates the fan-out via the existing `external_jobs`
-queue — one job per (submission, SC). n8n executes each individual model call
-through the existing `ai-mark` flow. A new `submission_sc_marks` table is the
+queue — one job per (submission, SC). n8n executed each model call when this was
+written; it was removed on 2026-08-14 and the worker now calls Gemini directly
+(see `docs/plans/2026-08-13-direct-model-calls.md`). A new `submission_sc_marks` table is the
 authoritative per-criterion store; a cached normalised aggregate is written to
 `submissions.body` so all existing SQL reporting keeps working unchanged.
 
@@ -46,9 +47,10 @@ these; the decisions doc records the reasoning):
 - **Task 10** targeted `ActivityProgressPanel`, which is dead code.
   `LiveActivityShell` is the live pupil surface and now carries the breakdown.
 
-**Not done:**
-- The n8n workflow still does not echo `success_criteria_id` back, so live
-  callbacks take the whole-activity path. Everything on the DINO side is ready.
+**Not done at the time of writing** (all since resolved):
+- The n8n workflow never echoed `success_criteria_id` back. Superseded — n8n was
+  removed and the worker calls the model directly, so the criterion is known
+  without a round trip.
 - `do-flashcards` is in `DETERMINISTIC_ACTIVITY_TYPES` for the max_marks cap but
   has no upsert in `submissions.ts`; its criteria get no propagated rows.
 - No UI has been visually reviewed — all teacher/pupil surfaces are auth-gated.
@@ -534,14 +536,11 @@ break the production build.
 
 ---
 
-## Deployment note
+## Deployment note — **superseded by migration 084**
 
-No payload versioning was chosen (Q9), so jobs in flight across the deploy will
-fail against the new contract. Drain the marking queue before deploying:
+This originally said to drain the queue by hand before deploying. That is now
+migration `084-drain-n8n-marking-queue.sql`, which runs in sequence with the
+rest and requeues in-flight work for the direct-call worker rather than making
+anyone watch a counter.
 
-```sql
-select count(*) from external_jobs
- where job_type='ai_mark' and status in ('pending','processing');
-```
-
-Wait for zero, then deploy.
+Apply in order: `081` → `082` → `083` → `084`.
