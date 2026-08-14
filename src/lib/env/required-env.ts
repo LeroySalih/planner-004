@@ -22,21 +22,10 @@ export const REQUIRED_ENV: readonly string[] = [
 
   // Marking pipeline
   "MARKING_QUEUE_SECRET", // guards /api/marking/process-queue + /api/jobs/process
-  "AI_MARKING_CALLBACK_URL", // callback origin for async marking results
+  "AI_MARKING_CALLBACK_URL", // the app's own origin, used to self-trigger the queue processor
 
   // MCP server
   "MCP_SERVICE_KEY", // src/lib/mcp/auth.ts — MCP bearer/service key
-
-  // n8n integrations (webhook URL + its auth header, per feature)
-  "N8N_MARKING_WEBHOOK_URL",
-  "N8N_MARKING_AUTH",
-  "N8N_MARK_WORKSHEET_WEBHOOK_URL",
-  "N8N_MARK_WORKSHEET_AUTH",
-  "N8N_OCR_WEBHOOK_URL",
-  "N8N_OCR_AUTH",
-
-  // OCR
-  "IMAGE_OCR_SERVICE_KEY", // src/app/webhooks/image-to-text/route.ts
 
   // PDF rendering (Gotenberg)
   "GOTENBERG_URL",
@@ -50,8 +39,8 @@ export const REQUIRED_ENV: readonly string[] = [
  * variant is the build-inlined fallback.)
  */
 export const REQUIRED_ONE_OF: readonly (readonly string[])[] = [
-  ["GOOGLE_API_KEY", "GEMINI_API_KEY"], // Gemini/Google AI key (lesson+unit chat, OCR, sketch)
-  ["MARK_SERVICE_KEY", "AI_MARK_SERVICE_KEY"], // ai-mark webhook callback service key
+  // Gemini/Google AI key — chat, sketch, and now marking + OCR directly
+  ["GOOGLE_API_KEY", "GEMINI_API_KEY"],
 ] as const
 
 /**

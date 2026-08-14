@@ -6,7 +6,8 @@ import { query } from "@/lib/db"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 import { emitSubmissionEvent } from "@/lib/sse/topics"
 import { logActivitySubmissionEvent } from "@/lib/activity-logging"
-import { invokeImageOcr } from "@/lib/ai/ocr-client"
+import { transcribeWithGemini } from "@/lib/ai/gemini-ocr"
+import { applyOcrTextPayload } from "@/lib/ai/apply-ocr-text"
 import { UploadWorksheetSubmissionBodySchema } from "@/types"
 import { clearResubmitRequest, getNextAttemptNumber } from "@/lib/server-actions/submission-attempts"
 
@@ -194,7 +195,6 @@ export async function POST(request: Request) {
     // submission row and uploaded files are already committed and must be kept.
     if (submissionId) {
       try {
-        const callbackBase = (process.env.AI_MARKING_CALLBACK_URL ?? "").replace(/\/$/, "")
         const ocrImages: Array<{ base64: string; fileName: string }> = []
         for (const img of images) {
           const { stream, error: streamError } = await storage.getFileStream(img.filePath)
@@ -207,13 +207,16 @@ export async function POST(request: Request) {
           ocrImages.push({ base64, fileName: img.fileName })
         }
 
-        await invokeImageOcr({
+        // Transcribe inline. Previously this fired at n8n and waited for a
+        // callback to /webhooks/image-to-text; now the text comes straight
+        // back and is applied through the same payload contract, which also
+        // enqueues the marking job.
+        const text = await transcribeWithGemini(ocrImages)
+
+        await applyOcrTextPayload({
           submission_id: submissionId,
-          activity_id: activityId,
-          pupil_id: userId,
-          group_assignment_id: groupAssignmentId ?? undefined,
-          webhook_url: `${callbackBase}/webhooks/image-to-text`,
-          images: ocrImages,
+          text,
+          ...(groupAssignmentId ? { group_assignment_id: groupAssignmentId } : {}),
         })
       } catch (err) {
         // Read failure OR invoke failure: mark submission as reading-error.

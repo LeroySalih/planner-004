@@ -8,11 +8,13 @@ import {
   UploadWorksheetActivityBodySchema,
   UploadWorksheetSubmissionBodySchema,
 } from "@/types";
-import { invokeAiMarking } from "./ai-marking-client";
-import { invokeWorksheetMarking, type WorksheetMarkingImage } from "./worksheet-marking-client";
-import { parseSpreadsheet } from "@/lib/spreadsheet/parse-xlsx";
+import { markWithGemini, type CriterionContext, type MarkingRequest } from "@/lib/ai/gemini-marking";
+import { applyAiMarkPayload } from "@/lib/ai/apply-ai-mark";
+import { applyRevisionMarkPayload } from "@/lib/ai/apply-revision-mark";
+import { parseSpreadsheet, type ParsedSheet } from "@/lib/spreadsheet/parse-xlsx";
 import { createLocalStorageClient } from "@/lib/storage/local-storage";
 import { emitSubmissionEvent } from "@/lib/sse/topics";
+import { logQueueEvent } from "@/lib/ai/marking-log";
 import { fetchCriterionForMarking } from "@/lib/scoring/success-criteria";
 
 /** Infer an image MIME type from a filename, for building data URIs. */
@@ -24,10 +26,31 @@ function inferImageMime(fileName: string): string {
   return "image/jpeg";
 }
 
-// The marking AI agent expects question/model_answer/marking_guidance/pupil_answer
-// on every request. Fall back to "Not Set" so no field is ever empty/undefined.
-function markingFieldOrNotSet(value: unknown): string {
-  return typeof value === "string" && value.trim() !== "" ? value : "Not Set";
+
+/**
+ * Render a parsed workbook as text for the marking model: one block per sheet,
+ * tab-separated cells, with formulas shown as `=FORMULA -> result` so guidance
+ * written about formulas can actually be checked.
+ */
+function renderSpreadsheetForMarking(sheets: ParsedSheet[]): string {
+  return sheets
+    .map((sheet) => {
+      const rows = sheet.rows
+        .map((row) =>
+          row
+            .map((cell) => {
+              if (!cell) return ""
+              if (cell.formula) {
+                return `=${cell.formula} -> ${cell.result ?? ""}`
+              }
+              return cell.value === null || cell.value === undefined ? "" : String(cell.value)
+            })
+            .join("\t"),
+        )
+        .join("\n")
+      return `--- Sheet: ${sheet.sheetName} ---\n${rows}`
+    })
+    .join("\n\n")
 }
 
 async function resolveUploadWorksheetMarkingGuidance(
@@ -51,16 +74,7 @@ async function resolveUploadWorksheetMarkingGuidance(
   return [guidanceContent, markingGuidance].filter((part) => part.trim().length > 0).join("\n\n");
 }
 
-export async function logQueueEvent(
-  level: "info" | "warn" | "error",
-  message: string,
-  metadata: any = {},
-) {
-  await query(
-    `INSERT INTO ai_marking_logs (level, message, metadata) VALUES ($1, $2, $3)`,
-    [level, message, JSON.stringify(metadata)],
-  );
-}
+export { logQueueEvent } from "@/lib/ai/marking-log";
 
 export async function enqueueMarkingTasks(
   assignmentId: string,
@@ -156,8 +170,6 @@ export async function enqueueAiMarkJob(
 }
 
 export async function processNextQueueItem() {
-  const secret = process.env.MARKING_QUEUE_SECRET;
-  const callbackUrl = process.env.AI_MARKING_CALLBACK_URL;
   const BATCH_SIZE = 5;
 
   // 1. Claim a batch of submissions by their mark_status
@@ -263,7 +275,7 @@ export async function processNextQueueItem() {
 
   // 2. Process in parallel
   const results = await Promise.allSettled(
-    claimed.map((item) => processSingleItem(item, callbackUrl)),
+    claimed.map((item) => processSingleItem(item)),
   );
 
   // 3. Check remaining
@@ -296,7 +308,6 @@ async function processSingleItem(
     attempts: number;
     job_id: string;
   },
-  callbackUrl?: string,
 ) {
   const criterionId = item.success_criteria_id ?? null;
 
@@ -389,22 +400,10 @@ async function processSingleItem(
       markStatus: "marking",
     });
 
-    // 3. Trigger DO function
-    let effectiveCallbackUrl: string | undefined;
 
-    if (callbackUrl) {
-      const normalizedBase = callbackUrl.replace(/\/$/, "");
-
-      if (item.assignment_id === "revision") {
-        effectiveCallbackUrl = `${normalizedBase}/webhooks/ai-mark-revision`;
-      } else {
-        effectiveCallbackUrl = `${normalizedBase}/webhooks/ai-mark`;
-      }
-    }
-
-    // When this job targets a single criterion, the model is asked to assess
-    // that criterion alone and max_marks becomes the criterion's ceiling — not
-    // the activity's.
+    // When this job targets a single criterion, the model assesses that
+    // criterion alone and max_marks becomes the criterion's ceiling — not the
+    // activity's.
     const criterion = criterionId
       ? await fetchCriterionForMarking(criterionId)
       : null;
@@ -413,18 +412,20 @@ async function processSingleItem(
       throw new Error(`Success criterion ${criterionId} not found`);
     }
 
-    const criterionParams = criterion
+    const criterionContext: CriterionContext | null = criterion
       ? {
-        success_criteria_id: criterion.successCriteriaId,
-        sc_type: criterion.scType,
-        sc_description: criterion.description,
+        successCriteriaId: criterion.successCriteriaId,
+        scType: criterion.scType,
+        description: criterion.description,
         descriptors: criterion.descriptors,
       }
-      : {};
+      : null;
 
     const effectiveMaxMarks = criterion
       ? criterion.available
       : (typeof context.max_marks === "number" ? context.max_marks : 1);
+
+    let markingRequest: MarkingRequest;
 
     if (context.type === "short-text-question") {
       const parsedActivity = ShortTextActivityBodySchema.parse(
@@ -434,29 +435,15 @@ async function processSingleItem(
         context.submission_body,
       );
 
-      const doParams = {
+      markingRequest = {
         question: parsedActivity.question,
-        model_answer: markingFieldOrNotSet(parsedActivity.modelAnswer),
-        marking_guidance: markingFieldOrNotSet(
-          (parsedActivity as { markingGuidance?: unknown }).markingGuidance,
-        ),
-        pupil_answer: parsedSubmission.answer || "",
-        max_marks: effectiveMaxMarks,
-        ...criterionParams,
-        webhook_url: effectiveCallbackUrl,
-        group_assignment_id: item.assignment_id,
-        activity_id: context.activity_id as string,
-        pupil_id: context.pupil_id as string,
-        submission_id: item.submission_id,
+        modelAnswer: parsedActivity.modelAnswer ?? null,
+        markingGuidance:
+          (parsedActivity as { markingGuidance?: string }).markingGuidance ?? null,
+        pupilAnswer: parsedSubmission.answer || "",
+        maxMarks: effectiveMaxMarks,
+        criterion: criterionContext,
       };
-
-      await logQueueEvent(
-        "info",
-        `Triggering n8n workflow for submission ${item.submission_id}`,
-        doParams,
-      );
-
-      await invokeAiMarking(doParams);
     } else if (context.type === "upload-spreadsheet") {
       const parsedActivity = UploadSpreadsheetActivityBodySchema.parse(
         context.activity_body,
@@ -479,35 +466,22 @@ async function processSingleItem(
       for await (const chunk of stream) {
         chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
       }
-      const buffer = Buffer.concat(chunks);
+      const spreadsheetData = await parseSpreadsheet(Buffer.concat(chunks));
 
-      const spreadsheetData = await parseSpreadsheet(buffer);
-      const spreadsheetBase64 = buffer.toString("base64");
-
-      const doParams = {
-        task: parsedActivity.task,
-        marking_guidance: parsedActivity.markingGuidance,
-        spreadsheet_base64: spreadsheetBase64,
-        spreadsheet_data: spreadsheetData,
-        max_marks: effectiveMaxMarks,
-        ...criterionParams,
-        webhook_url: effectiveCallbackUrl,
-        group_assignment_id: item.assignment_id,
-        activity_id: context.activity_id as string,
-        pupil_id: context.pupil_id as string,
-        submission_id: item.submission_id,
+      // The model reads the parsed cell grid rather than the raw file: it
+      // carries the formulas and computed values, which is what the guidance
+      // is written against.
+      markingRequest = {
+        question: parsedActivity.task,
+        modelAnswer: null,
+        markingGuidance: parsedActivity.markingGuidance,
+        pupilAnswer: renderSpreadsheetForMarking(spreadsheetData),
+        maxMarks: effectiveMaxMarks,
+        criterion: criterionContext,
       };
-
-      await logQueueEvent(
-        "info",
-        `Triggering n8n workflow for spreadsheet submission ${item.submission_id}`,
-      );
-
-      await invokeAiMarking(doParams);
     } else if (context.type === "mark-worksheet") {
-      // Mark Worksheet: no OCR. Send the pupil's images plus the teacher's
-      // worksheet + answer-sheet images and guidance directly to the
-      // ai-mark-worksheet flow (invokeWorksheetMarking), not the OCR agent.
+      // Mark Worksheet: no OCR step. The pupil's images go to the vision model
+      // alongside the teacher's blank worksheet and answer sheet.
       const parsedActivity = MarkWorksheetActivityBodySchema.parse(
         context.activity_body,
       );
@@ -518,8 +492,8 @@ async function processSingleItem(
       const storage = createLocalStorageClient("lessons");
       const toImages = async (
         list: Array<{ filePath: string; fileName: string }>,
-      ): Promise<WorksheetMarkingImage[]> => {
-        const out: WorksheetMarkingImage[] = [];
+      ): Promise<Array<{ dataUrl: string; fileName: string }>> => {
+        const out: Array<{ dataUrl: string; fileName: string }> = [];
         for (const img of list) {
           const { stream, error: streamError } = await storage.getFileStream(img.filePath);
           if (streamError || !stream) {
@@ -530,7 +504,7 @@ async function processSingleItem(
           const chunks: Buffer[] = [];
           for await (const chunk of stream) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
           const base64 = Buffer.concat(chunks).toString("base64");
-          out.push({ data_url: `data:${inferImageMime(img.fileName)};base64,${base64}`, fileName: img.fileName });
+          out.push({ dataUrl: `data:${inferImageMime(img.fileName)};base64,${base64}`, fileName: img.fileName });
         }
         return out;
       };
@@ -546,28 +520,16 @@ async function processSingleItem(
         parsedActivity.markingGuidanceId,
       );
 
-      if (!effectiveCallbackUrl) {
-        throw new Error("Callback URL not configured for worksheet marking");
-      }
-
-      await logQueueEvent(
-        "info",
-        `Triggering ai-mark-worksheet for submission ${item.submission_id}`,
-      );
-
-      await invokeWorksheetMarking({
-        submission_id: item.submission_id,
-        activity_id: context.activity_id as string,
-        pupil_id: context.pupil_id as string,
-        group_assignment_id: item.assignment_id,
-        webhook_url: effectiveCallbackUrl,
-        max_marks: effectiveMaxMarks,
-        ...criterionParams,
-        marking_guidance: resolvedMarkingGuidance,
-        worksheet_images: worksheetImages,
-        answer_images: answerImages,
-        pupil_images: pupilImages,
-      });
+      markingRequest = {
+        question:
+          "Mark the pupil's completed worksheet. The images are, in order: the blank worksheet, the answer sheet, then the pupil's work.",
+        modelAnswer: null,
+        markingGuidance: resolvedMarkingGuidance,
+        pupilAnswer: "",
+        maxMarks: effectiveMaxMarks,
+        criterion: criterionContext,
+        images: [...worksheetImages, ...answerImages, ...pupilImages],
+      };
     } else {
       const parsedActivity = UploadWorksheetActivityBodySchema.parse(
         context.activity_body,
@@ -581,33 +543,77 @@ async function processSingleItem(
         parsedActivity.markingGuidanceId,
       );
 
-      const doParams = {
-        // Upload Exam Question uses the same marking contract as short-text:
-        // question <- task, no model answer, guidance <- resolved guidance,
-        // pupil_answer <- the OCR'd text.
+      // Upload Exam Question marks the OCR'd text, so it uses the same
+      // contract as short-text: task as the question, no model answer.
+      markingRequest = {
         question: parsedActivity.task,
-        model_answer: "Not Set",
-        marking_guidance: markingFieldOrNotSet(resolvedMarkingGuidance),
-        pupil_answer: parsedSubmissionBody.extractedText ?? "",
-        max_marks: effectiveMaxMarks,
-        ...criterionParams,
-        webhook_url: effectiveCallbackUrl,
-        group_assignment_id: item.assignment_id,
-        activity_id: context.activity_id as string,
-        pupil_id: context.pupil_id as string,
-        submission_id: item.submission_id,
+        modelAnswer: null,
+        markingGuidance: resolvedMarkingGuidance,
+        pupilAnswer: parsedSubmissionBody.extractedText ?? "",
+        maxMarks: effectiveMaxMarks,
+        criterion: criterionContext,
       };
-
-      await logQueueEvent(
-        "info",
-        `Triggering n8n workflow for worksheet submission ${item.submission_id}`,
-      );
-
-      await invokeAiMarking(doParams);
     }
 
-    // Note: We don't mark as 'completed' here.
-    // The webhook callback will do that.
+    await logQueueEvent("info", `Marking submission ${item.submission_id}`, {
+      type: context.type,
+      successCriteriaId: criterionId,
+      maxMarks: effectiveMaxMarks,
+      imageCount: markingRequest.images?.length ?? 0,
+    });
+
+    const marked = await markWithGemini(markingRequest);
+
+    await logQueueEvent("info", `Marked submission ${item.submission_id}`, {
+      successCriteriaId: criterionId,
+      marksAwarded: marked.marksAwarded,
+      maxMarks: effectiveMaxMarks,
+    });
+
+    // Apply in the same pass. The payload shapes are unchanged from the webhook
+    // contract they replace, so the apply layer is untouched.
+    // The apply layer reports permanent problems (undecodable assignment id,
+    // missing activity, unsupported type) as ok:false rather than throwing.
+    // Ignoring that would resolve the job and strand the submission in
+    // 'marking' forever, so treat it as a failure of this job.
+    if (item.assignment_id === "revision") {
+      const applied = await applyRevisionMarkPayload({
+        group_assignment_id: "revision",
+        activity_id: context.activity_id as string,
+        results: [{
+          pupil_id: context.pupil_id as string,
+          score: effectiveMaxMarks > 0 ? marked.marksAwarded / effectiveMaxMarks : 0,
+          feedback: marked.feedback,
+        }],
+      });
+      if (!applied.ok) {
+        throw new Error(`Revision mark not applied: ${applied.reason ?? "unknown"}`);
+      }
+    } else {
+      const applied = await applyAiMarkPayload({
+        group_assignment_id: item.assignment_id,
+        activity_id: context.activity_id as string,
+        results: [{
+          pupil_id: context.pupil_id as string,
+          marks_awarded: marked.marksAwarded,
+          max_marks: effectiveMaxMarks,
+          feedback: marked.feedback,
+          ...(criterionId ? { success_criteria_id: criterionId } : {}),
+        }],
+      });
+      if (!applied.ok) {
+        throw new Error(`Mark not applied: ${applied.reason ?? "unknown"}`);
+      }
+      if (applied.summary && applied.summary.updated === 0 && applied.summary.created === 0) {
+        throw new Error(
+          `Mark produced no change (skipped ${applied.summary.skipped}, errors ${applied.summary.errors})`,
+        );
+      }
+    }
+
+    // The worker owns the job lifecycle now that there is no callback.
+    await resolveQueueItem(item.submission_id, criterionId);
+
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error(

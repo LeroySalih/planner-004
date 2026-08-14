@@ -5,6 +5,26 @@ import { computeScAggregate } from "@/lib/scoring/client-success-criteria"
 
 const SHORT_TEXT_CORRECTNESS_THRESHOLD = 0.8
 
+/**
+ * The comment to show for a criterion.
+ *
+ * A teacher's comment always wins. When a teacher has changed the MARK but not
+ * written a comment, the AI's comment is suppressed rather than shown: it
+ * explains a mark that no longer stands ("You earned 2 marks..." under a 3/3
+ * is worse than no explanation at all).
+ */
+export function effectiveCriterionFeedback(row: {
+  feedback: string | null
+  teacher_feedback: string | null
+  provenance: string
+}): string | null {
+  const teacher = row.teacher_feedback?.trim()
+  if (teacher) return teacher
+  if (row.provenance === "teacher") return null
+  const ai = row.feedback?.trim()
+  return ai && ai.length > 0 ? ai : null
+}
+
 export interface CriterionMarkInput {
   submissionId: string
   activityId: string
@@ -79,8 +99,11 @@ export async function recordCriterionMark(
         awarded: number
         available: number
         feedback: string | null
+        teacher_feedback: string | null
+        provenance: string
       }>(
-        `select m.success_criteria_id, m.awarded, m.available, m.feedback
+        `select m.success_criteria_id, m.awarded, m.available, m.feedback,
+                m.teacher_feedback, m.provenance
          from submission_sc_marks m
          join activity_success_criteria acs
            on acs.success_criteria_id = m.success_criteria_id
@@ -120,8 +143,8 @@ export async function recordCriterionMark(
       }
 
       const combinedFeedback = markRows
-        .map((row) => row.feedback?.trim())
-        .filter((text): text is string => Boolean(text && text.length > 0))
+        .map((row) => effectiveCriterionFeedback(row))
+        .filter((text): text is string => Boolean(text))
         .join("\n\n")
 
       // ai_model_score carries the normalised aggregate because that is what
@@ -246,8 +269,11 @@ export async function recomputeSubmissionAggregate(
         awarded: number
         available: number
         feedback: string | null
+        teacher_feedback: string | null
+        provenance: string
       }>(
-        `select m.success_criteria_id, m.awarded, m.available, m.feedback
+        `select m.success_criteria_id, m.awarded, m.available, m.feedback,
+                m.teacher_feedback, m.provenance
          from submission_sc_marks m
          join activity_success_criteria acs
            on acs.success_criteria_id = m.success_criteria_id
@@ -274,6 +300,11 @@ export async function recomputeSubmissionAggregate(
           : 0
       }
 
+      const combinedFeedback = rows
+        .map((row) => effectiveCriterionFeedback(row))
+        .filter((text): text is string => Boolean(text))
+        .join("\n\n")
+
       await client.query(
         `update submissions
          set body = (
@@ -284,7 +315,8 @@ export async function recomputeSubmissionAggregate(
              'sc_marks_awarded', $3::int,
              'sc_marks_available', $4::int,
              'is_correct', $5::boolean,
-             'success_criteria_scores', $6::jsonb
+             'success_criteria_scores', $6::jsonb,
+             'ai_model_feedback', $7::text
            )
          )::json
          where submission_id = $1`,
@@ -295,6 +327,7 @@ export async function recomputeSubmissionAggregate(
           aggregate.available,
           aggregate.normalised >= SHORT_TEXT_CORRECTNESS_THRESHOLD,
           JSON.stringify(criterionScores),
+          combinedFeedback.length > 0 ? combinedFeedback : null,
         ],
       )
 

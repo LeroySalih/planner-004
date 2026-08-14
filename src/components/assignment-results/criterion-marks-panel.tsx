@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import {
   readSubmissionScMarksAction,
+  updateScFeedbackAction,
   updateScMarkAction,
   type ScMarkRow,
 } from "@/lib/server-actions/sc-marks"
@@ -14,6 +15,9 @@ interface CriterionMarksPanelProps {
   submissionId: string
   /** Called after an override so the caller can refresh its own totals. */
   onAggregateChange?: (aggregate: { awarded: number; available: number } | null) => void
+  /** Reports how many criteria were found, so the caller can avoid repeating
+   *  the concatenated feedback below this panel. Called with 0 when none. */
+  onLoaded?: (count: number) => void
 }
 
 /**
@@ -24,17 +28,20 @@ interface CriterionMarksPanelProps {
  * of its criteria (Q7), so there is no separate whole-activity override. An
  * edited criterion is stamped `teacher` and survives a re-mark.
  */
-export function CriterionMarksPanel({ submissionId, onAggregateChange }: CriterionMarksPanelProps) {
+export function CriterionMarksPanel({ submissionId, onAggregateChange, onLoaded }: CriterionMarksPanelProps) {
   const [marks, setMarks] = useState<ScMarkRow[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [isPending, startTransition] = useTransition()
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
 
   const load = useCallback(async () => {
     setLoading(true)
     const result = await readSubmissionScMarksAction(submissionId)
-    setMarks(result.data ?? [])
+    const next = result.data ?? []
+    setMarks(next)
     setLoading(false)
-  }, [submissionId])
+    onLoaded?.(next.length)
+  }, [submissionId, onLoaded])
 
   useEffect(() => {
     void load()
@@ -51,7 +58,15 @@ export function CriterionMarksPanel({ submissionId, onAggregateChange }: Criteri
         prev
           ? prev.map((mark) =>
               mark.success_criteria_id === successCriteriaId
-                ? { ...mark, awarded, provenance: "teacher" as const }
+                ? {
+                    ...mark,
+                    awarded,
+                    provenance: "teacher" as const,
+                    // The AI's comment explained the previous mark, so it stops
+                    // being shown the moment the teacher changes it. Mirrors
+                    // effectiveCriterionFeedback on the server.
+                    feedback: mark.teacher_feedback ?? null,
+                  }
                 : mark,
             )
           : prev,
@@ -61,6 +76,27 @@ export function CriterionMarksPanel({ submissionId, onAggregateChange }: Criteri
         aggregate ? { awarded: aggregate.awarded, available: aggregate.available } : null,
       )
       toast.success("Criterion mark updated.")
+    })
+  }
+
+  const saveFeedback = (successCriteriaId: string, feedback: string) => {
+    startTransition(async () => {
+      const result = await updateScFeedbackAction({ submissionId, successCriteriaId, feedback })
+      if (result.error) {
+        toast.error(result.error)
+        return
+      }
+      const saved = result.data?.feedback ?? null
+      setMarks((prev) =>
+        prev
+          ? prev.map((mark) =>
+              mark.success_criteria_id === successCriteriaId
+                ? { ...mark, teacher_feedback: saved, feedback: saved ?? mark.feedback }
+                : mark,
+            )
+          : prev,
+      )
+      toast.success(saved ? "Comment saved." : "Comment cleared.")
     })
   }
 
@@ -139,11 +175,37 @@ export function CriterionMarksPanel({ submissionId, onAggregateChange }: Criteri
               </p>
             ) : null}
 
-            {mark.feedback ? (
+            {/* The AI's comment, shown only while the teacher has not taken
+                over this criterion. effectiveCriterionFeedback already
+                suppresses it once the mark is overridden. */}
+            {!mark.teacher_feedback && mark.feedback ? (
               <p className="mt-2 border-l-2 border-border pl-2 text-xs text-muted-foreground">
                 {mark.feedback}
               </p>
             ) : null}
+
+            {mark.provenance === "teacher" && !mark.teacher_feedback ? (
+              <p className="mt-2 text-xs italic text-muted-foreground">
+                You changed this mark — the AI&apos;s comment no longer applies. Add your own below.
+              </p>
+            ) : null}
+
+            <textarea
+              value={drafts[mark.success_criteria_id] ?? mark.teacher_feedback ?? ""}
+              disabled={isPending}
+              placeholder="Your comment for this criterion (overrides the AI's)"
+              rows={2}
+              onChange={(event) =>
+                setDrafts((prev) => ({ ...prev, [mark.success_criteria_id]: event.target.value }))
+              }
+              onBlur={(event) => {
+                const next = event.target.value.trim()
+                if (next !== (mark.teacher_feedback ?? "")) {
+                  saveFeedback(mark.success_criteria_id, next)
+                }
+              }}
+              className="mt-2 w-full rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+            />
           </li>
         ))}
       </ul>

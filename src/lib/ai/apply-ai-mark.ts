@@ -21,7 +21,7 @@ import {
 import { emitSubmissionEvent } from "@/lib/sse/topics";
 import { insertPupilActivityFeedbackEntry } from "@/lib/feedback/pupil-activity-feedback";
 import { query } from "@/lib/db";
-import { logQueueEvent, resolveQueueItem } from "@/lib/ai/marking-queue";
+import { logQueueEvent } from "@/lib/ai/marking-log";
 import { getNextAttemptNumber } from "@/lib/server-actions/submission-attempts";
 
 const SHORT_TEXT_ACTIVITY_TYPE = "short-text-question";
@@ -218,7 +218,6 @@ export async function applyAiMarkPayload(json: unknown): Promise<ApplyAiMarkResu
           summary.skipped += 1;
         }
 
-        await resolveQueueItem(existingSubmission.submission_id, resultCriterionId);
         continue;
       }
 
@@ -235,7 +234,6 @@ export async function applyAiMarkPayload(json: unknown): Promise<ApplyAiMarkResu
         if (updated?.updated) {
           summary.updated += 1;
           if (updated.payload) realtimeEvents.push(updated.payload);
-          await resolveQueueItem(existingSubmission.submission_id);
         } else {
           summary.skipped += 1;
         }
@@ -259,7 +257,6 @@ export async function applyAiMarkPayload(json: unknown): Promise<ApplyAiMarkResu
           if (created.payload) {
             realtimeEvents.push(created.payload);
             if (created.payload.submissionId) {
-              await resolveQueueItem(created.payload.submissionId);
             }
           }
         } else {

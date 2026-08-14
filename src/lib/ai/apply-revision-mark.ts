@@ -3,7 +3,7 @@ import "server-only";
 import { z } from "zod";
 
 import { query } from "@/lib/db";
-import { logQueueEvent, resolveQueueItem } from "@/lib/ai/marking-queue";
+import { logQueueEvent } from "@/lib/ai/marking-log";
 
 const ValidationSchema = z.object({
   group_assignment_id: z.literal("revision"),
@@ -68,7 +68,6 @@ export async function applyRevisionMarkPayload(json: unknown): Promise<ApplyRevi
           [aiScore, feedback, targetAnswer.answer_id],
         );
 
-        await resolveQueueItem(targetAnswer.answer_id);
         await logQueueEvent("info", "Revision answer marked via webhook", {
           answerId: targetAnswer.answer_id,
           score: aiScore,

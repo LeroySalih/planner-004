@@ -4,7 +4,10 @@ import { z } from "zod"
 
 import { query } from "@/lib/db"
 import { requireAuthenticatedProfile, requireRole } from "@/lib/auth"
-import { recomputeSubmissionAggregate } from "@/lib/scoring/aggregate-sc-marks"
+import {
+  effectiveCriterionFeedback,
+  recomputeSubmissionAggregate,
+} from "@/lib/scoring/aggregate-sc-marks"
 import { emitSubmissionEvent } from "@/lib/sse/topics"
 import { withTelemetry } from "@/lib/telemetry"
 
@@ -15,7 +18,10 @@ const ScMarkRowSchema = z.object({
   descriptors: z.array(z.string()),
   awarded: z.number().int().min(0),
   available: z.number().int().min(1),
+  /** The comment to display: teacher's if set, otherwise the AI's. */
   feedback: z.string().nullable(),
+  /** The teacher's own comment, for editing. Null when they have not written one. */
+  teacher_feedback: z.string().nullable(),
   provenance: z.enum(["ai", "teacher", "legacy"]),
 })
 
@@ -40,6 +46,7 @@ export async function readSubmissionScMarksAction(submissionId: string) {
         awarded: number
         available: number
         feedback: string | null
+        teacher_feedback: string | null
         provenance: string
       }>(
         `select m.success_criteria_id,
@@ -56,6 +63,7 @@ export async function readSubmissionScMarksAction(submissionId: string) {
                 m.awarded,
                 m.available,
                 m.feedback,
+                m.teacher_feedback,
                 m.provenance
          from submission_sc_marks m
          join success_criteria sc on sc.success_criteria_id = m.success_criteria_id
@@ -72,7 +80,8 @@ export async function readSubmissionScMarksAction(submissionId: string) {
           descriptors: row.descriptors ?? [],
           awarded: Number(row.awarded),
           available: Number(row.available),
-          feedback: row.feedback,
+          feedback: effectiveCriterionFeedback(row),
+          teacher_feedback: row.teacher_feedback,
           provenance: ["ai", "teacher", "legacy"].includes(row.provenance) ? row.provenance : "ai",
         })
       )
@@ -86,15 +95,23 @@ export async function readSubmissionScMarksAction(submissionId: string) {
 }
 
 /**
- * Pupil-facing read of their OWN criterion marks for an activity.
+ * Criterion marks for one pupil's latest submission to an activity.
  *
- * Separate from readSubmissionScMarksAction, which is teacher-gated. Scoped by
- * construction: the submission is resolved from the caller's own id, so there
- * is no submission identifier a pupil could substitute to read someone else's
- * breakdown. A teacher previewing sees their own preview submission.
+ * `pupilId` defaults to the caller, which is the pupil's own view. A different
+ * pupil may only be requested by a teacher — `/pupil-lessons/[pupilId]` is a
+ * teacher-facing route, so without this a teacher viewing a pupil's work would
+ * silently see their own (empty) marks instead of the pupil's.
  */
-export async function readMyScMarksForActivityAction(activityId: string) {
+export async function readMyScMarksForActivityAction(
+  activityId: string,
+  pupilId?: string,
+) {
   const profile = await requireAuthenticatedProfile()
+
+  const targetPupilId = pupilId ?? profile.userId
+  if (targetPupilId !== profile.userId) {
+    await requireRole("teacher")
+  }
 
   try {
     const { rows } = await query<{
@@ -105,6 +122,8 @@ export async function readMyScMarksForActivityAction(activityId: string) {
       awarded: number
       available: number
       feedback: string | null
+      teacher_feedback: string | null
+      provenance: string
     }>(
       `with latest as (
          select submission_id
@@ -126,12 +145,14 @@ export async function readMyScMarksForActivityAction(activityId: string) {
               ) as descriptors,
               m.awarded,
               m.available,
-              m.feedback
+              m.feedback,
+              m.teacher_feedback,
+              m.provenance
        from submission_sc_marks m
        join latest on latest.submission_id = m.submission_id
        join success_criteria sc on sc.success_criteria_id = m.success_criteria_id
        order by sc.order_index, sc.success_criteria_id`,
-      [activityId, profile.userId],
+      [activityId, targetPupilId],
     )
 
     const data = rows.map((row) => ({
@@ -141,7 +162,7 @@ export async function readMyScMarksForActivityAction(activityId: string) {
       descriptors: row.descriptors ?? [],
       awarded: Number(row.awarded),
       available: Number(row.available),
-      feedback: row.feedback,
+      feedback: effectiveCriterionFeedback(row),
     }))
 
     return { data, error: null }
@@ -163,6 +184,8 @@ export async function updateScMarkAction(input: {
   submissionId: string
   successCriteriaId: string
   awarded: number
+  /** Optional teacher comment saved alongside the mark. */
+  feedback?: string | null
 }) {
   return withTelemetry(
     { routeTag: "sc-marks", functionName: "updateScMarkAction", params: { submissionId: input.submissionId } },
@@ -196,11 +219,26 @@ export async function updateScMarkAction(input: {
         }
       }
 
+      const trimmedFeedback = typeof input.feedback === "string"
+        ? input.feedback.trim()
+        : undefined
+
       await query(
         `update submission_sc_marks
-         set awarded = $3, provenance = 'teacher', marked_at = timezone('utc', now())
+         set awarded = $3,
+             provenance = 'teacher',
+             teacher_feedback = case when $4::boolean
+                                     then nullif($5::text, '')
+                                     else teacher_feedback end,
+             marked_at = timezone('utc', now())
          where submission_id = $1 and success_criteria_id = $2`,
-        [input.submissionId, input.successCriteriaId, input.awarded],
+        [
+          input.submissionId,
+          input.successCriteriaId,
+          input.awarded,
+          trimmedFeedback !== undefined,
+          trimmedFeedback ?? null,
+        ],
       )
 
       const aggregate = await recomputeSubmissionAggregate(input.submissionId, row.activity_id)
@@ -231,4 +269,50 @@ export async function updateScMarkAction(input: {
       return { data: null, error: "Unable to update criterion mark." }
     }
   })
+}
+
+/**
+ * Set (or clear) a teacher's comment on one criterion, without changing the
+ * mark. The comment always overrides the AI's wherever it is displayed, and the
+ * submission's combined feedback is refreshed so reports see it too.
+ */
+export async function updateScFeedbackAction(input: {
+  submissionId: string
+  successCriteriaId: string
+  feedback: string | null
+}) {
+  await requireRole("teacher")
+
+  try {
+    const { rows } = await query<{ activity_id: string }>(
+      `select s.activity_id
+       from submission_sc_marks m
+       join submissions s on s.submission_id = m.submission_id
+       where m.submission_id = $1 and m.success_criteria_id = $2
+       limit 1`,
+      [input.submissionId, input.successCriteriaId],
+    )
+
+    const activityId = rows[0]?.activity_id
+    if (!activityId) {
+      return { data: null, error: "No mark exists for that criterion yet." }
+    }
+
+    const trimmed = input.feedback?.trim() ?? ""
+
+    await query(
+      `update submission_sc_marks
+       set teacher_feedback = nullif($3::text, ''), marked_at = timezone('utc', now())
+       where submission_id = $1 and success_criteria_id = $2`,
+      [input.submissionId, input.successCriteriaId, trimmed],
+    )
+
+    // Refresh the submission's combined feedback (scores are unchanged).
+    await recomputeSubmissionAggregate(input.submissionId, activityId)
+
+    return { data: { feedback: trimmed || null }, error: null }
+  } catch (error) {
+    console.error("[sc-marks] updateScFeedbackAction:error", error)
+    return { data: null, error: "Unable to save criterion feedback." }
+  }
 }

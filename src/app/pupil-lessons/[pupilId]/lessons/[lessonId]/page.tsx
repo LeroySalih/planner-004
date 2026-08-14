@@ -1110,6 +1110,7 @@ export default async function PupilLessonFriendlyPage({
                     <ActivityMotion key={activity.activity_id} id={`activity-${activity.activity_id}`}>
                       <LiveActivityShell
                         activityId={activity.activity_id}
+                        pupilId={pupilId}
                         question={opts.question ?? getActivityQuestion(activity)}
                         activityIndex={index + 1}
                         activityTotal={totalActivities}
