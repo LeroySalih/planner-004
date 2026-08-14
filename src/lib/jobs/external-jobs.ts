@@ -154,7 +154,9 @@ export async function recoverStuckJobs(): Promise<void> {
 /** Prune old completed jobs so the table stays small. Keeps errors for review. */
 export async function pruneDoneJobs(): Promise<void> {
   await query(
-    `delete from external_jobs where status='done' and updated_at < now() - interval '7 days' and job_type <> 'ai_mark'`,
+    // ai_mark rows are included: they hold the model request/response/duration
+    // for review, and seven days is long enough to investigate a marking run.
+    `delete from external_jobs where status='done' and updated_at < now() - interval '7 days'`,
   );
 }
 

@@ -52,12 +52,12 @@ export async function transcribeWithGemini(images: OcrImage[]): Promise<string> 
     })
   }
 
-  const text = await callGemini({
+  const result = await callGemini({
     systemText: SYSTEM,
     parts,
     temperature: 0,
     timeoutMs: 180_000,
   })
 
-  return text.trim()
+  return result.text.trim()
 }

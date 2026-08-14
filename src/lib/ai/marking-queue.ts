@@ -568,7 +568,26 @@ async function processSingleItem(
       successCriteriaId: criterionId,
       marksAwarded: marked.marksAwarded,
       maxMarks: effectiveMaxMarks,
+      durationMs: marked.call.durationMs,
+      attempts: marked.call.attempts,
     });
+
+    // Keep the call on the job row so a marking run can be reviewed later:
+    // what was asked, what came back, how long it took.
+    await query(
+      `update external_jobs
+       set model_request = $2::jsonb,
+           model_response = $3::jsonb,
+           duration_ms = $4,
+           updated_at = now()
+       where job_id = $1`,
+      [
+        item.job_id,
+        JSON.stringify(marked.call.request),
+        JSON.stringify(marked.call.response),
+        marked.call.durationMs,
+      ],
+    );
 
     // Apply in the same pass. The payload shapes are unchanged from the webhook
     // contract they replace, so the apply layer is untouched.
@@ -779,9 +798,17 @@ export async function triggerQueueProcessor(baseUrl?: string) {
 }
 
 export async function pruneCompletedQueueItems() {
-  // Remove finished ai_mark jobs. Errors are retained for review (pruned by the
-  // generic 7-day sweep only for other job types).
-  await query(`delete from external_jobs where job_type='ai_mark' and status='done'`);
+  // Finished ai_mark jobs are NOT deleted on completion any more — they carry
+  // the model request, response and duration, which is the point of recording
+  // them. They age out with everything else on the generic 7-day sweep
+  // (pruneDoneJobs in lib/jobs/external-jobs.ts).
+  //
+  // Rows from before that change have no call details and no longer serve a
+  // purpose, so clear those out.
+  await query(
+    `delete from external_jobs
+     where job_type='ai_mark' and status='done' and model_request is null`,
+  );
 }
 
 export async function recoverStuckItems() {

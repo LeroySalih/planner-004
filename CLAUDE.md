@@ -231,6 +231,32 @@ An activity with success criteria is marked **once per criterion** — one
 - The prompt must state that **0 is a valid score**. Without it the model
   anchors to the lowest descriptor and silently inflates every mark.
 
+### Reviewing marking runs
+
+Every `ai_mark` job records its model call on the queue row: `model_request`
+(prompt, system text, per-image metadata), `model_response` (parsed marks,
+feedback, raw reply truncated to 4 000 chars) and `duration_ms`.
+
+**Base64 image data is deliberately not stored** — a worksheet request carries
+several MB of it. Only `{fileName, mimeType, bytes}` per image is kept.
+
+Completed `ai_mark` rows are no longer deleted on completion; they age out on
+the generic 7-day sweep (`pruneDoneJobs`) along with every other job type.
+
+```sql
+-- slowest marking calls in the last day
+select duration_ms,
+       model_request->>'model'        as model,
+       model_request->>'scType'       as sc_type,
+       (model_response->>'marksAwarded')::int as awarded,
+       payload->>'submissionId'       as submission
+from external_jobs
+where job_type = 'ai_mark' and model_request is not null
+  and updated_at > now() - interval '1 day'
+order by duration_ms desc
+limit 20;
+```
+
 Gather is concurrency-sensitive: `processNextQueueItem` runs a batch through
 `Promise.allSettled`, so sibling criterion results for one submission arrive
 together. `recordCriterionMark` takes `select … for update` on the submission
