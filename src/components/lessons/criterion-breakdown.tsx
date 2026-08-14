@@ -21,19 +21,31 @@ interface CriterionBreakdownRow {
  *
  * Only rendered once feedback is released — the caller decides that.
  */
-export function CriterionBreakdown({ activityId }: { activityId: string }) {
+export function CriterionBreakdown({
+  activityId,
+  pupilId,
+  onLoaded,
+}: {
+  activityId: string
+  pupilId?: string
+  /** Reports how many criteria were found, so the caller can avoid showing
+   *  the concatenated feedback twice. Called with 0 when there are none. */
+  onLoaded?: (count: number) => void
+}) {
   const [rows, setRows] = useState<CriterionBreakdownRow[] | null>(null)
 
   useEffect(() => {
     let cancelled = false
-    void readMyScMarksForActivityAction(activityId).then((result) => {
+    void readMyScMarksForActivityAction(activityId, pupilId).then((result) => {
       if (cancelled) return
-      setRows((result.data as CriterionBreakdownRow[] | null) ?? [])
+      const next = (result.data as CriterionBreakdownRow[] | null) ?? []
+      setRows(next)
+      onLoaded?.(next.length)
     })
     return () => {
       cancelled = true
     }
-  }, [activityId])
+  }, [activityId, pupilId, onLoaded])
 
   if (!rows || rows.length === 0) {
     return null

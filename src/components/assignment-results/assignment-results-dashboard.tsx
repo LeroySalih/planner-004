@@ -530,6 +530,7 @@ export function AssignmentResultsDashboard({
   const [attempts, setAttempts] = useState<Submission[]>([])
   const [attemptsLoading, setAttemptsLoading] = useState(false)
   const [viewingAttempt, setViewingAttempt] = useState<Submission | null>(null)
+  const [attemptCriterionCount, setAttemptCriterionCount] = useState(0)
   const [viewingAttemptFileUrl, setViewingAttemptFileUrl] = useState<string | null>(null)
   const [viewingAttemptFileLoading, setViewingAttemptFileLoading] = useState(false)
   const [viewingAttemptImageUrls, setViewingAttemptImageUrls] = useState<
@@ -4327,7 +4328,14 @@ export function AssignmentResultsDashboard({
                     ) : null}
 
                     <div className="rounded-md border border-border/60 bg-muted/40 p-3">
-                      <CriterionMarksPanel submissionId={viewingAttempt.submission_id} />
+                      <CriterionMarksPanel
+                        submissionId={viewingAttempt.submission_id}
+                        onLoaded={setAttemptCriterionCount}
+                        // A criterion override changes the submission total, so
+                        // pull the matrix again — otherwise the grid and the
+                        // side panel keep showing the pre-override score.
+                        onAggregateChange={() => router.refresh()}
+                      />
                     </div>
 
                     {isWorksheet ? (
@@ -4411,19 +4419,24 @@ export function AssignmentResultsDashboard({
                       </div>
                     ) : null}
 
-                    <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-primary">
-                        Automatic feedback
-                      </p>
-                      {autoFeedbackHtml ? (
-                        <div
-                          className="prose prose-sm mt-1 max-w-none text-sm text-foreground dark:prose-invert"
-                          dangerouslySetInnerHTML={{ __html: autoFeedbackHtml }}
-                        />
-                      ) : (
-                        <p className="text-sm text-foreground">No automatic feedback available.</p>
-                      )}
-                    </div>
+                    {/* When a per-criterion breakdown is shown its comments
+                        already cover the answer; the concatenated version here
+                        would just repeat them. */}
+                    {attemptCriterionCount > 0 ? null : (
+                      <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                          Automatic feedback
+                        </p>
+                        {autoFeedbackHtml ? (
+                          <div
+                            className="prose prose-sm mt-1 max-w-none text-sm text-foreground dark:prose-invert"
+                            dangerouslySetInnerHTML={{ __html: autoFeedbackHtml }}
+                          />
+                        ) : (
+                          <p className="text-sm text-foreground">No automatic feedback available.</p>
+                        )}
+                      </div>
+                    )}
 
                     <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
                       <p className="text-xs font-semibold uppercase tracking-wide text-amber-600">

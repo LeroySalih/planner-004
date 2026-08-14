@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, type ReactNode } from "react"
+import { useCallback, useMemo, useState, type ReactNode } from "react"
 import { renderFeedbackMarkup } from "@/lib/markdown-latex"
 import { PupilActivityShell } from "@/components/pupil-activity/pupil-activity-shell"
 import { CriterionBreakdown } from "@/components/lessons/criterion-breakdown"
@@ -8,6 +8,8 @@ import { useFeedbackVisibility } from "./feedback-visibility-debug"
 
 export interface LiveActivityShellProps {
   activityId: string
+  /** Whose work is being shown. Teachers view other pupils on this route. */
+  pupilId?: string
   question: string
   activityIndex: number
   activityTotal: number
@@ -40,6 +42,7 @@ export interface LiveActivityShellProps {
  */
 export function LiveActivityShell({
   activityId,
+  pupilId,
   question,
   activityIndex,
   activityTotal,
@@ -58,6 +61,10 @@ export function LiveActivityShell({
   children,
 }: LiveActivityShellProps) {
   const { currentVisible, markingResults } = useFeedbackVisibility()
+  // When a per-criterion breakdown is shown, its comments already cover the
+  // whole answer — repeating the concatenated version above it is noise.
+  const [criterionCount, setCriterionCount] = useState(0)
+  const handleCriteriaLoaded = useCallback((count: number) => setCriterionCount(count), [])
   const contextResult = markingResults.get(activityId)
 
   // Context (live) result wins over the server-rendered values.
@@ -88,7 +95,7 @@ export function LiveActivityShell({
           Preview — pupils can&apos;t see this until you release feedback for the assignment.
         </p>
       ) : null}
-      {feedbackMarkup ? (
+      {criterionCount > 0 ? null : feedbackMarkup ? (
         <div dangerouslySetInnerHTML={{ __html: feedbackMarkup }} />
       ) : (
         <p className="text-pa-muted-2">No written feedback yet.</p>
@@ -96,7 +103,7 @@ export function LiveActivityShell({
       {/* Per-criterion breakdown (Q11). Renders nothing when the activity has
           no criteria, so it is safe to include unconditionally here. */}
       <div className="mt-3">
-        <CriterionBreakdown activityId={activityId} />
+        <CriterionBreakdown activityId={activityId} pupilId={pupilId} onLoaded={handleCriteriaLoaded} />
       </div>
       {modelAnswerMarkup ? (
         <div className="mt-3 border-t border-pa-green-border pt-3">
