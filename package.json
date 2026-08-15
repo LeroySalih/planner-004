@@ -54,7 +54,6 @@
     "@tiptap/pm": "^3.20.1",
     "@tiptap/react": "^3.20.1",
     "@tiptap/starter-kit": "^3.20.1",
-    "@vercel/analytics": "1.6.1",
     "archiver": "^7.0.1",
     "autoprefixer": "^10.4.22",
     "bcryptjs": "^3.0.3",
@@ -112,6 +111,9 @@
     "typescript": "^5"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["sharp", "unrs-resolver"]
+    "onlyBuiltDependencies": [
+      "sharp",
+      "unrs-resolver"
+    ]
   }
 }

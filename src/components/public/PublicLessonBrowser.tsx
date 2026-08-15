@@ -137,6 +137,10 @@ export function PublicLessonBrowser({ lessons, returnTo }: PublicLessonBrowserPr
                   src="/hero-pupils.png"
                   alt="Students with subject crates"
                   fill
+                  // Hidden below sm, half-width above it. Without this Next
+                  // assumes 100vw and fetches the 3840px candidate for an
+                  // image that renders around 540px on a laptop.
+                  sizes="(min-width: 640px) 50vw, 1px"
                   className="object-contain object-bottom drop-shadow-sm"
                   priority
                 />

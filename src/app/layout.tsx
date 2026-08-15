@@ -5,7 +5,6 @@ import { GeistSans } from "geist/font/sans"
 import "./globals.css"
 import "katex/dist/katex.min.css"
 
-import { Analytics } from "@vercel/analytics/next"
 import { Toaster } from "@/components/ui/sonner"
 
 import { TopBar } from "@/components/navigation/top-bar"
@@ -33,7 +32,6 @@ export default async function RootLayout({
               <main className="min-w-0 flex-1">{children}</main>
             </div>
           </div>
-          <Analytics />
           <Toaster />
           <StaleDeploymentDetector />
         </ThemeProvider>

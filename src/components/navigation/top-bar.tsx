@@ -62,7 +62,7 @@ export function TopBar() {
             src="/header-logo.png"
             alt="Planner"
             width={48}
-            height={16}
+            height={48}
             priority
             className="h-auto w-auto dark:hidden"
           />
@@ -70,7 +70,7 @@ export function TopBar() {
             src="/header-logo-dark.png"
             alt="Planner"
             width={48}
-            height={16}
+            height={48}
             priority
             className="hidden h-auto w-auto dark:block"
           />
