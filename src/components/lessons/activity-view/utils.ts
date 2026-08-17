@@ -4,6 +4,7 @@ import type {
   LessonActivity,
   LongTextActivityBody,
   ShortTextActivityBody,
+  UploadCodeActivityBody,
   UploadSpreadsheetActivityBody,
   UploadUrlActivityBody,
   UploadWorksheetActivityBody,
@@ -538,6 +539,22 @@ export function getLongTextBody(activity: LessonActivity): LongTextBody {
     ...(record as Record<string, unknown>),
     question,
   } as LongTextBody;
+}
+
+export function getUploadCodeBody(activity: LessonActivity): UploadCodeActivityBody {
+  const empty = { task: "", markingGuidance: "", language: "python", starterCode: "" };
+  if (!activity.body_data || typeof activity.body_data !== "object") {
+    return empty as UploadCodeActivityBody;
+  }
+
+  const record = activity.body_data as Record<string, unknown>;
+  return {
+    ...record,
+    task: typeof record.task === "string" ? record.task : "",
+    markingGuidance: typeof record.markingGuidance === "string" ? record.markingGuidance : "",
+    language: typeof record.language === "string" && record.language.trim() ? record.language : "python",
+    starterCode: typeof record.starterCode === "string" ? record.starterCode : "",
+  } as UploadCodeActivityBody;
 }
 
 export function getUploadSpreadsheetBody(activity: LessonActivity): UploadSpreadsheetActivityBody {

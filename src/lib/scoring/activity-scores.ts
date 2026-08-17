@@ -1,4 +1,5 @@
 import {
+  UploadCodeSubmissionBodySchema,
   type GroupItemsResult,
   GroupItemsSubmissionBodySchema,
   LegacyMcqSubmissionBodySchema,
@@ -517,10 +518,17 @@ export function extractScoreFromSubmission(
     };
   }
 
-  if (activityType === "upload-spreadsheet" || activityType === "upload-worksheet" || activityType === "mark-worksheet") {
+  if (
+    activityType === "upload-spreadsheet" ||
+    activityType === "upload-worksheet" ||
+    activityType === "mark-worksheet" ||
+    activityType === "upload-code"
+  ) {
     const submissionBodySchema = activityType === "upload-spreadsheet"
       ? UploadSpreadsheetSubmissionBodySchema
-      : UploadWorksheetSubmissionBodySchema;
+      : activityType === "upload-code"
+        ? UploadCodeSubmissionBodySchema
+        : UploadWorksheetSubmissionBodySchema;
     const parsed = submissionBodySchema.safeParse(submissionBody);
     const fallbackScores = normaliseSuccessCriteriaScores({
       successCriteriaIds,
@@ -532,8 +540,13 @@ export function extractScoreFromSubmission(
         extractedText?: string | null;
         fileName?: string | null;
         images?: unknown[];
+        code?: string | null;
       };
-      const pupilAnswer = activityType !== "upload-spreadsheet"
+      const pupilAnswer = activityType === "upload-code"
+        ? typeof worksheetData.code === "string" && worksheetData.code.trim()
+          ? worksheetData.code
+          : null
+        : activityType !== "upload-spreadsheet"
         ? typeof worksheetData.extractedText === "string" && worksheetData.extractedText.trim()
           ? worksheetData.extractedText
           : worksheetData.fileName?.trim()
@@ -541,8 +554,8 @@ export function extractScoreFromSubmission(
             : worksheetData.images?.length
               ? `${worksheetData.images.length} image(s) uploaded`
               : null
-        : parsed.data.fileName?.trim()
-          ? `Uploaded: ${parsed.data.fileName.trim()}`
+        : worksheetData.fileName?.trim()
+          ? `Uploaded: ${worksheetData.fileName.trim()}`
           : null;
       const hasAnswer = Boolean(pupilAnswer);
       const auto = typeof parsed.data.ai_model_score === "number" &&

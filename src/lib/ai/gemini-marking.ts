@@ -13,6 +13,9 @@ export interface CriterionContext {
 export interface MarkingRequest {
   /** Overrides the default marking model for this call. */
   model?: string
+  /** Set for upload-code: the pupil's answer is source in this language and
+   *  feedback must never contain a working solution. */
+  code?: { source: string; language: string } | null
   question: string
   modelAnswer: string | null
   markingGuidance: string | null
@@ -125,8 +128,56 @@ function wholeActivityInstruction(maxMarks: number): string {
   return `Award a whole number of marks from 0 to ${maxMarks}. 0 is a valid score.`
 }
 
+/**
+ * Extra instruction for code marking.
+ *
+ * The hard requirement is that feedback never hands back a solution. A pupil
+ * who is told "here is the corrected function" has learned nothing and the
+ * activity is worthless. Naming a construct is fine; writing their answer is
+ * not.
+ */
+function codeInstruction(language: string): string {
+  return `The pupil's answer is ${language} source code. Read it as a whole:
+consider whether it solves the task, whether the logic is correct, and whether
+it would actually run.
+
+**Never write a working solution.** Do not output corrected code, completed
+functions, or a rewritten version of the pupil's program — not even partially.
+You may name a construct or built-in ("you need a loop here", "look at
+\`range()\`", "your condition is inverted"), and you may quote a SHORT fragment
+of the PUPIL'S OWN code to point at a problem. You must not supply the code
+that would fix it.
+
+Say what is wrong, where, and what the pupil should think about. Leave the
+fixing to them.`
+}
+
 function fieldOrNotSet(value: string | null | undefined): string {
   return typeof value === "string" && value.trim() !== "" ? value : "Not Set"
+}
+
+/**
+ * Remove handed-back solutions from code feedback.
+ *
+ * The prompt forbids writing working code, but a prompt is guidance, not a
+ * guarantee — and the cost of it being ignored is a pupil handed the answer.
+ * Fenced blocks longer than SOLUTION_LINE_LIMIT are replaced with a note.
+ *
+ * Short fences survive deliberately: "use `range()`" or a two-line quote of the
+ * pupil's own code pointing at a bug are useful and are not solutions. This
+ * catches the case that actually matters — a pasted working program.
+ */
+const SOLUTION_LINE_LIMIT = 3
+const FENCED_BLOCK = /```[^\n]*\n([\s\S]*?)```/g
+
+export function stripSolutionCode(feedback: string): string {
+  return feedback
+    .replace(FENCED_BLOCK, (match, body: string) => {
+      const lines = body.split("\n").filter((line) => line.trim().length > 0)
+      if (lines.length <= SOLUTION_LINE_LIMIT) return match
+      return "_(a code sample was removed here — work out the fix from the points above)_"
+    })
+    .trim()
 }
 
 /**
@@ -140,15 +191,22 @@ function fieldOrNotSet(value: string | null | undefined): string {
 export async function markWithGemini(request: MarkingRequest): Promise<MarkingResult> {
   const maxMarks = Math.max(1, Math.floor(request.maxMarks))
 
-  const instruction = request.criterion
-    ? criterionInstruction(request.criterion, maxMarks)
-    : wholeActivityInstruction(maxMarks)
+  const instruction = [
+    request.criterion
+      ? criterionInstruction(request.criterion, maxMarks)
+      : wholeActivityInstruction(maxMarks),
+    request.code ? codeInstruction(request.code.language) : null,
+  ]
+    .filter(Boolean)
+    .join("\n\n")
 
   const textBlock = [
     `QUESTION / TASK:\n${fieldOrNotSet(request.question)}`,
     `MODEL ANSWER:\n${fieldOrNotSet(request.modelAnswer)}`,
     `MARKING GUIDANCE:\n${fieldOrNotSet(request.markingGuidance)}`,
-    request.images?.length
+    request.code
+      ? `PUPIL SUBMISSION (${request.code.language}):\n\`\`\`${request.code.language}\n${request.code.source || "(no code submitted)"}\n\`\`\``
+      : request.images?.length
       ? "PUPIL ANSWER: see the attached images."
       : `PUPIL ANSWER:\n${request.pupilAnswer || "(no answer given)"}`,
   ].join("\n\n")
@@ -182,7 +240,10 @@ export async function markWithGemini(request: MarkingRequest): Promise<MarkingRe
 
   const rawMarks = typeof reply.data.marks_awarded === "number" ? reply.data.marks_awarded : 0
   const marksAwarded = Math.max(0, Math.min(maxMarks, Math.round(rawMarks)))
-  const feedback = typeof reply.data.feedback === "string" ? reply.data.feedback.trim() : ""
+  const rawFeedback = typeof reply.data.feedback === "string" ? reply.data.feedback.trim() : ""
+  // A prompt is not a guarantee. Strip anything that looks like a handed-back
+  // solution before it can reach a pupil.
+  const feedback = request.code ? stripSolutionCode(rawFeedback) : rawFeedback
 
   return {
     marksAwarded,

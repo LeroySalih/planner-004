@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import {
   ShortTextSubmissionBodySchema,
+  UploadCodeSubmissionBodySchema,
   UploadSpreadsheetSubmissionBodySchema,
   UploadWorksheetSubmissionBodySchema,
 } from "@/types";
@@ -28,16 +29,23 @@ const SHORT_TEXT_ACTIVITY_TYPE = "short-text-question";
 const UPLOAD_SPREADSHEET_ACTIVITY_TYPE = "upload-spreadsheet";
 const UPLOAD_WORKSHEET_ACTIVITY_TYPE = "upload-worksheet";
 const MARK_WORKSHEET_ACTIVITY_TYPE = "mark-worksheet";
+const UPLOAD_CODE_ACTIVITY_TYPE = "upload-code";
 const AI_MARKABLE_ACTIVITY_TYPES = new Set([
   SHORT_TEXT_ACTIVITY_TYPE,
   UPLOAD_SPREADSHEET_ACTIVITY_TYPE,
   UPLOAD_WORKSHEET_ACTIVITY_TYPE,
   MARK_WORKSHEET_ACTIVITY_TYPE,
+  UPLOAD_CODE_ACTIVITY_TYPE,
 ]);
+// Types whose submission is never synthesised from an inbound mark: the pupil
+// must have submitted first. upload-code belongs here even though its source is
+// text rather than a file — inventing an empty submission would show a pupil a
+// mark for work they never handed in.
 const FILE_SUBMISSION_ACTIVITY_TYPES = new Set([
   UPLOAD_SPREADSHEET_ACTIVITY_TYPE,
   UPLOAD_WORKSHEET_ACTIVITY_TYPE,
   MARK_WORKSHEET_ACTIVITY_TYPE,
+  UPLOAD_CODE_ACTIVITY_TYPE,
 ]);
 const SHORT_TEXT_CORRECTNESS_THRESHOLD = 0.8;
 
@@ -465,7 +473,9 @@ async function applyAiMarkToSubmission({
       ? UploadWorksheetSubmissionBodySchema
       : activityType === UPLOAD_SPREADSHEET_ACTIVITY_TYPE
         ? UploadSpreadsheetSubmissionBodySchema
-        : ShortTextSubmissionBodySchema;
+        : activityType === UPLOAD_CODE_ACTIVITY_TYPE
+          ? UploadCodeSubmissionBodySchema
+          : ShortTextSubmissionBodySchema;
 
   const parsedBody = submissionSchema.safeParse(submission.body ?? {});
   if (!parsedBody.success && isFileSubmission) {

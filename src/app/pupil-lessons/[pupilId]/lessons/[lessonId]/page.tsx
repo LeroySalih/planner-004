@@ -35,6 +35,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { StartRevisionButton } from "@/components/revisions/start-revision-button"
 import { PupilUploadActivity } from "@/components/pupil/pupil-upload-activity"
+import { PupilUploadCodeActivity } from "@/components/pupil/pupil-upload-code-activity"
 import { PupilUploadSpreadsheetActivity } from "@/components/pupil/pupil-upload-spreadsheet-activity"
 import { PupilUploadWorksheetActivity } from "@/components/pupil/pupil-upload-worksheet-activity"
 
@@ -1145,6 +1146,22 @@ export default async function PupilLessonFriendlyPage({
                         feedbackAssignmentIds={assignmentIds}
                       />,
                       { typeLabel: "Short answer", typeGlyph: "✎" },
+                    )
+                  }
+
+                  if (activity.type === "upload-code") {
+                    const body = (activity.body_data ?? {}) as Record<string, unknown>
+                    const language =
+                      typeof body.language === "string" && body.language.trim() ? body.language : "python"
+                    return shell(
+                      <PupilUploadCodeActivity
+                        activityId={activity.activity_id}
+                        language={language}
+                        starterCode={typeof body.starterCode === "string" ? body.starterCode : ""}
+                        assignmentId={assignmentIds[0] ?? null}
+                        readOnly={!isPupilViewer}
+                      />,
+                      { typeLabel: "Code", typeGlyph: "{ }" },
                     )
                   }
 

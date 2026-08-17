@@ -12,6 +12,9 @@ import { Progress } from "@/components/ui/progress"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { MediaImage } from "@/components/ui/media-image"
+// Only python/javascript/sql are registered with highlight.js, so the client
+// bundle cost here is small; the CSP allows it because it is bundled, not remote.
+import { renderTaskMarkup } from "@/lib/code-highlight"
 import { cn } from "@/lib/utils"
 import {
   getActivityFileUrlValue,
@@ -29,6 +32,7 @@ import {
   getMcqBody,
   getShortTextBody,
   getRichTextMarkup,
+  getUploadCodeBody,
   getUploadSpreadsheetBody,
   getUploadWorksheetBody,
   getUploadUrlBody,
@@ -355,6 +359,22 @@ function ActivityShortView({
       </div>
     ) : (
       <p className="text-sm text-muted-foreground">Upload spreadsheet task awaiting setup.</p>
+    )
+  } else if (activity.type === "upload-code") {
+    const uploadCode = getUploadCodeBody(activity)
+    const markup = renderTaskMarkup(uploadCode.task)
+    content = markup ? (
+      <div className="space-y-1">
+        <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+          Upload code · {uploadCode.language}
+        </p>
+        <div
+          className="prose prose-sm line-clamp-3 max-w-none dark:prose-invert text-muted-foreground"
+          dangerouslySetInnerHTML={{ __html: markup }}
+        />
+      </div>
+    ) : (
+      <p className="text-sm text-muted-foreground">Upload code task awaiting setup.</p>
     )
   } else if (activity.type === "upload-worksheet") {
     const uploadWorksheet = getUploadWorksheetBody(activity)
@@ -1278,6 +1298,31 @@ function ActivityPresentView({
           Pupils can upload their responses from the student lesson page. Their files are saved under each activity.
         </p>
       </div>
+    )
+  }
+
+  if (activity.type === "upload-code") {
+    const uploadCode = getUploadCodeBody(activity)
+    // renderTaskMarkup, not getRichTextMarkup: a programming task routinely
+    // contains fenced sample code, which needs highlighting rather than KaTeX.
+    const markup = renderTaskMarkup(uploadCode.task)
+
+    return wrap(
+      <div className="space-y-4">
+        {markup ? (
+          <div
+            className="prose prose-lg max-w-none dark:prose-invert text-foreground"
+            dangerouslySetInnerHTML={{ __html: markup }}
+          />
+        ) : (
+          <p className="text-muted-foreground">Add a task so pupils know what to write.</p>
+        )}
+
+        <p className="text-sm text-muted-foreground">
+          Pupils write and submit their {uploadCode.language} solution from their
+          own lesson page.
+        </p>
+      </div>,
     )
   }
 

@@ -3,6 +3,8 @@ import {
   MarkWorksheetActivityBodySchema,
   ShortTextActivityBodySchema,
   ShortTextSubmissionBodySchema,
+  UploadCodeActivityBodySchema,
+  UploadCodeSubmissionBodySchema,
   UploadSpreadsheetActivityBodySchema,
   UploadSpreadsheetSubmissionBodySchema,
   UploadWorksheetActivityBodySchema,
@@ -365,7 +367,7 @@ async function processSingleItem(
       throw new Error("Submission or activity context missing");
     }
 
-    const SUPPORTED_TYPES = new Set(["short-text-question", "upload-spreadsheet", "upload-worksheet", "mark-worksheet"]);
+    const SUPPORTED_TYPES = new Set(["short-text-question", "upload-spreadsheet", "upload-code", "upload-worksheet", "mark-worksheet"]);
     if (!SUPPORTED_TYPES.has(context.type as string)) {
       await logQueueEvent(
         "warn",
@@ -476,6 +478,29 @@ async function processSingleItem(
         modelAnswer: null,
         markingGuidance: parsedActivity.markingGuidance,
         pupilAnswer: renderSpreadsheetForMarking(spreadsheetData),
+        maxMarks: effectiveMaxMarks,
+        criterion: criterionContext,
+      };
+    } else if (context.type === "upload-code") {
+      const parsedActivity = UploadCodeActivityBodySchema.parse(
+        context.activity_body,
+      );
+      const parsedSubmission = UploadCodeSubmissionBodySchema.parse(
+        context.submission_body ?? {},
+      );
+
+      // The source goes through `code` rather than `pupilAnswer` so
+      // markWithGemini applies the no-solutions instruction and strips any
+      // handed-back answer from the feedback.
+      markingRequest = {
+        question: parsedActivity.task,
+        modelAnswer: null,
+        markingGuidance: parsedActivity.markingGuidance,
+        pupilAnswer: "",
+        code: {
+          source: parsedSubmission.code ?? "",
+          language: parsedActivity.language || "python",
+        },
         maxMarks: effectiveMaxMarks,
         criterion: criterionContext,
       };

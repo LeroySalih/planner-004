@@ -6,6 +6,7 @@ export const SCORABLE_ACTIVITY_TYPES = Object.freeze([
   "upload-file",
   "upload-url",
   "upload-spreadsheet",
+  "upload-code",
   "upload-worksheet",
   "mark-worksheet",
   "feedback",

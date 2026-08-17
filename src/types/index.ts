@@ -646,6 +646,41 @@ export type ShortTextSubmissionBody = z.infer<
     typeof ShortTextSubmissionBodySchema
 >;
 
+/**
+ * UploadCode: a programming task the pupil answers with source code pasted
+ * into the activity. `language` drives both the syntax highlighter and the
+ * marking prompt; it is not hard-coded to Python.
+ */
+export const UploadCodeActivityBodySchema = z
+    .object({
+        task: z.string().min(1),
+        markingGuidance: z.string().min(1),
+        language: z.string().min(1).default("python"),
+        /** Optional starter shown in the editor before the pupil types. */
+        starterCode: z.string().default(""),
+    })
+    .passthrough();
+
+export const UploadCodeSubmissionBodySchema = z
+    .object({
+        /** The pupil's source, stored verbatim. */
+        code: z.string().default(""),
+        ai_model_score: z.number().min(0).max(1).nullable().optional(),
+        ai_model_feedback: z.string().nullable().optional(),
+        teacher_override_score: z.number().min(0).max(1).nullable().optional(),
+        is_correct: z.boolean().default(false),
+        teacher_feedback: z.string().nullable().optional(),
+        success_criteria_scores: z
+            .record(z.string(), z.number().min(0).max(1).nullable())
+            .default({}),
+    })
+    .passthrough();
+
+export type UploadCodeActivityBody = z.infer<typeof UploadCodeActivityBodySchema>;
+export type UploadCodeSubmissionBody = z.infer<
+    typeof UploadCodeSubmissionBodySchema
+>;
+
 export const UploadSpreadsheetActivityBodySchema = z
     .object({
         task: z.string().min(1),

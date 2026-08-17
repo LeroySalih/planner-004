@@ -12,6 +12,7 @@ import type {
   FeedbackActivityGroupSettings,
   LessonActivity,
   MarkingGuidance,
+  UploadCodeActivityBody,
   UploadSpreadsheetActivityBody,
   UploadWorksheetActivityBody,
 } from "@/types"
@@ -115,6 +116,7 @@ const ACTIVITY_TYPES = [
   { value: "upload-file", label: "Upload File", group: "interactive" },
   { value: "upload-url", label: "Upload URL", group: "interactive" },
   { value: "upload-spreadsheet", label: "Upload Spreadsheet", group: "interactive" },
+  { value: "upload-code", label: "Upload Code", group: "interactive" },
   { value: "upload-worksheet", label: "Upload Exam", group: "interactive" },
   { value: "mark-worksheet", label: "Upload Worksheet", group: "interactive" },
   { value: "multiple-choice-question", label: "Multiple Choice Question", group: "interactive" },
@@ -2310,6 +2312,9 @@ function LessonActivityEditorSheet({
   const [uploadSpreadsheetBody, setUploadSpreadsheetBody] = useState<UploadSpreadsheetActivityBody>(() =>
     createDefaultUploadSpreadsheetBody(),
   )
+  const [uploadCodeBody, setUploadCodeBody] = useState<UploadCodeActivityBody>(() =>
+    createDefaultUploadCodeBody(),
+  )
   const [uploadWorksheetBody, setUploadWorksheetBody] = useState<UploadWorksheetActivityBody>(() =>
     createDefaultUploadWorksheetBody(),
   )
@@ -2354,6 +2359,16 @@ function LessonActivityEditorSheet({
     () => normalizeUploadSpreadsheetBody(uploadSpreadsheetBody),
     [uploadSpreadsheetBody],
   )
+  const normalizedUploadCodeBody = useMemo(
+    () => normalizeUploadCodeBody(uploadCodeBody),
+    [uploadCodeBody],
+  )
+  const uploadCodeValidationMessage = useMemo(() => {
+    if (!normalizedUploadCodeBody.task) return "Add a task so pupils know what to write."
+    if (!normalizedUploadCodeBody.markingGuidance) return "Add marking guidance so the AI can mark it."
+    return null
+  }, [normalizedUploadCodeBody])
+
   const uploadSpreadsheetValidationMessage = useMemo(
     () => validateUploadSpreadsheetBody(normalizedUploadSpreadsheetBody),
     [normalizedUploadSpreadsheetBody],
@@ -2697,6 +2712,18 @@ function LessonActivityEditorSheet({
 
   const handleUploadSpreadsheetCommit = useCallback(() => {
     setUploadSpreadsheetBody((current) => normalizeUploadSpreadsheetBody(current))
+  }, [])
+
+  const handleUploadCodeTaskChange = useCallback((value: string) => {
+    setUploadCodeBody((current) => ({ ...current, task: value }))
+  }, [])
+
+  const handleUploadCodeMarkingGuidanceChange = useCallback((value: string) => {
+    setUploadCodeBody((current) => ({ ...current, markingGuidance: value }))
+  }, [])
+
+  const handleUploadCodeCommit = useCallback(() => {
+    setUploadCodeBody((current) => normalizeUploadCodeBody(current))
   }, [])
 
   const handleUploadWorksheetTaskChange = useCallback((value: string) => {
@@ -3271,6 +3298,7 @@ function LessonActivityEditorSheet({
       setSequenceBody(createDefaultSequenceBody())
       setShortTextBody(createDefaultShortTextBody())
       setUploadSpreadsheetBody(createDefaultUploadSpreadsheetBody())
+      setUploadCodeBody(createDefaultUploadCodeBody())
       setUploadWorksheetBody(createDefaultUploadWorksheetBody())
       setMarkWorksheetBody(createDefaultMarkWorksheetBody())
       setPendingWorksheetFiles([])
@@ -3350,6 +3378,11 @@ function LessonActivityEditorSheet({
         setUploadSpreadsheetBody(normalizeUploadSpreadsheetBody(getUploadSpreadsheetBody(activity)))
       } else {
         setUploadSpreadsheetBody(createDefaultUploadSpreadsheetBody())
+      }
+      if (ensuredType === "upload-code") {
+        setUploadCodeBody(normalizeUploadCodeBody(getUploadCodeBodyLocal(activity)))
+      } else {
+        setUploadCodeBody(createDefaultUploadCodeBody())
       }
       if (ensuredType === "upload-worksheet") {
         setUploadWorksheetBody(normalizeUploadWorksheetBody(getUploadWorksheetBody(activity)))
@@ -3513,6 +3546,14 @@ function LessonActivityEditorSheet({
         setVideoUrl("")
         setRawBody("")
         setUploadSpreadsheetBody(createDefaultUploadSpreadsheetBody())
+        return
+      }
+
+      if (type === "upload-code") {
+        setText("")
+        setVideoUrl("")
+        setRawBody("")
+        setUploadCodeBody(createDefaultUploadCodeBody())
         return
       }
 
@@ -3727,6 +3768,15 @@ function LessonActivityEditorSheet({
         setUploadSpreadsheetBody(normalizeUploadSpreadsheetBody(getUploadSpreadsheetBody(activity)))
       } else {
         setUploadSpreadsheetBody(createDefaultUploadSpreadsheetBody())
+      }
+      return
+    }
+
+    if (type === "upload-code") {
+      if (activity) {
+        setUploadCodeBody(normalizeUploadCodeBody(getUploadCodeBodyLocal(activity)))
+      } else {
+        setUploadCodeBody(createDefaultUploadCodeBody())
       }
       return
     }
@@ -4191,6 +4241,12 @@ function LessonActivityEditorSheet({
         return
       }
       bodyData = normalizedUploadSpreadsheetBody
+    } else if (type === "upload-code") {
+      if (uploadCodeValidationMessage) {
+        toast.error(uploadCodeValidationMessage)
+        return
+      }
+      bodyData = normalizedUploadCodeBody
     } else if (type === "upload-worksheet") {
       if (uploadWorksheetValidationMessage) {
         toast.error(uploadWorksheetValidationMessage)
@@ -4312,6 +4368,7 @@ function LessonActivityEditorSheet({
     (type === "sequence" && sequenceValidationMessage !== null) ||
     (type === "short-text-question" && shortTextValidationMessage !== null) ||
     (type === "upload-spreadsheet" && uploadSpreadsheetValidationMessage !== null) ||
+    (type === "upload-code" && uploadCodeValidationMessage !== null) ||
     (type === "upload-worksheet" && uploadWorksheetValidationMessage !== null)
 
   return (
@@ -5041,6 +5098,79 @@ function LessonActivityEditorSheet({
             </div>
           ) : null}
 
+          {type === "upload-code" ? (
+            <div className="rounded-md border border-border bg-muted/20 p-4">
+              <div className="space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground" htmlFor="upload-code-task">
+                  Task
+                </Label>
+                <RichTextEditor
+                  id="upload-code-task"
+                  value={uploadCodeBody.task}
+                  onChange={handleUploadCodeTaskChange}
+                  onBlur={handleUploadCodeCommit}
+                  placeholder="Describe the programming task. Fenced code blocks (```python) are syntax highlighted for pupils."
+                  disabled={isPending}
+                />
+              </div>
+              <div className="mt-3 space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground" htmlFor="upload-code-language">
+                  Language
+                </Label>
+                <select
+                  id="upload-code-language"
+                  value={uploadCodeBody.language}
+                  disabled={isPending}
+                  onChange={(event) =>
+                    setUploadCodeBody((current) => ({ ...current, language: event.target.value }))
+                  }
+                  className="w-full rounded-md border border-border bg-background px-2 py-1 text-sm"
+                >
+                  <option value="python">Python</option>
+                  <option value="javascript">JavaScript</option>
+                  <option value="sql">SQL</option>
+                </select>
+              </div>
+              <div className="mt-3 space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground" htmlFor="upload-code-starter">
+                  Starter code (optional)
+                </Label>
+                <Textarea
+                  id="upload-code-starter"
+                  value={uploadCodeBody.starterCode}
+                  disabled={isPending}
+                  spellCheck={false}
+                  rows={6}
+                  onChange={(event) =>
+                    setUploadCodeBody((current) => ({ ...current, starterCode: event.target.value }))
+                  }
+                  placeholder="def solve(n):&#10;    pass"
+                  className="font-mono text-xs"
+                />
+              </div>
+              <div className="mt-3 space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground" htmlFor="upload-code-marking-guidance">
+                  Marking guidance (required)
+                </Label>
+                <RichTextEditor
+                  id="upload-code-marking-guidance"
+                  value={uploadCodeBody.markingGuidance}
+                  onChange={handleUploadCodeMarkingGuidanceChange}
+                  onBlur={handleUploadCodeCommit}
+                  placeholder="Describe how the AI should mark the code — what earns marks, common mistakes to look for"
+                  disabled={isPending}
+                />
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Marking guidance is not shown to the pupil. The marker comments on their code and
+                will not write a working solution for them.
+              </p>
+              {uploadCodeValidationMessage ? (
+                <p className="mt-2 text-xs text-destructive">{uploadCodeValidationMessage}</p>
+              ) : null}
+            </div>
+          ) : null}
+
           {type === "upload-spreadsheet" ? (
             <div className="rounded-md border border-border bg-muted/20 p-4">
               <div className="space-y-2">
@@ -5673,6 +5803,7 @@ function LessonActivityEditorSheet({
           type !== "multiple-choice-question" &&
           type !== "short-text-question" &&
           type !== "upload-spreadsheet" &&
+          type !== "upload-code" &&
           type !== "upload-worksheet" &&
           type !== "feedback" &&
           type !== "sketch-render" ? (
@@ -5769,6 +5900,41 @@ function validateShortTextBody(body: ShortTextBody): string | null {
   }
 
   return null
+}
+
+function createDefaultUploadCodeBody(): UploadCodeActivityBody {
+  return { task: "", markingGuidance: "", language: "python", starterCode: "" }
+}
+
+function getUploadCodeBodyLocal(activity: LessonActivity): UploadCodeActivityBody {
+  if (!activity.body_data || typeof activity.body_data !== "object") {
+    return createDefaultUploadCodeBody()
+  }
+  const record = activity.body_data as Record<string, unknown>
+  return {
+    ...record,
+    task: typeof record.task === "string" ? record.task : "",
+    markingGuidance: typeof record.markingGuidance === "string" ? record.markingGuidance : "",
+    language:
+      typeof record.language === "string" && record.language.trim() ? record.language : "python",
+    starterCode: typeof record.starterCode === "string" ? record.starterCode : "",
+  } as UploadCodeActivityBody
+}
+
+function normalizeUploadCodeBody(
+  body: UploadCodeActivityBody | null | undefined,
+): UploadCodeActivityBody {
+  if (!body || typeof body !== "object") return createDefaultUploadCodeBody()
+  return {
+    ...body,
+    task: typeof body.task === "string" ? body.task.trim() : "",
+    markingGuidance:
+      typeof body.markingGuidance === "string" ? body.markingGuidance.trim() : "",
+    language:
+      typeof body.language === "string" && body.language.trim() ? body.language.trim() : "python",
+    // Starter code is NOT trimmed: leading indentation is meaningful.
+    starterCode: typeof body.starterCode === "string" ? body.starterCode : "",
+  }
 }
 
 function createDefaultUploadSpreadsheetBody(): UploadSpreadsheetActivityBody {
