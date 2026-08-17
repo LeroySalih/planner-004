@@ -13,6 +13,10 @@ interface PupilUploadCodeActivityProps {
   assignmentId: string | null
   /** Pre-highlighted HTML for the last submission, rendered on the server. */
   submittedHtml?: string | null
+  /** The task, with fenced code blocks already highlighted on the server.
+   *  Rendered here rather than as the activity heading, which strips markup
+   *  and flattens a code sample onto one line. */
+  taskHtml?: string | null
   readOnly?: boolean
 }
 
@@ -31,6 +35,7 @@ export function PupilUploadCodeActivity({
   starterCode,
   assignmentId,
   submittedHtml,
+  taskHtml,
   readOnly = false,
 }: PupilUploadCodeActivityProps) {
   const [code, setCode] = useState(starterCode)
@@ -38,13 +43,19 @@ export function PupilUploadCodeActivity({
   const [submittedAt, setSubmittedAt] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  // Set as soon as the pupil types. The previous submission is fetched after
+  // mount, so without this a slow response overwrites whatever they have
+  // already started writing.
+  const dirtyRef = useRef(false)
 
   useEffect(() => {
     let cancelled = false
     void readMyCodeSubmissionAction(activityId).then((result) => {
       if (cancelled) return
-      if (result.data?.code) {
+      if (result.data?.code && !dirtyRef.current) {
         setCode(result.data.code)
+      }
+      if (result.data?.submittedAt) {
         setSubmittedAt(result.data.submittedAt)
       }
       setLoaded(true)
@@ -65,6 +76,7 @@ export function PupilUploadCodeActivity({
     const el = event.currentTarget
     const { selectionStart, selectionEnd } = el
     const next = `${code.slice(0, selectionStart)}    ${code.slice(selectionEnd)}`
+    dirtyRef.current = true
     setCode(next)
     requestAnimationFrame(() => {
       el.selectionStart = el.selectionEnd = selectionStart + 4
@@ -87,18 +99,31 @@ export function PupilUploadCodeActivity({
     })
   }
 
+  const task = taskHtml ? (
+    <div
+      className="prose prose-sm max-w-none dark:prose-invert text-foreground [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border [&_pre]:bg-muted/40 [&_pre]:p-3 [&_pre]:text-xs"
+      dangerouslySetInnerHTML={{ __html: taskHtml }}
+    />
+  ) : null
+
   if (readOnly) {
-    return submittedHtml ? (
-      <pre className="hljs overflow-x-auto rounded-md border border-border bg-muted/40 p-3 text-xs">
-        <code dangerouslySetInnerHTML={{ __html: submittedHtml }} />
-      </pre>
-    ) : (
-      <p className="text-sm text-muted-foreground">No code submitted yet.</p>
+    return (
+      <div className="space-y-3">
+        {task}
+        {submittedHtml ? (
+          <pre className="hljs overflow-x-auto rounded-md border border-border bg-muted/40 p-3 text-xs">
+            <code dangerouslySetInnerHTML={{ __html: submittedHtml }} />
+          </pre>
+        ) : (
+          <p className="text-sm text-muted-foreground">No code submitted yet.</p>
+        )}
+      </div>
     )
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
+      {task}
       <div className="flex items-center justify-between">
         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Your {language} solution
@@ -111,7 +136,10 @@ export function PupilUploadCodeActivity({
       <textarea
         ref={textareaRef}
         value={code}
-        onChange={(event) => setCode(event.target.value)}
+        onChange={(event) => {
+          dirtyRef.current = true
+          setCode(event.target.value)
+        }}
         onKeyDown={handleKeyDown}
         disabled={isPending || !loaded}
         spellCheck={false}

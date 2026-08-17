@@ -5144,7 +5144,7 @@ function LessonActivityEditorSheet({
                   onChange={(event) =>
                     setUploadCodeBody((current) => ({ ...current, starterCode: event.target.value }))
                   }
-                  placeholder="def solve(n):&#10;    pass"
+                  placeholder={"def solve(n):\n    pass"}
                   className="font-mono text-xs"
                 />
               </div>

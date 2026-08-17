@@ -265,3 +265,111 @@
     page-break-after: auto;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Syntax highlighting (highlight.js token classes)
+ *
+ * Written against our own theme tokens rather than importing one of
+ * highlight.js's stylesheets: those hard-code a background and a palette, which
+ * fights both the light/dark switch and the surrounding card colours.
+ * ------------------------------------------------------------------------- */
+.hljs {
+  color: var(--foreground);
+  background: transparent;
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: color-mix(in oklch, var(--muted-foreground) 90%, transparent);
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-section,
+.hljs-doctag,
+.hljs-type,
+.hljs-name,
+.hljs-strong {
+  color: oklch(0.52 0.19 295);
+  font-weight: 600;
+}
+
+.hljs-string,
+.hljs-title,
+.hljs-attr,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-addition {
+  color: oklch(0.52 0.15 150);
+}
+
+.hljs-number,
+.hljs-meta,
+.hljs-link,
+.hljs-regexp,
+.hljs-deletion {
+  color: oklch(0.55 0.17 40);
+}
+
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-class .hljs-title,
+.hljs-function .hljs-title,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-params {
+  color: oklch(0.52 0.16 240);
+}
+
+.dark .hljs-comment,
+.dark .hljs-quote {
+  color: color-mix(in oklch, var(--muted-foreground) 95%, transparent);
+}
+
+.dark .hljs-keyword,
+.dark .hljs-selector-tag,
+.dark .hljs-literal,
+.dark .hljs-section,
+.dark .hljs-doctag,
+.dark .hljs-type,
+.dark .hljs-name,
+.dark .hljs-strong {
+  color: oklch(0.78 0.15 300);
+}
+
+.dark .hljs-string,
+.dark .hljs-title,
+.dark .hljs-attr,
+.dark .hljs-symbol,
+.dark .hljs-bullet,
+.dark .hljs-addition {
+  color: oklch(0.8 0.14 150);
+}
+
+.dark .hljs-number,
+.dark .hljs-meta,
+.dark .hljs-link,
+.dark .hljs-regexp,
+.dark .hljs-deletion {
+  color: oklch(0.8 0.13 55);
+}
+
+.dark .hljs-built_in,
+.dark .hljs-builtin-name,
+.dark .hljs-class .hljs-title,
+.dark .hljs-function .hljs-title,
+.dark .hljs-variable,
+.dark .hljs-template-variable,
+.dark .hljs-params {
+  color: oklch(0.78 0.12 240);
+}
+
+/* Tailwind Typography wraps inline <code> in literal backticks via
+ * ::before/::after. That reads as a typo in a programming task, where the
+ * monospace font already signals code. */
+.prose :where(code):not(:where([class~="not-prose"] *))::before,
+.prose :where(code):not(:where([class~="not-prose"] *))::after {
+  content: none;
+}

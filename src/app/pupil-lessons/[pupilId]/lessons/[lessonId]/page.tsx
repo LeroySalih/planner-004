@@ -36,6 +36,7 @@ import { Button } from "@/components/ui/button"
 import { StartRevisionButton } from "@/components/revisions/start-revision-button"
 import { PupilUploadActivity } from "@/components/pupil/pupil-upload-activity"
 import { PupilUploadCodeActivity } from "@/components/pupil/pupil-upload-code-activity"
+import { highlightCode, renderTaskMarkup } from "@/lib/code-highlight"
 import { PupilUploadSpreadsheetActivity } from "@/components/pupil/pupil-upload-spreadsheet-activity"
 import { PupilUploadWorksheetActivity } from "@/components/pupil/pupil-upload-worksheet-activity"
 
@@ -476,6 +477,23 @@ export default async function PupilLessonFriendlyPage({
   )
 
   const submissionMap = new Map(uploadActivityData.map((item) => [item.activityId, item.submissions]))
+
+  const uploadCodeActivities = activities.filter((activity) => activity.type === "upload-code")
+  const uploadCodeEntries = await Promise.all(
+    uploadCodeActivities.map(async (activity) => {
+      const result = await getLatestSubmissionForActivityAction(activity.activity_id, pupilId)
+      const body = (result.data?.body ?? null) as { code?: unknown } | null
+      const code = typeof body?.code === "string" ? body.code : ""
+      const bodyData = (activity.body_data ?? {}) as Record<string, unknown>
+      const language =
+        typeof bodyData.language === "string" && bodyData.language.trim() ? bodyData.language : "python"
+      return {
+        activityId: activity.activity_id,
+        html: code ? highlightCode(code, language) : null,
+      }
+    }),
+  )
+  const uploadCodeHtmlMap = new Map(uploadCodeEntries.map((entry) => [entry.activityId, entry.html]))
 
   const uploadSpreadsheetActivities = activities.filter((activity) => activity.type === "upload-spreadsheet")
   const uploadSpreadsheetFileNameEntries = await Promise.all(
@@ -1160,8 +1178,13 @@ export default async function PupilLessonFriendlyPage({
                         starterCode={typeof body.starterCode === "string" ? body.starterCode : ""}
                         assignmentId={assignmentIds[0] ?? null}
                         readOnly={!isPupilViewer}
+                        submittedHtml={uploadCodeHtmlMap.get(activity.activity_id) ?? null}
+                        taskHtml={renderTaskMarkup(typeof body.task === "string" ? body.task : "")}
                       />,
-                      { typeLabel: "Code", typeGlyph: "{ }" },
+                      // The task is rendered inside the activity, not as the
+                      // heading: the heading strips markup and would flatten a
+                      // fenced code sample onto a single line.
+                      { typeLabel: "Code", typeGlyph: "{ }", question: activity.title ?? "Code task" },
                     )
                   }
 
