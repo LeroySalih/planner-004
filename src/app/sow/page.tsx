@@ -1,13 +1,13 @@
 import { requireTeacherProfile, hasRole } from '@/lib/auth'
 import { readTeacherGroupsForSowAction, readTeachersAction } from '@/lib/server-updates'
-import { currentAcademicYear, academicYearLabel } from '@/lib/academic-year'
+import { academicYearLabel, resolveCurrentAcademicYear } from '@/lib/academic-year'
 import { SowLandingClient } from '@/components/sow/SowLandingClient'
 
 export default async function SowLandingPage() {
   const profile = await requireTeacherProfile()
   const isAdmin = hasRole(profile, 'admin')
 
-  const year = currentAcademicYear()
+  const year = await resolveCurrentAcademicYear()
   const [groupsResult, teachersResult] = await Promise.all([
     readTeacherGroupsForSowAction(),
     isAdmin ? readTeachersAction() : Promise.resolve({ data: [], error: null }),

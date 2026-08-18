@@ -2,7 +2,11 @@
 
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { upsertSchoolYearAction, setSchoolYearActiveAction } from '@/lib/server-updates'
+import {
+  setCurrentSchoolYearAction,
+  setSchoolYearActiveAction,
+  upsertSchoolYearAction,
+} from '@/lib/server-updates'
 import type { SchoolYear } from '@/types'
 import { Button } from '@/components/ui/button'
 
@@ -30,7 +34,7 @@ export function SchoolYearManager({ initialYears }: Props) {
     const { error } = await upsertSchoolYearAction(y, label)
     setSaving(false)
     if (error) { toast.error('Failed to add year'); return }
-    setYears((prev) => [{ year: y, label, active: true }, ...prev].sort((a, b) => b.year - a.year))
+    setYears((prev) => [{ year: y, label, active: true, is_current: false }, ...prev].sort((a, b) => b.year - a.year))
     setNewYear('')
     toast.success(`Added ${label}`)
   }
@@ -48,8 +52,25 @@ export function SchoolYearManager({ initialYears }: Props) {
   async function handleToggleActive(year: number, currentActive: boolean) {
     const { error } = await setSchoolYearActiveAction(year, !currentActive)
     if (error) { toast.error('Failed to update'); return }
-    setYears((prev) => prev.map((y) => y.year === year ? { ...y, active: !currentActive } : y))
+    // Deactivating also clears "current" server-side — mirror that here so the
+    // badge does not linger on a year the app no longer defaults to.
+    setYears((prev) =>
+      prev.map((y) =>
+        y.year === year
+          ? { ...y, active: !currentActive, is_current: currentActive ? false : y.is_current }
+          : y,
+      ),
+    )
     toast.success(!currentActive ? 'Year activated' : 'Year deactivated')
+  }
+
+  async function handleSetCurrent(year: number) {
+    setSaving(true)
+    const { error } = await setCurrentSchoolYearAction(year)
+    setSaving(false)
+    if (error) { toast.error(error); return }
+    setYears((prev) => prev.map((y) => ({ ...y, is_current: y.year === year })))
+    toast.success(`${years.find((y) => y.year === year)?.label ?? year} is now the current year`)
   }
 
   return (
@@ -89,6 +110,11 @@ export function SchoolYearManager({ initialYears }: Props) {
                 </span>
               )}
               <span className="text-xs text-[var(--color-text-tertiary)]">({y.year})</span>
+              {y.is_current && (
+                <span className="rounded-full bg-primary/10 border border-primary/30 px-2 py-0.5 text-xs font-semibold text-primary">
+                  current
+                </span>
+              )}
               {!y.active && (
                 <span className="text-xs rounded-full bg-[var(--color-background-secondary)] border border-[var(--color-border)] px-2 py-0.5 text-[var(--color-text-tertiary)]">
                   inactive
@@ -110,6 +136,21 @@ export function SchoolYearManager({ initialYears }: Props) {
                     onClick={() => { setEditingYear(y.year); setEditLabel(y.label) }}
                   >
                     Edit
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={saving || y.is_current || !y.active}
+                    title={
+                      !y.active
+                        ? 'Activate this year before making it current'
+                        : y.is_current
+                          ? 'Already the current year'
+                          : 'Use this year as the default across the app'
+                    }
+                    onClick={() => handleSetCurrent(y.year)}
+                  >
+                    {y.is_current ? 'Current' : 'Set current'}
                   </Button>
                   <Button
                     size="sm"

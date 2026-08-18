@@ -1,12 +1,12 @@
 import { requireRole } from '@/lib/auth'
 import { readHalfTermsAction } from '@/lib/server-updates'
 import { HalfTermManager } from '@/components/admin/HalfTermManager'
-import { currentAcademicYear, fetchActiveAcademicYears } from '@/lib/academic-year'
+import { fetchActiveAcademicYears, resolveCurrentAcademicYear } from '@/lib/academic-year'
 
 export default async function AdminHalfTermsPage() {
   await requireRole('admin')
 
-  const year = currentAcademicYear()
+  const year = await resolveCurrentAcademicYear()
   const [{ data: halfTerms }, activeYears] = await Promise.all([
     readHalfTermsAction(year),
     fetchActiveAcademicYears(),

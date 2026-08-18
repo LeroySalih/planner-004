@@ -9,7 +9,9 @@ export default async function SchoolYearsPage() {
       <div>
         <h1 className="text-xl font-semibold text-[var(--color-text-primary)]">School Years</h1>
         <p className="text-sm text-[var(--color-text-secondary)] mt-1">
-          Add, edit, or deactivate school years. Only active years appear in year selectors across the app.
+          Add, edit, or deactivate school years. Only active years appear in year selectors. The
+          year marked <strong>current</strong> is the default used across the app — Schemes of
+          Work, half terms, and anywhere a year is not chosen explicitly.
         </p>
       </div>
       <SchoolYearManager initialYears={data ?? []} />

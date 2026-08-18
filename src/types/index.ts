@@ -1635,6 +1635,8 @@ export const SchoolYearSchema = z.object({
   year: z.number().int(),
   label: z.string(),
   active: z.boolean(),
+  /** The app-wide default year. At most one row is true. */
+  is_current: z.boolean().default(false),
 });
 export type SchoolYear = z.infer<typeof SchoolYearSchema>;
 

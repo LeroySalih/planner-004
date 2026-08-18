@@ -10,7 +10,7 @@ import {
 import type { SowWeekLesson } from '@/lib/server-updates'
 import { SowClient } from './sow-client'
 import { notFound } from 'next/navigation'
-import { academicYearFromGroupId, currentAcademicYear, fetchActiveAcademicYears } from '@/lib/academic-year'
+import { academicYearFromGroupId, fetchActiveAcademicYears, resolveCurrentAcademicYear } from '@/lib/academic-year'
 import type { HalfTerm, SowHalfTermUnit, Unit } from '@/types'
 
 type YearData = {
@@ -52,7 +52,7 @@ export default async function SowDetailPage({
   const derivedYear = academicYearFromGroupId(groupId)
   const year = derivedYear != null && years.includes(derivedYear)
     ? derivedYear
-    : currentAcademicYear()
+    : await resolveCurrentAcademicYear()
 
   const [groupsResult, unitsResult, initialData] = await Promise.all([
     readTeacherGroupsForSowAction(targetTeacherId),

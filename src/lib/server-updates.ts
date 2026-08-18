@@ -416,6 +416,7 @@ export {
 
 export {
   readSchoolYearsAction,
+  setCurrentSchoolYearAction,
   readActiveSchoolYearsAction,
   upsertSchoolYearAction,
   setSchoolYearActiveAction,

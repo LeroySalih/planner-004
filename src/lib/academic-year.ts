@@ -1,3 +1,11 @@
+/**
+ * The academic year implied by today's date (September rollover).
+ *
+ * This is the FALLBACK, not the app default. Prefer
+ * resolveCurrentAcademicYear(), which honours the year an admin has marked as
+ * current in /admin/school-years. Use this directly only where the call site
+ * cannot be async.
+ */
 export function currentAcademicYear(): number {
   const now = new Date()
   // Academic year starts in September (month index 8)
@@ -68,4 +76,16 @@ export async function fetchActiveAcademicYears(): Promise<number[]> {
   // Fallback to computed years if table is empty
   const year = currentAcademicYear()
   return availableAcademicYears(year)
+}
+
+/**
+ * The app-wide default academic year.
+ *
+ * Returns the year an admin has marked current in /admin/school-years, falling
+ * back to the date calculation when none is set — so the app still works on a
+ * fresh database or if the flag is ever cleared.
+ */
+export async function resolveCurrentAcademicYear(): Promise<number> {
+  const { readCurrentSchoolYear } = await import('@/lib/server-actions/school-years')
+  return (await readCurrentSchoolYear()) ?? currentAcademicYear()
 }
