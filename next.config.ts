@@ -2,6 +2,12 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // `next build` and `next dev` both write to .next by default, so running a
+  // verification build while the dev server is up rewrites the directory from
+  // under it and kills the running server. Setting NEXT_DIST_DIR sends a build
+  // somewhere else (see the build:check script). Unset — which is how
+  // `pnpm build` and the PM2 deploy run — this is exactly the old behaviour.
+  distDir: process.env.NEXT_DIST_DIR ?? ".next",
   experimental: {
     serverActions: {
       // Must exceed the 10MB slide-import cap (with headroom for multipart

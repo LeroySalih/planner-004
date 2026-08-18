@@ -20,12 +20,13 @@ pnpm install
 pnpm dev                    # Start development server at http://localhost:3000
 
 # Build and Production
-pnpm build
+pnpm build                  # writes .next — kills a dev server running on the same directory
 pnpm start
 
 # Quality Checks
 pnpm lint                   # Run ESLint
 pnpm test                   # Run Playwright E2E tests
+pnpm build:check            # Verification build that does NOT disturb a running dev server
 
 # Database
 pnpm db:prod2dev           # Sync production data to dev (bash ./bin/prod2dev.sh)

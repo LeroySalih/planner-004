@@ -25,6 +25,7 @@ node_modules_old/
 
 # next.js
 /.next/
+/.next-build/
 /out/
 
 # production
