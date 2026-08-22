@@ -9,7 +9,7 @@ import {
   generateUnitChatReply,
   type ChatTurn,
   type UnitProposal,
-} from "@/lib/ai/unit-chat-gemini"
+} from "@/lib/ai/unit-chat"
 
 const HISTORY_WINDOW = 20
 

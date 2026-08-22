@@ -36,6 +36,51 @@ export function isDeterministicActivityType(type: string | null | undefined): bo
   return typeof type === "string" && DETERMINISTIC_ACTIVITY_TYPES.includes(type);
 }
 
+// Image generation is mothballed.
+//
+// The only models that generate images are Google's, and
+// generativelanguage.googleapis.com is geo-blocked from Saudi Arabia, where
+// this app is hosted; Claude cannot generate images at all. Rather than delete
+// working code we expect to revive, this flag hides the capability at the two
+// points where it can be *introduced* — the lesson activity picker and the AI
+// chat's image proposals.
+//
+// Deliberately NOT a kill switch: existing sketch-render activities still
+// render, still accept pupil work, and still appear in reports. Flip to true to
+// revive, and nothing else needs changing.
+export const IMAGE_GENERATION_ENABLED = false;
+
+/** Activity types that cannot function without image generation. */
+export const IMAGE_GENERATION_ACTIVITY_TYPES = Object.freeze(["sketch-render"]);
+
+/**
+ * True when a type depends on image generation and that is currently mothballed.
+ * Callers use this to hide a type from creation surfaces — never to hide or
+ * disable activities that already exist.
+ */
+export function isMothballedActivityType(type: string | null | undefined): boolean {
+  if (IMAGE_GENERATION_ENABLED) return false;
+  return IMAGE_GENERATION_ACTIVITY_TYPES.includes(normalizeActivityType(type));
+}
+
+// Activity types marked by a model rather than deterministically in-app. These
+// are exactly the types listed in the AI branch of
+// compute_submission_base_score (see 086-upload-code-activity-score.sql) — keep
+// the two in step, or a type will be marked but read back as unscored.
+// Used by /admin/ai-models to decide which types can be routed to a model.
+export const AI_MARKED_ACTIVITY_TYPES = Object.freeze([
+  "short-text-question",
+  "upload-code",
+  "upload-worksheet",
+  "mark-worksheet",
+  "upload-spreadsheet",
+]);
+
+export function isAiMarkedActivityType(type: string | null | undefined): boolean {
+  const normalized = normalizeActivityType(type);
+  return normalized.length > 0 && AI_MARKED_ACTIVITY_TYPES.includes(normalized);
+}
+
 export const NON_SCORABLE_ACTIVITY_TYPES = Object.freeze([
   "text",
   "display-image",

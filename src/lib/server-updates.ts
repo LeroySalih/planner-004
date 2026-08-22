@@ -423,6 +423,13 @@ export {
 } from './server-actions/school-years'
 
 export {
+  readAiModelRoutesAction,
+  upsertAiModelRouteAction,
+  deleteAiModelRouteAction,
+  readProviderKeyStatusAction,
+} from './server-actions/ai-model-routes'
+
+export {
   readHalfTermsAction,
   upsertHalfTermAction,
   readSowHalfTermUnitsAction,

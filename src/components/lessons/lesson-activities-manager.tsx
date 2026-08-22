@@ -80,6 +80,7 @@ import { LessonActivityView } from "@/components/lessons/activity-view"
 import { MediaImage } from "@/components/ui/media-image"
 import {
   isExperimentalActivityType,
+  isMothballedActivityType,
   isScorableActivityType,
   SCORABLE_ACTIVITY_TYPES,
 } from "@/dino.config"
@@ -4410,7 +4411,12 @@ function LessonActivityEditorSheet({
                     return null
                   }
                   const groupItems = ACTIVITY_TYPES.filter(
-                    (item) => item.group === group.key,
+                    (item) =>
+                      item.group === group.key &&
+                      // A mothballed type stays selectable for an activity that
+                      // already uses it — otherwise opening an existing one for
+                      // editing would silently rewrite its type on save.
+                      (!isMothballedActivityType(item.value) || item.value === type),
                   )
                   if (groupItems.length === 0) return null
                   return (

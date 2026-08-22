@@ -12,7 +12,7 @@ import {
   sendUnitChatMessageAction,
   updateUnitProposalInChatAction,
 } from "@/lib/server-actions/unit-chat"
-import type { UnitProposal } from "@/lib/ai/unit-chat-gemini"
+import type { UnitProposal } from "@/lib/ai/unit-chat"
 
 type ProposalStatus = "pending" | "adding" | "added" | "discarded"
 type CardProposal = UnitProposal & { _status: ProposalStatus }

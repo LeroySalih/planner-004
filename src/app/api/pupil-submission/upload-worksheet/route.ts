@@ -6,7 +6,7 @@ import { query } from "@/lib/db"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 import { emitSubmissionEvent } from "@/lib/sse/topics"
 import { logActivitySubmissionEvent } from "@/lib/activity-logging"
-import { transcribeWithGemini } from "@/lib/ai/gemini-ocr"
+import { transcribeWithModel } from "@/lib/ai/ocr"
 import { applyOcrTextPayload } from "@/lib/ai/apply-ocr-text"
 import { UploadWorksheetSubmissionBodySchema } from "@/types"
 import { clearResubmitRequest, getNextAttemptNumber } from "@/lib/server-actions/submission-attempts"
@@ -211,7 +211,7 @@ export async function POST(request: Request) {
         // callback to /webhooks/image-to-text; now the text comes straight
         // back and is applied through the same payload contract, which also
         // enqueues the marking job.
-        const text = await transcribeWithGemini(ocrImages)
+        const text = await transcribeWithModel(ocrImages)
 
         await applyOcrTextPayload({
           submission_id: submissionId,

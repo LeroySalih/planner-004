@@ -13,7 +13,7 @@ import {
   uploadLessonChatAttachmentAction,
   clearLessonChatAction,
 } from "@/lib/server-actions/lesson-chat"
-import type { ProposedActivity } from "@/lib/ai/lesson-chat-gemini"
+import type { ProposedActivity } from "@/lib/ai/lesson-chat"
 
 function buildFileUrl(filePath: string): string {
   return `/api/files/${filePath.split("/").map(encodeURIComponent).join("/")}`

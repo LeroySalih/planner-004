@@ -17,6 +17,7 @@
     "pm2:start": "pm2 start npm --name dino.mr-salih.org -- run start"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.120.0",
     "@dnd-kit/core": "^6.3.1",
     "@google/generative-ai": "^0.24.1",
     "@hookform/resolvers": "^5.2.2",

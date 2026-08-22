@@ -1,6 +1,7 @@
 import "server-only"
 
-import { callGemini, type GeminiPart } from "@/lib/ai/gemini-client"
+import { callModel, type ModelPart } from "@/lib/ai/model-client"
+import { resolveModelRoute } from "@/lib/ai/model-routing"
 
 // The transcription rule is unchanged from the n8n flow it replaces (see
 // docs/n8n/image-to-pupil-submission-workflow.md): transcribe faithfully,
@@ -39,10 +40,10 @@ function inferMime(fileName: string): string {
  * JSON envelope to unwrap, so `normaliseOcrText` in apply-ocr-text has nothing
  * to do and simply passes it through.
  */
-export async function transcribeWithGemini(images: OcrImage[]): Promise<string> {
+export async function transcribeWithModel(images: OcrImage[]): Promise<string> {
   if (images.length === 0) return ""
 
-  const parts: GeminiPart[] = [
+  const parts: ModelPart[] = [
     { text: `Transcribe the ${images.length === 1 ? "image" : `${images.length} images`}.` },
   ]
 
@@ -52,7 +53,14 @@ export async function transcribeWithGemini(images: OcrImage[]): Promise<string> 
     })
   }
 
-  const result = await callGemini({
+  // Its own surface rather than upload-worksheet's route: transcription and
+  // marking are separate calls with different demands — reading handwriting is
+  // vision-bound, judging the answer is not — so they should be tunable apart.
+  const route = await resolveModelRoute("surface:worksheet-ocr")
+
+  const result = await callModel({
+    provider: route.provider,
+    model: route.model,
     systemText: SYSTEM,
     parts,
     temperature: 0,
