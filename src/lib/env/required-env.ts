@@ -39,8 +39,12 @@ export const REQUIRED_ENV: readonly string[] = [
  * variant is the build-inlined fallback.)
  */
 export const REQUIRED_ONE_OF: readonly (readonly string[])[] = [
-  // Gemini/Google AI key — chat, sketch, and now marking + OCR directly
+  // Gemini/Google AI key — marking, OCR, sketch render and image generation
   ["GOOGLE_API_KEY", "GEMINI_API_KEY"],
+  // Anthropic key — lesson chat and unit chat call Claude, so a missing key
+  // takes both authoring surfaces down. CLAUDE_API_KEY is the name this
+  // deployment uses; ANTHROPIC_API_KEY is the one the SDK reads unaided.
+  ["CLAUDE_API_KEY", "ANTHROPIC_API_KEY"],
 ] as const
 
 /**

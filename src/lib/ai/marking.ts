@@ -1,6 +1,8 @@
 import "server-only"
 
-import { callGeminiJson, defaultMarkingModel, type GeminiPart } from "@/lib/ai/gemini-client"
+import { callModelJson, defaultMarkingModel, type ModelPart } from "@/lib/ai/model-client"
+import { assertUncorruptedModelText } from "@/lib/ai/model-output-guard"
+import type { AiProvider } from "@/types"
 
 export interface CriterionContext {
   successCriteriaId: string
@@ -11,6 +13,8 @@ export interface CriterionContext {
 }
 
 export interface MarkingRequest {
+  /** Which provider to call. Defaults to google. */
+  provider?: AiProvider
   /** Overrides the default marking model for this call. */
   model?: string
   /** Set for upload-code: the pupil's answer is source in this language and
@@ -38,6 +42,8 @@ export interface MarkingResult {
 
 export interface MarkingCallRecord {
   request: {
+    /** Recorded alongside the model so a stored run traces back to its route. */
+    provider: AiProvider
     model: string
     system: string
     prompt: string
@@ -188,7 +194,7 @@ export function stripSolutionCode(feedback: string): string {
  * the model to an integer, and this clamps as a second line of defence: a
  * levelled criterion with 3 descriptors can only ever yield 0, 1, 2 or 3.
  */
-export async function markWithGemini(request: MarkingRequest): Promise<MarkingResult> {
+export async function markWithModel(request: MarkingRequest): Promise<MarkingResult> {
   const maxMarks = Math.max(1, Math.floor(request.maxMarks))
 
   const instruction = [
@@ -212,7 +218,7 @@ export async function markWithGemini(request: MarkingRequest): Promise<MarkingRe
   ].join("\n\n")
 
   const prompt = `${instruction}\n\n${textBlock}`
-  const parts: GeminiPart[] = [{ text: prompt }]
+  const parts: ModelPart[] = [{ text: prompt }]
   const imageMeta: MarkingCallRecord["request"]["images"] = []
 
   for (const image of request.images ?? []) {
@@ -229,7 +235,8 @@ export async function markWithGemini(request: MarkingRequest): Promise<MarkingRe
 
   const model = request.model ?? defaultMarkingModel()
 
-  const reply = await callGeminiJson<{ marks_awarded?: unknown; feedback?: unknown }>({
+  const reply = await callModelJson<{ marks_awarded?: unknown; feedback?: unknown }>({
+    provider: request.provider,
     model,
     systemText: BASE_SYSTEM,
     parts,
@@ -241,6 +248,10 @@ export async function markWithGemini(request: MarkingRequest): Promise<MarkingRe
   const rawMarks = typeof reply.data.marks_awarded === "number" ? reply.data.marks_awarded : 0
   const marksAwarded = Math.max(0, Math.min(maxMarks, Math.round(rawMarks)))
   const rawFeedback = typeof reply.data.feedback === "string" ? reply.data.feedback.trim() : ""
+  // Checked before stripSolutionCode, so the excerpt in the error is what the
+  // model actually sent. Corrupted JSON escaping still parses cleanly, so
+  // nothing upstream of here would have noticed.
+  assertUncorruptedModelText(rawFeedback, { model, field: "feedback" })
   // A prompt is not a guarantee. Strip anything that looks like a handed-back
   // solution before it can reach a pupil.
   const feedback = request.code ? stripSolutionCode(rawFeedback) : rawFeedback
@@ -250,6 +261,7 @@ export async function markWithGemini(request: MarkingRequest): Promise<MarkingRe
     feedback,
     call: {
       request: {
+        provider: request.provider ?? "google",
         model,
         system: BASE_SYSTEM,
         prompt,

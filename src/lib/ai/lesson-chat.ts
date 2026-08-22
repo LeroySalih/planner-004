@@ -1,11 +1,15 @@
 import "server-only"
 
-// V1 uses Gemini with structured output (responseSchema) rather than function
-// calling: the lesson context is small and injected directly, and the model's
-// whole reply is a JSON object { message, proposals }. This is the pattern
-// already proven for worksheet marking and avoids a tool round-trip.
+// Structured output rather than tool calling: the lesson context is small and
+// injected directly, and the model's whole reply is a JSON object
+// { message, proposals }. This avoids a tool round-trip.
+//
+// Chat runs on Claude; generateImage below still uses Gemini, because Claude
+// does not generate images.
 
-const MODEL = "gemini-flash-latest"
+import { callClaudeChatJson, type ChatPart } from "@/lib/ai/anthropic-client"
+import { assertUncorruptedModelText } from "@/lib/ai/model-output-guard"
+import { resolveModelRoute } from "@/lib/ai/model-routing"
 
 export interface ChatTurn {
   role: "user" | "assistant"
@@ -222,9 +226,6 @@ export async function generateLessonChatReply(params: {
   /** Documents (e.g. PDFs) sent for native understanding, as base64 + mime type. */
   documents?: Array<{ mimeType: string; base64: string }>
 }): Promise<LessonChatReply> {
-  const apiKey = process.env.GOOGLE_API_KEY ?? process.env.GEMINI_API_KEY
-  if (!apiKey) throw new Error("GOOGLE_API_KEY is not configured.")
-
   const attachments = params.attachments ?? []
   const attachmentNote = attachments.length
     ? "\n\nAttached files (reference by attachmentId):\n" +
@@ -240,98 +241,52 @@ export async function generateLessonChatReply(params: {
     : ""
 
   const documents = params.documents ?? []
-  const userParts: Array<Record<string, unknown>> = [
-    { text: params.userMessage + attachmentNote + referenceNote },
+  const userParts: ChatPart[] = [
+    { kind: "text", text: params.userMessage + attachmentNote + referenceNote },
   ]
+  // Order is preserved from the Gemini implementation on purpose. Claude reads
+  // images slightly better when they precede the text, but referenceNote says
+  // "image shown below", so reordering here would make the prompt lie.
   for (const d of documents) {
-    userParts.push({ inlineData: { mimeType: d.mimeType, data: d.base64 } })
+    userParts.push({ kind: "document", mimeType: d.mimeType, base64: d.base64 })
   }
   for (const a of attachments) {
     if (a.kind === "image" && a.dataUrl) {
       const m = /^data:(.+?);base64,(.*)$/.exec(a.dataUrl)
-      userParts.push({ inlineData: { mimeType: m ? m[1] : "image/jpeg", data: m ? m[2] : a.dataUrl } })
+      userParts.push({ kind: "image", mimeType: m ? m[1] : "image/jpeg", base64: m ? m[2] : a.dataUrl })
     }
   }
   for (const r of references) {
     if (r.kind === "image" && r.dataUrl) {
       const m = /^data:(.+?);base64,(.*)$/.exec(r.dataUrl)
-      userParts.push({ inlineData: { mimeType: m ? m[1] : "image/jpeg", data: m ? m[2] : r.dataUrl } })
+      userParts.push({ kind: "image", mimeType: m ? m[1] : "image/jpeg", base64: m ? m[2] : r.dataUrl })
     }
   }
 
-  const contents = [
-    ...params.history.map((turn) => ({
-      role: turn.role === "assistant" ? "model" : "user",
-      parts: [{ text: turn.content }],
-    })),
-    { role: "user", parts: userParts },
-  ]
+  const route = await resolveModelRoute("surface:lesson-chat")
+  const reply = await callClaudeChatJson<{ message?: unknown; proposals?: unknown }>({
+    model: route.model,
+    system: params.systemText,
+    history: params.history,
+    userParts,
+    schema: RESPONSE_SCHEMA,
+  })
 
-  const payload = {
-    systemInstruction: { parts: [{ text: params.systemText }] },
-    contents,
-    generationConfig: {
-      temperature: 0.4,
-      responseMimeType: "application/json",
-      responseSchema: RESPONSE_SCHEMA,
-    },
-  }
-
-  // Gemini occasionally returns 503 (UNAVAILABLE, transient overload) or 429;
-  // retry those a few times with backoff before surfacing the error.
-  const MAX_ATTEMPTS = 4
-  let text = ""
-  let status = 0
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
-      {
-        method: "POST",
-        headers: { "x-goog-api-key": apiKey, "content-type": "application/json" },
-        body: JSON.stringify(payload),
-      },
-    )
-    status = response.status
-    text = await response.text()
-    if (response.ok) break
-    if ((status === 503 || status === 429) && attempt < MAX_ATTEMPTS - 1) {
-      await new Promise((r) => setTimeout(r, 1500 * (attempt + 1))) // 1.5s, 3s, 4.5s
-      continue
-    }
-    throw new Error(`Gemini ${status}: ${text.slice(0, 500)}`)
-  }
-
-  let data: unknown
-  try {
-    data = JSON.parse(text)
-  } catch {
-    throw new Error("Gemini returned a non-JSON response.")
-  }
-
-  const raw = ((data as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> })
-    ?.candidates?.[0]?.content?.parts ?? [])
-    .map((part) => part.text)
-    .filter(Boolean)
-    .join("")
-
-  let parsed: { message?: unknown; proposals?: unknown }
-  try {
-    parsed = JSON.parse(raw || "{}")
-  } catch {
+  if (!reply.data) {
     // Model replied in prose despite the schema — surface it as a message.
-    return { message: raw || "Sorry, I couldn't generate a response.", proposals: [] }
+    return { message: reply.raw || "Sorry, I couldn't generate a response.", proposals: [] }
   }
 
-  const proposals = Array.isArray(parsed.proposals)
-    ? (parsed.proposals as ProposedActivity[])
+  const message = typeof reply.data.message === "string" ? reply.data.message : ""
+  // Corrupted JSON escaping still parses, so nothing above would have noticed.
+  assertUncorruptedModelText(message, { model: reply.model, field: "chat message" })
+
+  const proposals = Array.isArray(reply.data.proposals)
+    ? (reply.data.proposals as ProposedActivity[])
     : []
-  return {
-    message: typeof parsed.message === "string" ? parsed.message : "",
-    proposals,
-  }
+  return { message, proposals }
 }
 
-const IMAGE_MODEL = "gemini-3.1-flash-image"
 
 /**
  * Generate an image from a text prompt using a Gemini flash-image model. Returns
@@ -342,6 +297,17 @@ export async function generateImage(prompt: string): Promise<{ buffer: Buffer; m
   const apiKey = process.env.GOOGLE_API_KEY ?? process.env.GEMINI_API_KEY
   if (!apiKey) throw new Error("GOOGLE_API_KEY is not configured.")
 
+  // Model id is configurable; the provider is not. No Anthropic model generates
+  // images, so a route pointing anywhere else is a misconfiguration to surface
+  // rather than an endpoint to attempt.
+  const route = await resolveModelRoute("surface:image-generation")
+  if (route.provider !== "google") {
+    throw new Error(
+      `Image generation is routed to "${route.provider}", which cannot generate images. Fix the route at /admin/ai-models.`,
+    )
+  }
+  const imageModel = route.model
+
   const payload = {
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     generationConfig: { responseModalities: ["TEXT", "IMAGE"] },
@@ -351,7 +317,7 @@ export async function generateImage(prompt: string): Promise<{ buffer: Buffer; m
   let lastError = ""
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${IMAGE_MODEL}:generateContent`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${imageModel}:generateContent`,
       {
         method: "POST",
         headers: { "x-goog-api-key": apiKey, "content-type": "application/json" },

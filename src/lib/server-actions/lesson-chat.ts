@@ -19,13 +19,14 @@ import { createLocalStorageClient } from "@/lib/storage/local-storage"
 import { convertToPdfViaGotenberg } from "@/lib/pdf/gotenberg"
 import { rasterizePdfToJpegs } from "@/lib/pdf/rasterize-pdf"
 import { extractPdfImages } from "@/lib/pdf/extract-pdf-images"
+import { IMAGE_GENERATION_ENABLED } from "@/dino.config"
 import {
   generateImage,
   generateLessonChatReply,
   type ChatAttachment,
   type ChatTurn,
   type ProposedActivity,
-} from "@/lib/ai/lesson-chat-gemini"
+} from "@/lib/ai/lesson-chat"
 
 const MAX_SLIDES = 20
 // Cap AI-generated images per message to bound latency and cost.
@@ -509,6 +510,15 @@ export async function sendLessonChatMessageAction(input: {
         const wantsGeneratedImage =
           p.type === "display-image" && !att && !base.fileRef && (p.imagePrompt ?? "").trim().length > 0
         if (!wantsGeneratedImage) return base
+
+        // Image generation is mothballed (see dino.config.ts). Drop the
+        // proposal rather than attempting a call that cannot succeed, and tell
+        // the teacher why — silently returning a display-image activity with no
+        // image would look like a bug.
+        if (!IMAGE_GENERATION_ENABLED) {
+          imageNotes.push(`Could not generate an image for “${p.title}” — image generation is currently unavailable.`)
+          return null
+        }
 
         if (generatedImages >= MAX_GENERATED_IMAGES) {
           imageNotes.push(`Skipped generating an image for “${p.title}” (max ${MAX_GENERATED_IMAGES} per message).`)

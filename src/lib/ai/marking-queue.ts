@@ -10,7 +10,8 @@ import {
   UploadWorksheetActivityBodySchema,
   UploadWorksheetSubmissionBodySchema,
 } from "@/types";
-import { markWithGemini, type CriterionContext, type MarkingRequest } from "@/lib/ai/gemini-marking";
+import { markWithModel, type CriterionContext, type MarkingRequest } from "@/lib/ai/marking";
+import { resolveModelRoute } from "@/lib/ai/model-routing";
 import { applyAiMarkPayload } from "@/lib/ai/apply-ai-mark";
 import { applyRevisionMarkPayload } from "@/lib/ai/apply-revision-mark";
 import { parseSpreadsheet, type ParsedSheet } from "@/lib/spreadsheet/parse-xlsx";
@@ -490,7 +491,7 @@ async function processSingleItem(
       );
 
       // The source goes through `code` rather than `pupilAnswer` so
-      // markWithGemini applies the no-solutions instruction and strips any
+      // markWithModel applies the no-solutions instruction and strips any
       // handed-back answer from the feedback.
       markingRequest = {
         question: parsedActivity.task,
@@ -580,14 +581,27 @@ async function processSingleItem(
       };
     }
 
+    // Resolved once, after the per-type branches above, so adding an activity
+    // type does not mean remembering to route it. The admin screen keys routes
+    // on (activity type, criterion type); a criterion-less job asks for the
+    // activity-wide row by passing null.
+    const route = await resolveModelRoute(
+      context.type as string,
+      criterionContext?.scType ?? null,
+    );
+    markingRequest.provider = route.provider;
+    markingRequest.model = route.model;
+
     await logQueueEvent("info", `Marking submission ${item.submission_id}`, {
       type: context.type,
       successCriteriaId: criterionId,
       maxMarks: effectiveMaxMarks,
       imageCount: markingRequest.images?.length ?? 0,
+      provider: route.provider,
+      model: route.model,
     });
 
-    const marked = await markWithGemini(markingRequest);
+    const marked = await markWithModel(markingRequest);
 
     await logQueueEvent("info", `Marked submission ${item.submission_id}`, {
       successCriteriaId: criterionId,

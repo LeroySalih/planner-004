@@ -186,16 +186,102 @@ Files placed in `public/` are served at the root URL with no auth — e.g. `publ
 worker calls Gemini and applies the result in the same pass:
 
 ```
-external_jobs (ai_mark) ──▶ markWithGemini() ──▶ applyAiMarkPayload()
+external_jobs (ai_mark) ──▶ markWithModel() ──▶ applyAiMarkPayload()
 ```
 
 There are no marking webhooks. A failed model call throws, which the existing
 `attempts` / `process_after` backoff in `external_jobs` retries, and a permanent
 failure lands the submission in `marking-error`.
 
-- `src/lib/ai/gemini-client.ts` — shared transport: retry on 429/500/503, optional `responseSchema`
-- `src/lib/ai/gemini-marking.ts` — the marking prompt, text and vision
-- `src/lib/ai/gemini-ocr.ts` — worksheet transcription
+Module names are deliberately provider-neutral — models are now selectable per
+activity (see *Choosing the model per activity*), so a name like
+`gemini-client` would be a lie the first time a route points elsewhere. The
+wire format inside `model-client.ts` is currently Gemini's; callers only ever
+pass a model id.
+
+- `src/lib/ai/model-client.ts` — shared transport: retry on 429/500/503, optional `responseSchema`
+- `src/lib/ai/marking.ts` — the marking prompt, text and vision
+- `src/lib/ai/ocr.ts` — worksheet transcription
+- `src/lib/ai/model-output-guard.ts` — rejects replies a model mangled while
+  emitting JSON. Corrupted escaping still parses as valid JSON, so without this
+  a garbled sentence reaches the pupil with no error raised anywhere.
+- `src/lib/ai/anthropic-client.ts` — Anthropic transport, via the official
+  `@anthropic-ai/sdk`. Chat-shaped (system + multi-turn history + parts +
+  schema) because `ModelRequest` carries a single user turn. Converts Gemini's
+  upper-case response schemas to standard JSON Schema and adds the
+  `additionalProperties: false` Claude requires.
+- `src/lib/ai/lesson-chat.ts`, `src/lib/ai/unit-chat.ts` — **run on Claude**
+  (`claude-sonnet-5`). `generateImage` in lesson-chat is the exception and stays
+  on Gemini, because Claude does not generate images.
+
+Two things bite when moving a surface from Gemini to Claude:
+
+- **`temperature` is rejected.** Sonnet 5 and Opus 5 return 400 for non-default
+  sampling parameters. Both chats previously set `temperature: 0.4`; steer with
+  the system prompt instead.
+- **The assistant role is `assistant`, not `model`.** Gemini's history format
+  uses `model`; passing that through is a 400.
+
+Requires `CLAUDE_API_KEY` (or `ANTHROPIC_API_KEY`) — enforced in
+`required-env.ts`, because a missing key takes both authoring surfaces down.
+
+**Marking runs on Claude too, as of migration 089** (`claude-sonnet-5` for all
+five AI-marked types). `callModel` dispatches on `request.provider`, so a route
+change at `/admin/ai-models` is all it takes to move a type between providers —
+no code change. `ocr.ts` follows the `upload-worksheet` route rather than
+hardcoding a provider: transcription is the first half of that activity's
+marking, and leaving it on Gemini would mean the mark ran on Claude while the
+transcription it depends on still hit a geo-blocked endpoint.
+
+Sonnet 5 was chosen on evidence, not preference — see the rationale in
+migration 089. Gemini remains selectable and is still the only option for image
+*generation* (`generateImage`, `sketch-render`), which Claude cannot do.
+
+`model-output-guard.ts` runs in **prose mode** by default, where a lone line
+break is a corruption signature. Pass `allowLineBreaks` for legitimately
+multi-line output such as OCR transcription, or every multi-line worksheet is
+rejected.
+
+### Every model call is configurable
+
+There are no hardcoded model ids left in call sites. Non-activity surfaces share
+the `ai_model_routes` table using a `surface:` prefix in `activity_type`
+(migration 090), so there is one table, one resolver and one admin screen rather
+than a second mechanism that drifts:
+
+| Surface key | Used by |
+|---|---|
+| `surface:lesson-chat` / `surface:unit-chat` | the two *Develop with AI* panels |
+| `surface:worksheet-ocr` | transcription before `upload-worksheet` marking |
+| `surface:handwriting-ocr` | the standalone `/ocr` tool |
+| `surface:sketch-guardrail` | prompt check before a sketch render |
+| `surface:image-generation` | sketch render + AI-proposed lesson images |
+
+Catalogue entries carry `kind: "text" | "image"`, and the admin screen only
+offers models that can do the job — image generation cannot run on a text model
+or the reverse. `resolveModelRoute` returns a provider as well as a model, so
+image surfaces additionally assert `provider === "google"`: no Anthropic model
+generates images, and a route pointing elsewhere is a misconfiguration worth
+surfacing rather than an endpoint worth attempting.
+
+`DEFAULT_CHAT_MODEL` and `defaultMarkingModel()` are the only remaining literals
+and are deliberate: they are last-resort fallbacks for when the routes table
+cannot be read. A surface that fails because the database is down would be worse
+than one running on a sensible default.
+
+### Image generation is mothballed
+
+`IMAGE_GENERATION_ENABLED` in `src/dino.config.ts` is `false`. The only models
+that generate images are Google's, which are geo-blocked from Saudi Arabia, and
+Claude cannot generate images at all.
+
+**No generation code was removed** — this hides the capability at the two points
+where it can be *introduced*: `sketch-render` is filtered out of the lesson
+activity picker, and the AI chat drops `imagePrompt` proposals with a note to the
+teacher. Existing sketch-render activities still render, still accept pupil work
+and still appear in reports; and the type stays selectable when editing an
+activity that already uses it, so opening one does not silently rewrite its type
+on save. Flip the flag to revive — nothing else needs changing.
 - `src/lib/ai/marking-queue.ts` — claim, fan out, call, apply, resolve
 - `src/lib/ai/apply-ai-mark.ts` — applies a result; **returns `ok:false` for
   permanent problems rather than throwing**, so callers must check it or the job
@@ -231,6 +317,37 @@ An activity with success criteria is marked **once per criterion** — one
   suppressed rather than left contradicting the new mark.
 - The prompt must state that **0 is a valid score**. Without it the model
   anchors to the lowest descriptor and silently inflates every mark.
+
+### Choosing the model per activity
+
+Which model marks which activity is configured at **`/admin/ai-models`**, not in
+code. Routes live in `ai_model_routes` (migration 088) keyed on
+`(activity_type, sc_type)`, and resolve most-specific-first:
+
+```
+(activity type, criterion type) -> (activity type, NULL) -> DEFAULT_ROUTE
+```
+
+`DEFAULT_ROUTE` in `src/lib/ai/model-routing.ts` is deliberately identical to
+the old `defaultMarkingModel()`, so an install with no rows — or with migration
+088 unapplied — behaves exactly as it did before the table existed.
+
+- Resolution happens once per marking call in `marking-queue.ts`, after the
+  per-type branches, so a new activity type is routed without extra wiring.
+- Routes are cached in-process for 30s. The queue worker is long-lived and there
+  may be several under PM2, so an admin edit must reach them without a restart —
+  hence a TTL rather than an indefinite cache.
+- `MODEL_CATALOGUE` carries an `available` flag. The Anthropic models are listed
+  but unselectable while marking still runs through the Gemini transport;
+  selecting one is rejected in the server action *and* guarded in the queue,
+  because a Claude model id sent to the Gemini endpoint fails as an opaque 404.
+- **API keys are not stored here.** They stay in `.env`; the page reports only
+  whether each provider's key is present. `ANTHROPIC_API_KEY` and
+  `CLAUDE_API_KEY` are both accepted.
+- `AI_MARKED_ACTIVITY_TYPES` in `src/dino.config.ts` decides which types the
+  page lists. Keep it in step with the AI branch of
+  `compute_submission_base_score`, or a type will be marked but read back as
+  unscored.
 
 ### Reviewing marking runs
 

@@ -1,6 +1,7 @@
 "use server"
 
-import { GoogleGenerativeAI } from "@google/generative-ai"
+import { callModel } from "@/lib/ai/model-client"
+import { resolveModelRoute } from "@/lib/ai/model-routing"
 import { execFile } from "node:child_process"
 import { writeFile, readFile, unlink } from "node:fs/promises"
 import { join } from "node:path"
@@ -88,11 +89,6 @@ export async function extractHandwritingAction(
 ): Promise<ExtractHandwritingResponse> {
   await requireAuthenticatedProfile()
 
-  const apiKey = process.env.GOOGLE_API_KEY
-  if (!apiKey) {
-    return { success: false, error: "GOOGLE_API_KEY is not set" }
-  }
-
   const file = formData.get("file") as File | null
   const mimeType = (formData.get("mimeType") as string) || "image/jpeg"
 
@@ -101,37 +97,22 @@ export async function extractHandwritingAction(
   }
 
   try {
-    const ai = new GoogleGenerativeAI(apiKey)
-    const model = ai.getGenerativeModel({ model: "gemini-2.5-flash" })
-
     const rawBuffer = Buffer.from(await file.arrayBuffer())
     const converted = await toJpegIfHeic(rawBuffer, mimeType)
     const base64 = converted.buffer.toString("base64")
 
-    const result = await model.generateContent({
-      contents: [
-        {
-          role: "user",
-          parts: [
-            {
-              inlineData: {
-                data: base64,
-                mimeType: converted.mimeType,
-              },
-            },
-            { text: OCR_PROMPT },
-          ],
-        },
+    const route = await resolveModelRoute("surface:handwriting-ocr")
+    const result = await callModel({
+      provider: route.provider,
+      model: route.model,
+      parts: [
+        { inline_data: { mime_type: converted.mimeType, data: base64 } },
+        { text: OCR_PROMPT },
       ],
+      timeoutMs: 180_000,
     })
 
-    const response = result.response
-    const candidates = response.candidates
-    if (!candidates || candidates.length === 0) {
-      return { success: false, error: "No response from AI model" }
-    }
-
-    const text = candidates[0].content.parts[0].text
+    const text = result.text.trim()
     if (!text) {
       return { success: false, error: "AI model did not return text" }
     }

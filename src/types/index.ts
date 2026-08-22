@@ -1648,3 +1648,27 @@ export const LessonMetaSchema = z.object({
   los: z.array(z.string()).optional(),
 });
 export type LessonMeta = z.infer<typeof LessonMetaSchema>;
+
+export const AI_PROVIDERS = ["google", "anthropic"] as const;
+export const AiProviderSchema = z.enum(AI_PROVIDERS);
+export type AiProvider = z.infer<typeof AiProviderSchema>;
+
+/** Reasoning depth. Anthropic-only — google models have no equivalent. */
+export const AI_EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+export const AiEffortSchema = z.enum(AI_EFFORT_LEVELS);
+export type AiEffort = z.infer<typeof AiEffortSchema>;
+
+/** Mirrors public.ai_model_routes (088-ai-model-routes.sql). */
+export const AiModelRouteSchema = z.object({
+  route_id: z.string(),
+  activity_type: z.string(),
+  /** null = the default for every criterion of this activity type. */
+  sc_type: z.enum(["binary", "levelled"]).nullable(),
+  provider: AiProviderSchema,
+  model: z.string(),
+  effort: AiEffortSchema.nullable(),
+  active: z.boolean(),
+  updated_at: z.string().nullable(),
+  updated_by: z.string().nullable(),
+});
+export type AiModelRoute = z.infer<typeof AiModelRouteSchema>;

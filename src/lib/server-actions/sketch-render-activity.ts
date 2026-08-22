@@ -27,6 +27,7 @@ import {
 import { emitSubmissionEvent } from "@/lib/sse/topics";
 import { query } from "@/lib/db";
 import { resolvePupilStorageKey } from "@/lib/server-actions/lesson-activity-files";
+import { resolveModelRoute } from "@/lib/ai/model-routing";
 import {
     clearResubmitRequest,
     getNextAttemptNumber,
@@ -248,8 +249,14 @@ export async function renderSketchServerAction(
         const genAI = new GoogleGenerativeAI(GOOGLE_API_KEY);
 
         // A. Guardrail Model (Fast & Cheap)
+        const guardrailRoute = await resolveModelRoute("surface:sketch-guardrail");
+        const imageRoute = await resolveModelRoute("surface:image-generation");
+        if (imageRoute.provider !== "google") {
+            return { success: false, error: `Image generation is routed to "${imageRoute.provider}", which cannot generate images.` };
+        }
+
         const guardrailModel = genAI.getGenerativeModel({
-            model: "gemini-flash-latest",
+            model: guardrailRoute.model,
             generationConfig: {
                 responseMimeType: "application/json",
             },
@@ -257,7 +264,7 @@ export async function renderSketchServerAction(
 
         // B. Image Generation Model
         const imageModel = genAI.getGenerativeModel({
-            model: "gemini-3-pro-image-preview",
+            model: imageRoute.model,
             safetySettings: [
                 {
                     category: HarmCategory.HARM_CATEGORY_HARASSMENT,

@@ -1,6 +1,7 @@
 "use server";
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { resolveModelRoute } from "@/lib/ai/model-routing";
 
 export interface RenderSketchResponse {
     success: boolean;
@@ -19,8 +20,12 @@ export async function renderSketchAction(
 
     try {
         const ai = new GoogleGenerativeAI(apiKey);
+        const route = await resolveModelRoute("surface:image-generation");
+        if (route.provider !== "google") {
+            return { success: false, error: `Image generation is routed to "${route.provider}", which cannot generate images.` };
+        }
         const model = ai.getGenerativeModel({
-            model: "gemini-3-pro-image-preview",
+            model: route.model,
         });
 
         // Ensure base64 string is just the data (strip prefix if present)

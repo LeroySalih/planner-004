@@ -1,13 +1,16 @@
 import "server-only"
 
-// Unit-level curriculum-development chat. Like the lesson chat, this uses Gemini
+import { callClaudeChatJson } from "@/lib/ai/anthropic-client"
+import { assertUncorruptedModelText } from "@/lib/ai/model-output-guard"
+import { resolveModelRoute } from "@/lib/ai/model-routing"
+
+// Unit-level curriculum-development chat. Like the lesson chat, this uses Claude
 // with structured output (responseSchema): the model's whole reply is a JSON
 // object { message, proposals }, and the teacher confirms each proposal. Unlike
 // the lesson chat (which authors activities), the unit chat proposes structural
 // items: new lessons, a re-ordered lesson sequence, and new learning
 // objectives / success criteria.
 
-const MODEL = "gemini-flash-latest"
 
 export interface ChatTurn {
   role: "user" | "assistant"
@@ -87,7 +90,7 @@ const RESPONSE_SCHEMA = {
 } as const
 
 /**
- * Ask Gemini for a chat reply plus zero or more proposed structural changes to
+ * Ask the model for a chat reply plus zero or more proposed structural changes to
  * the unit. `systemText` carries the unit context (lessons with IDs and order,
  * plus AOs/LOs/SCs with IDs); `history` is the bounded conversation window.
  */
@@ -96,75 +99,24 @@ export async function generateUnitChatReply(params: {
   history: ChatTurn[]
   userMessage: string
 }): Promise<UnitChatReply> {
-  const apiKey = process.env.GOOGLE_API_KEY ?? process.env.GEMINI_API_KEY
-  if (!apiKey) throw new Error("GOOGLE_API_KEY is not configured.")
+  const route = await resolveModelRoute("surface:unit-chat")
+  const reply = await callClaudeChatJson<{ message?: unknown; proposals?: unknown }>({
+    model: route.model,
+    system: params.systemText,
+    history: params.history,
+    userParts: [{ kind: "text", text: params.userMessage }],
+    schema: RESPONSE_SCHEMA,
+  })
 
-  const contents = [
-    ...params.history.map((turn) => ({
-      role: turn.role === "assistant" ? "model" : "user",
-      parts: [{ text: turn.content }],
-    })),
-    { role: "user", parts: [{ text: params.userMessage }] },
-  ]
-
-  const payload = {
-    systemInstruction: { parts: [{ text: params.systemText }] },
-    contents,
-    generationConfig: {
-      temperature: 0.4,
-      responseMimeType: "application/json",
-      responseSchema: RESPONSE_SCHEMA,
-    },
-  }
-
-  // Gemini occasionally returns 503 (UNAVAILABLE, transient overload) or 429;
-  // retry those a few times with backoff before surfacing the error.
-  const MAX_ATTEMPTS = 4
-  let text = ""
-  let status = 0
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
-      {
-        method: "POST",
-        headers: { "x-goog-api-key": apiKey, "content-type": "application/json" },
-        body: JSON.stringify(payload),
-      },
-    )
-    status = response.status
-    text = await response.text()
-    if (response.ok) break
-    if ((status === 503 || status === 429) && attempt < MAX_ATTEMPTS - 1) {
-      await new Promise((r) => setTimeout(r, 1500 * (attempt + 1))) // 1.5s, 3s, 4.5s
-      continue
-    }
-    throw new Error(`Gemini ${status}: ${text.slice(0, 500)}`)
-  }
-
-  let data: unknown
-  try {
-    data = JSON.parse(text)
-  } catch {
-    throw new Error("Gemini returned a non-JSON response.")
-  }
-
-  const raw = ((data as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> })
-    ?.candidates?.[0]?.content?.parts ?? [])
-    .map((part) => part.text)
-    .filter(Boolean)
-    .join("")
-
-  let parsed: { message?: unknown; proposals?: unknown }
-  try {
-    parsed = JSON.parse(raw || "{}")
-  } catch {
+  if (!reply.data) {
     // Model replied in prose despite the schema — surface it as a message.
-    return { message: raw || "Sorry, I couldn't generate a response.", proposals: [] }
+    return { message: reply.raw || "Sorry, I couldn't generate a response.", proposals: [] }
   }
 
-  const proposals = Array.isArray(parsed.proposals) ? (parsed.proposals as UnitProposal[]) : []
-  return {
-    message: typeof parsed.message === "string" ? parsed.message : "",
-    proposals,
-  }
+  const message = typeof reply.data.message === "string" ? reply.data.message : ""
+  // Corrupted JSON escaping still parses, so nothing above would have noticed.
+  assertUncorruptedModelText(message, { model: reply.model, field: "chat message" })
+
+  const proposals = Array.isArray(reply.data.proposals) ? (reply.data.proposals as UnitProposal[]) : []
+  return { message, proposals }
 }
