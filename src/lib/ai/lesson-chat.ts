@@ -10,6 +10,7 @@ import "server-only"
 import { callClaudeChatJson, type ChatPart } from "@/lib/ai/anthropic-client"
 import { assertUncorruptedModelText } from "@/lib/ai/model-output-guard"
 import { resolveModelRoute } from "@/lib/ai/model-routing"
+import { recordModelCall } from "@/lib/ai/model-call-log"
 
 export interface ChatTurn {
   role: "user" | "assistant"
@@ -274,27 +275,60 @@ export async function generateLessonChatReply(params: {
       `Lesson chat is routed to provider "${route.provider}", which cannot serve it. Fix the route at /admin/ai-models.`,
     )
   }
-  const reply = await callClaudeChatJson<{ message?: unknown; proposals?: unknown }>({
-    model: route.model,
-    system: params.systemText,
-    history: params.history,
-    userParts,
-    schema: RESPONSE_SCHEMA,
-  })
+  // Declared outside the try so the failure path can still log the reply that
+  // caused it. A guard rejection happens *after* a successful call, and that
+  // reply is the single most useful thing to look at afterwards.
+  let reply: Awaited<ReturnType<typeof callClaudeChatJson<{ message?: unknown; proposals?: unknown }>>> | null = null
+  const startedAt = Date.now()
 
-  if (!reply.data) {
-    // Model replied in prose despite the schema — surface it as a message.
-    return { message: reply.raw || "Sorry, I couldn't generate a response.", proposals: [] }
+  const log = (over: { response?: Parameters<typeof recordModelCall>[0]["response"]; error?: string | null }) =>
+    void recordModelCall({
+      surface: "surface:lesson-chat",
+      provider: route.provider,
+      model: route.model,
+      system: params.systemText,
+      userMessage: params.userMessage,
+      historyTurns: params.history.length,
+      // Metadata only — a chat turn's attachments can be megabytes of base64.
+      attachments: [
+        ...attachments.map((a) => ({ fileName: a.fileName, kind: a.kind })),
+        ...documents.map((d) => ({ fileName: "(document)", kind: d.mimeType })),
+      ],
+      durationMs: reply?.durationMs ?? Date.now() - startedAt,
+      ...over,
+    })
+
+  try {
+    reply = await callClaudeChatJson<{ message?: unknown; proposals?: unknown }>({
+      model: route.model,
+      system: params.systemText,
+      history: params.history,
+      userParts,
+      schema: RESPONSE_SCHEMA,
+    })
+
+    if (!reply.data) {
+      // Model replied in prose despite the schema — surface it as a message.
+      log({ response: { raw: reply.raw }, error: "reply was not JSON" })
+      return { message: reply.raw || "Sorry, I couldn't generate a response.", proposals: [] }
+    }
+
+    const message = typeof reply.data.message === "string" ? reply.data.message : ""
+    // Corrupted JSON escaping still parses, so nothing above would have noticed.
+    assertUncorruptedModelText(message, { model: reply.model, field: "chat message", mode: "lenient" })
+
+    const proposals = Array.isArray(reply.data.proposals)
+      ? (reply.data.proposals as ProposedActivity[])
+      : []
+    log({ response: { message, proposalCount: proposals.length, raw: reply.raw } })
+    return { message, proposals }
+  } catch (err) {
+    log({
+      response: reply ? { raw: reply.raw } : null,
+      error: err instanceof Error ? err.message : String(err),
+    })
+    throw err
   }
-
-  const message = typeof reply.data.message === "string" ? reply.data.message : ""
-  // Corrupted JSON escaping still parses, so nothing above would have noticed.
-  assertUncorruptedModelText(message, { model: reply.model, field: "chat message", mode: "lenient" })
-
-  const proposals = Array.isArray(reply.data.proposals)
-    ? (reply.data.proposals as ProposedActivity[])
-    : []
-  return { message, proposals }
 }
 
 

@@ -349,6 +349,46 @@ the old `defaultMarkingModel()`, so an install with no rows — or with migratio
   `compute_submission_base_score`, or a type will be marked but read back as
   unscored.
 
+### Reviewing chat runs
+
+Chat calls were invisible until migration 091 — a failure gave a stack trace
+and no way to see the reply that caused it. They now write a
+`job_type = 'chat'` row to `external_jobs` via `recordModelCall`
+(`model-call-log.ts`), sharing the table so there is one place to answer "what
+did we send a model, and what came back".
+
+These are log entries, not work:
+
+- Written with `status = 'done'` **even on failure**. The queue claims
+  `status = 'pending'` *and* `job_type = 'ai_mark'`, so they are doubly
+  unclaimable — and `pruneDoneJobs` only sweeps `'done'`, so writing failures as
+  `'error'` would leave them accumulating forever. Success and failure are told
+  apart by `last_error`, not by status.
+- Written fire-and-forget; losing a log line must never take down the surface
+  being logged.
+- Attachment **metadata only**, same reasoning as marking's image payloads.
+- `system` and `raw` are truncated to 4 000 chars with the true length kept
+  alongside — the injected unit context can be very large.
+
+The failure path logs the reply too, which is the whole point: a guard rejection
+happens *after* a successful call, so the reply it rejected is the most useful
+thing to look at.
+
+```sql
+-- recent chat calls, failures first
+select updated_at,
+       model_request->>'surface'            as surface,
+       model_request->>'model'              as model,
+       model_request->'userMessage'->>'text' as asked,
+       model_response->'message'->>'text'   as replied,
+       model_response->'raw'->>'text'       as raw_reply,
+       duration_ms, last_error
+from external_jobs
+where job_type = 'chat'
+order by (last_error is not null) desc, updated_at desc
+limit 20;
+```
+
 ### Reviewing marking runs
 
 Every `ai_mark` job records its model call on the queue row: `model_request`
