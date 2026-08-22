@@ -100,6 +100,16 @@ export async function generateUnitChatReply(params: {
   userMessage: string
 }): Promise<UnitChatReply> {
   const route = await resolveModelRoute("surface:unit-chat")
+  // The model id is configurable; the provider is not. Only the Anthropic
+  // transport carries multi-turn history, so a route pointing elsewhere — a
+  // stale row, or an unreadable routes table falling back to the Gemini
+  // default — would otherwise send a Gemini model id to the Anthropic API and
+  // fail as an unexplained 404.
+  if (route.provider !== "anthropic") {
+    throw new Error(
+      `Unit chat is routed to provider "${route.provider}", which cannot serve it. Fix the route at /admin/ai-models.`,
+    )
+  }
   const reply = await callClaudeChatJson<{ message?: unknown; proposals?: unknown }>({
     model: route.model,
     system: params.systemText,
@@ -115,7 +125,7 @@ export async function generateUnitChatReply(params: {
 
   const message = typeof reply.data.message === "string" ? reply.data.message : ""
   // Corrupted JSON escaping still parses, so nothing above would have noticed.
-  assertUncorruptedModelText(message, { model: reply.model, field: "chat message" })
+  assertUncorruptedModelText(message, { model: reply.model, field: "chat message", mode: "lenient" })
 
   const proposals = Array.isArray(reply.data.proposals) ? (reply.data.proposals as UnitProposal[]) : []
   return { message, proposals }

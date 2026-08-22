@@ -37,7 +37,13 @@ export default async function AiModelsPage() {
 
       <AiModelRouteManager
         activityTypes={[...AI_MARKED_ACTIVITY_TYPES]}
-        surfaces={MODEL_SURFACES.map((s) => ({ ...s }))}
+        surfaces={MODEL_SURFACES.map((s) => ({
+          key: s.key,
+          label: s.label,
+          description: s.description,
+          kind: s.kind,
+          providers: s.providers ? [...s.providers] : undefined,
+        }))}
         catalogue={catalogue}
         keyStatus={keyStatus ?? []}
         initialRoutes={routes ?? []}

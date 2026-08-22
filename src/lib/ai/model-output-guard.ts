@@ -67,26 +67,45 @@ function excerptAround(text: string, index: number): string {
  * Returns the first corruption found, or null when the text looks intact.
  * Pure and synchronous so it can guard any provider's reply.
  */
+/**
+ * How aggressively to check.
+ *
+ * `strict` applies every signature and suits short prose whose shape is known:
+ * marking feedback is two or three sentences with no line breaks, backslashes
+ * or bare quotes, which is what made those signatures safe. It was measured on
+ * exactly that corpus.
+ *
+ * `lenient` applies only the two signatures that are unambiguous in any text —
+ * a literal "\uXXXX" and U+FFFD never occur in healthy output of any shape.
+ * Use it for long-form or structured text: a chat reply legitimately contains
+ * headings, line breaks, quoted phrases and code fragments with backslashes,
+ * and OCR transcription is multi-line by definition. Applying the strict set
+ * there rejects perfectly good replies.
+ *
+ * The asymmetry is deliberate. A false positive on marking costs a retry; a
+ * false negative sends a pupil mangled feedback. A false positive on chat
+ * breaks the feature outright, while a false negative shows a teacher some
+ * garbled text they can see and retry. So marking is strict and chat is not.
+ */
+export type GuardMode = "strict" | "lenient"
+
 export function findTextCorruption(
   text: string | null | undefined,
-  options: {
-    /**
-     * Set for text that is legitimately multi-line — OCR transcription, for
-     * instance, where line breaks are the content rather than damage. Without
-     * it, every transcription of a multi-line worksheet is flagged. The
-     * remaining signatures still apply.
-     */
-    allowLineBreaks?: boolean
-  } = {},
+  options: { mode?: GuardMode } = {},
 ): Corruption | null {
   if (!text) return null
 
+  const strict = (options.mode ?? "strict") === "strict"
   const signatures = [
     ["literal-unicode-escape", LITERAL_UNICODE_ESCAPE],
     ["replacement-char", REPLACEMENT_CHAR],
-    ["stray-backslash", STRAY_BACKSLASH],
-    ...(options.allowLineBreaks ? [] : [["lone-linebreak", LONE_LINEBREAK] as const]),
-    ["stray-quote", STRAY_QUOTE],
+    ...(strict
+      ? ([
+          ["stray-backslash", STRAY_BACKSLASH],
+          ["lone-linebreak", LONE_LINEBREAK],
+          ["stray-quote", STRAY_QUOTE],
+        ] as const)
+      : []),
   ] as const
 
   for (const [kind, pattern] of signatures) {
@@ -108,9 +127,9 @@ export function findTextCorruption(
  */
 export function assertUncorruptedModelText(
   text: string | null | undefined,
-  context: { model: string; field: string; allowLineBreaks?: boolean },
+  context: { model: string; field: string; mode?: GuardMode },
 ): void {
-  const corruption = findTextCorruption(text, { allowLineBreaks: context.allowLineBreaks })
+  const corruption = findTextCorruption(text, { mode: context.mode })
   if (!corruption) return
 
   throw new Error(

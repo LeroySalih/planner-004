@@ -4,7 +4,12 @@ import { z } from 'zod'
 import { query } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { AiEffortSchema, AiModelRouteSchema, AiProviderSchema } from '@/types'
-import { findCatalogueEntry, invalidateModelRouteCache, listModelRoutes } from '@/lib/ai/model-routing'
+import {
+  findCatalogueEntry,
+  findModelSurface,
+  invalidateModelRouteCache,
+  listModelRoutes,
+} from '@/lib/ai/model-routing'
 
 const RoutesResult = z.object({
   data: z.array(AiModelRouteSchema).nullable(),
@@ -48,6 +53,17 @@ export async function upsertAiModelRouteAction(
       return NullResult.parse({
         data: null,
         error: `${payload.model} is not a known ${payload.provider} model.`,
+      })
+    }
+    // Some surfaces are narrower than their model kind implies — the chats need
+    // multi-turn history, which only the Anthropic transport carries. Catching
+    // it here means a misconfiguration surfaces on the admin screen rather than
+    // as a failed chat turn for a teacher.
+    const surface = findModelSurface(payload.activityType)
+    if (surface?.providers && !surface.providers.includes(payload.provider)) {
+      return NullResult.parse({
+        data: null,
+        error: `${surface.label} cannot run on ${payload.provider}.`,
       })
     }
     if (!entry.available) {

@@ -33,6 +33,8 @@ export type SurfaceOption = {
   label: string
   description: string
   kind: 'text' | 'image'
+  /** Narrower than `kind` where the surface only works on some providers. */
+  providers?: AiProvider[]
 }
 
 type Props = {
@@ -284,7 +286,11 @@ export function AiModelRouteManager({
           {surfaces.map((surface) => {
             const route = findRoute(surface.key, null)
             const busy = savingKey === `${surface.key}::*`
-            const options = catalogue.filter((c) => c.kind === surface.kind)
+            const options = catalogue.filter(
+              (c) =>
+                c.kind === surface.kind &&
+                (!surface.providers || surface.providers.includes(c.provider)),
+            )
             return (
               <div key={surface.key} className="flex flex-wrap items-center gap-3 px-3 py-2.5 text-sm">
                 <div className="w-56 shrink-0">

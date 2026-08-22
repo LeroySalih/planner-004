@@ -150,17 +150,27 @@ export interface ModelSurface {
   label: string
   description: string
   kind: "text" | "image"
+  /**
+   * Providers this surface can actually run on, when that is narrower than its
+   * `kind` implies. Marking works on either provider because callModel
+   * dispatches; the chats do not, because they need multi-turn history and only
+   * the Anthropic transport carries it. Omit when any provider of the right
+   * kind will do.
+   */
+  providers?: readonly AiProvider[]
 }
 
 export const MODEL_SURFACES: readonly ModelSurface[] = Object.freeze([
   {
     key: "surface:lesson-chat",
+    providers: ["anthropic"],
     label: "Lesson chat",
     description: "Develop with AI on a lesson",
     kind: "text",
   },
   {
     key: "surface:unit-chat",
+    providers: ["anthropic"],
     label: "Unit chat",
     description: "Develop with AI on a unit",
     kind: "text",
@@ -185,11 +195,17 @@ export const MODEL_SURFACES: readonly ModelSurface[] = Object.freeze([
   },
   {
     key: "surface:image-generation",
+    providers: ["google"],
     label: "Image generation",
     description: "Sketch render and AI-proposed lesson images (mothballed)",
     kind: "image",
   },
 ])
+
+/** The surface a key names, or null when the key is an activity type. */
+export function findModelSurface(key: string): ModelSurface | null {
+  return MODEL_SURFACES.find((surface) => surface.key === key) ?? null
+}
 
 export function findCatalogueEntry(provider: string, model: string): CatalogueEntry | null {
   return (
