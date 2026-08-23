@@ -119,6 +119,17 @@ async function recordSigninAttempt(input: {
   }
 }
 
+/**
+ * Whether sign-in is currently throttled for this email or IP.
+ *
+ * Rejected attempts are still recorded (they are the audit trail for someone
+ * hammering the endpoint) but are NOT counted here. Counting them made the
+ * lockout self-extending: every retry by a locked-out user wrote another
+ * failure, refilling the window and restarting the clock, so the only way back
+ * in was to stop trying for a full SIGNIN_WINDOW_MINUTES — which is not what a
+ * person who cannot log in does. The window now expires
+ * SIGNIN_WINDOW_MINUTES after the last *genuine* failed attempt.
+ */
 async function isSigninThrottled(params: { email: string; ip: string | null }): Promise<SigninThrottleResult> {
   try {
     const { email, ip } = params
@@ -127,6 +138,7 @@ async function isSigninThrottled(params: { email: string; ip: string | null }): 
         select count(*)::int as count
         from sign_in_attempts
         where success = false
+          and reason is distinct from 'throttled'
           and lower(email) = lower($1)
           and attempted_at >= now() - ($2::int * interval '1 minute')
       `,
@@ -147,6 +159,7 @@ async function isSigninThrottled(params: { email: string; ip: string | null }): 
         select count(*)::int as count
         from sign_in_attempts
         where success = false
+          and reason is distinct from 'throttled'
           and ip = $1
           and attempted_at >= now() - ($2::int * interval '1 minute')
       `,
