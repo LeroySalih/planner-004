@@ -12,23 +12,25 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { readAiMarkingQueueAction, retryQueueItemAction, processQueueAction, readAiMarkingLogsAction, clearAiMarkingQueueAction, clearAiMarkingLogsAction } from "@/lib/server-actions/ai-queue"
+import { readAiMarkingQueueAction, retryQueueItemAction, processQueueAction, readAiMarkingLogsAction, clearAiMarkingQueueAction, clearAiMarkingLogsAction, readChatCallsAction, clearChatCallsAction } from "@/lib/server-actions/ai-queue"
 import { toast } from "sonner"
-import { RefreshCw, RotateCcw, Play, MessageSquare, Activity, Trash2 } from "lucide-react"
+import { RefreshCw, RotateCcw, Play, MessageSquare, Activity, Trash2, Bot } from "lucide-react"
 import { markStatusLabel } from "@/lib/mark-status"
 
 export default function AiQueuePage() {
   const [data, setData] = useState<any[]>([])
   const [logs, setLogs] = useState<any[]>([])
+  const [chatCalls, setChatCalls] = useState<any[]>([])
   const [stats, setStats] = useState<any>({})
   const [isLoading, setIsLoading] = useState(true)
   const [isPending, startTransition] = useTransition()
 
   const loadData = async () => {
     setIsLoading(true)
-    const [queueResult, logsResult] = await Promise.all([
+    const [queueResult, logsResult, chatResult] = await Promise.all([
       readAiMarkingQueueAction(),
-      readAiMarkingLogsAction()
+      readAiMarkingLogsAction(),
+      readChatCallsAction()
     ])
 
     if (queueResult.success) {
@@ -40,6 +42,10 @@ export default function AiQueuePage() {
 
     if (logsResult.success) {
       setLogs(logsResult.data || [])
+    }
+
+    if (chatResult.success) {
+      setChatCalls(chatResult.data || [])
     }
 
     setIsLoading(false)
@@ -88,6 +94,19 @@ export default function AiQueuePage() {
         loadData()
       } else {
         toast.error("Failed to clear queue")
+      }
+    })
+  }
+
+  const handleClearChatCalls = async () => {
+    if (!confirm("Clear the recorded chat calls? This only removes the log, not any chat history.")) return
+    startTransition(async () => {
+      const result = await clearChatCallsAction()
+      if (result.success) {
+        setChatCalls([])
+        toast.success("Chat calls cleared")
+      } else {
+        toast.error("Failed to clear chat calls")
       }
     })
   }
@@ -180,7 +199,7 @@ export default function AiQueuePage() {
       </div>
 
       <Tabs defaultValue="status" className="w-full">
-        <TabsList className="grid w-full grid-cols-2 mb-4">
+        <TabsList className="grid w-full grid-cols-3 mb-4">
           <TabsTrigger value="status" className="gap-2">
             <Activity className="h-4 w-4" />
             Queue Status
@@ -188,6 +207,10 @@ export default function AiQueuePage() {
           <TabsTrigger value="logs" className="gap-2">
             <MessageSquare className="h-4 w-4" />
             Process Logs
+          </TabsTrigger>
+          <TabsTrigger value="chat" className="gap-2">
+            <Bot className="h-4 w-4" />
+            Chat Calls
           </TabsTrigger>
         </TabsList>
 
@@ -282,6 +305,100 @@ export default function AiQueuePage() {
                       </TableCell>
                       <TableCell className="text-right text-xs font-mono text-muted-foreground whitespace-nowrap">
                         {new Date(log.created_at).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}.{new Date(log.created_at).getMilliseconds().toString().padStart(3, '0')}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </TabsContent>
+        <TabsContent value="chat" className="space-y-4">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-muted-foreground">
+              Every call the lesson and unit chats made to a model. Failures are listed first — they
+              carry the reply that caused them, which is the thing worth looking at. Rows are kept
+              for seven days.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleClearChatCalls}
+              disabled={isLoading || isPending || chatCalls.length === 0}
+              className="gap-2 shrink-0"
+            >
+              <Trash2 className="h-4 w-4" />
+              Clear
+            </Button>
+          </div>
+          <div className="rounded-md border bg-card shadow-sm overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[110px]">Surface</TableHead>
+                  <TableHead className="w-[150px]">Model</TableHead>
+                  <TableHead>Asked</TableHead>
+                  <TableHead>Reply</TableHead>
+                  <TableHead className="w-[80px] text-right">Took</TableHead>
+                  <TableHead className="w-[90px] text-right">Time</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {chatCalls.length === 0 && !isLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center py-10 text-muted-foreground">
+                      No chat calls recorded yet.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  chatCalls.map((call) => (
+                    <TableRow key={call.job_id}>
+                      <TableCell>
+                        <Badge variant="outline" className="font-normal">
+                          {(call.surface ?? "").replace("surface:", "").replace("-chat", "")}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">{call.model}</TableCell>
+                      <TableCell className="max-w-[260px] text-xs">
+                        <span className="line-clamp-3">{call.asked || "—"}</span>
+                        {call.history_turns ? (
+                          <span className="text-muted-foreground"> ({call.history_turns} prior turns)</span>
+                        ) : null}
+                      </TableCell>
+                      <TableCell className="max-w-[380px] text-xs">
+                        {call.last_error ? (
+                          <div className="space-y-1">
+                            {/* break-all, not break-words: a provider error is
+                                often one long unbroken JSON blob, which would
+                                otherwise run over the columns to its right. */}
+                            <p className="text-destructive break-all line-clamp-4">{call.last_error}</p>
+                            {call.raw_reply ? (
+                              <details>
+                                <summary className="cursor-pointer text-muted-foreground">
+                                  reply that caused it
+                                </summary>
+                                <pre className="mt-1 max-h-40 overflow-auto rounded bg-muted p-2 text-[10px] whitespace-pre-wrap">
+                                  {call.raw_reply}
+                                </pre>
+                              </details>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <div className="space-y-1">
+                            <span className="line-clamp-3">{call.replied || "—"}</span>
+                            {call.proposals ? (
+                              <Badge variant="secondary" className="font-normal">
+                                {call.proposals} proposal{call.proposals === 1 ? "" : "s"}
+                              </Badge>
+                            ) : null}
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right text-xs font-mono text-muted-foreground whitespace-nowrap">
+                        {call.duration_ms != null ? `${(call.duration_ms / 1000).toFixed(1)}s` : "—"}
+                      </TableCell>
+                      <TableCell className="text-right text-xs font-mono text-muted-foreground whitespace-nowrap">
+                        {new Date(call.created_at).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" })}
                       </TableCell>
                     </TableRow>
                   ))

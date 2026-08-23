@@ -152,6 +152,52 @@ export async function readAiMarkingLogsAction() {
   }
 }
 
+/**
+ * Chat model calls, recorded by recordModelCall (model-call-log.ts).
+ *
+ * Failures first, then newest: when something has gone wrong that is what you
+ * came to look at, and a chat surface can produce a lot of successful rows in
+ * between. Rows age out on the generic 7-day pruneDoneJobs sweep, so this is
+ * recent history rather than an archive.
+ */
+export async function readChatCallsAction() {
+  try {
+    const { rows } = await query(
+      `SELECT job_id,
+              updated_at::text                        as created_at,
+              model_request->>'surface'               as surface,
+              model_request->>'provider'              as provider,
+              model_request->>'model'                 as model,
+              model_request->'userMessage'->>'text'   as asked,
+              (model_request->>'historyTurns')::int   as history_turns,
+              model_request->'attachments'            as attachments,
+              model_response->'message'->>'text'      as replied,
+              (model_response->>'proposalCount')::int as proposals,
+              model_response->'raw'->>'text'          as raw_reply,
+              duration_ms,
+              last_error
+         FROM external_jobs
+        WHERE job_type = 'chat'
+        ORDER BY (last_error IS NOT NULL) DESC, updated_at DESC
+        LIMIT 100`,
+    );
+    return { success: true, data: rows };
+  } catch (error) {
+    console.error("[ai-queue] Failed to read chat calls:", error);
+    return { success: false, error: "Failed to load chat calls." };
+  }
+}
+
+export async function clearChatCallsAction() {
+  try {
+    await query(`DELETE FROM external_jobs WHERE job_type = 'chat'`);
+    return { success: true };
+  } catch (error) {
+    console.error("[ai-queue] Failed to clear chat calls:", error);
+    return { success: false, error: "Failed to clear chat calls." };
+  }
+}
+
 export async function clearAiMarkingQueueAction() {
   try {
     await query(`DELETE FROM external_jobs WHERE job_type = 'ai_mark'`);
