@@ -3,18 +3,21 @@
 import { useState } from 'react'
 import { SowHalfTermTable } from '@/components/sow/SowHalfTermTable'
 import { SowWeekList } from '@/components/sow/SowWeekList'
-import type { HalfTerm, SowHalfTermUnit, Unit } from '@/types'
+import type { HalfTerm, SowHalfTermUnit, SowUnitNote, SowUnitPlacement, Unit } from '@/types'
 import type { SowWeekLesson } from '@/lib/server-updates'
 
 type YearData = {
   halfTerms: HalfTerm[]
   htUnits: SowHalfTermUnit[]
   lessons: SowWeekLesson[]
+  placements: SowUnitPlacement[]
+  notes: SowUnitNote[]
 }
 
 type Props = {
   groupId: string
   groupName: string
+  subject: string | null
   availableYears: number[]
   initialYear: number
   initialData: YearData
@@ -26,6 +29,7 @@ type Props = {
 export function SowClient({
   groupId,
   groupName,
+  subject,
   availableYears,
   initialYear,
   initialData,
@@ -66,8 +70,14 @@ export function SowClient({
 
       <SowHalfTermTable
         key={`ht-${year}`}
+        groupId={groupId}
+        year={year}
+        subject={subject}
         halfTerms={currentData.halfTerms}
         htUnits={currentData.htUnits}
+        initialPlacements={currentData.placements}
+        initialNotes={currentData.notes}
+        units={units}
       />
 
       <SowWeekList
