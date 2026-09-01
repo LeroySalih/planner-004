@@ -1649,6 +1649,32 @@ export const LessonMetaSchema = z.object({
 });
 export type LessonMeta = z.infer<typeof LessonMetaSchema>;
 
+export const HALF_TERM_NAMES = ["H1", "H2", "H3", "H4", "H5", "H6"] as const;
+export const HalfTermNameSchema = z.enum(HALF_TERM_NAMES);
+export type HalfTermName = z.infer<typeof HalfTermNameSchema>;
+
+/** Mirrors public.sow_unit_placements (092-sow-unit-placements.sql). */
+export const SowUnitPlacementSchema = z.object({
+  placement_id: z.string(),
+  group_id: z.string(),
+  year: z.number().int(),
+  half_term_name: HalfTermNameSchema,
+  unit_id: z.string(),
+  unit_name: z.string().nullable(),
+  position: z.number().int(),
+});
+export type SowUnitPlacement = z.infer<typeof SowUnitPlacementSchema>;
+
+/** Mirrors public.sow_unit_notes. Keyed on the cell, not on a placement. */
+export const SowUnitNoteSchema = z.object({
+  group_id: z.string(),
+  year: z.number().int(),
+  half_term_name: HalfTermNameSchema,
+  unit_id: z.string(),
+  note: z.string(),
+});
+export type SowUnitNote = z.infer<typeof SowUnitNoteSchema>;
+
 export const AI_PROVIDERS = ["google", "anthropic"] as const;
 export const AiProviderSchema = z.enum(AI_PROVIDERS);
 export type AiProvider = z.infer<typeof AiProviderSchema>;

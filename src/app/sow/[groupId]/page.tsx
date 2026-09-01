@@ -3,6 +3,8 @@ import { query } from '@/lib/db'
 import {
   readHalfTermsAction,
   readSowHalfTermUnitsAction,
+  readSowUnitPlacementsAction,
+  readSowUnitNotesAction,
   readGroupSowLessonsAction,
   readTeacherGroupsForSowAction,
   readUnitsAction,
@@ -11,24 +13,30 @@ import type { SowWeekLesson } from '@/lib/server-updates'
 import { SowClient } from './sow-client'
 import { notFound } from 'next/navigation'
 import { academicYearFromGroupId, fetchActiveAcademicYears, resolveCurrentAcademicYear } from '@/lib/academic-year'
-import type { HalfTerm, SowHalfTermUnit, Unit } from '@/types'
+import type { HalfTerm, SowHalfTermUnit, SowUnitNote, SowUnitPlacement, Unit } from '@/types'
 
 type YearData = {
   halfTerms: HalfTerm[]
   htUnits: SowHalfTermUnit[]
   lessons: SowWeekLesson[]
+  placements: SowUnitPlacement[]
+  notes: SowUnitNote[]
 }
 
 async function fetchYearData(groupId: string, year: number): Promise<YearData> {
-  const [ht, htu, lp] = await Promise.all([
+  const [ht, htu, lp, pl, nt] = await Promise.all([
     readHalfTermsAction(year),
     readSowHalfTermUnitsAction(groupId, year),
     readGroupSowLessonsAction(groupId, year),
+    readSowUnitPlacementsAction(groupId, year),
+    readSowUnitNotesAction(groupId, year),
   ])
   return {
     halfTerms: ht.data ?? [],
     htUnits: htu.data ?? [],
     lessons: lp.data ?? [],
+    placements: pl.data ?? [],
+    notes: nt.data ?? [],
   }
 }
 
@@ -83,6 +91,7 @@ export default async function SowDetailPage({
       <SowClient
         groupId={groupId}
         groupName={`${groupId} · ${group.subject ?? ''}`}
+        subject={group.subject ?? null}
         availableYears={years}
         initialYear={year}
         initialData={initialData}

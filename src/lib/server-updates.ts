@@ -434,4 +434,9 @@ export {
   upsertHalfTermAction,
   readSowHalfTermUnitsAction,
   readTeacherGroupsForSowAction,
+  readSowUnitPlacementsAction,
+  addSowUnitPlacementAction,
+  removeSowUnitPlacementAction,
+  readSowUnitNotesAction,
+  upsertSowUnitNoteAction,
 } from './server-actions/sow'

@@ -3,7 +3,14 @@
 import { z } from 'zod'
 import { query } from '@/lib/db'
 import { requireTeacherProfile, requireRole, requireTeacherOrAdminAccess } from '@/lib/auth'
-import { HalfTermSchema, SowHalfTermUnitSchema, TeacherGroupSchema } from '@/types'
+import {
+  HalfTermNameSchema,
+  HalfTermSchema,
+  SowHalfTermUnitSchema,
+  SowUnitNoteSchema,
+  SowUnitPlacementSchema,
+  TeacherGroupSchema,
+} from '@/types'
 import { validateHalfTermDates } from '@/lib/academic-year'
 
 // ── Return shapes ─────────────────────────────────────────────────────────────
@@ -20,6 +27,21 @@ const HalfTermResult = z.object({
 
 const SowHalfTermUnitsResult = z.object({
   data: z.array(SowHalfTermUnitSchema).nullable(),
+  error: z.string().nullable(),
+})
+
+const SowUnitPlacementsResult = z.object({
+  data: z.array(SowUnitPlacementSchema).nullable(),
+  error: z.string().nullable(),
+})
+
+const SowUnitNotesResult = z.object({
+  data: z.array(SowUnitNoteSchema).nullable(),
+  error: z.string().nullable(),
+})
+
+const MutationResult = z.object({
+  data: z.null(),
   error: z.string().nullable(),
 })
 
@@ -133,5 +155,133 @@ export async function readTeacherGroupsForSowAction(
     return TeacherGroupsResult.parse({ data: rows, error: null })
   } catch (e) {
     return TeacherGroupsResult.parse({ data: null, error: String(e) })
+  }
+}
+
+
+// ── Manual unit placement (organisational only) ───────────────────────────────
+//
+// These sit alongside the derived readSowHalfTermUnitsAction above rather than
+// replacing it: a unit reaches the grid either because a teacher planned it
+// here, or because its lessons are timetabled to the group. The grid shows
+// both, and the merge lives in the component.
+
+export async function readSowUnitPlacementsAction(
+  groupId: string,
+  year: number,
+): Promise<z.infer<typeof SowUnitPlacementsResult>> {
+  try {
+    await requireTeacherProfile()
+    const { rows } = await query<Record<string, unknown>>(
+      `SELECT p.placement_id, p.group_id, p.year, p.half_term_name, p.unit_id,
+              u.title AS unit_name, p.position
+         FROM sow_unit_placements p
+         LEFT JOIN units u ON u.unit_id = p.unit_id
+        WHERE p.group_id = $1 AND p.year = $2
+        ORDER BY p.half_term_name, p.position, p.created_at`,
+      [groupId, year],
+    )
+    const data = rows.map((r) =>
+      SowUnitPlacementSchema.parse({ ...r, year: Number(r.year), position: Number(r.position) }),
+    )
+    return SowUnitPlacementsResult.parse({ data, error: null })
+  } catch (e) {
+    return SowUnitPlacementsResult.parse({ data: null, error: String(e) })
+  }
+}
+
+export async function addSowUnitPlacementAction(input: {
+  groupId: string
+  year: number
+  halfTermName: string
+  unitId: string
+}): Promise<z.infer<typeof MutationResult>> {
+  try {
+    const profile = await requireTeacherProfile()
+    const halfTermName = HalfTermNameSchema.parse(input.halfTermName)
+    // Appended after whatever is already planned in the cell. Timetabled units
+    // are ordered separately, by the week their lessons fall in.
+    await query(
+      `INSERT INTO sow_unit_placements (group_id, year, half_term_name, unit_id, position, created_by)
+       SELECT $1, $2, $3, $4,
+              coalesce((SELECT max(position) + 1 FROM sow_unit_placements
+                         WHERE group_id = $1 AND year = $2 AND half_term_name = $3), 0),
+              $5
+       ON CONFLICT (group_id, year, half_term_name, unit_id) DO NOTHING`,
+      [input.groupId, input.year, halfTermName, input.unitId, profile.userId],
+    )
+    return MutationResult.parse({ data: null, error: null })
+  } catch (e) {
+    return MutationResult.parse({ data: null, error: String(e) })
+  }
+}
+
+export async function removeSowUnitPlacementAction(
+  placementId: string,
+): Promise<z.infer<typeof MutationResult>> {
+  try {
+    await requireTeacherProfile()
+    // Only ever removes the plan. A unit that is in the grid because its
+    // lessons are timetabled has no placement row, so there is nothing here
+    // that can take it out of the timetable.
+    await query(`DELETE FROM sow_unit_placements WHERE placement_id = $1`, [placementId])
+    return MutationResult.parse({ data: null, error: null })
+  } catch (e) {
+    return MutationResult.parse({ data: null, error: String(e) })
+  }
+}
+
+export async function readSowUnitNotesAction(
+  groupId: string,
+  year: number,
+): Promise<z.infer<typeof SowUnitNotesResult>> {
+  try {
+    await requireTeacherProfile()
+    const { rows } = await query<Record<string, unknown>>(
+      `SELECT group_id, year, half_term_name, unit_id, note
+         FROM sow_unit_notes
+        WHERE group_id = $1 AND year = $2`,
+      [groupId, year],
+    )
+    const data = rows.map((r) => SowUnitNoteSchema.parse({ ...r, year: Number(r.year) }))
+    return SowUnitNotesResult.parse({ data, error: null })
+  } catch (e) {
+    return SowUnitNotesResult.parse({ data: null, error: String(e) })
+  }
+}
+
+export async function upsertSowUnitNoteAction(input: {
+  groupId: string
+  year: number
+  halfTermName: string
+  unitId: string
+  note: string
+}): Promise<z.infer<typeof MutationResult>> {
+  try {
+    const profile = await requireTeacherProfile()
+    const halfTermName = HalfTermNameSchema.parse(input.halfTermName)
+    const note = input.note.trim()
+
+    // An empty note deletes the row rather than storing "". "Has a note" is
+    // then simply the row existing, and a cleared note leaves nothing behind.
+    if (note.length === 0) {
+      await query(
+        `DELETE FROM sow_unit_notes
+          WHERE group_id = $1 AND year = $2 AND half_term_name = $3 AND unit_id = $4`,
+        [input.groupId, input.year, halfTermName, input.unitId],
+      )
+      return MutationResult.parse({ data: null, error: null })
+    }
+
+    await query(
+      `INSERT INTO sow_unit_notes (group_id, year, half_term_name, unit_id, note, updated_by)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (group_id, year, half_term_name, unit_id)
+       DO UPDATE SET note = EXCLUDED.note, updated_at = now(), updated_by = EXCLUDED.updated_by`,
+      [input.groupId, input.year, halfTermName, input.unitId, note, profile.userId],
+    )
+    return MutationResult.parse({ data: null, error: null })
+  } catch (e) {
+    return MutationResult.parse({ data: null, error: String(e) })
   }
 }
