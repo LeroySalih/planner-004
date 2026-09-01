@@ -10,6 +10,8 @@ export const GroupSchema = z.object({
     member_count: z.union([z.string(), z.number()]).transform((val) =>
         Number(val)
     ).optional(),
+    /** Names of members flagged as teachers. Empty when nobody is assigned. */
+    teachers: z.array(z.string()).optional(),
 });
 
 export const GroupsSchema = z.array(GroupSchema);

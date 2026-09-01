@@ -333,10 +333,23 @@ export async function readGroupsAction(options?: {
           ? `where ${filters.join(" AND ")}`
           : "";
 
+        // Teachers live in group_membership alongside pupils — the "Add
+        // Teacher" button writes the same row — and are told apart only by
+        // profiles.is_teacher, which is the rule the group detail page already
+        // uses. That also means member_count was counting teachers as pupils;
+        // now that the names are shown next to the figure, the discrepancy
+        // would be visible, so the count excludes them.
         const sql = `
-          select g.group_id, g.subject, g.join_code, g.active, count(m.user_id) as member_count
+          select g.group_id, g.subject, g.join_code, g.active,
+                 count(m.user_id) filter (where p.is_teacher is not true) as member_count,
+                 coalesce(
+                   array_agg(distinct trim(coalesce(p.first_name, '') || ' ' || coalesce(p.last_name, '')))
+                     filter (where p.is_teacher),
+                   '{}'
+                 ) as teachers
           from groups g
           left join group_membership m on m.group_id = g.group_id
+          left join profiles p on p.user_id = m.user_id
           ${whereClause}
           group by g.group_id, g.subject, g.join_code, g.active
           order by g.group_id asc;

@@ -12,6 +12,7 @@ import {
   TeacherGroupSchema,
 } from '@/types'
 import { validateHalfTermDates } from '@/lib/academic-year'
+import { SOW_GROUP_ACCESS_PREDICATE } from '@/lib/sow/group-access'
 
 // ── Return shapes ─────────────────────────────────────────────────────────────
 
@@ -145,11 +146,10 @@ export async function readTeacherGroupsForSowAction(
     const resolvedTargetTeacherId = targetTeacherId ?? profile.userId
     await requireTeacherOrAdminAccess(resolvedTargetTeacherId)
     const { rows } = await query<{ group_id: string; subject: string }>(
-      `SELECT DISTINCT g.group_id, g.subject
-       FROM timetable_slot_groups tsg
-       JOIN groups g ON g.group_id = tsg.group_id
-       WHERE tsg.teacher_id = $1 AND g.active IS NOT FALSE
-       ORDER BY g.subject`,
+      `SELECT g.group_id, g.subject
+         FROM groups g
+        WHERE g.active IS NOT FALSE AND (${SOW_GROUP_ACCESS_PREDICATE})
+        ORDER BY g.subject, g.group_id`,
       [resolvedTargetTeacherId],
     )
     return TeacherGroupsResult.parse({ data: rows, error: null })

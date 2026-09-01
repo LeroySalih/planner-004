@@ -10,6 +10,7 @@ import {
   readUnitsAction,
 } from '@/lib/server-updates'
 import type { SowWeekLesson } from '@/lib/server-updates'
+import { SOW_GROUP_ACCESS_PREDICATE } from '@/lib/sow/group-access'
 import { SowClient } from './sow-client'
 import { notFound } from 'next/navigation'
 import { academicYearFromGroupId, fetchActiveAcademicYears, resolveCurrentAcademicYear } from '@/lib/academic-year'
@@ -76,8 +77,12 @@ export default async function SowDetailPage({
   async function onYearChange(newYear: number): Promise<YearData> {
     'use server'
     await requireTeacherOrAdminAccess(targetTeacherId)
+    // Same rule as the landing list. These two drifting apart is how a group
+    // ends up listed but throwing "Unauthorized" the moment you change year.
     const { rows } = await query<{ count: string }>(
-      `SELECT COUNT(*) as count FROM timetable_slot_groups WHERE teacher_id = $1 AND group_id = $2`,
+      `SELECT COUNT(*) as count
+         FROM groups g
+        WHERE g.group_id = $2 AND g.active IS NOT FALSE AND (${SOW_GROUP_ACCESS_PREDICATE})`,
       [targetTeacherId, groupId],
     )
     if (Number(rows[0]?.count ?? 0) === 0) {

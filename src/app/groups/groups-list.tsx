@@ -67,6 +67,17 @@ export function GroupsList({
                 <p className="text-sm text-slate-800">{group.subject ?? "Untitled"}</p>
               </div>
               <div className="space-y-1">
+                <p className="text-sm font-medium text-slate-700">Teachers</p>
+                {group.teachers && group.teachers.length > 0 ? (
+                  <p className="text-sm text-slate-800">{group.teachers.join(", ")}</p>
+                ) : (
+                  // Worth making obvious rather than showing an empty line: a
+                  // group with nobody assigned is the thing an admin is
+                  // scanning this page to find.
+                  <p className="text-sm font-medium text-amber-700">No teacher assigned</p>
+                )}
+              </div>
+              <div className="space-y-1">
                 <p className="text-sm font-medium text-slate-700">Learners</p>
                 <p className="text-sm text-slate-800">{group.member_count ?? 0} active pupils</p>
               </div>
