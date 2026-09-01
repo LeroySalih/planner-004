@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from 'react'
 import Link from 'next/link'
-import { Plus, X, StickyNote } from 'lucide-react'
+import { Plus, X, StickyNote, Download } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -10,6 +10,9 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Textarea } from '@/components/ui/textarea'
 import {
   addSowUnitPlacementAction,
+  importSowUnitsFromGroupAction,
+  readSowImportSourcesAction,
+  readSowUnitPlacementsAction,
   removeSowUnitPlacementAction,
   upsertSowUnitNoteAction,
 } from '@/lib/server-updates'
@@ -74,6 +77,8 @@ export function SowHalfTermTable({
   const [allSubjects, setAllSubjects] = useState(false)
   const [noteTarget, setNoteTarget] = useState<{ halfTerm: HalfTermName; chip: Chip } | null>(null)
   const [noteDraft, setNoteDraft] = useState('')
+  const [importOpen, setImportOpen] = useState(false)
+  const [sources, setSources] = useState<{ group_id: string; subject: string | null; active: boolean | null; unit_count: number }[] | null>(null)
   const [isPending, startTransition] = useTransition()
 
   const halfTermMap = useMemo(() => new Map(halfTerms.map((ht) => [ht.name, ht])), [halfTerms])
@@ -191,6 +196,38 @@ export function SowHalfTermTable({
     })
   }
 
+  function openImport() {
+    setImportOpen(true)
+    // Fetched on open rather than with the page: it is a per-group count over
+    // every group the teacher can reach, and most visits never open this.
+    if (sources) return
+    void readSowImportSourcesAction(groupId).then((r) => setSources(r.data ?? []))
+  }
+
+  function handleImport(sourceGroupId: string) {
+    startTransition(async () => {
+      const { data, error } = await importSowUnitsFromGroupAction({
+        targetGroupId: groupId,
+        targetYear: year,
+        sourceGroupId,
+      })
+      if (error || !data) {
+        toast.error('Could not import from that group')
+        return
+      }
+      // Re-read rather than guess: the merge skips anything already present,
+      // so what actually landed is only known server-side.
+      const refreshed = await readSowUnitPlacementsAction(groupId, year)
+      if (refreshed.data) setPlacements(refreshed.data)
+      setImportOpen(false)
+      toast.success(
+        data.added === 0
+          ? 'Nothing new to import — those units are already here'
+          : `Imported ${data.added} unit${data.added === 1 ? '' : 's'} from ${sourceGroupId}`,
+      )
+    })
+  }
+
   function handleSaveNote() {
     if (!noteTarget) return
     const { halfTerm, chip } = noteTarget
@@ -222,6 +259,12 @@ export function SowHalfTermTable({
 
   return (
     <div className="mb-8 space-y-3">
+      <div className="flex justify-end">
+        <Button variant="outline" size="sm" onClick={openImport} className="gap-2">
+          <Download className="h-4 w-4" />
+          Import from group
+        </Button>
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           <thead>
@@ -375,6 +418,56 @@ export function SowHalfTermTable({
         <span className="ml-3 mr-1 inline-block h-2 w-2 rounded-full bg-[var(--color-text-tertiary)] align-middle" />
         planned only. Planning here is for your own organisation — it does not schedule anything.
       </p>
+
+      <Dialog open={importOpen} onOpenChange={setImportOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Import units from another group</DialogTitle>
+          </DialogHeader>
+          <p className="text-xs text-[var(--color-text-secondary)]">
+            Copies that group&apos;s units into your half-terms as <strong>planned</strong>. Anything
+            already here is left alone, and nothing is timetabled — importing cannot schedule lessons.
+          </p>
+          <div className="max-h-80 overflow-y-auto rounded-md border border-[var(--color-border)]">
+            {sources === null ? (
+              <p className="p-3 text-sm text-[var(--color-text-tertiary)]">Loading…</p>
+            ) : sources.length === 0 ? (
+              <p className="p-3 text-sm text-[var(--color-text-tertiary)]">No other groups available.</p>
+            ) : (
+              // Same subject first: a teacher importing into a DT class almost
+              // always wants another DT class, but cross-subject is not blocked.
+              [...sources]
+                .sort((a, b) => {
+                  const aSame = a.subject === subject ? 0 : 1
+                  const bSame = b.subject === subject ? 0 : 1
+                  return aSame - bSame || a.group_id.localeCompare(b.group_id)
+                })
+                .map((src) => (
+                  <button
+                    key={src.group_id}
+                    type="button"
+                    disabled={isPending || src.unit_count === 0}
+                    onClick={() => handleImport(src.group_id)}
+                    className="flex w-full items-center justify-between gap-3 border-b border-[var(--color-border)] px-3 py-2 text-left text-sm last:border-b-0 hover:bg-[var(--color-background-secondary)] disabled:opacity-50 disabled:hover:bg-transparent"
+                  >
+                    <span>
+                      <span className="font-medium">{src.group_id}</span>
+                      <span className="ml-2 text-xs text-[var(--color-text-tertiary)]">{src.subject}</span>
+                      {src.active === false ? (
+                        <span className="ml-2 rounded bg-[var(--color-background-secondary)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-tertiary)]">
+                          retired
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="shrink-0 text-xs text-[var(--color-text-tertiary)]">
+                      {src.unit_count === 0 ? 'nothing to import' : `${src.unit_count} units`}
+                    </span>
+                  </button>
+                ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={noteTarget !== null} onOpenChange={(open) => !open && setNoteTarget(null)}>
         <DialogContent>

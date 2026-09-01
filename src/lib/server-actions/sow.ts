@@ -285,3 +285,130 @@ export async function upsertSowUnitNoteAction(input: {
     return MutationResult.parse({ data: null, error: String(e) })
   }
 }
+
+// ── Importing a plan from another group ───────────────────────────────────────
+
+const SowImportSourceSchema = z.object({
+  group_id: z.string(),
+  subject: z.string().nullable(),
+  /** Retired classes are valid sources — see readSowImportSourcesAction. */
+  active: z.boolean().nullable(),
+  unit_count: z.number().int(),
+})
+
+const SowImportSourcesResult = z.object({
+  data: z.array(SowImportSourceSchema).nullable(),
+  error: z.string().nullable(),
+})
+
+const SowImportResult = z.object({
+  data: z.object({ added: z.number().int() }).nullable(),
+  error: z.string().nullable(),
+})
+
+/**
+ * What a group's grid holds, as (half-term name, unit) pairs.
+ *
+ * Both routes in, unioned: units whose lessons were actually timetabled, and
+ * units someone planned by hand. Importing brings across whichever the source
+ * has — for most groups today that is entirely the former, since nobody has
+ * planned anything yet.
+ *
+ * Half-terms are matched on the date range alone rather than by looking up the
+ * source group's academic year: ranges from different years do not overlap, so
+ * the date already identifies the half-term unambiguously, and the caller is
+ * spared having to know what year the source group belongs to.
+ */
+const SOURCE_GRID_CTE = `
+  derived AS (
+    SELECT pa.group_id, ht.name AS half_term_name, l.unit_id
+      FROM planner_assignments pa
+      JOIN lessons l ON l.lesson_id = pa.lesson_id
+      JOIN half_terms ht ON pa.week_start_date BETWEEN ht.start_date AND ht.end_date
+     GROUP BY pa.group_id, ht.name, l.unit_id
+  ),
+  planned AS (
+    SELECT p.group_id, p.half_term_name, p.unit_id FROM sow_unit_placements p
+  ),
+  grid AS (
+    SELECT * FROM derived UNION SELECT * FROM planned
+  )
+`
+
+/**
+ * Groups this teacher could import from, with how much each would bring.
+ *
+ * Unlike the /sow list, INACTIVE groups are included. Last year's classes are
+ * deactivated when the year ends, and they are precisely the ones worth
+ * importing from — 25-10-DT is inactive and holds a full year of delivery.
+ * Filtering them out blocked the main reason for the feature. Importing only
+ * reads the source, so there is nothing unsafe about a retired group; the UI
+ * labels them so it is clear what you are copying from.
+ */
+export async function readSowImportSourcesAction(
+  targetGroupId: string,
+  targetTeacherId?: string,
+): Promise<z.infer<typeof SowImportSourcesResult>> {
+  try {
+    const profile = await requireTeacherProfile()
+    const teacherId = targetTeacherId ?? profile.userId
+    await requireTeacherOrAdminAccess(teacherId)
+
+    const { rows } = await query<Record<string, unknown>>(
+      `WITH ${SOURCE_GRID_CTE}
+       SELECT g.group_id, g.subject, g.active, count(gr.unit_id)::int AS unit_count
+         FROM groups g
+         LEFT JOIN grid gr ON gr.group_id = g.group_id
+        WHERE g.group_id <> $2
+          AND (${SOW_GROUP_ACCESS_PREDICATE})
+        GROUP BY g.group_id, g.subject, g.active
+        ORDER BY g.subject, g.group_id`,
+      [teacherId, targetGroupId],
+    )
+    const data = rows.map((r) =>
+      SowImportSourceSchema.parse({ ...r, unit_count: Number(r.unit_count) }),
+    )
+    return SowImportSourcesResult.parse({ data, error: null })
+  } catch (e) {
+    return SowImportSourcesResult.parse({ data: null, error: String(e) })
+  }
+}
+
+/**
+ * Copy another group's grid into this one as planned units.
+ *
+ * Everything arrives planned, never timetabled: green means lessons are
+ * scheduled to *this* class, and an import cannot schedule lessons. Merging,
+ * never replacing — ON CONFLICT DO NOTHING leaves anything already in a cell
+ * untouched, so importing twice is harmless and no existing planning is lost.
+ */
+export async function importSowUnitsFromGroupAction(input: {
+  targetGroupId: string
+  targetYear: number
+  sourceGroupId: string
+}): Promise<z.infer<typeof SowImportResult>> {
+  try {
+    const profile = await requireTeacherProfile()
+
+    const { rows } = await query<{ placement_id: string }>(
+      `WITH ${SOURCE_GRID_CTE}
+       INSERT INTO sow_unit_placements
+              (group_id, year, half_term_name, unit_id, position, created_by)
+       SELECT $1, $2, gr.half_term_name, gr.unit_id,
+              coalesce((SELECT max(position) + 1 FROM sow_unit_placements ex
+                         WHERE ex.group_id = $1 AND ex.year = $2
+                           AND ex.half_term_name = gr.half_term_name), 0),
+              $4
+         FROM grid gr
+         JOIN units u ON u.unit_id = gr.unit_id
+        WHERE gr.group_id = $3
+       ON CONFLICT (group_id, year, half_term_name, unit_id) DO NOTHING
+       RETURNING placement_id`,
+      [input.targetGroupId, input.targetYear, input.sourceGroupId, profile.userId],
+    )
+
+    return SowImportResult.parse({ data: { added: rows.length }, error: null })
+  } catch (e) {
+    return SowImportResult.parse({ data: null, error: String(e) })
+  }
+}
