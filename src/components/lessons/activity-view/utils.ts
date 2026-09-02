@@ -435,18 +435,41 @@ export function getMarkWorksheetBody(activity: LessonActivity): MarkWorksheetBod
 
 export interface DisplayWebpageBody {
   htmlFile: string | null;
+  /** External link, http/https only. Independent of htmlFile — either, both or neither. */
+  url: string | null;
+}
+
+/**
+ * Accepts http and https only.
+ *
+ * Anything else is dropped rather than rendered: this value ends up in an
+ * href a pupil clicks, and a "javascript:" or "data:" URL there would execute
+ * in their session. Stored values are re-checked on read, not just on save,
+ * so a row written before this validation existed cannot slip through.
+ */
+export function safeExternalUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
 }
 
 export function getDisplayWebpageBody(activity: LessonActivity): DisplayWebpageBody {
   if (!activity.body_data || typeof activity.body_data !== "object") {
-    return { htmlFile: null };
+    return { htmlFile: null, url: null };
   }
   const record = activity.body_data as Record<string, unknown>;
   const htmlFile =
     typeof record.htmlFile === "string" && record.htmlFile.trim() !== ""
       ? record.htmlFile.trim()
       : null;
-  return { htmlFile };
+  return { htmlFile, url: safeExternalUrl(record.url) };
 }
 
 export interface SequenceTermBody {

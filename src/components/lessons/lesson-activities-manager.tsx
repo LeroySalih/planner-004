@@ -49,6 +49,7 @@ import {
   getFeedbackBody,
   getDisplaySectionBody,
   getDisplayWebpageBody,
+  safeExternalUrl,
   getGroupItemsBody,
   getMarkWorksheetBody,
   getMatcherBody,
@@ -749,7 +750,9 @@ useEffect(() => {
 
         if ((type === "display-image" || type === "display-webpage") && imageSubmission) {
           const createBody = imageSubmission.pendingFile
-            ? (type === "display-webpage" ? { htmlFile: null } : { imageFile: null, imageUrl: null, fileUrl: null })
+            ? (type === "display-webpage"
+                ? { ...(imageSubmission.finalBody ?? {}), htmlFile: null }
+                : { imageFile: null, imageUrl: null, fileUrl: null })
             : bodyData
 
         const createResult = await createLessonActivityAction(unitId, lessonId, {
@@ -990,7 +993,7 @@ useEffect(() => {
               title,
               type,
               bodyData: type === "display-webpage"
-                ? { htmlFile: previousFileName }
+                ? { ...(imageSubmission.finalBody ?? {}), htmlFile: previousFileName }
                 : { imageFile: previousFileName, fileUrl: previousFileName },
             })
             return
@@ -2300,6 +2303,8 @@ function LessonActivityEditorSheet({
   const [imageBody, setImageBody] = useState<ImageBody | null>(null)
   const [pendingImageFile, setPendingImageFile] = useState<File | null>(null)
   const [pendingHtmlFile, setPendingHtmlFile] = useState<File | null>(null)
+  // display-webpage: an external link, independent of the uploaded file.
+  const [webpageUrl, setWebpageUrl] = useState('')
   const [shouldDeleteExistingImage, setShouldDeleteExistingImage] = useState(false)
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null)
   const [isImageLoading, setIsImageLoading] = useState(false)
@@ -2820,6 +2825,7 @@ function LessonActivityEditorSheet({
     originalImageBodyRef.current = defaultBody
     setPendingImageFile(null)
     setPendingHtmlFile(null)
+    setWebpageUrl('')
     setShouldDeleteExistingImage(false)
     setImagePreviewUrl(null)
     setIsImageLoading(false)
@@ -2883,6 +2889,11 @@ function LessonActivityEditorSheet({
       setShouldDeleteExistingImage(false)
       setPendingImageFile(null)
       setPendingHtmlFile(null)
+      setWebpageUrl(
+        typeof (nextBody as Record<string, unknown>).url === 'string'
+          ? ((nextBody as Record<string, unknown>).url as string)
+          : '',
+      )
       setIsImageDragActive(false)
 
       const rawBody = nextBody as Record<string, unknown>
@@ -4184,23 +4195,38 @@ function LessonActivityEditorSheet({
         finalBody: sanitizedBody,
       }
     } else if (type === "display-webpage") {
-      const previousBody = activity ? getDisplayWebpageBody(activity) : { htmlFile: null }
+      const previousBody = activity ? getDisplayWebpageBody(activity) : { htmlFile: null, url: null }
       const nextFileName = pendingHtmlFile
         ? pendingHtmlFile.name
         : previousBody.htmlFile
-      const sanitizedBody = nextFileName ? { htmlFile: nextFileName } : null
 
-      if (!nextFileName) {
-        toast.error("Upload an HTML file for this webpage activity.")
+      const typedUrl = webpageUrl.trim()
+      // Validated here as well as on read: better to refuse the save with a
+      // message than to store something the pupil view will silently drop.
+      const nextUrl = typedUrl ? safeExternalUrl(typedUrl) : null
+      if (typedUrl && !nextUrl) {
+        toast.error("Enter a full web address starting with http:// or https://")
         return
       }
 
-      bodyData = sanitizedBody
+      // Either is enough now — a link on its own is a perfectly good webpage
+      // activity, so requiring a file would block the case this was added for.
+      if (!nextFileName && !nextUrl) {
+        toast.error("Upload an HTML file or enter a web address.")
+        return
+      }
+
+      const sanitizedWebpageBody = {
+        ...(nextFileName ? { htmlFile: nextFileName } : {}),
+        ...(nextUrl ? { url: nextUrl } : {}),
+      }
+
+      bodyData = sanitizedWebpageBody
       imageSubmission = {
         pendingFile: pendingHtmlFile ?? null,
         shouldDeleteExisting: false,
         previousFileName: previousBody.htmlFile,
-        finalBody: sanitizedBody,
+        finalBody: sanitizedWebpageBody,
       }
     } else if (type === "multiple-choice-question") {
       const { bodyData: preparedMcqBody, error } = prepareMcqBodyForSave(mcqBody)
@@ -4737,6 +4763,23 @@ function LessonActivityEditorSheet({
                   </Button>
                 </div>
               ) : null}
+
+              <div className="space-y-1 border-t border-border pt-3">
+                <Label htmlFor="webpage-url">Or link to a website</Label>
+                <Input
+                  id="webpage-url"
+                  type="url"
+                  inputMode="url"
+                  placeholder="https://www.bbc.co.uk/bitesize"
+                  value={webpageUrl}
+                  onChange={(e) => setWebpageUrl(e.target.value)}
+                  disabled={isPending}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Opens in a new tab. You can set a file, a link, or both — pupils see whichever
+                  you provide.
+                </p>
+              </div>
             </div>
           ) : null}
 

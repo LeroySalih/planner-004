@@ -75,6 +75,7 @@ import { fetchPupilActivityFeedbackMap, selectLatestFeedbackEntry } from "@/lib/
 import {
   getActivityFileUrlValue,
   getActivityTextValue,
+  getDisplayWebpageBody,
   getFlashcardsText,
   getRichTextMarkup,
   getYouTubeThumbnailUrl,
@@ -1098,6 +1099,8 @@ export default async function PupilLessonFriendlyPage({
                   const index = (activityNumbers.get(activity.activity_id) ?? 1) - 1
                   const linkUrl = extractActivityLink(activity)
                   const activityFiles = fileDownloadUrlMap.get(activity.activity_id) ?? []
+                  const webpage =
+                    activity.type === "display-webpage" ? getDisplayWebpageBody(activity) : null
                   
                   const audioUrl = extractAudioUrl(activity)
                   const isDisplayImage = activity.type === "display-image"
@@ -1407,16 +1410,35 @@ export default async function PupilLessonFriendlyPage({
                           </div>
                           <div className="space-y-1">
                             <h3 className="font-medium leading-none text-foreground">{activity.title}</h3>
-                            <p className="text-sm text-muted-foreground">Open this page in a new tab.</p>
-                            <Button asChild size="sm" variant="outline" className="mt-2 gap-2">
-                              <a
-                                href={`/api/activity-webpage/${encodeURIComponent(activity.activity_id)}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                              >
-                                <Globe className="h-4 w-4" /> Open webpage
-                              </a>
-                            </Button>
+                            {webpage?.htmlFile || webpage?.url ? (
+                              <>
+                                <p className="text-sm text-muted-foreground">Open this page in a new tab.</p>
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  {webpage.htmlFile ? (
+                                    <Button asChild size="sm" variant="outline" className="gap-2">
+                                      <a
+                                        href={`/api/activity-webpage/${encodeURIComponent(activity.activity_id)}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                      >
+                                        <Globe className="h-4 w-4" /> Open webpage
+                                      </a>
+                                    </Button>
+                                  ) : null}
+                                  {webpage.url ? (
+                                    <Button asChild size="sm" variant="outline" className="gap-2">
+                                      <a href={webpage.url} target="_blank" rel="noopener noreferrer">
+                                        <Globe className="h-4 w-4" /> Visit {new URL(webpage.url).hostname}
+                                      </a>
+                                    </Button>
+                                  ) : null}
+                                </div>
+                              </>
+                            ) : (
+                              <p className="text-sm text-muted-foreground">
+                                Your teacher has not added a page or link yet.
+                              </p>
+                            )}
                           </div>
                         </div>
                       </div>

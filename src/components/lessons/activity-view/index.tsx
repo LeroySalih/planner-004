@@ -491,18 +491,35 @@ function ActivityShortView({
     )
   } else if (activity.type === "display-webpage") {
     const webpage = getDisplayWebpageBody(activity)
-    content = webpage.htmlFile ? (
-      <a
-        href={`/api/activity-webpage/${encodeURIComponent(activity.activity_id)}`}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-sm font-medium text-primary underline-offset-4 hover:underline"
-      >
-        Open webpage ({webpage.htmlFile})
-      </a>
-    ) : (
-      <p className="text-sm text-muted-foreground">No HTML file uploaded yet.</p>
-    )
+    // An activity may carry an uploaded page, an external link, or both, so
+    // each is rendered independently rather than one shadowing the other.
+    content =
+      webpage.htmlFile || webpage.url ? (
+        <div className="flex flex-col gap-1">
+          {webpage.htmlFile ? (
+            <a
+              href={`/api/activity-webpage/${encodeURIComponent(activity.activity_id)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+            >
+              Open webpage ({webpage.htmlFile})
+            </a>
+          ) : null}
+          {webpage.url ? (
+            <a
+              href={webpage.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+            >
+              Visit {new URL(webpage.url).hostname}
+            </a>
+          ) : null}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">No webpage or link set yet.</p>
+      )
   } else if (activity.type === "sketch-render") {
     content = <LessonActivityViewSketchRender activity={activity} />
   } else if (activity.type === "display-flashcards") {
