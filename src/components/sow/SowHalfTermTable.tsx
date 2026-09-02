@@ -79,6 +79,7 @@ export function SowHalfTermTable({
   const [noteDraft, setNoteDraft] = useState('')
   const [importOpen, setImportOpen] = useState(false)
   const [sources, setSources] = useState<{ group_id: string; subject: string | null; active: boolean | null; unit_count: number }[] | null>(null)
+  const [sourceFilter, setSourceFilter] = useState('')
   const [isPending, startTransition] = useTransition()
 
   const halfTermMap = useMemo(() => new Map(halfTerms.map((ht) => [ht.name, ht])), [halfTerms])
@@ -140,6 +141,19 @@ export function SowHalfTermTable({
     return out
   }, [htUnits, placements, notes, idToName])
 
+  // Filters on class id and subject, so "7A" and "design" both work. The
+  // teacher usually knows the class code, and the list runs to dozens of
+  // groups once retired years are included.
+  const visibleSources = useMemo(() => {
+    const q = sourceFilter.trim().toLowerCase()
+    if (!q) return sources ?? []
+    return (sources ?? []).filter(
+      (s) =>
+        s.group_id.toLowerCase().includes(q) ||
+        (s.subject ?? '').toLowerCase().includes(q),
+    )
+  }, [sources, sourceFilter])
+
   const pickerUnits = useMemo(() => {
     const q = search.trim().toLowerCase()
     return units
@@ -198,6 +212,7 @@ export function SowHalfTermTable({
 
   function openImport() {
     setImportOpen(true)
+    setSourceFilter('')
     // Fetched on open rather than with the page: it is a per-group count over
     // every group the teacher can reach, and most visits never open this.
     if (sources) return
@@ -428,15 +443,26 @@ export function SowHalfTermTable({
             Copies that group&apos;s units into your half-terms as <strong>planned</strong>. Anything
             already here is left alone, and nothing is timetabled — importing cannot schedule lessons.
           </p>
+          <input
+            autoFocus
+            value={sourceFilter}
+            onChange={(e) => setSourceFilter(e.target.value)}
+            placeholder="Filter by class or subject…"
+            className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-background-primary)] px-2 py-1.5 text-sm"
+          />
           <div className="max-h-80 overflow-y-auto rounded-md border border-[var(--color-border)]">
             {sources === null ? (
               <p className="p-3 text-sm text-[var(--color-text-tertiary)]">Loading…</p>
             ) : sources.length === 0 ? (
               <p className="p-3 text-sm text-[var(--color-text-tertiary)]">No other groups available.</p>
+            ) : visibleSources.length === 0 ? (
+              <p className="p-3 text-sm text-[var(--color-text-tertiary)]">
+                No class matches “{sourceFilter}”.
+              </p>
             ) : (
               // Same subject first: a teacher importing into a DT class almost
               // always wants another DT class, but cross-subject is not blocked.
-              [...sources]
+              visibleSources
                 .sort((a, b) => {
                   const aSame = a.subject === subject ? 0 : 1
                   const bSame = b.subject === subject ? 0 : 1
@@ -460,7 +486,9 @@ export function SowHalfTermTable({
                       ) : null}
                     </span>
                     <span className="shrink-0 text-xs text-[var(--color-text-tertiary)]">
-                      {src.unit_count === 0 ? 'nothing to import' : `${src.unit_count} units`}
+                      {src.unit_count === 0
+                        ? 'nothing to import'
+                        : `${src.unit_count} unit${src.unit_count === 1 ? '' : 's'}`}
                     </span>
                   </button>
                 ))
