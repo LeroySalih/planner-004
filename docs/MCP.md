@@ -350,6 +350,69 @@ Returns everything needed to POST a file directly to a `file-download` or `displ
 
 ---
 
+### Teachers, Groups & Timetable
+
+MCP authenticates with a service key and carries no user identity, so every
+timetable call names its teacher explicitly. `teacher` accepts an **email or a
+user id** — email is usually what a caller has to hand.
+
+A slot is uniquely `(teacher, day, period)`, so there is no separate create and
+update: `set_timetable_slot` upserts. Three states, and they differ:
+
+| State | Meaning |
+|---|---|
+| no row | the slot has never been set |
+| row, `group_id: null` | explicitly a free period |
+| row, `group_id` set | that class |
+
+The planner renders the first two the same, but deleting a slot and marking it
+free are different operations, so both exist.
+
+Days: `sunday, monday, tuesday, wednesday, thursday`. Periods: `1`–`7`.
+
+#### `list_teachers`
+Every teacher, for finding the identifier the timetable tools need.
+
+**Input:** none  
+**Output:** `{ teachers: [{ user_id, name, email }] }`
+
+---
+
+#### `list_groups`
+Teaching groups (classes). Retired classes are excluded by default.
+
+**Input:** `{ include_inactive?: boolean }`  
+**Output:** `{ groups: [{ group_id, subject, is_active }] }`
+
+---
+
+#### `get_timetable_slots`
+A teacher's timetable, ordered by day then period.
+
+**Input:** `{ teacher: string }`  
+**Output:** `{ teacher_id, slots: [{ day, period, group_id }] }`
+
+---
+
+#### `set_timetable_slot`
+Creates or updates one slot. **Omit `group_id` to mark the slot a free period.**
+The group is checked to exist first, so an unknown class gives a usable error
+rather than a constraint violation.
+
+**Input:** `{ teacher: string, day: string, period: number, group_id?: string }`  
+**Output:** `{ teacher_id, slot: { day, period, group_id } }`
+
+---
+
+#### `delete_timetable_slot`
+Removes a slot entirely, as though never set. Returns `deleted: false` when
+there was nothing there, rather than erroring.
+
+**Input:** `{ teacher: string, day: string, period: number }`  
+**Output:** `{ teacher_id, deleted: boolean }`
+
+---
+
 ### Utility
 
 #### `status`
@@ -374,3 +437,4 @@ Health probe.
 | `src/lib/mcp/lessons.ts` | Lesson read/write/upload helpers |
 | `src/lib/mcp/losc.ts` | AO / LO / SC read/write helpers |
 | `src/lib/mcp/activities.ts` | Activity read/write/upload helpers |
+| `src/lib/mcp/timetable.ts` | Teacher / group lookup and timetable slot CRUD |

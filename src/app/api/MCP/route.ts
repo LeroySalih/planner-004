@@ -24,6 +24,16 @@ import {
 } from '@/lib/mcp/losc'
 import { listUnits, findUnitsByTitle, createUnit } from '@/lib/mcp/units'
 import { listLessonsForUnit, createLesson, addSuccessCriterionToLesson, removeSuccessCriterionFromLesson, uploadLessonFile } from '@/lib/mcp/lessons'
+import {
+  listTeachers,
+  listGroups,
+  resolveTeacherId,
+  listTimetableSlots,
+  setTimetableSlot,
+  deleteTimetableSlot,
+  VALID_DAYS,
+  VALID_PERIODS,
+} from '@/lib/mcp/timetable'
 import { ACTIVITY_TYPES, listActivitiesForLesson, createActivity, updateActivity, addSuccessCriterionToActivity, removeSuccessCriterionFromActivity, removeActivity, uploadActivityFile } from '@/lib/mcp/activities'
 
 // Force Node.js runtime — MCP SDK is not compatible with the Edge runtime.
@@ -1182,6 +1192,159 @@ function createMcpServer(baseUrl = ''): McpServer {
           content: [{ type: 'text' as const, text: `Error: ${message}` }],
           structuredContent: { file: null },
         }
+      }
+    },
+  )
+
+  // ── Timetable slots ───────────────────────────────────────────────────────
+  //
+  // list_teachers and list_groups exist because MCP had no way to discover
+  // either: without them a caller would have to know a uuid or a group code
+  // out of band before the slot tools could be used at all.
+
+  srv.registerTool(
+    'list_teachers',
+    {
+      title: 'List teachers',
+      description: 'Return every teacher with their id, name and email. Use this to find the identifier for the timetable tools.',
+      outputSchema: {
+        teachers: z.array(
+          z.object({ user_id: z.string(), name: z.string(), email: z.string().nullable() }),
+        ),
+      },
+    },
+    async () => {
+      const teachers = await listTeachers()
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: teachers.length
+              ? teachers.map((t) => `${t.name} • ${t.email ?? 'no email'}`).join('\n')
+              : 'No teachers found.',
+          },
+        ],
+        structuredContent: { teachers },
+      }
+    },
+  )
+
+  srv.registerTool(
+    'list_groups',
+    {
+      title: 'List groups',
+      description: 'Return teaching groups (classes) with subject and active flag. Inactive groups are excluded unless include_inactive is true.',
+      inputSchema: {
+        include_inactive: z.boolean().optional().describe('Include retired classes. Defaults to false.'),
+      },
+      outputSchema: {
+        groups: z.array(
+          z.object({ group_id: z.string(), subject: z.string().nullable(), is_active: z.boolean() }),
+        ),
+      },
+    },
+    async ({ include_inactive }) => {
+      const groups = await listGroups(include_inactive === true)
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: groups.length
+              ? groups.map((g) => `${g.group_id} • ${g.subject ?? 'no subject'}`).join('\n')
+              : 'No groups found.',
+          },
+        ],
+        structuredContent: { groups },
+      }
+    },
+  )
+
+  srv.registerTool(
+    'get_timetable_slots',
+    {
+      title: 'Get a teacher timetable',
+      description: "Return a teacher's timetable slots. A slot with a null group_id is an explicit free period; a slot absent from the list has never been set.",
+      inputSchema: {
+        teacher: z.string().min(1).describe('Teacher email or user id.'),
+      },
+      outputSchema: {
+        teacher_id: z.string(),
+        slots: z.array(
+          z.object({ day: z.string(), period: z.number(), group_id: z.string().nullable() }),
+        ),
+      },
+    },
+    async ({ teacher }) => {
+      const teacherId = await resolveTeacherId(teacher)
+      const slots = await listTimetableSlots(teacherId)
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: slots.length
+              ? slots.map((s) => `${s.day} P${s.period} • ${s.group_id ?? 'free'}`).join('\n')
+              : 'No timetable slots set.',
+          },
+        ],
+        structuredContent: { teacher_id: teacherId, slots },
+      }
+    },
+  )
+
+  srv.registerTool(
+    'set_timetable_slot',
+    {
+      title: 'Set a timetable slot',
+      description: `Create or update one slot. Omit group_id to mark the slot a free period. Days: ${VALID_DAYS.join(', ')}. Periods: ${VALID_PERIODS.join(', ')}.`,
+      inputSchema: {
+        teacher: z.string().min(1).describe('Teacher email or user id.'),
+        day: z.string().min(1).describe(`One of: ${VALID_DAYS.join(', ')}.`),
+        period: z.coerce.number().int().describe(`One of: ${VALID_PERIODS.join(', ')}.`),
+        group_id: z.string().optional().describe('Class to teach in this slot. Omit for a free period.'),
+      },
+      outputSchema: {
+        teacher_id: z.string(),
+        slot: z.object({ day: z.string(), period: z.number(), group_id: z.string().nullable() }),
+      },
+    },
+    async ({ teacher, day, period, group_id }) => {
+      const teacherId = await resolveTeacherId(teacher)
+      const slot = await setTimetableSlot({ teacherId, day, period, groupId: group_id })
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `${day} P${period} set to ${slot.group_id ?? 'free period'}.`,
+          },
+        ],
+        structuredContent: { teacher_id: teacherId, slot },
+      }
+    },
+  )
+
+  srv.registerTool(
+    'delete_timetable_slot',
+    {
+      title: 'Delete a timetable slot',
+      description: 'Remove a slot entirely, as though it had never been set. To keep the slot but mark it free, use set_timetable_slot with no group_id instead.',
+      inputSchema: {
+        teacher: z.string().min(1).describe('Teacher email or user id.'),
+        day: z.string().min(1).describe(`One of: ${VALID_DAYS.join(', ')}.`),
+        period: z.coerce.number().int().describe(`One of: ${VALID_PERIODS.join(', ')}.`),
+      },
+      outputSchema: { teacher_id: z.string(), deleted: z.boolean() },
+    },
+    async ({ teacher, day, period }) => {
+      const teacherId = await resolveTeacherId(teacher)
+      const deleted = await deleteTimetableSlot(teacherId, day, period)
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: deleted ? `Removed ${day} P${period}.` : `Nothing set at ${day} P${period}.`,
+          },
+        ],
+        structuredContent: { teacher_id: teacherId, deleted },
       }
     },
   )
