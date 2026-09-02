@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback, useRef, useEffect } from 'react'
+import { toast } from 'sonner'
 import { readPlannerSowUnitsAction,
   readLessonsByUnitAction,
   readLessonAssignmentScoreSummariesAction,
@@ -178,6 +179,35 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
     [],
   )
 
+  /**
+   * Run a planner write and report it if it fails.
+   *
+   * These server actions return { error } rather than throwing, so an ignored
+   * result is an invisible failure — and every handler below updates local
+   * state either before the write or without waiting on it, which leaves the
+   * teacher looking at an edit that was never saved. `revert` restores the
+   * slot so the grid keeps telling the truth.
+   *
+   * The message doubles as the toast id: a failing database would otherwise
+   * raise one toast per keystroke in the note fields.
+   */
+  const commit = useCallback(
+    async <T,>(
+      action: Promise<{ data: T; error: string | null }>,
+      message: string,
+      revert?: () => void,
+    ): Promise<{ ok: boolean; data: T | null }> => {
+      const { data, error } = await action
+      if (error) {
+        revert?.()
+        toast.error(message, { id: message, description: error })
+        return { ok: false, data: null }
+      }
+      return { ok: true, data }
+    },
+    [],
+  )
+
   const handleCellClick = useCallback((day: Day, period: number) => {
     const key = slotKey(day, period)
     setSelectedSlot((prev) => (prev === key ? null : key))
@@ -205,13 +235,22 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
     const existing = cell.lessons[0] ?? null
 
     if (existing) {
-      await deletePlannerAssignmentAction(cell.groupId!, existing.lessonId, week, day, period, teacherId)
+      const { ok } = await commit(
+        deletePlannerAssignmentAction(cell.groupId!, existing.lessonId, week, day, period, teacherId),
+        'Could not remove the previous lesson',
+      )
+      if (!ok) return
       updateSlot(day, period, (s) => ({ ...s, lessons: [] }))
     }
 
     if (!newLessonId || !cell.groupId) return
 
-    const { data } = await upsertPlannerAssignmentAction(cell.groupId, newLessonId, week, day, period, teacherId, {})
+    // No revert: the old lesson is already gone from the database, so an empty
+    // slot is the truthful state if this add fails.
+    const { data } = await commit(
+      upsertPlannerAssignmentAction(cell.groupId, newLessonId, week, day, period, teacherId, {}),
+      'Could not add the lesson',
+    )
     if (data) {
       // Find unitId and lessonTitle from cache
       let unitId = ''
@@ -230,7 +269,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
       }
       updateSlot(day, period, (s) => ({ ...s, lessons: [newLesson] }))
     }
-  }, [updateSlot, plannerState, lessonCache])
+  }, [updateSlot, plannerState, lessonCache, commit])
 
   const handleAddLesson = useCallback(async (day: Day, period: number, newLessonId: string) => {
     const week = currentWeekRef.current
@@ -241,7 +280,10 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
     if (!newLessonId || !cell.groupId) return
     if (cell.lessons.some((l) => l.lessonId === newLessonId)) return
 
-    const { data } = await upsertPlannerAssignmentAction(cell.groupId, newLessonId, week, day, period, teacherId, {})
+    const { data } = await commit(
+      upsertPlannerAssignmentAction(cell.groupId, newLessonId, week, day, period, teacherId, {}),
+      'Could not add the lesson',
+    )
     if (data) {
       let unitId = ''
       let lessonTitle = ''
@@ -259,20 +301,27 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
       }
       updateSlot(day, period, (s) => ({ ...s, lessons: [...s.lessons, newLesson] }))
     }
-  }, [updateSlot, plannerState, lessonCache])
+    return Boolean(data)
+  }, [updateSlot, plannerState, lessonCache, commit])
 
   const handleRemoveLesson = useCallback(async (day: Day, period: number, lessonId: string) => {
     const week = currentWeekRef.current
     const teacherId = selectedTeacherIdRef.current
     const key = slotKey(day, period)
     const cell = plannerState.get(key) ?? emptyCellState()
-    if (!cell.groupId) return
-    await deletePlannerAssignmentAction(cell.groupId, lessonId, week, day, period, teacherId)
+    if (!cell.groupId) return false
+    const { ok } = await commit(
+      deletePlannerAssignmentAction(cell.groupId, lessonId, week, day, period, teacherId),
+      'Could not remove the lesson',
+    )
+    if (!ok) return false
     updateSlot(day, period, (s) => ({ ...s, lessons: s.lessons.filter((l) => l.lessonId !== lessonId) }))
-  }, [updateSlot, plannerState])
+    return true
+  }, [updateSlot, plannerState, commit])
 
   const handleSwapLesson = useCallback(async (day: Day, period: number, oldLessonId: string, newLessonId: string) => {
-    await handleRemoveLesson(day, period, oldLessonId)
+    const removed = await handleRemoveLesson(day, period, oldLessonId)
+    if (!removed) return
     await handleAddLesson(day, period, newLessonId)
   }, [handleRemoveLesson, handleAddLesson])
 
@@ -286,8 +335,12 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
       ...s,
       lessons: s.lessons.map((l) => l.lessonId === lessonId ? { ...l, feedbackVisible: next } : l),
     }))
-    await updatePlannerAssignmentExtrasAction(lesson.assignmentId, { feedback_visible: next }, selectedTeacherIdRef.current)
-  }, [updateSlot, plannerState])
+    await commit(
+      updatePlannerAssignmentExtrasAction(lesson.assignmentId, { feedback_visible: next }, selectedTeacherIdRef.current),
+      'Could not change feedback visibility',
+      () => updateSlot(day, period, () => cell),
+    )
+  }, [updateSlot, plannerState, commit])
 
   const handleIssueToggle = useCallback(async (day: Day, period: number) => {
     const key = slotKey(day, period)
@@ -295,15 +348,22 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
     const nextFlag = !cell.issueFlag
     const nextNote = nextFlag ? cell.issueNote : ''
     updateSlot(day, period, (s) => ({ ...s, issueFlag: nextFlag, issueNote: nextNote }))
-    await upsertPlannerPeriodFlagAction(currentWeekRef.current, day, period, nextFlag, nextNote)
-  }, [updateSlot, plannerState])
+    await commit(
+      upsertPlannerPeriodFlagAction(currentWeekRef.current, day, period, nextFlag, nextNote),
+      'Could not save the period warning',
+      () => updateSlot(day, period, () => cell),
+    )
+  }, [updateSlot, plannerState, commit])
 
   const handleIssueNoteChange = useCallback(async (day: Day, period: number, note: string) => {
     const key = slotKey(day, period)
     const cell = plannerState.get(key) ?? emptyCellState()
     updateSlot(day, period, (s) => ({ ...s, issueNote: note }))
-    await upsertPlannerPeriodFlagAction(currentWeekRef.current, day, period, cell.issueFlag, note)
-  }, [updateSlot, plannerState])
+    await commit(
+      upsertPlannerPeriodFlagAction(currentWeekRef.current, day, period, cell.issueFlag, note),
+      'Could not save the warning note',
+    )
+  }, [updateSlot, plannerState, commit])
 
   const handleLessonNotesChange = useCallback(async (day: Day, period: number, lessonId: string, notes: string) => {
     const key = slotKey(day, period)
@@ -314,19 +374,27 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
       ...s,
       lessons: s.lessons.map((l) => l.lessonId === lessonId ? { ...l, lessonNotes: notes } : l),
     }))
-    await updatePlannerAssignmentExtrasAction(lesson.assignmentId, { notes }, selectedTeacherIdRef.current)
-  }, [updateSlot, plannerState])
+    await commit(
+      updatePlannerAssignmentExtrasAction(lesson.assignmentId, { notes }, selectedTeacherIdRef.current),
+      'Could not save the lesson notes',
+    )
+  }, [updateSlot, plannerState, commit])
 
   const handleGroupChange = useCallback(async (day: Day, period: number, groupId: string) => {
     const key = slotKey(day, period)
     const existing = plannerState.get(key)
+    const previous = existing ?? emptyCellState()
     const resolvedGroupId = groupId || null
     const teacherId = selectedTeacherIdRef.current
 
     if (existing?.groupId && existing.groupId !== groupId) {
       const week = currentWeekRef.current
       for (const lesson of existing.lessons) {
-        await deletePlannerAssignmentAction(existing.groupId, lesson.lessonId, week, day, period, teacherId)
+        const { ok } = await commit(
+          deletePlannerAssignmentAction(existing.groupId, lesson.lessonId, week, day, period, teacherId),
+          'Could not clear the lessons from the previous class',
+        )
+        if (!ok) return
       }
       updateSlot(day, period, (s) => ({ ...s, lessons: [] }))
     }
@@ -334,10 +402,14 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
     if (resolvedGroupId && existing?.lessons.length) {
       const week = currentWeekRef.current
       for (const lesson of existing.lessons) {
-        await upsertPlannerAssignmentAction(resolvedGroupId, lesson.lessonId, week, day, period, teacherId, {
-          feedbackVisible: lesson.feedbackVisible,
-          notes: lesson.lessonNotes,
-        })
+        const { ok } = await commit(
+          upsertPlannerAssignmentAction(resolvedGroupId, lesson.lessonId, week, day, period, teacherId, {
+            feedbackVisible: lesson.feedbackVisible,
+            notes: lesson.lessonNotes,
+          }),
+          'Could not move the lessons to the new class',
+        )
+        if (!ok) return
       }
     }
 
@@ -345,8 +417,18 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
 
     const classDefaults = classDefaultsByTeacherRef.current.get(teacherId)
     classDefaults?.set(key, resolvedGroupId)
-    await upsertTimetableSlotGroupAction(day, period, resolvedGroupId, teacherId)
-  }, [updateSlot, plannerState])
+    // The defaults cache is what rehydrates the grid when the week is
+    // revisited, so it has to be rolled back with the slot or the unsaved
+    // class reappears as though it had stuck.
+    await commit(
+      upsertTimetableSlotGroupAction(day, period, resolvedGroupId, teacherId),
+      'Could not save the class for this period',
+      () => {
+        classDefaults?.set(key, previous.groupId)
+        updateSlot(day, period, () => previous)
+      },
+    )
+  }, [updateSlot, plannerState, commit])
 
   const handlePrevWeek = useCallback(() => {
     const next = shiftWeek(currentWeekRef.current, -1)
