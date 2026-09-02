@@ -178,10 +178,21 @@ export function LessonObjectivesSidebar({
 
     return baseObjectiveSelections
       .map((entry) => {
+        // The AO code ("AO1") is the handle teachers actually search by, so it
+        // is matched as well as the title. Resolved through the same fallback
+        // chain as the curriculum scope above, because the denormalised column
+        // is optional and not every caller populates it.
+        const assessmentObjectiveCode =
+          entry.objective.assessment_objective_code ??
+          assessmentObjectivesById.get(entry.objective.assessment_objective_id ?? "")?.code ??
+          entry.objective.assessment_objective?.code ??
+          ""
+
         const objectiveLabels = [
           entry.objective.title ?? "",
           entry.objective.assessment_objective_title ?? "",
           entry.objective.spec_ref ?? "",
+          assessmentObjectiveCode,
         ]
         const objectiveMatches = objectiveLabels.some((label) =>
           label.toLowerCase().includes(query),
@@ -196,7 +207,7 @@ export function LessonObjectivesSidebar({
         }
       })
       .filter((entry) => entry.displayCriteria.length > 0)
-  }, [baseObjectiveSelections, filterValue])
+  }, [assessmentObjectivesById, baseObjectiveSelections, filterValue])
 
   const isFilterActive = filterValue.trim().length > 0
   const isBusy = isPending || isNestedPending
