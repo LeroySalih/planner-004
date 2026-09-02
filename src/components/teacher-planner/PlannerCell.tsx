@@ -11,6 +11,12 @@ type PlannerCellProps = {
   period: number
   cellState: CellState
   units: Unit[]
+  /**
+   * Units in this group's scheme of work for the half-term this week falls in.
+   * Undefined when the week is outside any half-term (a holiday), in which case
+   * the dropdown is left as a single flat list.
+   */
+  sowUnitIds?: Set<string>
   lessonCache: Map<string, LessonWithObjectives[]>
   lessonScores: Map<string, number | null>
   isSelected: boolean
@@ -26,6 +32,7 @@ export function PlannerCell({
   period,
   cellState,
   units,
+  sowUnitIds,
   lessonCache,
   lessonScores,
   isSelected,
@@ -36,6 +43,9 @@ export function PlannerCell({
   readOnly,
 }: PlannerCellProps) {
   const [pendingUnitId, setPendingUnitId] = useState<string>('')
+
+  const schemeUnits = sowUnitIds ? units.filter((u) => sowUnitIds.has(u.unit_id)) : []
+  const otherUnits = sowUnitIds ? units.filter((u) => !sowUnitIds.has(u.unit_id)) : units
 
   const { groupId, lessons, issueFlag, issueNote: _issueNote } = cellState
   const hasGroup = !!groupId && groupId !== '__free__'
@@ -107,9 +117,29 @@ export function PlannerCell({
             disabled={readOnly}
           >
             <option value="">Unit…</option>
-            {units.map((u) => (
-              <option key={u.unit_id} value={u.unit_id}>{u.title}</option>
-            ))}
+            {/* Scheme-of-work units first, in their own labelled section: with
+                40-odd units in a subject, the two or three actually planned for
+                this half-term are otherwise buried alphabetically. The rest stay
+                selectable — a teacher covering a colleague, or deviating from the
+                plan, must not be blocked by it. */}
+            {schemeUnits.length > 0 ? (
+              <>
+                <optgroup label="This half-term's plan">
+                  {schemeUnits.map((u) => (
+                    <option key={u.unit_id} value={u.unit_id}>{u.title}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="Other units">
+                  {otherUnits.map((u) => (
+                    <option key={u.unit_id} value={u.unit_id}>{u.title}</option>
+                  ))}
+                </optgroup>
+              </>
+            ) : (
+              units.map((u) => (
+                <option key={u.unit_id} value={u.unit_id}>{u.title}</option>
+              ))
+            )}
           </select>
           {effectiveUnitId && (
             <select

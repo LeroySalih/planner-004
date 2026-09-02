@@ -412,3 +412,57 @@ export async function importSowUnitsFromGroupAction(input: {
     return SowImportResult.parse({ data: null, error: String(e) })
   }
 }
+
+const PlannerSowUnitSchema = z.object({ group_id: z.string(), unit_id: z.string() })
+
+const PlannerSowUnitsResult = z.object({
+  data: z.array(PlannerSowUnitSchema).nullable(),
+  error: z.string().nullable(),
+})
+
+/**
+ * Units that belong to the scheme of work for the half-term a given week falls
+ * in, per group — so the planner can surface them at the top of its unit
+ * dropdown instead of burying them in an alphabetical list of everything.
+ *
+ * Same definition as the /sow grid: units already timetabled to the group in
+ * that half-term, plus units planned into it by hand. Both are what a teacher
+ * means by "what I'm teaching this half-term".
+ *
+ * The half-term is found from the week's date alone — ranges do not overlap
+ * across years — so the caller does not have to know the academic year. A week
+ * in a holiday falls in no half-term and simply yields nothing, leaving the
+ * dropdown as it was.
+ */
+export async function readPlannerSowUnitsAction(
+  weekStartDate: string,
+): Promise<z.infer<typeof PlannerSowUnitsResult>> {
+  try {
+    await requireTeacherProfile()
+    const { rows } = await query<Record<string, unknown>>(
+      `WITH ht AS (
+         SELECT year, name, start_date, end_date
+           FROM half_terms
+          WHERE $1::date BETWEEN start_date AND end_date
+          LIMIT 1
+       )
+       SELECT DISTINCT pa.group_id, l.unit_id
+         FROM planner_assignments pa
+         JOIN lessons l ON l.lesson_id = pa.lesson_id
+         CROSS JOIN ht
+        WHERE pa.week_start_date BETWEEN ht.start_date AND ht.end_date
+       UNION
+       SELECT DISTINCT p.group_id, p.unit_id
+         FROM sow_unit_placements p
+         CROSS JOIN ht
+        WHERE p.year = ht.year AND p.half_term_name = ht.name`,
+      [weekStartDate],
+    )
+    return PlannerSowUnitsResult.parse({
+      data: rows.map((r) => PlannerSowUnitSchema.parse(r)),
+      error: null,
+    })
+  } catch (e) {
+    return PlannerSowUnitsResult.parse({ data: null, error: String(e) })
+  }
+}

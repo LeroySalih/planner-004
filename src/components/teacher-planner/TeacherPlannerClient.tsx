@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback, useRef, useEffect } from 'react'
-import {
+import { readPlannerSowUnitsAction,
   readLessonsByUnitAction,
   readLessonAssignmentScoreSummariesAction,
   upsertPlannerAssignmentAction,
@@ -39,6 +39,10 @@ function cacheKey(teacherId: string, week: string) {
 export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId, isAdmin, initialWeek, initialSelectedTeacherId }: TeacherPlannerClientProps) {
   const [weeklyStates, setWeeklyStates] = useState<WeeklyPlannerState>(new Map())
   const [currentWeek, setCurrentWeek] = useState<string>(initialWeek ?? getTodaySunday)
+  // group id -> units in that group's scheme of work for the half-term this
+  // week falls in. Used only to order the unit dropdown, so a failure to load
+  // it degrades to the previous behaviour rather than breaking the planner.
+  const [sowUnits, setSowUnits] = useState<Map<string, Set<string>>>(new Map())
   const [weekNotes, setWeekNotesMap] = useState<Map<string, string>>(new Map())
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
   const [lessonCache, setLessonCache] = useState<Map<string, LessonWithObjectives[]>>(new Map())
@@ -138,6 +142,20 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
     if (selectedTeacherId === currentTeacherId) return
     loadWeekAssignments(selectedTeacherId, currentWeekRef.current)
   }, [loadWeekAssignments, selectedTeacherId, currentTeacherId])
+
+  useEffect(() => {
+    let cancelled = false
+    void readPlannerSowUnitsAction(currentWeek).then((result) => {
+      if (cancelled) return
+      const next = new Map<string, Set<string>>()
+      for (const row of result.data ?? []) {
+        if (!next.has(row.group_id)) next.set(row.group_id, new Set())
+        next.get(row.group_id)!.add(row.unit_id)
+      }
+      setSowUnits(next)
+    })
+    return () => { cancelled = true }
+  }, [currentWeek])
 
   const plannerState = weeklyStates.get(cacheKey(selectedTeacherId, currentWeek)) ?? new Map<string, CellState>()
 
@@ -410,6 +428,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
 
         <PlannerGrid
           units={units}
+          sowUnits={sowUnits}
           groups={groups}
           plannerState={plannerState}
           selectedSlot={selectedSlot}

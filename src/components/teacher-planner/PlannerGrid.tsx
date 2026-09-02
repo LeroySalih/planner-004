@@ -8,6 +8,8 @@ import type { Unit, Group, LessonWithObjectives } from '@/types'
 
 type PlannerGridProps = {
   units: Unit[]
+  /** group id -> units in that group's scheme of work for this half-term. */
+  sowUnits?: Map<string, Set<string>>
   groups: Group[]
   plannerState: PlannerState
   selectedSlot: string | null
@@ -46,6 +48,7 @@ const GRID_TEMPLATE =
 
 export function PlannerGrid({
   units,
+  sowUnits,
   groups,
   plannerState,
   selectedSlot,
@@ -134,6 +137,7 @@ export function PlannerGrid({
                   cellState={state}
                   isSelected={selectedSlot === key}
                   units={cellUnits}
+                  sowUnitIds={state.groupId ? sowUnits?.get(state.groupId) : undefined}
                   lessonCache={lessonCache}
                   lessonScores={lessonScores}
                   onCellClick={onCellClick}
