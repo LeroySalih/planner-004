@@ -264,8 +264,17 @@ export function LessonAiChatPanel({
       // Surface it instead of failing silently.
       if (!isCurrent()) return
       const msg = err instanceof Error ? err.message : "The chat request failed. Please try again."
-      toast.error("Chat failed", { description: msg })
-      setMessages((prev) => [...prev, { role: "assistant", content: `⚠️ ${msg}`, proposals: [] }])
+      // Next masks a server action's real error in production, replacing it
+      // with a generic message and logging the stack against a digest. Without
+      // showing the digest there is no way to tie what the teacher saw to the
+      // line in the server log, which is how "an unexpected response was
+      // received from the server" became unanswerable.
+      const digest = typeof (err as { digest?: unknown })?.digest === "string"
+        ? (err as { digest: string }).digest
+        : null
+      const detail = digest ? `${msg} (ref: ${digest})` : msg
+      toast.error("Chat failed", { description: detail })
+      setMessages((prev) => [...prev, { role: "assistant", content: `⚠️ ${detail}`, proposals: [] }])
     } finally {
       if (isCurrent()) setSending(false)
     }

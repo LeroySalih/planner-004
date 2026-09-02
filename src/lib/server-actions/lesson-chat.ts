@@ -115,27 +115,35 @@ function inferChatFileMime(fileName: string): string {
 export async function uploadLessonChatAttachmentAction(
   formData: FormData,
 ): Promise<{ success: boolean; tempRef: string; fileName: string; kind: "image" | "html" | "file"; error: string | null }> {
-  const profile = await requireTeacherProfile()
-  if (!profile) return { success: false, tempRef: "", fileName: "", kind: "file", error: "Unauthorized" }
-
-  const lessonId = formData.get("lessonId")
-  const file = formData.get("file")
-  if (typeof lessonId !== "string" || !lessonId.trim()) {
-    return { success: false, tempRef: "", fileName: "", kind: "file", error: "Missing lesson." }
-  }
-  if (!(file instanceof File)) {
-    return { success: false, tempRef: "", fileName: "", kind: "file", error: "No file provided." }
-  }
-  if (file.size > 25 * 1024 * 1024) {
-    return { success: false, tempRef: "", fileName: "", kind: "file", error: "File exceeds 25MB." }
-  }
-
-  const cleanName = file.name.replace(/\s+/g, "_")
-  const kind = inferChatFileKind(cleanName, file.type)
-  const storedName = `${crypto.randomUUID().slice(0, 8)}-${cleanName}`
-  const tempRef = `${LESSON_FILES_BUCKET}/${lessonId}/activities/_chat/${storedName}`
-
+  let kind: "image" | "html" | "file" = "file"
   try {
+    const profile = await requireTeacherProfile()
+    if (!profile) return { success: false, tempRef: "", fileName: "", kind, error: "Unauthorized" }
+
+    const lessonId = formData.get("lessonId")
+    const file = formData.get("file")
+    if (typeof lessonId !== "string" || !lessonId.trim()) {
+      return { success: false, tempRef: "", fileName: "", kind, error: "Missing lesson." }
+    }
+    if (!(file instanceof File)) {
+      return { success: false, tempRef: "", fileName: "", kind, error: "No file provided." }
+    }
+    if (file.size > 25 * 1024 * 1024) {
+      return { success: false, tempRef: "", fileName: "", kind, error: "File exceeds 25MB." }
+    }
+
+    const cleanName = file.name.replace(/\s+/g, "_")
+    kind = inferChatFileKind(cleanName, file.type)
+    const storedName = `${crypto.randomUUID().slice(0, 8)}-${cleanName}`
+    const tempRef = `${LESSON_FILES_BUCKET}/${lessonId}/activities/_chat/${storedName}`
+
+    // Breadcrumb: the window between "teacher pressed send" and the upload
+    // landing was previously dark, so a file that fails here left no trace at
+    // all — not in the server log and not in the chat call log.
+    console.info("[lesson-chat] attachment upload start", {
+      lessonId, fileName: cleanName, kind, bytes: file.size, mime: file.type || "(none)",
+    })
+
     const buffer = Buffer.from(await file.arrayBuffer())
     const storage = createLocalStorageClient(LESSON_FILES_BUCKET)
     const { error } = await storage.upload(tempRef, buffer, {
@@ -147,7 +155,8 @@ export async function uploadLessonChatAttachmentAction(
     return { success: true, tempRef, fileName: cleanName, kind, error: null }
   } catch (err) {
     console.error("[lesson-chat] attachment upload failed", err)
-    return { success: false, tempRef: "", fileName: "", kind, error: "Upload failed." }
+    const message = err instanceof Error ? err.message : "Upload failed."
+    return { success: false, tempRef: "", fileName: "", kind, error: message }
   }
 }
 
@@ -385,18 +394,18 @@ export async function sendLessonChatMessageAction(input: {
   attachments?: Array<{ attachmentId: string; tempRef: string; fileName: string; kind: "image" | "html" | "file"; dataUrl?: string }>
   references?: Array<{ label: string; kind: "image" | "text"; dataUrl?: string; text?: string }>
 }): Promise<{ success: boolean; messageId: string | null; message: string; proposals: ProposedActivity[]; error: string | null }> {
-  const profile = await requireTeacherProfile()
-  if (!profile) return { success: false, messageId: null, message: "", proposals: [], error: "Unauthorized" }
-
-  const lessonId = input.lessonId?.trim()
-  const userMessage = input.message?.trim() ?? ""
-  const attachments = input.attachments ?? []
-  const references = input.references ?? []
-  if (!lessonId || (!userMessage && attachments.length === 0 && references.length === 0)) {
-    return { success: false, messageId: null, message: "", proposals: [], error: "Missing lesson or message." }
-  }
-
   try {
+    const profile = await requireTeacherProfile()
+    if (!profile) return { success: false, messageId: null, message: "", proposals: [], error: "Unauthorized" }
+
+    const lessonId = input.lessonId?.trim()
+    const userMessage = input.message?.trim() ?? ""
+    const attachments = input.attachments ?? []
+    const references = input.references ?? []
+    if (!lessonId || (!userMessage && attachments.length === 0 && references.length === 0)) {
+      return { success: false, messageId: null, message: "", proposals: [], error: "Missing lesson or message." }
+    }
+
     const refNoteParts = references.length ? [`referenced: ${references.map((r) => r.label).join(", ")}`] : []
     const attachParts = attachments.length ? [`attached: ${attachments.map((a) => a.fileName).join(", ")}`] : []
     const noteBits = [...attachParts, ...refNoteParts]
@@ -481,6 +490,16 @@ export async function sendLessonChatMessageAction(input: {
     )
 
     const modelAttachments = [...attachments, ...extractedImageAttachments]
+    console.info("[lesson-chat] calling model", {
+      lessonId,
+      historyTurns: history.length,
+      documents: documents.length,
+      // hasImage matters: an attachment whose client-side downscale failed
+      // arrives with no dataUrl and is silently dropped from the model call.
+      attachments: modelAttachments.map((a) => ({
+        fileName: a.fileName, kind: a.kind, hasImage: Boolean(a.dataUrl),
+      })),
+    })
     const reply = await generateLessonChatReply({
       systemText: context.systemText,
       history,
