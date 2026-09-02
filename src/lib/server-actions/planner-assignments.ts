@@ -241,3 +241,66 @@ export async function readGroupSowLessonsAction(
     return SowWeekLessonsResult.parse({ data: null, error: message })
   }
 }
+
+// The planner's "Week notes" textarea has existed since the planner was built,
+// but nothing ever persisted it — the client held the text in a Map and dropped
+// it on reload.
+
+const WeekNoteResult = z.object({
+  data: z.string().nullable(),
+  error: z.string().nullable(),
+})
+
+export async function readPlannerWeekNoteAction(
+  weekStartDate: string,
+  targetTeacherId: string,
+): Promise<z.infer<typeof WeekNoteResult>> {
+  try {
+    await requireTeacherOrAdminAccess(targetTeacherId)
+    const { rows } = await query<{ note: string }>(
+      `SELECT note FROM planner_week_notes
+        WHERE teacher_id = $1 AND week_start_date = $2`,
+      [targetTeacherId, weekStartDate],
+    )
+    return WeekNoteResult.parse({ data: rows[0]?.note ?? '', error: null })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to load week note'
+    return WeekNoteResult.parse({ data: null, error: message })
+  }
+}
+
+export async function upsertPlannerWeekNoteAction(
+  weekStartDate: string,
+  note: string,
+  targetTeacherId: string,
+): Promise<z.infer<typeof WeekNoteResult>> {
+  try {
+    await requireTeacherOrAdminAccess(targetTeacherId)
+    if (!weekStartDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      return WeekNoteResult.parse({ data: null, error: 'weekStartDate must be ISO YYYY-MM-DD' })
+    }
+    const trimmed = note.trim()
+
+    // An empty note deletes the row rather than storing "", so "has a note" is
+    // simply the row existing.
+    if (!trimmed) {
+      await query(
+        `DELETE FROM planner_week_notes WHERE teacher_id = $1 AND week_start_date = $2`,
+        [targetTeacherId, weekStartDate],
+      )
+      return WeekNoteResult.parse({ data: '', error: null })
+    }
+
+    await query(
+      `INSERT INTO planner_week_notes (teacher_id, week_start_date, note)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (teacher_id, week_start_date)
+       DO UPDATE SET note = EXCLUDED.note, updated_at = now()`,
+      [targetTeacherId, weekStartDate, trimmed],
+    )
+    return WeekNoteResult.parse({ data: trimmed, error: null })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to save week note'
+    return WeekNoteResult.parse({ data: null, error: message })
+  }
+}

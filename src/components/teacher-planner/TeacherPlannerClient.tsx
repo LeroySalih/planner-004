@@ -13,6 +13,8 @@ import { readPlannerSowUnitsAction,
   upsertTimetableSlotGroupAction,
   readPlannerPeriodFlagsForWeekAction,
   upsertPlannerPeriodFlagAction,
+  readPlannerWeekNoteAction,
+  upsertPlannerWeekNoteAction,
 } from '@/lib/server-updates'
 import { PlannerGrid } from './PlannerGrid'
 import { SidePanel } from './SidePanel'
@@ -80,10 +82,20 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
       }
     }
 
-    const [assignmentsResult, flagsResult] = await Promise.all([
+    const [assignmentsResult, flagsResult, weekNoteResult] = await Promise.all([
       readPlannerAssignmentsForWeekAction(week, teacherId),
       readPlannerPeriodFlagsForWeekAction(week),
+      readPlannerWeekNoteAction(week, teacherId),
     ])
+    // A missing note is not a reason to fail the week; the grid is the point.
+    if (weekNoteResult.data != null) {
+      const note = weekNoteResult.data
+      setWeekNotesMap((prev) => {
+        const next = new Map(prev)
+        next.set(week, note)
+        return next
+      })
+    }
     if (assignmentsResult.error || !assignmentsResult.data) {
       console.error('[loadWeekAssignments] Failed to load week:', week, assignmentsResult.error)
       return
@@ -473,12 +485,33 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
   }, [loadWeekAssignments])
 
   const weekNote = weekNotes.get(currentWeek) ?? ''
+
+  // Debounced rather than saved per keystroke: this is a free-text reminder
+  // field, and a write per character would be a request per character.
+  const weekNoteSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const handleWeekNoteChange = useCallback((value: string) => {
+    const week = currentWeekRef.current
+    const teacherId = selectedTeacherIdRef.current
     setWeekNotesMap((prev) => {
       const next = new Map(prev)
-      next.set(currentWeekRef.current, value)
+      next.set(week, value)
       return next
     })
+
+    if (weekNoteSaveRef.current) clearTimeout(weekNoteSaveRef.current)
+    weekNoteSaveRef.current = setTimeout(() => {
+      // No revert: pulling a half-typed note back out from under the cursor
+      // would be worse than the failed save, so this reports and leaves it.
+      void commit(
+        upsertPlannerWeekNoteAction(week, value, teacherId),
+        'Could not save the week notes',
+      )
+    }, 800)
+  }, [commit])
+
+  // A pending save must not outlive the component, or it writes after unmount.
+  useEffect(() => () => {
+    if (weekNoteSaveRef.current) clearTimeout(weekNoteSaveRef.current)
   }, [])
 
   const selectedParsed = selectedSlot
