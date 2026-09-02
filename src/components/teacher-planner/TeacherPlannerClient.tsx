@@ -180,6 +180,33 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
   )
 
   /**
+   * Forget every cached week for this teacher except the one on screen.
+   *
+   * A slot's class lives on the timetable, not on the week, so changing it
+   * changes every week at once. Weeks visited before the change are cached
+   * here with the old class and `loadWeekAssignments` skips anything already
+   * loaded, so without this they keep showing it until the page is reloaded.
+   * Dropping them makes the next visit re-fetch, which is exactly what a
+   * reload would have produced.
+   */
+  const invalidateOtherWeeks = useCallback((teacherId: string, keepWeek: string) => {
+    const loadedWeeks = loadedWeeksByTeacherRef.current.get(teacherId)
+    if (loadedWeeks) {
+      for (const week of [...loadedWeeks]) {
+        if (week !== keepWeek) loadedWeeks.delete(week)
+      }
+    }
+    const keep = cacheKey(teacherId, keepWeek)
+    setWeeklyStates((prev) => {
+      const next = new Map(prev)
+      for (const key of prev.keys()) {
+        if (key !== keep && key.startsWith(`${teacherId}::`)) next.delete(key)
+      }
+      return next
+    })
+  }, [])
+
+  /**
    * Run a planner write and report it if it fails.
    *
    * These server actions return { error } rather than throwing, so an ignored
@@ -420,7 +447,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
     // The defaults cache is what rehydrates the grid when the week is
     // revisited, so it has to be rolled back with the slot or the unsaved
     // class reappears as though it had stuck.
-    await commit(
+    const { ok } = await commit(
       upsertTimetableSlotGroupAction(day, period, resolvedGroupId, teacherId),
       'Could not save the class for this period',
       () => {
@@ -428,7 +455,8 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
         updateSlot(day, period, () => previous)
       },
     )
-  }, [updateSlot, plannerState, commit])
+    if (ok) invalidateOtherWeeks(teacherId, currentWeekRef.current)
+  }, [updateSlot, plannerState, commit, invalidateOtherWeeks])
 
   const handlePrevWeek = useCallback(() => {
     const next = shiftWeek(currentWeekRef.current, -1)
