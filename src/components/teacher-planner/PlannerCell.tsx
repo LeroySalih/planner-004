@@ -55,6 +55,12 @@ export function PlannerCell({
   const anyFeedback = lessons.some((l) => l.feedbackVisible)
   const anyIssue = issueFlag
 
+  // Cell status at a glance: no class, a class with nothing planned, or a
+  // class with at least one lesson. A flagged warning still wins the
+  // background, since it is the louder signal and keeps its own border.
+  const status: 'empty' | 'unplanned' | 'planned' =
+    !hasGroup ? 'empty' : lessonCount > 0 ? 'planned' : 'unplanned'
+
   const currentLesson = lessons[0] ?? null
   const currentUnitId = currentLesson?.unitId ?? ''
 
@@ -87,7 +93,11 @@ export function PlannerCell({
         'relative flex flex-col gap-[3px] rounded-[8px] border px-[7px] py-[6px] min-h-[86px] cursor-pointer transition-colors',
         anyIssue
           ? 'bg-[#FCEBEB] border-[#F09595] hover:border-[#E24B4A]'
-          : 'bg-[var(--color-background-primary)] border-[var(--color-border-tertiary)] hover:border-[var(--color-border-secondary)]',
+          : status === 'planned'
+            ? 'bg-[var(--color-planner-planned-bg)] border-[var(--color-planner-planned-border)] hover:border-[var(--color-border-secondary)]'
+            : status === 'unplanned'
+              ? 'bg-[var(--color-planner-unplanned-bg)] border-[var(--color-planner-unplanned-border)] hover:border-[var(--color-border-secondary)]'
+              : 'bg-[var(--color-planner-empty-bg)] border-[var(--color-planner-empty-border)] hover:border-[var(--color-border-secondary)]',
         isSelected && !anyIssue && 'border-[1.5px] border-[var(--color-border-info)]',
         isSelected && anyIssue && 'border-[1.5px] border-[#E24B4A]',
       )}
