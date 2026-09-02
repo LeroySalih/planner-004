@@ -52,7 +52,7 @@ export function SidePanel({
   if (!day || period === null || !cellState) return null
 
   const { groupId, lessons, issueFlag, issueNote } = cellState
-  const hasGroup = !!groupId && groupId !== '__free__'
+  const hasGroup = !!groupId
 
   // Filter units to those matching the group's subject
   const groupSubject = groupId ? groups.find((g) => g.group_id === groupId)?.subject : undefined
@@ -105,7 +105,6 @@ export function SidePanel({
           disabled={readOnly}
         >
           <option value="">No class</option>
-          <option value="__free__">Free period</option>
           {groups.map((g) => (
             <option key={g.group_id} value={g.group_id}>{g.group_id}</option>
           ))}

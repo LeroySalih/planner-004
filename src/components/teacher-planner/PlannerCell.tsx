@@ -48,7 +48,7 @@ export function PlannerCell({
   const otherUnits = sowUnitIds ? units.filter((u) => !sowUnitIds.has(u.unit_id)) : units
 
   const { groupId, lessons, issueFlag, issueNote: _issueNote } = cellState
-  const hasGroup = !!groupId && groupId !== '__free__'
+  const hasGroup = !!groupId
   const lessonCount = lessons.length
 
   // Period-level indicators
@@ -104,7 +104,7 @@ export function PlannerCell({
       )}
 
       {!hasGroup && (
-        <span className="text-xs text-[var(--color-text-tertiary)]">Free period</span>
+        <span className="text-xs text-[var(--color-text-tertiary)]">No class</span>
       )}
 
       {/* 0 or 1 lesson — unit + lesson pickers (unit always editable) */}

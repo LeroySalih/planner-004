@@ -362,7 +362,7 @@ update: `set_timetable_slot` upserts. Three states, and they differ:
 | State | Meaning |
 |---|---|
 | no row | the slot has never been set |
-| row, `group_id: null` | explicitly a free period |
+| row, `group_id: null` | explicitly no class |
 | row, `group_id` set | that class |
 
 The planner renders the first two the same, but deleting a slot and marking it
@@ -395,7 +395,7 @@ A teacher's timetable, ordered by day then period.
 ---
 
 #### `set_timetable_slot`
-Creates or updates one slot. **Omit `group_id` to mark the slot a free period.**
+Creates or updates one slot. **Omit `group_id` to mark the slot as no class.**
 The group is checked to exist first, so an unknown class gives a usable error
 rather than a constraint violation.
 

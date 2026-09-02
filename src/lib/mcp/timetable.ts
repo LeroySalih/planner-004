@@ -12,7 +12,7 @@ import { DAYS, PERIOD_LAYOUT } from '@/components/teacher-planner/timetable-conf
  * update: setting a slot upserts. Three states, and they are not the same:
  *
  *   - no row          — the slot has never been set
- *   - row, group NULL — explicitly a free period
+ *   - row, group NULL — explicitly no class
  *   - row, group set  — that class
  *
  * The planner renders the first two identically, but deleting and freeing are
@@ -121,7 +121,7 @@ export async function listTimetableSlots(teacherId: string): Promise<TimetableSl
 }
 
 /**
- * Create or update a slot. Passing no group marks the slot a free period,
+ * Create or update a slot. Passing no group marks the slot as no class,
  * which is a stored fact — distinct from the slot never having been set.
  */
 export async function setTimetableSlot(input: {

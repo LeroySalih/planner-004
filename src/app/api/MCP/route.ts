@@ -1263,7 +1263,7 @@ function createMcpServer(baseUrl = ''): McpServer {
     'get_timetable_slots',
     {
       title: 'Get a teacher timetable',
-      description: "Return a teacher's timetable slots. A slot with a null group_id is an explicit free period; a slot absent from the list has never been set.",
+      description: "Return a teacher's timetable slots. A slot with a null group_id is explicitly marked as no class; a slot absent from the list has never been set.",
       inputSchema: {
         teacher: z.string().min(1).describe('Teacher email or user id.'),
       },
@@ -1282,7 +1282,7 @@ function createMcpServer(baseUrl = ''): McpServer {
           {
             type: 'text' as const,
             text: slots.length
-              ? slots.map((s) => `${s.day} P${s.period} • ${s.group_id ?? 'free'}`).join('\n')
+              ? slots.map((s) => `${s.day} P${s.period} • ${s.group_id ?? 'no class'}`).join('\n')
               : 'No timetable slots set.',
           },
         ],
@@ -1295,12 +1295,12 @@ function createMcpServer(baseUrl = ''): McpServer {
     'set_timetable_slot',
     {
       title: 'Set a timetable slot',
-      description: `Create or update one slot. Omit group_id to mark the slot a free period. Days: ${VALID_DAYS.join(', ')}. Periods: ${VALID_PERIODS.join(', ')}.`,
+      description: `Create or update one slot. Omit group_id to mark the slot as no class. Days: ${VALID_DAYS.join(', ')}. Periods: ${VALID_PERIODS.join(', ')}.`,
       inputSchema: {
         teacher: z.string().min(1).describe('Teacher email or user id.'),
         day: z.string().min(1).describe(`One of: ${VALID_DAYS.join(', ')}.`),
         period: z.coerce.number().int().describe(`One of: ${VALID_PERIODS.join(', ')}.`),
-        group_id: z.string().optional().describe('Class to teach in this slot. Omit for a free period.'),
+        group_id: z.string().optional().describe('Class to teach in this slot. Omit for no class.'),
       },
       outputSchema: {
         teacher_id: z.string(),
@@ -1314,7 +1314,7 @@ function createMcpServer(baseUrl = ''): McpServer {
         content: [
           {
             type: 'text' as const,
-            text: `${day} P${period} set to ${slot.group_id ?? 'free period'}.`,
+            text: `${day} P${period} set to ${slot.group_id ?? 'no class'}.`,
           },
         ],
         structuredContent: { teacher_id: teacherId, slot },

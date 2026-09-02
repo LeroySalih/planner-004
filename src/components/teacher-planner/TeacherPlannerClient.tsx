@@ -209,7 +209,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
       updateSlot(day, period, (s) => ({ ...s, lessons: [] }))
     }
 
-    if (!newLessonId || !cell.groupId || cell.groupId === '__free__') return
+    if (!newLessonId || !cell.groupId) return
 
     const { data } = await upsertPlannerAssignmentAction(cell.groupId, newLessonId, week, day, period, teacherId, {})
     if (data) {
@@ -238,7 +238,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
     const key = slotKey(day, period)
     const cell = plannerState.get(key) ?? emptyCellState()
 
-    if (!newLessonId || !cell.groupId || cell.groupId === '__free__') return
+    if (!newLessonId || !cell.groupId) return
     if (cell.lessons.some((l) => l.lessonId === newLessonId)) return
 
     const { data } = await upsertPlannerAssignmentAction(cell.groupId, newLessonId, week, day, period, teacherId, {})
@@ -323,7 +323,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
     const resolvedGroupId = groupId || null
     const teacherId = selectedTeacherIdRef.current
 
-    if (existing?.groupId && existing.groupId !== groupId && groupId !== '__free__') {
+    if (existing?.groupId && existing.groupId !== groupId) {
       const week = currentWeekRef.current
       for (const lesson of existing.lessons) {
         await deletePlannerAssignmentAction(existing.groupId, lesson.lessonId, week, day, period, teacherId)
@@ -331,7 +331,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
       updateSlot(day, period, (s) => ({ ...s, lessons: [] }))
     }
 
-    if (resolvedGroupId && resolvedGroupId !== '__free__' && existing?.lessons.length) {
+    if (resolvedGroupId && existing?.lessons.length) {
       const week = currentWeekRef.current
       for (const lesson of existing.lessons) {
         await upsertPlannerAssignmentAction(resolvedGroupId, lesson.lessonId, week, day, period, teacherId, {
@@ -342,9 +342,6 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
     }
 
     updateSlot(day, period, (s) => ({ ...s, groupId: resolvedGroupId }))
-    if (groupId === '__free__') {
-      updateSlot(day, period, (s) => ({ ...s, lessons: [] }))
-    }
 
     const classDefaults = classDefaultsByTeacherRef.current.get(teacherId)
     classDefaults?.set(key, resolvedGroupId)
