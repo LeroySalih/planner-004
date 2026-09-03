@@ -120,6 +120,11 @@ export function SowLandingClient({ initialGroups, teachers, currentTeacherId, is
                   >
                     <p className="font-medium text-[var(--color-text-primary)]">{g.group_id}</p>
                     <p className="text-xs text-[var(--color-text-secondary)] mt-1">{g.subject}</p>
+                    <p className="text-xs text-[var(--color-text-tertiary)] mt-2">
+                      {g.lessons_total} {g.lessons_total === 1 ? 'lesson' : 'lessons'} planned
+                      {' · '}
+                      {g.lessons_this_week} this week
+                    </p>
                   </Link>
                 ))}
               </div>

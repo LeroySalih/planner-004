@@ -145,9 +145,28 @@ export async function readTeacherGroupsForSowAction(
     const profile = await requireTeacherProfile()
     const resolvedTargetTeacherId = targetTeacherId ?? profile.userId
     await requireTeacherOrAdminAccess(resolvedTargetTeacherId)
-    const { rows } = await query<{ group_id: string; subject: string }>(
-      `SELECT g.group_id, g.subject
+    const { rows } = await query<{
+      group_id: string
+      subject: string
+      lessons_total: number
+      lessons_this_week: number
+    }>(
+      // Weeks start Sunday, so the current week's Sunday is today minus its
+      // day-of-week (DOW puts Sunday at 0) — the same date the planner keys
+      // planner_assignments on.
+      `SELECT g.group_id, g.subject,
+              COALESCE(pa.lessons_total, 0)     AS lessons_total,
+              COALESCE(pa.lessons_this_week, 0) AS lessons_this_week
          FROM groups g
+         LEFT JOIN (
+           SELECT group_id,
+                  COUNT(*)::int AS lessons_total,
+                  COUNT(*) FILTER (
+                    WHERE week_start_date = current_date - EXTRACT(DOW FROM current_date)::int
+                  )::int AS lessons_this_week
+             FROM planner_assignments
+            GROUP BY group_id
+         ) pa ON pa.group_id = g.group_id
         WHERE g.active IS NOT FALSE AND (${SOW_GROUP_ACCESS_PREDICATE})
         ORDER BY g.subject, g.group_id`,
       [resolvedTargetTeacherId],

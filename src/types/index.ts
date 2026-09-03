@@ -1630,6 +1630,10 @@ export type SowHalfTermUnit = z.infer<typeof SowHalfTermUnitSchema>;
 export const TeacherGroupSchema = z.object({
   group_id: z.string(),
   subject: z.string(),
+  /** Lessons placed in the weekly planner for this class, across all weeks. */
+  lessons_total: z.number().int().default(0),
+  /** Of those, the ones in the week that is running now. */
+  lessons_this_week: z.number().int().default(0),
 });
 export type TeacherGroup = z.infer<typeof TeacherGroupSchema>;
 
