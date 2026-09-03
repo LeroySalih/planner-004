@@ -172,20 +172,23 @@ export function SowHalfTermTable({
     setAddingIn(null)
     setSearch('')
     startTransition(async () => {
-      const { error } = await addSowUnitPlacementAction({
+      const { data: placementId, error } = await addSowUnitPlacementAction({
         groupId,
         year,
         halfTermName,
         unitId: unit.unit_id,
       })
-      if (error) {
+      // The real uuid, not a placeholder: remove deletes by placement_id, and a
+      // "pending-…" string fails the uuid cast, so a unit could not be taken
+      // out again until the page was reloaded.
+      if (error || !placementId) {
         toast.error('Could not add that unit')
         return
       }
       setPlacements((prev) => [
         ...prev,
         {
-          placement_id: `pending-${halfTermName}-${unit.unit_id}`,
+          placement_id: placementId,
           group_id: groupId,
           year,
           half_term_name: halfTermName,

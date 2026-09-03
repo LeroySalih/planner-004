@@ -46,6 +46,12 @@ const MutationResult = z.object({
   error: z.string().nullable(),
 })
 
+/** Carries the new row's id back, so the caller can act on it before a reload. */
+const PlacementIdResult = z.object({
+  data: z.string().nullable(),
+  error: z.string().nullable(),
+})
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function toIsoDate(v: unknown): string {
@@ -230,24 +236,42 @@ export async function addSowUnitPlacementAction(input: {
   year: number
   halfTermName: string
   unitId: string
-}): Promise<z.infer<typeof MutationResult>> {
+}): Promise<z.infer<typeof PlacementIdResult>> {
   try {
     const profile = await requireTeacherProfile()
     const halfTermName = HalfTermNameSchema.parse(input.halfTermName)
     // Appended after whatever is already planned in the cell. Timetabled units
     // are ordered separately, by the week their lessons fall in.
-    await query(
+    //
+    // The id goes back to the caller because placement_id is a uuid and the
+    // remove action deletes by it: without a real one the grid held a
+    // placeholder, and removing a just-added unit failed on the uuid cast
+    // until the page was reloaded.
+    const inserted = await query<{ placement_id: string }>(
       `INSERT INTO sow_unit_placements (group_id, year, half_term_name, unit_id, position, created_by)
        SELECT $1, $2, $3, $4,
               coalesce((SELECT max(position) + 1 FROM sow_unit_placements
                          WHERE group_id = $1 AND year = $2 AND half_term_name = $3), 0),
               $5
-       ON CONFLICT (group_id, year, half_term_name, unit_id) DO NOTHING`,
+       ON CONFLICT (group_id, year, half_term_name, unit_id) DO NOTHING
+       RETURNING placement_id`,
       [input.groupId, input.year, halfTermName, input.unitId, profile.userId],
     )
-    return MutationResult.parse({ data: null, error: null })
+
+    // DO NOTHING returns no row, so a unit already planned here needs looking
+    // up rather than treating as a failure — the cell ends up correct either way.
+    let placementId = inserted.rows[0]?.placement_id ?? null
+    if (!placementId) {
+      const { rows } = await query<{ placement_id: string }>(
+        `SELECT placement_id FROM sow_unit_placements
+          WHERE group_id = $1 AND year = $2 AND half_term_name = $3 AND unit_id = $4`,
+        [input.groupId, input.year, halfTermName, input.unitId],
+      )
+      placementId = rows[0]?.placement_id ?? null
+    }
+    return PlacementIdResult.parse({ data: placementId, error: null })
   } catch (e) {
-    return MutationResult.parse({ data: null, error: String(e) })
+    return PlacementIdResult.parse({ data: null, error: String(e) })
   }
 }
 
