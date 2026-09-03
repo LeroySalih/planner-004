@@ -4,7 +4,7 @@ import type { ChangeEvent, DragEvent } from "react"
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ClipboardPaste, Download, GripVertical, Loader2, Pencil, Play, Plus, Sparkles, Trash2, X } from "lucide-react"
+import { ArrowDownToLine, ArrowUpToLine, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ClipboardPaste, Download, GripVertical, Loader2, Pencil, Play, Plus, Sparkles, Trash2, X } from "lucide-react"
 import { LessonAiChatPanel } from "@/components/lessons/lesson-ai-chat-panel"
 
 import type {
@@ -452,14 +452,28 @@ export function LessonActivitiesManager({
     }
   }, [activities, lessonId]) // exclude fileDownloadState to avoid cancelling in-flight checks
 
+  // Where a newly created activity should land. Null means the end, which is
+  // what the "Add Activity" button has always done.
+  const [insertRelativeTo, setInsertRelativeTo] = useState<
+    { activityId: string; placement: "above" | "below" } | null
+  >(null)
+
   const openEditor = (activityId: string) => {
+    setInsertRelativeTo(null)
     setEditorActivityId(activityId)
+    setIsEditorOpen(true)
+  }
+
+  const openEditorForInsert = (activityId: string, placement: "above" | "below") => {
+    setInsertRelativeTo({ activityId, placement })
+    setEditorActivityId(NEW_ACTIVITY_ID)
     setIsEditorOpen(true)
   }
 
   const closeEditor = () => {
     setIsEditorOpen(false)
     setEditorActivityId(null)
+    setInsertRelativeTo(null)
   }
 
   const isCreating = editorActivityId === NEW_ACTIVITY_ID
@@ -710,6 +724,7 @@ useEffect(() => {
             },
             successCriteriaIds,
             maxMarks,
+            insertRelativeTo: insertRelativeTo ?? undefined,
           })
           if (!createResult.success || !createResult.data) {
             toast.error("Unable to create activity", { description: createResult.error ?? "Please try again later." })
@@ -761,6 +776,7 @@ useEffect(() => {
           bodyData: createBody,
           successCriteriaIds,
           maxMarks,
+          insertRelativeTo: insertRelativeTo ?? undefined,
         })
 
           if (!createResult.success || !createResult.data) {
@@ -849,6 +865,7 @@ useEffect(() => {
           bodyData,
           successCriteriaIds,
           maxMarks,
+          insertRelativeTo: insertRelativeTo ?? undefined,
         })
 
         if (!result.success || !result.data) {
@@ -1729,7 +1746,7 @@ ${scs[0] ? `SC: ${scs[0].title}` : ""}
                 </ul>
               </aside>
               <ul className="flex-1 space-y-3">
-                {activities.map((activity) => {
+                {activities.map((activity, activityIndex) => {
                 const label = typeLabelMap[activity.type] ?? activity.type
                 const isDragging = draggingId === activity.activity_id
                 const isDragOver = dragOverId === activity.activity_id
@@ -1901,6 +1918,26 @@ ${scs[0] ? `SC: ${scs[0].title}` : ""}
                                 </div>
                               </div>
                               <div className="ml-auto flex items-center gap-2">
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  onClick={() => openEditorForInsert(activity.activity_id, "above")}
+                                  disabled={isBusy || activityIndex === 0}
+                                  aria-label="Add activity above"
+                                  title="Add activity above"
+                                >
+                                  <ArrowUpToLine className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  onClick={() => openEditorForInsert(activity.activity_id, "below")}
+                                  disabled={isBusy || activityIndex === activities.length - 1}
+                                  aria-label="Add activity below"
+                                  title="Add activity below"
+                                >
+                                  <ArrowDownToLine className="h-4 w-4" />
+                                </Button>
                                 <Button
                                   size="icon"
                                   variant="ghost"

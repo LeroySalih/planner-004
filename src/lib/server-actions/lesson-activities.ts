@@ -82,6 +82,18 @@ const CreateActivityInputSchema = z.object({
   isSummative: z.boolean().optional(),
   successCriteriaIds: z.array(z.string().min(1)).optional(),
   maxMarks: z.number().int().min(1).optional(),
+  /**
+   * Place the new activity next to an existing one instead of at the end.
+   * Given as a neighbour rather than a number so the slot is resolved inside
+   * the transaction: a position computed on the client goes stale the moment
+   * anything else is inserted or reordered.
+   */
+  insertRelativeTo: z
+    .object({
+      activityId: z.string().min(1),
+      placement: z.enum(["above", "below"]),
+    })
+    .optional(),
 });
 
 const UpdateActivityInputSchema = z.object({
@@ -217,19 +229,47 @@ export async function createLessonActivityAction(
 
   try {
     await withDbClient(async (client) => {
-      const { rows: maxOrderRows } = await client.query(
-        `
-          select order_by
-          from activities
-          where lesson_id = $1
-          order by order_by desc nulls last
-          limit 1
-        `,
-        [lessonId],
-      );
+      let nextOrder: number;
 
-      const maxOrder = maxOrderRows[0]?.order_by;
-      const nextOrder = typeof maxOrder === "number" ? maxOrder + 1 : 0;
+      if (payload.insertRelativeTo) {
+        const { rows: neighbourRows } = await client.query(
+          `select order_by from activities where activity_id = $1 and lesson_id = $2`,
+          [payload.insertRelativeTo.activityId, lessonId],
+        );
+        const neighbourOrder = neighbourRows[0]?.order_by;
+        if (typeof neighbourOrder !== "number") {
+          throw new Error("Could not find the activity to insert next to.");
+        }
+
+        // "above" takes the neighbour's own slot; "below" takes the one after.
+        nextOrder = payload.insertRelativeTo.placement === "above"
+          ? neighbourOrder
+          : neighbourOrder + 1;
+
+        // Free the slot by pushing everything from it down. order_by has no
+        // unique constraint, so this is one statement and needs no ordering
+        // dance; the gap it leaves behind above is harmless because nothing
+        // reads order_by as a dense sequence.
+        await client.query(
+          `update activities set order_by = order_by + 1
+            where lesson_id = $1 and order_by >= $2`,
+          [lessonId, nextOrder],
+        );
+      } else {
+        const { rows: maxOrderRows } = await client.query(
+          `
+            select order_by
+            from activities
+            where lesson_id = $1
+            order by order_by desc nulls last
+            limit 1
+          `,
+          [lessonId],
+        );
+
+        const maxOrder = maxOrderRows[0]?.order_by;
+        nextOrder = typeof maxOrder === "number" ? maxOrder + 1 : 0;
+      }
 
       const defaultMaxMarks = payload.type === "short-text-question" ? 3 : 1;
       const maxMarks = payload.maxMarks ?? defaultMaxMarks;
