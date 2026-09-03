@@ -62,18 +62,28 @@ type SowLandingClientProps = {
 export function SowLandingClient({ initialGroups, teachers, currentTeacherId, isAdmin }: SowLandingClientProps) {
   const [selectedTeacherId, setSelectedTeacherId] = useState(currentTeacherId)
   const [groups, setGroups] = useState<TeacherGroup[]>(initialGroups)
+  const [filter, setFilter] = useState('')
 
   const loadGroupsForTeacher = useCallback(async (teacherId: string) => {
     const result = await readTeacherGroupsForSowAction(teacherId)
     setGroups(result.data ?? [])
   }, [])
 
-  const sections = useMemo(() => groupByYear(groups), [groups])
+  const visibleGroups = useMemo(() => {
+    const q = filter.trim().toLowerCase()
+    if (!q) return groups
+    return groups.filter(
+      (g) => g.group_id.toLowerCase().includes(q) || g.subject.toLowerCase().includes(q),
+    )
+  }, [groups, filter])
+
+  // Sectioned after filtering, so the per-year counts describe what is shown.
+  const sections = useMemo(() => groupByYear(visibleGroups), [visibleGroups])
 
   return (
     <>
-      {isAdmin && (
-        <div className="mb-6">
+      <div className="mb-6 flex flex-wrap items-center gap-3">
+        {isAdmin && (
           <select
             value={selectedTeacherId}
             onChange={(e) => {
@@ -90,14 +100,28 @@ export function SowLandingClient({ initialGroups, teachers, currentTeacherId, is
               </option>
             ))}
           </select>
-        </div>
-      )}
+        )}
+        <input
+          type="search"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          placeholder="Filter by class or subject…"
+          aria-label="Filter classes by class or subject"
+          className="w-56 rounded-md border border-[var(--color-border)] bg-[var(--color-background-primary)] px-2 py-1 text-sm text-[var(--color-text-primary)]"
+        />
+      </div>
 
       {groups.length === 0 ? (
         <p className="text-sm text-[var(--color-text-secondary)]">
           {selectedTeacherId === currentTeacherId
             ? 'No classes found. Set up your timetable in the Weekly Planner first.'
             : 'This teacher has no classes set up in the Weekly Planner yet.'}
+        </p>
+      ) : visibleGroups.length === 0 ? (
+        // Distinct from "no classes": the teacher has classes, this filter just
+        // matches none of them, and saying so avoids reading it as data loss.
+        <p className="text-sm text-[var(--color-text-secondary)]">
+          No class matches &ldquo;{filter}&rdquo;.
         </p>
       ) : (
         <div className="space-y-8">
