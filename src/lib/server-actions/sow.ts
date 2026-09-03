@@ -151,22 +151,38 @@ export async function readTeacherGroupsForSowAction(
       lessons_total: number
       lessons_this_week: number
     }>(
+      // Scoped to the class's own academic year — the one its id prefix names
+      // and the one its card is filed under — because an all-time count
+      // disagreed with the class's own SoW page, which readGroupSowLessonsAction
+      // restricts to the span of that year's half-terms.
+      //
+      // A class id with no YY- prefix (HOME-SCHOOL, test rows) yields no
+      // half-terms, so the range comes back null and every week counts. Better
+      // an unscoped number than a silent zero.
+      //
       // Weeks start Sunday, so the current week's Sunday is today minus its
       // day-of-week (DOW puts Sunday at 0) — the same date the planner keys
       // planner_assignments on.
       `SELECT g.group_id, g.subject,
-              COALESCE(pa.lessons_total, 0)     AS lessons_total,
-              COALESCE(pa.lessons_this_week, 0) AS lessons_this_week
+              COALESCE(c.lessons_total, 0)     AS lessons_total,
+              COALESCE(c.lessons_this_week, 0) AS lessons_this_week
          FROM groups g
-         LEFT JOIN (
-           SELECT group_id,
-                  COUNT(*)::int AS lessons_total,
+         LEFT JOIN LATERAL (
+           SELECT COUNT(*)::int AS lessons_total,
                   COUNT(*) FILTER (
-                    WHERE week_start_date = current_date - EXTRACT(DOW FROM current_date)::int
+                    WHERE pa.week_start_date = current_date - EXTRACT(DOW FROM current_date)::int
                   )::int AS lessons_this_week
-             FROM planner_assignments
-            GROUP BY group_id
-         ) pa ON pa.group_id = g.group_id
+             FROM planner_assignments pa
+             JOIN lessons l ON l.lesson_id = pa.lesson_id
+             LEFT JOIN LATERAL (
+               SELECT MIN(ht.start_date) AS start_date, MAX(ht.end_date) AS end_date
+                 FROM half_terms ht
+                WHERE ht.year = 2000 + substring(g.group_id from '^(\\d{2})(?:-|$)')::int
+             ) h ON true
+            WHERE pa.group_id = g.group_id
+              AND (h.start_date IS NULL
+                   OR pa.week_start_date BETWEEN h.start_date AND h.end_date)
+         ) c ON true
         WHERE g.active IS NOT FALSE AND (${SOW_GROUP_ACCESS_PREDICATE})
         ORDER BY g.subject, g.group_id`,
       [resolvedTargetTeacherId],
