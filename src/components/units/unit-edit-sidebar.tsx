@@ -463,6 +463,12 @@ export function UnitEditSidebar({
                 placeholder="Enter a description for this unit"
                 disabled={isPending}
                 rows={4}
+                // The shared Textarea sets field-sizing-content, so this grew to
+                // fit whatever was typed and pushed Save and Cancel past the
+                // bottom of the panel — rows={4} has no effect against it.
+                // Fixed here rather than in the primitive, which every other
+                // textarea in the app relies on.
+                className="h-40 field-sizing-fixed resize-y overflow-y-auto"
               />
             </div>
 
