@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useCallback, useEffect, useRef, useState, useTransition } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { BookOpen, Globe, GripVertical, Plus } from "lucide-react"
 
 import type { LessonWithObjectives, LearningObjectiveWithCriteria } from "@/lib/server-updates"
@@ -257,6 +257,20 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
 
   const displayedLessons = lessons.filter((lesson) => showInactive || lesson.active !== false)
 
+  // Numbered across the active lessons only, because that is what dragging
+  // reorders — handleReorder assigns order_by over the active list. Numbering
+  // whatever happens to be on screen would renumber every lesson when "Show
+  // inactive" is toggled, and the number would stop matching the saved order.
+  // Inactive lessons therefore carry no number rather than a misleading one.
+  const lessonNumbers = useMemo(() => {
+    const numbers = new Map<string, number>()
+    let position = 0
+    for (const lesson of lessons) {
+      if (lesson.active !== false) numbers.set(lesson.lesson_id, ++position)
+    }
+    return numbers
+  }, [lessons])
+
   return (
     <Card>
       <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -288,6 +302,7 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
         {displayedLessons.length > 0 ? (
           <div className="space-y-3">
             {displayedLessons.map((lesson) => {
+              const lessonNumber = lessonNumbers.get(lesson.lesson_id) ?? null
 
               const isPendingLesson = pendingLessonIds[lesson.lesson_id] === true
               const isActive = lesson.active !== false
@@ -325,6 +340,7 @@ export function LessonsPanel({ unitId, unitTitle, initialLessons, learningObject
                               !isActive && "text-muted-foreground",
                             )}
                           >
+                            {lessonNumber ? `${lessonNumber}. ` : ""}
                             {lesson.title?.trim().length ? lesson.title : "Untitled lesson"}
                           </Link>
                           <button
