@@ -438,6 +438,7 @@ export {
   readTeacherGroupsForSowAction,
   readSowUnitPlacementsAction,
   addSowUnitPlacementAction,
+  reorderSowUnitsAction,
   removeSowUnitPlacementAction,
   readSowUnitNotesAction,
   upsertSowUnitNoteAction,

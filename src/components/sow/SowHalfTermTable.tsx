@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Textarea } from '@/components/ui/textarea'
 import {
   addSowUnitPlacementAction,
+  reorderSowUnitsAction,
   importSowUnitsFromGroupAction,
   readSowImportSourcesAction,
   readSowUnitPlacementsAction,
@@ -80,6 +81,8 @@ export function SowHalfTermTable({
   const [importOpen, setImportOpen] = useState(false)
   const [sources, setSources] = useState<{ group_id: string; subject: string | null; active: boolean | null; unit_count: number }[] | null>(null)
   const [sourceFilter, setSourceFilter] = useState('')
+  const [dragChip, setDragChip] = useState<{ halfTerm: HalfTermName; unitId: string } | null>(null)
+  const [dragOverChip, setDragOverChip] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
 
   const halfTermMap = useMemo(() => new Map(halfTerms.map((ht) => [ht.name, ht])), [halfTerms])
@@ -103,16 +106,29 @@ export function SowHalfTermTable({
     const out = new Map<HalfTermName, Chip[]>()
     for (const name of HALF_TERM_NAMES) out.set(name, [])
 
+    // A timetabled unit gains a placement row once its cell is hand-ordered.
+    // That row holds the position and nothing else: the chip stays green,
+    // because the colour reports whether lessons are timetabled, not whether
+    // a row exists.
+    const placementFor = new Map<string, { placementId: string; position: number }>()
+    for (const p of placements) {
+      placementFor.set(`${p.half_term_name}|${p.unit_id}`, {
+        placementId: p.placement_id,
+        position: p.position,
+      })
+    }
+
     for (const u of htUnits) {
       const name = idToName.get(u.half_term_id)
       if (!name) continue
+      const placed = placementFor.get(`${name}|${u.unit_id}`)
       out.get(name)!.push({
         unitId: u.unit_id,
         unitName: u.unit_name ?? u.unit_id,
         source: 'timetabled',
-        placementId: null,
+        placementId: placed?.placementId ?? null,
         note: noteFor(name, u.unit_id),
-        sortKey: u.position,
+        sortKey: placed ? placed.position : u.position,
       })
     }
 
@@ -132,10 +148,19 @@ export function SowHalfTermTable({
       })
     }
 
-    // Timetabled first, in teaching order; planned underneath, in the order added.
     for (const list of out.values()) {
+      // Once every chip in a cell has a stored position the teacher's order
+      // governs it outright. Until then the old arrangement stands: timetabled
+      // first in teaching order, planned underneath in the order added.
+      const handOrdered = list.length > 0 && list.every((c) => c.placementId !== null)
       list.sort((a, b) =>
-        a.source === b.source ? a.sortKey - b.sortKey : a.source === 'timetabled' ? -1 : 1,
+        handOrdered
+          ? a.sortKey - b.sortKey
+          : a.source === b.source
+            ? a.sortKey - b.sortKey
+            : a.source === 'timetabled'
+              ? -1
+              : 1,
       )
     }
     return out
@@ -198,6 +223,69 @@ export function SowHalfTermTable({
         },
       ])
       toast.success(`${unit.title} planned into ${halfTermName}`)
+    })
+  }
+
+  function handleReorder(halfTerm: HalfTermName, fromUnitId: string, toUnitId: string) {
+    if (fromUnitId === toUnitId) return
+    const current = (chipsByHalfTerm.get(halfTerm) ?? []).map((c) => c.unitId)
+    const from = current.indexOf(fromUnitId)
+    const to = current.indexOf(toUnitId)
+    if (from < 0 || to < 0) return
+
+    const ordered = [...current]
+    ordered.splice(to, 0, ...ordered.splice(from, 1))
+
+    const before = placements
+    // Optimistic: a timetabled chip has no row yet, so one is stood up locally
+    // with a placeholder id and swapped for the real one when the write lands.
+    // The placeholder is never used to delete, because only a planned chip
+    // offers removal.
+    setPlacements((prev) => {
+      const others = prev.filter((p) => p.half_term_name !== halfTerm)
+      const mine = new Map(prev.filter((p) => p.half_term_name === halfTerm).map((p) => [p.unit_id, p]))
+      const nameOf = (unitId: string) =>
+        (chipsByHalfTerm.get(halfTerm) ?? []).find((c) => c.unitId === unitId)?.unitName ?? unitId
+      return [
+        ...others,
+        ...ordered.map((unitId, index) => {
+          const existing = mine.get(unitId)
+          return existing
+            ? { ...existing, position: index }
+            : {
+                placement_id: `pending-${halfTerm}-${unitId}`,
+                group_id: groupId,
+                year,
+                half_term_name: halfTerm,
+                unit_id: unitId,
+                unit_name: nameOf(unitId),
+                position: index,
+              }
+        }),
+      ]
+    })
+
+    startTransition(async () => {
+      const { data, error } = await reorderSowUnitsAction({
+        groupId,
+        year,
+        halfTermName: halfTerm,
+        unitIds: ordered,
+      })
+      if (error || !data) {
+        setPlacements(before)
+        toast.error('Could not reorder those units')
+        return
+      }
+      // Replace the placeholders with the ids the database actually assigned.
+      const real = new Map(data.map((r) => [r.unit_id, r]))
+      setPlacements((prev) =>
+        prev.map((p) => {
+          if (p.half_term_name !== halfTerm) return p
+          const row = real.get(p.unit_id)
+          return row ? { ...p, placement_id: row.placement_id, position: row.position } : p
+        }),
+      )
     })
   }
 
@@ -331,7 +419,35 @@ export function SowHalfTermTable({
                         chips.map((chip) => (
                           <div
                             key={`${chip.source}-${chip.unitId}`}
+                            draggable={!isPending}
+                            onDragStart={() => setDragChip({ halfTerm: name, unitId: chip.unitId })}
+                            onDragEnd={() => {
+                              setDragChip(null)
+                              setDragOverChip(null)
+                            }}
+                            onDragOver={(event) => {
+                              // Only within the same cell: a unit's half-term is
+                              // changed by adding and removing it, not by dragging.
+                              if (!dragChip || dragChip.halfTerm !== name) return
+                              event.preventDefault()
+                              setDragOverChip(`${name}|${chip.unitId}`)
+                            }}
+                            onDragLeave={() => setDragOverChip(null)}
+                            onDrop={(event) => {
+                              event.preventDefault()
+                              const dragged = dragChip
+                              setDragChip(null)
+                              setDragOverChip(null)
+                              if (!dragged || dragged.halfTerm !== name) return
+                              handleReorder(name, dragged.unitId, chip.unitId)
+                            }}
                             className={`group flex items-center gap-1 rounded-md border px-2 py-1 text-xs ${
+                              isPending ? '' : 'cursor-grab active:cursor-grabbing'
+                            } ${
+                              dragOverChip === `${name}|${chip.unitId}` ? 'ring-2 ring-[var(--color-border-info)]' : ''
+                            } ${
+                              dragChip?.halfTerm === name && dragChip.unitId === chip.unitId ? 'opacity-50' : ''
+                            } ${
                               chip.source === 'timetabled'
                                 ? 'border-emerald-600/40 bg-emerald-500/10 text-emerald-900 dark:text-emerald-200'
                                 : 'border-[var(--color-border)] bg-[var(--color-background-secondary)] text-[var(--color-text-secondary)]'
@@ -351,8 +467,11 @@ export function SowHalfTermTable({
                             {chip.note ? <StickyNote className="h-3 w-3 shrink-0 opacity-70" /> : null}
                             {/* Only a planned chip can be removed. A timetabled
                                 one is a read-out of the timetable — take the
-                                lessons out of the plan instead. */}
-                            {chip.placementId ? (
+                                lessons out of the plan instead. Keyed on source,
+                                not on placementId: hand-ordering a cell gives
+                                timetabled chips a row too, and that must not put
+                                a remove button on them. */}
+                            {chip.source === 'planned' && chip.placementId ? (
                               <button
                                 type="button"
                                 onClick={() => handleRemove(chip.placementId!)}

@@ -275,6 +275,54 @@ export async function addSowUnitPlacementAction(input: {
   }
 }
 
+const ReorderResult = z.object({
+  data: z
+    .array(z.object({ placement_id: z.string(), unit_id: z.string(), position: z.number().int() }))
+    .nullable(),
+  error: z.string().nullable(),
+})
+
+/**
+ * Set the order of every unit in one half-term cell.
+ *
+ * A unit reaches the grid either because a teacher planned it or because its
+ * lessons are timetabled, and only the first kind has a row to hold a position.
+ * Hand-ordering a cell therefore materialises a placement for the timetabled
+ * ones too — invisible in the grid, which still colours a chip by whether its
+ * lessons are timetabled, not by whether a row exists.
+ *
+ * The trade is that the cell stops following the timetable once ordered by
+ * hand: the stored position wins from then on.
+ */
+export async function reorderSowUnitsAction(input: {
+  groupId: string
+  year: number
+  halfTermName: string
+  unitIds: string[]
+}): Promise<z.infer<typeof ReorderResult>> {
+  try {
+    const profile = await requireTeacherProfile()
+    const halfTermName = HalfTermNameSchema.parse(input.halfTermName)
+    if (input.unitIds.length === 0) {
+      return ReorderResult.parse({ data: [], error: null })
+    }
+
+    // WITH ORDINALITY is 1-based; position is 0-based everywhere else here.
+    const { rows } = await query<{ placement_id: string; unit_id: string; position: number }>(
+      `INSERT INTO sow_unit_placements (group_id, year, half_term_name, unit_id, position, created_by)
+       SELECT $1, $2, $3, u.unit_id, u.ord - 1, $5
+         FROM unnest($4::text[]) WITH ORDINALITY AS u(unit_id, ord)
+       ON CONFLICT (group_id, year, half_term_name, unit_id)
+       DO UPDATE SET position = EXCLUDED.position
+       RETURNING placement_id, unit_id, position`,
+      [input.groupId, input.year, halfTermName, input.unitIds, profile.userId],
+    )
+    return ReorderResult.parse({ data: rows, error: null })
+  } catch (e) {
+    return ReorderResult.parse({ data: null, error: String(e) })
+  }
+}
+
 export async function removeSowUnitPlacementAction(
   placementId: string,
 ): Promise<z.infer<typeof MutationResult>> {
