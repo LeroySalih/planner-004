@@ -9,6 +9,27 @@ import {
   type PupilLessonsDetailBootstrap,
 } from "@/lib/server-updates"
 import type { LessonSuccessCriterion } from "@/types"
+import { query } from "@/lib/db"
+import { getAuthenticatedProfile, hasRole } from "@/lib/auth"
+
+/**
+ * Lessons a teacher has withheld, for the viewer looking at this page.
+ *
+ * Empty for a teacher: these pages are also how a teacher inspects a pupil's
+ * lessons, and hiding rows from them would misrepresent what was set. It is
+ * the pupil's own view that must not show them.
+ *
+ * Read here rather than filtered inside the bootstrap RPCs so both loaders get
+ * it from one place, and the RPCs stay as they are.
+ */
+async function hiddenLessonIdsForViewer(): Promise<Set<string>> {
+  const profile = await getAuthenticatedProfile()
+  if (profile && hasRole(profile, "teacher")) return new Set()
+  const { rows } = await query<{ lesson_id: string }>(
+    "select lesson_id from lessons where hidden_from_pupils",
+  )
+  return new Set(rows.map((row) => row.lesson_id))
+}
 
 export type PupilLessonLesson = {
   lessonId: string
@@ -469,7 +490,16 @@ export async function loadPupilLessonsSummaries(targetPupilId?: string): Promise
   }
 
   const payload = result.data ?? EMPTY_SUMMARY_PAYLOAD
-  return buildSummariesFromBootstrap(payload, targetPupilId)
+  const hidden = await hiddenLessonIdsForViewer()
+  const visible = hidden.size
+    ? {
+        ...payload,
+        lessonAssignments: payload.lessonAssignments.filter(
+          (assignment) => !hidden.has(assignment.lesson_id),
+        ),
+      }
+    : payload
+  return buildSummariesFromBootstrap(visible, targetPupilId)
 }
 
 export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLessonsDetail> {
@@ -489,6 +519,13 @@ export async function loadPupilLessonsDetail(pupilId: string): Promise<PupilLess
       successCriteria: [],
       successCriteriaUnits: [],
     }
+
+  const hidden = await hiddenLessonIdsForViewer()
+  if (hidden.size) {
+    detailData.lessonAssignments = detailData.lessonAssignments.filter(
+      (assignment) => !hidden.has(assignment.lesson_id),
+    )
+  }
 
   const summaryDataset = normalizeSummaryDatasetFromDetail(detailData)
   const summary = buildSummariesFromBootstrap(summaryDataset, pupilId)[0] ?? null

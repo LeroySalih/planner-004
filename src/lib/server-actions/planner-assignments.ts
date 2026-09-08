@@ -130,7 +130,7 @@ export async function readPlannerAssignmentsForWeekAction(
       return AssignmentsWithUnitResult.parse({ data: null, error: 'weekStartDate must be ISO YYYY-MM-DD' })
     }
     const { rows } = await query<Record<string, unknown>>(
-      `SELECT pa.*, l.unit_id, l.title AS lesson_title
+      `SELECT pa.*, l.unit_id, l.title AS lesson_title, l.hidden_from_pupils
        FROM planner_assignments pa
        JOIN lessons l ON l.lesson_id = pa.lesson_id
        JOIN timetable_slot_groups tsg
@@ -144,6 +144,7 @@ export async function readPlannerAssignmentsForWeekAction(
         ...toAssignment(row),
         unit_id: row.unit_id,
         lesson_title: row.lesson_title,
+        hidden_from_pupils: row.hidden_from_pupils ?? false,
       }),
     )
     return AssignmentsWithUnitResult.parse({ data, error: null })

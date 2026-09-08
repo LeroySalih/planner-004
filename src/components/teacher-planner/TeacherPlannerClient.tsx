@@ -15,6 +15,7 @@ import { readPlannerSowUnitsAction,
   upsertPlannerPeriodFlagAction,
   readPlannerWeekNoteAction,
   upsertPlannerWeekNoteAction,
+  setLessonHiddenFromPupilsAction,
 } from '@/lib/server-updates'
 import { PlannerGrid } from './PlannerGrid'
 import { SidePanel } from './SidePanel'
@@ -121,6 +122,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
           lessonTitle: pa.lesson_title,
           assignmentId: pa.id,
           feedbackVisible: pa.feedback_visible,
+          hiddenFromPupils: pa.hidden_from_pupils ?? false,
           lessonNotes: pa.notes,
         })
         weekState.set(key, existing)
@@ -304,6 +306,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
         lessonTitle,
         assignmentId: data.id,
         feedbackVisible: false,
+        hiddenFromPupils: false,
         lessonNotes: '',
       }
       updateSlot(day, period, (s) => ({ ...s, lessons: [newLesson] }))
@@ -336,6 +339,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
         lessonTitle,
         assignmentId: data.id,
         feedbackVisible: false,
+        hiddenFromPupils: false,
         lessonNotes: '',
       }
       updateSlot(day, period, (s) => ({ ...s, lessons: [...s.lessons, newLesson] }))
@@ -380,6 +384,44 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
       () => updateSlot(day, period, () => cell),
     )
   }, [updateSlot, plannerState, commit])
+
+  const handleHiddenToggle = useCallback(async (day: Day, period: number, lessonId: string) => {
+    const key = slotKey(day, period)
+    const cell = plannerState.get(key) ?? emptyCellState()
+    const lesson = cell.lessons.find((l) => l.lessonId === lessonId)
+    if (!lesson) return
+    const next = !lesson.hiddenFromPupils
+
+    // The flag lives on the lesson, so every cached week holding it — for any
+    // class — moves with it, not only the slot that was clicked.
+    const applyEverywhere = (hidden: boolean) =>
+      setWeeklyStates((prev) => {
+        const out = new Map(prev)
+        for (const [mapKey, weekState] of prev) {
+          let touched = false
+          const nextWeek = new Map(weekState)
+          for (const [slot, state] of weekState) {
+            if (!state.lessons.some((l) => l.lessonId === lessonId)) continue
+            touched = true
+            nextWeek.set(slot, {
+              ...state,
+              lessons: state.lessons.map((l) =>
+                l.lessonId === lessonId ? { ...l, hiddenFromPupils: hidden } : l,
+              ),
+            })
+          }
+          if (touched) out.set(mapKey, nextWeek)
+        }
+        return out
+      })
+
+    applyEverywhere(next)
+    await commit(
+      setLessonHiddenFromPupilsAction(lessonId, next),
+      next ? 'Could not hide the lesson' : 'Could not show the lesson',
+      () => applyEverywhere(!next),
+    )
+  }, [plannerState, commit])
 
   const handleIssueToggle = useCallback(async (day: Day, period: number) => {
     const key = slotKey(day, period)
@@ -599,6 +641,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
         onRemoveLesson={handleRemoveLesson}
         onSwapLesson={handleSwapLesson}
         onFeedbackToggle={handleFeedbackToggle}
+        onHiddenToggle={handleHiddenToggle}
         onIssueToggle={handleIssueToggle}
         onIssueNoteChange={handleIssueNoteChange}
         onLessonNotesChange={handleLessonNotesChange}

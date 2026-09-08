@@ -1588,6 +1588,8 @@ export type PlannerAssignment = z.infer<typeof PlannerAssignmentSchema>;
 export const PlannerAssignmentWithUnitSchema = PlannerAssignmentSchema.extend({
   unit_id: z.string(),
   lesson_title: z.string(),
+  /** Withheld from pupils. A property of the lesson, so it holds for every class. */
+  hidden_from_pupils: z.boolean().default(false),
 });
 export type PlannerAssignmentWithUnit = z.infer<typeof PlannerAssignmentWithUnitSchema>;
 

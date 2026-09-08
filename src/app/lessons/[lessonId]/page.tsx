@@ -12,7 +12,8 @@ import {
   readLessonReferenceDataAction,
   readPublicLessonActivitiesAction,
 } from "@/lib/server-updates"
-import { getAuthenticatedProfile } from "@/lib/auth"
+import { getAuthenticatedProfile, hasRole } from "@/lib/auth"
+import { query } from "@/lib/db"
 import { withTelemetry } from "@/lib/telemetry"
 
 export default async function LessonDetailPage({
@@ -77,6 +78,20 @@ export default async function LessonDetailPage({
         </main>
       </div>
     )
+  }
+
+  // A withheld lesson has to stop resolving here, not just drop out of the
+  // lists: a pupil who kept the URL — or was sent it — would otherwise still
+  // read the whole thing. Teachers are exempt, or they could not check what
+  // they had hidden.
+  if (!hasRole(profile, "teacher")) {
+    const { rows } = await query<{ hidden_from_pupils: boolean }>(
+      "select hidden_from_pupils from lessons where lesson_id = $1",
+      [lessonId],
+    )
+    if (rows[0]?.hidden_from_pupils) {
+      notFound()
+    }
   }
 
   // Authenticated: existing full lesson flow unchanged

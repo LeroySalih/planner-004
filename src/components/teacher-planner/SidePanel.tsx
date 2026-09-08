@@ -20,6 +20,7 @@ type SidePanelProps = {
   onRemoveLesson: (day: Day, period: number, lessonId: string) => void
   onSwapLesson: (day: Day, period: number, oldLessonId: string, newLessonId: string) => void
   onFeedbackToggle: (day: Day, period: number, lessonId: string) => void
+  onHiddenToggle: (day: Day, period: number, lessonId: string) => void
   onIssueToggle: (day: Day, period: number) => void
   onIssueNoteChange: (day: Day, period: number, note: string) => void
   onLessonNotesChange: (day: Day, period: number, lessonId: string, notes: string) => void
@@ -41,6 +42,7 @@ export function SidePanel({
   onRemoveLesson,
   onSwapLesson,
   onFeedbackToggle,
+  onHiddenToggle,
   onIssueToggle,
   onIssueNoteChange,
   onLessonNotesChange,
@@ -154,6 +156,7 @@ export function SidePanel({
               onUnitSelect={onUnitSelect}
               onSwapLesson={onSwapLesson}
               onFeedbackToggle={onFeedbackToggle}
+              onHiddenToggle={onHiddenToggle}
               onLessonNotesChange={onLessonNotesChange}
               onRemove={onRemoveLesson}
               readOnly={readOnly}
@@ -215,6 +218,7 @@ type LessonCardProps = {
   onUnitSelect: (unitId: string) => void
   onSwapLesson: (day: Day, period: number, oldLessonId: string, newLessonId: string) => void
   onFeedbackToggle: (day: Day, period: number, lessonId: string) => void
+  onHiddenToggle: (day: Day, period: number, lessonId: string) => void
   onLessonNotesChange: (day: Day, period: number, lessonId: string, notes: string) => void
   onRemove: (day: Day, period: number, lessonId: string) => void
   readOnly?: boolean
@@ -230,6 +234,7 @@ function LessonCard({
   onUnitSelect,
   onSwapLesson,
   onFeedbackToggle,
+  onHiddenToggle,
   onLessonNotesChange,
   onRemove,
   readOnly,
@@ -319,8 +324,8 @@ function LessonCard({
         )}
       </div>
 
-      {/* Feedback toggle */}
-      <div className="flex gap-2 mb-2">
+      {/* Feedback + pupil visibility */}
+      <div className="flex flex-wrap gap-2 mb-2">
         <button
           className={`text-[10px] px-2 py-0.5 rounded disabled:opacity-60 ${
             lesson.feedbackVisible
@@ -331,6 +336,25 @@ function LessonCard({
           disabled={readOnly}
         >
           Feedback {lesson.feedbackVisible ? 'on' : 'off'}
+        </button>
+        <button
+          className={`text-[10px] px-2 py-0.5 rounded disabled:opacity-60 ${
+            lesson.hiddenFromPupils
+              ? 'bg-amber-500 text-white'
+              : 'bg-[var(--color-background-primary)] text-[var(--color-text-secondary)] border border-[var(--color-border)]'
+          }`}
+          onClick={() => onHiddenToggle(day, period, lesson.lessonId)}
+          disabled={readOnly}
+          // Said plainly on the control itself: this is set on the lesson, so
+          // it takes the lesson away from every class studying it, not just
+          // the one whose slot happens to be open.
+          title={
+            lesson.hiddenFromPupils
+              ? 'Hidden from all pupils — click to show it again'
+              : 'Visible to pupils. Hiding removes it from every class studying this lesson.'
+          }
+        >
+          {lesson.hiddenFromPupils ? 'Hidden from pupils' : 'Visible to pupils'}
         </button>
       </div>
 

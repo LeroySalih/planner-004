@@ -18,7 +18,8 @@ import {
   Video,
 } from "lucide-react"
 
-import { requireAuthenticatedProfile } from "@/lib/auth"
+import { requireAuthenticatedProfile, hasRole } from "@/lib/auth"
+import { query } from "@/lib/db"
 import { resolveActivityImageUrl } from "@/lib/activity-assets"
 import { loadPupilLessonsSummaries } from "@/lib/pupil-lessons-data"
 import {
@@ -397,6 +398,18 @@ export default async function PupilLessonFriendlyPage({
   const lesson = lessonPayload?.lesson ?? null
   if (!lesson) {
     notFound()
+  }
+
+  // Same rule as /lessons/[id]: dropping it from the lists is not enough if the
+  // URL still renders it. A teacher reviewing a pupil's work keeps seeing it.
+  if (!hasRole(profile, "teacher")) {
+    const { rows } = await query<{ hidden_from_pupils: boolean }>(
+      "select hidden_from_pupils from lessons where lesson_id = $1",
+      [lessonId],
+    )
+    if (rows[0]?.hidden_from_pupils) {
+      notFound()
+    }
   }
 
   const unit = lessonPayload?.unit ?? null

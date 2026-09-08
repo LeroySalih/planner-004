@@ -23,6 +23,8 @@ export type SlotLesson = {
   assignmentId: string
   feedbackVisible: boolean
   lessonNotes: string
+  /** Withheld from pupils. Set on the lesson, so it applies to every class. */
+  hiddenFromPupils: boolean
 }
 
 export type CellState = {

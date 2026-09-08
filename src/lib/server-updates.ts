@@ -414,6 +414,7 @@ export {
   readPublicLessonsAction,
   readPublicLessonActivitiesAction,
   toggleLessonPublicAction,
+  setLessonHiddenFromPupilsAction,
 } from "./server-actions/lessons"
 
 export {

@@ -2631,6 +2631,36 @@ export async function readPublicLessonActivitiesAction(lessonId: string): Promis
   }
 }
 
+/**
+ * Withhold a lesson from pupils, or give it back.
+ *
+ * Distinct from is_public, which governs what an unauthenticated visitor can
+ * browse, and from active, which governs the teacher's own unit list. This one
+ * is about pupils who are signed in and assigned the lesson.
+ *
+ * It is a property of the lesson, not of one class's assignment: hiding it
+ * from one group's planner hides it from every group studying it, which is
+ * what "cannot be accessed via URL" requires.
+ */
+export async function setLessonHiddenFromPupilsAction(
+  lessonId: string,
+  hidden: boolean,
+): Promise<{ data: null; error: string | null }> {
+  try {
+    await requireTeacherProfile()
+    await query(
+      "UPDATE lessons SET hidden_from_pupils = $1 WHERE lesson_id = $2",
+      [hidden, lessonId],
+    )
+    revalidatePath(`/lessons/${lessonId}`)
+    revalidatePath("/pupil-lessons")
+    return { data: null, error: null }
+  } catch (err) {
+    console.error("[lessons] setLessonHiddenFromPupilsAction error", err)
+    return { data: null, error: "Failed to update who can see this lesson" }
+  }
+}
+
 export async function toggleLessonPublicAction(
   lessonId: string,
   isPublic: boolean,
