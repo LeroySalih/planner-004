@@ -257,7 +257,18 @@ function LessonCard({
   return (
     <div className="rounded-[8px] bg-[var(--color-background-secondary)] p-3">
       <div className="flex items-start justify-between gap-2 mb-2">
-        <p className="text-xs font-medium leading-tight flex-1">{lesson.lessonTitle}</p>
+        {/* The planner is where a teacher notices a lesson needs work, so the
+            title is the way into it. Opened in a new tab: getting there and
+            back should not cost the week you were arranging. */}
+        <Link
+          href={`/lessons/${encodeURIComponent(lesson.lessonId)}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs font-medium leading-tight flex-1 underline-offset-2 hover:underline"
+          title={`Open ${lesson.lessonTitle} in a new tab`}
+        >
+          {lesson.lessonTitle}
+        </Link>
         <div className="flex items-center gap-2 shrink-0">
           <Link
             href={`/results/assignments/${groupId}__${lesson.lessonId}`}
