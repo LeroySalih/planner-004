@@ -8,6 +8,7 @@ import {
   PlannerAssignmentWithUnitSchema,
   type PlannerAssignment,
 } from '@/types'
+import { SCORABLE_ACTIVITY_TYPES } from '@/dino.config'
 
 const AssignmentResult = z.object({
   data: PlannerAssignmentSchema.nullable(),
@@ -217,13 +218,44 @@ export async function readGroupSowLessonsAction(
                 '{}'
               ) AS los,
               (
-                SELECT ROUND(100.0 * SUM(compute_submission_marks(s.body::jsonb, a.type, a.max_marks)) / NULLIF(SUM(a.max_marks), 0))::int
+                -- Every pupil in the class against every scorable activity, with
+                -- an unattempted activity counting zero. Joining submissions
+                -- directly, as this did, silently dropped the pupils who had not
+                -- attempted anything: a lesson one pupil aced read 100% for a
+                -- class where most had done nothing.
+                --
+                -- Restricting to scorable types is what makes counting the
+                -- non-submitters safe. Without it every display activity would
+                -- add its max_marks to the denominator and nothing could pass.
+                --
+                -- LATERAL picks the latest submission per pupil per activity;
+                -- the old join counted a pupil once per resubmission.
+                -- Null, not zero, when nobody has attempted anything: a lesson
+                -- not started yet and a lesson the class scored nothing on are
+                -- different facts, and the grid shows the first as a dash.
+                SELECT CASE
+                         WHEN COUNT(latest.present) = 0 THEN NULL
+                         ELSE ROUND(
+                                100.0 * SUM(COALESCE(compute_submission_marks(latest.body::jsonb, a.type, a.max_marks), 0))
+                                / NULLIF(SUM(a.max_marks), 0)
+                              )::int
+                       END
                 FROM activities a
-                JOIN submissions s ON s.activity_id = a.activity_id
-                JOIN group_membership gm ON gm.user_id = s.user_id AND gm.group_id = pa.group_id
+                CROSS JOIN group_membership gm
+                LEFT JOIN LATERAL (
+                  -- A present marker rather than testing body for null, so a
+                  -- row that exists with an empty body still counts as an
+                  -- attempt.
+                  SELECT s.body, 1 AS present
+                    FROM submissions s
+                   WHERE s.activity_id = a.activity_id AND s.user_id = gm.user_id
+                   ORDER BY s.submitted_at DESC NULLS LAST, s.submission_id DESC
+                   LIMIT 1
+                ) latest ON true
                 WHERE a.lesson_id = pa.lesson_id
+                  AND gm.group_id = pa.group_id
                   AND (a.active IS NULL OR a.active = true)
-                  AND compute_submission_marks(s.body::jsonb, a.type, a.max_marks) IS NOT NULL
+                  AND a.type = ANY($3::text[])
               ) AS score
        FROM planner_assignments pa
        JOIN lessons l ON l.lesson_id = pa.lesson_id
@@ -233,7 +265,7 @@ export async function readGroupSowLessonsAction(
        ) h ON pa.week_start_date BETWEEN h.start_date AND h.end_date
        WHERE pa.group_id = $1
        ORDER BY pa.week_start_date, pa.lesson_id`,
-      [groupId, year],
+      [groupId, year, [...SCORABLE_ACTIVITY_TYPES]],
     )
     const data = rows.map((r) => SowWeekLessonSchema.parse(r))
     return SowWeekLessonsResult.parse({ data, error: null })

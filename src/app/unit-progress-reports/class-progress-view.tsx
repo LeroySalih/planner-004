@@ -19,14 +19,14 @@ function formatPercent(value: number | null) {
   if (typeof value !== 'number' || Number.isNaN(value)) {
     return '—'
   }
-  return `${Math.round(value * 100)}%`
+  return `${Math.round(value)}%`
 }
 
 function getMetricColor(value: number | null): string {
   if (typeof value !== 'number' || Number.isNaN(value)) {
     return 'bg-muted'
   }
-  const percent = value * 100
+  const percent = value
   if (percent < 40) {
     return 'bg-red-100 dark:bg-red-900/30'
   } else if (percent < 70) {
