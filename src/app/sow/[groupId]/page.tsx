@@ -95,7 +95,6 @@ export default async function SowDetailPage({
     <main className="max-w-5xl mx-auto p-8">
       <SowClient
         groupId={groupId}
-        groupName={`${groupId} · ${group.subject ?? ''}`}
         subject={group.subject ?? null}
         availableYears={years}
         initialYear={year}

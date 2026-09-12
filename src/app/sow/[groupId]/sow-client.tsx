@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { SowHalfTermTable } from '@/components/sow/SowHalfTermTable'
 import { SowWeekList } from '@/components/sow/SowWeekList'
 import type { HalfTerm, SowHalfTermUnit, SowUnitNote, SowUnitPlacement, Unit } from '@/types'
@@ -16,7 +17,6 @@ type YearData = {
 
 type Props = {
   groupId: string
-  groupName: string
   subject: string | null
   availableYears: number[]
   initialYear: number
@@ -28,7 +28,6 @@ type Props = {
 
 export function SowClient({
   groupId,
-  groupName,
   subject,
   availableYears,
   initialYear,
@@ -55,7 +54,14 @@ export function SowClient({
     <>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-medium text-[var(--color-text-primary)]">
-          {groupName} — Scheme of Work
+          <Link
+            href={`/groups/${encodeURIComponent(groupId)}`}
+            className="underline-offset-2 hover:underline"
+            title={`Open ${groupId}`}
+          >
+            {groupId}
+          </Link>
+          {subject ? ` · ${subject}` : ''} — Scheme of Work
         </h1>
         <select
           value={year}
