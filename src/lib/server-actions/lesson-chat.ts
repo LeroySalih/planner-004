@@ -239,12 +239,20 @@ interface LessonChatContext {
 
 /** Gather the lesson's LOs, success criteria (with IDs) and existing activities. */
 async function getLessonChatContext(lessonId: string): Promise<LessonChatContext> {
-  const { rows: lessonRows } = await query<{ title: string | null; unit_id: string | null }>(
-    `select title, unit_id from lessons where lesson_id = $1 limit 1`,
+  const { rows: lessonRows } = await query<{
+    title: string | null
+    unit_id: string | null
+    unit_title: string | null
+  }>(
+    `select l.title, l.unit_id, u.title as unit_title
+       from lessons l
+       left join units u on u.unit_id = l.unit_id
+      where l.lesson_id = $1 limit 1`,
     [lessonId],
   )
   const lessonTitle = lessonRows[0]?.title ?? "this lesson"
   const unitId = lessonRows[0]?.unit_id ?? null
+  const unitTitle = lessonRows[0]?.unit_title ?? null
 
   const loResult = unitId ? await readAllLearningObjectivesAction({ unitId }) : { data: [], error: null }
   const los = loResult.data ?? []
@@ -280,6 +288,43 @@ async function getLessonChatContext(lessonId: string): Promise<LessonChatContext
       ? `  AO (unassigned)`
       : `  AO [${aoId}] ${g.code}${g.code && g.title ? " — " : ""}${g.title}`
     return `${header}\n${g.loBlocks.join("\n")}`
+  })
+
+  // What is attached to THIS lesson, as distinct from what its unit has
+  // available. Without the distinction an empty unit catalogue read to the
+  // model as "this lesson has no objectives", and a full one gave no clue
+  // which of them actually applied here.
+  const { rows: lessonLoRows } = await query<{ learning_objective_id: string; title: string | null }>(
+    `select lo.learning_objective_id, lo.title
+       from lessons_learning_objective llo
+       join learning_objectives lo on lo.learning_objective_id = llo.learning_objective_id
+      where llo.lesson_id = $1 and lo.active is not false
+      order by llo.order_by nulls last`,
+    [lessonId],
+  )
+  const { rows: lessonScRows } = await query<{
+    success_criteria_id: string
+    description: string | null
+    level: number | null
+  }>(
+    `select sc.success_criteria_id, sc.description, sc.level
+       from lesson_success_criteria lsc
+       join success_criteria sc on sc.success_criteria_id = lsc.success_criteria_id
+      where lsc.lesson_id = $1 and sc.active is not false
+      order by sc.level nulls last`,
+    [lessonId],
+  )
+  // Something attached to the lesson is a legitimate alignment target even if
+  // the unit catalogue above did not surface it.
+  for (const sc of lessonScRows) validScIds.add(sc.success_criteria_id)
+  for (const lo of lessonLoRows) validLoIds.add(lo.learning_objective_id)
+
+  const lessonLoLines = lessonLoRows.map(
+    (lo) => `  LO [${lo.learning_objective_id}] ${lo.title ?? "Untitled objective"}`,
+  )
+  const lessonScLines = lessonScRows.map((sc) => {
+    const lvl = typeof sc.level === "number" ? ` (L${sc.level})` : ""
+    return `  SC [${sc.success_criteria_id}] ${sc.description ?? ""}${lvl}`
   })
 
   const { rows: activityRows } = await query<{ title: string | null; type: string | null; body_data: unknown }>(
@@ -336,10 +381,18 @@ async function getLessonChatContext(lessonId: string): Promise<LessonChatContext
     "- Keep content clear and grade-appropriate; base it on the lesson's objectives and existing activities unless the teacher says otherwise.",
     "- Put a short conversational reply in `message` and the activities in `proposals` (empty array if none this turn).",
     "",
+    `Unit: ${unitTitle ?? "(not part of a unit)"}`,
     `Lesson: ${lessonTitle}`,
     "",
-    "Assessment objectives (AO), learning objectives (LO) and success criteria (IDs in brackets):",
-    loLines.length ? loLines.join("\n") : "  (none defined)",
+    "Attached to THIS lesson already:",
+    lessonLoLines.length || lessonScLines.length
+      ? [...lessonLoLines, ...lessonScLines].join("\n")
+      : "  (nothing attached to this lesson yet)",
+    "",
+    "Available in this lesson's UNIT — assessment objectives (AO), learning objectives (LO)",
+    "and success criteria (IDs in brackets). These are what you may attach to activities.",
+    "An empty list means the unit has no curriculum defined yet, not that this lesson is unusual:",
+    loLines.length ? loLines.join("\n") : "  (none defined on the unit)",
     "",
     "Existing activities in this lesson:",
     activityLines.length ? activityLines.join("\n") : "  (none yet)",
