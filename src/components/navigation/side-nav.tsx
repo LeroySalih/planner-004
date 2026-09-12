@@ -131,8 +131,8 @@ export function SideNav({ onNavigate }: SideNavProps) {
   const isTechnician = roles.includes("technician")
 
   const defaultOpen = [
-    isTeacher && "planning",
     isTeacher && "resources",
+    isTeacher && "planning",
     isTeacher && "feedback",
     (isAdmin || isTechnician) && "admin",
     isPupil && "pupil-tools",
@@ -145,6 +145,19 @@ export function SideNav({ onNavigate }: SideNavProps) {
         <Accordion type="multiple" defaultValue={defaultOpen} className="w-full">
           {isTeacher && (
             <>
+              <AccordionItem value="resources">
+                <AccordionTrigger className="px-3 py-2 text-sm font-semibold">
+                  Resources
+                </AccordionTrigger>
+                <AccordionContent className="pb-1">
+                  <div className="flex flex-col gap-0.5">
+                    <NavLink href="/units" onNavigate={onNavigate}>Units</NavLink>
+                    <NavLink href="/groups" onNavigate={onNavigate}>Groups</NavLink>
+                    <NavLink href="/sow" onNavigate={onNavigate}>SoW</NavLink>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+
               <AccordionItem value="planning">
                 <AccordionTrigger className="px-3 py-2 text-sm font-semibold">
                   Planning
@@ -153,19 +166,6 @@ export function SideNav({ onNavigate }: SideNavProps) {
                   <div className="flex flex-col gap-0.5">
                     <NavLink href="/specifications" onNavigate={onNavigate}>Specs</NavLink>
                     <NavLink href="/curriculum" onNavigate={onNavigate}>Curriculum</NavLink>
-                    <NavLink href="/sow" onNavigate={onNavigate}>SoW</NavLink>
-                    <NavLink href="/actions" onNavigate={onNavigate}>Actions</NavLink>
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-
-              <AccordionItem value="resources">
-                <AccordionTrigger className="px-3 py-2 text-sm font-semibold">
-                  Resources
-                </AccordionTrigger>
-                <AccordionContent className="pb-1">
-                  <div className="flex flex-col gap-0.5">
-                    <NavLink href="/units" onNavigate={onNavigate}>Units</NavLink>
                   </div>
                 </AccordionContent>
               </AccordionItem>
@@ -198,7 +198,6 @@ export function SideNav({ onNavigate }: SideNavProps) {
                   {isAdmin && (
                     <>
                       <NavLink href="/admin" onNavigate={onNavigate}>Admin</NavLink>
-                      <NavLink href="/groups" onNavigate={onNavigate}>Groups</NavLink>
                       <NavLink href="/ai-queue" onNavigate={onNavigate}>AI Queue</NavLink>
                       <NavLink href="/admin/safety-logs" onNavigate={onNavigate}>Safety Logs</NavLink>
                       <NavLink href="/queue" onNavigate={onNavigate}>File Queue</NavLink>
