@@ -197,6 +197,9 @@ const RESPONSE_SCHEMA = {
           "options", "pairs", "groups", "items", "sequence", "attachmentId", "imageAlt",
           "imagePrompt", "task", "markingGuidance",
           "assessmentObjectiveId", "learningObjectiveId", "description", "level",
+          // Required for the same reason as the rest: left optional the model
+          // omitted it, and every activity arrived with no criteria attached.
+          "successCriteriaIds",
         ],
       },
     },

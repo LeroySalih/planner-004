@@ -361,6 +361,11 @@ async function getLessonChatContext(lessonId: string): Promise<LessonChatContext
     "You never create activities or curriculum items yourself — you return proposals as structured data; the teacher confirms them.",
     "",
     "Each proposal always includes every field; fill the ones relevant to its type and leave the rest empty (\"\" or []):",
+    "- `title`: ALWAYS set a short title naming the activity — a few words a teacher would",
+    "  scan in a list, like \"Nine features recall\" or \"Sort storage devices\". It is NOT the",
+    "  question text and must never be left empty; the question goes in `question`.",
+    "  Pupils see the title above the question, so it must NEVER contain or hint at the",
+    "  answer: name the topic being tested, never the correct option or model answer.",
     "- MCQ: set `question`; set `options` to 2–4 items, each with `text` and a `correct` boolean, EXACTLY ONE correct: true.",
     "- STQ: set `question` and a concise `modelAnswer` (used for AI marking).",
     "- text: set `text` to the content to display (a few clear sentences).",
@@ -376,7 +381,7 @@ async function getLessonChatContext(lessonId: string): Promise<LessonChatContext
     "- learning-objective: set `title` to the objective wording, `assessmentObjectiveId` to the parent AO's ID from the list below (you may ONLY use an AO ID listed there; never invent one), and optionally `specRef`.",
     "- success-criterion: set `description` to the criterion wording, `level` to an integer 1–9, and `learningObjectiveId` to the parent LO's ID from the list below (you may ONLY use an LO ID listed there; never invent one).",
     "- Only propose learning-objective / success-criterion when the teacher asks to develop the curriculum, or when the lesson genuinely lacks a suitable objective/criterion for what they want. Prefer reusing existing ones.",
-    "- Align scorable activities to the lesson's success criteria where sensible, using successCriteriaIds — you may ONLY use the SC IDs listed below; never invent IDs. Display types (text, section, video, image, file, webpage) have no success criteria.",
+    "- `successCriteriaIds`: for every scorable activity (MCQ, STQ, uploads, voice, matcher, group-items, sequence) set at least one SC ID whenever the lesson or its unit has any, choosing the criteria the activity actually assesses. You may ONLY use SC IDs listed below — never invent one. Prefer the criteria already attached to this lesson. Leave it [] only when no criteria exist at all. Display types (text, section, video, image, file, webpage) take no success criteria.",
     "- For mathematical notation in any text/question/option/answer, write LaTeX using \\( … \\) for inline maths and $$ … $$ for display maths (do NOT use bare single $). It is rendered with KaTeX.",
     "- Keep content clear and grade-appropriate; base it on the lesson's objectives and existing activities unless the teacher says otherwise.",
     "- Put a short conversational reply in `message` and the activities in `proposals` (empty array if none this turn).",
@@ -659,6 +664,68 @@ export async function updateProposalInChatAction(input: {
 }
 
 /** Create one confirmed proposal as a real activity (reuses the create action). */
+/** Lowercase, strip punctuation, collapse spaces — so "SSD!" matches "ssd". */
+function normaliseForAnswerCheck(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+/**
+ * Does this title hand the pupil the answer?
+ *
+ * Activity titles are shown to pupils above the question, so a title like
+ * "SSDs use less power" answers the question underneath it. The prompt forbids
+ * it, but a prompt is not a guarantee and the cost of one leaked answer is a
+ * wasted question.
+ *
+ * Matched on whole words rather than as a substring, because answers like RAM
+ * and SSD are three letters and would otherwise have to be excluded to stop
+ * them matching inside ordinary words. An optional trailing "s" is allowed so
+ * "SSDs use less power" is caught for the answer "SSD".
+ *
+ * Deliberately a little eager: a false positive costs only a title falling
+ * back to the question, which is on screen anyway, while a miss hands the
+ * pupil the answer.
+ */
+function titleRevealsAnswer(title: string, proposal: ProposedActivity): boolean {
+  const answers = [
+    ...(proposal.options ?? []).filter((option) => option.correct).map((option) => option.text),
+    proposal.modelAnswer,
+  ]
+  const haystack = normaliseForAnswerCheck(title)
+  return answers.some((answer) => {
+    const needle = normaliseForAnswerCheck(answer ?? "")
+    if (needle.length < 3) return false
+    // Normalising leaves only [a-z0-9 ], so the needle carries no regex syntax.
+    return new RegExp(`(^| )${needle}s?( |$)`).test(haystack)
+  })
+}
+
+/**
+ * A title for the activity, whatever the model returned.
+ *
+ * The prompt asks for one and the response schema requires the field, but a
+ * required field can still come back as "" — which is how MCQs were landing in
+ * the lesson with no title at all. Falling back to the question keeps the list
+ * readable rather than leaving a row a teacher cannot identify, and gives away
+ * nothing: the question is already on screen for the pupil.
+ */
+function activityTitleFor(proposal: ProposedActivity): string {
+  const given = proposal.title?.trim()
+  if (given && !titleRevealsAnswer(given, proposal)) return given
+
+  const source = [proposal.question, proposal.text, proposal.task]
+    .map((v) => v?.trim())
+    .find((v) => v)
+  if (!source) return "Untitled activity"
+
+  const firstLine = source.split("\n")[0]!.trim()
+  return firstLine.length > 60 ? `${firstLine.slice(0, 57).trimEnd()}…` : firstLine
+}
+
 export async function confirmProposedActivityAction(input: {
   lessonId: string
   proposal: ProposedActivity
@@ -808,7 +875,7 @@ export async function confirmProposedActivityAction(input: {
     else fileBody = { htmlFile: fileName }
 
     const created = await createLessonActivityAction(unitId, lessonId, {
-      title: proposal.title,
+      title: activityTitleFor(proposal),
       type: proposal.type,
       bodyData: fileBody,
     })
@@ -835,7 +902,7 @@ export async function confirmProposedActivityAction(input: {
       : undefined
 
   const result = await createLessonActivityAction(unitId, lessonId, {
-    title: proposal.title,
+    title: activityTitleFor(proposal),
     type: proposal.type,
     bodyData,
     successCriteriaIds: linkSuccessCriteria ? successCriteriaIds : undefined,
