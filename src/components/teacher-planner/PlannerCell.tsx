@@ -19,6 +19,11 @@ type PlannerCellProps = {
   sowUnitIds?: Set<string>
   lessonCache: Map<string, LessonWithObjectives[]>
   lessonScores: Map<string, number | null>
+  /**
+   * The lesson in this slot the previous week, if any. Carries its group so the
+   * link is only offered when the slot still holds the same class.
+   */
+  lastWeek: { lessonId: string; groupId: string } | null
   isSelected: boolean
   onCellClick: (day: Day, period: number) => void
   onUnitSelect: (unitId: string) => void
@@ -35,6 +40,7 @@ export function PlannerCell({
   sowUnitIds,
   lessonCache,
   lessonScores,
+  lastWeek,
   isSelected,
   onCellClick,
   onUnitSelect,
@@ -67,6 +73,14 @@ export function PlannerCell({
   const scoreKey = groupId && currentLesson ? `${groupId}::${currentLesson.lessonId}` : null
   const rawScore = scoreKey ? lessonScores.get(scoreKey) : undefined
   const scoreLabel = rawScore != null ? `${Math.round(rawScore * 100)}%` : null
+
+  // Homework is whatever was set here last week — a class gets a week to finish
+  // it. Withheld when the slot has since changed class, since the link would
+  // then open a different group's work.
+  const homeworkHref =
+    lastWeek && groupId && lastWeek.groupId === groupId
+      ? `/results/assignments/${groupId}__${lastWeek.lessonId}`
+      : null
 
   // effectiveUnitId: if user has manually changed unit, use that; else fall back to the assigned lesson's unit
   const effectiveUnitId = pendingUnitId || currentUnitId
@@ -238,6 +252,20 @@ export function PlannerCell({
                 %
               </span>
             )}
+            {/* Last week's lesson — the homework this class has had a week to do */}
+            {homeworkHref ? (
+              <Link
+                href={homeworkHref}
+                className={cn(
+                  'flex items-center justify-center rounded-[2px] px-1 h-[16px] text-[9px] font-medium opacity-60 hover:opacity-100 transition-opacity',
+                  anyIssue ? 'text-[#A32D2D]' : 'text-[var(--color-text-tertiary)]',
+                )}
+                title="Last week's homework — grades / feedback"
+                onClick={(e) => e.stopPropagation()}
+              >
+                HW
+              </Link>
+            ) : null}
             {/* Present lesson — links to go/lesson/[lessonId] */}
             {currentLesson ? (
               <Link

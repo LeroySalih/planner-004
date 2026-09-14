@@ -52,6 +52,12 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
   const [lessonCache, setLessonCache] = useState<Map<string, LessonWithObjectives[]>>(new Map())
   const [selectedTeacherId, setSelectedTeacherId] = useState<string>(initialSelectedTeacherId ?? currentTeacherId)
   const [lessonScores, setLessonScores] = useState<Map<string, number | null>>(new Map())
+  // Per viewed week: the lesson that sat in each slot the week before, for the
+  // HW link. The group is kept alongside so the link can be withheld when the
+  // slot has changed class since — otherwise it would open another class's work.
+  const [previousWeekLessons, setPreviousWeekLessons] = useState<
+    Map<string, Map<string, { lessonId: string; groupId: string }>>
+  >(new Map())
 
   const readOnly = selectedTeacherId !== currentTeacherId && !isAdmin
 
@@ -102,6 +108,24 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
       return
     }
     loadedWeeks.add(week)
+
+    // A class gets a week to finish what was set, so the homework a teacher
+    // wants to check against this week's slot is the previous week's lesson.
+    // Fire-and-forget: the grid is useful without it.
+    void readPlannerAssignmentsForWeekAction(shiftWeek(week, -1), teacherId).then((previous) => {
+      if (previous.error || !previous.data) return
+      const bySlot = new Map<string, { lessonId: string; groupId: string }>()
+      for (const pa of previous.data) {
+        const key = slotKey(pa.day as Day, pa.period)
+        // First lesson in the slot wins; a slot may hold several.
+        if (!bySlot.has(key)) bySlot.set(key, { lessonId: pa.lesson_id, groupId: pa.group_id })
+      }
+      setPreviousWeekLessons((prev) => {
+        const next = new Map(prev)
+        next.set(cacheKey(teacherId, week), bySlot)
+        return next
+      })
+    })
     const flagsByKey = new Map<string, { issueFlag: boolean; issueNote: string }>()
     for (const f of flagsResult.data ?? []) {
       flagsByKey.set(slotKey(f.day as Day, f.period), { issueFlag: f.issue_flag, issueNote: f.issue_note })
@@ -173,6 +197,9 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
   }, [currentWeek])
 
   const plannerState = weeklyStates.get(cacheKey(selectedTeacherId, currentWeek)) ?? new Map<string, CellState>()
+  const lastWeekBySlot =
+    previousWeekLessons.get(cacheKey(selectedTeacherId, currentWeek)) ??
+    new Map<string, { lessonId: string; groupId: string }>()
 
   const updateSlot = useCallback(
     (day: Day, period: number, update: (s: CellState) => CellState) => {
@@ -616,6 +643,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
           selectedSlot={selectedSlot}
           lessonCache={lessonCache}
           lessonScores={lessonScores}
+          lastWeekBySlot={lastWeekBySlot}
           onCellClick={handleCellClick}
           onUnitSelect={handleUnitSelect}
           onLessonChange={handleLessonChange}

@@ -15,6 +15,8 @@ type PlannerGridProps = {
   selectedSlot: string | null
   lessonCache: Map<string, LessonWithObjectives[]>
   lessonScores: Map<string, number | null>
+  /** slotKey -> the lesson in that slot the previous week, for the HW link. */
+  lastWeekBySlot: Map<string, { lessonId: string; groupId: string }>
   onCellClick: (day: Day, period: number) => void
   onUnitSelect: (unitId: string) => void
   onLessonChange: (day: Day, period: number, lessonId: string) => void
@@ -54,6 +56,7 @@ export function PlannerGrid({
   selectedSlot,
   lessonCache,
   lessonScores,
+  lastWeekBySlot,
   onCellClick,
   onUnitSelect,
   onLessonChange,
@@ -140,6 +143,7 @@ export function PlannerGrid({
                   sowUnitIds={state.groupId ? sowUnits?.get(state.groupId) : undefined}
                   lessonCache={lessonCache}
                   lessonScores={lessonScores}
+                  lastWeek={lastWeekBySlot.get(key) ?? null}
                   onCellClick={onCellClick}
                   onUnitSelect={onUnitSelect}
                   onLessonChange={onLessonChange}
