@@ -32,7 +32,6 @@ import {
 import { isScorableActivityType } from "@/dino.config";
 import {
   extractScoreFromSubmission,
-  selectLatestSubmission,
   TEACHER_OVERRIDE_PLACEHOLDER,
 } from "@/lib/scoring/activity-scores";
 import { withTelemetry } from "@/lib/telemetry";
@@ -717,6 +716,7 @@ export async function readAssignmentResultsAction(
           activity_id: string | null;
           user_id: string | null;
           submitted_at: string | Date | null;
+          attempt_number: number | null;
           body: unknown;
         }> = [];
 
@@ -724,10 +724,14 @@ export async function readAssignmentResultsAction(
           try {
             const { rows } = await query(
               `
-            select submission_id, activity_id, user_id, submitted_at, body, is_flagged, resubmit_requested, resubmit_note
+            select submission_id, activity_id, user_id, submitted_at, attempt_number,
+                   body, is_flagged, resubmit_requested, resubmit_note
             from submissions
             where activity_id = any($1::text[])
               and user_id = any($2::text[])
+            -- Ascending, so the highest attempt for a pupil and activity is the
+            -- last one written into the cell map and therefore the one that wins.
+            order by attempt_number asc nulls first, submitted_at asc nulls first, submission_id asc
           `,
               [activityIds, pupilIds],
             );
@@ -743,6 +747,9 @@ export async function readAssignmentResultsAction(
               submitted_at: typeof row?.submitted_at === "string" ||
                   row?.submitted_at instanceof Date
                 ? row.submitted_at
+                : null,
+              attempt_number: typeof row?.attempt_number === "number"
+                ? row.attempt_number
                 : null,
               body: row?.body ?? null,
               is_flagged: Boolean(row?.is_flagged),
@@ -879,9 +886,15 @@ export async function readAssignmentResultsAction(
           }
 
           const submittedAt = normaliseTimestamp(submission.submitted_at);
-          if (!selectLatestSubmission(existingCell, submittedAt)) {
-            continue;
-          }
+          // Attempts are ranked by attempt_number, not submitted_at. submitted_at
+          // is rewritten whenever a submission is edited, re-marked or has its
+          // status changed, so an earlier attempt can carry the later timestamp
+          // and was winning here — showing a pupil's first answer as their
+          // current one. Every other query that resolves "the current
+          // submission" already orders by attempt_number.
+          //
+          // The query returns attempts in ascending order, so simply letting the
+          // last row win selects the highest attempt.
 
           const activity = activityMap.get(activityId);
           if (!activity) {
