@@ -386,3 +386,32 @@
 .prose :where(code):not(:where([class~="not-prose"] *))::after {
   content: none;
 }
+
+/*
+ * A horizontal scroller that advertises itself.
+ *
+ * Wide grids already sit in an overflow container, but macOS and Chrome hide
+ * overlay scrollbars until something scrolls, so a table running past the edge
+ * reads as cut off rather than scrollable. Styling the bar opts out of overlay
+ * behaviour; scrollbar-gutter keeps the track from shifting the layout.
+ */
+.scrollbar-always-x {
+  overflow-x: scroll;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-secondary) transparent;
+}
+.scrollbar-always-x::-webkit-scrollbar {
+  height: 10px;
+}
+.scrollbar-always-x::-webkit-scrollbar-track {
+  background: var(--color-background-secondary);
+  border-radius: 9999px;
+}
+.scrollbar-always-x::-webkit-scrollbar-thumb {
+  background: var(--color-border-secondary);
+  border-radius: 9999px;
+}
+.scrollbar-always-x::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-tertiary);
+}

@@ -3299,7 +3299,7 @@ export function AssignmentResultsDashboard({
         </div>
 
         <div className="overflow-hidden rounded-lg border border-border">
-          <div className="relative w-full overflow-auto">
+          <div className="scrollbar-always-x relative w-full">
             <table className="w-full min-w-[720px] border-collapse text-sm">
               <thead>
                 <tr>
