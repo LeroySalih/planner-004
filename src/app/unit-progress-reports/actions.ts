@@ -2,6 +2,7 @@
 
 import { query } from '@/lib/db'
 import { requireAuthenticatedProfile } from '@/lib/auth'
+import { pupilMembershipSql } from "@/lib/roles/pupil-membership"
 
 export async function getClassProgressAction(groupId: string, summativeOnly = false) {
   const profile = await requireAuthenticatedProfile()
@@ -34,7 +35,7 @@ export async function getClassProgressAction(groupId: string, summativeOnly = fa
      JOIN activities a ON a.lesson_id = l.lesson_id
        AND coalesce(a.active, true) = true
        AND lower(trim(coalesce(a.type, ''))) = ANY (ARRAY['multiple-choice-question', 'short-text-question', 'upload-file'])
-     JOIN group_membership gm ON gm.group_id = la.group_id
+     JOIN group_membership gm ON gm.group_id = la.group_id AND ${pupilMembershipSql()}
      LEFT JOIN latest_submissions s ON s.activity_id = a.activity_id
                                     AND s.user_id = gm.user_id
      WHERE la.group_id = $1
@@ -87,7 +88,7 @@ export async function getProgressMatrixAction(summativeOnly = false) {
      JOIN activities a ON a.lesson_id = l.lesson_id
        AND coalesce(a.active, true) = true
        AND lower(trim(coalesce(a.type, ''))) = ANY (ARRAY['multiple-choice-question', 'short-text-question', 'upload-file'])
-     JOIN group_membership gm ON gm.group_id = g.group_id
+     JOIN group_membership gm ON gm.group_id = g.group_id AND ${pupilMembershipSql()}
      LEFT JOIN latest_submissions s ON s.activity_id = a.activity_id
                                     AND s.user_id = gm.user_id
      WHERE coalesce(l.active, true) = true
@@ -153,7 +154,7 @@ export async function getClassPupilMatrixAction(groupId: string, summativeOnly =
      JOIN activities a ON a.lesson_id = l.lesson_id
        AND coalesce(a.active, true) = true
        AND lower(trim(coalesce(a.type, ''))) = ANY (ARRAY['multiple-choice-question', 'short-text-question', 'upload-file'])
-     JOIN group_membership gm ON gm.group_id = la.group_id
+     JOIN group_membership gm ON gm.group_id = la.group_id AND ${pupilMembershipSql()}
      JOIN profiles p ON p.user_id = gm.user_id
      LEFT JOIN latest_submissions s ON s.activity_id = a.activity_id
                                     AND s.user_id = gm.user_id
@@ -222,7 +223,7 @@ export async function getUnitLessonMatrixAction(groupId: string, unitId: string,
          CASE WHEN a.activity_id IS NOT NULL THEN a.max_marks END as max_marks
        FROM lessons l
        JOIN lesson_assignments la ON la.lesson_id = l.lesson_id AND la.group_id = $1
-       JOIN group_membership gm ON gm.group_id = la.group_id
+       JOIN group_membership gm ON gm.group_id = la.group_id AND ${pupilMembershipSql()}
        JOIN profiles p ON p.user_id = gm.user_id
        LEFT JOIN activities a ON a.lesson_id = l.lesson_id
          AND coalesce(a.active, true) = true

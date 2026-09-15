@@ -15,6 +15,7 @@ import {
 import { requireAuthenticatedProfile, requireTeacherProfile } from "@/lib/auth";
 import { withTelemetry } from "@/lib/telemetry";
 import { createLocalStorageClient } from "@/lib/storage/local-storage";
+import { pupilMembershipSql } from "@/lib/roles/pupil-membership"
 
 const QueueActivitySchema = z.object({
   activity_id: z.string(),
@@ -347,7 +348,7 @@ export async function readQueueItemsAction(input: {
             select gm.user_id, p.first_name, p.last_name
             from group_membership gm
             left join profiles p on p.user_id = gm.user_id
-            where gm.group_id = $1
+            where gm.group_id = $1 and ${pupilMembershipSql()}
             order by coalesce(p.last_name, ''), coalesce(p.first_name, ''), gm.user_id
           `,
           [groupId],

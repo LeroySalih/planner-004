@@ -3,6 +3,7 @@
 import { query } from "@/lib/db"
 import { withTelemetry } from "@/lib/telemetry"
 import { requireTeacherProfile } from "@/lib/auth"
+import { pupilMembershipSql } from "@/lib/roles/pupil-membership"
 
 type TelemetryOptions = { authEndTime?: number | null; routeTag?: string }
 
@@ -29,7 +30,7 @@ export async function readLiveFlashcardMonitorAction(
             `SELECT gm.user_id, p.first_name, p.last_name
              FROM group_membership gm
              JOIN profiles p ON p.user_id = gm.user_id
-             WHERE gm.group_id = $1
+             WHERE gm.group_id = $1 AND ${pupilMembershipSql()}
              ORDER BY p.first_name, p.last_name`,
             [groupId],
           ),
@@ -134,7 +135,7 @@ export async function readStudyTrackerAction(
             `SELECT gm.user_id, p.first_name, p.last_name
              FROM group_membership gm
              JOIN profiles p ON p.user_id = gm.user_id
-             WHERE gm.group_id = $1
+             WHERE gm.group_id = $1 AND ${pupilMembershipSql()}
              ORDER BY p.first_name, p.last_name`,
             [groupId],
           ),
@@ -359,7 +360,7 @@ export async function readClassFlashcardActivityAction(
           `SELECT gm.user_id, p.first_name, p.last_name
            FROM group_membership gm
            JOIN profiles p ON p.user_id = gm.user_id
-           WHERE gm.group_id = $1
+           WHERE gm.group_id = $1 AND ${pupilMembershipSql()}
            ORDER BY p.last_name, p.first_name`,
           [groupId],
         )

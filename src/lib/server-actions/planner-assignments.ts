@@ -9,6 +9,7 @@ import {
   type PlannerAssignment,
 } from '@/types'
 import { SCORABLE_ACTIVITY_TYPES } from '@/dino.config'
+import { pupilMembershipSql } from "@/lib/roles/pupil-membership"
 
 const AssignmentResult = z.object({
   data: PlannerAssignmentSchema.nullable(),
@@ -254,6 +255,7 @@ export async function readGroupSowLessonsAction(
                 ) latest ON true
                 WHERE a.lesson_id = pa.lesson_id
                   AND gm.group_id = pa.group_id
+                  AND ${pupilMembershipSql()}
                   AND (a.active IS NULL OR a.active = true)
                   AND a.type = ANY($3::text[])
               ) AS score

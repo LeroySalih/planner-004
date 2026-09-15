@@ -44,6 +44,7 @@ import {
   selectLatestFeedbackEntry,
 } from "@/lib/feedback/pupil-activity-feedback";
 import { computeAccuracyByUser } from "@/lib/scoring/accuracy";
+import { pupilIdsFromRoleRows } from "@/lib/roles/pupil-membership";
 
 const ASSIGNMENT_ID_SEPARATOR = "__";
 const SHORT_TEXT_ACTIVITY_TYPE = "short-text-question";
@@ -132,15 +133,6 @@ function buildDisplayName(
   const combined = `${first} ${last}`.trim();
   return combined.length > 0 ? combined : fallback;
 }
-
-/**
- * Roles that make somebody staff rather than a member of the class.
- *
- * Teachers routinely also carry a pupil role — for previewing lessons as a
- * pupil would see them — so holding "pupil" is not on its own enough to belong
- * in a class list.
- */
-const STAFF_ROLE_IDS = ["teacher", "admin", "technician"] as const;
 
 function normaliseTimestamp(value: unknown): string | null {
   if (!value) return null;
@@ -324,20 +316,7 @@ export async function readAssignmentResultsAction(
         // average and the file list. Roles are gathered per user first, and
         // anyone holding a staff role is excluded however many other roles they
         // have.
-        const rolesByUser = new Map<string, Set<string>>();
-        for (const entry of membershipRows ?? []) {
-          if (!entry.user_id) continue;
-          const roles = rolesByUser.get(entry.user_id) ?? new Set<string>();
-          if (entry.role) roles.add(entry.role.toLowerCase());
-          rolesByUser.set(entry.user_id, roles);
-        }
-
-        const pupilIds = Array.from(rolesByUser.entries())
-          .filter(([, roles]) =>
-            roles.has("pupil") &&
-            !STAFF_ROLE_IDS.some((staffRole) => roles.has(staffRole))
-          )
-          .map(([userId]) => userId);
+        const pupilIds = pupilIdsFromRoleRows(membershipRows ?? []);
 
         const profilesByUserId = new Map<
           string,

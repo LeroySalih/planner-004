@@ -4,6 +4,7 @@ import { z } from "zod"
 
 import { FeedbacksSchema, LessonFeedbackSummariesSchema } from "@/types"
 import { query } from "@/lib/db"
+import { pupilIdsFromRoleRows } from "@/lib/roles/pupil-membership"
 
 const FeedbackListReturnValue = z.object({
   data: FeedbacksSchema.nullable(),
@@ -86,7 +87,11 @@ export async function readLessonFeedbackSummariesAction(
 
   const memberships = MembershipRowSchema.array().parse(membershipRowsAccumulator)
 
-  const pupilMemberships = memberships.filter((row) => row.role.trim().toLowerCase() === "pupil")
+  // Filtering the joined rows for "pupil" matched staff who also hold it, so a
+  // teacher landed in their own class's feedback summary. Roles are collapsed
+  // per user first — see pupil-membership.
+  const pupilIdSet = new Set(pupilIdsFromRoleRows(memberships))
+  const pupilMemberships = memberships.filter((row) => pupilIdSet.has(row.user_id))
   const pupilsByGroup = new Map<string, string[]>()
   const pupilIds = new Set<string>()
 
