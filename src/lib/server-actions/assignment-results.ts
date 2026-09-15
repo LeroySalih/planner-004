@@ -133,6 +133,15 @@ function buildDisplayName(
   return combined.length > 0 ? combined : fallback;
 }
 
+/**
+ * Roles that make somebody staff rather than a member of the class.
+ *
+ * Teachers routinely also carry a pupil role — for previewing lessons as a
+ * pupil would see them — so holding "pupil" is not on its own enough to belong
+ * in a class list.
+ */
+const STAFF_ROLE_IDS = ["teacher", "admin", "technician"] as const;
+
 function normaliseTimestamp(value: unknown): string | null {
   if (!value) return null;
   if (value instanceof Date) {
@@ -309,12 +318,26 @@ export async function readAssignmentResultsAction(
           });
         }
 
-        const pupilMemberships = (membershipRows ?? []).filter((entry) =>
-          entry.role?.toLowerCase() === "pupil"
-        );
-        const pupilIds = pupilMemberships.map((entry) => entry.user_id).filter((
-          id,
-        ): id is string => Boolean(id));
+        // A member can hold several roles and the join returns one row per role,
+        // so filtering rows for "pupil" matched staff who also carry it — the
+        // teacher appeared among their own pupils and counted towards every
+        // average and the file list. Roles are gathered per user first, and
+        // anyone holding a staff role is excluded however many other roles they
+        // have.
+        const rolesByUser = new Map<string, Set<string>>();
+        for (const entry of membershipRows ?? []) {
+          if (!entry.user_id) continue;
+          const roles = rolesByUser.get(entry.user_id) ?? new Set<string>();
+          if (entry.role) roles.add(entry.role.toLowerCase());
+          rolesByUser.set(entry.user_id, roles);
+        }
+
+        const pupilIds = Array.from(rolesByUser.entries())
+          .filter(([, roles]) =>
+            roles.has("pupil") &&
+            !STAFF_ROLE_IDS.some((staffRole) => roles.has(staffRole))
+          )
+          .map(([userId]) => userId);
 
         const profilesByUserId = new Map<
           string,
