@@ -17,6 +17,10 @@ type PlannerGridProps = {
   lessonScores: Map<string, number | null>
   /** slotKey -> the lesson in that slot the previous week, for the HW link. */
   lastWeekBySlot: Map<string, { lessonId: string; groupId: string }>
+  /** Sunday that starts the displayed week, ISO. Used by the per-day plan download. */
+  currentWeek: string
+  /** Whose timetable is on screen — an admin may be viewing another teacher's. */
+  teacherId: string
   onCellClick: (day: Day, period: number) => void
   onUnitSelect: (unitId: string) => void
   onLessonChange: (day: Day, period: number, lessonId: string) => void
@@ -57,6 +61,8 @@ export function PlannerGrid({
   lessonCache,
   lessonScores,
   lastWeekBySlot,
+  currentWeek,
+  teacherId,
   onCellClick,
   onUnitSelect,
   onLessonChange,
@@ -107,11 +113,26 @@ export function PlannerGrid({
             className="grid gap-[4px]"
             style={{ gridTemplateColumns: GRID_TEMPLATE }}
           >
-            {/* Day label */}
-            <div className="flex items-center justify-end pr-2">
+            {/* Day label, and the day's plans as one download */}
+            <div className="flex flex-col items-end justify-center pr-2">
               <span className="font-medium text-[12px] text-[var(--color-text-secondary)]">
                 {DAY_LABELS[day]}
               </span>
+              {/* Offered only when there is something to archive — the route
+                  404s on an empty day, and a link that downloads nothing is
+                  worse than no link. */}
+              {[...plannerState.entries()].some(
+                ([key, state]) => key.startsWith(`${day}-`) && state.lessons.length > 0,
+              ) ? (
+                <a
+                  href={`/api/lesson-plans/day?day=${day}&week=${encodeURIComponent(currentWeek)}&teacherId=${encodeURIComponent(teacherId)}`}
+                  download
+                  className="mt-0.5 text-[10px] text-[var(--color-text-tertiary)] underline-offset-2 hover:text-[var(--color-text-primary)] hover:underline"
+                  title={`Download every lesson plan for ${DAY_LABELS[day]} as a zip`}
+                >
+                  Plans
+                </a>
+              ) : null}
             </div>
 
             {/* Period cells */}

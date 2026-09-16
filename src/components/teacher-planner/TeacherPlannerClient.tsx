@@ -644,6 +644,8 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
           lessonCache={lessonCache}
           lessonScores={lessonScores}
           lastWeekBySlot={lastWeekBySlot}
+          currentWeek={currentWeek}
+          teacherId={selectedTeacherId}
           onCellClick={handleCellClick}
           onUnitSelect={handleUnitSelect}
           onLessonChange={handleLessonChange}
