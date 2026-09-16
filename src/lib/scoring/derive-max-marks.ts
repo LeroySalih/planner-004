@@ -25,7 +25,14 @@ import {
 const DETERMINISTIC_TYPES_SQL = DETERMINISTIC_ACTIVITY_TYPES.map((t) => `'${t}'`).join(", ")
 const NON_SCORABLE_TYPES_SQL = NON_SCORABLE_ACTIVITY_TYPES.map((t) => `'${t}'`).join(", ")
 
-/** SQL fragment computing available marks per activity. */
+/**
+ * SQL fragment computing available marks per activity.
+ *
+ * Ends part-way through a WHERE clause: callers continue it with AND, never a
+ * second WHERE. Two WHEREs in a row is a syntax error, and because this only
+ * runs for an activity that has criteria attached, it failed quietly in a
+ * corner rather than anywhere obvious.
+ */
 const AVAILABLE_MARKS_SUBQUERY = `
   select acs.activity_id,
          case
@@ -60,7 +67,7 @@ export async function recalculateActivityMaxMarks(
      set max_marks = totals.available
      from (
        ${AVAILABLE_MARKS_SUBQUERY}
-       where acs.activity_id = $1
+       and acs.activity_id = $1
        group by acs.activity_id, act.type
      ) totals
      where a.activity_id = totals.activity_id
@@ -86,7 +93,7 @@ export async function recalculateMaxMarksForCriterion(
      set max_marks = totals.available
      from (
        ${AVAILABLE_MARKS_SUBQUERY}
-       where acs.activity_id in (
+       and acs.activity_id in (
          select activity_id from activity_success_criteria
          where success_criteria_id = $1
        )
