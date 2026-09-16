@@ -122,7 +122,9 @@ export async function readPupilReportAction(pupilId: string) {
         units?: unknown
       }>(
         `
-          select lesson_id, unit_id, units.*
+          -- Qualified: units carries unit_id too, so a bare reference is
+          -- ambiguous and the whole pupil report failed with 42702.
+          select l.lesson_id, l.unit_id, units.*
           from lessons l
           left join units on units.unit_id = l.unit_id
           where l.lesson_id = any($1::text[])
