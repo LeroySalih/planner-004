@@ -308,12 +308,25 @@ export async function generateLessonChatReply(params: {
       history: params.history,
       userParts,
       schema: RESPONSE_SCHEMA,
+      // A teacher can reasonably ask for a dozen or more activities at once,
+      // and every proposal carries every field whether or not its type uses
+      // them. The default left no room for that and the reply came back cut in
+      // half, which is fatal for structured output.
+      maxTokens: 16000,
     })
 
     if (!reply.data) {
-      // Model replied in prose despite the schema — surface it as a message.
       log({ response: { raw: reply.raw }, error: "reply was not JSON" })
-      return { message: reply.raw || "Sorry, I couldn't generate a response.", proposals: [] }
+      // A reply that opens like JSON is a failed structured response, not prose
+      // meant for a person — pasting it verbatim shows the teacher a wall of
+      // raw proposal data. Only genuine prose is passed through.
+      const looksLikeJson = /^\s*[{[]/.test(reply.raw ?? "")
+      return {
+        message: looksLikeJson || !reply.raw
+          ? "I couldn't put that into a usable form — the reply was cut short. Try asking for fewer activities at a time."
+          : reply.raw,
+        proposals: [],
+      }
     }
 
     const message = typeof reply.data.message === "string" ? reply.data.message : ""

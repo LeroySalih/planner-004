@@ -173,6 +173,16 @@ export async function callClaudeRaw(params: {
     throw new Error(`${model} declined the request (${response.stop_details?.category ?? "unknown"}).`)
   }
 
+  // Running out of output tokens truncates the reply mid-token, so JSON.parse
+  // fails and the caller falls back to showing the raw text — which is how a
+  // teacher ended up reading half a megabyte of proposal JSON. Named here so
+  // callers can say what actually happened.
+  if (response.stop_reason === "max_tokens") {
+    throw new Error(
+      `${model} ran out of room before finishing the reply. Ask for fewer items in one go.`,
+    )
+  }
+
   const raw = response.content
     .filter((block): block is Anthropic.TextBlock => block.type === "text")
     .map((block) => block.text)
