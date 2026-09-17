@@ -2,10 +2,15 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import {
+  ClassFilterControls,
+  matchesClassFilter,
+} from '@/components/reports/class-filter-controls'
 
 type MatrixData = {
   groupId: string
   groupSubject: string
+  groupActive: boolean
   loId: string
   loTitle: string
   aoId: string
@@ -25,6 +30,7 @@ type LOProgressMatrixProps = {
 type SubjectData = {
   subject: string
   classes: string[]
+  classActive: Map<string, boolean>
   learningObjectives: {
     loId: string
     loTitle: string
@@ -95,6 +101,7 @@ export function LOProgressMatrix({ data }: LOProgressMatrixProps) {
       subjectMap.set(subject, {
         subject,
         classes: [],
+        classActive: new Map(),
         learningObjectives: []
       })
     }
@@ -104,6 +111,7 @@ export function LOProgressMatrix({ data }: LOProgressMatrixProps) {
     if (!subjectData.classes.includes(row.groupId)) {
       subjectData.classes.push(row.groupId)
     }
+    subjectData.classActive.set(row.groupId, row.groupActive)
 
     let loEntry = subjectData.learningObjectives.find(lo => lo.loId === row.loId)
     if (!loEntry) {
@@ -136,6 +144,8 @@ export function LOProgressMatrix({ data }: LOProgressMatrixProps) {
   const [curriculumFilter, setCurriculumFilter] = useState<string>('')
   const [aoFilter, setAoFilter] = useState<string>('')
   const [unitFilter, setUnitFilter] = useState<string>('')
+  const [classFilter, setClassFilter] = useState<string>('')
+  const [showInactive, setShowInactive] = useState<boolean>(false)
 
   if (subjects.length === 0) {
     return (
@@ -203,13 +213,21 @@ export function LOProgressMatrix({ data }: LOProgressMatrixProps) {
           return true
         })
 
+        const inactiveCount = activeSubjectData.classes.filter(
+          (classId) => activeSubjectData.classActive.get(classId) === false
+        ).length
+
         // Only show classes that have data for the filtered LOs
-        const filteredClasses = activeSubjectData.classes.filter((classId) =>
-          filteredLOs.some((lo) => lo.classMetrics.has(classId))
-        )
+        const filteredClasses = activeSubjectData.classes.filter((classId) => {
+          if (!showInactive && activeSubjectData.classActive.get(classId) === false) {
+            return false
+          }
+          if (!matchesClassFilter(classId, classFilter)) return false
+          return filteredLOs.some((lo) => lo.classMetrics.has(classId))
+        })
 
         return <>
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-2">
             <label htmlFor="curriculum-filter" className="text-sm font-medium text-muted-foreground whitespace-nowrap">Curriculum</label>
             <select
@@ -260,8 +278,23 @@ export function LOProgressMatrix({ data }: LOProgressMatrixProps) {
                 ))}
             </select>
           </div>
+          <ClassFilterControls
+            idPrefix="lo"
+            classFilter={classFilter}
+            onClassFilterChange={setClassFilter}
+            showInactive={showInactive}
+            onShowInactiveChange={setShowInactive}
+            inactiveCount={inactiveCount}
+          />
         </div>
 
+        {filteredClasses.length === 0 ? (
+          <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+            <p className="text-sm text-muted-foreground">
+              No classes match these filters.
+            </p>
+          </div>
+        ) : (
         <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
           <table className="w-full">
             <thead>
@@ -283,6 +316,11 @@ export function LOProgressMatrix({ data }: LOProgressMatrixProps) {
                     >
                       {classId}
                     </Link>
+                    {activeSubjectData.classActive.get(classId) === false && (
+                      <div className="text-[10px] font-normal text-muted-foreground">
+                        inactive
+                      </div>
+                    )}
                   </th>
                 ))}
               </tr>
@@ -346,6 +384,7 @@ export function LOProgressMatrix({ data }: LOProgressMatrixProps) {
             </tbody>
           </table>
         </div>
+        )}
         </>
       })()}
 

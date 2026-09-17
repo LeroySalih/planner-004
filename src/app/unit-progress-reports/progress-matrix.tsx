@@ -5,13 +5,20 @@ import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import {
+  ClassFilterControls,
+  matchesClassFilter,
+} from '@/components/reports/class-filter-controls'
 
 type MatrixData = {
   groupId: string
   groupSubject: string
+  groupActive: boolean
   unitId: string
   unitTitle: string
   unitSubject: string | null
+  curriculumId: string | null
+  curriculumTitle: string | null
   pupilCount: number
   avgScore: number | null
 }
@@ -24,9 +31,12 @@ type ProgressMatrixProps = {
 type SubjectData = {
   subject: string
   classes: string[]
+  classActive: Map<string, boolean>
   units: {
     unitId: string
     unitTitle: string
+    curriculumId: string | null
+    curriculumTitle: string | null
     classMetrics: Map<string, {
       avgScore: number | null
       pupilCount: number
@@ -100,6 +110,7 @@ export function ProgressMatrix({ data, summativeOnly }: ProgressMatrixProps) {
       subjectMap.set(subject, {
         subject,
         classes: [],
+        classActive: new Map(),
         units: []
       })
     }
@@ -110,6 +121,7 @@ export function ProgressMatrix({ data, summativeOnly }: ProgressMatrixProps) {
     if (!subjectData.classes.includes(row.groupId)) {
       subjectData.classes.push(row.groupId)
     }
+    subjectData.classActive.set(row.groupId, row.groupActive)
 
     // Find or create unit entry
     let unitEntry = subjectData.units.find(u => u.unitId === row.unitId)
@@ -117,6 +129,8 @@ export function ProgressMatrix({ data, summativeOnly }: ProgressMatrixProps) {
       unitEntry = {
         unitId: row.unitId,
         unitTitle: row.unitTitle,
+        curriculumId: row.curriculumId,
+        curriculumTitle: row.curriculumTitle,
         classMetrics: new Map()
       }
       subjectData.units.push(unitEntry)
@@ -136,6 +150,9 @@ export function ProgressMatrix({ data, summativeOnly }: ProgressMatrixProps) {
 
   const subjects = Array.from(subjectMap.keys()).sort()
   const [activeTab, setActiveTab] = useState<string>(subjects[0] || '')
+  const [curriculumFilter, setCurriculumFilter] = useState<string>('')
+  const [classFilter, setClassFilter] = useState<string>('')
+  const [showInactive, setShowInactive] = useState<boolean>(false)
 
   if (subjects.length === 0) {
     return (
@@ -181,7 +198,77 @@ export function ProgressMatrix({ data, summativeOnly }: ProgressMatrixProps) {
       </div>
 
       {/* Matrix */}
-      {activeSubjectData && (
+      {activeSubjectData && (() => {
+        // Curriculum options come from the units actually on show, so the
+        // dropdown never offers a curriculum this subject cannot display.
+        const curriculumOptions = new Map<string, string>()
+        for (const unit of activeSubjectData.units) {
+          if (unit.curriculumId && unit.curriculumTitle) {
+            curriculumOptions.set(unit.curriculumId, unit.curriculumTitle)
+          }
+        }
+        // Switching subject tabs must not leave a curriculum selected that
+        // belongs to the tab we just left.
+        const effectiveCurriculumFilter = curriculumOptions.has(curriculumFilter)
+          ? curriculumFilter
+          : ''
+
+        const filteredUnits = activeSubjectData.units.filter((unit) =>
+          !effectiveCurriculumFilter || unit.curriculumId === effectiveCurriculumFilter
+        )
+
+        const inactiveCount = activeSubjectData.classes.filter(
+          (classId) => activeSubjectData.classActive.get(classId) === false
+        ).length
+
+        const filteredClasses = activeSubjectData.classes.filter((classId) => {
+          if (!showInactive && activeSubjectData.classActive.get(classId) === false) {
+            return false
+          }
+          if (!matchesClassFilter(classId, classFilter)) return false
+          return filteredUnits.some((unit) => unit.classMetrics.has(classId))
+        })
+
+        return <>
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Label
+              htmlFor="unit-curriculum-filter"
+              className="text-sm font-medium text-muted-foreground whitespace-nowrap"
+            >
+              Curriculum
+            </Label>
+            <select
+              id="unit-curriculum-filter"
+              value={effectiveCurriculumFilter}
+              onChange={(e) => setCurriculumFilter(e.target.value)}
+              className="rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-xs"
+            >
+              <option value="">All</option>
+              {Array.from(curriculumOptions.entries())
+                .sort((a, b) => a[1].localeCompare(b[1]))
+                .map(([id, title]) => (
+                  <option key={id} value={id}>{title}</option>
+                ))}
+            </select>
+          </div>
+          <ClassFilterControls
+            idPrefix="unit"
+            classFilter={classFilter}
+            onClassFilterChange={setClassFilter}
+            showInactive={showInactive}
+            onShowInactiveChange={setShowInactive}
+            inactiveCount={inactiveCount}
+          />
+        </div>
+
+        {filteredClasses.length === 0 ? (
+          <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+            <p className="text-sm text-muted-foreground">
+              No classes match these filters.
+            </p>
+          </div>
+        ) : (
         <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
           <table className="w-full">
             <thead>
@@ -189,7 +276,7 @@ export function ProgressMatrix({ data, summativeOnly }: ProgressMatrixProps) {
                 <th className="sticky left-0 z-10 bg-muted/50 px-4 py-3 text-left text-sm font-semibold text-foreground">
                   Unit
                 </th>
-                {activeSubjectData.classes.map((classId) => (
+                {filteredClasses.map((classId) => (
                   <th
                     key={classId}
                     className="px-3 py-3 text-center text-sm font-semibold"
@@ -200,17 +287,22 @@ export function ProgressMatrix({ data, summativeOnly }: ProgressMatrixProps) {
                     >
                       {classId}
                     </Link>
+                    {activeSubjectData.classActive.get(classId) === false && (
+                      <div className="text-[10px] font-normal text-muted-foreground">
+                        inactive
+                      </div>
+                    )}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {activeSubjectData.units.map((unit) => (
+              {filteredUnits.map((unit) => (
                 <tr key={unit.unitId} className="border-b border-border last:border-b-0">
                   <td className="sticky left-0 z-10 bg-card px-4 py-3 text-sm font-medium text-foreground">
                     {unit.unitTitle}
                   </td>
-                  {activeSubjectData.classes.map((classId) => {
+                  {filteredClasses.map((classId) => {
                     const metrics = unit.classMetrics.get(classId)
                     if (!metrics) {
                       return (
@@ -249,7 +341,9 @@ export function ProgressMatrix({ data, summativeOnly }: ProgressMatrixProps) {
             </tbody>
           </table>
         </div>
-      )}
+        )}
+        </>
+      })()}
 
       {/* Legend */}
       <div className="flex items-center gap-6 text-xs text-muted-foreground">

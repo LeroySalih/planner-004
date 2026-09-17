@@ -147,9 +147,12 @@ export async function getProgressMatrixAction(summativeOnly = false) {
      SELECT
        g.group_id,
        g.subject as group_subject,
+       g.active as group_active,
        u.unit_id,
        u.title as unit_title,
        u.subject as unit_subject,
+       u.curriculum_id,
+       cur.title as curriculum_title,
        COUNT(DISTINCT gm.user_id) as pupil_count,
        (SUM(CASE WHEN $1 = true AND a.is_summative = false THEN NULL
                  ELSE COALESCE(compute_submission_marks(s.body::jsonb, a.type, a.max_marks), 0) END)::numeric
@@ -159,6 +162,7 @@ export async function getProgressMatrixAction(summativeOnly = false) {
      JOIN lesson_assignments la ON la.group_id = g.group_id
      JOIN lessons l ON l.lesson_id = la.lesson_id
      JOIN units u ON u.unit_id = l.unit_id
+     LEFT JOIN curricula cur ON cur.curriculum_id = u.curriculum_id
      JOIN activities a ON a.lesson_id = l.lesson_id
        AND coalesce(a.active, true) = true
        AND lower(trim(coalesce(a.type, ''))) = ANY (ARRAY['multiple-choice-question', 'short-text-question', 'upload-file'])
@@ -166,7 +170,7 @@ export async function getProgressMatrixAction(summativeOnly = false) {
      LEFT JOIN latest_submissions s ON s.activity_id = a.activity_id
                                     AND s.user_id = gm.user_id
      WHERE coalesce(l.active, true) = true
-     GROUP BY g.group_id, g.subject, u.unit_id, u.title, u.subject
+     GROUP BY g.group_id, g.subject, g.active, u.unit_id, u.title, u.subject, u.curriculum_id, cur.title
      ORDER BY g.subject, u.title, g.group_id`,
     [summativeOnly, await resolvePupilIds(query)]
   )
@@ -174,9 +178,14 @@ export async function getProgressMatrixAction(summativeOnly = false) {
   return rows.map((row) => ({
     groupId: row.group_id as string,
     groupSubject: row.group_subject as string,
+    // groups.active is nullable and defaults to true, so only an explicit
+    // false counts as inactive.
+    groupActive: row.group_active !== false,
     unitId: row.unit_id as string,
     unitTitle: row.unit_title as string,
     unitSubject: row.unit_subject as string | null,
+    curriculumId: (row.curriculum_id as string) || null,
+    curriculumTitle: (row.curriculum_title as string) || null,
     pupilCount: Number(row.pupil_count),
     avgScore: row.avg_score != null ? Number(row.avg_score) : null,
   }))

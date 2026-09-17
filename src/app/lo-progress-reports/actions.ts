@@ -27,6 +27,7 @@ export async function getLOProgressMatrixAction() {
      SELECT
        g.group_id,
        g.subject as group_subject,
+       g.active as group_active,
        lo.learning_objective_id as lo_id,
        lo.title as lo_title,
        ao.assessment_objective_id as ao_id,
@@ -49,7 +50,7 @@ export async function getLOProgressMatrixAction() {
      JOIN group_membership gm ON gm.group_id = g.group_id AND gm.user_id = ANY($1::text[])
      LEFT JOIN latest_feedback lf ON lf.success_criteria_id = sc.success_criteria_id
                                   AND lf.user_id = gm.user_id
-     GROUP BY g.group_id, g.subject, lo.learning_objective_id, lo.title, ao.assessment_objective_id, ao.title, ao.curriculum_id, c.title, u.unit_id, u.title
+     GROUP BY g.group_id, g.subject, g.active, lo.learning_objective_id, lo.title, ao.assessment_objective_id, ao.title, ao.curriculum_id, c.title, u.unit_id, u.title
      ORDER BY g.subject, ao.title, lo.title, g.group_id`,
     [await resolvePupilIds(query)],
   )
@@ -57,6 +58,9 @@ export async function getLOProgressMatrixAction() {
   return rows.map((row) => ({
     groupId: row.group_id as string,
     groupSubject: row.group_subject as string,
+    // groups.active is nullable and defaults to true, so only an explicit
+    // false counts as inactive.
+    groupActive: row.group_active !== false,
     loId: row.lo_id as string,
     loTitle: row.lo_title as string,
     aoId: row.ao_id as string,
@@ -83,7 +87,7 @@ export async function getClassLOMatrixAction(groupId: string) {
      FROM groups g
      WHERE g.group_id = $1
      LIMIT 1`,
-    [groupId, await resolvePupilIds(query)]
+    [groupId]
   )
 
   if (classRows.length === 0) {
@@ -122,7 +126,7 @@ export async function getClassLOMatrixAction(groupId: string) {
      WHERE la.group_id = $1
      GROUP BY lo.learning_objective_id, lo.title, ao.title, ao.order_index, lo.order_index, gm.user_id, p.first_name, p.last_name
      ORDER BY ao.order_index, lo.order_index, p.first_name, p.last_name`,
-    [groupId]
+    [groupId, await resolvePupilIds(query)]
   )
 
   return {
@@ -227,7 +231,7 @@ export async function getClassLOSCMatrixAction(groupId: string, loId: string) {
      JOIN assessment_objectives ao ON ao.assessment_objective_id = lo.assessment_objective_id
      WHERE g.group_id = $1 AND lo.learning_objective_id = $2
      LIMIT 1`,
-    [groupId, loId, await resolvePupilIds(query)]
+    [groupId, loId]
   )
 
   if (metaRows.length === 0) {
@@ -260,7 +264,7 @@ export async function getClassLOSCMatrixAction(groupId: string, loId: string) {
                                   AND lf.user_id = gm.user_id
      WHERE sc.learning_objective_id = $2
      ORDER BY sc.order_index, p.first_name, p.last_name`,
-    [groupId, loId]
+    [groupId, loId, await resolvePupilIds(query)]
   )
 
   const meta = metaRows[0]
