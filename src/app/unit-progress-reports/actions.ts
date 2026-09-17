@@ -2,22 +2,86 @@
 
 import { query } from '@/lib/db'
 import { requireAuthenticatedProfile } from '@/lib/auth'
-import { pupilMembershipSql } from "@/lib/roles/pupil-membership"
+import { resolvePupilIds } from "@/lib/roles/pupil-membership"
 
-export async function getClassProgressAction(groupId: string, summativeOnly = false) {
+/**
+ * Progress for EVERY class in one query.
+ *
+ * The all-classes view used to await getClassProgressAction once per group —
+ * fifty-two sequential server actions, each a round trip with its own session
+ * lookup, which is what made the page take minutes. Grouping by group_id as
+ * well as unit returns the same information in a single call.
+ */
+/**
+ * Progress for every class, in one server action.
+ *
+ * The all-classes view used to await getClassProgressAction once per group:
+ * fifty-two sequential round trips, each with its own session lookup, which is
+ * what made the page take minutes.
+ *
+ * The queries still run per group. Filtering by group is what keeps the plan
+ * sane — the same aggregate across every class at once, whether by removing the
+ * filter or by ANY($1), does not finish inside ninety seconds, while one group
+ * takes about a hundred milliseconds. So this batches the round trip rather
+ * than the query, and runs the batch with bounded concurrency.
+ */
+export async function getAllClassesProgressAction(summativeOnly = false) {
   const profile = await requireAuthenticatedProfile()
 
   if (!profile.isTeacher) {
     throw new Error('Unauthorized')
   }
 
+  const { rows: groupRows } = await query(
+    `SELECT DISTINCT group_id FROM lesson_assignments ORDER BY group_id`,
+  )
+  const groupIds = groupRows.map((row) => row.group_id as string)
+
+  // Resolved once for the whole page rather than per class.
+  const pupilIds = await resolvePupilIds(query)
+
+  // Enough to overlap the latency, not enough to swamp the pool.
+  const CONCURRENCY = 8
+  const results: Array<readonly [string, Awaited<ReturnType<typeof loadClassProgress>>]> = []
+
+  for (let i = 0; i < groupIds.length; i += CONCURRENCY) {
+    const batch = groupIds.slice(i, i + CONCURRENCY)
+    const loaded = await Promise.all(
+      batch.map(async (groupId) => [groupId, await loadClassProgress(groupId, summativeOnly, pupilIds)] as const),
+    )
+    results.push(...loaded)
+  }
+
+  // Plain object: a Map does not survive the server-action boundary.
+  return Object.fromEntries(results)
+}
+
+/**
+ * One class's unit progress. No auth of its own: callers have already checked,
+ * and the all-classes action would otherwise repeat the session lookup fifty
+ * times for a single page.
+ */
+async function loadClassProgress(
+  groupId: string,
+  summativeOnly = false,
+  /** Resolved once by the caller when loading many classes. */
+  pupilIds?: string[],
+) {
+  const pupils = pupilIds ?? (await resolvePupilIds(query))
   // Get units assigned to this group with average metrics across all pupils
   // Aggregated from submission-level scores (not individual feedback records)
   const { rows: unitRows } = await query(
-    `WITH latest_submissions AS (
+    `WITH scoped_activities AS (
+       SELECT DISTINCT a.activity_id
+       FROM activities a
+       JOIN lessons l ON l.lesson_id = a.lesson_id
+       JOIN lesson_assignments la ON la.lesson_id = l.lesson_id AND la.group_id = $1
+     ),
+     latest_submissions AS (
        SELECT DISTINCT ON (s.activity_id, s.user_id)
          s.activity_id, s.user_id, s.body
        FROM submissions s
+       JOIN scoped_activities sa ON sa.activity_id = s.activity_id
        ORDER BY s.activity_id, s.user_id, s.submitted_at DESC NULLS LAST, s.submission_id DESC
      )
      SELECT
@@ -35,14 +99,14 @@ export async function getClassProgressAction(groupId: string, summativeOnly = fa
      JOIN activities a ON a.lesson_id = l.lesson_id
        AND coalesce(a.active, true) = true
        AND lower(trim(coalesce(a.type, ''))) = ANY (ARRAY['multiple-choice-question', 'short-text-question', 'upload-file'])
-     JOIN group_membership gm ON gm.group_id = la.group_id AND ${pupilMembershipSql()}
+     JOIN group_membership gm ON gm.group_id = la.group_id AND gm.user_id = ANY($3::text[])
      LEFT JOIN latest_submissions s ON s.activity_id = a.activity_id
                                     AND s.user_id = gm.user_id
      WHERE la.group_id = $1
        AND coalesce(l.active, true) = true
      GROUP BY u.unit_id, u.title, u.subject
      ORDER BY u.title`,
-    [groupId, summativeOnly]
+    [groupId, summativeOnly, pupils]
   )
 
   return unitRows.map((row) => ({
@@ -52,6 +116,16 @@ export async function getClassProgressAction(groupId: string, summativeOnly = fa
     pupilCount: Number(row.pupil_count),
     avgScore: row.avg_score != null ? Number(row.avg_score) : null,
   }))
+}
+
+export async function getClassProgressAction(groupId: string, summativeOnly = false) {
+  const profile = await requireAuthenticatedProfile()
+
+  if (!profile.isTeacher) {
+    throw new Error('Unauthorized')
+  }
+
+  return loadClassProgress(groupId, summativeOnly)
 }
 
 export async function getProgressMatrixAction(summativeOnly = false) {
@@ -88,13 +162,13 @@ export async function getProgressMatrixAction(summativeOnly = false) {
      JOIN activities a ON a.lesson_id = l.lesson_id
        AND coalesce(a.active, true) = true
        AND lower(trim(coalesce(a.type, ''))) = ANY (ARRAY['multiple-choice-question', 'short-text-question', 'upload-file'])
-     JOIN group_membership gm ON gm.group_id = g.group_id AND ${pupilMembershipSql()}
+     JOIN group_membership gm ON gm.group_id = g.group_id AND gm.user_id = ANY($2::text[])
      LEFT JOIN latest_submissions s ON s.activity_id = a.activity_id
                                     AND s.user_id = gm.user_id
      WHERE coalesce(l.active, true) = true
      GROUP BY g.group_id, g.subject, u.unit_id, u.title, u.subject
      ORDER BY g.subject, u.title, g.group_id`,
-    [summativeOnly]
+    [summativeOnly, await resolvePupilIds(query)]
   )
 
   return rows.map((row) => ({
@@ -131,10 +205,17 @@ export async function getClassPupilMatrixAction(groupId: string, summativeOnly =
   // Get all units assigned to this class with metrics for each pupil
   // Aggregated from submission-level scores (not individual feedback records)
   const { rows } = await query(
-    `WITH latest_submissions AS (
+    `WITH scoped_activities AS (
+       SELECT DISTINCT a.activity_id
+       FROM activities a
+       JOIN lessons l ON l.lesson_id = a.lesson_id
+       JOIN lesson_assignments la ON la.lesson_id = l.lesson_id AND la.group_id = $1
+     ),
+     latest_submissions AS (
        SELECT DISTINCT ON (s.activity_id, s.user_id)
          s.activity_id, s.user_id, s.body
        FROM submissions s
+       JOIN scoped_activities sa ON sa.activity_id = s.activity_id
        ORDER BY s.activity_id, s.user_id, s.submitted_at DESC NULLS LAST, s.submission_id DESC
      )
      SELECT
@@ -154,7 +235,7 @@ export async function getClassPupilMatrixAction(groupId: string, summativeOnly =
      JOIN activities a ON a.lesson_id = l.lesson_id
        AND coalesce(a.active, true) = true
        AND lower(trim(coalesce(a.type, ''))) = ANY (ARRAY['multiple-choice-question', 'short-text-question', 'upload-file'])
-     JOIN group_membership gm ON gm.group_id = la.group_id AND ${pupilMembershipSql()}
+     JOIN group_membership gm ON gm.group_id = la.group_id AND gm.user_id = ANY($3::text[])
      JOIN profiles p ON p.user_id = gm.user_id
      LEFT JOIN latest_submissions s ON s.activity_id = a.activity_id
                                     AND s.user_id = gm.user_id
@@ -162,7 +243,7 @@ export async function getClassPupilMatrixAction(groupId: string, summativeOnly =
        AND coalesce(l.active, true) = true
      GROUP BY u.unit_id, u.title, u.subject, gm.user_id, p.first_name, p.last_name
      ORDER BY p.last_name, p.first_name, u.title`,
-    [groupId, summativeOnly]
+    [groupId, summativeOnly, await resolvePupilIds(query)]
   )
 
   return {
@@ -203,10 +284,17 @@ export async function getUnitLessonMatrixAction(groupId: string, unitId: string,
 
   // Get lesson-level metrics by aggregating submission-level scores
   const { rows } = await query(
-    `WITH latest_submissions AS (
+    `WITH scoped_activities AS (
+       SELECT DISTINCT a.activity_id
+       FROM activities a
+       JOIN lessons l ON l.lesson_id = a.lesson_id
+       JOIN lesson_assignments la ON la.lesson_id = l.lesson_id AND la.group_id = $1
+     ),
+     latest_submissions AS (
        SELECT DISTINCT ON (s.activity_id, s.user_id)
          s.activity_id, s.user_id, s.body
        FROM submissions s
+       JOIN scoped_activities sa ON sa.activity_id = s.activity_id
        ORDER BY s.activity_id, s.user_id, s.submitted_at DESC NULLS LAST, s.submission_id DESC
      ),
      lesson_activity_scores AS (
@@ -223,7 +311,7 @@ export async function getUnitLessonMatrixAction(groupId: string, unitId: string,
          CASE WHEN a.activity_id IS NOT NULL THEN a.max_marks END as max_marks
        FROM lessons l
        JOIN lesson_assignments la ON la.lesson_id = l.lesson_id AND la.group_id = $1
-       JOIN group_membership gm ON gm.group_id = la.group_id AND ${pupilMembershipSql()}
+       JOIN group_membership gm ON gm.group_id = la.group_id AND gm.user_id = ANY($4::text[])
        JOIN profiles p ON p.user_id = gm.user_id
        LEFT JOIN activities a ON a.lesson_id = l.lesson_id
          AND coalesce(a.active, true) = true
@@ -244,7 +332,7 @@ export async function getUnitLessonMatrixAction(groupId: string, unitId: string,
      FROM lesson_activity_scores
      GROUP BY lesson_id, lesson_title, order_by, pupil_id, first_name, last_name
      ORDER BY order_by, last_name, first_name`,
-    [groupId, unitId, summativeOnly]
+    [groupId, unitId, summativeOnly, await resolvePupilIds(query)]
   )
 
   return {

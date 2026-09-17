@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { getClassProgressAction } from './actions'
+import { getAllClassesProgressAction } from './actions'
 
 type Group = {
   groupId: string
@@ -67,34 +67,42 @@ export function AllClassesProgress({ groups }: AllClassesProgressProps) {
   )
 
   useEffect(() => {
+    // One call for every class. This was a sequential loop of one server action
+    // per group — fifty-two round trips, each with its own session lookup — and
+    // it was why the page took minutes rather than seconds.
     const loadAllClasses = async () => {
-      for (const group of groups) {
-        try {
-          const units = await getClassProgressAction(group.groupId)
-          setClassProgress((prev) => {
-            const next = new Map(prev)
-            next.set(group.groupId, {
-              groupId: group.groupId,
-              subject: group.subject,
-              units,
-              loading: false,
-              error: null,
-            })
-            return next
-          })
-        } catch (err) {
-          setClassProgress((prev) => {
-            const next = new Map(prev)
-            next.set(group.groupId, {
-              groupId: group.groupId,
-              subject: group.subject,
-              units: [],
-              loading: false,
-              error: err instanceof Error ? err.message : 'Failed to load',
-            })
-            return next
-          })
-        }
+      try {
+        const byGroup = await getAllClassesProgressAction()
+        setClassProgress(
+          new Map(
+            groups.map((group) => [
+              group.groupId,
+              {
+                groupId: group.groupId,
+                subject: group.subject,
+                units: byGroup[group.groupId] ?? [],
+                loading: false,
+                error: null,
+              },
+            ]),
+          ),
+        )
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to load'
+        setClassProgress(
+          new Map(
+            groups.map((group) => [
+              group.groupId,
+              {
+                groupId: group.groupId,
+                subject: group.subject,
+                units: [],
+                loading: false,
+                error: message,
+              },
+            ]),
+          ),
+        )
       }
     }
 
