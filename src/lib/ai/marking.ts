@@ -122,6 +122,28 @@ Mark down only where the pupil's answer genuinely falls short of the model
 answer.`
 }
 
+/**
+ * Migration 082 converted 65 binary criteria to levelled(3) purely to preserve
+ * the 3-mark ceiling on short-text-questions, writing descriptors that say
+ * "rewrite me". None has been rewritten, so every levelled criterion in the
+ * database still carries them — and the model was being asked to pick a level
+ * from placeholder text. It answered the only question the ladder actually
+ * posed, "does this fully meet the criterion?", and a question feeding one
+ * part of a criterion can never pass that: 49% of these marks came back 0, a
+ * third came back full, and the middle levels were barely used.
+ *
+ * A partly-rewritten ladder is left alone — the teacher is mid-edit and the
+ * real rungs are better than none.
+ */
+const PLACEHOLDER_DESCRIPTOR_PREFIX = "PLACEHOLDER —"
+
+function hasUsableDescriptors(descriptors: string[]): boolean {
+  return descriptors.length > 0 &&
+    !descriptors.every((descriptor) =>
+      descriptor.trim().startsWith(PLACEHOLDER_DESCRIPTOR_PREFIX)
+    )
+}
+
 function criterionInstruction(
   criterion: CriterionContext,
   maxMarks: number,
@@ -143,6 +165,26 @@ Assess ONLY this criterion. Ignore parts of the answer that address other
 criteria — they are marked separately.
 
 Your feedback must be about this criterion alone.`
+  }
+
+  if (!hasUsableDescriptors(criterion.descriptors)) {
+    return `You are assessing ONE success criterion, on a scale of 0 to ${maxMarks}:
+
+"${criterion.description}"
+
+No level descriptors have been written for this criterion, so do not invent a
+ladder. Judge how well the pupil answered THIS question: ${maxMarks} for an
+answer that is fully correct, 0 for one that is wrong or missing, and a
+proportionate mark in between for one that is partly right. Both 0 and
+${maxMarks} are valid and expected scores.
+
+${framing}
+
+Assess ONLY this criterion. Ignore parts of the answer that address other
+criteria — they are marked separately.
+
+Your feedback must be about this criterion alone, and must say what the pupil
+would need to add or correct to earn full marks for this question.`
   }
 
   const rungs = criterion.descriptors
