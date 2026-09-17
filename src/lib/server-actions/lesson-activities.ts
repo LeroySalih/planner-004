@@ -21,7 +21,10 @@ import {
   type Queryable,
   UnitCurriculumMismatchError,
 } from "@/lib/curriculum/unit-curriculum-guard";
-import { recalculateActivityMaxMarks } from "@/lib/scoring/derive-max-marks";
+import {
+  recalculateActivityMaxMarks,
+  rescaleStoredMarks,
+} from "@/lib/scoring/derive-max-marks";
 import { withTelemetry } from "@/lib/telemetry";
 import { isScorableActivityType } from "@/dino.config";
 import { enqueueLessonMutationJob } from "@/lib/lesson-job-runner";
@@ -498,6 +501,25 @@ export async function updateLessonActivityAction(
         ? error.message
         : "Unable to update activity.";
       return { success: false, error: message, data: null };
+    }
+
+    // A hand-set max_marks moves the denominator under marks that are already
+    // stored, so the marks have to move with it or a pupil on full marks drops
+    // to a fraction of them. For an activity WITH criteria the recalculate
+    // below does this; this covers the ones without, where it is a no-op.
+    if (updates.max_marks !== undefined) {
+      try {
+        await rescaleStoredMarks(
+          { query } as Queryable,
+          activityId,
+          typeof existing.max_marks === "number" ? existing.max_marks : null,
+          typeof updatedActivityRow.max_marks === "number"
+            ? updatedActivityRow.max_marks
+            : null,
+        );
+      } catch (error) {
+        console.error("[v0] Failed to rescale stored marks:", error);
+      }
     }
   }
 
