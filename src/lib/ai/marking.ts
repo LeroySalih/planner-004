@@ -92,14 +92,52 @@ what earned the marks and what was missing. Two or three sentences.`
  * valid score. Without it a model anchors to the lowest descriptor and never
  * returns 0, which silently inflates every mark on a levelled criterion.
  */
-function criterionInstruction(criterion: CriterionContext, maxMarks: number): string {
+/**
+ * How a single question relates to the criterion it feeds.
+ *
+ * A criterion is usually evidenced across several questions, so one answer is
+ * a part of it, not the whole. Without saying so the model asks "does this
+ * answer demonstrate the entire criterion?" and a one-word recall question can
+ * never pass — a pupil who gave exactly the model answer scored 0 because it
+ * did not also explain everything the criterion names.
+ *
+ * The teacher wrote the model answer for THIS question, so it is the standard
+ * to mark against; the criterion says what the question contributes toward.
+ */
+function evidenceFraming(hasModelAnswer: boolean): string {
+  const base = `This question is ONE piece of evidence toward that criterion, not the
+whole of it. Do not require a single answer to demonstrate the entire criterion,
+and do not withhold marks because the answer does not cover ground this question
+did not ask about.`
+
+  if (!hasModelAnswer) return base
+
+  return `${base}
+
+A MODEL ANSWER is given below. The teacher wrote it as the correct response to
+THIS question, so it is the standard you mark against: an answer matching it in
+substance — allowing for wording, spelling and case — has answered correctly and
+earns the mark, even though it does not on its own establish the whole criterion.
+Mark down only where the pupil's answer genuinely falls short of the model
+answer.`
+}
+
+function criterionInstruction(
+  criterion: CriterionContext,
+  maxMarks: number,
+  hasModelAnswer: boolean,
+): string {
+  const framing = evidenceFraming(hasModelAnswer)
+
   if (criterion.scType === "binary") {
     return `You are assessing ONE success criterion:
 
 "${criterion.description}"
 
-Award exactly 1 mark if the pupil's answer meets this criterion, or 0 if it does
-not. 0 is a valid and expected score when the criterion is not met.
+${framing}
+
+Award exactly 1 mark if the pupil's answer is correct for this question, or 0 if
+it is not. 0 is a valid and expected score for a wrong or missing answer.
 
 Assess ONLY this criterion. Ignore parts of the answer that address other
 criteria — they are marked separately.
@@ -119,9 +157,12 @@ The levels, in ascending order:
   0 — none of the descriptors below is met
 ${rungs}
 
-Award the number of the HIGHEST level the pupil has FULLY met. If they have not
-met level 1, award 0. **0 is a valid and expected score** — do not default to
-level 1 for an answer that does not reach it.
+${framing}
+
+Award the number of the HIGHEST level the pupil has FULLY met, judging only what
+this question asked for. If they have not met level 1, award 0. **0 is a valid
+and expected score** — do not default to level 1 for an answer that does not
+reach it.
 
 Assess ONLY this criterion. Ignore parts of the answer that address other
 criteria — they are marked separately.
@@ -199,7 +240,7 @@ export async function markWithModel(request: MarkingRequest): Promise<MarkingRes
 
   const instruction = [
     request.criterion
-      ? criterionInstruction(request.criterion, maxMarks)
+      ? criterionInstruction(request.criterion, maxMarks, Boolean(request.modelAnswer?.trim()))
       : wholeActivityInstruction(maxMarks),
     request.code ? codeInstruction(request.code.language) : null,
   ]
