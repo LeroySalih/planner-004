@@ -66,7 +66,7 @@ export async function readMarkingQueueAction(groupId?: string) {
             JOIN group_membership gm_teacher ON gm_teacher.group_id = g.group_id
                                             AND gm_teacher.user_id = $1
             WHERE a.type = 'short-text-question'
-              AND compute_submission_base_score(s.body, a.type) IS NULL
+              AND compute_submission_base_score(s.body, a.type, a.max_marks) IS NULL
               ${groupFilter}
             GROUP BY l.lesson_id, l.title, g.group_id, g.subject, u.title
             ORDER BY COUNT(DISTINCT s.submission_id) DESC
@@ -467,7 +467,7 @@ export async function markAllUnmarkedForLessonAction(input: z.infer<typeof MarkA
                                       AND gm.user_id    = s.user_id
             WHERE l.lesson_id = $1
               AND a.type = 'short-text-question'
-              AND compute_submission_base_score(s.body, a.type) IS NULL
+              AND compute_submission_base_score(s.body, a.type, a.max_marks) IS NULL
           `,
           [lessonId, groupId],
         )

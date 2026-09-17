@@ -2,7 +2,7 @@
 
 import { query } from '@/lib/db'
 import { requireAuthenticatedProfile } from '@/lib/auth'
-import { pupilMembershipSql } from "@/lib/roles/pupil-membership"
+import { resolvePupilIds } from "@/lib/roles/pupil-membership"
 
 export async function getLOProgressMatrixAction() {
   const profile = await requireAuthenticatedProfile()
@@ -46,11 +46,12 @@ export async function getLOProgressMatrixAction() {
      JOIN assessment_objectives ao ON ao.assessment_objective_id = lo.assessment_objective_id
      LEFT JOIN curricula c ON c.curriculum_id = ao.curriculum_id
      JOIN success_criteria sc ON sc.learning_objective_id = lo.learning_objective_id
-     JOIN group_membership gm ON gm.group_id = g.group_id AND ${pupilMembershipSql()}
+     JOIN group_membership gm ON gm.group_id = g.group_id AND gm.user_id = ANY($1::text[])
      LEFT JOIN latest_feedback lf ON lf.success_criteria_id = sc.success_criteria_id
                                   AND lf.user_id = gm.user_id
      GROUP BY g.group_id, g.subject, lo.learning_objective_id, lo.title, ao.assessment_objective_id, ao.title, ao.curriculum_id, c.title, u.unit_id, u.title
-     ORDER BY g.subject, ao.title, lo.title, g.group_id`
+     ORDER BY g.subject, ao.title, lo.title, g.group_id`,
+    [await resolvePupilIds(query)],
   )
 
   return rows.map((row) => ({
@@ -82,7 +83,7 @@ export async function getClassLOMatrixAction(groupId: string) {
      FROM groups g
      WHERE g.group_id = $1
      LIMIT 1`,
-    [groupId]
+    [groupId, await resolvePupilIds(query)]
   )
 
   if (classRows.length === 0) {
@@ -114,7 +115,7 @@ export async function getClassLOMatrixAction(groupId: string) {
      JOIN learning_objectives lo ON lo.learning_objective_id = llo.learning_objective_id
      JOIN assessment_objectives ao ON ao.assessment_objective_id = lo.assessment_objective_id
      JOIN success_criteria sc ON sc.learning_objective_id = lo.learning_objective_id
-     JOIN group_membership gm ON gm.group_id = la.group_id AND ${pupilMembershipSql()}
+     JOIN group_membership gm ON gm.group_id = la.group_id AND gm.user_id = ANY($2::text[])
      JOIN profiles p ON p.user_id = gm.user_id
      LEFT JOIN latest_feedback lf ON lf.success_criteria_id = sc.success_criteria_id
                                   AND lf.user_id = gm.user_id
@@ -226,7 +227,7 @@ export async function getClassLOSCMatrixAction(groupId: string, loId: string) {
      JOIN assessment_objectives ao ON ao.assessment_objective_id = lo.assessment_objective_id
      WHERE g.group_id = $1 AND lo.learning_objective_id = $2
      LIMIT 1`,
-    [groupId, loId]
+    [groupId, loId, await resolvePupilIds(query)]
   )
 
   if (metaRows.length === 0) {
@@ -253,7 +254,7 @@ export async function getClassLOSCMatrixAction(groupId: string, loId: string) {
        COALESCE(p.first_name || ' ' || p.last_name, p.first_name, p.last_name, gm.user_id) as pupil_name,
        lf.rating
      FROM success_criteria sc
-     JOIN group_membership gm ON gm.group_id = $1 AND ${pupilMembershipSql()}
+     JOIN group_membership gm ON gm.group_id = $1 AND gm.user_id = ANY($3::text[])
      JOIN profiles p ON p.user_id = gm.user_id
      LEFT JOIN latest_feedback lf ON lf.success_criteria_id = sc.success_criteria_id
                                   AND lf.user_id = gm.user_id
