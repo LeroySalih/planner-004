@@ -674,7 +674,21 @@ export function extractScoreFromSubmission(
 
   if (submissionBody && typeof submissionBody === "object") {
     const record = submissionBody as Record<string, unknown>;
-    const overrideRaw = record.teacher_override_score ?? record.override_score;
+    // marks_override is what the results panel writes when a teacher sets a
+    // mark, and it is in MARKS where the other two are fractions. Only the four
+    // types with their own branch above were reading it, so an override on
+    // anything else — an upload, a worksheet — was written and then read by
+    // nothing: the cell showed the new mark until the page was reloaded and
+    // then went blank.
+    const marksOverrideRaw = record.marks_override;
+    const safeMaxMarks = maxMarks > 0 ? maxMarks : 1;
+    const marksOverrideFraction =
+      typeof marksOverrideRaw === "number" && Number.isFinite(marksOverrideRaw)
+        ? Math.min(Math.max(marksOverrideRaw, 0), safeMaxMarks) / safeMaxMarks
+        : null;
+
+    const overrideRaw = marksOverrideFraction ??
+      record.teacher_override_score ?? record.override_score;
     const autoRaw = record.score ?? record.auto_score;
 
     const toNumber = (value: unknown): number | null => {
