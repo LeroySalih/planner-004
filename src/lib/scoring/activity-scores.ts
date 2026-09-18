@@ -467,17 +467,39 @@ export function extractScoreFromSubmission(
     if (parsed.success) {
       const pupilAnswer = parsed.data.answer?.trim() ?? null;
       const hasAnswer = Boolean(pupilAnswer && pupilAnswer.length > 0);
+
+      // Nothing marks a long-text answer automatically, so this branch used to
+      // hardcode 0 and never look at marks_override — a teacher awarding full
+      // marks saw the input keep the figure and the score stay on 0. An
+      // unmarked but answered response still scores 0 rather than null, which
+      // is what separates "scored zero" from "not attempted" everywhere else.
+      const { autoScore: derivedAuto, overrideScore: override, effectiveScore: derivedEffective } =
+        deriveFractionsFromMarks(submissionBody, activityType, maxMarks);
+      const auto = derivedAuto ?? (hasAnswer ? 0 : null);
+      const effectiveScore = derivedEffective ?? auto;
+
       const successCriteriaScores = normaliseSuccessCriteriaScores({
         successCriteriaIds,
         existingScores: parsed.data.success_criteria_scores,
-        fillValue: hasAnswer ? 0 : null,
+        fillValue: effectiveScore,
       });
+      const autoScores = normaliseSuccessCriteriaScores({
+        successCriteriaIds,
+        fillValue: auto,
+      });
+      const overrideScores = typeof override === "number"
+        ? normaliseSuccessCriteriaScores({
+          successCriteriaIds,
+          fillValue: override,
+        })
+        : null;
+
       return {
-        autoScore: hasAnswer ? 0 : null,
-        overrideScore: null,
-        effectiveScore: hasAnswer ? 0 : null,
-        autoSuccessCriteriaScores: fallbackScores,
-        overrideSuccessCriteriaScores: null,
+        autoScore: auto,
+        overrideScore: override,
+        effectiveScore,
+        autoSuccessCriteriaScores: autoScores,
+        overrideSuccessCriteriaScores: overrideScores,
         successCriteriaScores,
         feedback: typeof parsed.data.teacher_feedback === "string" &&
             parsed.data.teacher_feedback.trim().length > 0
@@ -490,19 +512,6 @@ export function extractScoreFromSubmission(
       };
     }
 
-    return {
-      autoScore: null,
-      overrideScore: null,
-      effectiveScore: null,
-      autoSuccessCriteriaScores: fallbackScores,
-      overrideSuccessCriteriaScores: null,
-      successCriteriaScores: fallbackScores,
-      feedback: null,
-      autoFeedback: null,
-      question: metadata.question,
-      correctAnswer: metadata.correctAnswer,
-      pupilAnswer: null,
-    };
     return {
       autoScore: null,
       overrideScore: null,
@@ -632,18 +641,37 @@ export function extractScoreFromSubmission(
     if (parsed.success) {
       const pupilAnswer = parsed.data.url?.trim() ?? null;
       const hasAnswer = Boolean(pupilAnswer && pupilAnswer.length > 0);
+
+      // Same omission as long-text-question: nothing marks a submitted URL
+      // automatically, so this returned a flat 0 and never read
+      // marks_override.
+      const { autoScore: derivedAuto, overrideScore: override, effectiveScore: derivedEffective } =
+        deriveFractionsFromMarks(submissionBody, activityType, maxMarks);
+      const auto = derivedAuto ?? (hasAnswer ? 0 : null);
+      const effectiveScore = derivedEffective ?? auto;
+
       const successCriteriaScores = normaliseSuccessCriteriaScores({
         successCriteriaIds,
         existingScores: parsed.data.success_criteria_scores,
-        fillValue: hasAnswer ? 0 : null,
+        fillValue: effectiveScore,
       });
+      const autoScores = normaliseSuccessCriteriaScores({
+        successCriteriaIds,
+        fillValue: auto,
+      });
+      const overrideScores = typeof override === "number"
+        ? normaliseSuccessCriteriaScores({
+          successCriteriaIds,
+          fillValue: override,
+        })
+        : null;
 
       return {
-        autoScore: hasAnswer ? 0 : null,
-        overrideScore: null,
-        effectiveScore: hasAnswer ? 0 : null,
-        autoSuccessCriteriaScores: fallbackScores,
-        overrideSuccessCriteriaScores: null,
+        autoScore: auto,
+        overrideScore: override,
+        effectiveScore,
+        autoSuccessCriteriaScores: autoScores,
+        overrideSuccessCriteriaScores: overrideScores,
         successCriteriaScores,
         feedback:
           typeof parsed.data.teacher_feedback === "string" &&
