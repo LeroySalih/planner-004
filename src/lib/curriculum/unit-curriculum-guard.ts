@@ -214,3 +214,80 @@ export async function removeCurriculumFromUnit(
   )
   return removed
 }
+
+// Every (unit, curriculum, lo, sc) tuple the unit touches across all four
+// assignment surfaces, restricted to curriculum-bearing AOs. Grouped downstream.
+export const UNIT_ITEMS_CTE = `
+  with unit_items as (
+    select u.unit_id, ao.curriculum_id, lo.learning_objective_id as lo_id, sc.success_criteria_id as sc_id
+    from units u
+    join success_criteria_units scu on scu.unit_id = u.unit_id
+    join success_criteria sc on sc.success_criteria_id = scu.success_criteria_id
+    join learning_objectives lo on lo.learning_objective_id = sc.learning_objective_id
+    join assessment_objectives ao on ao.assessment_objective_id = lo.assessment_objective_id
+    where ao.curriculum_id is not null
+    union
+    select l.unit_id, ao.curriculum_id, lo.learning_objective_id, null
+    from lessons l
+    join lessons_learning_objective llo on llo.lesson_id = l.lesson_id
+    join learning_objectives lo on lo.learning_objective_id = llo.learning_objective_id
+    join assessment_objectives ao on ao.assessment_objective_id = lo.assessment_objective_id
+    where ao.curriculum_id is not null
+    union
+    select l.unit_id, ao.curriculum_id, lo.learning_objective_id, sc.success_criteria_id
+    from lessons l
+    join lesson_success_criteria lsc on lsc.lesson_id = l.lesson_id
+    join success_criteria sc on sc.success_criteria_id = lsc.success_criteria_id
+    join learning_objectives lo on lo.learning_objective_id = sc.learning_objective_id
+    join assessment_objectives ao on ao.assessment_objective_id = lo.assessment_objective_id
+    where ao.curriculum_id is not null
+    union
+    select l.unit_id, ao.curriculum_id, lo.learning_objective_id, sc.success_criteria_id
+    from lessons l
+    join activities a on a.lesson_id = l.lesson_id
+    join activity_success_criteria asc2 on asc2.activity_id = a.activity_id
+    join success_criteria sc on sc.success_criteria_id = asc2.success_criteria_id
+    join learning_objectives lo on lo.learning_objective_id = sc.learning_objective_id
+    join assessment_objectives ao on ao.assessment_objective_id = lo.assessment_objective_id
+    where ao.curriculum_id is not null
+  ),
+  per_unit as (
+    select unit_id, count(distinct curriculum_id) as curr_count from unit_items group by unit_id
+  )`
+
+/**
+ * Point each unit at the curriculum its objectives actually come from.
+ *
+ * units.curriculum_id is stamped once, on the first assignment, and nothing
+ * updated it afterwards. Moving a learning objective to another curriculum
+ * therefore left every unit using it pointing at the old one: the unit page
+ * showed the wrong curriculum, the Edit dialog locked it (objectives are
+ * assigned), Admin → Unit Curricula did not list it (it only lists units
+ * spanning two curricula), and the guard above would then reject adding any
+ * more objectives from the curriculum the unit really uses.
+ *
+ * Only units whose objectives all come from ONE curriculum are touched. A unit
+ * left spanning two is a real conflict for a person to resolve, and Admin →
+ * Unit Curricula lists it.
+ *
+ * `loId` limits it to units using that objective; omit it to sweep every unit.
+ */
+export async function restampUnitCurricula(db: Queryable, loId?: string): Promise<string[]> {
+  const { rows } = await db.query<{ unit_id: string }>(
+    `${UNIT_ITEMS_CTE}
+     update units u
+     set curriculum_id = single.curriculum_id
+     from (
+       select unit_id, min(curriculum_id) as curriculum_id
+       from unit_items
+       group by unit_id
+       having count(distinct curriculum_id) = 1
+     ) single
+     where u.unit_id = single.unit_id
+       and u.curriculum_id is distinct from single.curriculum_id
+       ${loId ? "and u.unit_id in (select unit_id from unit_items where lo_id = $1)" : ""}
+     returning u.unit_id`,
+    loId ? [loId] : [],
+  )
+  return rows.map((row) => row.unit_id)
+}

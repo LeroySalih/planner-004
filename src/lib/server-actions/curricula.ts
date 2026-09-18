@@ -19,6 +19,7 @@ import { query, withDbClient } from "@/lib/db"
 import { requireRole } from "@/lib/auth"
 import {
   assertScAllowedForUnit,
+  restampUnitCurricula,
   UnitCurriculumMismatchError,
   type Queryable,
 } from "@/lib/curriculum/unit-curriculum-guard"
@@ -1481,18 +1482,39 @@ export async function moveLearningObjectiveAction(
   })
 
   try {
-    const { rowCount } = await query(
-      `update learning_objectives set assessment_objective_id = $1 where learning_objective_id = $2`,
-      [targetAssessmentObjectiveId, learningObjectiveId],
-    )
+    const moved = await withDbClient(async (client) => {
+      await client.query("begin")
+      try {
+        const { rowCount } = await client.query(
+          `update learning_objectives set assessment_objective_id = $1 where learning_objective_id = $2`,
+          [targetAssessmentObjectiveId, learningObjectiveId],
+        )
+        if (rowCount === 0) {
+          await client.query("rollback")
+          return null
+        }
+        // Units using this objective must follow it to its new curriculum.
+        const restamped = targetCurriculumId !== sourceCurriculumId
+          ? await restampUnitCurricula(client as unknown as Queryable, learningObjectiveId)
+          : []
+        await client.query("commit")
+        return restamped
+      } catch (err) {
+        await client.query("rollback")
+        throw err
+      }
+    })
 
-    if (rowCount === 0) {
+    if (moved === null) {
       return { success: false, error: "Learning objective not found." }
     }
 
     revalidatePath(`/curriculum/${sourceCurriculumId}`)
     if (targetCurriculumId !== sourceCurriculumId) {
       revalidatePath(`/curriculum/${targetCurriculumId}`)
+    }
+    for (const unitId of moved) {
+      revalidatePath(`/units/${unitId}`)
     }
 
     return { success: true, error: null }
