@@ -2,7 +2,7 @@
 
 import "katex/dist/katex.min.css"
 
-import { useActionState, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
+import { useActionState, useCallback, useEffect, useMemo, useRef, useState, useTransition, type SetStateAction } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Clipboard, Download, Eye, Flag, RefreshCw, RotateCcw, RotateCw, X, ZoomIn, ZoomOut } from "lucide-react"
@@ -229,6 +229,35 @@ function describeStatus(status: CellStatus) {
   }
 }
 
+
+/**
+ * A cell's figure and colour come from `marksAwarded`, which the server computes
+ * when it builds the matrix. The client updates — an override, a reset, a
+ * realtime submission, clearing AI marks — all write `score` and none wrote
+ * `marksAwarded`, so the cell kept showing the old mark: award full marks on an
+ * unmarked answer and it turned red (0 / 4) until the page was refreshed.
+ *
+ * Applied centrally to every cell write rather than at each call site, so a new
+ * update path cannot reintroduce it. A writer that sets `marksAwarded` itself
+ * is left alone.
+ */
+function syncMarksAwarded(
+  previous: AssignmentResultCell,
+  next: AssignmentResultCell,
+  activityMaxMarks: number,
+): AssignmentResultCell {
+  if (next.score === previous.score || next.marksAwarded !== previous.marksAwarded) {
+    return next
+  }
+  const maxMarks = next.maxMarks ?? activityMaxMarks
+  return {
+    ...next,
+    marksAwarded:
+      typeof next.score === "number" && Number.isFinite(next.score)
+        ? Math.round(next.score * maxMarks)
+        : null,
+  }
+}
 
 function resolveCellBackgroundTone(cell: AssignmentResultCell, maxMarks: number) {
   if (cell.needsMarking) {
@@ -516,7 +545,24 @@ export function AssignmentResultsDashboard({
     return { ...matrix, rows: processedRows }
   })
   const [feedbackVisible, setFeedbackVisible] = useState<boolean>(matrix.assignment?.feedbackVisible ?? false)
-  const [selection, setSelection] = useState<CellSelection | null>(null)
+  const [selection, setSelectionState] = useState<CellSelection | null>(null)
+  // The side panel holds its own copy of the cell, written separately from the
+  // grid, so it needs the same marksAwarded sync or the two disagree.
+  const setSelection = useCallback((update: SetStateAction<CellSelection | null>) => {
+    setSelectionState((current) => {
+      const next = typeof update === "function" ? update(current) : update
+      if (
+        !next ||
+        !current ||
+        next.cell === current.cell ||
+        next.rowIndex !== current.rowIndex ||
+        next.activityIndex !== current.activityIndex
+      ) {
+        return next
+      }
+      return { ...next, cell: syncMarksAwarded(current.cell, next.cell, next.activity.maxMarks) }
+    })
+  }, [])
   const [guidanceEditor, setGuidanceEditor] = useState<
     { id: string; title: string; content: string; loading: boolean; saving: boolean } | null
   >(null)
@@ -1558,7 +1604,9 @@ export function AssignmentResultsDashboard({
             return cell
           }
           const updated = updater(cell)
-          return updated ?? cell
+          return updated
+            ? syncMarksAwarded(cell, updated, previous.activities[cellIndex]?.maxMarks ?? 1)
+            : cell
         })
 
         return {
