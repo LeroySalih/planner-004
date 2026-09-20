@@ -1,6 +1,6 @@
 // Marks-based counterpart to compute_submission_marks (src/migrations/077-marks-based-scoring.sql),
 // mirrored in TypeScript for callers that compute scores client-side rather than via SQL.
-// Priority: marks_override -> MCQ/matcher is_correct (scaled to maxMarks) -> STQ
+// Priority: marks_override -> matcher marks -> MCQ is_correct (scaled to maxMarks) -> STQ
 // teacher_ai_marks/ai_marks/marks/auto_marks -> generic marks/auto_marks. Returns null if unmarked.
 export function computeSubmissionMarks(
   body: unknown,
@@ -23,7 +23,19 @@ export function computeSubmissionMarks(
   const override = asInt(record.marks_override);
   if (override !== null) return clamp(override);
 
-  if (activityType === "multiple-choice-question" || activityType === "matcher") {
+  // A matcher earns one mark per correctly matched pair, so its recorded marks
+  // win. is_correct is only the fallback for submissions saved before matching
+  // stopped being all or nothing.
+  if (activityType === "matcher") {
+    const recorded = asInt(record.marks) ?? asInt(record.auto_marks);
+    if (recorded !== null) return clamp(recorded);
+    if (typeof record.is_correct === "boolean") {
+      return record.is_correct ? maxMarks : 0;
+    }
+    return null;
+  }
+
+  if (activityType === "multiple-choice-question") {
     if (typeof record.is_correct === "boolean") {
       return record.is_correct ? maxMarks : 0;
     }

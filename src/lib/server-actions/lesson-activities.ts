@@ -23,6 +23,7 @@ import {
 } from "@/lib/curriculum/unit-curriculum-guard";
 import {
   recalculateActivityMaxMarks,
+  recalculateMatcherMaxMarks,
   rescaleStoredMarks,
 } from "@/lib/scoring/derive-max-marks";
 import { withTelemetry } from "@/lib/telemetry";
@@ -315,6 +316,7 @@ export async function createLessonActivityAction(
           [createdActivity.activity_id, successCriteriaIds],
         );
         await recalculateActivityMaxMarks(client, newActivityId);
+        await recalculateMatcherMaxMarks(client, newActivityId);
         const { rows: refreshed } = await client.query(
           "select * from activities where activity_id = $1",
           [newActivityId],
@@ -501,6 +503,16 @@ export async function updateLessonActivityAction(
         ? error.message
         : "Unable to update activity.";
       return { success: false, error: message, data: null };
+    }
+
+    // A matcher is worth one mark per pair, so editing the pairs changes what
+    // it is out of.
+    if (updatedActivityRow.type === "matcher" && updates.body_data !== undefined) {
+      try {
+        await recalculateMatcherMaxMarks({ query } as Queryable, activityId);
+      } catch (error) {
+        console.error("[v0] Failed to recalculate matcher max_marks:", error);
+      }
     }
 
     // A hand-set max_marks moves the denominator under marks that are already
@@ -818,6 +830,7 @@ export async function uploadActivitiesFromMarkdownAction(
               [createdId, activity.successCriteriaIds],
             );
             await recalculateActivityMaxMarks(client, createdId);
+            await recalculateMatcherMaxMarks(client, createdId);
           }
 
           nextOrder++;

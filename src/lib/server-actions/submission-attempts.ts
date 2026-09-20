@@ -96,3 +96,72 @@ export async function readSubmissionAttemptsAction(
     return { data: [], error: message };
   }
 }
+
+/**
+ * Save an in-progress answer for an activity the pupil edits one piece at a
+ * time — matching and grouping, where every selection saves.
+ *
+ * Those saves used to INSERT, so an eight-pair matcher left eight attempts
+ * behind, each holding one more answer than the last. That filled the Attempts
+ * list with noise and made "which attempt is current" depend on ordering, which
+ * is how a teacher came to be shown a pupil's seventh, incomplete attempt as
+ * their mark.
+ *
+ * The pupil's current attempt is now rewritten in place. A new attempt starts
+ * only when the teacher has asked for a resubmission — the one case where the
+ * earlier answer is worth keeping as its own attempt.
+ */
+export async function saveInProgressSubmission(input: {
+  activityId: string;
+  userId: string;
+  body: unknown;
+  submittedAt: string;
+}): Promise<Submission | null> {
+  const { activityId, userId, body, submittedAt } = input;
+
+  const { rows: currentRows } = await query<{ submission_id: string }>(
+    `
+      select s.submission_id
+      from submissions s
+      where s.activity_id = $1
+        and s.user_id = $2
+        and not exists (
+          select 1 from submission_resubmit_requests r
+          where r.activity_id = s.activity_id and r.user_id = s.user_id and r.requested
+        )
+      order by s.attempt_number desc nulls last, s.submitted_at desc nulls last
+      limit 1
+    `,
+    [activityId, userId],
+  );
+
+  const currentSubmissionId = currentRows[0]?.submission_id ?? null;
+
+  const { rows } = currentSubmissionId
+    ? await query(
+      `
+        update submissions
+        set body = $2, submitted_at = $3
+        where submission_id = $1
+        returning *
+      `,
+      [currentSubmissionId, body, submittedAt],
+    )
+    : await query(
+      `
+        insert into submissions (activity_id, user_id, attempt_number, body, submitted_at)
+        values ($1, $2, $3, $4, $5)
+        returning *
+      `,
+      [
+        activityId,
+        userId,
+        await getNextAttemptNumber(activityId, userId),
+        body,
+        submittedAt,
+      ],
+    );
+
+  const parsed = SubmissionSchema.safeParse(rows?.[0]);
+  return parsed.success ? parsed.data : null;
+}

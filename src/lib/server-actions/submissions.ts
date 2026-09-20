@@ -28,6 +28,7 @@ import {
   normaliseSuccessCriteriaScores,
 } from "@/lib/scoring/success-criteria";
 import { propagateDeterministicScMarks } from "@/lib/scoring/aggregate-sc-marks";
+import { saveInProgressSubmission } from "./submission-attempts";
 import {
   getActivityLessonId,
   logActivitySubmissionEvent,
@@ -1068,17 +1069,22 @@ export async function upsertMatcherSubmissionAction(
     };
   }
 
-  const isCorrect = matcherBody.pairs.every(
+  // One mark per correctly matched pair. Matching used to be all or nothing:
+  // seven pairs right out of eight scored zero, which is not how the question
+  // is worth marking. max_marks for a matcher is the pair count.
+  const pairCount = matcherBody.pairs.length;
+  const marksAwarded = matcherBody.pairs.filter(
     (pair) => payload.answers[pair.id] === pair.id,
-  );
-  const marksAwarded = isCorrect ? activity.max_marks : 0;
+  ).length;
+  const isCorrect = pairCount > 0 && marksAwarded === pairCount;
+  const fraction = pairCount > 0 ? marksAwarded / pairCount : 0;
 
   const successCriteriaIds = await fetchActivitySuccessCriteriaIds(
     payload.activityId,
   );
   const successCriteriaScores = normaliseSuccessCriteriaScores({
     successCriteriaIds,
-    fillValue: isCorrect ? 1 : 0,
+    fillValue: fraction,
   });
 
   const sanitizedAnswers: Record<string, string | null> = {};
@@ -1093,49 +1099,44 @@ export async function upsertMatcherSubmissionAction(
     answers: sanitizedAnswers,
     is_correct: isCorrect,
     marks: marksAwarded,
+    // The fraction is what every reader of a base score uses; without it they
+    // fall back to is_correct and a partly-right answer reads as zero.
+    score: fraction,
     success_criteria_scores: successCriteriaScores,
     teacher_override_score: null,
     teacher_feedback: null,
   });
 
-  const attemptNumber = await getNextAttemptNumber(
-    payload.activityId,
-    payload.userId,
-  );
   const timestamp = new Date().toISOString();
 
   try {
-    const { rows } = await query(
-      `
-        insert into submissions (activity_id, user_id, attempt_number, body, submitted_at)
-        values ($1, $2, $3, $4, $5)
-        returning *
-      `,
-      [payload.activityId, payload.userId, attemptNumber, submissionBody, timestamp],
-    );
-
-    const parsed = SubmissionSchema.safeParse(rows?.[0]);
-    if (!parsed.success) {
-      console.error(
-        "[submissions] Failed to parse inserted matcher submission:",
-        parsed.error,
-      );
+    // Every selection saves, so this rewrites the pupil's current attempt
+    // rather than adding one per click.
+    const parsedData = await saveInProgressSubmission({
+      activityId: payload.activityId,
+      userId: payload.userId,
+      body: submissionBody,
+      submittedAt: timestamp,
+    });
+    if (!parsedData) {
+      console.error("[submissions] Failed to save matcher submission");
       return {
         success: false,
         error: "Invalid submission data.",
         data: null as Submission | null,
       };
     }
+    const parsed = { data: parsedData };
 
     await clearResubmitRequest(payload.activityId, payload.userId);
 
-    // Q6b: deterministic types never reach a model, so their single
-    // right/wrong outcome is propagated to each linked criterion for coverage
-    // reporting. The activity's own max_marks stays capped at 1.
+    // Q6b: deterministic types never reach a model, so their outcome is
+    // propagated to each linked criterion for coverage reporting. A matcher
+    // passes the fraction of pairs matched, not a right/wrong flag.
     await propagateDeterministicScMarks(
       parsed.data.submission_id,
       payload.activityId,
-      isCorrect ? 1 : 0,
+      fraction,
     );
 
     await logActivitySubmissionEvent({
@@ -1275,34 +1276,26 @@ export async function upsertGroupItemsSubmissionAction(
     teacher_feedback: null,
   });
 
-  const attemptNumber = await getNextAttemptNumber(
-    payload.activityId,
-    payload.userId,
-  );
   const timestamp = new Date().toISOString();
 
   try {
-    const { rows } = await query(
-      `
-        insert into submissions (activity_id, user_id, attempt_number, body, submitted_at)
-        values ($1, $2, $3, $4, $5)
-        returning *
-      `,
-      [payload.activityId, payload.userId, attemptNumber, submissionBody, timestamp],
-    );
-
-    const parsed = SubmissionSchema.safeParse(rows?.[0]);
-    if (!parsed.success) {
-      console.error(
-        "[submissions] Failed to parse inserted group-items submission:",
-        parsed.error,
-      );
+    // Each placement saves, so this rewrites the pupil's current attempt
+    // rather than adding one per drag.
+    const parsedData = await saveInProgressSubmission({
+      activityId: payload.activityId,
+      userId: payload.userId,
+      body: submissionBody,
+      submittedAt: timestamp,
+    });
+    if (!parsedData) {
+      console.error("[submissions] Failed to save group-items submission");
       return {
         success: false,
         error: "Invalid submission data.",
         data: null as Submission | null,
       };
     }
+    const parsed = { data: parsedData };
 
     await clearResubmitRequest(payload.activityId, payload.userId);
 

@@ -52,6 +52,10 @@ const AVAILABLE_MARKS_SUBQUERY = `
   join success_criteria sc on sc.success_criteria_id = acs.success_criteria_id
   join activities act on act.activity_id = acs.activity_id
   where act.type not in (${NON_SCORABLE_TYPES_SQL})
+    -- A matcher's marks come from its pair count, not its criteria, and its
+    -- stored marks are recomputed from the pupil's answers rather than
+    -- rescaled. recalculateMatcherMaxMarks owns it.
+    and act.type <> 'matcher'
 `
 
 /**
@@ -159,6 +163,32 @@ export async function rescaleStoredMarks(
      where activity_id = $1`,
     [activityId, oldMax, newMax],
   )
+}
+
+/**
+ * A matcher is marked one mark per correctly matched pair, so its max_marks is
+ * its pair count — not the 1 every other deterministic type caps at, and not
+ * anything its criteria say. Call after the pairs change.
+ *
+ * Editing the pairs also changes what the pupils' stored answers are worth, so
+ * the submissions are rescored from the answers they already hold rather than
+ * rescaled: adding a ninth pair must not award a mark for it to someone who
+ * never saw it.
+ */
+export async function recalculateMatcherMaxMarks(
+  db: Queryable,
+  activityId: string,
+): Promise<void> {
+  await db.query(
+    `update activities a
+     set max_marks = greatest(1, jsonb_array_length(a.body_data::jsonb->'pairs'))
+     where a.activity_id = $1
+       and a.type = 'matcher'
+       and a.body_data::jsonb ? 'pairs'
+       and a.max_marks is distinct from greatest(1, jsonb_array_length(a.body_data::jsonb->'pairs'))`,
+    [activityId],
+  )
+  await db.query(`select recompute_matcher_submission_marks($1)`, [activityId])
 }
 
 /**
