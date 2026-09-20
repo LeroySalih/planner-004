@@ -977,6 +977,11 @@ export async function upsertMcqSubmissionAction(
       submittedAt: parsed.data.submitted_at ?? timestamp,
       submissionStatus: "inprogress",
       isFlagged: false,
+      // The open results page rescores the cell from this body. Without it the
+      // event moves the cell's submission id forward while its score stays at
+      // whatever the page loaded with, so a teacher watching a pupil work sees
+      // an early, incomplete answer marked against their finished one.
+      body: parsed.data.body,
     });
 
     console.log("[realtime-debug] MCQ submission stored", {
@@ -1149,6 +1154,11 @@ export async function upsertMatcherSubmissionAction(
       submittedAt: parsed.data.submitted_at ?? timestamp,
       submissionStatus: "inprogress",
       isFlagged: false,
+      // The open results page rescores the cell from this body. Without it the
+      // event moves the cell's submission id forward while its score stays at
+      // whatever the page loaded with, so a teacher watching a pupil work sees
+      // an early, incomplete answer marked against their finished one.
+      body: parsed.data.body,
     });
 
     return { success: true, error: null, data: parsed.data };
@@ -1321,6 +1331,11 @@ export async function upsertGroupItemsSubmissionAction(
       submittedAt: parsed.data.submitted_at ?? timestamp,
       submissionStatus: "inprogress",
       isFlagged: false,
+      // The open results page rescores the cell from this body. Without it the
+      // event moves the cell's submission id forward while its score stays at
+      // whatever the page loaded with, so a teacher watching a pupil work sees
+      // an early, incomplete answer marked against their finished one.
+      body: parsed.data.body,
     });
 
     return { success: true, error: null, data: parsed.data };
@@ -1481,6 +1496,11 @@ export async function upsertSequenceSubmissionAction(
       submittedAt: parsed.data.submitted_at ?? timestamp,
       submissionStatus: "inprogress",
       isFlagged: false,
+      // The open results page rescores the cell from this body. Without it the
+      // event moves the cell's submission id forward while its score stays at
+      // whatever the page loaded with, so a teacher watching a pupil work sees
+      // an early, incomplete answer marked against their finished one.
+      body: parsed.data.body,
     });
 
     return { success: true, error: null, data: parsed.data };

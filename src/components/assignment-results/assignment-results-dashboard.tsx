@@ -2670,13 +2670,12 @@ export function AssignmentResultsDashboard({
                               <td className="py-1">
                                 {pair.isCorrect ? (
                                   <span className="text-emerald-600">Correct</span>
-                                ) : (
+                                ) : pair.pupilMatchedText ? (
                                   <span className="text-destructive">
-                                    Incorrect
-                                    {pair.pupilMatchedText
-                                      ? ` (matched: ${pair.pupilMatchedText})`
-                                      : ""}
+                                    {`Incorrect (matched: ${pair.pupilMatchedText})`}
                                   </span>
+                                ) : (
+                                  <span className="text-muted-foreground">Not answered</span>
                                 )}
                               </td>
                             </tr>
@@ -2759,7 +2758,11 @@ export function AssignmentResultsDashboard({
                         )
                       })()
                     ) : (
-                      <p className="text-sm text-foreground">No response has been recorded yet.</p>
+                      <p className="text-sm text-foreground">
+                        {selection.cell.matcherPairs || selection.cell.groupItemsResults
+                          ? "The pupil's answers are shown below."
+                          : "No response has been recorded yet."}
+                      </p>
                     )}
                   </div>
                   </TeacherSubmissionDropzone>
@@ -3725,13 +3728,12 @@ export function AssignmentResultsDashboard({
                                 <td className="py-1">
                                   {pair.isCorrect ? (
                                     <span className="text-emerald-600">Correct</span>
-                                  ) : (
+                                  ) : pair.pupilMatchedText ? (
                                     <span className="text-destructive">
-                                      Incorrect
-                                      {pair.pupilMatchedText
-                                        ? ` (matched: ${pair.pupilMatchedText})`
-                                        : ""}
+                                      {`Incorrect (matched: ${pair.pupilMatchedText})`}
                                     </span>
+                                  ) : (
+                                    <span className="text-muted-foreground">Not answered</span>
                                   )}
                                 </td>
                               </tr>
@@ -3836,7 +3838,11 @@ export function AssignmentResultsDashboard({
                           )
                         })()
                       ) : (
-                        <p className="text-sm text-foreground">No response has been recorded yet.</p>
+                        <p className="text-sm text-foreground">
+                          {selection.cell.matcherPairs || selection.cell.groupItemsResults
+                            ? "The pupil's answers are shown below."
+                            : "No response has been recorded yet."}
+                        </p>
                       )}
                     </div>
                     </TeacherSubmissionDropzone>
