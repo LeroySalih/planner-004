@@ -873,6 +873,11 @@ export function AssignmentResultsDashboard({
   const selectedActivitySummary = selectedActivity
     ? activitySummariesById[selectedActivity.activityId] ?? null
     : null
+  // The same number the column heading shows, so the statistics panel names the
+  // question the way a teacher would say it to a pupil.
+  const selectedActivityNumber = selectedActivity
+    ? activities.findIndex((activity) => activity.activityId === selectedActivity.activityId) + 1
+    : 0
   const selectedActivityStats = useMemo(() => {
     if (!selectedActivity) {
       return null
@@ -2570,7 +2575,7 @@ export function AssignmentResultsDashboard({
             <div className="flex items-start justify-between gap-2">
               <div className="space-y-1">
                 <h3 className="font-semibold text-foreground">
-                  {selection.activity.title} • {resolvePupilLabels(selection.row.pupil).primaryLabel}
+                  Q{selection.activityIndex + 1}. {selection.activity.title} • {resolvePupilLabels(selection.row.pupil).primaryLabel}
                 </h3>
                 <p className="text-sm text-muted-foreground">
                   {describeStatus(selection.cell.status)} · Submitted{" "}
@@ -3380,7 +3385,14 @@ export function AssignmentResultsDashboard({
                           aria-label={`View ${activity.title} statistics`}
                         >
                           <div>
-                            <span className="block truncate text-sm font-semibold text-foreground">{activity.title}</span>
+                            {/* Numbered so a teacher can say "look at Q3" and the
+                                pupil knows which one. Counts the scored
+                                activities in lesson order, which is the order
+                                these columns are in. */}
+                            <span className="block truncate text-sm font-semibold text-foreground">
+                              <span className="text-muted-foreground">Q{activityIndex + 1}.</span>{" "}
+                              {activity.title}
+                            </span>
                             <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">
                               {activity.type.replace(/-/g, " ")}
                             </span>
@@ -3527,7 +3539,10 @@ export function AssignmentResultsDashboard({
                 </Button>
               </div>
               <SheetHeader className="p-0">
-                <SheetTitle>{selectedActivity.title}</SheetTitle>
+                <SheetTitle>
+                  {selectedActivityNumber > 0 ? `Q${selectedActivityNumber}. ` : ""}
+                  {selectedActivity.title}
+                </SheetTitle>
                 <SheetDescription>
                   Activity insights across {selectedActivityStats?.totalPupils ?? groupedRows.length} pupils.
                 </SheetDescription>
@@ -3630,7 +3645,7 @@ export function AssignmentResultsDashboard({
               <div className="flex items-start justify-between gap-2">
                 <div className="space-y-1">
                   <h3 className="font-semibold text-foreground">
-                    {selection.activity.title} • {resolvePupilLabels(selection.row.pupil).primaryLabel}
+                    Q{selection.activityIndex + 1}. {selection.activity.title} • {resolvePupilLabels(selection.row.pupil).primaryLabel}
                   </h3>
                   <p className="text-sm text-muted-foreground">
                     {describeStatus(selection.cell.status)} · Submitted{" "}
