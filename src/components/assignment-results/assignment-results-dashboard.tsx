@@ -31,6 +31,7 @@ import {
   getPupilActivitySubmissionUrlAction,
   listPupilActivitySubmissionsAction,
   overrideAssignmentScoreAction,
+  bulkOverrideAssignmentScoresAction,
   clearActivityAiMarksAction,
   resetAssignmentScoreAction,
   updateAssignmentFeedbackVisibilityAction,
@@ -1160,6 +1161,51 @@ export function AssignmentResultsDashboard({
       setQuestionGuidanceEditor(null)
     })
   }, [questionGuidanceEditor])
+
+  const [bulkMarkPending, startBulkMarkTransition] = useTransition()
+
+  // Mark a whole column: full marks for work handed in but never scored, or a
+  // zero for everyone who handed nothing in. Neither touches an existing mark.
+  const handleColumnBulkMark = useCallback(
+    (activityIndex: number, mode: "submitted-full" | "missing-zero") => {
+      const activity = activities[activityIndex]
+      if (!activity) return
+
+      const question = `Q${activityIndex + 1}`
+      const confirmMessage = mode === "submitted-full"
+        ? `Give full marks (${activity.maxMarks}) for ${question} to every pupil who submitted and has no mark yet? Marks already given are left alone.`
+        : `Give 0 for ${question} to every pupil who has not submitted? Pupils who submitted are left alone.`
+      if (!window.confirm(confirmMessage)) return
+
+      startBulkMarkTransition(async () => {
+        try {
+          const result = await bulkOverrideAssignmentScoresAction({
+            assignmentId: matrixState.assignmentId,
+            activityId: activity.activityId,
+            mode,
+          })
+          if (!result.success) {
+            toast.error(result.error ?? "Unable to apply marks to the column.")
+            return
+          }
+          if (result.updated === 0) {
+            toast.info(`Nothing to change in ${question}.`)
+          } else {
+            toast.success(
+              `${question}: marked ${result.updated} pupil${result.updated === 1 ? "" : "s"}` +
+                (result.skipped > 0 ? `, left ${result.skipped} already marked` : "") +
+                ".",
+            )
+          }
+          router.refresh()
+        } catch (error) {
+          console.error("[assignment-results] bulk column mark failed", error)
+          toast.error("Unable to apply marks to the column.")
+        }
+      })
+    },
+    [activities, matrixState.assignmentId, router, startBulkMarkTransition],
+  )
 
   const handleColumnAiMark = useCallback((activityIndex: number) => {
     const activity = activities[activityIndex]
@@ -3439,6 +3485,33 @@ export function AssignmentResultsDashboard({
                               {aiMarkPending ? "Marking..." : "Mark All"}
                             </Button>
                           )}
+                          {/* Two jobs a teacher otherwise does cell by cell down
+                              the class list. Neither overwrites a mark that
+                              already exists. */}
+                          <div className="flex flex-col gap-0.5 opacity-0 group-hover/th:opacity-100 focus-within:opacity-100 transition-opacity">
+                            <button
+                              type="button"
+                              className="rounded px-1 py-0.5 text-[10px] font-medium normal-case tracking-normal text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-50"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                handleColumnBulkMark(activityIndex, "submitted-full")
+                              }}
+                              disabled={bulkMarkPending}
+                            >
+                              Submitted → full marks
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded px-1 py-0.5 text-[10px] font-medium normal-case tracking-normal text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-50"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                handleColumnBulkMark(activityIndex, "missing-zero")
+                              }}
+                              disabled={bulkMarkPending}
+                            >
+                              Not submitted → 0
+                            </button>
+                          </div>
                         </div>
                     </th>
                   ))}

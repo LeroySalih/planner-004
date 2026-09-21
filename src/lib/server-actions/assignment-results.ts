@@ -2205,3 +2205,191 @@ export async function updateActivityMarkingGuidanceAction(
     return UpdateActivityMarkingGuidanceResultSchema.parse({ success: false, error: String(e) });
   }
 }
+
+const BulkOverrideInputSchema = z.object({
+  assignmentId: z.string().min(3),
+  activityId: z.string().min(1),
+  /**
+   * "submitted-full" gives full marks to every pupil who submitted and has no
+   * score yet; "missing-zero" gives 0 to every pupil who never submitted.
+   */
+  mode: z.enum(["submitted-full", "missing-zero"]),
+});
+
+const BulkOverrideReturnSchema = z.object({
+  success: z.boolean(),
+  error: z.string().nullable(),
+  updated: z.number(),
+  skipped: z.number(),
+});
+
+/**
+ * Mark a whole column in one go.
+ *
+ * Two jobs a teacher otherwise does cell by cell down a class list: award full
+ * marks for work that was handed in but never scored, and put a zero against
+ * everyone who handed nothing in.
+ *
+ * Neither mode touches a score that already exists — a mark from the AI, a
+ * mark a teacher set, or an earlier override all count as scored and are
+ * skipped, so running this twice, or after marking a few by hand, cannot
+ * overwrite real marking.
+ */
+export async function bulkOverrideAssignmentScoresAction(
+  input: z.infer<typeof BulkOverrideInputSchema>,
+) {
+  const teacherProfile = await requireTeacherProfile();
+
+  const parsed = BulkOverrideInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return BulkOverrideReturnSchema.parse({
+      success: false,
+      error: "Invalid request.",
+      updated: 0,
+      skipped: 0,
+    });
+  }
+
+  const identifiers = decodeAssignmentId(parsed.data.assignmentId);
+  if (!identifiers) {
+    return BulkOverrideReturnSchema.parse({
+      success: false,
+      error: "Assignment not found.",
+      updated: 0,
+      skipped: 0,
+    });
+  }
+
+  try {
+    const { rows: activityRows } = await query(
+      `select activity_id, type, max_marks from activities where activity_id = $1 limit 1`,
+      [parsed.data.activityId],
+    );
+    const activity = activityRows?.[0];
+    if (!activity) {
+      return BulkOverrideReturnSchema.parse({
+        success: false,
+        error: "Activity not found.",
+        updated: 0,
+        skipped: 0,
+      });
+    }
+    const maxMarks = typeof activity.max_marks === "number" && activity.max_marks > 0
+      ? activity.max_marks
+      : 1;
+
+    // The roster, by the same rule as the grid: members who are pupils.
+    const { rows: membershipRows } = await query(
+      `
+        select gm.user_id, ur.role_id as role
+        from group_membership gm
+        left join user_roles ur on ur.user_id = gm.user_id
+        where gm.group_id = $1
+      `,
+      [identifiers.groupId],
+    );
+    const pupilIds = pupilIdsFromRoleRows(
+      (membershipRows ?? []).map((row) => ({
+        user_id: typeof row.user_id === "string" ? row.user_id : null,
+        role: typeof row.role === "string" ? row.role : null,
+      })),
+    );
+
+    if (pupilIds.length === 0) {
+      return BulkOverrideReturnSchema.parse({
+        success: true,
+        error: null,
+        updated: 0,
+        skipped: 0,
+      });
+    }
+
+    // One row per pupil: their current attempt, and whether it carries a score.
+    // compute_submission_base_score is the same rule every reader uses, so
+    // "already scored" here means the same thing it means on the grid.
+    const { rows: currentRows } = await query(
+      `
+        select distinct on (s.user_id)
+          s.user_id,
+          s.submission_id,
+          compute_submission_base_score(s.body, $3, $4) is not null as has_score
+        from submissions s
+        where s.activity_id = $1
+          and s.user_id = any($2::text[])
+        order by s.user_id, s.attempt_number desc nulls last, s.submitted_at desc nulls last
+      `,
+      [parsed.data.activityId, pupilIds, activity.type, maxMarks],
+    );
+
+    const current = new Map(
+      (currentRows ?? []).map((row) => [
+        row.user_id as string,
+        {
+          submissionId: typeof row.submission_id === "string" ? row.submission_id : null,
+          hasScore: row.has_score === true,
+        },
+      ]),
+    );
+
+    const targets: Array<{ pupilId: string; submissionId: string | null; marks: number }> = [];
+    let skipped = 0;
+
+    for (const pupilId of pupilIds) {
+      const entry = current.get(pupilId) ?? null;
+      if (parsed.data.mode === "submitted-full") {
+        if (!entry) continue; // never submitted; the other mode's job
+        if (entry.hasScore) {
+          skipped += 1;
+          continue;
+        }
+        targets.push({ pupilId, submissionId: entry.submissionId, marks: maxMarks });
+      } else {
+        if (entry) {
+          skipped += 1; // they submitted; not this mode's job
+          continue;
+        }
+        targets.push({ pupilId, submissionId: null, marks: 0 });
+      }
+    }
+
+    let updated = 0;
+    for (const target of targets) {
+      const result = await overrideAssignmentScoreAction({
+        assignmentId: parsed.data.assignmentId,
+        activityId: parsed.data.activityId,
+        pupilId: target.pupilId,
+        submissionId: target.submissionId,
+        marksOverride: target.marks,
+        feedback: null,
+      });
+      if (result.success) {
+        updated += 1;
+      }
+    }
+
+    console.log("[assignment-results] bulk override", {
+      activityId: parsed.data.activityId,
+      mode: parsed.data.mode,
+      teacher: teacherProfile.userId,
+      updated,
+      skipped,
+    });
+
+    revalidatePath(`/results/assignments/${parsed.data.assignmentId}`);
+
+    return BulkOverrideReturnSchema.parse({
+      success: true,
+      error: null,
+      updated,
+      skipped,
+    });
+  } catch (error) {
+    console.error("[assignment-results] bulk override failed", error);
+    return BulkOverrideReturnSchema.parse({
+      success: false,
+      error: "Unable to apply marks to the column.",
+      updated: 0,
+      skipped: 0,
+    });
+  }
+}

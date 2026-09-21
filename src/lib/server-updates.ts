@@ -89,6 +89,7 @@ export {
 export { readAssignmentsBootstrapAction, readAssignmentsBootstrapForGroupsAction } from "./server-actions/assignments-bootstrap";
 
 export {
+  bulkOverrideAssignmentScoresAction,
   clearActivityAiMarksAction,
   overrideAssignmentScoreAction,
   readActivityMarkingGuidanceAction,
