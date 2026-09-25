@@ -8,6 +8,7 @@ import {
   HalfTermSchema,
   SowHalfTermUnitSchema,
   SowUnitNoteSchema,
+  SharedSowUnitSchema,
   SowUnitPlacementSchema,
   TeacherGroupSchema,
 } from '@/types'
@@ -571,5 +572,203 @@ export async function readPlannerSowUnitsAction(
     })
   } catch (e) {
     return PlannerSowUnitsResult.parse({ data: null, error: String(e) })
+  }
+}
+
+// ── Shared scheme of work ─────────────────────────────────────────────────────
+//
+// Units are planned once per subject, year group and half term, and every class
+// in that subject and year follows the same plan. Only an admin edits it; a
+// teacher sees it on their class SoW page and may add extras of their own.
+
+const SharedSowUnitsResult = z.object({
+  data: z.array(SharedSowUnitSchema).nullable(),
+  error: z.string().nullable(),
+})
+
+const SharedSowIdResult = z.object({
+  data: z.string().nullable(),
+  error: z.string().nullable(),
+})
+
+const SharedSowScopeResult = z.object({
+  data: z
+    .object({
+      subject: z.string().nullable(),
+      yearGroup: z.number().int().nullable(),
+    })
+    .nullable(),
+  error: z.string().nullable(),
+})
+
+/** What a class's subject and year group are, and therefore which plan it follows. */
+export async function readGroupSowScopeAction(
+  groupId: string,
+): Promise<z.infer<typeof SharedSowScopeResult>> {
+  try {
+    await requireTeacherProfile()
+    const { rows } = await query<{ subject: string | null; year_group: number | null }>(
+      `SELECT subject, year_group FROM groups WHERE group_id = $1 LIMIT 1`,
+      [groupId],
+    )
+    const row = rows[0]
+    if (!row) return SharedSowScopeResult.parse({ data: null, error: 'Class not found.' })
+    return SharedSowScopeResult.parse({
+      data: {
+        subject: row.subject ?? null,
+        yearGroup: row.year_group == null ? null : Number(row.year_group),
+      },
+      error: null,
+    })
+  } catch (e) {
+    return SharedSowScopeResult.parse({ data: null, error: String(e) })
+  }
+}
+
+export async function readSharedSowUnitsAction(input: {
+  academicYear: number
+  subject: string
+  yearGroup: number
+}): Promise<z.infer<typeof SharedSowUnitsResult>> {
+  try {
+    await requireTeacherProfile()
+    const { rows } = await query<Record<string, unknown>>(
+      `SELECT s.shared_unit_id, s.academic_year, s.subject, s.year_group,
+              s.half_term_name, s.unit_id, u.title AS unit_name, s.position
+         FROM sow_shared_units s
+         LEFT JOIN units u ON u.unit_id = s.unit_id
+        WHERE s.academic_year = $1 AND s.subject = $2 AND s.year_group = $3
+        ORDER BY s.half_term_name, s.position, s.created_at`,
+      [input.academicYear, input.subject, input.yearGroup],
+    )
+    const data = rows.map((r) =>
+      SharedSowUnitSchema.parse({
+        ...r,
+        academic_year: Number(r.academic_year),
+        year_group: Number(r.year_group),
+        position: Number(r.position),
+      }),
+    )
+    return SharedSowUnitsResult.parse({ data, error: null })
+  } catch (e) {
+    return SharedSowUnitsResult.parse({ data: null, error: String(e) })
+  }
+}
+
+/** The plan a class follows, resolved from its own subject and year group. */
+export async function readSharedSowForGroupAction(
+  groupId: string,
+  academicYear: number,
+): Promise<z.infer<typeof SharedSowUnitsResult>> {
+  const scope = await readGroupSowScopeAction(groupId)
+  if (scope.error) return SharedSowUnitsResult.parse({ data: null, error: scope.error })
+  const subject = scope.data?.subject ?? null
+  const yearGroup = scope.data?.yearGroup ?? null
+  // A class with no subject or no year group follows no shared plan. That is
+  // not an error: HOME-SCHOOL is exactly this, and shows only its own extras.
+  if (!subject || yearGroup == null) {
+    return SharedSowUnitsResult.parse({ data: [], error: null })
+  }
+  return readSharedSowUnitsAction({ academicYear, subject, yearGroup })
+}
+
+export async function addSharedSowUnitAction(input: {
+  academicYear: number
+  subject: string
+  yearGroup: number
+  halfTermName: string
+  unitId: string
+}): Promise<z.infer<typeof SharedSowIdResult>> {
+  try {
+    const profile = await requireRole('admin')
+    const halfTermName = HalfTermNameSchema.parse(input.halfTermName)
+    const inserted = await query<{ shared_unit_id: string }>(
+      `INSERT INTO sow_shared_units
+         (academic_year, subject, year_group, half_term_name, unit_id, position, created_by)
+       SELECT $1, $2, $3, $4, $5,
+              coalesce((SELECT max(position) + 1 FROM sow_shared_units
+                         WHERE academic_year = $1 AND subject = $2
+                           AND year_group = $3 AND half_term_name = $4), 0),
+              $6
+       ON CONFLICT (academic_year, subject, year_group, half_term_name, unit_id) DO NOTHING
+       RETURNING shared_unit_id`,
+      [input.academicYear, input.subject, input.yearGroup, halfTermName, input.unitId, profile.userId],
+    )
+
+    // Already planned here: look the row up rather than treat it as a failure,
+    // the same as the per-class add does.
+    let sharedUnitId = inserted.rows[0]?.shared_unit_id ?? null
+    if (!sharedUnitId) {
+      const { rows } = await query<{ shared_unit_id: string }>(
+        `SELECT shared_unit_id FROM sow_shared_units
+          WHERE academic_year = $1 AND subject = $2 AND year_group = $3
+            AND half_term_name = $4 AND unit_id = $5`,
+        [input.academicYear, input.subject, input.yearGroup, halfTermName, input.unitId],
+      )
+      sharedUnitId = rows[0]?.shared_unit_id ?? null
+    }
+    return SharedSowIdResult.parse({ data: sharedUnitId, error: null })
+  } catch (e) {
+    return SharedSowIdResult.parse({ data: null, error: String(e) })
+  }
+}
+
+export async function removeSharedSowUnitAction(
+  sharedUnitId: string,
+): Promise<z.infer<typeof MutationResult>> {
+  try {
+    await requireRole('admin')
+    await query(`DELETE FROM sow_shared_units WHERE shared_unit_id = $1`, [sharedUnitId])
+    return MutationResult.parse({ data: null, error: null })
+  } catch (e) {
+    return MutationResult.parse({ data: null, error: String(e) })
+  }
+}
+
+export async function reorderSharedSowUnitsAction(input: {
+  sharedUnitIds: string[]
+}): Promise<z.infer<typeof MutationResult>> {
+  try {
+    await requireRole('admin')
+    // Position is the index in the list the admin dragged into shape.
+    await query(
+      `UPDATE sow_shared_units s
+          SET position = v.position
+         FROM unnest($1::uuid[]) WITH ORDINALITY AS v(shared_unit_id, position)
+        WHERE s.shared_unit_id = v.shared_unit_id`,
+      [input.sharedUnitIds],
+    )
+    return MutationResult.parse({ data: null, error: null })
+  } catch (e) {
+    return MutationResult.parse({ data: null, error: String(e) })
+  }
+}
+
+/** Subject and year-group pairs an admin can plan for: the ones classes exist in. */
+export async function readSharedSowScopesAction(): Promise<{
+  data: Array<{ subject: string; yearGroup: number; classCount: number }> | null
+  error: string | null
+}> {
+  try {
+    await requireRole('admin')
+    const { rows } = await query<{ subject: string; year_group: number; class_count: string }>(
+      `SELECT g.subject, g.year_group, count(*)::text AS class_count
+         FROM groups g
+        WHERE coalesce(g.active, true) = true
+          AND g.subject IS NOT NULL
+          AND g.year_group IS NOT NULL
+        GROUP BY g.subject, g.year_group
+        ORDER BY g.subject, g.year_group`,
+    )
+    return {
+      data: rows.map((r) => ({
+        subject: r.subject,
+        yearGroup: Number(r.year_group),
+        classCount: Number(r.class_count),
+      })),
+      error: null,
+    }
+  } catch (e) {
+    return { data: null, error: String(e) }
   }
 }

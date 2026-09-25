@@ -1674,6 +1674,23 @@ export const SowUnitPlacementSchema = z.object({
 });
 export type SowUnitPlacement = z.infer<typeof SowUnitPlacementSchema>;
 
+/**
+ * Mirrors public.sow_shared_units: the scheme of work for a subject and year
+ * group, shared by every class that teaches it. A class's own additions are
+ * SowUnitPlacement rows.
+ */
+export const SharedSowUnitSchema = z.object({
+  shared_unit_id: z.string(),
+  academic_year: z.number().int(),
+  subject: z.string(),
+  year_group: z.number().int(),
+  half_term_name: HalfTermNameSchema,
+  unit_id: z.string(),
+  unit_name: z.string().nullable(),
+  position: z.number().int(),
+});
+export type SharedSowUnit = z.infer<typeof SharedSowUnitSchema>;
+
 /** Mirrors public.sow_unit_notes. Keyed on the cell, not on a placement. */
 export const SowUnitNoteSchema = z.object({
   group_id: z.string(),

@@ -18,7 +18,7 @@ import {
   upsertSowUnitNoteAction,
 } from '@/lib/server-updates'
 import { HALF_TERM_NAMES } from '@/types'
-import type { HalfTerm, HalfTermName, SowHalfTermUnit, SowUnitNote, SowUnitPlacement, Unit } from '@/types'
+import type { HalfTerm, HalfTermName, SharedSowUnit, SowHalfTermUnit, SowUnitNote, SowUnitPlacement, Unit } from '@/types'
 
 type Props = {
   groupId: string
@@ -28,7 +28,13 @@ type Props = {
   halfTerms: HalfTerm[]
   /** Derived from planner_assignments — units whose lessons are timetabled. */
   htUnits: SowHalfTermUnit[]
+  /** The class's own additions on top of the shared plan. */
   initialPlacements: SowUnitPlacement[]
+  /**
+   * Planned centrally for this subject and year group, at Admin → Scheme of
+   * Work. Shown to the teacher but not theirs to change.
+   */
+  sharedUnits: SharedSowUnit[]
   initialNotes: SowUnitNote[]
   units: Unit[]
 }
@@ -37,18 +43,25 @@ type Props = {
  * A unit shown in one half-term cell.
  *
  * `timetabled` means its lessons are actually scheduled to this class inside
- * this half-term — that is what green reports. `planned` means a teacher put
- * it here by hand and nothing is scheduled yet. A unit that is both collapses
- * to one timetabled chip: the plan has been realised, so there is nothing to
- * show twice. Its placement row survives, so if the lessons are later
- * unscheduled the chip reverts to planned rather than disappearing.
+ * this half-term — that is what green reports. `planned` means it is in the
+ * plan and nothing is scheduled yet, whether that plan is the shared one or a
+ * unit this teacher added. A unit that is both collapses to one timetabled
+ * chip: the plan has been realised, so there is nothing to show twice. The
+ * planned row survives, so if the lessons are later unscheduled the chip
+ * reverts to planned rather than disappearing.
  */
 type Chip = {
   unitId: string
   unitName: string
   source: 'timetabled' | 'planned'
-  /** Present only for planned chips — a timetabled chip has nothing to remove. */
+  /**
+   * Set when this class added the unit itself, and the only case a teacher can
+   * remove. A chip from the shared plan, or one that is only timetabled, has
+   * nothing here.
+   */
   placementId: string | null
+  /** From the shared plan rather than this class's own additions. */
+  shared: boolean
   note: string | null
   sortKey: number
 }
@@ -68,6 +81,7 @@ export function SowHalfTermTable({
   halfTerms,
   htUnits,
   initialPlacements,
+  sharedUnits,
   initialNotes,
   units,
 }: Props) {
@@ -118,6 +132,8 @@ export function SowHalfTermTable({
       })
     }
 
+    const sharedAt = new Set(sharedUnits.map((s) => `${s.half_term_name}|${s.unit_id}`))
+
     for (const u of htUnits) {
       const name = idToName.get(u.half_term_id)
       if (!name) continue
@@ -127,8 +143,26 @@ export function SowHalfTermTable({
         unitName: u.unit_name ?? u.unit_id,
         source: 'timetabled',
         placementId: placed?.placementId ?? null,
+        shared: sharedAt.has(`${name}|${u.unit_id}`),
         note: noteFor(name, u.unit_id),
         sortKey: placed ? placed.position : u.position,
+      })
+    }
+
+    // The shared plan comes first: it is what the department agreed, and a
+    // class's own additions sit after it.
+    for (const su of sharedUnits) {
+      const list = out.get(su.half_term_name)
+      if (!list) continue
+      if (list.some((c) => c.unitId === su.unit_id)) continue
+      list.push({
+        unitId: su.unit_id,
+        unitName: su.unit_name ?? su.unit_id,
+        source: 'planned',
+        placementId: null,
+        shared: true,
+        note: noteFor(su.half_term_name, su.unit_id),
+        sortKey: su.position,
       })
     }
 
@@ -137,12 +171,13 @@ export function SowHalfTermTable({
       if (!list) continue
       // Already timetabled here: keep the single green chip rather than
       // showing the same unit twice in one cell.
-      if (list.some((c) => c.source === 'timetabled' && c.unitId === p.unit_id)) continue
+      if (list.some((c) => c.unitId === p.unit_id)) continue
       list.push({
         unitId: p.unit_id,
         unitName: p.unit_name ?? p.unit_id,
         source: 'planned',
         placementId: p.placement_id,
+        shared: false,
         note: noteFor(p.half_term_name, p.unit_id),
         sortKey: p.position,
       })
@@ -164,7 +199,7 @@ export function SowHalfTermTable({
       )
     }
     return out
-  }, [htUnits, placements, notes, idToName])
+  }, [htUnits, placements, sharedUnits, notes, idToName])
 
   // Filters on class id and subject, so "7A" and "design" both work. The
   // teacher usually knows the class code, and the list runs to dozens of
@@ -460,17 +495,26 @@ export function SowHalfTermTable({
                                 setNoteDraft(chip.note ?? '')
                               }}
                               className="flex-1 truncate text-left hover:underline"
-                              title={chip.note ? chip.note : 'Add a note'}
+                              title={
+                                chip.note
+                                  ? chip.note
+                                  : chip.shared
+                                    ? 'From the shared scheme of work. Click to add a note.'
+                                    : 'Add a note'
+                              }
                             >
                               {chip.unitName}
                             </button>
                             {chip.note ? <StickyNote className="h-3 w-3 shrink-0 opacity-70" /> : null}
-                            {/* Only a planned chip can be removed. A timetabled
-                                one is a read-out of the timetable — take the
-                                lessons out of the plan instead. Keyed on source,
-                                not on placementId: hand-ordering a cell gives
-                                timetabled chips a row too, and that must not put
-                                a remove button on them. */}
+                            {/* Only a unit this class added itself can be
+                                removed here. A timetabled chip is a read-out of
+                                the timetable — take the lessons out of the plan
+                                instead — and a shared one belongs to the
+                                department's scheme of work, changed at Admin →
+                                Scheme of Work. Both lack a placementId, which is
+                                what gates this; source alone would not, since
+                                hand-ordering a cell gives timetabled chips a row
+                                too. */}
                             {chip.source === 'planned' && chip.placementId ? (
                               <button
                                 type="button"

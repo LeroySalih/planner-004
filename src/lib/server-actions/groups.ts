@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { Client } from "pg";
+import { yearGroupFromGroupId } from "@/lib/sow/year-group";
 
 import {
   GroupMembershipsSchema,
@@ -171,8 +172,10 @@ export async function createGroupAction(
   try {
     await client.connect();
     const { rows } = await client.query(
-      "insert into groups (group_id, subject, join_code, active) values ($1, $2, $3, true) returning group_id, subject, join_code, active",
-      [groupId, subject, joinCode],
+      "insert into groups (group_id, subject, join_code, active, year_group) values ($1, $2, $3, true, $4) returning group_id, subject, join_code, active",
+      // Derived from the id the teacher typed, so a class created in bulk
+      // still lands in the right shared scheme of work. Editable afterwards.
+      [groupId, subject, joinCode, yearGroupFromGroupId(groupId)],
     );
     const row = rows[0] ?? null;
     const mapped = row
@@ -481,7 +484,11 @@ export async function updateGroupAction(
   oldGroupId: string,
   newGroupId: string,
   subject: string,
-  options?: { currentProfile?: AuthenticatedProfile | null; active?: boolean },
+  options?: {
+    currentProfile?: AuthenticatedProfile | null;
+    active?: boolean;
+    yearGroup?: number | null;
+  },
 ) {
   console.log("[v0] Server action started for group update:", {
     oldGroupId,
@@ -504,7 +511,17 @@ export async function updateGroupAction(
   try {
     await client.connect();
     const setClauses = ["group_id = $2", "subject = $3"];
-    const values: Array<string | boolean> = [oldGroupId, newGroupId, subject];
+    const values: Array<string | boolean | number | null> = [oldGroupId, newGroupId, subject];
+    // Renaming a class can change its year, and the year decides which shared
+    // scheme of work it follows. An explicit year wins; otherwise the new id
+    // is read, and a class whose id says nothing keeps whatever it had.
+    const derivedYearGroup = options?.yearGroup !== undefined
+      ? options.yearGroup
+      : yearGroupFromGroupId(newGroupId);
+    if (derivedYearGroup !== null) {
+      values.push(derivedYearGroup);
+      setClauses.push(`year_group = $${values.length}`);
+    }
     if (typeof options?.active === "boolean") {
       values.push(options.active);
       setClauses.push(`active = $${values.length}`);
@@ -1239,8 +1256,10 @@ export async function promoteGroupsAction(
         }
 
         await client.query(
-          "insert into groups (group_id, subject, join_code, active) values ($1, $2, $3, true)",
-          [newGroupId, source.subject, generateJoinCode()],
+          "insert into groups (group_id, subject, join_code, active, year_group) values ($1, $2, $3, true, $4)",
+          // Promotion renames the class to the next year, so its year group
+          // comes from the new id rather than the one it was copied from.
+          [newGroupId, source.subject, generateJoinCode(), yearGroupFromGroupId(newGroupId)],
         );
 
         await client.query(

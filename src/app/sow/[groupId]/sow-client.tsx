@@ -4,7 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { SowHalfTermTable } from '@/components/sow/SowHalfTermTable'
 import { SowWeekList } from '@/components/sow/SowWeekList'
-import type { HalfTerm, SowHalfTermUnit, SowUnitNote, SowUnitPlacement, Unit } from '@/types'
+import type { HalfTerm, SharedSowUnit, SowHalfTermUnit, SowUnitNote, SowUnitPlacement, Unit } from '@/types'
 import type { SowWeekLesson } from '@/lib/server-updates'
 
 type YearData = {
@@ -12,6 +12,7 @@ type YearData = {
   htUnits: SowHalfTermUnit[]
   lessons: SowWeekLesson[]
   placements: SowUnitPlacement[]
+  sharedUnits: SharedSowUnit[]
   notes: SowUnitNote[]
 }
 
@@ -82,6 +83,7 @@ export function SowClient({
         halfTerms={currentData.halfTerms}
         htUnits={currentData.htUnits}
         initialPlacements={currentData.placements}
+        sharedUnits={currentData.sharedUnits}
         initialNotes={currentData.notes}
         units={units}
       />
