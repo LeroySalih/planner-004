@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import {
   addSharedSowUnitAction,
   readHalfTermsAction,
+  readSharedSowDetailAction,
   readSharedSowUnitsAction,
   removeSharedSowUnitAction,
 } from '@/lib/server-updates'
@@ -16,6 +17,16 @@ import type { HalfTerm, HalfTermName, SharedSowUnit, Unit } from '@/types'
 
 type Scope = { subject: string; yearGroup: number; classCount: number }
 
+/** One planned unit written out in full, for the table under the grid. */
+type DetailRow = {
+  half_term_name: HalfTermName
+  position: number
+  unit_id: string
+  unit_name: string
+  description: string | null
+  objectives: string[]
+}
+
 type Props = {
   /** Subject and year-group pairs that have active classes. */
   scopes: Scope[]
@@ -23,6 +34,7 @@ type Props = {
   initialYear: number
   initialHalfTerms: HalfTerm[]
   initialSharedUnits: SharedSowUnit[]
+  initialDetail: DetailRow[]
   units: Unit[]
 }
 
@@ -46,6 +58,7 @@ export function SharedSowAdmin({
   initialYear,
   initialHalfTerms,
   initialSharedUnits,
+  initialDetail,
   units,
 }: Props) {
   const [year, setYear] = useState(initialYear)
@@ -54,6 +67,7 @@ export function SharedSowAdmin({
   )
   const [halfTerms, setHalfTerms] = useState(initialHalfTerms)
   const [sharedUnits, setSharedUnits] = useState(initialSharedUnits)
+  const [detail, setDetail] = useState(initialDetail)
   const [addingIn, setAddingIn] = useState<HalfTermName | null>(null)
   const [unitFilter, setUnitFilter] = useState('')
   const [isPending, startTransition] = useTransition()
@@ -98,12 +112,14 @@ export function SharedSowAdmin({
     const [subject, yearGroupRaw] = nextScopeKey.split('|')
     if (!subject) return
     const yearGroup = Number(yearGroupRaw)
-    const [htResult, suResult] = await Promise.all([
+    const [htResult, suResult, detailResult] = await Promise.all([
       readHalfTermsAction(nextYear),
       readSharedSowUnitsAction({ academicYear: nextYear, subject, yearGroup }),
+      readSharedSowDetailAction({ academicYear: nextYear, subject, yearGroup }),
     ])
     setHalfTerms(htResult.data ?? [])
     setSharedUnits(suResult.data ?? [])
+    setDetail((detailResult.data ?? []) as DetailRow[])
   }
 
   function handleYearChange(nextYear: number) {
@@ -157,6 +173,7 @@ export function SharedSowAdmin({
         return
       }
       setSharedUnits((prev) => prev.filter((s) => s.shared_unit_id !== su.shared_unit_id))
+      await reload(year, scopeKey)
     })
   }
 
@@ -300,6 +317,66 @@ export function SharedSowAdmin({
       <p className="text-xs text-muted-foreground">
         Changes here reach every class in the chosen subject and year group straight away.
       </p>
+
+      {/* The same plan written out in full. Both come from the one reload, so
+          the table cannot drift from the grid above it. */}
+      <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border bg-muted/50 text-left">
+              <th className="w-20 px-3 py-2 font-semibold text-foreground">Half term</th>
+              <th className="w-1/5 px-3 py-2 font-semibold text-foreground">Unit</th>
+              <th className="px-3 py-2 font-semibold text-foreground">Description</th>
+              <th className="w-2/5 px-3 py-2 font-semibold text-foreground">Learning objectives</th>
+            </tr>
+          </thead>
+          <tbody>
+            {detail.length === 0 ? (
+              <tr>
+                <td colSpan={4} className="px-3 py-6 text-center text-muted-foreground">
+                  Nothing planned yet. Add a unit above and it appears here.
+                </td>
+              </tr>
+            ) : (
+              detail.map((row, index) => {
+                // Only label the half term on its first row, so the eye groups
+                // the units that share one.
+                const firstOfHalfTerm =
+                  index === 0 || detail[index - 1].half_term_name !== row.half_term_name
+                return (
+                  <tr
+                    key={`${row.half_term_name}|${row.unit_id}`}
+                    className={`border-b border-border last:border-b-0 align-top ${
+                      firstOfHalfTerm ? '' : 'border-t-0'
+                    }`}
+                  >
+                    <td className="px-3 py-2 font-medium text-foreground">
+                      {firstOfHalfTerm ? row.half_term_name : ''}
+                    </td>
+                    <td className="px-3 py-2 text-foreground">{row.unit_name}</td>
+                    <td className="px-3 py-2 text-muted-foreground">
+                      {row.description?.trim()
+                        ? row.description
+                        : <span className="italic">No description</span>}
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground">
+                      {row.objectives.length === 0 ? (
+                        <span className="italic">None linked</span>
+                      ) : (
+                        <ul className="list-disc space-y-0.5 pl-4">
+                          {row.objectives.map((objective) => (
+                            <li key={objective}>{objective}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

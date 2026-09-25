@@ -772,3 +772,83 @@ export async function readSharedSowScopesAction(): Promise<{
     return { data: null, error: String(e) }
   }
 }
+
+const SharedSowDetailResult = z.object({
+  data: z
+    .array(
+      z.object({
+        half_term_name: HalfTermNameSchema,
+        position: z.number().int(),
+        unit_id: z.string(),
+        unit_name: z.string(),
+        description: z.string().nullable(),
+        objectives: z.array(z.string()),
+      }),
+    )
+    .nullable(),
+  error: z.string().nullable(),
+})
+
+/**
+ * The shared plan written out one unit per row, with what each unit is for.
+ *
+ * A unit reaches its learning objectives two ways — through the lessons in it,
+ * and through criteria mapped straight to it — and a unit may use either, so
+ * this takes both and de-duplicates. Reads the same plan as
+ * readSharedSowUnitsAction, so the table and the grid can never disagree.
+ */
+export async function readSharedSowDetailAction(input: {
+  academicYear: number
+  subject: string
+  yearGroup: number
+}): Promise<z.infer<typeof SharedSowDetailResult>> {
+  try {
+    await requireTeacherProfile()
+    const { rows } = await query<Record<string, unknown>>(
+      `WITH planned AS (
+         SELECT s.half_term_name, s.position, s.unit_id
+           FROM sow_shared_units s
+          WHERE s.academic_year = $1 AND s.subject = $2 AND s.year_group = $3
+       ),
+       unit_objectives AS (
+         SELECT p.unit_id, lo.learning_objective_id, lo.title, lo.order_index
+           FROM planned p
+           JOIN lessons l ON l.unit_id = p.unit_id
+           JOIN lessons_learning_objective llo ON llo.lesson_id = l.lesson_id
+           JOIN learning_objectives lo ON lo.learning_objective_id = llo.learning_objective_id
+         UNION
+         SELECT p.unit_id, lo.learning_objective_id, lo.title, lo.order_index
+           FROM planned p
+           JOIN success_criteria_units scu ON scu.unit_id = p.unit_id
+           JOIN success_criteria sc ON sc.success_criteria_id = scu.success_criteria_id
+           JOIN learning_objectives lo ON lo.learning_objective_id = sc.learning_objective_id
+       )
+       SELECT p.half_term_name,
+              p.position,
+              p.unit_id,
+              coalesce(u.title, p.unit_id) AS unit_name,
+              u.description,
+              coalesce(
+                (SELECT array_agg(o.title ORDER BY o.order_index NULLS LAST, o.title)
+                   FROM (SELECT DISTINCT unit_id, title, order_index FROM unit_objectives) o
+                  WHERE o.unit_id = p.unit_id),
+                '{}'
+              ) AS objectives
+         FROM planned p
+         LEFT JOIN units u ON u.unit_id = p.unit_id
+        ORDER BY p.half_term_name, p.position`,
+      [input.academicYear, input.subject, input.yearGroup],
+    )
+    const data = rows.map((r) => ({
+      half_term_name: r.half_term_name as string,
+      position: Number(r.position),
+      unit_id: r.unit_id as string,
+      unit_name: r.unit_name as string,
+      description: (r.description as string | null) ?? null,
+      objectives: ((r.objectives as string[] | null) ?? []).filter(Boolean),
+    }))
+    return SharedSowDetailResult.parse({ data, error: null })
+  } catch (e) {
+    return SharedSowDetailResult.parse({ data: null, error: String(e) })
+  }
+}

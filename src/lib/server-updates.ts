@@ -454,4 +454,5 @@ export {
   removeSharedSowUnitAction,
   reorderSharedSowUnitsAction,
   readSharedSowScopesAction,
+  readSharedSowDetailAction,
 } from './server-actions/sow'

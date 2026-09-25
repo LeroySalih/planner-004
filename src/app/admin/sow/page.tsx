@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic"
 import { SharedSowAdmin } from "@/components/admin/shared-sow-admin"
 import {
   readHalfTermsAction,
+  readSharedSowDetailAction,
   readSharedSowScopesAction,
   readSharedSowUnitsAction,
   readUnitsAction,
@@ -23,10 +24,17 @@ export default async function SharedSowAdminPage() {
   // Open on the first subject and year group that has classes, so the page
   // arrives showing a plan rather than an empty chooser.
   const first = scopes[0] ?? null
-  const [halfTermsResult, initialUnitsResult] = await Promise.all([
+  const [halfTermsResult, initialUnitsResult, initialDetailResult] = await Promise.all([
     readHalfTermsAction(year),
     first
       ? readSharedSowUnitsAction({
+        academicYear: year,
+        subject: first.subject,
+        yearGroup: first.yearGroup,
+      })
+      : Promise.resolve({ data: [], error: null }),
+    first
+      ? readSharedSowDetailAction({
         academicYear: year,
         subject: first.subject,
         yearGroup: first.yearGroup,
@@ -59,6 +67,7 @@ export default async function SharedSowAdminPage() {
           initialYear={year}
           initialHalfTerms={halfTermsResult.data ?? []}
           initialSharedUnits={initialUnitsResult.data ?? []}
+          initialDetail={initialDetailResult.data ?? []}
           units={unitsResult.data ?? []}
         />
       )}
