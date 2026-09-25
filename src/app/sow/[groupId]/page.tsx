@@ -4,6 +4,7 @@ import {
   readHalfTermsAction,
   readSowHalfTermUnitsAction,
   readSowUnitPlacementsAction,
+  readSharedSowForGroupAction,
   readSowUnitNotesAction,
   readGroupSowLessonsAction,
   readTeacherGroupsForSowAction,
@@ -14,22 +15,26 @@ import { SOW_GROUP_ACCESS_PREDICATE } from '@/lib/sow/group-access'
 import { SowClient } from './sow-client'
 import { notFound } from 'next/navigation'
 import { academicYearFromGroupId, fetchActiveAcademicYears, resolveCurrentAcademicYear } from '@/lib/academic-year'
-import type { HalfTerm, SowHalfTermUnit, SowUnitNote, SowUnitPlacement, Unit } from '@/types'
+import type { HalfTerm, SharedSowUnit, SowHalfTermUnit, SowUnitNote, SowUnitPlacement, Unit } from '@/types'
 
 type YearData = {
   halfTerms: HalfTerm[]
   htUnits: SowHalfTermUnit[]
   lessons: SowWeekLesson[]
+  /** The class's own additions on top of the shared plan. */
   placements: SowUnitPlacement[]
+  /** Planned for every class in this subject and year group. */
+  sharedUnits: SharedSowUnit[]
   notes: SowUnitNote[]
 }
 
 async function fetchYearData(groupId: string, year: number): Promise<YearData> {
-  const [ht, htu, lp, pl, nt] = await Promise.all([
+  const [ht, htu, lp, pl, sh, nt] = await Promise.all([
     readHalfTermsAction(year),
     readSowHalfTermUnitsAction(groupId, year),
     readGroupSowLessonsAction(groupId, year),
     readSowUnitPlacementsAction(groupId, year),
+    readSharedSowForGroupAction(groupId, year),
     readSowUnitNotesAction(groupId, year),
   ])
   return {
@@ -37,6 +42,7 @@ async function fetchYearData(groupId: string, year: number): Promise<YearData> {
     htUnits: htu.data ?? [],
     lessons: lp.data ?? [],
     placements: pl.data ?? [],
+    sharedUnits: sh.data ?? [],
     notes: nt.data ?? [],
   }
 }
