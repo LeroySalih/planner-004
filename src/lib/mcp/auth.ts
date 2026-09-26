@@ -19,9 +19,15 @@ function extractToken(headerValue: string | null): string | null {
 export function verifyMcpAuthorization(request: NextRequest): AuthResult {
   const configuredKey = process.env.MCP_SERVICE_KEY
 
+  // Fail closed. This used to allow every request when the key was unset,
+  // which meant a deploy that lost the variable silently opened the whole
+  // database to anyone who found the URL — with nothing but a warning in the
+  // logs to say so. MCP_SERVICE_KEY is in REQUIRED_ENV, so a correctly booted
+  // server never reaches this; it is here for the paths that skip
+  // instrumentation, such as tests and scripts.
   if (!configuredKey) {
-    console.warn("[mcp] MCP_SERVICE_KEY is not configured; allowing request by default")
-    return { authorized: true }
+    console.error("[mcp] MCP_SERVICE_KEY is not configured; refusing every request")
+    return { authorized: false, reason: "MCP is not configured on this server." }
   }
 
   for (const headerKey of HEADER_KEYS) {

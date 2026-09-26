@@ -82,7 +82,8 @@ export function middleware(request: NextRequest) {
   // servers. Claude Code performs full OAuth 2.0 discovery before connecting.
   // We serve a minimal OAuth AS that auto-approves every authorization request
   // so Claude Code can obtain a Bearer token without any user interaction.
-  // The token is accepted by verifyMcpAuthorization when MCP_SERVICE_KEY is unset.
+  // The token it issues IS MCP_SERVICE_KEY (see /oauth/token), which is what
+  // verifyMcpAuthorization checks against.
   const origin = request.nextUrl.origin
 
   if (pathname.startsWith("/.well-known/oauth-protected-resource")) {
