@@ -2393,3 +2393,207 @@ export async function bulkOverrideAssignmentScoresAction(
     });
   }
 }
+
+const ClearAssignmentInputSchema = z.object({
+  assignmentId: z.string().min(3),
+  /** Typed by the teacher in the dialog; must equal the group id to proceed. */
+  confirmation: z.string().min(1),
+})
+
+const ClearAssignmentReturnSchema = z.object({
+  success: z.boolean(),
+  error: z.string().nullable(),
+  submissions: z.number(),
+  files: z.number(),
+})
+
+/**
+ * Collect every stored file path a submission body refers to.
+ *
+ * Uploads are recorded three different ways depending on the activity type —
+ * upload-file keeps an `uploaded_files` array, upload-spreadsheet a single
+ * `filePath`, upload-worksheet an `images` array — so all three are read here.
+ * Miss one and the row goes but the file stays on disk forever.
+ */
+function storedFilePathsFromBody(body: unknown): string[] {
+  if (!body || typeof body !== "object") return []
+  const record = body as Record<string, unknown>
+  const paths: string[] = []
+
+  const uploaded = record.uploaded_files
+  if (Array.isArray(uploaded)) {
+    for (const entry of uploaded) {
+      const path = (entry as { path?: unknown })?.path
+      if (typeof path === "string" && path.trim()) paths.push(path.trim())
+    }
+  }
+
+  const filePath = record.filePath
+  if (typeof filePath === "string" && filePath.trim()) paths.push(filePath.trim())
+
+  const images = record.images
+  if (Array.isArray(images)) {
+    for (const image of images) {
+      const path = (image as { filePath?: unknown })?.filePath
+      if (typeof path === "string" && path.trim()) paths.push(path.trim())
+    }
+  }
+
+  return paths
+}
+
+/**
+ * Delete every submission a class has made against one lesson, with the marks,
+ * feedback and uploaded files that hang off them.
+ *
+ * Scoped to the class whose results are open, not to the lesson everywhere: the
+ * page shows one class, and a button that also wiped the other seven studying
+ * the same lesson would destroy work nobody was looking at.
+ *
+ * Nothing here is recoverable from the app, which is why the caller must type
+ * the group id back and why the counts are reported afterwards.
+ */
+export async function clearAssignmentSubmissionsAction(
+  input: z.infer<typeof ClearAssignmentInputSchema>,
+) {
+  const teacherProfile = await requireTeacherProfile()
+
+  const parsed = ClearAssignmentInputSchema.safeParse(input)
+  if (!parsed.success) {
+    return ClearAssignmentReturnSchema.parse({
+      success: false,
+      error: "Invalid request.",
+      submissions: 0,
+      files: 0,
+    })
+  }
+
+  const identifiers = decodeAssignmentId(parsed.data.assignmentId)
+  if (!identifiers) {
+    return ClearAssignmentReturnSchema.parse({
+      success: false,
+      error: "Assignment not found.",
+      submissions: 0,
+      files: 0,
+    })
+  }
+  const { groupId, lessonId } = identifiers
+
+  if (parsed.data.confirmation.trim() !== groupId) {
+    return ClearAssignmentReturnSchema.parse({
+      success: false,
+      error: `Type ${groupId} to confirm.`,
+      submissions: 0,
+      files: 0,
+    })
+  }
+
+  try {
+    // Everyone in the class, staff included: a teacher's own test submission
+    // is part of what "clear this class's work" means, and leaving it behind
+    // would make the lesson look uncleared.
+    const { rows: submissionRows } = await query<{
+      submission_id: string
+      body: unknown
+    }>(
+      `SELECT s.submission_id, s.body
+         FROM submissions s
+         JOIN activities a ON a.activity_id = s.activity_id
+        WHERE a.lesson_id = $1
+          AND s.user_id IN (SELECT user_id FROM group_membership WHERE group_id = $2)`,
+      [lessonId, groupId],
+    )
+
+    const submissionIds = submissionRows.map((row) => row.submission_id)
+    const filePaths = Array.from(
+      new Set(submissionRows.flatMap((row) => storedFilePathsFromBody(row.body))),
+    )
+
+    if (submissionIds.length === 0 && filePaths.length === 0) {
+      return ClearAssignmentReturnSchema.parse({
+        success: true,
+        error: null,
+        submissions: 0,
+        files: 0,
+      })
+    }
+
+    // Files first: a failure here leaves the rows intact, so the teacher can
+    // see it did not work and try again. The other order would strand the
+    // files with nothing left pointing at them.
+    let filesRemoved = 0
+    if (filePaths.length > 0) {
+      const storage = createLocalStorageClient("lessons")
+      const { error: storageError } = await storage.remove(filePaths)
+      if (storageError) {
+        console.error("[assignment-results] clear: file removal failed", storageError)
+        return ClearAssignmentReturnSchema.parse({
+          success: false,
+          error: "Could not delete the uploaded files, so nothing was cleared.",
+          submissions: 0,
+          files: 0,
+        })
+      }
+      filesRemoved = filePaths.length
+    }
+
+    // submission_sc_marks has no foreign key to submissions, so its rows
+    // outlive a delete unless they go explicitly. pupil_activity_feedback and
+    // short_text_feedback_events are ON DELETE SET NULL, which would leave
+    // orphaned feedback behind for the same reason. submission_comments
+    // cascades on its own.
+    await query(`DELETE FROM submission_sc_marks WHERE submission_id = ANY($1::text[])`, [submissionIds])
+    await query(`DELETE FROM short_text_feedback_events WHERE submission_id = ANY($1::text[])`, [submissionIds])
+    await query(
+      `DELETE FROM pupil_activity_feedback
+        WHERE activity_id IN (SELECT activity_id FROM activities WHERE lesson_id = $1)
+          AND pupil_id IN (SELECT user_id FROM group_membership WHERE group_id = $2)`,
+      [lessonId, groupId],
+    )
+    await query(
+      `DELETE FROM feedback
+        WHERE lesson_id = $1
+          AND user_id IN (SELECT user_id FROM group_membership WHERE group_id = $2)`,
+      [lessonId, groupId],
+    )
+    await query(
+      `DELETE FROM submission_resubmit_requests
+        WHERE activity_id IN (SELECT activity_id FROM activities WHERE lesson_id = $1)
+          AND user_id IN (SELECT user_id FROM group_membership WHERE group_id = $2)`,
+      [lessonId, groupId],
+    )
+    // Queued marking for work that no longer exists would fail and retry.
+    await query(
+      `DELETE FROM external_jobs
+        WHERE job_type = 'ai_mark'
+          AND payload->>'submissionId' = ANY($1::text[])`,
+      [submissionIds],
+    )
+    await query(`DELETE FROM submissions WHERE submission_id = ANY($1::text[])`, [submissionIds])
+
+    console.log("[assignment-results] cleared assignment", {
+      groupId,
+      lessonId,
+      teacher: teacherProfile.userId,
+      submissions: submissionIds.length,
+      files: filesRemoved,
+    })
+
+    revalidatePath(`/results/assignments/${parsed.data.assignmentId}`)
+
+    return ClearAssignmentReturnSchema.parse({
+      success: true,
+      error: null,
+      submissions: submissionIds.length,
+      files: filesRemoved,
+    })
+  } catch (error) {
+    console.error("[assignment-results] clear failed", error)
+    return ClearAssignmentReturnSchema.parse({
+      success: false,
+      error: "Unable to clear the submissions.",
+      submissions: 0,
+      files: 0,
+    })
+  }
+}

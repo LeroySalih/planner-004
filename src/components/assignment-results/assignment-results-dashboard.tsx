@@ -21,7 +21,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { CriterionMarksPanel } from "@/components/assignment-results/criterion-marks-panel"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
@@ -32,6 +32,7 @@ import {
   listPupilActivitySubmissionsAction,
   overrideAssignmentScoreAction,
   bulkOverrideAssignmentScoresAction,
+  clearAssignmentSubmissionsAction,
   clearActivityAiMarksAction,
   resetAssignmentScoreAction,
   updateAssignmentFeedbackVisibilityAction,
@@ -1161,6 +1162,42 @@ export function AssignmentResultsDashboard({
       setQuestionGuidanceEditor(null)
     })
   }, [questionGuidanceEditor])
+
+  const [clearOpen, setClearOpen] = useState(false)
+  const [clearConfirmation, setClearConfirmation] = useState("")
+  const [clearPending, startClearTransition] = useTransition()
+
+  // Deletes a class's work for this lesson outright: answers, marks, feedback
+  // and uploaded files. Nothing here can be undone from the app, so the dialog
+  // asks for the group id rather than a single click.
+  const handleClearSubmissions = useCallback(() => {
+    const groupId = matrixState.group?.groupId ?? ""
+    startClearTransition(async () => {
+      try {
+        const result = await clearAssignmentSubmissionsAction({
+          assignmentId: matrixState.assignmentId,
+          confirmation: clearConfirmation,
+        })
+        if (!result.success) {
+          toast.error(result.error ?? "Unable to clear the submissions.")
+          return
+        }
+        setClearOpen(false)
+        setClearConfirmation("")
+        toast.success(
+          result.submissions === 0
+            ? `Nothing to clear for ${groupId}.`
+            : `Cleared ${result.submissions} submission${result.submissions === 1 ? "" : "s"}` +
+              (result.files > 0 ? ` and ${result.files} file${result.files === 1 ? "" : "s"}` : "") +
+              ".",
+        )
+        router.refresh()
+      } catch (error) {
+        console.error("[assignment-results] clear failed", error)
+        toast.error("Unable to clear the submissions.")
+      }
+    })
+  }, [matrixState.group?.groupId, matrixState.assignmentId, clearConfirmation, router, startClearTransition])
 
   const [bulkMarkPending, startBulkMarkTransition] = useTransition()
 
@@ -3306,6 +3343,23 @@ export function AssignmentResultsDashboard({
                     {aiMarkPending ? "Queueing..." : "Mark All"}
                   </Button>
                 </div>
+                <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-3">
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-foreground">Clear pupil submissions</p>
+                    <p className="text-xs text-muted-foreground">
+                      Delete every answer, mark, feedback entry and uploaded file this class
+                      has for this lesson. Cannot be undone.
+                    </p>
+                  </div>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => { setClearConfirmation(""); setClearOpen(true) }}
+                    disabled={clearPending}
+                  >
+                    Clear…
+                  </Button>
+                </div>
               </div>
             </div>
           </details>
@@ -3713,6 +3767,60 @@ export function AssignmentResultsDashboard({
           ) : null}
         </SheetContent>
       </Sheet>
+
+      {/* Typing the group id back is the guard: this deletes a class's work
+          outright and there is no undo inside the app. */}
+      <Dialog open={clearOpen} onOpenChange={(open) => { if (!clearPending) setClearOpen(open) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Clear pupil submissions</DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>
+                  This deletes every answer, mark, feedback entry and uploaded file that{" "}
+                  <span className="font-semibold text-foreground">{(matrixState.group?.groupId ?? "")}</span>{" "}
+                  has for{" "}
+                  <span className="font-semibold text-foreground">
+                    {matrixState.lesson?.title ?? "this lesson"}
+                  </span>.
+                </p>
+                <p>
+                  Other classes studying this lesson are not affected. It cannot be undone.
+                </p>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label htmlFor="clear-confirm" className="text-sm text-foreground">
+              Type <span className="font-mono font-semibold">{(matrixState.group?.groupId ?? "")}</span> to confirm
+            </label>
+            <Input
+              id="clear-confirm"
+              value={clearConfirmation}
+              onChange={(event) => setClearConfirmation(event.target.value)}
+              placeholder={(matrixState.group?.groupId ?? "")}
+              autoComplete="off"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setClearOpen(false)}
+              disabled={clearPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleClearSubmissions}
+              disabled={clearPending || clearConfirmation.trim() !== (matrixState.group?.groupId ?? "")}
+            >
+              {clearPending ? "Clearing…" : "Clear submissions"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {selection && (
         <aside className="sticky top-4 flex h-[calc(100vh-2rem)] w-[400px] shrink-0 flex-col gap-4 overflow-hidden rounded-lg border border-border bg-card p-6 shadow-sm">
               <div className="flex items-start justify-between gap-2">

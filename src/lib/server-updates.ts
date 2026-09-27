@@ -90,6 +90,7 @@ export { readAssignmentsBootstrapAction, readAssignmentsBootstrapForGroupsAction
 
 export {
   bulkOverrideAssignmentScoresAction,
+  clearAssignmentSubmissionsAction,
   clearActivityAiMarksAction,
   overrideAssignmentScoreAction,
   readActivityMarkingGuidanceAction,
