@@ -64,6 +64,7 @@ export async function readPupilTasksAction(userId: string): Promise<{
         on r.activity_id = s.activity_id and r.user_id = s.user_id and r.requested = true
       where s.user_id = $1
         and coalesce(l.active, true) = true
+        and coalesce(l.hidden_from_pupils, false) = false
         and coalesce(a.active, true) = true
         and coalesce(g.active, true) = true
       order by s.activity_id, s.attempt_number desc
@@ -106,6 +107,7 @@ export async function readPupilTasksAction(userId: string): Promise<{
         join group_membership gm on gm.group_id = la.group_id and gm.user_id = $1
         join groups g on g.group_id = la.group_id
         where coalesce(l.active, true) = true
+        and coalesce(l.hidden_from_pupils, false) = false
           and coalesce(g.active, true) = true
           and la.start_date is not null
           and (la.start_date::date + interval '7 days') < now()

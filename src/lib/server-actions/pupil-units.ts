@@ -3,6 +3,7 @@
 import { z } from "zod";
 
 import { query } from "@/lib/db";
+import { getAuthenticatedProfile, hasRole } from "@/lib/auth";
 import { withTelemetry } from "@/lib/telemetry";
 
 const PupilProfileSchema = z
@@ -50,7 +51,10 @@ const LessonAssignmentSchema = z.object({
   subject: z.string().nullable(),
   start_date: z.string().nullable(),
   feedback_visible: z.boolean(),
+  /** This class's assignment is withheld. */
   hidden: z.boolean(),
+  /** The lesson itself is withheld, from every class studying it. */
+  hidden_from_pupils: z.boolean(),
   locked: z.boolean(),
 });
 
@@ -157,6 +161,10 @@ export async function readPupilUnitsBootstrapAction(
 
       try {
         const normalizedPupilId = pupilId.trim();
+        // Teachers are exempt, or they could not check what they had hidden —
+        // the same rule the pupil lesson lists use.
+        const viewer = await getAuthenticatedProfile();
+        const viewerIsTeacher = Boolean(viewer && hasRole(viewer, "teacher"));
         const [profileResult, membershipResult, assignmentsResult] =
           await Promise.all([
             query<{
@@ -194,6 +202,7 @@ export async function readPupilUnitsBootstrapAction(
               start_date: string | Date | null;
               feedback_visible: boolean | null;
               hidden: boolean | null;
+              hidden_from_pupils: boolean | null;
               locked: boolean | null;
             }>(
               `
@@ -215,6 +224,7 @@ export async function readPupilUnitsBootstrapAction(
                 la.start_date,
                 coalesce(la.feedback_visible, false) as feedback_visible,
                 coalesce(la.hidden, false) as hidden,
+                coalesce(l.hidden_from_pupils, false) as hidden_from_pupils,
                 coalesce(la.locked, false) as locked
               from target_memberships tm
               join lesson_assignments la on la.group_id = tm.group_id
@@ -266,11 +276,21 @@ export async function readPupilUnitsBootstrapAction(
                 : null,
               feedback_visible: Boolean(row.feedback_visible),
               hidden: Boolean(row.hidden),
+              hidden_from_pupils: Boolean(row.hidden_from_pupils),
               locked: Boolean(row.locked),
             })
           )
+          // Two separate kinds of hiding, and this page honoured only the
+          // first: `la.hidden` withholds one class's assignment, while
+          // `lessons.hidden_from_pupils` withholds the lesson from every class
+          // studying it. Missing the second meant a lesson a teacher had
+          // hidden still appeared here, which is where pupils were finding
+          // assessments they were not meant to see yet.
           .filter((assignment) =>
-            assignment.unit_id && assignment.lesson_id && !assignment.hidden
+            assignment.unit_id &&
+            assignment.lesson_id &&
+            !assignment.hidden &&
+            (viewerIsTeacher || !assignment.hidden_from_pupils)
           );
 
         const lessonIds = Array.from(
