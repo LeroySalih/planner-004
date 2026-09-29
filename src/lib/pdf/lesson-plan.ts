@@ -33,6 +33,44 @@ const ROUTE_TAG = "/api/lesson-plan/[lessonId]"
  * Null when the lesson does not exist — the caller decides whether that is a
  * 404 or a file to leave out of the archive.
  */
+/**
+ * Make a rich-text field safe to lay out as PDF text.
+ *
+ * Teachers paste screenshots into questions, and the editor stores them inline
+ * as base64 data URIs — one was 157,000 characters. Handed to <Text>, that is a
+ * single word with nowhere to break, and the layout engine hangs trying to fit
+ * it: the 5.2.3 Resistors plan brought the whole download down.
+ *
+ * So: drop embedded images, reduce the markup to plain text, and cap what is
+ * left. A lesson plan is for the teacher to read, not a faithful reproduction
+ * of the pupil-facing page.
+ */
+const PDF_TEXT_LIMIT = 4000
+
+function toPdfText(value: string | null | undefined): string {
+  if (!value) return ""
+  return value
+    // Inline images first, before tag stripping leaves the base64 behind.
+    .replace(/<img[^>]*>/gi, " [image] ")
+    .replace(/data:[a-zA-Z0-9/+.-]+;base64,[A-Za-z0-9+/=]+/g, " [image] ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|li|h[1-6])>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    // A long unbroken run with no spaces is the same hazard as a data URI,
+    // whatever produced it.
+    .replace(/\S{200,}/g, (run) => `${run.slice(0, 200)}…`)
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+    .slice(0, PDF_TEXT_LIMIT)
+}
+
 export async function renderLessonPlanPdf(
   lessonId: string,
   baseUrl: string,
@@ -106,8 +144,8 @@ export async function renderLessonPlanPdf(
           return {
             ...base,
             kind: "mcq" as const,
-            question,
-            options: options.map((o) => ({ id: o.id, text: o.text })),
+            question: toPdfText(question),
+            options: options.map((o) => ({ id: o.id, text: toPdfText(o.text) })),
             correctOptionId,
             imageDataUri,
           }
@@ -119,8 +157,8 @@ export async function renderLessonPlanPdf(
           return {
             ...base,
             kind: "short-text" as const,
-            question: parsed.data.question,
-            modelAnswer: parsed.data.modelAnswer,
+            question: toPdfText(parsed.data.question),
+            modelAnswer: toPdfText(parsed.data.modelAnswer),
           }
         }
 
@@ -179,12 +217,12 @@ export async function renderLessonPlanPdf(
         }
 
         case "text": {
-          const content = (body?.text as string | undefined) ?? ""
+          const content = toPdfText(body?.text as string | undefined)
           return { ...base, kind: "text" as const, content }
         }
 
         case "upload-file": {
-          const instructions = (body?.instructions as string | undefined) ?? ""
+          const instructions = toPdfText(body?.instructions as string | undefined)
           return { ...base, kind: "text" as const, content: instructions }
         }
 
