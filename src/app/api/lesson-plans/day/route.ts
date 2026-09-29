@@ -1,5 +1,4 @@
 import archiver from "archiver"
-import { PassThrough } from "node:stream"
 
 import { getAuthenticatedProfile, hasRole } from "@/lib/auth"
 import { query } from "@/lib/db"
@@ -65,40 +64,54 @@ export async function GET(request: Request) {
   const baseUrl = getBaseUrl(request)
   const archiveName = `${day}-${dateForDay(week, day)}.zip`
 
-  const stream = new PassThrough()
+  // Built in full before replying, the same as the single-lesson route, which
+  // returns a Uint8Array. The first version piped a Node PassThrough into
+  // `new Response(stream as unknown as ReadableStream)` — a cast that compiles
+  // and then fails at runtime, because a Node stream is not a web one. The
+  // browser got a broken response it saved as "day.txt", and because the
+  // rendering ran detached in a background task, every retry started another
+  // full day's worth of renders that nothing was waiting for. That is what
+  // locked the server.
   const archive = archiver("zip", { zlib: { level: 9 } })
-  archive.pipe(stream)
-
-  void (async () => {
-    try {
-      const used = new Set<string>()
-      for (const row of rows) {
-        const plan = await renderLessonPlanPdf(row.lesson_id, baseUrl)
-        if (!plan) continue
-
-        // Period and class prefix the name: the same lesson can be taught to
-        // several classes in a day, and a zip cannot hold two identical names.
-        let name = `P${row.period}-${row.group_id}-${plan.fileName}`
-        let n = 2
-        while (used.has(name)) name = `P${row.period}-${row.group_id}-${n++}-${plan.fileName}`
-        used.add(name)
-
-        archive.append(plan.buffer, { name })
-      }
-      await archive.finalize()
-    } catch (error) {
-      console.error("[lesson-plans/day] Failed to build archive", error)
-      archive.abort()
-      stream.destroy(error instanceof Error ? error : new Error("Archive failed"))
-    }
-  })()
-
-  return new Response(stream as unknown as ReadableStream, {
-    status: 200,
-    headers: {
-      "Content-Type": "application/zip",
-      "Content-Disposition": `attachment; filename="${archiveName}"`,
-      "Cache-Control": "no-store",
-    },
+  const chunks: Buffer[] = []
+  const collected = new Promise<Buffer>((resolve, reject) => {
+    archive.on("data", (chunk: Buffer) => chunks.push(chunk))
+    archive.on("end", () => resolve(Buffer.concat(chunks)))
+    archive.on("error", reject)
   })
+
+  try {
+    const used = new Set<string>()
+    for (const row of rows) {
+      const plan = await renderLessonPlanPdf(row.lesson_id, baseUrl)
+      if (!plan) continue
+
+      // Period and class prefix the name: the same lesson can be taught to
+      // several classes in a day, and a zip cannot hold two identical names.
+      let name = `P${row.period}-${row.group_id}-${plan.fileName}`
+      let n = 2
+      while (used.has(name)) name = `P${row.period}-${row.group_id}-${n++}-${plan.fileName}`
+      used.add(name)
+
+      archive.append(plan.buffer, { name })
+    }
+    await archive.finalize()
+    const body = await collected
+
+    return new Response(new Uint8Array(body), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/zip",
+        "Content-Disposition": `attachment; filename="${archiveName}"`,
+        "Content-Length": String(body.length),
+        "Cache-Control": "no-store",
+      },
+    })
+  } catch (error) {
+    console.error("[lesson-plans/day] Failed to build archive", error)
+    archive.abort()
+    // A real status, so the browser reports a failure rather than saving the
+    // error as the file the teacher asked for.
+    return new Response("Could not build the lesson plans for that day", { status: 500 })
+  }
 }
