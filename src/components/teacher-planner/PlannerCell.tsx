@@ -23,7 +23,7 @@ type PlannerCellProps = {
    * The lesson in this slot the previous week, if any. Carries its group so the
    * link is only offered when the slot still holds the same class.
    */
-  lastWeek: { lessonId: string; groupId: string } | null
+  lastWeek: { lessonId: string; groupId: string; title: string } | null
   isSelected: boolean
   onCellClick: (day: Day, period: number) => void
   onUnitSelect: (unitId: string) => void
@@ -194,8 +194,10 @@ export function PlannerCell({
         </span>
       )}
 
-      {/* Icon row — shown when a group + at least one lesson assigned */}
-      {hasGroup && lessonCount > 0 && (
+      {/* Icon row — a lesson assigned, or last week's to look back at. The HW
+          link is most wanted precisely when this week's slot is still empty:
+          it is what the teacher is deciding against. */}
+      {hasGroup && (lessonCount > 0 || homeworkHref) && (
         <>
           <hr
             className={cn(
@@ -218,10 +220,10 @@ export function PlannerCell({
                   : anyIssue
                   ? 'text-[#A32D2D] opacity-50 hover:opacity-100'
                   : 'text-[var(--color-text-tertiary)] opacity-50 hover:opacity-100',
-                readOnly && 'cursor-default opacity-30',
+                (readOnly || !currentLesson) && 'cursor-default opacity-30',
               )}
               onClick={() => !readOnly && currentLesson && onFeedbackToggle(day, period, currentLesson.lessonId)}
-              disabled={readOnly}
+              disabled={readOnly || !currentLesson}
               title="Toggle feedback visible"
             >
               ✓
@@ -260,7 +262,9 @@ export function PlannerCell({
                   'flex items-center justify-center rounded-[2px] px-1 h-[16px] text-[9px] font-medium opacity-60 hover:opacity-100 transition-opacity',
                   anyIssue ? 'text-[#A32D2D]' : 'text-[var(--color-text-tertiary)]',
                 )}
-                title="Last week's homework — grades / feedback"
+                // The lesson it opens, named — a teacher setting this week's
+                // work wants to see which lesson last week's slot held.
+                title={lastWeek?.title ?? "Last week's homework — grades / feedback"}
                 onClick={(e) => e.stopPropagation()}
               >
                 HW

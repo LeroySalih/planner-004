@@ -56,7 +56,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
   // HW link. The group is kept alongside so the link can be withheld when the
   // slot has changed class since — otherwise it would open another class's work.
   const [previousWeekLessons, setPreviousWeekLessons] = useState<
-    Map<string, Map<string, { lessonId: string; groupId: string }>>
+    Map<string, Map<string, { lessonId: string; groupId: string; title: string }>>
   >(new Map())
 
   const readOnly = selectedTeacherId !== currentTeacherId && !isAdmin
@@ -114,11 +114,18 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
     // Fire-and-forget: the grid is useful without it.
     void readPlannerAssignmentsForWeekAction(shiftWeek(week, -1), teacherId).then((previous) => {
       if (previous.error || !previous.data) return
-      const bySlot = new Map<string, { lessonId: string; groupId: string }>()
+      const bySlot = new Map<string, { lessonId: string; groupId: string; title: string }>()
       for (const pa of previous.data) {
         const key = slotKey(pa.day as Day, pa.period)
-        // First lesson in the slot wins; a slot may hold several.
-        if (!bySlot.has(key)) bySlot.set(key, { lessonId: pa.lesson_id, groupId: pa.group_id })
+        // First lesson in the slot wins; a slot may hold several. The title
+        // rides along so the link can name the lesson it opens.
+        if (!bySlot.has(key)) {
+          bySlot.set(key, {
+            lessonId: pa.lesson_id,
+            groupId: pa.group_id,
+            title: pa.lesson_title ?? 'Untitled lesson',
+          })
+        }
       }
       setPreviousWeekLessons((prev) => {
         const next = new Map(prev)
@@ -199,7 +206,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
   const plannerState = weeklyStates.get(cacheKey(selectedTeacherId, currentWeek)) ?? new Map<string, CellState>()
   const lastWeekBySlot =
     previousWeekLessons.get(cacheKey(selectedTeacherId, currentWeek)) ??
-    new Map<string, { lessonId: string; groupId: string }>()
+    new Map<string, { lessonId: string; groupId: string; title: string }>()
 
   const updateSlot = useCallback(
     (day: Day, period: number, update: (s: CellState) => CellState) => {

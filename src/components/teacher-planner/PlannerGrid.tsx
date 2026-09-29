@@ -16,7 +16,7 @@ type PlannerGridProps = {
   lessonCache: Map<string, LessonWithObjectives[]>
   lessonScores: Map<string, number | null>
   /** slotKey -> the lesson in that slot the previous week, for the HW link. */
-  lastWeekBySlot: Map<string, { lessonId: string; groupId: string }>
+  lastWeekBySlot: Map<string, { lessonId: string; groupId: string; title: string }>
   /** Sunday that starts the displayed week, ISO. Used by the per-day plan download. */
   currentWeek: string
   /** Whose timetable is on screen — an admin may be viewing another teacher's. */
