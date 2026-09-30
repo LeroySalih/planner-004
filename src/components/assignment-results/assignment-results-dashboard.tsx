@@ -127,6 +127,8 @@ type ResetActionDispatch =
 
 type UploadFileEntry = {
   name: string
+  /** Where the file actually lives, when the submission recorded it. */
+  path: string | null
   size: number | null
   url: string | null
   updatedAt: string | null
@@ -1540,14 +1542,21 @@ export function AssignmentResultsDashboard({
         const files = listResult.data ?? []
         const resolved = await Promise.all(
           files.map(async (file) => {
+            // The recorded path wins over the display name: storage renames
+            // what it writes, so the two are not the same file.
+            const storedPath = typeof file.path === "string" && file.path.trim().length > 0
+              ? file.path
+              : null
             const urlResult = await getPupilActivitySubmissionUrlAction(
               context.lessonId,
               context.activityId,
               context.pupilId,
               file.name,
+              storedPath,
             )
             return {
               name: file.name,
+              path: storedPath,
               size: typeof file.size === "number" ? file.size : null,
               url: urlResult.success ? urlResult.url ?? null : null,
               error: urlResult.success ? null : urlResult.error ?? "Unable to create download link.",

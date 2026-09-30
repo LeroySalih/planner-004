@@ -906,9 +906,40 @@ export async function getPupilActivitySubmissionUrlAction(
   activityId: string,
   pupilId: string,
   fileName: string,
+  /**
+   * Where the file actually lives, when the caller knows.
+   *
+   * Everything below reconstructs a path from the display name, which only
+   * works while the two agree. Storage prefixes a uuid and replaces spaces, so
+   * "Screenshot 2026-09-28 123247.png" is written as
+   * "e7dc16fb-Screenshot_2026-09-28_123247.png" — and a worksheet submission
+   * records both, the clean name for the teacher and the real path beside it.
+   * Rebuilding from the name asked for a file that was never written, and the
+   * image came back 404 with the filename showing as broken alt text.
+   */
+  storedPath?: string | null,
 ) {
   const storage = createLocalStorageClient(LESSON_FILES_BUCKET);
   const pupilStorageKey = await resolvePupilStorageKey(pupilId);
+
+  // Paths recorded in a submission body carry the bucket; createSignedUrl
+  // wants the part after it.
+  const normalisedStoredPath = storedPath?.trim()
+    ? storedPath.trim().replace(new RegExp(`^${LESSON_FILES_BUCKET}/`), "")
+    : null;
+
+  if (normalisedStoredPath) {
+    if (fileName.toLowerCase().endsWith(".heic")) {
+      const url = `/api/files/${[LESSON_FILES_BUCKET, ...normalisedStoredPath.split("/")].map(encodeURIComponent).join("/")}`;
+      return { success: true, url };
+    }
+    const { data, error } = await storage.createSignedUrl(normalisedStoredPath);
+    if (!error) {
+      return { success: true, url: data?.signedUrl ?? null };
+    }
+    // Fall through to the name-based guesses rather than failing outright: an
+    // older submission may hold a path that predates a move.
+  }
 
   // HEIC files cannot be rendered by browsers directly. Route them through the
   // /api/files proxy which converts HEIC → JPEG on-the-fly.
