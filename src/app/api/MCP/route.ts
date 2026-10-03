@@ -62,6 +62,37 @@ function createMcpServer(baseUrl = ''): McpServer {
     },
   )
 
+  // Every tool here answers with a one-line summary in `content` and the real
+  // payload in `structuredContent`. Clients differ on whether they surface
+  // structured output: Claude Desktop shows only the text, so asking for a
+  // curriculum's objectives returned "55 learning objectives." and nothing
+  // else, and the data looked missing when it had been sent all along.
+  //
+  // Wrapping registration once appends the payload as text too, rather than
+  // editing sixty-five handlers and relying on the next one to remember.
+  const register = srv.registerTool.bind(srv)
+  srv.registerTool = ((name: string, config: unknown, handler: (...args: unknown[]) => unknown) =>
+    register(
+      name as never,
+      config as never,
+      (async (...args: unknown[]) => {
+        const result = (await (handler as (...a: unknown[]) => Promise<unknown>)(...args)) as {
+          content?: Array<{ type: string; text?: string }>
+          structuredContent?: unknown
+        }
+        if (result?.structuredContent && Array.isArray(result.content)) {
+          return {
+            ...result,
+            content: [
+              ...result.content,
+              { type: 'text' as const, text: JSON.stringify(result.structuredContent) },
+            ],
+          }
+        }
+        return result
+      }) as never,
+    )) as typeof srv.registerTool
+
   srv.registerTool(
     'get_all_curriculum',
     {
