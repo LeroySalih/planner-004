@@ -1270,6 +1270,11 @@ export async function upsertGroupItemsSubmissionAction(
     itemOrder: payload.itemOrder,
     placements: sanitizedPlacements,
     score,
+    // One mark per correctly placed item. The fraction was already being
+    // recorded, but nothing wrote marks, and every marks-based reader —
+    // including the results grid — therefore saw the submission as unmarked
+    // however well the pupil had done.
+    marks: correctCount,
     is_correct: isCorrect,
     success_criteria_scores: successCriteriaScores,
     teacher_override_score: null,

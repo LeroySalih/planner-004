@@ -23,6 +23,7 @@ import {
 } from "@/lib/curriculum/unit-curriculum-guard";
 import {
   recalculateActivityMaxMarks,
+  recalculateGroupItemsMaxMarks,
   recalculateMatcherMaxMarks,
   rescaleStoredMarks,
 } from "@/lib/scoring/derive-max-marks";
@@ -317,6 +318,7 @@ export async function createLessonActivityAction(
         );
         await recalculateActivityMaxMarks(client, newActivityId);
         await recalculateMatcherMaxMarks(client, newActivityId);
+        await recalculateGroupItemsMaxMarks(client, newActivityId);
         const { rows: refreshed } = await client.query(
           "select * from activities where activity_id = $1",
           [newActivityId],
@@ -507,11 +509,15 @@ export async function updateLessonActivityAction(
 
     // A matcher is worth one mark per pair, so editing the pairs changes what
     // it is out of.
-    if (updatedActivityRow.type === "matcher" && updates.body_data !== undefined) {
+    if (updates.body_data !== undefined) {
       try {
-        await recalculateMatcherMaxMarks({ query } as Queryable, activityId);
+        if (updatedActivityRow.type === "matcher") {
+          await recalculateMatcherMaxMarks({ query } as Queryable, activityId);
+        } else if (updatedActivityRow.type === "group-items") {
+          await recalculateGroupItemsMaxMarks({ query } as Queryable, activityId);
+        }
       } catch (error) {
-        console.error("[v0] Failed to recalculate matcher max_marks:", error);
+        console.error("[v0] Failed to recalculate max_marks:", error);
       }
     }
 
@@ -831,6 +837,7 @@ export async function uploadActivitiesFromMarkdownAction(
             );
             await recalculateActivityMaxMarks(client, createdId);
             await recalculateMatcherMaxMarks(client, createdId);
+            await recalculateGroupItemsMaxMarks(client, createdId);
           }
 
           nextOrder++;

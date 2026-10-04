@@ -52,10 +52,11 @@ const AVAILABLE_MARKS_SUBQUERY = `
   join success_criteria sc on sc.success_criteria_id = acs.success_criteria_id
   join activities act on act.activity_id = acs.activity_id
   where act.type not in (${NON_SCORABLE_TYPES_SQL})
-    -- A matcher's marks come from its pair count, not its criteria, and its
-    -- stored marks are recomputed from the pupil's answers rather than
-    -- rescaled. recalculateMatcherMaxMarks owns it.
-    and act.type <> 'matcher'
+    -- A matcher's marks come from its pair count and a group-items' from its
+    -- item count, not from their criteria, and their stored marks are
+    -- recomputed from the pupil's answers rather than rescaled.
+    -- recalculateMatcherMaxMarks and recalculateGroupItemsMaxMarks own them.
+    and act.type not in ('matcher', 'group-items')
 `
 
 /**
@@ -140,6 +141,30 @@ export async function recalculateMaxMarksForCriterion(
   )
 
   return rows.length
+}
+
+/**
+ * A grouping activity is marked one mark per correctly placed item, so its
+ * max_marks is its item count. Call after the items change.
+ *
+ * Same reasoning as the matcher: editing the items changes what the pupils'
+ * stored answers are worth, so the submissions are rescored from the
+ * placements they already hold rather than rescaled.
+ */
+export async function recalculateGroupItemsMaxMarks(
+  db: Queryable,
+  activityId: string,
+): Promise<void> {
+  await db.query(
+    `update activities a
+     set max_marks = greatest(1, jsonb_array_length(a.body_data::jsonb->'items'))
+     where a.activity_id = $1
+       and a.type = 'group-items'
+       and a.body_data::jsonb ? 'items'
+       and a.max_marks is distinct from greatest(1, jsonb_array_length(a.body_data::jsonb->'items'))`,
+    [activityId],
+  )
+  await db.query(`select recompute_group_items_submission_marks($1)`, [activityId])
 }
 
 /**
