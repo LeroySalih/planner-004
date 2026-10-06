@@ -40,4 +40,12 @@ if [ -n "$latest" ]; then
     "$PROJECT_DIR"/backups/postgres_*_"$ts".dump.gz.gpg "$CODING_HOST:backups/"
 fi
 
+# The hourly dumps keep fixed names, so each push replaces the copy on the
+# coding side and only the most recent hour is ever held there.
+if ls "$PROJECT_DIR"/backups/hourly/postgres_*_hourly.dump.gz.gpg >/dev/null 2>&1; then
+  echo "[$(date)] sending hourly dumps"
+  rsync -t -e "$ssh_cmd" \
+    "$PROJECT_DIR"/backups/hourly/postgres_*_hourly.dump.gz.gpg "$CODING_HOST:backups/hourly/"
+fi
+
 echo "[$(date)] push complete"
