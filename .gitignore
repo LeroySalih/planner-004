@@ -77,3 +77,7 @@ dino_schema_*.sql
 # Superseded by compose.yml + Dockerfile-dino/Dockerfile-n8n (kept locally, not deployed)
 /Dockerfile
 /docker-compose.yml
+
+# database dumps
+backups/
+recovery/

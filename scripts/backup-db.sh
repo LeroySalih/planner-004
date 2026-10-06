@@ -15,7 +15,7 @@ export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 # Project root = parent of this script's dir (so compose.yml is found).
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DBS="dino n8n"          # databases to back up
-RETENTION_DAYS=14       # delete encrypted dumps older than this
+RETENTION_DAYS=7        # delete encrypted dumps older than this
 
 cd "$PROJECT_DIR"
 
