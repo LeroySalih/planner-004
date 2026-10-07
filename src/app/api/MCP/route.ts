@@ -1,4 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
@@ -1409,6 +1410,28 @@ function isJsonRpcNotification(body: unknown): boolean {
   )
 }
 
+/**
+ * The SDK labels every tool schema `$schema: draft-07` (hardcoded in its zod
+ * conversion, still so in 1.32), and clients that only accept JSON Schema
+ * 2020-12 — Claude Desktop among them — reject every tool on the label alone.
+ * Dropping the label leaves the MCP default, 2020-12.
+ *
+ * That is only honest while the schemas use nothing whose meaning differs
+ * between the two drafts: no `definitions`/`$ref` (recursive or reused zod
+ * schemas), no array-form `items` (z.tuple). None do today; a tool adding one
+ * needs the schema converted, not just relabelled.
+ */
+function dropDraft07Labels(message: JSONRPCMessage): JSONRPCMessage {
+  const tools = (message as { result?: { tools?: unknown } }).result?.tools
+  if (!Array.isArray(tools)) return message
+  for (const tool of tools as Array<Record<string, { $schema?: string } | undefined>>) {
+    for (const schema of [tool.inputSchema, tool.outputSchema]) {
+      if (schema?.$schema === 'http://json-schema.org/draft-07/schema#') delete schema.$schema
+    }
+  }
+  return message
+}
+
 function deriveBaseUrl(request: NextRequest): string {
   const proto = request.headers.get('x-forwarded-proto') ?? (request.nextUrl.protocol.replace(':', '') || 'https')
   const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? request.nextUrl.host
@@ -1455,7 +1478,7 @@ async function handlePost(request: NextRequest): Promise<Response> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     transport.dispatch(body as any)
     const response = await transport.response()
-    return NextResponse.json(response)
+    return NextResponse.json(dropDraft07Labels(response))
   } catch (error) {
     console.error('[mcp] Error handling request:', error)
     return NextResponse.json(
