@@ -37,5 +37,17 @@ export function verifyMcpAuthorization(request: NextRequest): AuthResult {
     }
   }
 
+  // Claude's custom-connector dialog takes a URL and nothing else, so a
+  // machine without Node (and therefore without mcp-remote to add a header)
+  // cannot reach a header-only server. A dev site can opt in to `?key=`.
+  // Never enable it in production: a key in a URL lands in proxy and access
+  // logs, so the site that allows it should have a key of its own.
+  if (process.env.MCP_ALLOW_QUERY_KEY === "true") {
+    const token = request.nextUrl.searchParams.get("key")
+    if (token && token === configuredKey) {
+      return { authorized: true }
+    }
+  }
+
   return { authorized: false, reason: "Missing or invalid MCP credentials." }
 }
