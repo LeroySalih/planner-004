@@ -1781,6 +1781,9 @@ export const AssessmentPupilTotalsSchema = z.object({
   total_awarded: z.number().int(),
   total_available: z.number().int(),
   percent: z.number().int(),
+  /** Totals cover only marked questions; these say how much of the paper that is. */
+  marked_questions: z.number().int(),
+  question_count: z.number().int(),
   objectives: z.array(AssessmentObjectiveSubtotalSchema),
 });
 export type AssessmentPupilTotals = z.infer<typeof AssessmentPupilTotalsSchema>;
@@ -1848,3 +1851,44 @@ export const AssessmentFileSchema = z.object({
   path: z.string(),
 });
 export type AssessmentFile = z.infer<typeof AssessmentFileSchema>;
+
+export const AssessmentGridMarkSchema = z.object({
+  awarded: z.number().int(),
+  provenance: AssessmentMarkProvenanceSchema,
+});
+export type AssessmentGridMark = z.infer<typeof AssessmentGridMarkSchema>;
+
+/**
+ * One row of the teacher's results grid. Roster pupils without a single mark
+ * are included (has_result false) so a missing script is visible; pupils with
+ * marks who have since left the groups are kept too (on_roster false).
+ */
+export const AssessmentGridPupilSchema = AssessmentPupilTotalsSchema.extend({
+  has_result: z.boolean(),
+  on_roster: z.boolean(),
+  marks: z.record(z.string(), AssessmentGridMarkSchema),
+});
+export type AssessmentGridPupil = z.infer<typeof AssessmentGridPupilSchema>;
+
+export const AssessmentGridSchema = AssessmentPaperSchema.extend({
+  pupils: z.array(AssessmentGridPupilSchema),
+});
+export type AssessmentGrid = z.infer<typeof AssessmentGridSchema>;
+
+export const AssessmentPupilListItemSchema = z.object({
+  pupil_id: z.string(),
+  first_name: z.string().nullable(),
+  last_name: z.string().nullable(),
+  has_result: z.boolean(),
+  on_roster: z.boolean(),
+});
+export type AssessmentPupilListItem = z.infer<typeof AssessmentPupilListItemSchema>;
+
+/** A curriculum learning objective offered by the paper-objective link picker. */
+export const AssessmentLinkableObjectiveSchema = z.object({
+  learning_objective_id: z.string(),
+  title: z.string(),
+  spec_ref: z.string().nullable(),
+  assessment_objective_code: z.string(),
+});
+export type AssessmentLinkableObjective = z.infer<typeof AssessmentLinkableObjectiveSchema>;

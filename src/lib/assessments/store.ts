@@ -5,18 +5,24 @@ import { pupilMembershipSql } from '@/lib/roles/pupil-membership'
 import { createLocalStorageClient } from '@/lib/storage/local-storage'
 import {
   AssessmentFileSchema,
+  AssessmentGridSchema,
+  AssessmentLinkableObjectiveSchema,
   AssessmentPaperSchema,
+  AssessmentPupilListItemSchema,
   AssessmentPaperSummarySchema,
   AssessmentPupilResultSchema,
   GroupPupilSchema,
   RecordAssessmentResultSchema,
   type AssessmentFile,
+  type AssessmentGrid,
+  type AssessmentLinkableObjective,
   type AssessmentObjectiveSubtotal,
   type AssessmentPaper,
   type AssessmentPaperHeader,
   type AssessmentPaperObjective,
   type AssessmentPaperQuestion,
   type AssessmentPaperSummary,
+  type AssessmentPupilListItem,
   type AssessmentPupilResult,
   type GroupPupil,
   type RecordAssessmentResult,
@@ -99,6 +105,16 @@ function cleanText(value: string | null | undefined): string | null {
 
 function cleanList(values: string[]): string[] {
   return values.map((v) => cleanText(v)).filter((v): v is string => v !== null)
+}
+
+type Named = { first_name: string | null; last_name: string | null }
+
+function byName(a: Named, b: Named): number {
+  return (a.last_name ?? '').localeCompare(b.last_name ?? '') || (a.first_name ?? '').localeCompare(b.first_name ?? '')
+}
+
+function filePath(assessmentId: string, fileName: string): string {
+  return `/api/files/${[FILES_BUCKET, assessmentId, fileName].map(encodeURIComponent).join('/')}`
 }
 
 async function inTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
@@ -194,37 +210,84 @@ async function loadMarks(client: PoolClient, assessmentId: string, pupilId?: str
   return rows
 }
 
+/**
+ * A pupil's totals count only the questions they have a mark for: `available`
+ * is the max over their marked questions, so a half-marked script reads
+ * "18 / 30" rather than a misleading "18 / 38". marked_questions against
+ * question_count says how complete the marking is.
+ */
 function computeTotals(
   objectives: { code: string }[],
   questions: QuestionRow[],
   marks: MarkRow[],
 ) {
   const awardedByQuestion = new Map(marks.map((m) => [m.question_id, m.awarded]))
-  const subtotals: AssessmentObjectiveSubtotal[] = objectives.map((o) => {
-    const own = questions.filter((q) => q.objective_code === o.code)
-    return {
-      code: o.code,
-      available: own.reduce((sum, q) => sum + q.max_marks, 0),
-      awarded: own.reduce((sum, q) => sum + (awardedByQuestion.get(q.question_id) ?? 0), 0),
-    }
+  const marked = questions.filter((q) => awardedByQuestion.has(q.question_id))
+  const sum = (list: QuestionRow[]) => ({
+    available: list.reduce((total, q) => total + q.max_marks, 0),
+    awarded: list.reduce((total, q) => total + (awardedByQuestion.get(q.question_id) ?? 0), 0),
   })
-  const totalAvailable = questions.reduce((sum, q) => sum + q.max_marks, 0)
-  const totalAwarded = questions.reduce((sum, q) => sum + (awardedByQuestion.get(q.question_id) ?? 0), 0)
+  const subtotals: AssessmentObjectiveSubtotal[] = objectives.map((o) => ({
+    code: o.code,
+    ...sum(marked.filter((q) => q.objective_code === o.code)),
+  }))
+  const total = sum(marked)
   return {
-    total_awarded: totalAwarded,
-    total_available: totalAvailable,
-    percent: totalAvailable > 0 ? Math.round((totalAwarded / totalAvailable) * 100) : 0,
+    total_awarded: total.awarded,
+    total_available: total.available,
+    percent: total.available > 0 ? Math.round((total.awarded / total.available) * 100) : 0,
+    marked_questions: marked.length,
+    question_count: questions.length,
     objectives: subtotals,
   }
 }
 
-async function readPaper(client: PoolClient, assessmentId: string): Promise<AssessmentPaper> {
-  const paper = await loadPaper(client, assessmentId)
-  const objectives = await loadObjectives(client, paper.assessment_id)
-  const questions = await loadQuestions(client, paper.assessment_id)
-  const marks = await loadMarks(client, paper.assessment_id)
+type PaperData = {
+  paper: PaperRow
+  objectives: Awaited<ReturnType<typeof loadObjectives>>
+  questions: QuestionRow[]
+  marks: MarkRow[]
+}
 
-  const pupilIds = [...new Set(marks.map((m) => m.pupil_id))]
+async function loadPaperData(client: PoolClient, assessmentId: string): Promise<PaperData> {
+  const paper = await loadPaper(client, assessmentId)
+  return {
+    paper,
+    objectives: await loadObjectives(client, paper.assessment_id),
+    questions: await loadQuestions(client, paper.assessment_id),
+    marks: await loadMarks(client, paper.assessment_id),
+  }
+}
+
+function toObjective(row: AssessmentPaperObjective): AssessmentPaperObjective {
+  return {
+    code: row.code,
+    position: row.position,
+    title: row.title,
+    learning_objective_id: row.learning_objective_id,
+    learning_objective_title: row.learning_objective_title,
+  }
+}
+
+/** Everything about a paper except its pupils. */
+function paperBody({ paper, objectives, questions }: PaperData) {
+  return {
+    ...header(paper),
+    objectives: objectives.map(toObjective),
+    questions: questions.map((q) => ({
+      label: q.label,
+      position: q.position,
+      max_marks: q.max_marks,
+      objective_code: q.objective_code,
+      correct_answer: q.correct_answer,
+    })),
+    total_marks: questions.reduce((sum, q) => sum + q.max_marks, 0),
+  }
+}
+
+async function readPaper(client: PoolClient, assessmentId: string): Promise<AssessmentPaper> {
+  const data = await loadPaperData(client, assessmentId)
+  const pupilIds = [...new Set(data.marks.map((m) => m.pupil_id))]
   const { rows: profiles } = await client.query<{ user_id: string; first_name: string | null; last_name: string | null }>(
     'select user_id, first_name, last_name from profiles where user_id = any($1::text[])',
     [pupilIds],
@@ -234,31 +297,11 @@ async function readPaper(client: PoolClient, assessmentId: string): Promise<Asse
       pupil_id: p.user_id,
       first_name: p.first_name,
       last_name: p.last_name,
-      ...computeTotals(objectives, questions, marks.filter((m) => m.pupil_id === p.user_id)),
+      ...computeTotals(data.objectives, data.questions, data.marks.filter((m) => m.pupil_id === p.user_id)),
     }))
-    .sort((a, b) =>
-      (a.last_name ?? '').localeCompare(b.last_name ?? '') || (a.first_name ?? '').localeCompare(b.first_name ?? ''),
-    )
+    .sort(byName)
 
-  return AssessmentPaperSchema.parse({
-    ...header(paper),
-    objectives: objectives.map((o) => ({
-      code: o.code,
-      position: o.position,
-      title: o.title,
-      learning_objective_id: o.learning_objective_id,
-      learning_objective_title: o.learning_objective_title,
-    })),
-    questions: questions.map((q) => ({
-      label: q.label,
-      position: q.position,
-      max_marks: q.max_marks,
-      objective_code: q.objective_code,
-      correct_answer: q.correct_answer,
-    })),
-    total_marks: questions.reduce((sum, q) => sum + q.max_marks, 0),
-    pupils,
-  })
+  return AssessmentPaperSchema.parse({ ...paperBody(data), pupils })
 }
 
 async function readPupilResult(client: PoolClient, assessmentId: string, pupilId: string): Promise<AssessmentPupilResult> {
@@ -651,12 +694,7 @@ export async function listGroupPupils(groupId: string): Promise<GroupPupil[]> {
 export async function recordPupilResult(input: RecordPupilResultInput): Promise<RecordAssessmentResult> {
   return inTransaction(async (client) => {
     const paper = await loadPaper(client, input.assessmentId, 'share')
-    const pupil = await loadMembership(client, paper.assessment_id, input.pupilId)
-    if (!pupil) throw new Error(`Pupil ${input.pupilId} not found`)
-    const name = `${pupil.first_name ?? ''} ${pupil.last_name ?? ''}`.trim() || input.pupilId
-    if (!pupil.member) {
-      throw new Error(`${name} (${input.pupilId}) is not a pupil in this paper's groups (${paper.group_ids.join(', ')})`)
-    }
+    await requireRosterPupil(client, paper, input.pupilId)
 
     const questions = await loadQuestions(client, paper.assessment_id)
     const byLabel = new Map(questions.map((q) => [q.label, q]))
@@ -767,6 +805,206 @@ export async function attachAssessmentFile(
     assessment_id: paper.assessment_id,
     file_name: name,
     size_bytes: buffer.byteLength,
-    path: `/api/files/${[FILES_BUCKET, paper.assessment_id, name].map(encodeURIComponent).join('/')}`,
+    path: filePath(paper.assessment_id, name),
+  })
+}
+
+/**
+ * Everyone the teacher should see against a paper: roster pupils of its groups
+ * (shared roster rule) plus anyone already holding marks, e.g. a pupil who has
+ * since moved class. Sorted the same way as the paper's pupil list.
+ */
+async function loadPaperPupils(client: PoolClient, assessmentId: string): Promise<AssessmentPupilListItem[]> {
+  const { rows } = await client.query<AssessmentPupilListItem>(
+    `with roster as (
+       select distinct gm.user_id
+         from group_membership gm
+         join assessment_groups ag on ag.group_id = gm.group_id
+        where ag.assessment_id = $1 and ${pupilMembershipSql('gm')}
+     ), marked as (
+       select distinct pupil_id as user_id from assessment_question_marks where assessment_id = $1
+     )
+     select p.user_id as pupil_id, p.first_name, p.last_name,
+            exists (select 1 from marked m where m.user_id = p.user_id) as has_result,
+            exists (select 1 from roster r where r.user_id = p.user_id) as on_roster
+       from profiles p
+      where p.user_id in (select user_id from roster union select user_id from marked)`,
+    [assessmentId],
+  )
+  return rows.map((row) => AssessmentPupilListItemSchema.parse(row)).sort(byName)
+}
+
+async function loadFiles(assessmentId: string): Promise<AssessmentFile[]> {
+  const { data, error } = await createLocalStorageClient(FILES_BUCKET).list(assessmentId)
+  if (error) {
+    // Missing attachments must not take the results page down with them.
+    console.error('[assessments] Could not list files', { assessmentId, error })
+    return []
+  }
+  return (data ?? [])
+    .map((file) => AssessmentFileSchema.parse({
+      assessment_id: assessmentId,
+      file_name: file.name,
+      size_bytes: file.metadata?.size ?? 0,
+      path: filePath(assessmentId, file.name),
+    }))
+    .sort((a, b) => a.file_name.localeCompare(b.file_name))
+}
+
+/** Active learning objectives of the paper's curriculum, in curriculum order. */
+async function loadLinkableObjectives(client: PoolClient, curriculumId: string): Promise<AssessmentLinkableObjective[]> {
+  const { rows } = await client.query(
+    `select lo.learning_objective_id, lo.title, lo.spec_ref, ao.code as assessment_objective_code
+       from learning_objectives lo
+       join assessment_objectives ao on ao.assessment_objective_id = lo.assessment_objective_id
+      where ao.curriculum_id = $1 and lo.active is not false
+      order by ao.order_index, ao.code, lo.order_index, lo.title`,
+    [curriculumId],
+  )
+  return rows.map((row) => AssessmentLinkableObjectiveSchema.parse(row))
+}
+
+/**
+ * Everything the teacher's paper page shows, read once: the paper with one
+ * grid row per pupil (see loadPaperPupils), the attached files and the
+ * curriculum objectives offered by the link picker.
+ */
+export async function getAssessmentPage(assessmentId: string): Promise<{
+  paper: AssessmentGrid
+  files: AssessmentFile[]
+  linkableObjectives: AssessmentLinkableObjective[]
+}> {
+  const { paper, linkableObjectives } = await withDbClient(async (client) => {
+    const data = await loadPaperData(client, assessmentId)
+    const pupils = await loadPaperPupils(client, data.paper.assessment_id)
+    const labelById = new Map(data.questions.map((q) => [q.question_id, q.label]))
+    const grid = AssessmentGridSchema.parse({
+      ...paperBody(data),
+      pupils: pupils.map((pupil) => {
+        const own = data.marks.filter((m) => m.pupil_id === pupil.pupil_id)
+        return {
+          ...pupil,
+          ...computeTotals(data.objectives, data.questions, own),
+          marks: Object.fromEntries(
+            own.map((m) => [labelById.get(m.question_id), { awarded: m.awarded, provenance: m.provenance }]),
+          ),
+        }
+      }),
+    })
+    return { paper: grid, linkableObjectives: await loadLinkableObjectives(client, data.paper.curriculum_id) }
+  })
+  return { paper, files: await loadFiles(paper.assessment_id), linkableObjectives }
+}
+
+/** The paper's objectives without any pupil data, for views that show one pupil. */
+export async function getAssessmentObjectives(assessmentId: string): Promise<AssessmentPaperObjective[]> {
+  return withDbClient(async (client) => {
+    const paper = await loadPaper(client, assessmentId)
+    return (await loadObjectives(client, paper.assessment_id)).map(toObjective)
+  })
+}
+
+/**
+ * One pupil's result for the teacher's pupil page, with the paper's objectives
+ * and the neighbouring pupils for previous/next. Refuses an id that is neither
+ * on the roster nor holding marks, rather than showing an empty sheet.
+ */
+export async function getAssessmentPupilPage(assessmentId: string, pupilId: string): Promise<{
+  result: AssessmentPupilResult
+  objectives: AssessmentPaperObjective[]
+  previous: AssessmentPupilListItem | null
+  next: AssessmentPupilListItem | null
+  onRoster: boolean
+}> {
+  return withDbClient(async (client) => {
+    const paper = await loadPaper(client, assessmentId)
+    const pupils = await loadPaperPupils(client, paper.assessment_id)
+    const index = pupils.findIndex((p) => p.pupil_id === pupilId)
+    if (index < 0) throw new Error('This pupil did not sit this paper')
+    return {
+      result: await readPupilResult(client, paper.assessment_id, pupilId),
+      objectives: (await loadObjectives(client, paper.assessment_id)).map(toObjective),
+      previous: pupils[index - 1] ?? null,
+      next: pupils[index + 1] ?? null,
+      onRoster: pupils[index].on_roster,
+    }
+  })
+}
+
+async function requireRosterPupil(client: PoolClient, paper: PaperRow, pupilId: string) {
+  const pupil = await loadMembership(client, paper.assessment_id, pupilId)
+  if (!pupil) throw new Error(`Pupil ${pupilId} not found`)
+  if (!pupil.member) {
+    const name = `${pupil.first_name ?? ''} ${pupil.last_name ?? ''}`.trim() || pupilId
+    throw new Error(`${name} (${pupilId}) is not a pupil in this paper's groups (${paper.group_ids.join(', ')})`)
+  }
+}
+
+/**
+ * A teacher's mark always applies and marks the row 'teacher', which is what
+ * stops a later model import (recordPupilResult) from overwriting it.
+ */
+export async function setTeacherMark(
+  assessmentId: string,
+  pupilId: string,
+  label: string,
+  awarded: number,
+  whyNotAwarded: string | null,
+  howToImprove: string | null,
+): Promise<AssessmentPupilResult> {
+  return inTransaction(async (client) => {
+    const paper = await loadPaper(client, assessmentId, 'share')
+    await requireRosterPupil(client, paper, pupilId)
+    const questions = await loadQuestions(client, paper.assessment_id)
+    const question = questions.find((q) => q.label === label?.trim())
+    if (!question) {
+      throw new Error(`Unknown question label "${label}". Paper labels: ${questions.map((q) => q.label).join(', ')}`)
+    }
+    if (!Number.isInteger(awarded) || awarded < 0 || awarded > question.max_marks) {
+      throw new Error(`${question.label}: awarded must be a whole number from 0 to ${question.max_marks}, got ${awarded}`)
+    }
+
+    await client.query(
+      `insert into assessment_question_marks
+         (assessment_id, question_id, pupil_id, awarded, why_not_awarded, how_to_improve, provenance, marked_at)
+       values ($1, $2, $3, $4, $5, $6, 'teacher', now())
+       on conflict (question_id, pupil_id) do update
+         set awarded = excluded.awarded, why_not_awarded = excluded.why_not_awarded,
+             how_to_improve = excluded.how_to_improve, provenance = 'teacher', marked_at = now()`,
+      [paper.assessment_id, question.question_id, pupilId, awarded, cleanText(whyNotAwarded), cleanText(howToImprove)],
+    )
+    return readPupilResult(client, paper.assessment_id, pupilId)
+  })
+}
+
+export async function setTeacherPupilFeedback(
+  assessmentId: string,
+  pupilId: string,
+  wentWell: string[],
+  targets: string[],
+): Promise<AssessmentPupilResult> {
+  return inTransaction(async (client) => {
+    const paper = await loadPaper(client, assessmentId, 'share')
+    await requireRosterPupil(client, paper, pupilId)
+    await client.query(
+      `insert into assessment_pupil_feedback (assessment_id, pupil_id, went_well, targets, provenance, updated_at)
+       values ($1, $2, $3::text[], $4::text[], 'teacher', now())
+       on conflict (assessment_id, pupil_id) do update
+         set went_well = excluded.went_well, targets = excluded.targets,
+             provenance = 'teacher', updated_at = now()`,
+      [paper.assessment_id, pupilId, cleanList(wentWell), cleanList(targets)],
+    )
+    return readPupilResult(client, paper.assessment_id, pupilId)
+  })
+}
+
+export async function setFeedbackVisible(assessmentId: string, visible: boolean): Promise<AssessmentPaperHeader> {
+  return inTransaction(async (client) => {
+    const paper = await loadPaper(client, assessmentId, 'update')
+    await client.query(
+      'update assessments set feedback_visible = $2, updated_at = now() where assessment_id = $1',
+      [paper.assessment_id, visible],
+    )
+    return header({ ...paper, feedback_visible: visible })
   })
 }

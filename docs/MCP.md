@@ -432,7 +432,7 @@ reports. **Not** the curriculum's assessment objectives — hence the
 
 **Rules**
 
-- **Computed totals.** Totals and per-objective subtotals are summed from mark rows on every read. Never send them.
+- **Computed totals.** Totals and per-objective subtotals are summed from mark rows on every read. Never send them. They count **only the questions that have a mark**: `total_available` (and each objective's `available`) is the sum of `max_marks` over that pupil's marked questions, so a partly marked script reads e.g. 18/30 rather than 18/38. `marked_questions` and `question_count` say how complete the marking is; an objective with no marked questions has `available: 0`.
 - **One-to-one LO mapping.** Each paper objective (`LO1`, `LO2`…) may link to at most one curriculum learning objective, which must belong to the paper's curriculum, and each learning objective may be linked at most once per paper. Changing a link never touches questions or marks.
 - **Provenance.** Marks and whole-paper feedback written through MCP are `ai`. A row a teacher has edited is `teacher` and is never overwritten; `record_assessment_paper_result` lists such labels in `skipped_teacher_edited` (and sets `feedback_skipped_teacher_edited`).
 - **Idempotent.** Every write tool can be re-run with the same input. `set_*` tools take the full list and upsert by `code` / `label`; list order is the position.
@@ -445,11 +445,11 @@ reports. **Not** the curriculum's assessment objectives — hence the
 
 #### `get_assessment_paper`
 **Input:** `{ assessment_id }`
-**Output:** `{ assessment: { …header, objectives: [{code, position, title, learning_objective_id, learning_objective_title}], questions: [{label, position, max_marks, objective_code, correct_answer}], total_marks, pupils: [{pupil_id, first_name, last_name, total_awarded, total_available, percent, objectives: [{code, awarded, available}]}] } }` — `pupils` lists only pupils with at least one mark.
+**Output:** `{ assessment: { …header, objectives: [{code, position, title, learning_objective_id, learning_objective_title}], questions: [{label, position, max_marks, objective_code, correct_answer}], total_marks, pupils: [{pupil_id, first_name, last_name, total_awarded, total_available, percent, marked_questions, question_count, objectives: [{code, awarded, available}]}] } }` — `pupils` lists only pupils with at least one mark.
 
 #### `get_assessment_paper_result`
 **Input:** `{ assessment_id, pupil_id }`
-**Output:** `{ result: { assessment, pupil totals, objectives, questions: [{label, objective_code, max_marks, correct_answer, awarded|null, why_not_awarded, how_to_improve, provenance|null}], went_well, targets } }`
+**Output:** `{ result: { assessment, pupil totals (total_awarded, total_available, percent, marked_questions, question_count), objectives, questions: [{label, objective_code, max_marks, correct_answer, awarded|null, why_not_awarded, how_to_improve, provenance|null}], went_well, targets } }`
 
 #### `create_assessment_paper`
 **Input:** `{ title, assessed_on: "YYYY-MM-DD", curriculum_id, group_ids: string[], objectives: [{ code?, title?, learning_objective_id? }] }`

@@ -180,6 +180,7 @@ export function SideNav({ onNavigate }: SideNavProps) {
                     <NavLink href="/reports" onNavigate={onNavigate}>Reports</NavLink>
                     <NavLink href="/unit-progress-reports" onNavigate={onNavigate}>Unit Progress</NavLink>
                     <NavLink href="/lo-progress-reports" onNavigate={onNavigate}>LO Progress</NavLink>
+                    <NavLink href="/assessments" onNavigate={onNavigate}>Assessments</NavLink>
                     <NavLink href="/feedback/peer-review" onNavigate={onNavigate}>Peer Review</NavLink>
                     <NavLink href="/flashcard-monitor" onNavigate={onNavigate}>Flashcard Monitor</NavLink>
                   </div>

@@ -457,3 +457,13 @@ export {
   readSharedSowScopesAction,
   readSharedSowDetailAction,
 } from './server-actions/sow'
+
+export {
+  readAssessmentsAction,
+  readAssessmentAction,
+  readAssessmentPupilAction,
+  updateAssessmentMarkAction,
+  updateAssessmentPupilFeedbackAction,
+  setAssessmentFeedbackVisibleAction,
+  mapAssessmentObjectiveAction,
+} from './server-actions/assessments'
