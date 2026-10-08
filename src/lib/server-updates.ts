@@ -466,4 +466,6 @@ export {
   updateAssessmentPupilFeedbackAction,
   setAssessmentFeedbackVisibleAction,
   mapAssessmentObjectiveAction,
+  readMyAssessmentsAction,
+  readMyAssessmentAction,
 } from './server-actions/assessments'

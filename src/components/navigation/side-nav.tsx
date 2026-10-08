@@ -223,6 +223,7 @@ export function SideNav({ onNavigate }: SideNavProps) {
                   <NavLink href="/flashcards" onNavigate={onNavigate}>Flashcards</NavLink>
                   <NavLink href="/specifications" onNavigate={onNavigate}>Specs</NavLink>
                   <NavLink href={`/reports/${encodeURIComponent(userId)}`} onNavigate={onNavigate}>My Reports</NavLink>
+                  <NavLink href="/my-assessments" onNavigate={onNavigate}>My Assessments</NavLink>
                 </div>
               </AccordionContent>
             </AccordionItem>

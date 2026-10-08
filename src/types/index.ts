@@ -1836,6 +1836,40 @@ export const RecordAssessmentResultSchema = z.object({
 });
 export type RecordAssessmentResult = z.infer<typeof RecordAssessmentResultSchema>;
 
+/** A released paper on the signed-in pupil's own list, with their totals. */
+export const PupilAssessmentListItemSchema = z.object({
+  assessment_id: z.string(),
+  title: z.string(),
+  assessed_on: z.string(),
+  total_awarded: z.number().int(),
+  total_available: z.number().int(),
+  percent: z.number().int(),
+  marked_questions: z.number().int(),
+  question_count: z.number().int(),
+});
+export type PupilAssessmentListItem = z.infer<typeof PupilAssessmentListItemSchema>;
+
+/**
+ * What a pupil's own feedback page renders, and nothing more: parsing the
+ * teacher-shaped result through these strips provenance, group and
+ * curriculum ids and learning-objective ids.
+ */
+export const PupilAssessmentObjectiveSchema = AssessmentPaperObjectiveSchema.pick({
+  code: true,
+  title: true,
+  learning_objective_title: true,
+});
+export type PupilAssessmentObjective = z.infer<typeof PupilAssessmentObjectiveSchema>;
+
+export const PupilAssessmentQuestionSchema = AssessmentPupilQuestionResultSchema.omit({ provenance: true });
+export type PupilAssessmentQuestion = z.infer<typeof PupilAssessmentQuestionSchema>;
+
+export const PupilAssessmentResultSchema = AssessmentPupilResultSchema.extend({
+  assessment: AssessmentPaperHeaderSchema.pick({ assessment_id: true, title: true, assessed_on: true }),
+  questions: z.array(PupilAssessmentQuestionSchema),
+});
+export type PupilAssessmentResult = z.infer<typeof PupilAssessmentResultSchema>;
+
 export const GroupPupilSchema = z.object({
   pupil_id: z.string(),
   first_name: z.string().nullable(),

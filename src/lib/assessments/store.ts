@@ -12,6 +12,9 @@ import {
   AssessmentPaperSummarySchema,
   AssessmentPupilResultSchema,
   GroupPupilSchema,
+  PupilAssessmentListItemSchema,
+  PupilAssessmentObjectiveSchema,
+  PupilAssessmentResultSchema,
   RecordAssessmentResultSchema,
   type AssessmentFile,
   type AssessmentGrid,
@@ -25,6 +28,9 @@ import {
   type AssessmentPupilListItem,
   type AssessmentPupilResult,
   type GroupPupil,
+  type PupilAssessmentListItem,
+  type PupilAssessmentObjective,
+  type PupilAssessmentResult,
   type RecordAssessmentResult,
 } from '@/types'
 
@@ -87,9 +93,10 @@ type PaperRow = {
   feedback_visible: boolean
 }
 
-type QuestionRow = AssessmentPaperQuestion & { question_id: string }
+type QuestionRow = AssessmentPaperQuestion & { question_id: string; assessment_id: string }
 
 type MarkRow = {
+  assessment_id: string
   question_id: string
   pupil_id: string
   awarded: number
@@ -187,25 +194,32 @@ async function loadObjectives(client: PoolClient, assessmentId: string) {
   return rows
 }
 
-async function loadQuestions(client: PoolClient, assessmentId: string): Promise<QuestionRow[]> {
+/** Loaders take one paper id or several, so a list of papers costs one query each. */
+function idList(assessmentIds: string | string[]): string[] {
+  return Array.isArray(assessmentIds) ? assessmentIds : [assessmentIds]
+}
+
+async function loadQuestions(client: PoolClient, assessmentIds: string | string[]): Promise<QuestionRow[]> {
   const { rows } = await client.query<QuestionRow>(
-    `select q.question_id::text as question_id, q.label, q.position, q.max_marks,
+    `select q.assessment_id::text as assessment_id, q.question_id::text as question_id,
+            q.label, q.position, q.max_marks,
             alo.code as objective_code, q.correct_answer
        from assessment_questions q
        join assessment_learning_objectives alo on alo.assessment_lo_id = q.assessment_lo_id
-      where q.assessment_id = $1
+      where q.assessment_id = any($1::uuid[])
       order by q.position, q.label`,
-    [assessmentId],
+    [idList(assessmentIds)],
   )
   return rows
 }
 
-async function loadMarks(client: PoolClient, assessmentId: string, pupilId?: string): Promise<MarkRow[]> {
+async function loadMarks(client: PoolClient, assessmentIds: string | string[], pupilId?: string): Promise<MarkRow[]> {
   const { rows } = await client.query<MarkRow>(
-    `select question_id::text as question_id, pupil_id, awarded, why_not_awarded, how_to_improve, provenance
+    `select assessment_id::text as assessment_id, question_id::text as question_id, pupil_id, awarded,
+            why_not_awarded, how_to_improve, provenance
        from assessment_question_marks
-      where assessment_id = $1 and ($2::text is null or pupil_id = $2)`,
-    [assessmentId, pupilId ?? null],
+      where assessment_id = any($1::uuid[]) and ($2::text is null or pupil_id = $2)`,
+    [idList(assessmentIds), pupilId ?? null],
   )
   return rows
 }
@@ -305,6 +319,14 @@ async function readPaper(client: PoolClient, assessmentId: string): Promise<Asse
 }
 
 async function readPupilResult(client: PoolClient, assessmentId: string, pupilId: string): Promise<AssessmentPupilResult> {
+  return (await readPupilSheet(client, assessmentId, pupilId)).result
+}
+
+/** A pupil's result together with the paper's objectives, each loaded once. */
+async function readPupilSheet(client: PoolClient, assessmentId: string, pupilId: string): Promise<{
+  result: AssessmentPupilResult
+  objectives: AssessmentPaperObjective[]
+}> {
   const paper = await loadPaper(client, assessmentId)
   const { rows: profileRows } = await client.query<{ first_name: string | null; last_name: string | null }>(
     'select first_name, last_name from profiles where user_id = $1',
@@ -321,7 +343,7 @@ async function readPupilResult(client: PoolClient, assessmentId: string, pupilId
     [paper.assessment_id, pupilId],
   )
 
-  return AssessmentPupilResultSchema.parse({
+  const result = AssessmentPupilResultSchema.parse({
     assessment: header(paper),
     pupil_id: pupilId,
     first_name: profileRows[0].first_name,
@@ -343,6 +365,7 @@ async function readPupilResult(client: PoolClient, assessmentId: string, pupilId
     went_well: feedbackRows[0]?.went_well ?? [],
     targets: feedbackRows[0]?.targets ?? [],
   })
+  return { result, objectives: objectives.map(toObjective) }
 }
 
 type ResolvedObjective = { code: string; title: string; learningObjectiveId: string | null }
@@ -922,8 +945,7 @@ export async function getAssessmentPupilPage(assessmentId: string, pupilId: stri
     const index = pupils.findIndex((p) => p.pupil_id === pupilId)
     if (index < 0) throw new Error('This pupil did not sit this paper')
     return {
-      result: await readPupilResult(client, paper.assessment_id, pupilId),
-      objectives: (await loadObjectives(client, paper.assessment_id)).map(toObjective),
+      ...(await readPupilSheet(client, paper.assessment_id, pupilId)),
       previous: pupils[index - 1] ?? null,
       next: pupils[index + 1] ?? null,
       onRoster: pupils[index].on_roster,
@@ -1006,5 +1028,68 @@ export async function setFeedbackVisible(assessmentId: string, visible: boolean)
       [paper.assessment_id, visible],
     )
     return header({ ...paper, feedback_visible: visible })
+  })
+}
+
+/**
+ * Released, active papers on which the pupil holds at least one mark. This one
+ * predicate is the whole pupil-visibility rule; both pupil reads go through it.
+ * Group membership is deliberately not required: a pupil who moved class still
+ * sees the papers they sat.
+ */
+const RELEASED_FOR_PUPIL_SQL = `
+  a.active and a.feedback_visible
+  and exists (select 1 from assessment_question_marks m
+               where m.assessment_id = a.assessment_id and m.pupil_id = $1)`
+
+/** The pupil's own released papers, newest first, with their totals. */
+export async function listReleasedAssessmentsForPupil(pupilId: string): Promise<PupilAssessmentListItem[]> {
+  return withDbClient(async (client) => {
+    const { rows } = await client.query<{ assessment_id: string; title: string; assessed_on: string }>(
+      `select a.assessment_id::text as assessment_id, a.title,
+              to_char(a.assessed_on, 'YYYY-MM-DD') as assessed_on
+         from assessments a
+        where ${RELEASED_FOR_PUPIL_SQL}
+        order by a.assessed_on desc, a.created_at desc`,
+      [pupilId],
+    )
+    const ids = rows.map((row) => row.assessment_id)
+    const questions = await loadQuestions(client, ids)
+    const marks = await loadMarks(client, ids, pupilId)
+    // The list shows no objective subtotals, so no objectives are loaded.
+    return rows.map((row) => PupilAssessmentListItemSchema.parse({
+      ...row,
+      ...computeTotals(
+        [],
+        questions.filter((q) => q.assessment_id === row.assessment_id),
+        marks.filter((m) => m.assessment_id === row.assessment_id),
+      ),
+    }))
+  })
+}
+
+/**
+ * One paper's result as the pupil may see it, parsed to the pupil shape so no
+ * teacher-only field leaves the server. Returns null, without saying why, for
+ * an unknown id, an unreleased paper or one the pupil did not sit, so the
+ * pupil cannot learn that an unreleased paper exists.
+ */
+export async function getReleasedPupilResult(assessmentId: string, pupilId: string): Promise<{
+  result: PupilAssessmentResult
+  objectives: PupilAssessmentObjective[]
+} | null> {
+  const id = assessmentId?.trim() ?? ''
+  if (!UUID_RE.test(id)) return null
+  return withDbClient(async (client) => {
+    const { rowCount } = await client.query(
+      `select 1 from assessments a where a.assessment_id = $2 and ${RELEASED_FOR_PUPIL_SQL}`,
+      [pupilId, id],
+    )
+    if (!rowCount) return null
+    const { result, objectives } = await readPupilSheet(client, id, pupilId)
+    return {
+      result: PupilAssessmentResultSchema.parse(result),
+      objectives: objectives.map((o) => PupilAssessmentObjectiveSchema.parse(o)),
+    }
   })
 }

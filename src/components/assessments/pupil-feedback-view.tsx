@@ -2,33 +2,37 @@ import type { ReactNode } from 'react'
 
 import { cn } from '@/lib/utils'
 import type {
-  AssessmentPaperObjective,
-  AssessmentPupilQuestionResult,
-  AssessmentPupilResult,
+  AssessmentMarkProvenance,
+  PupilAssessmentObjective,
+  PupilAssessmentQuestion,
+  PupilAssessmentResult,
 } from '@/types'
 
 import { formatAssessmentDate, percentOf, pupilName, SCORE_BAND_CLASSES, scoreBand } from './format'
 
-type PupilFeedbackViewProps = {
-  result: AssessmentPupilResult
-  objectives: AssessmentPaperObjective[]
+/** The pupil shape, plus provenance when a teacher page passes its full result. */
+type ViewQuestion = PupilAssessmentQuestion & { provenance?: AssessmentMarkProvenance | null }
+
+type PupilFeedbackViewProps<Q extends ViewQuestion> = {
+  result: Omit<PupilAssessmentResult, 'questions'> & { questions: Q[] }
+  objectives: PupilAssessmentObjective[]
   /** Teacher-only extras; the pupil page leaves these out. */
   showProvenance?: boolean
   feedbackActions?: ReactNode
-  renderQuestionActions?: (question: AssessmentPupilQuestionResult) => ReactNode
+  renderQuestionActions?: (question: Q) => ReactNode
 }
 
 /**
  * One pupil's feedback on a paper, laid out like the printed feedback sheet.
  * Read-only and hook-free so the teacher and pupil pages can both render it.
  */
-export function PupilFeedbackView({
+export function PupilFeedbackView<Q extends ViewQuestion>({
   result,
   objectives,
   showProvenance = false,
   feedbackActions,
   renderQuestionActions,
-}: PupilFeedbackViewProps) {
+}: PupilFeedbackViewProps<Q>) {
   const subtotalByCode = new Map(result.objectives.map((o) => [o.code, o]))
 
   return (
@@ -140,7 +144,7 @@ function QuestionCard({
   showProvenance,
   actions,
 }: {
-  question: AssessmentPupilQuestionResult
+  question: ViewQuestion
   showProvenance: boolean
   actions?: ReactNode
 }) {

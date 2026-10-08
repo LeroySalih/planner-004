@@ -3,11 +3,13 @@
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 
-import { requireRole } from '@/lib/auth'
+import { requireAuthenticatedProfile, requireRole } from '@/lib/auth'
 import { FEEDBACK_MAX_ITEM_LENGTH, FEEDBACK_MAX_ITEMS } from '@/lib/assessments/limits'
 import {
   getAssessmentPage,
   getAssessmentPupilPage,
+  getReleasedPupilResult,
+  listReleasedAssessmentsForPupil,
   listAssessments,
   mapAssessmentObjective,
   setFeedbackVisible,
@@ -23,12 +25,17 @@ import {
   AssessmentPaperSummarySchema,
   AssessmentPupilListItemSchema,
   AssessmentPupilResultSchema,
+  PupilAssessmentListItemSchema,
+  PupilAssessmentObjectiveSchema,
+  PupilAssessmentResultSchema,
 } from '@/types'
 
 /**
- * Teacher-only reads and writes for assessment papers. All rules (roster,
- * mark ranges, one-to-one objective links) live in the store; these actions
- * only authorise, validate shape and revalidate the affected pages.
+ * Reads and writes for assessment papers. Everything is teacher-only except
+ * the two `readMy…` actions at the end, which serve the signed-in pupil. All
+ * rules (roster, mark ranges, one-to-one objective links) live in the store;
+ * these actions only authorise, validate shape and revalidate the affected
+ * pages.
  */
 
 const Id = z.string().trim().min(1)
@@ -42,10 +49,11 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-/** The list, the paper page and every pupil page under it. */
+/** The list, the paper page and every pupil page under it, plus the pupils' own pages. */
 function revalidatePaper(assessmentId: string) {
   revalidatePath('/assessments')
   revalidatePath(`/assessments/${assessmentId}`, 'layout')
+  revalidatePath('/my-assessments', 'layout')
 }
 
 const ListResult = z.object({
@@ -218,5 +226,46 @@ export async function mapAssessmentObjectiveAction(
     return MapResult.parse({ data: paper.objectives, error: null })
   } catch (error) {
     return MapResult.parse({ data: null, error: errorMessage(error) })
+  }
+}
+
+/*
+ * Pupil-facing reads. The pupil is always the signed-in profile: these take no
+ * pupil id, so nobody can ask for another pupil's feedback.
+ */
+
+const MyListResult = z.object({
+  data: z.array(PupilAssessmentListItemSchema).nullable(),
+  error: z.string().nullable(),
+})
+
+export async function readMyAssessmentsAction(): Promise<z.infer<typeof MyListResult>> {
+  const profile = await requireAuthenticatedProfile()
+  try {
+    return MyListResult.parse({ data: await listReleasedAssessmentsForPupil(profile.userId), error: null })
+  } catch (error) {
+    return MyListResult.parse({ data: null, error: errorMessage(error) })
+  }
+}
+
+const MyPaperResult = z.object({
+  data: z.object({
+    result: PupilAssessmentResultSchema,
+    objectives: z.array(PupilAssessmentObjectiveSchema),
+  }).nullable(),
+  error: z.string().nullable(),
+})
+
+/**
+ * `data: null, error: null` means not found. Unknown, unreleased and not-sat
+ * papers all look the same, so an unreleased paper's existence never leaks.
+ */
+export async function readMyAssessmentAction(assessmentId: string): Promise<z.infer<typeof MyPaperResult>> {
+  const profile = await requireAuthenticatedProfile()
+  try {
+    const found = await getReleasedPupilResult(assessmentId, profile.userId)
+    return MyPaperResult.parse({ data: found, error: null })
+  } catch (error) {
+    return MyPaperResult.parse({ data: null, error: errorMessage(error) })
   }
 }
