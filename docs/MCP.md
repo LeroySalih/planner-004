@@ -471,6 +471,78 @@ there was nothing there, rather than erroring.
 
 ---
 
+### Assessment papers
+
+Written papers marked outside a lesson (e.g. "Practice B"). Results live in
+their own tables (`104-assessments.sql`) and never touch submissions or
+reports. **Not** the curriculum's assessment objectives — hence the
+`*_assessment_paper*` names.
+
+**Workflow**
+
+1. `get_all_los_and_scs_for_curriculum` — find the curriculum learning objectives the paper's objectives map to.
+2. `list_assessment_papers` — check the paper does not already exist.
+3. `create_assessment_paper` — title, date, curriculum, groups, objectives.
+4. `set_assessment_paper_questions` — every marked part.
+5. `list_group_pupils` — real pupil ids. Never guess an id from a name; report unmatched pupils to the user.
+6. `record_assessment_paper_result` — one pupil per call.
+7. `get_assessment_paper` — verify totals.
+
+**Rules**
+
+- **Computed totals.** Totals and per-objective subtotals are summed from mark rows on every read. Never send them. They count **only the questions that have a mark**: `total_available` (and each objective's `available`) is the sum of `max_marks` over that pupil's marked questions, so a partly marked script reads e.g. 18/30 rather than 18/38. `marked_questions` and `question_count` say how complete the marking is; an objective with no marked questions has `available: 0`.
+- **One-to-one LO mapping.** Each paper objective (`LO1`, `LO2`…) may link to at most one curriculum learning objective, which must belong to the paper's curriculum, and each learning objective may be linked at most once per paper. Changing a link never touches questions or marks.
+- **Provenance.** Marks and whole-paper feedback written through MCP are `ai`. A row a teacher has edited is `teacher` and is never overwritten; `record_assessment_paper_result` lists such labels in `skipped_teacher_edited` (and sets `feedback_skipped_teacher_edited`).
+- **Idempotent.** Every write tool can be re-run with the same input. `set_*` tools take the full list and upsert by `code` / `label`; list order is the position.
+- **All or nothing.** Any validation problem (unknown label, mark above max, duplicate label…) rejects the whole call with a message naming the offender, and nothing is saved.
+- **Arrays as JSON.** Every array input also accepts a JSON-encoded string.
+
+#### `list_assessment_papers`
+**Input:** `{ group_id?: string }`
+**Output:** `{ assessments: [{ assessment_id, title, assessed_on, curriculum_id, curriculum_title, group_ids, objective_count, unlinked_objective_count, question_count, total_marks, pupils_with_results, feedback_visible }] }` — newest first.
+
+#### `get_assessment_paper`
+**Input:** `{ assessment_id }`
+**Output:** `{ assessment: { …header, objectives: [{code, position, title, learning_objective_id, learning_objective_title}], questions: [{label, position, max_marks, objective_code, correct_answer}], total_marks, pupils: [{pupil_id, first_name, last_name, total_awarded, total_available, percent, marked_questions, question_count, objectives: [{code, awarded, available}]}] } }` — `pupils` lists only pupils with at least one mark.
+
+#### `get_assessment_paper_result`
+**Input:** `{ assessment_id, pupil_id }`
+**Output:** `{ result: { assessment, pupil totals (total_awarded, total_available, percent, marked_questions, question_count), objectives, questions: [{label, objective_code, max_marks, correct_answer, awarded|null, why_not_awarded, how_to_improve, provenance|null}], went_well, targets } }`
+
+#### `create_assessment_paper`
+**Input:** `{ title, assessed_on: "YYYY-MM-DD", curriculum_id, group_ids: string[], objectives: [{ code?, title?, learning_objective_id? }] }`
+`code` defaults to `LO{n}` by position; `title` defaults to the linked learning objective's title and is required when there is no link.
+**Output:** `{ assessment }`
+
+#### `set_assessment_paper_objectives`
+**Input:** `{ assessment_id, objectives: [{ code, title?, learning_objective_id? }] }`
+Upsert by code. Omitted `title` / `learning_objective_id` keep their stored values; `null` or `""` clears a link. A code left out is deleted unless questions use it (error names the codes and question labels).
+**Output:** `{ assessment }`
+
+#### `map_assessment_paper_objective`
+**Input:** `{ assessment_id, code, learning_objective_id: string | null }` — `null` or `""` clears the link.
+**Output:** `{ assessment }`
+
+#### `set_assessment_paper_questions`
+**Input:** `{ assessment_id, questions: [{ label, max_marks, objective_code, correct_answer? }] }`
+Send the full list. Labels left out are deleted unless they have marks (error). `max_marks` cannot drop below an awarded mark. Omitting `correct_answer` keeps the stored one.
+**Output:** `{ assessment }`
+
+#### `list_group_pupils`
+**Input:** `{ group_id }`
+**Output:** `{ pupils: [{ pupil_id, first_name, last_name, email }] }` — pupils only (pupil role and no staff role, the shared roster rule in `src/lib/roles/pupil-membership.ts`), by surname.
+
+#### `record_assessment_paper_result`
+**Input:** `{ assessment_id, pupil_id, marks: [{ label, awarded, why_not_awarded?, how_to_improve? }], went_well?: string[], targets?: string[] }`
+The pupil must be a pupil (same roster rule) in one of the paper's groups. `awarded` is a whole number 0..`max_marks`. Text is trimmed; empty strings are stored as null.
+**Output:** `{ written, skipped_teacher_edited: string[], feedback_skipped_teacher_edited, missing_labels: string[], result }` — `missing_labels` are paper questions this pupil still has no mark for.
+
+#### `attach_assessment_paper_file`
+**Input:** `{ assessment_id, file_name, base64_content, content_type? }` — max 5 MB, no `/` or `\` in the name.
+**Output:** `{ file: { assessment_id, file_name, size_bytes, path } }` — `path` is the `/api/files/assessments/…` download URL. Downloads from the `assessments` bucket are teacher-only (403 otherwise).
+
+---
+
 ### Utility
 
 #### `status`
@@ -496,3 +568,4 @@ Health probe.
 | `src/lib/mcp/losc.ts` | AO / LO / SC read/write helpers |
 | `src/lib/mcp/activities.ts` | Activity read/write/upload helpers |
 | `src/lib/mcp/timetable.ts` | Teacher / group lookup and timetable slot CRUD |
+| `src/lib/assessments/store.ts` | Assessment paper reads/writes (shared with future server actions) |

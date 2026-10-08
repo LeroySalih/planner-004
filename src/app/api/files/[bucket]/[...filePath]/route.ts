@@ -23,7 +23,7 @@ async function heicToJpeg(input: Buffer): Promise<Buffer> {
   }
 }
 
-import { getAuthenticatedProfile } from "@/lib/auth"
+import { getAuthenticatedProfile, hasRole } from "@/lib/auth"
 import { query } from "@/lib/db"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 
@@ -82,6 +82,11 @@ export async function GET(
   if (!profile) {
     logDownloadAuthFailure(request, { reason: "unauthorized", bucket, fullPath })
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+  }
+
+  // Assessment papers and mark schemes are for teachers only.
+  if (bucket === "assessments" && !hasRole(profile, "teacher")) {
+    return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 })
   }
 
   const storage = createLocalStorageClient(bucket)

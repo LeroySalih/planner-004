@@ -1754,3 +1754,205 @@ export const ConnectedAppSchema = z.object({
   last_used_at: z.string().nullable(),
 });
 export type ConnectedApp = z.infer<typeof ConnectedAppSchema>;
+
+/**
+ * Assessment papers (104-assessments.sql): written papers marked outside a
+ * lesson. Unrelated to the curriculum's assessment objectives. Totals are
+ * always summed from mark rows, never stored.
+ */
+export const AssessmentMarkProvenanceSchema = z.enum(["ai", "teacher"]);
+export type AssessmentMarkProvenance = z.infer<typeof AssessmentMarkProvenanceSchema>;
+
+export const AssessmentPaperSummarySchema = z.object({
+  assessment_id: z.string(),
+  title: z.string(),
+  assessed_on: z.string(),
+  curriculum_id: z.string(),
+  curriculum_title: z.string(),
+  group_ids: z.array(z.string()),
+  objective_count: z.number().int(),
+  unlinked_objective_count: z.number().int(),
+  question_count: z.number().int(),
+  total_marks: z.number().int(),
+  pupils_with_results: z.number().int(),
+  feedback_visible: z.boolean(),
+});
+export type AssessmentPaperSummary = z.infer<typeof AssessmentPaperSummarySchema>;
+
+export const AssessmentPaperObjectiveSchema = z.object({
+  code: z.string(),
+  position: z.number().int(),
+  title: z.string(),
+  learning_objective_id: z.string().nullable(),
+  learning_objective_title: z.string().nullable(),
+});
+export type AssessmentPaperObjective = z.infer<typeof AssessmentPaperObjectiveSchema>;
+
+export const AssessmentPaperQuestionSchema = z.object({
+  label: z.string(),
+  position: z.number().int(),
+  max_marks: z.number().int(),
+  objective_code: z.string(),
+  correct_answer: z.string().nullable(),
+});
+export type AssessmentPaperQuestion = z.infer<typeof AssessmentPaperQuestionSchema>;
+
+export const AssessmentObjectiveSubtotalSchema = z.object({
+  code: z.string(),
+  awarded: z.number().int(),
+  available: z.number().int(),
+});
+export type AssessmentObjectiveSubtotal = z.infer<typeof AssessmentObjectiveSubtotalSchema>;
+
+export const AssessmentPupilTotalsSchema = z.object({
+  pupil_id: z.string(),
+  first_name: z.string().nullable(),
+  last_name: z.string().nullable(),
+  total_awarded: z.number().int(),
+  total_available: z.number().int(),
+  percent: z.number().int(),
+  /** Totals cover only marked questions; these say how much of the paper that is. */
+  marked_questions: z.number().int(),
+  question_count: z.number().int(),
+  objectives: z.array(AssessmentObjectiveSubtotalSchema),
+});
+export type AssessmentPupilTotals = z.infer<typeof AssessmentPupilTotalsSchema>;
+
+export const AssessmentPaperHeaderSchema = z.object({
+  assessment_id: z.string(),
+  title: z.string(),
+  assessed_on: z.string(),
+  curriculum_id: z.string(),
+  curriculum_title: z.string(),
+  group_ids: z.array(z.string()),
+  feedback_visible: z.boolean(),
+});
+export type AssessmentPaperHeader = z.infer<typeof AssessmentPaperHeaderSchema>;
+
+export const AssessmentPaperSchema = AssessmentPaperHeaderSchema.extend({
+  objectives: z.array(AssessmentPaperObjectiveSchema),
+  questions: z.array(AssessmentPaperQuestionSchema),
+  total_marks: z.number().int(),
+  pupils: z.array(AssessmentPupilTotalsSchema),
+});
+export type AssessmentPaper = z.infer<typeof AssessmentPaperSchema>;
+
+export const AssessmentPupilQuestionResultSchema = z.object({
+  label: z.string(),
+  objective_code: z.string(),
+  max_marks: z.number().int(),
+  correct_answer: z.string().nullable(),
+  awarded: z.number().int().nullable(),
+  why_not_awarded: z.string().nullable(),
+  how_to_improve: z.string().nullable(),
+  provenance: AssessmentMarkProvenanceSchema.nullable(),
+});
+export type AssessmentPupilQuestionResult = z.infer<typeof AssessmentPupilQuestionResultSchema>;
+
+export const AssessmentPupilResultSchema = AssessmentPupilTotalsSchema.extend({
+  assessment: AssessmentPaperHeaderSchema,
+  questions: z.array(AssessmentPupilQuestionResultSchema),
+  went_well: z.array(z.string()),
+  targets: z.array(z.string()),
+});
+export type AssessmentPupilResult = z.infer<typeof AssessmentPupilResultSchema>;
+
+export const RecordAssessmentResultSchema = z.object({
+  written: z.number().int(),
+  skipped_teacher_edited: z.array(z.string()),
+  feedback_skipped_teacher_edited: z.boolean(),
+  missing_labels: z.array(z.string()),
+  result: AssessmentPupilResultSchema,
+});
+export type RecordAssessmentResult = z.infer<typeof RecordAssessmentResultSchema>;
+
+/** A released paper on the signed-in pupil's own list, with their totals. */
+export const PupilAssessmentListItemSchema = z.object({
+  assessment_id: z.string(),
+  title: z.string(),
+  assessed_on: z.string(),
+  total_awarded: z.number().int(),
+  total_available: z.number().int(),
+  percent: z.number().int(),
+  marked_questions: z.number().int(),
+  question_count: z.number().int(),
+});
+export type PupilAssessmentListItem = z.infer<typeof PupilAssessmentListItemSchema>;
+
+/**
+ * What a pupil's own feedback page renders, and nothing more: parsing the
+ * teacher-shaped result through these strips provenance, group and
+ * curriculum ids and learning-objective ids.
+ */
+export const PupilAssessmentObjectiveSchema = AssessmentPaperObjectiveSchema.pick({
+  code: true,
+  title: true,
+  learning_objective_title: true,
+});
+export type PupilAssessmentObjective = z.infer<typeof PupilAssessmentObjectiveSchema>;
+
+export const PupilAssessmentQuestionSchema = AssessmentPupilQuestionResultSchema.omit({ provenance: true });
+export type PupilAssessmentQuestion = z.infer<typeof PupilAssessmentQuestionSchema>;
+
+export const PupilAssessmentResultSchema = AssessmentPupilResultSchema.extend({
+  assessment: AssessmentPaperHeaderSchema.pick({ assessment_id: true, title: true, assessed_on: true }),
+  questions: z.array(PupilAssessmentQuestionSchema),
+});
+export type PupilAssessmentResult = z.infer<typeof PupilAssessmentResultSchema>;
+
+export const GroupPupilSchema = z.object({
+  pupil_id: z.string(),
+  first_name: z.string().nullable(),
+  last_name: z.string().nullable(),
+  email: z.string().nullable(),
+});
+export type GroupPupil = z.infer<typeof GroupPupilSchema>;
+
+export const AssessmentFileSchema = z.object({
+  assessment_id: z.string(),
+  file_name: z.string(),
+  size_bytes: z.number().int(),
+  path: z.string(),
+});
+export type AssessmentFile = z.infer<typeof AssessmentFileSchema>;
+
+export const AssessmentGridMarkSchema = z.object({
+  awarded: z.number().int(),
+  provenance: AssessmentMarkProvenanceSchema,
+});
+export type AssessmentGridMark = z.infer<typeof AssessmentGridMarkSchema>;
+
+/**
+ * One row of the teacher's results grid. Roster pupils without a single mark
+ * are included (has_result false) so a missing script is visible; pupils with
+ * marks who have since left the groups are kept too (on_roster false).
+ */
+export const AssessmentGridPupilSchema = AssessmentPupilTotalsSchema.extend({
+  has_result: z.boolean(),
+  on_roster: z.boolean(),
+  marks: z.record(z.string(), AssessmentGridMarkSchema),
+});
+export type AssessmentGridPupil = z.infer<typeof AssessmentGridPupilSchema>;
+
+export const AssessmentGridSchema = AssessmentPaperSchema.extend({
+  pupils: z.array(AssessmentGridPupilSchema),
+});
+export type AssessmentGrid = z.infer<typeof AssessmentGridSchema>;
+
+export const AssessmentPupilListItemSchema = z.object({
+  pupil_id: z.string(),
+  first_name: z.string().nullable(),
+  last_name: z.string().nullable(),
+  has_result: z.boolean(),
+  on_roster: z.boolean(),
+});
+export type AssessmentPupilListItem = z.infer<typeof AssessmentPupilListItemSchema>;
+
+/** A curriculum learning objective offered by the paper-objective link picker. */
+export const AssessmentLinkableObjectiveSchema = z.object({
+  learning_objective_id: z.string(),
+  title: z.string(),
+  spec_ref: z.string().nullable(),
+  assessment_objective_code: z.string(),
+});
+export type AssessmentLinkableObjective = z.infer<typeof AssessmentLinkableObjectiveSchema>;

@@ -463,3 +463,15 @@ export {
   denyOAuthAuthorizationAction,
   revokeConnectedAppAction,
 } from "./server-actions/oauth"
+
+export {
+  readAssessmentsAction,
+  readAssessmentAction,
+  readAssessmentPupilAction,
+  updateAssessmentMarkAction,
+  updateAssessmentPupilFeedbackAction,
+  setAssessmentFeedbackVisibleAction,
+  mapAssessmentObjectiveAction,
+  readMyAssessmentsAction,
+  readMyAssessmentAction,
+} from './server-actions/assessments'
