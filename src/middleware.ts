@@ -86,8 +86,10 @@ export function middleware(request: NextRequest) {
   // verifyMcpAuthorization checks against.
   const origin = request.nextUrl.origin
 
+  // Opt-in rather than "not production": the token endpoint gives the MCP
+  // key to anyone, and a dev server reachable through a tunnel is public.
   if (pathname.startsWith("/.well-known/oauth-protected-resource")) {
-    if (process.env.NODE_ENV === "production") {
+    if (process.env.MCP_DEV_OAUTH !== "true") {
       return NextResponse.json({ error: "not_found" }, { status: 404 })
     }
     return NextResponse.json({
@@ -97,7 +99,7 @@ export function middleware(request: NextRequest) {
   }
 
   if (pathname.startsWith("/.well-known/oauth-authorization-server")) {
-    if (process.env.NODE_ENV === "production") {
+    if (process.env.MCP_DEV_OAUTH !== "true") {
       return NextResponse.json({ error: "not_found" }, { status: 404 })
     }
     return NextResponse.json({
