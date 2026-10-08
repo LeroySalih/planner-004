@@ -1,5 +1,5 @@
 import { query, withDbClient } from '@/lib/db'
-import { assertUnitIsInactive, assertLessonUnitIsInactive } from '@/lib/mcp/guards'
+import { assertUnitExists, assertLessonExists } from '@/lib/mcp/guards'
 import { assertScAllowedForLesson, assertLoAllowedForLesson } from '@/lib/curriculum/unit-curriculum-guard'
 import { createLocalStorageClient } from '@/lib/storage/local-storage'
 
@@ -51,7 +51,7 @@ export async function createLesson(unitId: string, title: string): Promise<Lesso
   let result: LessonRecord | null = null
 
   await withDbClient(async (client) => {
-    await assertUnitIsInactive(client, unitId)
+    await assertUnitExists(client, unitId)
 
     const { rows: maxRows } = await client.query<{ order_by: number }>(
       'select order_by from lessons where unit_id = $1 order by order_by desc nulls last limit 1',
@@ -101,15 +101,8 @@ export async function addSuccessCriterionToLesson(
   let result: LessonScLinkResult | null = null
 
   await withDbClient(async (client) => {
-    await assertLessonUnitIsInactive(client, lessonId)
+    await assertLessonExists(client, lessonId)
     await assertScAllowedForLesson(client, lessonId, successCriteriaId)
-
-    // Validate lesson exists (already confirmed by guard, but kept for clarity)
-    const { rows: lessonRows } = await client.query<{ lesson_id: string }>(
-      'select lesson_id from lessons where lesson_id = $1 limit 1',
-      [lessonId],
-    )
-    if (!lessonRows[0]) throw new Error(`Lesson ${lessonId} not found`)
 
     // Validate SC exists and get its learning_objective_id
     const { rows: scRows } = await client.query<{ success_criteria_id: string; learning_objective_id: string }>(
@@ -198,15 +191,7 @@ export async function uploadLessonFile(
     throw new Error(`File exceeds the 5 MB limit (${buffer.byteLength} bytes)`)
   }
 
-  // Validate lesson exists and unit is inactive
-  await withDbClient(async (client) => {
-    const { rows } = await client.query<{ lesson_id: string }>(
-      'select lesson_id from lessons where lesson_id = $1 limit 1',
-      [lessonId],
-    )
-    if (!rows[0]) throw new Error(`Lesson ${lessonId} not found`)
-    await assertLessonUnitIsInactive(client, lessonId)
-  })
+  await withDbClient((client) => assertLessonExists(client, lessonId))
 
   const fullPath = `${lessonId}/${fileName}`
   const storage = createLocalStorageClient(LESSON_FILES_BUCKET)

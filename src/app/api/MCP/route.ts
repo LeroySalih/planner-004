@@ -4,7 +4,8 @@ import { z } from 'zod'
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 
-import { mcpChallengeHeaders, verifyMcpAuthorization } from '@/lib/mcp/auth'
+import { mcpChallengeHeaders, verifyMcpAuthorization, type McpCaller } from '@/lib/mcp/auth'
+import { recordMcpCall } from '@/lib/mcp/audit'
 import { publicOrigin } from '@/lib/public-origin'
 import { SingleRequestTransport } from '@/lib/mcp/transport'
 import {
@@ -73,7 +74,7 @@ export const runtime = 'nodejs'
 // overhead, so creating a new server per request is safe.
 // ---------------------------------------------------------------------------
 
-function createMcpServer(baseUrl = ''): McpServer {
+function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
   const srv = new McpServer(
     { name: 'planner-mcp-server', version: '0.1.0' },
     {
@@ -94,16 +95,42 @@ function createMcpServer(baseUrl = ''): McpServer {
   //
   // Wrapping registration once appends the payload as text too, rather than
   // editing sixty-five handlers and relying on the next one to remember.
+  //
+  // The same wrapper writes every call to mcp_audit_log. Handlers report
+  // failure by returning null payloads with the message as text rather than
+  // throwing, so that is what counts as an error here.
   const register = srv.registerTool.bind(srv)
   srv.registerTool = ((name: string, config: unknown, handler: (...args: unknown[]) => unknown) =>
     register(
       name as never,
       config as never,
       (async (...args: unknown[]) => {
-        const result = (await (handler as (...a: unknown[]) => Promise<unknown>)(...args)) as {
+        const started = performance.now()
+        let result: {
           content?: Array<{ type: string; text?: string }>
-          structuredContent?: unknown
+          structuredContent?: Record<string, unknown>
+          isError?: boolean
         }
+        try {
+          result = (await (handler as (...a: unknown[]) => Promise<unknown>)(...args)) as typeof result
+        } catch (error) {
+          await recordMcpCall(caller, {
+            tool: name,
+            args: args[0],
+            error: error instanceof Error ? error.message : String(error),
+            durationMs: performance.now() - started,
+          })
+          throw error
+        }
+        const payload = result?.structuredContent
+        const failed = result?.isError === true
+          || (payload !== undefined && Object.keys(payload).length > 0 && Object.values(payload).every((value) => value === null))
+        await recordMcpCall(caller, {
+          tool: name,
+          args: args[0],
+          error: failed ? (result.content?.[0]?.text ?? 'Tool returned no data') : null,
+          durationMs: performance.now() - started,
+        })
         if (result?.structuredContent && Array.isArray(result.content)) {
           return {
             ...result,
@@ -422,7 +449,7 @@ function createMcpServer(baseUrl = ''): McpServer {
     'create_unit',
     {
       title: 'Create unit',
-      description: 'Create a new unit. Units are always created inactive so the teacher can review before activating.',
+      description: 'Create a new unit. New units start inactive (hidden from pupils) until a teacher activates them. Lessons and activities can be edited via MCP whether or not their unit is active.',
       inputSchema: {
         title: z.string().min(1).describe('Unit title.'),
         subject: z.string().min(1).describe('Subject area (e.g. "Computer Science").'),
@@ -1037,7 +1064,7 @@ function createMcpServer(baseUrl = ''): McpServer {
     'update_activity',
     {
       title: 'Update activity',
-      description: 'Update title, body_data, or is_summative on an existing activity. Unit must be inactive. At least one field must be provided.',
+      description: 'Update title, body_data, or is_summative on an existing activity. At least one field must be provided.',
       inputSchema: z.object({
         activity_id: z.string().describe('UUID of the activity to update'),
         title: z.string().nullable().optional().describe('New title (pass null to clear)'),
@@ -1082,7 +1109,7 @@ function createMcpServer(baseUrl = ''): McpServer {
     'add_success_criterion_to_activity',
     {
       title: 'Add success criterion to activity',
-      description: 'Links a success criterion to an activity. Unit must be inactive.',
+      description: 'Links a success criterion to an activity.',
       inputSchema: z.object({
         activity_id: z.string().describe('UUID of the activity'),
         success_criteria_id: z.string().describe('UUID of the success criterion to link'),
@@ -1169,7 +1196,7 @@ function createMcpServer(baseUrl = ''): McpServer {
         upload_url: uploadUrl,
         method: 'POST',
         form_fields: { lesson_id },
-        instructions: `Send a multipart/form-data POST to upload_url. Authenticate with the same Authorization header you use for this MCP connection (the service key or your OAuth access token). Add the form_fields as form fields. Include the file under the field name "file". Max file size 5 MB. The unit must be inactive.`,
+        instructions: `Send a multipart/form-data POST to upload_url. Authenticate with the same Authorization header you use for this MCP connection (the service key or your OAuth access token). Add the form_fields as form fields. Include the file under the field name "file". Max file size 5 MB.`,
       }
       return {
         content: [{ type: 'text' as const, text: `Upload to: POST ${uploadUrl}\nForm fields: lesson_id=${lesson_id}\nFile field name: file` }],
@@ -1202,7 +1229,7 @@ function createMcpServer(baseUrl = ''): McpServer {
         upload_url: uploadUrl,
         method: 'POST',
         form_fields: { lesson_id, activity_id },
-        instructions: `Send a multipart/form-data POST to upload_url. Authenticate with the same Authorization header you use for this MCP connection (the service key or your OAuth access token). Add the form_fields as form fields. Include the file under the field name "file". Max file size 5 MB. Activity must be type file-download or display-image and unit must be inactive.`,
+        instructions: `Send a multipart/form-data POST to upload_url. Authenticate with the same Authorization header you use for this MCP connection (the service key or your OAuth access token). Add the form_fields as form fields. Include the file under the field name "file". Max file size 5 MB. Activity must be type file-download or display-image.`,
       }
       return {
         content: [{ type: 'text' as const, text: `Upload to: POST ${uploadUrl}\nForm fields: lesson_id=${lesson_id}, activity_id=${activity_id}\nFile field name: file` }],
@@ -1215,7 +1242,7 @@ function createMcpServer(baseUrl = ''): McpServer {
     'upload_lesson_file',
     {
       title: 'Upload file to lesson (teacher storage)',
-      description: 'Uploads a base64-encoded file to the lesson\'s private teacher file store. Not visible to pupils. Max 5 MB. Unit must be inactive.',
+      description: 'Uploads a base64-encoded file to the lesson\'s private teacher file store. Not visible to pupils. Max 5 MB.',
       inputSchema: z.object({
         lesson_id: z.string().describe('UUID of the lesson'),
         file_name: z.string().describe('File name including extension, e.g. "notes.pdf"'),
@@ -1252,7 +1279,7 @@ function createMcpServer(baseUrl = ''): McpServer {
     'upload_activity_file',
     {
       title: 'Upload file to file-download or display-image activity',
-      description: 'Uploads a base64-encoded file to a file-download activity (so pupils can download it) or a display-image activity (to set its image). The unit must be inactive.',
+      description: 'Uploads a base64-encoded file to a file-download activity (so pupils can download it) or a display-image activity (to set its image).',
       inputSchema: z.object({
         lesson_id: z.string().describe('UUID of the lesson'),
         activity_id: z.string().describe('UUID of the file-download or display-image activity'),
@@ -1900,7 +1927,7 @@ async function handlePost(request: NextRequest): Promise<Response> {
     return new NextResponse(null, { status: 202 })
   }
 
-  const srv = createMcpServer(publicOrigin(request.headers))
+  const srv = createMcpServer(auth, publicOrigin(request.headers))
   const transport = new SingleRequestTransport()
   // Suppress unhandled rejection if connect() throws before send() is called
   transport.response().catch(() => {})

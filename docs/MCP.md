@@ -89,14 +89,35 @@ When `headers.Authorization` is set Claude Code does not fall back to OAuth.
 
 ---
 
-## Safety Guard
+## Audit Log
 
-**All write operations that touch lesson or activity content require the parent unit to be `active = false`.**  
-The guard fires before any DB write. Attempting to modify an active unit returns:
+There is no longer a "unit must be inactive" guard: MCP can edit lessons and
+activities in live units, so every call is recorded instead (migration 106).
+Each tool call and each upload to the direct upload endpoints writes one row to
+`mcp_audit_log`, reads included:
 
-> *"Unit X is active. MCP write operations are only allowed on inactive units. Deactivate the unit in the app before making changes via MCP."*
+| Column | Meaning |
+|---|---|
+| `auth_method` | `oauth` (a teacher signed in through a connector) or `service_key` (a script) |
+| `user_id`, `user_name`, `user_email` | The signed-in teacher. Name and email are copied at the time of the call, so they survive the profile being deleted. Null for the service key. |
+| `oauth_client_id`, `oauth_client_name` | The connector the teacher authorised, e.g. "Claude" |
+| `tool` | Tool name, or `file_upload:lesson` / `file_upload:activity` for the upload endpoints |
+| `is_write` | `false` for `get_*`, `list_*` and `status`; `true` for everything else |
+| `arguments` | The tool input. `base64_content` and any string over 20 000 chars are replaced by their length. |
+| `outcome`, `error` | `ok` or `error`, with the message the caller was given |
+| `duration_ms` | Time spent in the tool |
 
-This applies to: `create_lesson`, `create_activity`, `remove_activity`, `add_success_criterion_to_lesson`, `upload_lesson_file`, `upload_activity_file`, and the direct upload endpoints.
+A tool that fails returns null payloads with the message as text, rather than
+throwing; the log treats that as an `error`. A failed log write is reported to
+the server log and never fails the call.
+
+```sql
+-- changes made through MCP in the last week, newest first
+select created_at, user_name, oauth_client_name, tool, outcome, error, arguments
+from mcp_audit_log
+where is_write and created_at > now() - interval '7 days'
+order by created_at desc;
+```
 
 ---
 
@@ -257,7 +278,7 @@ Lists all lessons for a unit.
 ---
 
 #### `create_lesson`
-Creates a lesson under a unit. Appended at the end of the unit's lesson order. **Unit must be inactive.**
+Creates a lesson under a unit. Appended at the end of the unit's lesson order.
 
 **Input:** `{ unit_id: string, title: string }`  
 **Output:** `{ lesson: { lesson_id, unit_id, title, is_active, order_index } | null }`
@@ -265,7 +286,7 @@ Creates a lesson under a unit. Appended at the end of the unit's lesson order. *
 ---
 
 #### `add_success_criterion_to_lesson`
-Links a success criterion to a lesson. The parent learning objective is automatically linked to the lesson if not already present. **Unit must be inactive.**
+Links a success criterion to a lesson. The parent learning objective is automatically linked to the lesson if not already present.
 
 **Input:** `{ lesson_id: string, success_criteria_id: string }`  
 **Output:** `{ link: { lesson_id, success_criteria_id, learning_objective_id, lo_already_linked, sc_already_linked } | null }`
@@ -291,7 +312,7 @@ Lists all active activities for a lesson.
 ---
 
 #### `create_activity`
-Creates an activity under a lesson. **Unit must be inactive.**
+Creates an activity under a lesson.
 
 Scorable types: `multiple-choice-question`, `short-text-question`, `text-question`, `long-text-question`, `upload-file`, `upload-url`, `feedback`, `sketch-render`, `do-flashcards`  
 Non-scorable types: `text`, `display-image`, `display-flashcards`, `file-download`, `show-video`, `voice`, `share-my-work`, `review-others-work`, `display-section`
@@ -319,7 +340,7 @@ Setting `is_summative = true` on a non-scorable type returns an error without wr
 ---
 
 #### `update_activity`
-Updates `title`, `body_data`, and/or `is_summative` on an existing activity. Only provided fields are changed — omitted fields are left as-is. **Unit must be inactive.** Setting `is_summative = true` on a non-scorable type is rejected.
+Updates `title`, `body_data`, and/or `is_summative` on an existing activity. Only provided fields are changed — omitted fields are left as-is. Setting `is_summative = true` on a non-scorable type is rejected.
 
 **Input:** `{ activity_id: string, title?: string | null, body_data?: object | null, is_summative?: boolean }`  
 **Output:** `{ activity: { activity_id, lesson_id, title, type, order_index, is_summative, active } | null }`
@@ -327,7 +348,7 @@ Updates `title`, `body_data`, and/or `is_summative` on an existing activity. Onl
 ---
 
 #### `add_success_criterion_to_activity`
-Links a success criterion to an activity via `activity_success_criteria`. Validates both exist. Silently skips if already linked. **Unit must be inactive.**
+Links a success criterion to an activity via `activity_success_criteria`. Validates both exist. Silently skips if already linked.
 
 **Input:** `{ activity_id: string, success_criteria_id: string }`  
 **Output:** `{ link: { activity_id, success_criteria_id, already_linked } | null }`
@@ -343,7 +364,7 @@ Unlinks a success criterion from an activity (deletes the `activity_success_crit
 ---
 
 #### `remove_activity`
-Permanently deletes an activity and its `activity_success_criteria` links. **Unit must be inactive.**
+Permanently deletes an activity and its `activity_success_criteria` links.
 
 **Input:** `{ activity_id: string, lesson_id: string }`  
 **Output:** `{ removed: { activity_id, lesson_id } | null }`
@@ -357,13 +378,13 @@ Two strategies are supported depending on the client's capabilities:
 #### Strategy A — base64 (small files only, ≤ ~18 KB raw)
 
 ##### `upload_lesson_file`
-Uploads a base64-encoded file to the lesson's private teacher file store. Not visible to pupils. **Unit must be inactive.** Max 5 MB.
+Uploads a base64-encoded file to the lesson's private teacher file store. Not visible to pupils. Max 5 MB.
 
 **Input:** `{ lesson_id: string, file_name: string, base64_content: string, content_type?: string }`  
 **Output:** `{ file: { lesson_id, file_name, size_bytes, url } | null }`
 
 ##### `upload_activity_file`
-Uploads a base64-encoded file to a `file-download` activity (so pupils can download it) or a `display-image` activity (to set its image). **Unit must be inactive.** Max 5 MB.
+Uploads a base64-encoded file to a `file-download` activity (so pupils can download it) or a `display-image` activity (to set its image). Max 5 MB.
 
 **Input:** `{ lesson_id: string, activity_id: string, file_name: string, base64_content: string, content_type?: string }`  
 **Output:** `{ file: { activity_id, lesson_id, file_name, size_bytes, url } | null }`
@@ -569,7 +590,8 @@ Health probe.
 | `src/app/api/MCP/files/lesson/route.ts` | Direct lesson file upload endpoint |
 | `src/app/api/MCP/files/activity/route.ts` | Direct activity file upload endpoint |
 | `src/lib/mcp/auth.ts` | Bearer token verification |
-| `src/lib/mcp/guards.ts` | `assertUnitIsInactive` / `assertLessonUnitIsInactive` safety guards |
+| `src/lib/mcp/guards.ts` | `assertUnitExists` / `assertLessonExists` — clear "not found" errors before a write |
+| `src/lib/mcp/audit.ts` | `recordMcpCall` — writes `mcp_audit_log` |
 | `src/lib/mcp/curriculum.ts` | Curriculum read/write helpers |
 | `src/lib/mcp/units.ts` | Unit read/write helpers |
 | `src/lib/mcp/lessons.ts` | Lesson read/write/upload helpers |

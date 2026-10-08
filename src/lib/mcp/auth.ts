@@ -5,12 +5,13 @@ import { protectedResourceMetadataUrl } from "@/lib/oauth/metadata"
 import { verifyAccessToken } from "@/lib/oauth/server"
 import { publicOrigin } from "@/lib/public-origin"
 
+/** Who an authorised MCP request acts for — recorded on every audit log row. */
+export type McpCaller =
+  | { method: "service_key"; userId: null; clientId: null }
+  | { method: "oauth"; userId: string; clientId: string }
+
 type AuthResult =
-  | {
-      authorized: true
-      /** The teacher an OAuth token acts for; null for the service key. */
-      userId: string | null
-    }
+  | ({ authorized: true } & McpCaller)
   | { authorized: false; reason: string }
 
 const HEADER_KEYS = ["authorization", "x-mcp-service-key"]
@@ -51,14 +52,14 @@ export async function verifyMcpAuthorization(request: NextRequest): Promise<Auth
   for (const headerKey of HEADER_KEYS) {
     const token = extractToken(request.headers.get(headerKey))
     if (token && matchesServiceKey(token, configuredKey)) {
-      return { authorized: true, userId: null }
+      return { authorized: true, method: "service_key", userId: null, clientId: null }
     }
   }
 
   const bearer = extractToken(request.headers.get("authorization"))
   if (bearer) {
-    const userId = await verifyAccessToken(bearer)
-    if (userId) return { authorized: true, userId }
+    const token = await verifyAccessToken(bearer)
+    if (token) return { authorized: true, method: "oauth", ...token }
   }
 
   return { authorized: false, reason: "Missing or invalid MCP credentials." }

@@ -1,6 +1,6 @@
 import { query, withDbClient } from '@/lib/db'
 import { SCORABLE_ACTIVITY_TYPES, NON_SCORABLE_ACTIVITY_TYPES } from '@/dino.config'
-import { assertLessonUnitIsInactive } from '@/lib/mcp/guards'
+import { assertLessonExists } from '@/lib/mcp/guards'
 import { assertScAllowedForActivity } from '@/lib/curriculum/unit-curriculum-guard'
 import { recalculateActivityMaxMarks, recalculateGroupItemsMaxMarks, recalculateMatcherMaxMarks } from '@/lib/scoring/derive-max-marks'
 import { createLocalStorageClient } from '@/lib/storage/local-storage'
@@ -90,7 +90,7 @@ export async function createActivity(
   let result: ActivitySummary | null = null
 
   await withDbClient(async (client) => {
-    await assertLessonUnitIsInactive(client, lessonId)
+    await assertLessonExists(client, lessonId)
 
     const { rows: maxRows } = await client.query<{ order_by: number }>(
       'select order_by from activities where lesson_id = $1 order by order_by desc nulls last limit 1',
@@ -174,11 +174,6 @@ export async function uploadActivityFile(
     throw new Error(`Activity ${activityId} is type "${activity.type}" — only file-download and display-image activities accept file uploads`)
   }
 
-  // Safety guard — unit must be inactive
-  await withDbClient(async (client) => {
-    await assertLessonUnitIsInactive(client, lessonId)
-  })
-
   // Upload using the same path convention as the app
   const fullPath = `lessons/${lessonId}/activities/${activityId}/${fileName}`
   const storage = createLocalStorageClient('lessons')
@@ -230,8 +225,6 @@ export async function updateActivity(
     if ('bodyData' in fields) {
       validateBodyDataForType(existing[0].type, fields.bodyData)
     }
-
-    await assertLessonUnitIsInactive(client, existing[0].lesson_id)
 
     // Guard: can't mark a non-scorable type as summative
     if (fields.isSummative === true) {
@@ -300,13 +293,11 @@ export async function addSuccessCriterionToActivity(
   let result: ActivityScLinkResult | null = null
 
   await withDbClient(async (client) => {
-    // Validate activity exists and get its lesson_id for the guard
-    const { rows: actRows } = await client.query<{ activity_id: string; lesson_id: string }>(
-      'select activity_id, lesson_id from activities where activity_id = $1 limit 1',
+    const { rows: actRows } = await client.query<{ activity_id: string }>(
+      'select activity_id from activities where activity_id = $1 limit 1',
       [activityId],
     )
     if (!actRows[0]) throw new Error(`Activity ${activityId} not found`)
-    await assertLessonUnitIsInactive(client, actRows[0].lesson_id)
     await assertScAllowedForActivity(client, activityId, successCriteriaId)
 
     // Validate SC exists
@@ -343,7 +334,7 @@ export async function removeActivity(
   lessonId: string,
 ): Promise<{ activity_id: string; lesson_id: string }> {
   await withDbClient(async (client) => {
-    await assertLessonUnitIsInactive(client, lessonId)
+    await assertLessonExists(client, lessonId)
 
     const { rows } = await client.query<{ activity_id: string }>(
       'select activity_id from activities where activity_id = $1 and lesson_id = $2 limit 1',

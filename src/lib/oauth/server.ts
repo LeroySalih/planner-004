@@ -353,9 +353,9 @@ export async function refreshAccessToken(input: { refreshToken: string; clientId
 }
 
 /** The teacher an access token acts for, or null if it should be refused. */
-export async function verifyAccessToken(token: string): Promise<string | null> {
-  const { rows } = await query<{ id: string; user_id: string; stale: boolean }>(
-    `select t.id, t.user_id,
+export async function verifyAccessToken(token: string): Promise<{ userId: string; clientId: string } | null> {
+  const { rows } = await query<{ id: string; user_id: string; client_id: string; stale: boolean }>(
+    `select t.id, t.user_id, t.client_id,
             (t.last_used_at is null or t.last_used_at < now() - interval '1 minute') as stale
      from oauth_tokens t
      where t.access_token_hash = $1
@@ -369,7 +369,7 @@ export async function verifyAccessToken(token: string): Promise<string | null> {
   if (row.stale) {
     await query("update oauth_tokens set last_used_at = now() where id = $1", [row.id])
   }
-  return row.user_id
+  return { userId: row.user_id, clientId: row.client_id }
 }
 
 export async function listConnectedApps(userId: string): Promise<ConnectedApp[]> {
