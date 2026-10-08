@@ -59,6 +59,7 @@ import {
   RecordAssessmentResultSchema,
   type AssessmentPaper,
 } from '@/types'
+import { decodeBase64File, fetchFileFromUrl } from '@/lib/mcp/file-input'
 import { ACTIVITY_TYPES, listActivitiesForLesson, createActivity, updateActivity, addSuccessCriterionToActivity, removeSuccessCriterionFromActivity, removeActivity, uploadActivityFile } from '@/lib/mcp/activities'
 
 // Force Node.js runtime — MCP SDK is not compatible with the Edge runtime.
@@ -1321,7 +1322,7 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
     },
     async ({ lesson_id, file_name, base64_content, content_type }) => {
       try {
-        const file = await uploadLessonFile(lesson_id, file_name, base64_content, content_type ?? null)
+        const file = await uploadLessonFile(lesson_id, file_name, decodeBase64File(base64_content), content_type ?? null)
         return {
           content: [{ type: 'text' as const, text: `Uploaded "${file_name}" (${file.size_bytes} bytes) to lesson ${lesson_id} teacher files. Available at ${file.url}` }],
           structuredContent: { file },
@@ -1360,9 +1361,91 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
     },
     async ({ lesson_id, activity_id, file_name, base64_content, content_type }) => {
       try {
-        const file = await uploadActivityFile(lesson_id, activity_id, file_name, base64_content, content_type ?? null)
+        const file = await uploadActivityFile(lesson_id, activity_id, file_name, decodeBase64File(base64_content), content_type ?? null)
         return {
           content: [{ type: 'text' as const, text: `Uploaded "${file_name}" (${file.size_bytes} bytes) to activity ${activity_id}. Available at ${file.url}` }],
+          structuredContent: { file },
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${message}` }],
+          structuredContent: { file: null },
+        }
+      }
+    },
+  )
+
+  const FROM_URL_HELP =
+    'DINO downloads the file itself, so nothing has to be passed through this conversation. '
+    + 'The link must be public https: a Google Drive file shared "Anyone with the link" (its normal share link works), '
+    + 'a Google Slides/Docs/Sheets link (exported as pptx/docx/xlsx), or any direct download link. Max 5 MB. Web pages and SVGs are refused.'
+
+  srv.registerTool(
+    'upload_activity_file_from_url',
+    {
+      title: 'Upload file to activity from a link',
+      description: 'Downloads a file from a link into a file-download activity (so pupils can download it) or a display-image activity (to set its image). '
+        + 'Create the activity first with create_activity. ' + FROM_URL_HELP,
+      inputSchema: z.object({
+        lesson_id: z.string().describe('UUID of the lesson'),
+        activity_id: z.string().describe('UUID of the file-download or display-image activity'),
+        url: z.string().describe('Public https link to the file'),
+        file_name: z.string().optional().describe('File name to store, including extension. Defaults to the name the link provides.'),
+      }),
+      outputSchema: z.object({
+        file: z.object({
+          activity_id: z.string(),
+          lesson_id: z.string(),
+          file_name: z.string(),
+          size_bytes: z.number(),
+          url: z.string(),
+        }).nullable(),
+      }),
+    },
+    async ({ lesson_id, activity_id, url, file_name }) => {
+      try {
+        const fetched = await fetchFileFromUrl(url, file_name)
+        const file = await uploadActivityFile(lesson_id, activity_id, fetched.fileName, fetched.buffer, fetched.contentType)
+        return {
+          content: [{ type: 'text' as const, text: `Uploaded "${file.file_name}" (${file.size_bytes} bytes) to activity ${activity_id}. Available at ${file.url}` }],
+          structuredContent: { file },
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${message}` }],
+          structuredContent: { file: null },
+        }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'upload_lesson_file_from_url',
+    {
+      title: 'Upload file to lesson (teacher storage) from a link',
+      description: 'Downloads a file from a link into the lesson\'s private teacher file store. Not visible to pupils. ' + FROM_URL_HELP,
+      inputSchema: z.object({
+        lesson_id: z.string().describe('UUID of the lesson'),
+        url: z.string().describe('Public https link to the file'),
+        file_name: z.string().optional().describe('File name to store, including extension. Defaults to the name the link provides.'),
+      }),
+      outputSchema: z.object({
+        file: z.object({
+          lesson_id: z.string(),
+          file_name: z.string(),
+          size_bytes: z.number(),
+          url: z.string(),
+        }).nullable(),
+      }),
+    },
+    async ({ lesson_id, url, file_name }) => {
+      try {
+        const fetched = await fetchFileFromUrl(url, file_name)
+        const file = await uploadLessonFile(lesson_id, fetched.fileName, fetched.buffer, fetched.contentType)
+        return {
+          content: [{ type: 'text' as const, text: `Uploaded "${file.file_name}" (${file.size_bytes} bytes) to lesson ${lesson_id} teacher files. Available at ${file.url}` }],
           structuredContent: { file },
         }
       } catch (err) {

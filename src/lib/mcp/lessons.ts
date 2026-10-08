@@ -2,6 +2,7 @@ import { query, withDbClient } from '@/lib/db'
 import { assertUnitExists, assertLessonExists } from '@/lib/mcp/guards'
 import { assertScAllowedForLesson, assertLoAllowedForLesson } from '@/lib/curriculum/unit-curriculum-guard'
 import { createLocalStorageClient } from '@/lib/storage/local-storage'
+import { MCP_UPLOAD_MAX_BYTES } from '@/lib/mcp/file-input'
 
 export type LessonSummary = {
   lesson_id: string
@@ -164,7 +165,6 @@ export async function addSuccessCriterionToLesson(
 }
 
 const LESSON_FILES_BUCKET = 'lessons'
-const LESSON_FILES_MAX_BYTES = 5 * 1024 * 1024 // 5 MB
 
 export type LessonFileResult = {
   lesson_id: string
@@ -176,18 +176,10 @@ export type LessonFileResult = {
 export async function uploadLessonFile(
   lessonId: string,
   fileName: string,
-  base64Content: string,
+  buffer: Buffer,
   contentType?: string | null,
 ): Promise<LessonFileResult> {
-  // Decode before touching the DB
-  let buffer: Buffer
-  try {
-    buffer = Buffer.from(base64Content, 'base64')
-  } catch {
-    throw new Error('Invalid base64 content')
-  }
-  if (buffer.byteLength === 0) throw new Error('File content is empty')
-  if (buffer.byteLength > LESSON_FILES_MAX_BYTES) {
+  if (buffer.byteLength > MCP_UPLOAD_MAX_BYTES) {
     throw new Error(`File exceeds the 5 MB limit (${buffer.byteLength} bytes)`)
   }
 

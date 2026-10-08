@@ -399,6 +399,34 @@ Uploads a base64-encoded file to a `file-download` activity (so pupils can downl
 
 ---
 
+#### Strategy C — by link (recommended for Claude Desktop / claude.ai)
+
+Claude's chat apps cannot reliably pass a file of more than a few hundred KB as base64, and their sandbox does not hold the connector's credentials, so neither strategy A nor B works from there. These tools take a link and DINO downloads the file itself.
+
+##### `upload_activity_file_from_url`
+Downloads a file into a `file-download` or `display-image` activity.
+
+**Input:** `{ lesson_id: string, activity_id: string, url: string, file_name?: string }`  
+**Output:** `{ file: { activity_id, lesson_id, file_name, size_bytes, url } | null }`
+
+##### `upload_lesson_file_from_url`
+Downloads a file into the lesson's private teacher file store.
+
+**Input:** `{ lesson_id: string, url: string, file_name?: string }`  
+**Output:** `{ file: { lesson_id, file_name, size_bytes, url } | null }`
+
+What the link may be:
+
+- A Google Drive file shared **"Anyone with the link"** — its ordinary share link is rewritten to the download URL.
+- A Google Slides / Docs / Sheets link, exported as `.pptx` / `.docx` / `.xlsx`.
+- Any other public `https://` direct download link.
+
+`file_name` defaults to the name the server sends (`Content-Disposition`), then the URL path, and is reduced to one safe path segment either way. Max 5 MB, as for every MCP upload.
+
+Because the server makes the request, `src/lib/mcp/file-input.ts` guards it against SSRF: `https` on port 443 only, no credentials in the URL, and every address the host resolves to must be public — checked inside the socket's own DNS lookup so a name cannot rebind to a private address after the check. Redirects (max 5) are re-checked hop by hop. Responses that are web pages (`text/html`, usually a viewer or sign-in page) and SVGs (which can carry script and are served inline) are refused.
+
+---
+
 #### Strategy B — direct multipart POST (recommended for larger files)
 
 Use the info tools to get the upload parameters, then POST the file directly — no base64 encoding, no token-limit issues.
@@ -600,6 +628,7 @@ Health probe.
 | `src/lib/mcp/auth.ts` | Bearer token verification |
 | `src/lib/mcp/guards.ts` | `assertUnitExists` / `assertLessonExists` — clear "not found" errors before a write |
 | `src/lib/mcp/audit.ts` | `recordMcpCall` — writes `mcp_audit_log` |
+| `src/lib/mcp/file-input.ts` | Base64 decoding, the shared 5 MB limit, and the SSRF-guarded fetch behind the `*_from_url` tools |
 | `src/lib/mcp/curriculum.ts` | Curriculum read/write helpers |
 | `src/lib/mcp/units.ts` | Unit read/write helpers |
 | `src/lib/mcp/lessons.ts` | Lesson read/write/upload helpers |

@@ -1,6 +1,7 @@
 import { query, withDbClient } from '@/lib/db'
 import { SCORABLE_ACTIVITY_TYPES, NON_SCORABLE_ACTIVITY_TYPES } from '@/dino.config'
 import { assertLessonExists } from '@/lib/mcp/guards'
+import { MCP_UPLOAD_MAX_BYTES } from '@/lib/mcp/file-input'
 import { assertScAllowedForActivity } from '@/lib/curriculum/unit-curriculum-guard'
 import { recalculateActivityMaxMarks, recalculateGroupItemsMaxMarks, recalculateMatcherMaxMarks } from '@/lib/scoring/derive-max-marks'
 import { createLocalStorageClient } from '@/lib/storage/local-storage'
@@ -148,17 +149,12 @@ export async function uploadActivityFile(
   lessonId: string,
   activityId: string,
   fileName: string,
-  base64Content: string,
+  buffer: Buffer,
   contentType?: string | null,
 ): Promise<UploadedFileResult> {
-  // Validate and decode before touching the DB
-  let buffer: Buffer
-  try {
-    buffer = Buffer.from(base64Content, 'base64')
-  } catch {
-    throw new Error('Invalid base64 content')
+  if (buffer.byteLength > MCP_UPLOAD_MAX_BYTES) {
+    throw new Error(`File exceeds the 5 MB limit (${buffer.byteLength} bytes)`)
   }
-  if (buffer.byteLength === 0) throw new Error('File content is empty')
 
   // Validate activity exists, belongs to lesson, and is a file-download type
   const { rows } = await query<{ activity_id: string; type: string; lesson_id: string }>(
