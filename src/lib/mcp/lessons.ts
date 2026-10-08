@@ -224,3 +224,117 @@ export async function removeSuccessCriterionFromLesson(
   })
   return { lesson_id: lessonId, success_criteria_id: successCriteriaId, removed }
 }
+
+export type LessonObjectives = {
+  lesson_id: string
+  unit_id: string
+  title: string
+  learning_objectives: Array<{
+    learning_objective_id: string
+    assessment_objective_code: string | null
+    title: string
+    active: boolean
+    /** False when only a criterion links this LO, not the lesson itself. */
+    linked_to_lesson: boolean
+    success_criteria: Array<{
+      success_criteria_id: string
+      description: string
+      level: number
+      active: boolean
+      /** False when only an activity in this lesson uses the criterion. */
+      linked_to_lesson: boolean
+      activities: Array<{ activity_id: string; title: string; type: string }>
+    }>
+  }>
+}
+
+/**
+ * Everything linked to a lesson: its learning objectives, its success
+ * criteria grouped under their LO, and which of the lesson's activities use
+ * each criterion. Criteria that only an activity links are included and
+ * flagged, so a stale link is visible rather than hidden.
+ */
+export async function getLessonObjectives(lessonId: string): Promise<LessonObjectives> {
+  const { rows: lessonRows } = await query<{ lesson_id: string; unit_id: string; title: string }>(
+    'select lesson_id, unit_id, title from lessons where lesson_id = $1 limit 1',
+    [lessonId],
+  )
+  const lesson = lessonRows[0]
+  if (!lesson) throw new Error(`Lesson ${lessonId} not found`)
+
+  const { rows: loRows } = await query<{ learning_objective_id: string; order_by: number | null }>(
+    'select learning_objective_id, order_by from lessons_learning_objective where lesson_id = $1',
+    [lessonId],
+  )
+  const lessonLoOrder = new Map(loRows.map((row) => [row.learning_objective_id, row.order_by ?? 0]))
+
+  const { rows: scRows } = await query<{
+    success_criteria_id: string
+    learning_objective_id: string
+    description: string
+    level: number
+    active: boolean | null
+    order_index: number
+    linked_to_lesson: boolean
+    activities: Array<{ activity_id: string; title: string; type: string }>
+  }>(
+    `with lesson_activities as (
+       select activity_id, coalesce(title, '') as title, type, order_by from activities where lesson_id = $1 and active is not false
+     ), linked as (
+       select success_criteria_id from lesson_success_criteria where lesson_id = $1
+       union
+       select asc_.success_criteria_id
+         from activity_success_criteria asc_
+         join lesson_activities la on la.activity_id = asc_.activity_id
+     )
+     select sc.success_criteria_id, sc.learning_objective_id, sc.description, sc.level, sc.active, sc.order_index,
+            exists (select 1 from lesson_success_criteria lsc
+                     where lsc.lesson_id = $1 and lsc.success_criteria_id = sc.success_criteria_id) as linked_to_lesson,
+            coalesce((select json_agg(json_build_object('activity_id', la.activity_id, 'title', la.title, 'type', la.type) order by la.order_by)
+                        from activity_success_criteria asc_
+                        join lesson_activities la on la.activity_id = asc_.activity_id
+                       where asc_.success_criteria_id = sc.success_criteria_id), '[]'::json) as activities
+       from linked
+       join success_criteria sc on sc.success_criteria_id = linked.success_criteria_id`,
+    [lessonId],
+  )
+
+  const loIds = Array.from(new Set([...lessonLoOrder.keys(), ...scRows.map((row) => row.learning_objective_id)]))
+  const { rows: loMeta } = await query<{
+    learning_objective_id: string
+    title: string
+    active: boolean
+    assessment_objective_code: string | null
+  }>(
+    `select lo.learning_objective_id, lo.title, lo.active, ao.code as assessment_objective_code
+       from learning_objectives lo
+       left join assessment_objectives ao on ao.assessment_objective_id = lo.assessment_objective_id
+      where lo.learning_objective_id = any($1::text[])`,
+    [loIds],
+  )
+
+  const learning_objectives = loMeta
+    .map((lo) => ({
+      learning_objective_id: lo.learning_objective_id,
+      assessment_objective_code: lo.assessment_objective_code,
+      title: lo.title,
+      active: lo.active,
+      linked_to_lesson: lessonLoOrder.has(lo.learning_objective_id),
+      success_criteria: scRows
+        .filter((sc) => sc.learning_objective_id === lo.learning_objective_id)
+        .sort((a, b) => a.order_index - b.order_index)
+        .map((sc) => ({
+          success_criteria_id: sc.success_criteria_id,
+          description: sc.description,
+          level: sc.level,
+          active: sc.active !== false,
+          linked_to_lesson: sc.linked_to_lesson,
+          activities: sc.activities,
+        })),
+    }))
+    .sort((a, b) =>
+      (lessonLoOrder.get(a.learning_objective_id) ?? Number.MAX_SAFE_INTEGER)
+      - (lessonLoOrder.get(b.learning_objective_id) ?? Number.MAX_SAFE_INTEGER))
+
+  return { lesson_id: lesson.lesson_id, unit_id: lesson.unit_id, title: lesson.title, learning_objectives }
+}

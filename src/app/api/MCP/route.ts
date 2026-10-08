@@ -27,7 +27,7 @@ import {
   deactivateSuccessCriterion,
 } from '@/lib/mcp/losc'
 import { listUnits, findUnitsByTitle, createUnit } from '@/lib/mcp/units'
-import { listLessonsForUnit, createLesson, addSuccessCriterionToLesson, removeSuccessCriterionFromLesson, uploadLessonFile } from '@/lib/mcp/lessons'
+import { listLessonsForUnit, getLessonObjectives, createLesson, addSuccessCriterionToLesson, removeSuccessCriterionFromLesson, uploadLessonFile } from '@/lib/mcp/lessons'
 import {
   listTeachers,
   listGroups,
@@ -404,6 +404,67 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
           },
         ],
         structuredContent: { lessons },
+      }
+    },
+  )
+
+  srv.registerTool(
+    'get_lesson_objectives',
+    {
+      title: 'Get lesson objectives and success criteria',
+      description: 'Return everything linked to a lesson: its learning objectives, the success criteria under each, and which of the lesson\'s activities use each criterion. '
+        + 'Use it to check links after add_success_criterion_to_lesson / add_success_criterion_to_activity, or to find stale ones to remove. '
+        + 'linked_to_lesson is false for an LO or SC that only reaches the lesson through a criterion or activity, rather than being linked to the lesson itself.',
+      inputSchema: {
+        lesson_id: z.string().min(1).describe('Lesson identifier.'),
+      },
+      outputSchema: {
+        lesson: z.object({
+          lesson_id: z.string(),
+          unit_id: z.string(),
+          title: z.string(),
+          learning_objectives: z.array(z.object({
+            learning_objective_id: z.string(),
+            assessment_objective_code: z.string().nullable(),
+            title: z.string(),
+            active: z.boolean(),
+            linked_to_lesson: z.boolean(),
+            success_criteria: z.array(z.object({
+              success_criteria_id: z.string(),
+              description: z.string(),
+              level: z.number(),
+              active: z.boolean(),
+              linked_to_lesson: z.boolean(),
+              activities: z.array(z.object({ activity_id: z.string(), title: z.string(), type: z.string() })),
+            })),
+          })),
+        }).nullable(),
+      },
+    },
+    async ({ lesson_id }) => {
+      try {
+        const lesson = await getLessonObjectives(lesson_id)
+        const scCount = lesson.learning_objectives.reduce((n, lo) => n + lo.success_criteria.length, 0)
+        const lines = lesson.learning_objectives.flatMap((lo) => [
+          `${lo.assessment_objective_code ? `${lo.assessment_objective_code} ` : ''}LO ${lo.learning_objective_id} • ${lo.title}${lo.linked_to_lesson ? '' : ' [LO not linked to lesson]'}${lo.active ? '' : ' [inactive]'}`,
+          ...lo.success_criteria.map((sc) =>
+            `  SC ${sc.success_criteria_id} (L${sc.level}) • ${sc.description}${sc.linked_to_lesson ? '' : ' [SC not linked to lesson]'}${sc.active ? '' : ' [inactive]'}`
+            + ` — activities: ${sc.activities.length > 0 ? sc.activities.map((a) => a.title.trim() || `untitled ${a.type}`).join('; ') : 'none'}`),
+        ])
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `${lesson.title}: ${lesson.learning_objectives.length} learning objectives, ${scCount} success criteria.`
+              + (lines.length > 0 ? `\n${lines.join('\n')}` : ''),
+          }],
+          structuredContent: { lesson },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to read lesson objectives'
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${message}` }],
+          structuredContent: { lesson: null },
+        }
       }
     },
   )

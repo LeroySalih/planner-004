@@ -277,6 +277,14 @@ Lists all lessons for a unit.
 
 ---
 
+#### `get_lesson_objectives`
+Returns everything linked to a lesson: its learning objectives, the success criteria under each (ordered as in the curriculum), and which of the lesson's active activities use each criterion. A criterion that only an activity links is still listed, with `linked_to_lesson: false`; likewise an LO reached only through one of its criteria. Use it to confirm links after `add_success_criterion_to_lesson` and to find stale ones.
+
+**Input:** `{ lesson_id: string }`  
+**Output:** `{ lesson: { lesson_id, unit_id, title, learning_objectives: [{ learning_objective_id, assessment_objective_code, title, active, linked_to_lesson, success_criteria: [{ success_criteria_id, description, level, active, linked_to_lesson, activities: [{ activity_id, title, type }] }] }] } | null }`
+
+---
+
 #### `create_lesson`
 Creates a lesson under a unit. Appended at the end of the unit's lesson order.
 
