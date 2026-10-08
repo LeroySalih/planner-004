@@ -59,7 +59,8 @@ import {
   RecordAssessmentResultSchema,
   type AssessmentPaper,
 } from '@/types'
-import { decodeBase64File, fetchFileFromUrl } from '@/lib/mcp/file-input'
+import { MCP_UPLOAD_MAX_BYTES, decodeBase64File, fetchFileFromUrl } from '@/lib/mcp/file-input'
+import { createUploadLink } from '@/lib/mcp/upload-links'
 import { ACTIVITY_TYPES, listActivitiesForLesson, createActivity, updateActivity, addSuccessCriterionToActivity, removeSuccessCriterionFromActivity, removeActivity, uploadActivityFile } from '@/lib/mcp/activities'
 
 // Force Node.js runtime — MCP SDK is not compatible with the Edge runtime.
@@ -1298,6 +1299,71 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
         structuredContent: result,
       }
     },
+  )
+
+  // A one-time link carries its own permission, so Claude can send a file it
+  // made in its code sandbox, which has no copy of this connection's
+  // credentials. The token is a credential, but a narrow one: one file, one
+  // target, 15 minutes — never the service key or an access token.
+  const uploadLinkOutput = z.object({
+    upload_url: z.string(),
+    expires_at: z.string(),
+    max_bytes: z.number(),
+    instructions: z.string(),
+  }).nullable()
+  const uploadLinkTool = async (lessonId: string, activityId: string | null, fileName: string | undefined) => {
+    try {
+      const { token, expiresAt } = await createUploadLink(caller, { lessonId, activityId, fileName: fileName ?? null })
+      const uploadUrl = `${baseUrl}/api/MCP/upload/${token}`
+      const instructions =
+        `From your code sandbox, send the file to upload_url, e.g. curl -sS -F "file=@/path/to/file.pptx" "${uploadUrl}" `
+        + '(or PUT/POST the raw bytes, adding ?file_name=name.ext to the URL). No Authorization header is needed. '
+        + `The link works once and expires at ${expiresAt}. Max 5 MB; HTML and SVG are refused. `
+        + 'A JSON reply with "success": true confirms the upload. If the request cannot connect, the sandbox\'s network settings '
+        + `are blocking ${new URL(uploadUrl).host}: ask the user to allow that domain in Claude's settings (Capabilities → code execution network access).`
+      return {
+        content: [{ type: 'text' as const, text: `Upload link (single use, expires ${expiresAt}):\n${uploadUrl}\n${instructions}` }],
+        structuredContent: { link: { upload_url: uploadUrl, expires_at: expiresAt, max_bytes: MCP_UPLOAD_MAX_BYTES, instructions } },
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to create upload link'
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${message}` }],
+        structuredContent: { link: null },
+      }
+    }
+  }
+
+  srv.registerTool(
+    'create_activity_file_upload_link',
+    {
+      title: 'Create a one-time upload link for an activity file',
+      description: 'Best way to upload a file you have in your code sandbox (e.g. a deck you made) to a file-download or display-image activity. '
+        + 'Returns a single-use link, valid 15 minutes, that accepts the file with a plain curl POST — no credentials, no base64. '
+        + 'Create the activity first with create_activity.',
+      inputSchema: z.object({
+        lesson_id: z.string().describe('UUID of the lesson'),
+        activity_id: z.string().describe('UUID of the file-download or display-image activity'),
+        file_name: z.string().optional().describe('Name to store the file under, including extension. Defaults to the uploaded file\'s name.'),
+      }),
+      outputSchema: z.object({ link: uploadLinkOutput }),
+    },
+    async ({ lesson_id, activity_id, file_name }) => uploadLinkTool(lesson_id, activity_id, file_name),
+  )
+
+  srv.registerTool(
+    'create_lesson_file_upload_link',
+    {
+      title: 'Create a one-time upload link for a lesson file',
+      description: 'Best way to upload a file you have in your code sandbox to a lesson\'s private teacher file store (not visible to pupils). '
+        + 'Returns a single-use link, valid 15 minutes, that accepts the file with a plain curl POST — no credentials, no base64.',
+      inputSchema: z.object({
+        lesson_id: z.string().describe('UUID of the lesson'),
+        file_name: z.string().optional().describe('Name to store the file under, including extension. Defaults to the uploaded file\'s name.'),
+      }),
+      outputSchema: z.object({ link: uploadLinkOutput }),
+    },
+    async ({ lesson_id, file_name }) => uploadLinkTool(lesson_id, null, file_name),
   )
 
   srv.registerTool(

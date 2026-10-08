@@ -399,6 +399,33 @@ Uploads a base64-encoded file to a `file-download` activity (so pupils can downl
 
 ---
 
+#### Strategy D — one-time upload link (recommended for files Claude makes)
+
+For a file that exists only in Claude's code sandbox, such as a deck it has just built. The sandbox has no copy of the connector's credentials, so the link carries its own narrow permission (migration 107):
+
+##### `create_activity_file_upload_link`
+**Input:** `{ lesson_id: string, activity_id: string, file_name?: string }`  
+**Output:** `{ link: { upload_url, expires_at, max_bytes, instructions } | null }`
+
+##### `create_lesson_file_upload_link`
+**Input:** `{ lesson_id: string, file_name?: string }`  
+**Output:** `{ link: { upload_url, expires_at, max_bytes, instructions } | null }`
+
+Then, from the sandbox:
+
+```bash
+curl -sS -F "file=@deck.pptx" "<upload_url>"
+# or raw bytes:
+curl -sS -X PUT --data-binary @deck.pptx "<upload_url>?file_name=deck.pptx"
+```
+
+- A link accepts **one** file, for the one activity or lesson it was made for, and expires after **15 minutes**. A failed upload releases the link so it can be retried before expiry.
+- Only a SHA-256 hash of the token is stored (`mcp_upload_links`). The link records the teacher who asked for it, and the upload is logged in `mcp_audit_log` as `file_upload:link` under that teacher.
+- Max 5 MB. HTML and SVG are refused, because uploads are served inline from DINO's origin.
+- If curl cannot connect, the sandbox's network allowlist is blocking DINO's host. In Claude's settings, allow the domain (e.g. `dino.mr-salih.org`) for code execution.
+
+---
+
 #### Strategy C — by link (recommended for Claude Desktop / claude.ai)
 
 Claude's chat apps cannot reliably pass a file of more than a few hundred KB as base64, and their sandbox does not hold the connector's credentials, so neither strategy A nor B works from there. These tools take a link and DINO downloads the file itself.
@@ -628,6 +655,8 @@ Health probe.
 | `src/lib/mcp/auth.ts` | Bearer token verification |
 | `src/lib/mcp/guards.ts` | `assertUnitExists` / `assertLessonExists` — clear "not found" errors before a write |
 | `src/lib/mcp/audit.ts` | `recordMcpCall` — writes `mcp_audit_log` |
+| `src/lib/mcp/upload-links.ts` | Create / claim / release one-time upload links |
+| `src/app/api/MCP/upload/[token]/route.ts` | The endpoint a one-time upload link points at |
 | `src/lib/mcp/file-input.ts` | Base64 decoding, the shared 5 MB limit, and the SSRF-guarded fetch behind the `*_from_url` tools |
 | `src/lib/mcp/curriculum.ts` | Curriculum read/write helpers |
 | `src/lib/mcp/units.ts` | Unit read/write helpers |
