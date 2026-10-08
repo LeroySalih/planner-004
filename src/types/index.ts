@@ -1724,3 +1724,127 @@ export const AiModelRouteSchema = z.object({
   updated_by: z.string().nullable(),
 });
 export type AiModelRoute = z.infer<typeof AiModelRouteSchema>;
+
+/**
+ * Assessment papers (104-assessments.sql): written papers marked outside a
+ * lesson. Unrelated to the curriculum's assessment objectives. Totals are
+ * always summed from mark rows, never stored.
+ */
+export const AssessmentMarkProvenanceSchema = z.enum(["ai", "teacher"]);
+export type AssessmentMarkProvenance = z.infer<typeof AssessmentMarkProvenanceSchema>;
+
+export const AssessmentPaperSummarySchema = z.object({
+  assessment_id: z.string(),
+  title: z.string(),
+  assessed_on: z.string(),
+  curriculum_id: z.string(),
+  curriculum_title: z.string(),
+  group_ids: z.array(z.string()),
+  objective_count: z.number().int(),
+  unlinked_objective_count: z.number().int(),
+  question_count: z.number().int(),
+  total_marks: z.number().int(),
+  pupils_with_results: z.number().int(),
+  feedback_visible: z.boolean(),
+});
+export type AssessmentPaperSummary = z.infer<typeof AssessmentPaperSummarySchema>;
+
+export const AssessmentPaperObjectiveSchema = z.object({
+  code: z.string(),
+  position: z.number().int(),
+  title: z.string(),
+  learning_objective_id: z.string().nullable(),
+  learning_objective_title: z.string().nullable(),
+});
+export type AssessmentPaperObjective = z.infer<typeof AssessmentPaperObjectiveSchema>;
+
+export const AssessmentPaperQuestionSchema = z.object({
+  label: z.string(),
+  position: z.number().int(),
+  max_marks: z.number().int(),
+  objective_code: z.string(),
+  correct_answer: z.string().nullable(),
+});
+export type AssessmentPaperQuestion = z.infer<typeof AssessmentPaperQuestionSchema>;
+
+export const AssessmentObjectiveSubtotalSchema = z.object({
+  code: z.string(),
+  awarded: z.number().int(),
+  available: z.number().int(),
+});
+export type AssessmentObjectiveSubtotal = z.infer<typeof AssessmentObjectiveSubtotalSchema>;
+
+export const AssessmentPupilTotalsSchema = z.object({
+  pupil_id: z.string(),
+  first_name: z.string().nullable(),
+  last_name: z.string().nullable(),
+  total_awarded: z.number().int(),
+  total_available: z.number().int(),
+  percent: z.number().int(),
+  objectives: z.array(AssessmentObjectiveSubtotalSchema),
+});
+export type AssessmentPupilTotals = z.infer<typeof AssessmentPupilTotalsSchema>;
+
+export const AssessmentPaperHeaderSchema = z.object({
+  assessment_id: z.string(),
+  title: z.string(),
+  assessed_on: z.string(),
+  curriculum_id: z.string(),
+  curriculum_title: z.string(),
+  group_ids: z.array(z.string()),
+  feedback_visible: z.boolean(),
+});
+export type AssessmentPaperHeader = z.infer<typeof AssessmentPaperHeaderSchema>;
+
+export const AssessmentPaperSchema = AssessmentPaperHeaderSchema.extend({
+  objectives: z.array(AssessmentPaperObjectiveSchema),
+  questions: z.array(AssessmentPaperQuestionSchema),
+  total_marks: z.number().int(),
+  pupils: z.array(AssessmentPupilTotalsSchema),
+});
+export type AssessmentPaper = z.infer<typeof AssessmentPaperSchema>;
+
+export const AssessmentPupilQuestionResultSchema = z.object({
+  label: z.string(),
+  objective_code: z.string(),
+  max_marks: z.number().int(),
+  correct_answer: z.string().nullable(),
+  awarded: z.number().int().nullable(),
+  why_not_awarded: z.string().nullable(),
+  how_to_improve: z.string().nullable(),
+  provenance: AssessmentMarkProvenanceSchema.nullable(),
+});
+export type AssessmentPupilQuestionResult = z.infer<typeof AssessmentPupilQuestionResultSchema>;
+
+export const AssessmentPupilResultSchema = AssessmentPupilTotalsSchema.extend({
+  assessment: AssessmentPaperHeaderSchema,
+  questions: z.array(AssessmentPupilQuestionResultSchema),
+  went_well: z.array(z.string()),
+  targets: z.array(z.string()),
+});
+export type AssessmentPupilResult = z.infer<typeof AssessmentPupilResultSchema>;
+
+export const RecordAssessmentResultSchema = z.object({
+  written: z.number().int(),
+  skipped_teacher_edited: z.array(z.string()),
+  feedback_skipped_teacher_edited: z.boolean(),
+  missing_labels: z.array(z.string()),
+  result: AssessmentPupilResultSchema,
+});
+export type RecordAssessmentResult = z.infer<typeof RecordAssessmentResultSchema>;
+
+export const GroupPupilSchema = z.object({
+  pupil_id: z.string(),
+  first_name: z.string().nullable(),
+  last_name: z.string().nullable(),
+  email: z.string().nullable(),
+});
+export type GroupPupil = z.infer<typeof GroupPupilSchema>;
+
+export const AssessmentFileSchema = z.object({
+  assessment_id: z.string(),
+  file_name: z.string(),
+  size_bytes: z.number().int(),
+  path: z.string(),
+});
+export type AssessmentFile = z.infer<typeof AssessmentFileSchema>;

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 
-import { getAuthenticatedProfile } from "@/lib/auth"
+import { getAuthenticatedProfile, hasRole } from "@/lib/auth"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
@@ -19,6 +19,11 @@ export async function POST(request: Request) {
 
   if (typeof bucket !== "string" || bucket.trim() === "") {
     return NextResponse.json({ success: false, error: "Missing bucket" }, { status: 400 })
+  }
+
+  // Assessment papers and mark schemes are for teachers only.
+  if (bucket === "assessments" && !hasRole(profile, "teacher")) {
+    return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 })
   }
 
   if (!(file instanceof File)) {
