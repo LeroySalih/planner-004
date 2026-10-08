@@ -15,6 +15,7 @@ import {
 } from '@/lib/mcp/curriculum'
 import {
   fetchCurriculumLosc,
+  listAssessmentObjectives,
   createAssessmentObjective,
   createLearningObjective,
   createSuccessCriterion,
@@ -531,6 +532,43 @@ function createMcpServer(baseUrl = ''): McpServer {
   )
 
   srv.registerTool(
+    'list_assessment_objectives',
+    {
+      title: 'List assessment objectives',
+      description: 'List the assessment objectives (AOs) of a curriculum in display order, with how many active learning objectives sit under each. Use create_assessment_objective to add one and update_assessment_objective to edit one; AOs cannot be deleted.',
+      inputSchema: {
+        curriculum_id: z.string().min(1).describe('UUID of the curriculum'),
+      },
+      outputSchema: {
+        assessment_objectives: z.array(z.object({
+          assessment_objective_id: z.string(),
+          curriculum_id: z.string(),
+          code: z.string(),
+          title: z.string(),
+          order_index: z.number(),
+          learning_objective_count: z.number(),
+        })).nullable(),
+      },
+    },
+    async ({ curriculum_id }) => {
+      try {
+        const assessment_objectives = await listAssessmentObjectives(curriculum_id)
+        const lines = assessment_objectives.map((ao) => `${ao.code}: ${ao.title} (id: ${ao.assessment_objective_id}, ${ao.learning_objective_count} LOs)`)
+        return {
+          content: [{ type: 'text' as const, text: lines.length > 0 ? lines.join('\n') : `Curriculum ${curriculum_id} has no assessment objectives.` }],
+          structuredContent: { assessment_objectives },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to list assessment objectives'
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${message}` }],
+          structuredContent: { assessment_objectives: null },
+        }
+      }
+    },
+  )
+
+  srv.registerTool(
     'create_assessment_objective',
     {
       title: 'Create assessment objective',
@@ -652,6 +690,7 @@ function createMcpServer(baseUrl = ''): McpServer {
         assessment_objective_id: z.string().min(1).describe('Assessment objective identifier.'),
         code: z.string().min(1).optional().describe('New code (e.g. AO1).'),
         title: z.string().min(1).optional().describe('New title.'),
+        order_index: z.coerce.number().int().min(0).optional().describe('New display position (0 = first).'),
       },
       outputSchema: {
         assessment_objective: z.object({
@@ -663,9 +702,9 @@ function createMcpServer(baseUrl = ''): McpServer {
         }).nullable(),
       },
     },
-    async ({ assessment_objective_id, code, title }) => {
+    async ({ assessment_objective_id, code, title, order_index }) => {
       try {
-        const assessment_objective = await updateAssessmentObjective(assessment_objective_id, { code: code ?? null, title: title ?? null })
+        const assessment_objective = await updateAssessmentObjective(assessment_objective_id, { code: code ?? null, title: title ?? null, orderIndex: order_index ?? null })
         return {
           content: [{ type: 'text' as const, text: `Updated assessment objective ${assessment_objective.assessment_objective_id} • ${assessment_objective.code} ${assessment_objective.title}` }],
           structuredContent: { assessment_objective },

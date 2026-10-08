@@ -146,6 +146,14 @@ Creates a new curriculum.
 
 ### Assessment Objectives
 
+#### `list_assessment_objectives`
+Lists a curriculum's assessment objectives in display order (`order_index`, then `code`), with the number of active learning objectives under each.
+
+**Input:** `{ curriculum_id: string }`  
+**Output:** `{ assessment_objectives: [{ assessment_objective_id, curriculum_id, code, title, order_index, learning_objective_count }] | null }`
+
+---
+
 #### `create_assessment_objective`
 Creates a new assessment objective under a curriculum. `order_index` is computed automatically as `MAX + 1`.
 
@@ -155,9 +163,9 @@ Creates a new assessment objective under a curriculum. `order_index` is computed
 ---
 
 #### `update_assessment_objective`
-Updates an assessment objective's `code` and/or `title`. Omitted fields keep their current value. (Assessment objectives have no `active` flag, so there is no delete tool.)
+Updates an assessment objective's `code`, `title` and/or `order_index` (display position). Omitted fields keep their current value. (Assessment objectives have no `active` flag, so there is no delete tool.)
 
-**Input:** `{ assessment_objective_id: string, code?: string, title?: string }`  
+**Input:** `{ assessment_objective_id: string, code?: string, title?: string, order_index?: number }`  
 **Output:** `{ assessment_objective: { assessment_objective_id, curriculum_id, code, title, order_index } | null }`
 
 ---

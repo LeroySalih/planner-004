@@ -183,6 +183,35 @@ export type AssessmentObjectiveRecord = {
   order_index: number
 }
 
+export type AssessmentObjectiveListItem = AssessmentObjectiveRecord & {
+  learning_objective_count: number
+}
+
+export async function listAssessmentObjectives(curriculumId: string): Promise<AssessmentObjectiveListItem[]> {
+  let result: AssessmentObjectiveListItem[] = []
+  await withDbClient(async (client) => {
+    const { rows: existsRows } = await client.query<{ curriculum_id: string }>(
+      'select curriculum_id from curricula where curriculum_id = $1 limit 1',
+      [curriculumId],
+    )
+    if (!existsRows[0]) throw new Error(`Curriculum ${curriculumId} not found`)
+
+    const { rows } = await client.query<AssessmentObjectiveListItem>(
+      `select ao.assessment_objective_id, ao.curriculum_id, ao.code, ao.title, ao.order_index,
+              count(lo.learning_objective_id)::int as learning_objective_count
+         from assessment_objectives ao
+         left join learning_objectives lo
+           on lo.assessment_objective_id = ao.assessment_objective_id and lo.active is not false
+        where ao.curriculum_id = $1
+        group by ao.assessment_objective_id
+        order by ao.order_index, ao.code`,
+      [curriculumId],
+    )
+    result = rows
+  })
+  return result
+}
+
 export async function createAssessmentObjective(
   curriculumId: string,
   code: string,
@@ -351,16 +380,16 @@ export async function createSuccessCriterion(
 
 export async function updateAssessmentObjective(
   assessmentObjectiveId: string,
-  patch: { code?: string | null; title?: string | null },
+  patch: { code?: string | null; title?: string | null; orderIndex?: number | null },
 ): Promise<AssessmentObjectiveRecord> {
   let result: AssessmentObjectiveRecord | null = null
   await withDbClient(async (client) => {
     const { rows } = await client.query<AssessmentObjectiveRecord>(
       `update assessment_objectives
-         set code = coalesce($2, code), title = coalesce($3, title)
+         set code = coalesce($2, code), title = coalesce($3, title), order_index = coalesce($4, order_index)
        where assessment_objective_id = $1
        returning assessment_objective_id, curriculum_id, code, title, order_index`,
-      [assessmentObjectiveId, patch.code?.trim() ?? null, patch.title?.trim() ?? null],
+      [assessmentObjectiveId, patch.code?.trim() ?? null, patch.title?.trim() ?? null, patch.orderIndex ?? null],
     )
     if (!rows[0]) throw new Error(`Assessment objective ${assessmentObjectiveId} not found`)
     result = rows[0]
