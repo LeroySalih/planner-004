@@ -869,7 +869,7 @@ export async function readPeerReviewFilterOptionsAction(options?: {
            FROM lessons l
            JOIN activities act ON act.lesson_id = l.lesson_id AND act.type = 'review-others-work'
            JOIN peer_review_comments c ON c.review_activity_id = act.activity_id
-           WHERE l.unit_id = $1 AND l.active = true
+           WHERE l.unit_id = $1 AND l.active = true AND l.kind = 'standard'
            ORDER BY l.order_by ASC`,
           [options.unitId],
         );

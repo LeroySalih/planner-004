@@ -93,6 +93,7 @@ import {
 } from "@/components/lessons/lesson-scroll-layout"
 import { LiveActivityShell } from "./live-activity-shell"
 import { ActivitySidebar } from "@/components/lessons/activity-sidebar"
+import { interventionAllowsPupil } from "@/lib/interventions/store"
 
 type McqOption = { id: string; text: string }
 
@@ -358,6 +359,10 @@ export default async function PupilLessonFriendlyPage({
   }
 
   if (!profile.isTeacher) {
+    // Another pupil's intervention looks exactly like a lesson that does not exist.
+    if (!(await interventionAllowsPupil(pupilId, lessonId))) {
+      notFound()
+    }
     const access = await checkLessonAccessForPupilAction(pupilId, lessonId)
     if (!access.accessible) {
       return (
@@ -954,10 +959,22 @@ export default async function PupilLessonFriendlyPage({
   // shapes the queue payload and the realtime channel, so LiveActivityShell
   // (which shows feedback to teachers as soon as it's marked) surfaces it live.
   const isTeacherPreview = isTeacher && realAssignmentIds.length === 0
+  // An intervention is never assigned to a class, so it has no real assignment
+  // id. It gets a synthetic one, as a teacher preview does, so AI-marked
+  // answers still enqueue and feedback still arrives live. Its marks and
+  // feedback are shown as soon as they exist: there is no class to release
+  // them to.
+  const { rows: kindRows } = await query<{ kind: string }>(
+    "select kind from lessons where lesson_id = $1",
+    [lesson.lesson_id],
+  )
+  const isIntervention = kindRows[0]?.kind === "intervention"
   const assignmentIds = isTeacherPreview
     ? [`preview__${lesson.lesson_id}`]
-    : realAssignmentIds
-  const initialFeedbackVisible = assignments.some((assignment) => assignment.feedbackVisible)
+    : isIntervention && realAssignmentIds.length === 0
+      ? [`intervention__${lesson.lesson_id}`]
+      : realAssignmentIds
+  const initialFeedbackVisible = isIntervention || assignments.some((assignment) => assignment.feedbackVisible)
 
   const activityScoreMap = new Map<string, number | null | undefined>()
   const activityMarksMap = new Map<string, { marksAwarded: number | null; maxMarks: number } | undefined>()

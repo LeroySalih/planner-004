@@ -267,7 +267,7 @@ export async function readQueueFiltersAction(
         );
 
         const { rows: lessonRows } = await client.query(
-          "select lesson_id, unit_id, title, order_by, active from lessons where coalesce(active, true) = true order by unit_id, order_by asc, title asc",
+          "select lesson_id, unit_id, title, order_by, active from lessons where coalesce(active, true) = true and kind = 'standard' order by unit_id, order_by asc, title asc",
         );
 
         const { rows: activityRows } = await client.query(

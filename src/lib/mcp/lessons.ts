@@ -16,7 +16,7 @@ export async function listLessonsForUnit(unitId: string): Promise<LessonSummary[
   const { rows } = await query(
     `SELECT lesson_id, unit_id, title, active, order_by
      FROM lessons
-     WHERE unit_id = $1
+     WHERE unit_id = $1 AND kind = 'standard'
      ORDER BY order_by ASC NULLS LAST, title ASC`,
     [unitId],
   )

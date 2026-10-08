@@ -254,7 +254,7 @@ export async function readLessonsByUnitAction(
             from lessons l
             left join lessons_learning_objective ll on ll.lesson_id = l.lesson_id
             left join lesson_links links on links.lesson_id = l.lesson_id
-            where l.unit_id = $1 AND l.active = true
+            where l.unit_id = $1 AND l.active = true AND l.kind = 'standard'
             group by l.lesson_id
             order by l.order_by asc, l.title asc
           `,
@@ -328,6 +328,7 @@ export async function readLessonsAction(
             from lessons l
             left join lessons_learning_objective ll on ll.lesson_id = l.lesson_id
             left join lesson_links links on links.lesson_id = l.lesson_id
+            where l.kind = 'standard'
             group by l.lesson_id
             order by l.unit_id asc, l.order_by asc nulls first, l.title asc
           `,
@@ -2467,7 +2468,7 @@ export async function readFileDownloadActivitiesByUnitAction(
       SELECT a.activity_id, a.lesson_id
       FROM activities a
       JOIN lessons l ON l.lesson_id = a.lesson_id
-      WHERE l.unit_id = $1 AND l.active = true AND a.type = 'file-download'
+      WHERE l.unit_id = $1 AND l.active = true AND l.kind = 'standard' AND a.type = 'file-download'
       `,
       [unitId],
     )
@@ -2518,7 +2519,7 @@ export async function readActivitiesByUnitAction(
       SELECT a.activity_id, a.lesson_id, a.title, a.type, a.order_by, a.body_data AS body
       FROM activities a
       JOIN lessons l ON l.lesson_id = a.lesson_id
-      WHERE l.unit_id = $1 AND l.active = true AND a.active = true
+      WHERE l.unit_id = $1 AND l.active = true AND l.kind = 'standard' AND a.active = true
       ORDER BY a.order_by ASC NULLS LAST
       `,
       [unitId],

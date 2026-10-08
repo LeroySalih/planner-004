@@ -181,6 +181,7 @@ export function SideNav({ onNavigate }: SideNavProps) {
                     <NavLink href="/unit-progress-reports" onNavigate={onNavigate}>Unit Progress</NavLink>
                     <NavLink href="/lo-progress-reports" onNavigate={onNavigate}>LO Progress</NavLink>
                     <NavLink href="/assessments" onNavigate={onNavigate}>Assessments</NavLink>
+                    <NavLink href="/interventions" onNavigate={onNavigate}>Interventions</NavLink>
                     <NavLink href="/feedback/peer-review" onNavigate={onNavigate}>Peer Review</NavLink>
                     <NavLink href="/flashcard-monitor" onNavigate={onNavigate}>Flashcard Monitor</NavLink>
                   </div>
@@ -224,6 +225,7 @@ export function SideNav({ onNavigate }: SideNavProps) {
                   <NavLink href="/specifications" onNavigate={onNavigate}>Specs</NavLink>
                   <NavLink href={`/reports/${encodeURIComponent(userId)}`} onNavigate={onNavigate}>My Reports</NavLink>
                   <NavLink href="/my-assessments" onNavigate={onNavigate}>My Assessments</NavLink>
+                  <NavLink href="/my-interventions" onNavigate={onNavigate}>My Interventions</NavLink>
                 </div>
               </AccordionContent>
             </AccordionItem>

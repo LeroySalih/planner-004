@@ -2,6 +2,7 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 
 import { getPreparedReportData } from "./report-data"
+import { InterventionReportSection } from "@/components/interventions/report-section"
 
 function formatPercent(value: number | null) {
   if (typeof value !== "number" || Number.isNaN(value)) {
@@ -88,6 +89,8 @@ export async function PupilReportView({ pupilId, authEndTime }: { pupilId: strin
           ))
         )}
       </section>
+
+      <InterventionReportSection pupilId={pupilId} />
 
       <footer className="text-[10px] text-muted-foreground">Pupil ID: {pupilId}</footer>
     </main>

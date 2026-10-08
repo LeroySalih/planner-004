@@ -141,6 +141,8 @@ export function LessonHeaderSidebar({ lesson, isOpen, onClose, onUpdated }: Less
                 />
               </div>
 
+              {/* A pupil's intervention can never be public (enforced in the database too). */}
+              {lesson.kind !== "intervention" && (
               <div className="flex items-center gap-3">
                 <Switch
                   id={`lesson-public-${lesson.lesson_id}`}
@@ -155,6 +157,7 @@ export function LessonHeaderSidebar({ lesson, isOpen, onClose, onUpdated }: Less
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
                 ) : null}
               </div>
+              )}
 
               {state.status === "error" && state.message ? (
                 <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">

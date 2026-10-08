@@ -713,7 +713,7 @@ export async function duplicateUnitAction(unitId: string) {
     active: boolean
   }>(
     `select lesson_id, title, order_by, active
-     from lessons where unit_id = $1`,
+     from lessons where unit_id = $1 and kind = 'standard'`,
     [unitId],
   )
 

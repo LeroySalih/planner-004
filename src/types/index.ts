@@ -475,6 +475,8 @@ export const LessonSchema = z.object({
     order_by: z.number().default(0),
     active: z.boolean().default(true),
     is_public: z.boolean().default(false),
+    // 'intervention' = written for one pupil (migration 108).
+    kind: z.enum(["standard", "intervention"]).optional(),
 });
 
 export const LessonsSchema = z.array(LessonSchema);

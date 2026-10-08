@@ -14,6 +14,7 @@ import {
 } from "@/lib/server-updates"
 import { getAuthenticatedProfile, hasRole } from "@/lib/auth"
 import { query } from "@/lib/db"
+import { interventionAllowsPupil } from "@/lib/interventions/store"
 import { withTelemetry } from "@/lib/telemetry"
 
 export default async function LessonDetailPage({
@@ -90,6 +91,10 @@ export default async function LessonDetailPage({
       [lessonId],
     )
     if (rows[0]?.hidden_from_pupils) {
+      notFound()
+    }
+    // Another pupil's intervention looks exactly like a lesson that does not exist.
+    if (!(await interventionAllowsPupil(profile.userId, lessonId))) {
       notFound()
     }
   }

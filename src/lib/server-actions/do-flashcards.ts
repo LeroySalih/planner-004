@@ -97,6 +97,7 @@ export async function readUnitFlashcardActivitiesAction(
           JOIN lessons l ON l.lesson_id = a.lesson_id
           WHERE a.type = 'display-flashcards'
             AND coalesce(a.active, true) = true
+            AND l.kind = 'standard'
             AND l.unit_id = (
               SELECT unit_id FROM lessons WHERE lesson_id = $1 LIMIT 1
             )

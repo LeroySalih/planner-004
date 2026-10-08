@@ -188,7 +188,7 @@ export async function readSubItemDetailAction(subItemId: string) {
        JOIN lessons_learning_objective llo ON llo.learning_objective_id = lo.learning_objective_id
        JOIN lessons l ON l.lesson_id = llo.lesson_id
        JOIN units u ON u.unit_id = l.unit_id
-       WHERE ll.sub_item_id = $1
+       WHERE ll.sub_item_id = $1 AND l.kind = 'standard'
        ORDER BY u.title, l.order_by, lo.order_index`,
             [subItemId],
         );

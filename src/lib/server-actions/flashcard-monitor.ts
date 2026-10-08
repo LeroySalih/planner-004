@@ -128,6 +128,7 @@ export async function readStudyTrackerAction(
                AND a.type = 'display-flashcards'
                AND coalesce(a.active, true) = true
                AND coalesce(l.active, true) = true
+               AND l.kind = 'standard'
              ORDER BY l.order_by ASC NULLS LAST, a.order_by ASC NULLS LAST`,
             [unitId],
           ),
@@ -231,6 +232,7 @@ export async function readFlashcardSessionDetailAction(
                AND a.type = 'display-flashcards'
                AND coalesce(a.active, true) = true
                AND coalesce(l.active, true) = true
+               AND l.kind = 'standard'
              ORDER BY l.order_by ASC NULLS LAST, a.order_by ASC NULLS LAST`,
             [unitId],
           ),

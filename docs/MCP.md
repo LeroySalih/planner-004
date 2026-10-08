@@ -635,6 +635,58 @@ The pupil must be a pupil (same roster rule) in one of the paper's groups. `awar
 
 ---
 
+### Interventions
+
+A lesson written for **one pupil** and assigned to them alone (`108-interventions.sql`).
+Underneath it is an ordinary lesson (`lessons.kind = 'intervention'`), so every
+activity, marking and success-criterion tool works on it unchanged. It sits in the
+unit whose material it covers, but never appears in that unit's lesson list
+(`get_lessons_for_unit`), the planner, class reports, the dashboard or the public
+browser — the database refuses to plan it for a class or make it public. Only its
+pupil can open it, under **My Interventions**; any teacher can see it at
+`/interventions` and on the pupil's report.
+
+Interventions are created **only through MCP**. The app reads them.
+
+**Workflow**
+
+1. `list_groups` → `list_group_pupils` — the real pupil id. Never guess one from a name.
+2. `get_pupil_gaps` — the pupil's weakest learning objectives and success criteria.
+3. `create_intervention` — makes the lesson in the right unit, links target LOs, assigns it.
+4. `create_activity` on the returned `lesson_id`, then `add_success_criterion_to_activity` for the criteria being targeted.
+5. `list_interventions` — check it, and later its progress and score.
+
+**Rules**
+
+- **One pupil each.** For several pupils, create one intervention per pupil, each written for that pupil's gaps.
+- **Derived status.** `assigned` (nothing handed in) → `in_progress` → `completed` (every active scorable activity has a submission). Only `cancelled` is stored. An intervention with no scorable activities never completes.
+- **Score** is the mean of the scored activities' scores (0–1), from `compute_submission_base_score` on the pupil's current attempt.
+- **Kept separate.** Intervention scores never feed class averages or the pupil's normal LO results, and `get_pupil_gaps` ignores intervention work.
+- **Feedback straight away.** The pupil sees marks and feedback as soon as each activity is marked; there is no release switch.
+- **Fixed kind.** A lesson can never be switched between standard and intervention.
+
+#### `get_pupil_gaps`
+**Input:** `{ pupil_id, curriculum_id?, unit_id? }`
+**Output:** `{ gaps: [{ learning_objective_id, title, curriculum_id, lowest_score, lesson_work: { awarded, available, score, criteria: [{ success_criteria_id, description, awarded, available, score }] } | null, assessments: [{ assessment_id, title, assessed_on, awarded, available, score }] }] }` — weakest first. `lesson_work` comes from per-criterion marks on class lessons (`legacy` marks excluded); `assessments` from written papers whose objectives are linked to that LO. `unit_id` narrows lesson work only.
+
+#### `create_intervention`
+**Input:** `{ pupil_id, unit_id, title, reason?, due_date? (YYYY-MM-DD), group_id?, source_assessment_id?, learning_objective_ids?: string[] }`
+**Output:** `{ intervention: InterventionSummary }`
+
+`group_id` defaults to the pupil's only class (left empty if they are in several). Target LOs must belong to the unit's curriculum. The setting teacher is recorded from the OAuth sign-in.
+
+#### `list_interventions`
+**Input:** `{ pupil_id?, group_id?, statuses?: ("assigned"|"in_progress"|"completed"|"cancelled")[] }`
+**Output:** `{ interventions: InterventionSummary[] }` — newest first.
+
+`InterventionSummary` = `{ intervention_id, lesson_id, lesson_title, unit_id, unit_title, pupil_id, pupil_name, group_id, set_by_name, set_at, due_date, reason, source_assessment_id, status, overdue, started_at, completed_at, scorable_activities, submitted_activities, scored_activities, score, learning_objectives: [{ learning_objective_id, title }] }`
+
+#### `update_intervention`
+**Input:** `{ intervention_id, title?, due_date? ("" clears), reason?, cancelled?: boolean }`
+**Output:** `{ intervention: InterventionSummary }`
+
+Cancelling hides it from the pupil and blocks them opening it; their work is kept. `cancelled: false` restores it.
+
 ### Utility
 
 #### `status`
@@ -664,4 +716,5 @@ Health probe.
 | `src/lib/mcp/losc.ts` | AO / LO / SC read/write helpers |
 | `src/lib/mcp/activities.ts` | Activity read/write/upload helpers |
 | `src/lib/mcp/timetable.ts` | Teacher / group lookup and timetable slot CRUD |
+| `src/lib/interventions/store.ts` | Intervention reads/writes, derived status and score, pupil gaps, and the pupil access rule |
 | `src/lib/assessments/store.ts` | Assessment paper reads/writes (shared with future server actions) |

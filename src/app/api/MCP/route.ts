@@ -61,6 +61,14 @@ import {
 } from '@/types'
 import { MCP_UPLOAD_MAX_BYTES, decodeBase64File, fetchFileFromUrl } from '@/lib/mcp/file-input'
 import { createUploadLink } from '@/lib/mcp/upload-links'
+import {
+  INTERVENTION_STATUSES,
+  createIntervention,
+  getPupilGaps,
+  readInterventions,
+  updateIntervention,
+  type InterventionSummary,
+} from '@/lib/interventions/store'
 import { ACTIVITY_TYPES, listActivitiesForLesson, createActivity, updateActivity, addSuccessCriterionToActivity, removeSuccessCriterionFromActivity, removeActivity, uploadActivityFile } from '@/lib/mcp/activities'
 
 // Force Node.js runtime — MCP SDK is not compatible with the Edge runtime.
@@ -2052,6 +2060,199 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to attach file'
         return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { file: null } }
+      }
+    },
+  )
+
+  // ---------------------------------------------------------------------------
+  // Interventions: a lesson written for one pupil (migration 108).
+  // ---------------------------------------------------------------------------
+
+  const InterventionOutput = z.object({
+    intervention_id: z.string(),
+    lesson_id: z.string(),
+    lesson_title: z.string(),
+    unit_id: z.string(),
+    unit_title: z.string(),
+    pupil_id: z.string(),
+    pupil_name: z.string(),
+    group_id: z.string().nullable(),
+    set_by_name: z.string().nullable(),
+    set_at: z.string(),
+    due_date: z.string().nullable(),
+    reason: z.string(),
+    source_assessment_id: z.string().nullable(),
+    status: z.enum(INTERVENTION_STATUSES),
+    overdue: z.boolean(),
+    started_at: z.string().nullable(),
+    completed_at: z.string().nullable(),
+    scorable_activities: z.number(),
+    submitted_activities: z.number(),
+    scored_activities: z.number(),
+    score: z.number().nullable(),
+    learning_objectives: z.array(z.object({ learning_objective_id: z.string(), title: z.string() })),
+  }).passthrough()
+
+  const describeIntervention = (i: InterventionSummary) =>
+    `${i.intervention_id} • ${i.pupil_name} • "${i.lesson_title}" (${i.unit_title}) • ${i.status}${i.overdue ? ' (overdue)' : ''}`
+    + ` • ${i.submitted_activities}/${i.scorable_activities} done`
+    + (i.score === null ? '' : ` • score ${Math.round(i.score * 100)}%`)
+    + ` • lesson ${i.lesson_id}`
+
+  srv.registerTool(
+    'get_pupil_gaps',
+    {
+      title: 'Find where a pupil is scoring low',
+      description:
+        'Return one pupil\'s results per learning objective, weakest first, to decide what an intervention should target. '
+        + 'lesson_work is per-criterion marking on their class lessons (each success criterion listed weakest first); '
+        + 'assessments are written papers linked to that objective. Scores are 0-1. Intervention work is excluded. '
+        + 'Scope with curriculum_id or unit_id (unit_id narrows lesson work only). Get pupil ids from list_group_pupils.',
+      inputSchema: {
+        pupil_id: z.string().min(1).describe('Pupil user id from list_group_pupils.'),
+        curriculum_id: z.string().optional().describe('Only objectives from this curriculum.'),
+        unit_id: z.string().optional().describe('Only lesson work from this unit.'),
+      },
+      outputSchema: {
+        gaps: z.array(z.object({}).passthrough()).nullable(),
+      },
+    },
+    async ({ pupil_id, curriculum_id, unit_id }) => {
+      try {
+        const gaps = await getPupilGaps(pupil_id, { curriculumId: curriculum_id ?? null, unitId: unit_id ?? null })
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: gaps.length > 0
+                ? `${gaps.length} learning objectives with results, weakest first.`
+                : 'No marked work or assessment results found for this pupil in that scope.',
+            },
+          ],
+          structuredContent: { gaps },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to read pupil gaps'
+        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { gaps: null } }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'create_intervention',
+    {
+      title: 'Create an intervention lesson for one pupil',
+      description:
+        'Create a lesson written for ONE pupil and assign it to them. It sits in unit_id (the unit whose material it covers) '
+        + 'but never appears in the unit\'s lesson list, the planner, class reports or the public browser — only the pupil sees it, '
+        + 'under "My interventions". Then build it like any lesson: create_activity with the returned lesson_id, and '
+        + 'add_success_criterion_to_activity to link the criteria being targeted (use get_pupil_gaps to choose them). '
+        + 'learning_objective_ids are linked to the lesson now and must belong to the unit\'s curriculum. '
+        + 'group_id is the class it is set from; if omitted, the pupil\'s only class is used. '
+        + 'The pupil sees marks and feedback as soon as each activity is marked. Arrays may be sent as JSON strings.',
+      inputSchema: {
+        pupil_id: z.string().min(1).describe('Pupil user id from list_group_pupils.'),
+        unit_id: z.string().min(1).describe('Unit whose material the intervention covers.'),
+        title: z.string().min(1).describe('Lesson title the pupil sees, e.g. "Timbers: hardwood vs softwood".'),
+        reason: z.string().optional().describe('Why it was set, for teachers, e.g. "Lost marks on AO2 timber questions in Practice B".'),
+        due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe('YYYY-MM-DD.'),
+        group_id: z.string().optional().describe('Class it is set from.'),
+        source_assessment_id: z.string().optional().describe('Assessment paper that prompted it, if any.'),
+        learning_objective_ids: jsonArray(z.string().min(1)).optional().describe('Learning objectives it targets.'),
+      },
+      outputSchema: { intervention: InterventionOutput.nullable() },
+    },
+    async ({ pupil_id, unit_id, title, reason, due_date, group_id, source_assessment_id, learning_objective_ids }) => {
+      try {
+        const intervention = await createIntervention({
+          setBy: caller.method === 'oauth' ? caller.userId : null,
+          pupilId: pupil_id,
+          unitId: unit_id,
+          title,
+          reason: reason ?? null,
+          dueDate: due_date ?? null,
+          groupId: group_id ?? null,
+          sourceAssessmentId: source_assessment_id ?? null,
+          learningObjectiveIds: learning_objective_ids ?? [],
+        })
+        return {
+          content: [{ type: 'text' as const, text: `Created: ${describeIntervention(intervention)}` }],
+          structuredContent: { intervention },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to create intervention'
+        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { intervention: null } }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'list_interventions',
+    {
+      title: 'List interventions',
+      description:
+        'List intervention lessons with their status and score. status is derived from the pupil\'s work: assigned (nothing handed in), '
+        + 'in_progress, completed (every scorable activity handed in) or cancelled. score is the mean of the scored activities, 0-1. '
+        + 'Filter by pupil_id, group_id and/or statuses.',
+      inputSchema: {
+        pupil_id: z.string().optional(),
+        group_id: z.string().optional(),
+        statuses: jsonArray(z.enum(INTERVENTION_STATUSES)).optional().describe('e.g. ["assigned","in_progress"].'),
+      },
+      outputSchema: { interventions: z.array(InterventionOutput).nullable() },
+    },
+    async ({ pupil_id, group_id, statuses }) => {
+      try {
+        const interventions = await readInterventions({ pupilId: pupil_id, groupId: group_id, statuses })
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: interventions.length > 0 ? interventions.map(describeIntervention).join('\n') : 'No interventions match.',
+            },
+          ],
+          structuredContent: { interventions },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to list interventions'
+        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { interventions: null } }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'update_intervention',
+    {
+      title: 'Update an intervention',
+      description:
+        'Change an intervention\'s title, due date or reason, or cancel it (cancelled: true) or restore it (cancelled: false). '
+        + 'A cancelled intervention disappears from the pupil\'s list; their work is kept. Send due_date "" to clear it. '
+        + 'Edit its activities with the normal activity tools on its lesson_id.',
+      inputSchema: {
+        intervention_id: z.string().min(1),
+        title: z.string().optional(),
+        due_date: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal('')]).optional().describe('YYYY-MM-DD, or "" to clear.'),
+        reason: z.string().optional(),
+        cancelled: z.boolean().optional(),
+      },
+      outputSchema: { intervention: InterventionOutput.nullable() },
+    },
+    async ({ intervention_id, title, due_date, reason, cancelled }) => {
+      try {
+        const intervention = await updateIntervention({
+          interventionId: intervention_id,
+          title,
+          dueDate: due_date === undefined ? undefined : due_date || null,
+          reason,
+          cancelled,
+        })
+        return {
+          content: [{ type: 'text' as const, text: `Updated: ${describeIntervention(intervention)}` }],
+          structuredContent: { intervention },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to update intervention'
+        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { intervention: null } }
       }
     },
   )

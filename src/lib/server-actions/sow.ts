@@ -813,7 +813,7 @@ export async function readSharedSowDetailAction(input: {
        unit_objectives AS (
          SELECT p.unit_id, lo.learning_objective_id, lo.title, lo.order_index
            FROM planned p
-           JOIN lessons l ON l.unit_id = p.unit_id
+           JOIN lessons l ON l.unit_id = p.unit_id AND l.kind = 'standard'
            JOIN lessons_learning_objective llo ON llo.lesson_id = l.lesson_id
            JOIN learning_objectives lo ON lo.learning_objective_id = llo.learning_objective_id
          UNION

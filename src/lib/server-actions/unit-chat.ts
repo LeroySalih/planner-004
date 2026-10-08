@@ -31,7 +31,7 @@ async function getUnitChatContext(unitId: string): Promise<UnitChatContext> {
 
   const { rows: lessonRows } = await query<{ lesson_id: string; title: string | null; order_by: number | null }>(
     `select lesson_id, title, order_by from lessons
-     where unit_id = $1 and active is not false
+     where unit_id = $1 and active is not false and kind = 'standard'
      order by order_by asc nulls last`,
     [unitId],
   )

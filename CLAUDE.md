@@ -494,6 +494,18 @@ A single unit subject can match multiple curricula — use `DISTINCT ON (l.lesso
 - Audit/backfill: `npx tsx scripts/audit-unit-curricula.ts [--dry-run]` (auto-sets single-curriculum units; reports multi-curriculum ones).
 - Admin remediation: `/admin/unit-curricula` — "keep this curriculum" removes the other curricula's LOs/SCs from the unit AND from its lessons/activities via `removeCurriculumFromUnit`.
 
+### Intervention lessons — filter `kind = 'standard'` when listing by unit
+
+`lessons.kind` is `'standard'` or `'intervention'` (migration 108). An
+intervention is written for ONE pupil (`intervention_assignments`) but still
+sits in a unit, so any new query that lists, counts, copies or feeds to AI a
+unit's lessons (`where l.unit_id = …`, or all lessons) must add
+`and l.kind = 'standard'` — otherwise one pupil's work appears for the whole
+class. Queries that reach lessons only through `lesson_assignments` /
+`planner_assignments` are already safe: the database refuses to plan an
+intervention for a class or make it public. Pupil access to an intervention
+goes through `interventionAllowsPupil` in `src/lib/interventions/store.ts`.
+
 ### Nullable boolean columns — use IS NOT FALSE
 
 Several `active` columns default to `NULL` in production rows. `WHERE active = true` silently excludes those rows. Always write:
