@@ -1,10 +1,10 @@
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 
-// Dynamic Client Registration (RFC 7591) — dev-only, disabled in production.
+// Dynamic Client Registration (RFC 7591) — opt-in with MCP_DEV_OAUTH=true.
 // Claude Code registers itself here before starting the OAuth flow.
 export async function POST(request: NextRequest): Promise<Response> {
-  if (process.env.NODE_ENV === 'production') {
+  if (process.env.MCP_DEV_OAUTH !== 'true') {
     return NextResponse.json({ error: 'not_found' }, { status: 404 })
   }
 

@@ -1,11 +1,11 @@
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 
-// Authorization endpoint (RFC 6749 §3.1) — dev-only, disabled in production.
+// Authorization endpoint (RFC 6749 §3.1) — opt-in with MCP_DEV_OAUTH=true.
 // Auto-approves immediately: Claude Code opens this URL in a browser and we
 // redirect back to its callback with a code instantly.
 export async function GET(request: NextRequest): Promise<Response> {
-  if (process.env.NODE_ENV === 'production') {
+  if (process.env.MCP_DEV_OAUTH !== 'true') {
     return NextResponse.json({ error: 'not_found' }, { status: 404 })
   }
 
