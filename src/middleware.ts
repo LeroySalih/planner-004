@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 
+import { authorizationServerMetadata, protectedResourceMetadata } from "@/lib/oauth/metadata"
+import { publicOrigin } from "@/lib/public-origin"
+
 // Self-contained maintenance page (no app assets, so it renders even when the
 // rest of the app is being worked on). Served with HTTP 503 + Retry-After.
 const MAINTENANCE_HTML = `<!doctype html>
@@ -36,6 +39,22 @@ const MAINTENANCE_HTML = `<!doctype html>
   </main>
 </body></html>`
 
+// Discovery documents are public and read by browser-based MCP clients too.
+// Not cached: a stale issuer or endpoint would outlive a config change.
+const DISCOVERY_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Headers": "*",
+  "Cache-Control": "no-store",
+}
+
+function discoveryResponse(request: NextRequest, body: object) {
+  if (request.method === "OPTIONS") {
+    return new NextResponse(null, { status: 204, headers: DISCOVERY_HEADERS })
+  }
+  return NextResponse.json(body, { headers: DISCOVERY_HEADERS })
+}
+
 function maintenanceResponse() {
   return new NextResponse(MAINTENANCE_HTML, {
     status: 503,
@@ -68,57 +87,25 @@ export function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl
 
-  // OAuth discovery endpoints for MCP clients (e.g. Claude Code v2.1.104+)
-  // that proactively run RFC 9396 / RFC 8414 / OpenID discovery BEFORE
-  // making any MCP request. Claude Code hits path-specific variants
-  // (e.g. /.well-known/oauth-protected-resource/api/MCP) so we use
-  // startsWith rather than exact equality.
-  //
-  // oauth-protected-resource: empty authorization_servers → "no OAuth needed"
-  // Everything else (oauth-authorization-server, openid-configuration,
-  // client registration) → 404 JSON so the SDK can parse the error rather
-  // than receiving a Next.js HTML 404 page which it cannot parse.
-  // OAuth discovery endpoints required by Claude Code v2.1.104+ for HTTP MCP
-  // servers. Claude Code performs full OAuth 2.0 discovery before connecting.
-  // We serve a minimal OAuth AS that auto-approves every authorization request
-  // so Claude Code can obtain a Bearer token without any user interaction.
-  // The token it issues IS MCP_SERVICE_KEY (see /oauth/token), which is what
-  // verifyMcpAuthorization checks against.
-  const origin = request.nextUrl.origin
-
-  // Opt-in rather than "not production": the token endpoint gives the MCP
-  // key to anyone, and a dev server reachable through a tunnel is public.
+  // OAuth discovery for the MCP endpoint. Answered here rather than by a
+  // route so no page guard can bounce them to /signin, and with startsWith
+  // because clients also probe path-suffixed variants such as
+  // /.well-known/oauth-protected-resource/api/MCP.
   if (pathname.startsWith("/.well-known/oauth-protected-resource")) {
-    if (process.env.MCP_DEV_OAUTH !== "true") {
-      return NextResponse.json({ error: "not_found" }, { status: 404 })
-    }
-    return NextResponse.json({
-      resource: `${origin}/api/MCP`,
-      authorization_servers: [origin],
-    })
+    return discoveryResponse(request, protectedResourceMetadata(publicOrigin(request.headers)))
   }
 
   if (pathname.startsWith("/.well-known/oauth-authorization-server")) {
-    if (process.env.MCP_DEV_OAUTH !== "true") {
-      return NextResponse.json({ error: "not_found" }, { status: 404 })
-    }
-    return NextResponse.json({
-      issuer: origin,
-      authorization_endpoint: `${origin}/oauth/authorize`,
-      token_endpoint: `${origin}/oauth/token`,
-      registration_endpoint: `${origin}/oauth/register`,
-      response_types_supported: ["code"],
-      grant_types_supported: ["authorization_code"],
-      code_challenge_methods_supported: ["S256"],
-      token_endpoint_auth_methods_supported: ["none"],
-    })
+    return discoveryResponse(request, authorizationServerMetadata(publicOrigin(request.headers)))
   }
 
+  // DINO is not an OpenID provider. JSON rather than the HTML 404 page, which
+  // an OAuth client cannot parse.
   if (
     pathname.startsWith("/.well-known/openid-configuration") ||
     pathname.startsWith("/api/MCP/.well-known/")
   ) {
-    return NextResponse.json({ error: "not_found" }, { status: 404 })
+    return NextResponse.json({ error: "not_found" }, { status: 404, headers: DISCOVERY_HEADERS })
   }
 
   const requestHeaders = new Headers(request.headers)

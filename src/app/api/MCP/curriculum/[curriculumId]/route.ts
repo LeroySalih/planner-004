@@ -15,11 +15,11 @@ type RouteContext = {
 }
 
 async function handleRequest(request: NextRequest, context: RouteContext) {
-  const authResult = verifyMcpAuthorization(request)
+  const authResult = await verifyMcpAuthorization(request)
   const authEnd = performance.now()
 
   if (!authResult.authorized) {
-    return NextResponse.json({ error: authResult.reason ?? "Unauthorized" }, { status: 401 })
+    return NextResponse.json({ error: authResult.reason }, { status: 401 })
   }
 
   const resolvedParams = await context.params

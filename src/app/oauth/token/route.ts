@@ -1,28 +1,55 @@
-import { NextResponse } from 'next/server'
+import type { NextRequest } from "next/server"
 
-// Token endpoint (RFC 6749 §3.2) — opt-in with MCP_DEV_OAUTH=true, off otherwise.
-// Issues MCP_SERVICE_KEY as the Bearer token so verifyMcpAuthorization
-// accepts it on the MCP endpoint. Set MCP_SERVICE_KEY in .env.local.
-//
-// It hands the key to anyone who asks, so it must never run on a reachable
-// server. Gating on NODE_ENV was not enough: a dev server exposed through a
-// tunnel gave the key to the internet.
-export async function POST(): Promise<Response> {
-  if (process.env.MCP_DEV_OAUTH !== 'true') {
-    return NextResponse.json({ error: 'not_found' }, { status: 404 })
+import { exchangeAuthorizationCode, OAuthError, refreshAccessToken } from "@/lib/oauth/server"
+import { oauthError, oauthJson, oauthPreflight } from "../cors"
+
+// RFC 7636 §4.1: 43–128 unreserved characters.
+const CODE_VERIFIER = /^[A-Za-z0-9._~-]{43,128}$/
+
+// Token endpoint (RFC 6749 §3.2). Public clients only: PKCE stands in for a
+// client secret.
+export async function POST(request: NextRequest): Promise<Response> {
+  const contentType = request.headers.get("content-type") ?? ""
+  if (!contentType.toLowerCase().startsWith("application/x-www-form-urlencoded")) {
+    return oauthError("invalid_request", "Body must be application/x-www-form-urlencoded.")
   }
+  const form = new URLSearchParams(await request.text())
 
-  const key = process.env.MCP_SERVICE_KEY
-  if (!key) {
-    return NextResponse.json(
-      { error: 'server_error', error_description: 'MCP_SERVICE_KEY is not set.' },
-      { status: 500 },
-    )
+  const field = (name: string) => form.get(name) || null
+  const grantType = field("grant_type")
+
+  try {
+    if (grantType === "authorization_code") {
+      const code = field("code")
+      const clientId = field("client_id")
+      const redirectUri = field("redirect_uri")
+      const codeVerifier = field("code_verifier")
+      if (!code || !clientId || !redirectUri || !codeVerifier) {
+        return oauthError("invalid_request", "code, client_id, redirect_uri and code_verifier are required.")
+      }
+      if (!CODE_VERIFIER.test(codeVerifier)) {
+        return oauthError("invalid_request", "code_verifier is malformed.")
+      }
+      return oauthJson(await exchangeAuthorizationCode({ code, clientId, redirectUri, codeVerifier }))
+    }
+
+    if (grantType === "refresh_token") {
+      const refreshToken = field("refresh_token")
+      const clientId = field("client_id")
+      if (!refreshToken || !clientId) {
+        return oauthError("invalid_request", "refresh_token and client_id are required.")
+      }
+      return oauthJson(await refreshAccessToken({ refreshToken, clientId }))
+    }
+
+    return oauthError("unsupported_grant_type", "Use authorization_code or refresh_token.")
+  } catch (error) {
+    if (error instanceof OAuthError) return oauthError(error.code, error.message, error.status)
+    console.error("[oauth] Token request failed", error)
+    return oauthError("server_error", "Token request failed.", 500)
   }
+}
 
-  return NextResponse.json({
-    access_token: key,
-    token_type: 'Bearer',
-    expires_in: 86400,
-  })
+export function OPTIONS(): Response {
+  return oauthPreflight()
 }

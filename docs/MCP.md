@@ -7,11 +7,65 @@ The MCP server exposes the Planner database to AI agents via the Model Context P
 | Setting | Value |
 |---|---|
 | Transport | HTTP (SSE for Claude Code, POST for other clients) |
-| Auth | Bearer token — `MCP_SERVICE_KEY` env var |
+| Auth | OAuth 2.1 (a teacher signs in), or Bearer `MCP_SERVICE_KEY` |
 | Production URL | `https://dino.mr-salih.org/api/MCP` |
 | Local URL | `http://localhost:3000/api/MCP` |
 
-### `.mcp.json` config
+### Connecting Claude with sign-in (OAuth)
+
+No key is needed. In claude.ai or Claude Desktop open **Settings → Connectors →
+Add custom connector** and enter `https://dino.mr-salih.org/api/MCP`. In Claude
+Code: `claude mcp add --transport http dino https://dino.mr-salih.org/api/MCP`,
+then `/mcp` to sign in.
+
+Claude opens DINO in a browser; sign in as a teacher and press **Allow**. The
+connection has full MCP access — there are no scopes. Pupils cannot connect.
+Each teacher can see and **Revoke** their connections under *Connected apps* on
+their profile page (`/profiles/<userId>`).
+
+How it works (MCP authorization spec 2025-06-18):
+
+| Step | Endpoint |
+|---|---|
+| Refused request → `401` + `WWW-Authenticate: Bearer resource_metadata=…` | `/api/MCP` |
+| Protected resource metadata (RFC 9728) | `/.well-known/oauth-protected-resource` (and path-suffixed variants) |
+| Authorization server metadata (RFC 8414) | `/.well-known/oauth-authorization-server` |
+| Dynamic client registration (RFC 7591) | `POST /oauth/register` |
+| Consent page — sign-in, teacher check, Allow / Deny | `GET /oauth/authorize` |
+| Code → tokens (PKCE S256), refresh rotation | `POST /oauth/token` |
+
+- **`APP_ORIGIN` is required in production** (e.g. `APP_ORIGIN=https://dino.mr-salih.org`).
+  It is the OAuth issuer and the origin of every advertised URL — discovery
+  documents, `WWW-Authenticate`, upload URLs — via `publicOrigin()` in
+  `src/lib/public-origin.ts`. Unset, the origin is derived from
+  `x-forwarded-host` / `x-forwarded-proto`, which clients control: anyone could
+  make the metadata point at their own host. That fallback is for local dev only.
+- Registration only accepts Claude's callbacks —
+  `https://claude.ai/api/mcp/auth_callback`, `https://claude.com/api/mcp/auth_callback`,
+  `https://claude.ai/api/organizations/custom-connectors/oauth/callback` — and
+  loopback `http://localhost:<port>/…` / `http://127.0.0.1:<port>/…` for Claude
+  Code. A code can therefore only be delivered to Claude. The list is
+  `CLAUDE_CALLBACKS` in `src/lib/oauth/server.ts`; the consent form's CSP
+  `form-action` in `next.config.ts` must allow the same origins.
+- Redirect URIs match exactly, except loopback ones, which match on any port
+  (RFC 8252 §7.3) because Claude Code listens on an ephemeral port each session.
+- Access tokens last 1 hour, refresh tokens 30 days. Refreshing rotates both in
+  place and requires `client_id`; the old refresh token stops working at once,
+  and presenting it again revokes the connection (OAuth 2.1 §4.3.1). Only
+  SHA-256 hashes are stored (`oauth_tokens`, migration 105).
+- A replayed authorization code revokes the connection it was exchanged for.
+- The user must still be a teacher when a token is issued, refreshed or used.
+- Registration is open, so registrations that never produced a connection are
+  pruned after 24 hours (along with expired codes and dead tokens) whenever a
+  code is issued.
+
+`verifyMcpAuthorization()` returns the teacher's `userId` for an OAuth token
+(`null` for the service key); tools do not use it yet.
+
+### Connecting with the service key (`.mcp.json`)
+
+Scripts and header-configured clients keep using `MCP_SERVICE_KEY`, sent as
+`Authorization: Bearer <key>` or `x-mcp-service-key: <key>`:
 
 ```json
 {
@@ -30,7 +84,8 @@ The MCP server exposes the Planner database to AI agents via the Model Context P
 }
 ```
 
-Both `MCP_SERVICE_KEY` must be exported in the shell session running Claude Code.
+`MCP_SERVICE_KEY` must be exported in the shell session running Claude Code.
+When `headers.Authorization` is set Claude Code does not fall back to OAuth.
 
 ---
 
@@ -311,6 +366,11 @@ Uploads a base64-encoded file to a `file-download` activity (so pupils can downl
 
 Use the info tools to get the upload parameters, then POST the file directly — no base64 encoding, no token-limit issues.
 
+The info tools return **no credential**. Send the same `Authorization` header
+the client already uses for the MCP connection — the service key or the
+teacher's OAuth access token. (They once returned the service key, which handed
+a never-expiring master key to any OAuth-connected client.)
+
 ##### `get_lesson_file_upload_info`
 Returns everything needed to POST a file directly to the lesson teacher file store.
 
@@ -320,9 +380,8 @@ Returns everything needed to POST a file directly to the lesson teacher file sto
 {
   "upload_url": "https://dino.mr-salih.org/api/MCP/files/lesson",
   "method": "POST",
-  "headers": { "Authorization": "Bearer <MCP_SERVICE_KEY>" },
   "form_fields": { "lesson_id": "<lesson_id>" },
-  "instructions": "Send a multipart/form-data POST. File field name: 'file'. Max 5 MB."
+  "instructions": "Send a multipart/form-data POST with your MCP Authorization header. File field name: 'file'. Max 5 MB."
 }
 ```
 
@@ -335,13 +394,12 @@ Returns everything needed to POST a file directly to a `file-download` or `displ
 {
   "upload_url": "https://dino.mr-salih.org/api/MCP/files/activity",
   "method": "POST",
-  "headers": { "Authorization": "Bearer <MCP_SERVICE_KEY>" },
   "form_fields": { "lesson_id": "<lesson_id>", "activity_id": "<activity_id>" },
-  "instructions": "Send a multipart/form-data POST. File field name: 'file'. Max 5 MB. Activity must be type file-download or display-image."
+  "instructions": "Send a multipart/form-data POST with your MCP Authorization header. File field name: 'file'. Max 5 MB. Activity must be type file-download or display-image."
 }
 ```
 
-##### Direct upload endpoints (auth: `MCP_SERVICE_KEY` bearer token)
+##### Direct upload endpoints (auth: `MCP_SERVICE_KEY` or an OAuth access token, as Bearer)
 
 | Endpoint | Purpose |
 |---|---|
@@ -352,8 +410,8 @@ Returns everything needed to POST a file directly to a `file-download` or `displ
 
 ### Teachers, Groups & Timetable
 
-MCP authenticates with a service key and carries no user identity, so every
-timetable call names its teacher explicitly. `teacher` accepts an **email or a
+Tools do not act as the connected teacher (the service key carries no user
+identity at all), so every timetable call names its teacher explicitly. `teacher` accepts an **email or a
 user id** — email is usually what a caller has to hand.
 
 A slot is uniquely `(teacher, day, period)`, so there is no separate create and

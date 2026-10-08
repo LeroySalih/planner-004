@@ -11,11 +11,11 @@ import { streamJsonResponse } from "@/lib/mcp/stream"
 const ROUTE_TAG = "/api/mcp/curriculum"
 
 async function handleRequest(request: NextRequest) {
-  const authResult = verifyMcpAuthorization(request)
+  const authResult = await verifyMcpAuthorization(request)
   const authEnd = performance.now()
 
   if (!authResult.authorized) {
-    return NextResponse.json({ error: authResult.reason ?? "Unauthorized" }, { status: 401 })
+    return NextResponse.json({ error: authResult.reason }, { status: 401 })
   }
 
   try {

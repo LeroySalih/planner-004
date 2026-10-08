@@ -457,3 +457,9 @@ export {
   readSharedSowScopesAction,
   readSharedSowDetailAction,
 } from './server-actions/sow'
+
+export {
+  approveOAuthAuthorizationAction,
+  denyOAuthAuthorizationAction,
+  revokeConnectedAppAction,
+} from "./server-actions/oauth"

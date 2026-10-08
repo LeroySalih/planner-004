@@ -29,7 +29,11 @@ const nextConfig: NextConfig = {
           "connect-src 'self' https:",
           "worker-src 'self' blob:",
           "frame-ancestors 'none'",
-          "form-action 'self'",
+          // The OAuth consent form redirects to the MCP client's callback
+          // (src/lib/oauth/server.ts); browsers apply form-action to that
+          // redirect, so Claude's origins and Claude Code's loopback must be
+          // allowed or a no-JS Allow / Deny is blocked.
+          "form-action 'self' https://claude.ai https://claude.com http://localhost:* http://127.0.0.1:*",
           "base-uri 'self'",
         ].join("; "),
       },

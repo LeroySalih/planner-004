@@ -1,7 +1,10 @@
 import Link from "next/link"
 import type { Metadata } from "next"
 
+import { getAuthenticatedProfile, hasRole } from "@/lib/auth"
+import { listConnectedApps } from "@/lib/oauth/server"
 import { updateProfilePasswordAction } from "@/lib/server-updates"
+import { ConnectedApps } from "@/components/profile/connected-apps"
 import { ProfileDetailForm } from "@/components/profile/detail"
 import { ProfilePasswordForm } from "@/components/profile/password-form"
 import { ProfileGroups } from "@/components/profile/groups"
@@ -17,6 +20,13 @@ export default async function ProfileDetailPage({
   params: Promise<{ profileId: string }>
 }) {
   const { profileId } = await params
+  // Connections are personal: a teacher sees only their own, even on another
+  // teacher's profile page. Read directly with the profile already in hand —
+  // a server action taking that profile as an argument could be called from
+  // the browser with someone else's.
+  const viewer = await getAuthenticatedProfile()
+  const connectedApps =
+    viewer && viewer.userId === profileId && hasRole(viewer, "teacher") ? await listConnectedApps(viewer.userId) : null
   async function handlePasswordUpdate(
     _prevState: PasswordActionState,
     formData: FormData,
@@ -113,6 +123,20 @@ export default async function ProfileDetailPage({
           <ProfileGroups />
         </div>
       </section>
+
+      {connectedApps ? (
+        <section className="rounded-lg border border-border bg-card p-6 shadow-sm">
+          <div className="space-y-2">
+            <h2 className="text-xl font-semibold text-slate-900">Connected apps</h2>
+            <p className="text-sm text-muted-foreground">
+              Apps such as Claude that you have allowed full access to DINO through MCP. Revoke one to disconnect it.
+            </p>
+          </div>
+          <div className="mt-4">
+            <ConnectedApps apps={connectedApps} />
+          </div>
+        </section>
+      ) : null}
 
       <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
         <Link href={`/profiles/${profileId}/dashboard`} className="underline-offset-4 hover:underline">

@@ -59,6 +59,10 @@ export const IGNORED_FLAGS: readonly string[] = [
   "TELEM_PATH",
   "NEXT_PUBLIC_RESULTS_REALTIME_ENABLED",
   "NEXT_PUBLIC_APP_URL",
+  // src/lib/public-origin.ts — the OAuth issuer / MCP origin. Set it in
+  // production (docs/MCP.md); unset, a local dev server derives it from the
+  // request headers, which clients control.
+  "APP_ORIGIN",
 ] as const
 
 export type EnvCheckResult = {

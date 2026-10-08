@@ -9,9 +9,9 @@ const BUCKET = 'lessons'
 const MAX_BYTES = 5 * 1024 * 1024 // 5 MB
 
 export async function POST(request: NextRequest): Promise<Response> {
-  const auth = verifyMcpAuthorization(request)
+  const auth = await verifyMcpAuthorization(request)
   if (!auth.authorized) {
-    return NextResponse.json({ success: false, error: auth.reason ?? 'Unauthorized' }, { status: 401 })
+    return NextResponse.json({ success: false, error: auth.reason }, { status: 401 })
   }
 
   let formData: FormData

@@ -1724,3 +1724,33 @@ export const AiModelRouteSchema = z.object({
   updated_by: z.string().nullable(),
 });
 export type AiModelRoute = z.infer<typeof AiModelRouteSchema>;
+
+// ── MCP OAuth (105-mcp-oauth.sql) ──────────────────────────────────────────
+
+/** RFC 7591 registration request — only the fields DINO acts on. */
+export const OAuthClientRegistrationSchema = z.object({
+  redirect_uris: z.array(z.string().min(1).max(2000)).min(1).max(10),
+  client_name: z.string().trim().min(1).max(200).optional(),
+});
+export type OAuthClientRegistration = z.infer<typeof OAuthClientRegistrationSchema>;
+
+/** The query of GET /oauth/authorize, also posted back by the consent form. */
+export const OAuthAuthorizeParamsSchema = z.object({
+  response_type: z.string().optional(),
+  client_id: z.string().optional(),
+  redirect_uri: z.string().optional(),
+  code_challenge: z.string().optional(),
+  code_challenge_method: z.string().optional(),
+  state: z.string().max(2000).optional(),
+  resource: z.string().optional(),
+});
+export type OAuthAuthorizeParams = z.infer<typeof OAuthAuthorizeParamsSchema>;
+
+/** One live oauth_tokens row, as a teacher sees it under Connected apps. */
+export const ConnectedAppSchema = z.object({
+  id: z.string(),
+  client_name: z.string(),
+  created_at: z.string(),
+  last_used_at: z.string().nullable(),
+});
+export type ConnectedApp = z.infer<typeof ConnectedAppSchema>;

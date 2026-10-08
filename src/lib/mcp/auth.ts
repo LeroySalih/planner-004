@@ -1,9 +1,17 @@
+import { timingSafeEqual } from "node:crypto"
 import type { NextRequest } from "next/server"
 
-type AuthResult = {
-  authorized: boolean
-  reason?: string
-}
+import { protectedResourceMetadataUrl } from "@/lib/oauth/metadata"
+import { verifyAccessToken } from "@/lib/oauth/server"
+import { publicOrigin } from "@/lib/public-origin"
+
+type AuthResult =
+  | {
+      authorized: true
+      /** The teacher an OAuth token acts for; null for the service key. */
+      userId: string | null
+    }
+  | { authorized: false; reason: string }
 
 const HEADER_KEYS = ["authorization", "x-mcp-service-key"]
 
@@ -16,7 +24,17 @@ function extractToken(headerValue: string | null): string | null {
   return trimmed.length > 0 ? trimmed : null
 }
 
-export function verifyMcpAuthorization(request: NextRequest): AuthResult {
+function matchesServiceKey(candidate: string, key: string): boolean {
+  const a = Buffer.from(candidate)
+  const b = Buffer.from(key)
+  return a.length === b.length && timingSafeEqual(a, b)
+}
+
+/**
+ * Accepts the MCP_SERVICE_KEY (scripts, header-configured clients) or an OAuth
+ * access token issued to a teacher through /oauth/authorize.
+ */
+export async function verifyMcpAuthorization(request: NextRequest): Promise<AuthResult> {
   const configuredKey = process.env.MCP_SERVICE_KEY
 
   // Fail closed. This used to allow every request when the key was unset,
@@ -32,10 +50,23 @@ export function verifyMcpAuthorization(request: NextRequest): AuthResult {
 
   for (const headerKey of HEADER_KEYS) {
     const token = extractToken(request.headers.get(headerKey))
-    if (token && token === configuredKey) {
-      return { authorized: true }
+    if (token && matchesServiceKey(token, configuredKey)) {
+      return { authorized: true, userId: null }
     }
   }
 
+  const bearer = extractToken(request.headers.get("authorization"))
+  if (bearer) {
+    const userId = await verifyAccessToken(bearer)
+    if (userId) return { authorized: true, userId }
+  }
+
   return { authorized: false, reason: "Missing or invalid MCP credentials." }
+}
+
+/** RFC 9728 §5.1: points a client that was refused at where to sign in. */
+export function mcpChallengeHeaders(request: NextRequest): Record<string, string> {
+  return {
+    "WWW-Authenticate": `Bearer resource_metadata="${protectedResourceMetadataUrl(publicOrigin(request.headers))}"`,
+  }
 }
