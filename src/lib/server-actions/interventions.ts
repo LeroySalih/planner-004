@@ -7,6 +7,7 @@ import { requireAuthenticatedProfile, requireRole } from '@/lib/auth'
 import {
   INTERVENTION_STATUSES,
   deactivateInterventions,
+  updateIntervention,
   readInterventions,
   type InterventionStatus,
   type InterventionSummary,
@@ -95,6 +96,22 @@ export async function deleteInterventionsAction(
     const deleted = await deactivateInterventions(parsed.data, profile.userId)
     revalidatePath('/interventions')
     return { data: { deleted }, error: null }
+  } catch (error) {
+    return { data: null, error: errorMessage(error) }
+  }
+}
+
+/** Switches whether the pupil sees an intervention's marks and feedback. */
+export async function setInterventionFeedbackAction(
+  interventionId: string,
+  feedbackVisible: boolean,
+): Promise<{ data: { feedback_visible: boolean } | null; error: string | null }> {
+  await requireRole('teacher')
+  if (!z.string().uuid().safeParse(interventionId).success) return { data: null, error: 'Unknown intervention.' }
+  try {
+    const updated = await updateIntervention({ interventionId, feedbackVisible: Boolean(feedbackVisible) })
+    revalidatePath('/interventions')
+    return { data: { feedback_visible: updated.feedback_visible }, error: null }
   } catch (error) {
     return { data: null, error: errorMessage(error) }
   }

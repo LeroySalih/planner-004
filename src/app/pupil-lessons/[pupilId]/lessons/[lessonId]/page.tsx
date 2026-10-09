@@ -961,11 +961,13 @@ export default async function PupilLessonFriendlyPage({
   const isTeacherPreview = isTeacher && realAssignmentIds.length === 0
   // An intervention is never assigned to a class, so it has no real assignment
   // id. It gets a synthetic one, as a teacher preview does, so AI-marked
-  // answers still enqueue and feedback still arrives live. Its marks and
-  // feedback are shown as soon as they exist: there is no class to release
-  // them to.
-  const { rows: kindRows } = await query<{ kind: string }>(
-    "select kind from lessons where lesson_id = $1",
+  // answers still enqueue and feedback still arrives live. Whether its marks
+  // and feedback show is the intervention's own switch (on by default).
+  const { rows: kindRows } = await query<{ kind: string; feedback_visible: boolean | null }>(
+    `select l.kind,
+            (select ia.feedback_visible from intervention_assignments ia
+              where ia.lesson_id = l.lesson_id and ia.active) as feedback_visible
+       from lessons l where l.lesson_id = $1`,
     [lesson.lesson_id],
   )
   const isIntervention = kindRows[0]?.kind === "intervention"
@@ -974,7 +976,9 @@ export default async function PupilLessonFriendlyPage({
     : isIntervention && realAssignmentIds.length === 0
       ? [`intervention__${lesson.lesson_id}`]
       : realAssignmentIds
-  const initialFeedbackVisible = isIntervention || assignments.some((assignment) => assignment.feedbackVisible)
+  const initialFeedbackVisible = isIntervention
+    ? kindRows[0]?.feedback_visible !== false
+    : assignments.some((assignment) => assignment.feedbackVisible)
 
   const activityScoreMap = new Map<string, number | null | undefined>()
   const activityMarksMap = new Map<string, { marksAwarded: number | null; maxMarks: number } | undefined>()

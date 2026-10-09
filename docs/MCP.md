@@ -683,10 +683,12 @@ Interventions are created **only through MCP**. The app reads them.
 `InterventionSummary` = `{ intervention_id, lesson_id, lesson_title, unit_id, unit_title, pupil_id, pupil_name, group_id, set_by_name, set_at, due_date, reason, source_assessment_id, status, overdue, started_at, completed_at, scorable_activities, submitted_activities, scored_activities, score, learning_objectives: [{ learning_objective_id, title }] }`
 
 #### `update_intervention`
-**Input:** `{ intervention_id, title?, due_date? ("" clears), reason?, cancelled?: boolean }`
+**Input:** `{ intervention_id, title?, due_date? ("" clears), reason?, cancelled?: boolean, feedback_visible?: boolean }`
 **Output:** `{ intervention: InterventionSummary }`
 
 Cancelling hides it from the pupil and blocks them opening it; their work is kept. `cancelled: false` restores it.
+
+`feedback_visible` (migration 110, on by default) decides whether the pupil sees marks and feedback as soon as they exist. Teachers can also switch it on `/interventions`; a change reaches a pupil's open lesson page live.
 
 ### Utility
 

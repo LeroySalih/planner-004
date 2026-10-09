@@ -3,6 +3,7 @@ import type { PoolClient } from 'pg'
 import { query, withDbClient } from '@/lib/db'
 import { SCORABLE_ACTIVITY_TYPES } from '@/dino.config'
 import { assertLoAllowedForLesson } from '@/lib/curriculum/unit-curriculum-guard'
+import { publishAssignmentFeedbackVisibilityUpdate } from '@/lib/results-sse'
 import { STAFF_ROLE_IDS } from '@/lib/roles/pupil-membership'
 
 // Intervention lessons (migration 108): an ordinary lesson with kind =
@@ -37,6 +38,8 @@ export type InterventionSummary = {
   set_at: string
   due_date: string | null
   reason: string
+  /** Whether the pupil sees marks and feedback as soon as they exist. */
+  feedback_visible: boolean
   source_assessment_id: string | null
   source_assessment_title: string | null
   status: InterventionStatus
@@ -106,6 +109,7 @@ export async function readInterventions(filter: InterventionFilter = {}): Promis
             ia.group_id, ia.set_by,
             nullif(trim(coalesce(sb.first_name, '') || ' ' || coalesce(sb.last_name, '')), '') as set_by_name,
             ia.set_at, to_char(ia.due_date, 'YYYY-MM-DD') as due_date, ia.reason,
+            ia.feedback_visible,
             ia.source_assessment_id::text as source_assessment_id, asm.title as source_assessment_title,
             ia.cancelled_at,
             (select count(*) from acts where acts.lesson_id = ia.lesson_id and acts.scorable)::int as scorable_activities,
@@ -161,6 +165,7 @@ export async function readInterventions(filter: InterventionFilter = {}): Promis
       set_at: isoOrNull(row.set_at) ?? '',
       due_date: dueDate,
       reason: String(row.reason ?? ''),
+      feedback_visible: Boolean(row.feedback_visible),
       source_assessment_id: (row.source_assessment_id as string | null) ?? null,
       source_assessment_title: (row.source_assessment_title as string | null) ?? null,
       status,
@@ -327,10 +332,11 @@ export type UpdateInterventionInput = {
   dueDate?: string | null
   reason?: string
   cancelled?: boolean
+  feedbackVisible?: boolean
 }
 
 export async function updateIntervention(input: UpdateInterventionInput): Promise<InterventionSummary> {
-  await inTransaction(async (client) => {
+  const lessonId = await inTransaction(async (client) => {
     const { rows } = await client.query<{ lesson_id: string }>(
       'select lesson_id from intervention_assignments where intervention_id::text = $1 and active for update',
       [input.interventionId],
@@ -354,6 +360,12 @@ export async function updateIntervention(input: UpdateInterventionInput): Promis
         input.interventionId,
       ])
     }
+    if (input.feedbackVisible !== undefined) {
+      await client.query('update intervention_assignments set feedback_visible = $1 where intervention_id::text = $2', [
+        input.feedbackVisible,
+        input.interventionId,
+      ])
+    }
     if (input.cancelled !== undefined) {
       await client.query(
         `update intervention_assignments
@@ -362,7 +374,17 @@ export async function updateIntervention(input: UpdateInterventionInput): Promis
         [input.cancelled, input.interventionId],
       )
     }
+    return rows[0].lesson_id
   })
+
+  if (input.feedbackVisible !== undefined) {
+    // The pupil's open lesson page listens on the synthetic assignment id it
+    // was given, so the switch takes effect without a reload.
+    await publishAssignmentFeedbackVisibilityUpdate({
+      assignmentId: `intervention__${lessonId}`,
+      feedbackVisible: input.feedbackVisible,
+    })
+  }
 
   const [updated] = await readInterventions({ interventionId: input.interventionId })
   return updated

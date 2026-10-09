@@ -20,8 +20,9 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import type { InterventionSummary } from '@/lib/interventions/store'
-import { deleteInterventionsAction } from '@/lib/server-actions/interventions'
+import { deleteInterventionsAction, setInterventionFeedbackAction } from '@/lib/server-actions/interventions'
 import { cn } from '@/lib/utils'
 
 const ALL = '__all'
@@ -54,6 +55,26 @@ export function InterventionsTable({ interventions }: { interventions: Intervent
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [confirming, setConfirming] = useState(false)
   const [isDeleting, startDelete] = useTransition()
+  // Optimistic feedback switches, keyed by intervention; cleared on refresh.
+  const [feedbackOverrides, setFeedbackOverrides] = useState<Record<string, boolean>>({})
+  const [savingFeedback, setSavingFeedback] = useState<Set<string>>(new Set())
+
+  const setFeedback = async (id: string, visible: boolean) => {
+    setFeedbackOverrides((prev) => ({ ...prev, [id]: visible }))
+    setSavingFeedback((prev) => new Set(prev).add(id))
+    const { error } = await setInterventionFeedbackAction(id, visible)
+    setSavingFeedback((prev) => {
+      const next = new Set(prev)
+      next.delete(id)
+      return next
+    })
+    if (error) {
+      setFeedbackOverrides((prev) => ({ ...prev, [id]: !visible }))
+      toast.error(`Unable to update feedback: ${error}`)
+      return
+    }
+    toast.success(visible ? 'Feedback on for this pupil.' : 'Feedback off for this pupil.')
+  }
 
   const groupIds = useMemo(() => distinctSorted(interventions.map((i) => i.group_id)), [interventions])
   const subjects = useMemo(() => distinctSorted(interventions.map((i) => i.subject)), [interventions])
@@ -194,6 +215,7 @@ export function InterventionsTable({ interventions }: { interventions: Intervent
                 <th className="px-4 py-2 font-medium">Status</th>
                 <th className="px-4 py-2 text-right font-medium">Done</th>
                 <th className="px-4 py-2 text-right font-medium">Score</th>
+                <th className="px-4 py-2 font-medium">Feedback</th>
               </tr>
             </thead>
             <tbody>
@@ -250,6 +272,14 @@ export function InterventionsTable({ interventions }: { interventions: Intervent
                       {i.submitted_activities} / {i.scorable_activities}
                     </td>
                     <td className="px-4 py-2 text-right font-semibold tabular-nums">{formatScore(i.score)}</td>
+                    <td className="px-4 py-2">
+                      <Switch
+                        checked={feedbackOverrides[i.intervention_id] ?? i.feedback_visible}
+                        disabled={savingFeedback.has(i.intervention_id)}
+                        onCheckedChange={(v) => setFeedback(i.intervention_id, v)}
+                        aria-label={`Show feedback to ${i.pupil_name || i.pupil_id}`}
+                      />
+                    </td>
                   </tr>
                 )
               })}

@@ -339,7 +339,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
         unitId,
         lessonTitle,
         assignmentId: data.id,
-        feedbackVisible: false,
+        feedbackVisible: data.feedback_visible,
         hiddenFromPupils: false,
         lessonNotes: '',
       }
@@ -372,7 +372,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
         unitId,
         lessonTitle,
         assignmentId: data.id,
-        feedbackVisible: false,
+        feedbackVisible: data.feedback_visible,
         hiddenFromPupils: false,
         lessonNotes: '',
       }

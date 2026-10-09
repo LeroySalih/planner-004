@@ -2225,7 +2225,8 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
     {
       title: 'Update an intervention',
       description:
-        'Change an intervention\'s title, due date or reason, or cancel it (cancelled: true) or restore it (cancelled: false). '
+        'Change an intervention\'s title, due date or reason, switch the pupil\'s feedback on or off (feedback_visible, on by default), '
+        + 'or cancel it (cancelled: true) or restore it (cancelled: false). '
         + 'A cancelled intervention disappears from the pupil\'s list; their work is kept. Send due_date "" to clear it. '
         + 'Edit its activities with the normal activity tools on its lesson_id.',
       inputSchema: {
@@ -2234,10 +2235,11 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
         due_date: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal('')]).optional().describe('YYYY-MM-DD, or "" to clear.'),
         reason: z.string().optional(),
         cancelled: z.boolean().optional(),
+        feedback_visible: z.boolean().optional().describe('Whether the pupil sees marks and feedback as soon as they exist.'),
       },
       outputSchema: { intervention: InterventionOutput.nullable() },
     },
-    async ({ intervention_id, title, due_date, reason, cancelled }) => {
+    async ({ intervention_id, title, due_date, reason, cancelled, feedback_visible }) => {
       try {
         const intervention = await updateIntervention({
           interventionId: intervention_id,
@@ -2245,6 +2247,7 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
           dueDate: due_date === undefined ? undefined : due_date || null,
           reason,
           cancelled,
+          feedbackVisible: feedback_visible,
         })
         return {
           content: [{ type: 'text' as const, text: `Updated: ${describeIntervention(intervention)}` }],

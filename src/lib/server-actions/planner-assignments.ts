@@ -82,7 +82,7 @@ export async function upsertPlannerAssignmentAction(
         weekStartDate,
         day,
         period,
-        extras?.feedbackVisible ?? false,
+        extras?.feedbackVisible ?? true,
         extras?.issueFlag ?? false,
         extras?.issueNote ?? '',
         extras?.notes ?? '',
