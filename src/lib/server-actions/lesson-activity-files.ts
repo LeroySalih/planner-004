@@ -9,6 +9,7 @@ import { Client } from "pg";
 import { SubmissionStatusSchema } from "@/types";
 import { query } from "@/lib/db";
 import { requireAuthenticatedProfile } from "@/lib/auth";
+import { pupilWorkLockedMessage } from "@/lib/lesson-lock";
 import { emitSubmissionEvent, emitUploadEvent } from "@/lib/sse/topics";
 import { logActivitySubmissionEvent } from "@/lib/activity-logging";
 import { createLocalStorageClient } from "@/lib/storage/local-storage";
@@ -798,6 +799,8 @@ export async function deletePupilActivitySubmissionAction(
       params: { lessonId, activityId, pupilId },
     },
     async () => {
+      const lockedMessage = await pupilWorkLockedMessage(pupilId, activityId);
+      if (lockedMessage) return { success: false, error: lockedMessage };
       const client = createPgClient();
       try {
         await client.connect();
@@ -995,6 +998,8 @@ export async function updatePupilSubmissionInstructionsAction(input: {
       params: { lessonId, activityId, pupilId },
     },
     async () => {
+      const lockedMessage = await pupilWorkLockedMessage(pupilId, activityId);
+      if (lockedMessage) return { success: false, error: lockedMessage };
       const profile = await requireAuthenticatedProfile();
 
       if (profile.userId !== pupilId) {
@@ -1130,6 +1135,8 @@ export async function updatePupilSubmissionStatusAction(input: {
       params: { lessonId, activityId, pupilId, status },
     },
     async () => {
+      const lockedMessage = await pupilWorkLockedMessage(pupilId, activityId);
+      if (lockedMessage) return { success: false, error: lockedMessage };
       const profile = await requireAuthenticatedProfile();
 
       if (profile.userId !== pupilId) {

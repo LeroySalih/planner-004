@@ -42,6 +42,7 @@ import { enqueueMarkingTasks, triggerQueueProcessor } from "@/lib/ai/marking-que
 import { computeAccuracyByUser } from "@/lib/scoring/accuracy";
 import { computeSubmissionMarks } from "@/lib/scoring/submission-marks";
 import { getAuthenticatedProfile, hasRole } from "@/lib/auth";
+import { pupilWorkLockedMessage } from "@/lib/lesson-lock";
 
 const SubmissionResultSchema = z.object({
   data: SubmissionSchema.nullable(),
@@ -842,6 +843,10 @@ export async function upsertMcqSubmissionAction(
   input: z.infer<typeof McqSubmissionInputSchema>,
 ) {
   const payload = McqSubmissionInputSchema.parse(input);
+  const lockedMessage = await pupilWorkLockedMessage(payload.userId, payload.activityId);
+  if (lockedMessage) {
+    return { success: false, error: lockedMessage, data: null as Submission | null };
+  }
   let activity:
     | { body_data: unknown; lesson_id: string | null; max_marks: number | null }
     | null = null;
@@ -1007,6 +1012,10 @@ export async function upsertMatcherSubmissionAction(
   input: z.infer<typeof MatcherSubmissionInputSchema>,
 ) {
   const payload = MatcherSubmissionInputSchema.parse(input);
+  const lockedMessage = await pupilWorkLockedMessage(payload.userId, payload.activityId);
+  if (lockedMessage) {
+    return { success: false, error: lockedMessage, data: null as Submission | null };
+  }
   let activity:
     | { body_data: unknown; lesson_id: string | null; max_marks: number | null }
     | null = null;
@@ -1180,6 +1189,10 @@ export async function upsertGroupItemsSubmissionAction(
   input: z.infer<typeof GroupItemsSubmissionInputSchema>,
 ) {
   const payload = GroupItemsSubmissionInputSchema.parse(input);
+  const lockedMessage = await pupilWorkLockedMessage(payload.userId, payload.activityId);
+  if (lockedMessage) {
+    return { success: false, error: lockedMessage, data: null as Submission | null };
+  }
   let activity: { body_data: unknown; lesson_id: string | null } | null = null;
   try {
     const { rows } = await query<
@@ -1354,6 +1367,10 @@ export async function upsertSequenceSubmissionAction(
   input: z.infer<typeof SequenceSubmissionInputSchema>,
 ) {
   const payload = SequenceSubmissionInputSchema.parse(input);
+  const lockedMessage = await pupilWorkLockedMessage(payload.userId, payload.activityId);
+  if (lockedMessage) {
+    return { success: false, error: lockedMessage, data: null as Submission | null };
+  }
   let activity:
     | { body_data: unknown; lesson_id: string | null; max_marks: number }
     | null = null;
@@ -1554,6 +1571,8 @@ export async function editWorksheetTextAction(input: {
   if (profile.userId !== input.userId && !hasRole(profile, "teacher")) {
     return { success: false, error: "Not allowed to edit this pupil's attempt.", data: null };
   }
+  const lockedMessage = await pupilWorkLockedMessage(input.userId, input.activityId);
+  if (lockedMessage) return { success: false, error: lockedMessage, data: null };
 
   try {
     const { rows } = await query<{ body: unknown }>(

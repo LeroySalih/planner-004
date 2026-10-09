@@ -1,6 +1,7 @@
 "use server"
 
 import { query } from "@/lib/db"
+import { pupilWorkLockedMessage } from "@/lib/lesson-lock"
 import { withTelemetry } from "@/lib/telemetry"
 import { propagateDeterministicScMarks } from "@/lib/scoring/aggregate-sc-marks"
 
@@ -25,6 +26,9 @@ export async function upsertDoFlashcardsSubmissionAction(input: {
       if (!doActivityId || !pupilId || !sessionId) {
         return { data: null, error: "Missing required fields." }
       }
+
+      const lockedMessage = await pupilWorkLockedMessage(pupilId, doActivityId)
+      if (lockedMessage) return { data: null, error: lockedMessage }
 
       // CRITICAL: The body MUST include a `score` field (0-1 float).
       // compute_submission_base_score reads body->>'score' for this activity type.

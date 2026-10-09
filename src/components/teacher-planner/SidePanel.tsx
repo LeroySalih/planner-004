@@ -20,6 +20,7 @@ type SidePanelProps = {
   onRemoveLesson: (day: Day, period: number, lessonId: string) => void
   onSwapLesson: (day: Day, period: number, oldLessonId: string, newLessonId: string) => void
   onFeedbackToggle: (day: Day, period: number, lessonId: string) => void
+  onLockToggle: (day: Day, period: number, lessonId: string) => void
   onHiddenToggle: (day: Day, period: number, lessonId: string) => void
   onIssueToggle: (day: Day, period: number) => void
   onIssueNoteChange: (day: Day, period: number, note: string) => void
@@ -42,6 +43,7 @@ export function SidePanel({
   onRemoveLesson,
   onSwapLesson,
   onFeedbackToggle,
+  onLockToggle,
   onHiddenToggle,
   onIssueToggle,
   onIssueNoteChange,
@@ -156,6 +158,7 @@ export function SidePanel({
               onUnitSelect={onUnitSelect}
               onSwapLesson={onSwapLesson}
               onFeedbackToggle={onFeedbackToggle}
+              onLockToggle={onLockToggle}
               onHiddenToggle={onHiddenToggle}
               onLessonNotesChange={onLessonNotesChange}
               onRemove={onRemoveLesson}
@@ -218,6 +221,7 @@ type LessonCardProps = {
   onUnitSelect: (unitId: string) => void
   onSwapLesson: (day: Day, period: number, oldLessonId: string, newLessonId: string) => void
   onFeedbackToggle: (day: Day, period: number, lessonId: string) => void
+  onLockToggle: (day: Day, period: number, lessonId: string) => void
   onHiddenToggle: (day: Day, period: number, lessonId: string) => void
   onLessonNotesChange: (day: Day, period: number, lessonId: string, notes: string) => void
   onRemove: (day: Day, period: number, lessonId: string) => void
@@ -234,6 +238,7 @@ function LessonCard({
   onUnitSelect,
   onSwapLesson,
   onFeedbackToggle,
+  onLockToggle,
   onHiddenToggle,
   onLessonNotesChange,
   onRemove,
@@ -355,6 +360,22 @@ function LessonCard({
           }
         >
           {lesson.hiddenFromPupils ? 'Hidden from pupils' : 'Visible to pupils'}
+        </button>
+        <button
+          className={`text-[10px] px-2 py-0.5 rounded disabled:opacity-60 ${
+            lesson.locked
+              ? 'bg-amber-500 text-white'
+              : 'bg-[var(--color-background-primary)] text-[var(--color-text-secondary)] border border-[var(--color-border)]'
+          }`}
+          onClick={() => onLockToggle(day, period, lesson.lessonId)}
+          disabled={readOnly}
+          title={
+            lesson.locked
+              ? 'Locked for this class: pupils can view it but not change answers, upload or download. Click to unlock.'
+              : 'Unlocked. Locking makes it read-only for this class.'
+          }
+        >
+          {lesson.locked ? 'Locked' : 'Unlocked'}
         </button>
       </div>
 

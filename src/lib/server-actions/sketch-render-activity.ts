@@ -26,6 +26,7 @@ import {
 } from "@/lib/activity-logging";
 import { emitSubmissionEvent } from "@/lib/sse/topics";
 import { query } from "@/lib/db";
+import { pupilWorkLockedMessage } from "@/lib/lesson-lock";
 import { resolvePupilStorageKey } from "@/lib/server-actions/lesson-activity-files";
 import { resolveModelRoute } from "@/lib/ai/model-routing";
 import {
@@ -53,6 +54,10 @@ export async function saveSketchRenderAnswerAction(input: FormData) {
     };
 
     const parsedInput = SaveSketchInputSchema.safeParse(payload);
+    if (parsedInput.success) {
+        const lockedMessage = await pupilWorkLockedMessage(parsedInput.data.userId, parsedInput.data.activityId);
+        if (lockedMessage) return { success: false, error: lockedMessage };
+    }
 
     if (!parsedInput.success) {
         console.error(
@@ -170,6 +175,8 @@ export async function renderSketchServerAction(
     userId: string,
 ) {
     console.log("[renderSketchServerAction] Start", { activityId, userId });
+    const lockedMessage = await pupilWorkLockedMessage(userId, activityId);
+    if (lockedMessage) return { success: false, error: lockedMessage };
     if (!GOOGLE_API_KEY) {
         console.error("[renderSketchServerAction] AI configuration missing");
         return { success: false, error: "AI configuration missing" };

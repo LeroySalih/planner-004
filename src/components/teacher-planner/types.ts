@@ -22,6 +22,8 @@ export type SlotLesson = {
   lessonTitle: string
   assignmentId: string
   feedbackVisible: boolean
+  /** Read-only for this class's pupils. */
+  locked: boolean
   lessonNotes: string
   /** Withheld from pupils. Set on the lesson, so it applies to every class. */
   hiddenFromPupils: boolean

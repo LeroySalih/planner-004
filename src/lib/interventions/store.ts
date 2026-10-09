@@ -40,6 +40,8 @@ export type InterventionSummary = {
   reason: string
   /** Whether the pupil sees marks and feedback as soon as they exist. */
   feedback_visible: boolean
+  /** Read-only for the pupil: they can view it but not change it. */
+  locked: boolean
   source_assessment_id: string | null
   source_assessment_title: string | null
   status: InterventionStatus
@@ -109,7 +111,7 @@ export async function readInterventions(filter: InterventionFilter = {}): Promis
             ia.group_id, ia.set_by,
             nullif(trim(coalesce(sb.first_name, '') || ' ' || coalesce(sb.last_name, '')), '') as set_by_name,
             ia.set_at, to_char(ia.due_date, 'YYYY-MM-DD') as due_date, ia.reason,
-            ia.feedback_visible,
+            ia.feedback_visible, ia.locked,
             ia.source_assessment_id::text as source_assessment_id, asm.title as source_assessment_title,
             ia.cancelled_at,
             (select count(*) from acts where acts.lesson_id = ia.lesson_id and acts.scorable)::int as scorable_activities,
@@ -166,6 +168,7 @@ export async function readInterventions(filter: InterventionFilter = {}): Promis
       due_date: dueDate,
       reason: String(row.reason ?? ''),
       feedback_visible: Boolean(row.feedback_visible),
+      locked: Boolean(row.locked),
       source_assessment_id: (row.source_assessment_id as string | null) ?? null,
       source_assessment_title: (row.source_assessment_title as string | null) ?? null,
       status,
@@ -333,6 +336,7 @@ export type UpdateInterventionInput = {
   reason?: string
   cancelled?: boolean
   feedbackVisible?: boolean
+  locked?: boolean
 }
 
 export async function updateIntervention(input: UpdateInterventionInput): Promise<InterventionSummary> {
@@ -363,6 +367,12 @@ export async function updateIntervention(input: UpdateInterventionInput): Promis
     if (input.feedbackVisible !== undefined) {
       await client.query('update intervention_assignments set feedback_visible = $1 where intervention_id::text = $2', [
         input.feedbackVisible,
+        input.interventionId,
+      ])
+    }
+    if (input.locked !== undefined) {
+      await client.query('update intervention_assignments set locked = $1 where intervention_id::text = $2', [
+        input.locked,
         input.interventionId,
       ])
     }

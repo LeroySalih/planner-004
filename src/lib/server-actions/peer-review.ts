@@ -10,6 +10,7 @@ import {
 } from "@/types";
 import { query } from "@/lib/db";
 import { requireAuthenticatedProfile } from "@/lib/auth";
+import { pupilWorkLockedMessage } from "@/lib/lesson-lock";
 import { createLocalStorageClient } from "@/lib/storage/local-storage";
 import { withTelemetry } from "@/lib/telemetry";
 
@@ -218,6 +219,8 @@ export async function removeShareMyWorkImageAction(
     async () => {
       const profile = await requireAuthenticatedProfile();
       const userId = profile.userId;
+      const lockedMessage = await pupilWorkLockedMessage(userId, activityId);
+      if (lockedMessage) return { success: false, error: lockedMessage };
       const pupilStorageKey =
         profile.email?.trim() ?? (await resolvePupilStorageKey(userId));
 
@@ -311,6 +314,8 @@ export async function reorderShareMyWorkImagesAction(
     async () => {
       const profile = await requireAuthenticatedProfile();
       const userId = profile.userId;
+      const lockedMessage = await pupilWorkLockedMessage(userId, activityId);
+      if (lockedMessage) return { success: false, error: lockedMessage };
 
       const client = createPgClient();
       try {
@@ -477,6 +482,8 @@ export async function createPeerReviewCommentAction({
 
       const profile = await requireAuthenticatedProfile();
       const authorUserId = profile.userId;
+      const lockedMessage = await pupilWorkLockedMessage(authorUserId, reviewActivityId);
+      if (lockedMessage) return { success: false, error: lockedMessage };
 
       // Look up submission owner (target user)
       const { rows: subRows } = await query<{ user_id: string }>(

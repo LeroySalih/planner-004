@@ -4,6 +4,7 @@ import { z } from "zod"
 
 import { query } from "@/lib/db"
 import { requireAuthenticatedProfile } from "@/lib/auth"
+import { pupilWorkLockedMessage } from "@/lib/lesson-lock"
 import {
   type Submission,
   SubmissionSchema,
@@ -35,6 +36,8 @@ export async function submitCodeAction(input: z.infer<typeof SubmitCodeInputSche
     async () => {
       const payload = SubmitCodeInputSchema.parse(input)
       const profile = await requireAuthenticatedProfile()
+      const lockedMessage = await pupilWorkLockedMessage(profile.userId, payload.activityId)
+      if (lockedMessage) return { success: false, error: lockedMessage, data: null as Submission | null }
 
       const code = payload.code ?? ""
       if (code.trim().length === 0) {

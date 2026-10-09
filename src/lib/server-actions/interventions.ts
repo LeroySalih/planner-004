@@ -116,3 +116,19 @@ export async function setInterventionFeedbackAction(
     return { data: null, error: errorMessage(error) }
   }
 }
+
+/** Locks an intervention: the pupil can view it but not change it. */
+export async function setInterventionLockedAction(
+  interventionId: string,
+  locked: boolean,
+): Promise<{ data: { locked: boolean } | null; error: string | null }> {
+  await requireRole('teacher')
+  if (!z.string().uuid().safeParse(interventionId).success) return { data: null, error: 'Unknown intervention.' }
+  try {
+    const updated = await updateIntervention({ interventionId, locked: Boolean(locked) })
+    revalidatePath('/interventions')
+    return { data: { locked: updated.locked }, error: null }
+  } catch (error) {
+    return { data: null, error: errorMessage(error) }
+  }
+}

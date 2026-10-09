@@ -96,13 +96,14 @@ export async function readLessonAssignmentsForLessonAction(lessonId: string) {
 export async function checkLessonAccessForPupilAction(
   pupilId: string,
   lessonId: string,
-): Promise<{ accessible: boolean; reason: "hidden" | "locked" | null }> {
+): Promise<{ accessible: boolean; reason: "hidden" | null }> {
+  // A locked lesson stays accessible: locking makes it read-only (see
+  // src/lib/lesson-lock.ts), it does not hide it.
   try {
-    const { rows } = await query<{ hidden: boolean; locked: boolean }>(
+    const { rows } = await query<{ hidden: boolean }>(
       `
         select
-          coalesce(la.hidden, false) as hidden,
-          coalesce(la.locked, false) as locked
+          coalesce(la.hidden, false) as hidden
         from lesson_assignments la
         join group_membership gm on gm.group_id = la.group_id
         where gm.user_id = $1
@@ -119,9 +120,6 @@ export async function checkLessonAccessForPupilAction(
     const row = rows[0];
     if (row.hidden) {
       return { accessible: false, reason: "hidden" };
-    }
-    if (row.locked) {
-      return { accessible: false, reason: "locked" };
     }
 
     return { accessible: true, reason: null };

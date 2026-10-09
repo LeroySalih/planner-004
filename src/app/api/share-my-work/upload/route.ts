@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { pupilWorkLockedMessage } from "@/lib/lesson-lock"
 import { Client } from "pg"
 
 import { getAuthenticatedProfile } from "@/lib/auth"
@@ -81,6 +82,12 @@ export async function POST(request: Request) {
   }
 
   const userId = profile.userId
+  // A locked lesson is read-only for pupils: no uploads (src/lib/lesson-lock.ts).
+  const lockedMessage = await pupilWorkLockedMessage(profile.userId, activityId)
+  if (lockedMessage) {
+    return NextResponse.json({ success: false, error: lockedMessage }, { status: 403 })
+  }
+
   const fileName = file.name
 
   console.log(`${tag} Uploading`, { fileName, fileSize: file.size, fileType: file.type, lessonId, activityId })

@@ -1579,6 +1579,8 @@ export const PlannerAssignmentSchema = z.object({
   day:              z.string(),
   period:           z.number().int(),
   feedback_visible: z.boolean(),
+  /** Read-only for pupils. Kept the same on every row for a class + lesson. */
+  locked:           z.boolean().default(false),
   issue_flag:       z.boolean(),
   issue_note:       z.string(),
   notes:            z.string(),

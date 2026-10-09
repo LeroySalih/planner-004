@@ -3,6 +3,7 @@
 import { query } from "@/lib/db";
 import { getRevisionSettings } from "@/actions/settings";
 import { requireAuthenticatedProfile } from "@/lib/auth";
+import { assertCanChangePupilLesson, assertCanChangePupilWork } from "@/lib/lesson-lock";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { LessonActivity, ShortTextSubmissionBodySchema } from "@/types";
@@ -29,6 +30,7 @@ export type RevisionAnswer = {
 
 export async function startRevision(lessonId: string) {
     const profile = await requireAuthenticatedProfile();
+    await assertCanChangePupilLesson(profile.userId, lessonId);
     const settings = await getRevisionSettings();
 
     // 1. Get Lesson Activities
@@ -137,6 +139,7 @@ export async function saveRevisionAnswer(
     data: any,
 ) {
     const profile = await requireAuthenticatedProfile();
+    await assertCanChangePupilWork(profile.userId, activityId);
 
     // Verify ownership
     const { rows: revisions } = await query(

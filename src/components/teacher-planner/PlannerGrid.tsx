@@ -25,6 +25,7 @@ type PlannerGridProps = {
   onUnitSelect: (unitId: string) => void
   onLessonChange: (day: Day, period: number, lessonId: string) => void
   onFeedbackToggle: (day: Day, period: number, lessonId: string) => void
+  onLockToggle: (day: Day, period: number, lessonId: string) => void
   readOnly?: boolean
 }
 
@@ -67,6 +68,7 @@ export function PlannerGrid({
   onUnitSelect,
   onLessonChange,
   onFeedbackToggle,
+  onLockToggle,
   readOnly,
 }: PlannerGridProps) {
   // Build a map from group_id → subject for fast lookup
@@ -169,6 +171,7 @@ export function PlannerGrid({
                   onUnitSelect={onUnitSelect}
                   onLessonChange={onLessonChange}
                   onFeedbackToggle={onFeedbackToggle}
+                  onLockToggle={onLockToggle}
                   readOnly={readOnly}
                 />
               )

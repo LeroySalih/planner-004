@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { pupilWorkLockedMessage } from "@/lib/lesson-lock"
 import { z } from "zod"
 import { Client } from "pg"
 
@@ -91,6 +92,12 @@ export async function POST(request: Request) {
   if (profile.userId !== pupilId && !hasRole(profile, "teacher")) {
     console.warn(`${tag} Auth mismatch: session=${profile.userId} requested pupilId=${pupilId}`)
     return NextResponse.json({ success: false, error: "You are not allowed to upload files for this pupil." }, { status: 403 })
+  }
+
+  // A locked lesson is read-only for pupils: no uploads (src/lib/lesson-lock.ts).
+  const lockedMessage = await pupilWorkLockedMessage(pupilId, activityId)
+  if (lockedMessage) {
+    return NextResponse.json({ success: false, error: lockedMessage }, { status: 403 })
   }
 
   if (file.size > MAX_FILE_SIZE_BYTES) {

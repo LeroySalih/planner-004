@@ -26,6 +26,7 @@ async function heicToJpeg(input: Buffer): Promise<Buffer> {
 import { getAuthenticatedProfile, hasRole } from "@/lib/auth"
 import { query } from "@/lib/db"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
+import { isLessonLockedForUser, LESSON_LOCKED_MESSAGE } from "@/lib/lesson-lock"
 
 /**
  * Build a Content-Disposition header value that is safe for all HTTP clients.
@@ -133,6 +134,16 @@ export async function GET(
 
   const contentType = typedMetadata.content_type || inferContentType()
   const shouldInline = contentType.startsWith("audio/") || contentType.startsWith("video/") || contentType.startsWith("image/")
+
+  // A locked lesson is view-only: pupils still get the pictures, audio and
+  // video they need to read it, but not downloadable files (slides, PDFs,
+  // documents). Lesson-bucket paths start with the lesson id.
+  if (bucket === "lessons" && !shouldInline) {
+    const lessonId = decodedSegments[0] === "lessons" ? decodedSegments[1] : decodedSegments[0]
+    if (lessonId && (await isLessonLockedForUser(profile.userId, lessonId))) {
+      return NextResponse.json({ success: false, error: LESSON_LOCKED_MESSAGE }, { status: 403 })
+    }
+  }
 
   // Convert HEIC to JPEG for browser compatibility
   if (contentType === "image/heic" || fileName.toLowerCase().endsWith(".heic")) {

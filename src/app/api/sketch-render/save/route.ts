@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { pupilWorkLockedMessage } from "@/lib/lesson-lock"
 
 import { getAuthenticatedProfile } from "@/lib/auth"
 import { query } from "@/lib/db"
@@ -56,6 +57,12 @@ export async function POST(request: Request) {
   if (profile.userId !== userId) {
     console.warn(`${tag} Auth mismatch: session=${profile.userId} requested userId=${userId}`)
     return NextResponse.json({ success: false, error: "Unauthorized", data: null }, { status: 403 })
+  }
+
+  // A locked lesson is read-only for pupils: no uploads (src/lib/lesson-lock.ts).
+  const lockedMessage = await pupilWorkLockedMessage(userId, activityId)
+  if (lockedMessage) {
+    return NextResponse.json({ success: false, error: lockedMessage, data: null }, { status: 403 })
   }
 
   console.log(`${tag} Saving sketch`, {

@@ -2,6 +2,7 @@
 
 import { getAuthenticatedProfile, hasRole } from "@/lib/auth"
 import { query } from "@/lib/db"
+import { pupilWorkLockedMessage } from "@/lib/lesson-lock"
 import { emitSubmissionEvent } from "@/lib/sse/topics"
 import { enqueueMarkingTasks, triggerQueueProcessor } from "@/lib/ai/marking-queue"
 import { UploadWorksheetSubmissionBodySchema } from "@/types"
@@ -25,6 +26,8 @@ export async function resendWorksheetForMarkingAction(input: {
   if (profile.userId !== pupilId && !hasRole(profile, "teacher")) {
     return { success: false, error: "You are not allowed to resend for this pupil." }
   }
+  const lockedMessage = await pupilWorkLockedMessage(pupilId, activityId)
+  if (lockedMessage) return { success: false, error: lockedMessage }
   // Fall back to a synthetic id when there is no assignment (pupil viewing the
   // lesson directly). Must not be "revision" (that routes the callback to the
   // revision webhook) but must decode ("__") so the ai-mark webhook applies it.

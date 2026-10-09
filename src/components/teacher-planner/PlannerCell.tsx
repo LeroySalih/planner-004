@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { Lock, LockOpen } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { CellState, Day } from './types'
 import type { Unit, LessonWithObjectives } from '@/types'
@@ -29,6 +30,7 @@ type PlannerCellProps = {
   onUnitSelect: (unitId: string) => void
   onLessonChange: (day: Day, period: number, lessonId: string) => void
   onFeedbackToggle: (day: Day, period: number, lessonId: string) => void
+  onLockToggle: (day: Day, period: number, lessonId: string) => void
   readOnly?: boolean
 }
 
@@ -46,6 +48,7 @@ export function PlannerCell({
   onUnitSelect,
   onLessonChange,
   onFeedbackToggle,
+  onLockToggle,
   readOnly,
 }: PlannerCellProps) {
   const [pendingUnitId, setPendingUnitId] = useState<string>('')
@@ -315,6 +318,28 @@ export function PlannerCell({
               >
                 □
               </span>
+            )}
+            {/* Lock — read-only for this class's pupils */}
+            {currentLesson && (
+              <button
+                type="button"
+                className={cn(
+                  'w-[16px] h-[16px] flex items-center justify-center rounded-[2px] transition-opacity disabled:cursor-default',
+                  currentLesson.locked
+                    ? 'text-amber-600 opacity-100'
+                    : cn('opacity-60 hover:opacity-100', anyIssue ? 'text-[#A32D2D]' : 'text-[var(--color-text-tertiary)]'),
+                )}
+                title={currentLesson.locked ? 'Locked: pupils can view but not change it. Click to unlock.' : 'Lock: pupils can view but not change it'}
+                aria-label={currentLesson.locked ? 'Unlock lesson' : 'Lock lesson'}
+                aria-pressed={currentLesson.locked}
+                disabled={readOnly}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onLockToggle(day, period, currentLesson.lessonId)
+                }}
+              >
+                {currentLesson.locked ? <Lock className="h-[11px] w-[11px]" /> : <LockOpen className="h-[11px] w-[11px]" />}
+              </button>
             )}
             {/* Issue indicator */}
             {anyIssue && (

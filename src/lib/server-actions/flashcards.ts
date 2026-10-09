@@ -1,6 +1,16 @@
 "use server"
 
 import { query } from "@/lib/db"
+import { pupilWorkLockedMessage } from "@/lib/lesson-lock"
+
+/** Lock check for calls that only carry a flashcard session id. */
+async function flashcardSessionLockedMessage(sessionId: string): Promise<string | null> {
+  const { rows } = await query<{ pupil_id: string; activity_id: string }>(
+    "select pupil_id, coalesce(do_activity_id, activity_id) as activity_id from flashcard_sessions where session_id = $1",
+    [sessionId],
+  )
+  return rows[0] ? pupilWorkLockedMessage(rows[0].pupil_id, rows[0].activity_id) : null
+}
 import { withTelemetry } from "@/lib/telemetry"
 import { readPupilUnitsBootstrapAction } from "@/lib/server-actions/pupil-units"
 import { parseFlashcardLines, type FlashCard } from "@/lib/flashcards/parse-flashcards"
@@ -221,6 +231,9 @@ export async function startFlashcardSessionAction(
     },
     async () => {
       try {
+        const lockedMessage = await pupilWorkLockedMessage(pupilId, doActivityId ?? activityId)
+        if (lockedMessage) return { data: null, error: lockedMessage }
+
         const result = await query<{ session_id: string }>(
           `
           INSERT INTO flashcard_sessions (pupil_id, activity_id, total_cards, do_activity_id)
@@ -270,6 +283,9 @@ export async function recordFlashcardAttemptAction(input: {
     },
     async () => {
       try {
+        const lockedMessage = await flashcardSessionLockedMessage(input.sessionId)
+        if (lockedMessage) return { data: null, error: lockedMessage }
+
         await query(
           `
           INSERT INTO flashcard_attempts (session_id, term, definition, chosen_definition, is_correct, attempt_number)
@@ -322,6 +338,9 @@ export async function completeFlashcardSessionAction(
     },
     async () => {
       try {
+        const lockedMessage = await flashcardSessionLockedMessage(sessionId)
+        if (lockedMessage) return { data: null, error: lockedMessage }
+
         await query(
           `
           UPDATE flashcard_sessions

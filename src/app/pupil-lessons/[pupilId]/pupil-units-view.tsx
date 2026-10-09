@@ -263,8 +263,7 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
                         className={cn(
                           "relative py-2 pl-8 pr-2 sm:pr-3 rounded-md transition-colors mx-2",
                           isLessonOverdueAndUnderperforming(lesson) &&
-                            "bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-900/50",
-                          lesson.locked && "opacity-50"
+                            "bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-900/50"
                         )}
                       >
                         <span
@@ -275,18 +274,17 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
                         </span>
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                           <div className="flex flex-col gap-1">
-                            {lesson.isEnrolled && !lesson.locked ? (
+                            {lesson.isEnrolled ? (
+                              // A locked lesson still opens — read-only — so it keeps its link.
                               <Link
                                 href={`/pupil-lessons/${encodeURIComponent(detail.pupilId)}/lessons/${encodeURIComponent(lesson.lessonId)}`}
-                                className="text-xl font-semibold text-foreground underline-offset-4 hover:text-primary hover:underline sm:text-2xl"
+                                className="flex items-center gap-2 text-xl font-semibold text-foreground underline-offset-4 hover:text-primary hover:underline sm:text-2xl"
                               >
                                 {lesson.lessonTitle}
+                                {lesson.locked && (
+                                  <Lock className="h-4 w-4 shrink-0 text-amber-600" aria-label="Locked: view only" />
+                                )}
                               </Link>
-                            ) : lesson.locked ? (
-                              <span className="flex items-center gap-2 text-xl font-semibold text-muted-foreground sm:text-2xl">
-                                {lesson.lessonTitle}
-                                <Lock className="h-4 w-4 text-red-500" />
-                              </span>
                             ) : (
                               <span className="text-xl font-semibold text-foreground sm:text-2xl">
                                 {lesson.lessonTitle}
@@ -337,7 +335,7 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
                           />
                         </div>
 
-                        {lesson.isEnrolled && !lesson.locked && lesson.revisionScore !== null && lesson.revisionMaxScore !== null && lesson.revisionMaxScore > 0 && (
+                        {lesson.isEnrolled && lesson.revisionScore !== null && lesson.revisionMaxScore !== null && lesson.revisionMaxScore > 0 && (
                           <div className="mt-3 flex items-center gap-2 flex-wrap">
                             <span className={`inline-flex items-center rounded-md px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${getRevisionBadgeColor(lesson.revisionDate)}`}>
                               Revision: {Math.round(lesson.revisionScore * 10) / 10}/{lesson.revisionMaxScore} ({Math.round((lesson.revisionScore / lesson.revisionMaxScore) * 100)}%)

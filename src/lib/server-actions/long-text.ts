@@ -15,6 +15,7 @@ import {
 } from "@/lib/scoring/success-criteria"
 import { emitSubmissionEvent } from "@/lib/sse/topics"
 import { query } from "@/lib/db"
+import { pupilWorkLockedMessage } from "@/lib/lesson-lock"
 import {
   clearResubmitRequest,
   getNextAttemptNumber,
@@ -28,6 +29,8 @@ const LongTextAnswerInputSchema = z.object({
 
 export async function saveLongTextAnswerAction(input: z.infer<typeof LongTextAnswerInputSchema>) {
   const payload = LongTextAnswerInputSchema.parse(input)
+  const lockedMessage = await pupilWorkLockedMessage(payload.userId, payload.activityId)
+  if (lockedMessage) return { success: false, error: lockedMessage, data: null as Submission | null }
 
   const successCriteriaIds = await fetchActivitySuccessCriteriaIds(payload.activityId)
   const initialScores = normaliseSuccessCriteriaScores({

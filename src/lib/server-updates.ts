@@ -398,6 +398,7 @@ export {
   readPlannerWeekNoteAction,
   upsertPlannerWeekNoteAction,
   updatePlannerAssignmentExtrasAction,
+  setPlannerLessonLockedAction,
   upsertPlannerAssignmentAction,
 } from './server-actions/planner-assignments'
 export type { SowWeekLesson } from './server-actions/planner-assignments'

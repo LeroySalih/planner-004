@@ -94,6 +94,8 @@ import {
 import { LiveActivityShell } from "./live-activity-shell"
 import { ActivitySidebar } from "@/components/lessons/activity-sidebar"
 import { interventionAllowsPupil } from "@/lib/interventions/store"
+import { isLessonLockedForUser } from "@/lib/lesson-lock"
+import { LockedWhen } from "./locked-when"
 
 type McqOption = { id: string; text: string }
 
@@ -367,19 +369,9 @@ export default async function PupilLessonFriendlyPage({
     if (!access.accessible) {
       return (
         <main className="mx-auto flex w-full max-w-2xl flex-col items-center gap-6 px-6 py-20 text-center">
-          {access.reason === "locked" ? (
-            <>
-              <Lock className="h-16 w-16 text-red-500" />
-              <h1 className="text-2xl font-semibold text-foreground">This lesson is currently locked</h1>
-              <p className="text-muted-foreground">Your teacher has locked this lesson. Please check back later or ask your teacher for more information.</p>
-            </>
-          ) : (
-            <>
-              <Lock className="h-16 w-16 text-muted-foreground" />
-              <h1 className="text-2xl font-semibold text-foreground">This lesson is not available</h1>
-              <p className="text-muted-foreground">This lesson is not currently available to you. Please contact your teacher if you think this is an error.</p>
-            </>
-          )}
+          <Lock className="h-16 w-16 text-muted-foreground" />
+          <h1 className="text-2xl font-semibold text-foreground">This lesson is not available</h1>
+          <p className="text-muted-foreground">This lesson is not currently available to you. Please contact your teacher if you think this is an error.</p>
           <Link
             href={`/pupil-lessons/${encodeURIComponent(pupilId)}`}
             className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
@@ -935,6 +927,12 @@ export default async function PupilLessonFriendlyPage({
 
   const isPupilViewer = profile.userId === pupilId
   const isTeacher = profile.isTeacher
+  // A locked lesson is read-only for this pupil (migration 111). The server
+  // refuses their writes, uploads and downloads too; this only stops the page
+  // offering them. A teacher viewing a pupil's page sees the same banner.
+  const isLocked = await isLessonLockedForUser(pupilId, lesson.lesson_id)
+  const canWork = isPupilViewer && !isLocked
+  const canDownload = isTeacher || !isLocked
 
   const assignments = summary
     ? summary.sections.flatMap((section) =>
@@ -1116,6 +1114,25 @@ export default async function PupilLessonFriendlyPage({
           greetingName={summary?.name ?? null}
         />
 
+        {isLocked ? (
+          <div className="mx-auto w-full max-w-3xl px-6 pt-8">
+            <div
+              role="status"
+              className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-amber-900 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-100"
+            >
+              <Lock className="mt-0.5 h-5 w-5 shrink-0" />
+              <div className="space-y-0.5">
+                <p className="font-semibold">This lesson is locked</p>
+                <p className="text-sm">
+                  {isPupilViewer
+                    ? "You can look through it, but you can't change answers, upload or download files."
+                    : "This pupil can view it but cannot change answers, upload or download files."}
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         <div className="mx-auto w-full max-w-3xl px-6 pb-40 pt-16">
           {activities.length === 0 ? (
             <p className="text-center text-muted-foreground">
@@ -1192,7 +1209,7 @@ export default async function PupilLessonFriendlyPage({
                         lessonId={lesson.lesson_id}
                         activity={activity}
                         pupilId={pupilId}
-                        canAnswer={isPupilViewer}
+                        canAnswer={canWork}
                         initialAnswer={shortTextDataMap.get(activity.activity_id)?.answer ?? ""}
                         initialSubmissionId={shortTextDataMap.get(activity.activity_id)?.submissionId ?? null}
                         initialIsFlagged={shortTextDataMap.get(activity.activity_id)?.isFlagged ?? false}
@@ -1214,7 +1231,7 @@ export default async function PupilLessonFriendlyPage({
                         language={language}
                         starterCode={typeof body.starterCode === "string" ? body.starterCode : ""}
                         assignmentId={assignmentIds[0] ?? null}
-                        readOnly={!isPupilViewer}
+                        readOnly={!canWork}
                         submittedHtml={uploadCodeHtmlMap.get(activity.activity_id) ?? null}
                         taskHtml={renderTaskMarkup(typeof body.task === "string" ? body.task : "")}
                       />,
@@ -1231,7 +1248,7 @@ export default async function PupilLessonFriendlyPage({
                         lessonId={lesson.lesson_id}
                         activity={activity}
                         pupilId={pupilId}
-                        canAnswer={isPupilViewer}
+                        canAnswer={canWork}
                         initialSelection={mcqSelectionMap.get(activity.activity_id) ?? null}
                         feedbackAssignmentIds={assignmentIds}
                       />,
@@ -1245,7 +1262,7 @@ export default async function PupilLessonFriendlyPage({
                         lessonId={lesson.lesson_id}
                         activity={activity}
                         pupilId={pupilId}
-                        canAnswer={isPupilViewer}
+                        canAnswer={canWork}
                         initialAnswer={longTextAnswerMap.get(activity.activity_id) ?? ""}
                         feedbackAssignmentIds={assignmentIds}
                       />,
@@ -1259,7 +1276,7 @@ export default async function PupilLessonFriendlyPage({
                         lessonId={lesson.lesson_id}
                         activity={activity}
                         pupilId={pupilId}
-                        canAnswer={isPupilViewer}
+                        canAnswer={canWork}
                         initialAnswer={uploadUrlDataMap.get(activity.activity_id)?.answer ?? ""}
                         initialSubmissionId={uploadUrlDataMap.get(activity.activity_id)?.submissionId ?? null}
                         initialIsFlagged={uploadUrlDataMap.get(activity.activity_id)?.isFlagged ?? false}
@@ -1279,7 +1296,7 @@ export default async function PupilLessonFriendlyPage({
                         pupilId={pupilId}
                         instructions={extractUploadInstructions(activity)}
                         initialSubmissions={submissionMap.get(activity.activity_id) ?? []}
-                        canUpload={isPupilViewer}
+                        canUpload={canWork}
                         feedbackAssignmentIds={assignmentIds}
                       />,
                       { typeLabel: "File upload", typeGlyph: "⬆", question: activity.title || "Upload your work" },
@@ -1292,7 +1309,7 @@ export default async function PupilLessonFriendlyPage({
                         lessonId={lesson.lesson_id}
                         activity={activity}
                         pupilId={pupilId}
-                        canUpload={isPupilViewer}
+                        canUpload={canWork}
                         initialFileName={uploadSpreadsheetFileNameMap.get(activity.activity_id) ?? null}
                         feedbackAssignmentIds={assignmentIds}
                       />,
@@ -1306,7 +1323,7 @@ export default async function PupilLessonFriendlyPage({
                         lessonId={lesson.lesson_id}
                         activity={activity}
                         pupilId={pupilId}
-                        canUpload={isPupilViewer}
+                        canUpload={canWork}
                         initialFileName={uploadWorksheetFileNameMap.get(activity.activity_id) ?? null}
                         initialFileUrl={uploadWorksheetFileUrlMap.get(activity.activity_id) ?? null}
                         feedbackAssignmentIds={assignmentIds}
@@ -1321,7 +1338,7 @@ export default async function PupilLessonFriendlyPage({
                         lessonId={lesson.lesson_id}
                         activity={activity}
                         pupilId={pupilId}
-                        canUpload={isPupilViewer}
+                        canUpload={canWork}
                         initialFileName={uploadWorksheetFileNameMap.get(activity.activity_id) ?? null}
                         initialFileUrl={uploadWorksheetFileUrlMap.get(activity.activity_id) ?? null}
                         feedbackAssignmentIds={assignmentIds}
@@ -1338,7 +1355,7 @@ export default async function PupilLessonFriendlyPage({
                         lessonId={lesson.lesson_id}
                         activity={activity}
                         pupilId={pupilId}
-                        canAnswer={isPupilViewer}
+                        canAnswer={canWork}
                         initialLayout={matcherDataMap.get(activity.activity_id)?.layout ?? []}
                         initialAnswers={matcherDataMap.get(activity.activity_id)?.answers ?? {}}
                       />,
@@ -1353,7 +1370,7 @@ export default async function PupilLessonFriendlyPage({
                         activityId={activity.activity_id}
                         title={activity.title}
                         pupilId={pupilId}
-                        canAnswer={isPupilViewer}
+                        canAnswer={canWork}
                         groups={groupItemsDataMap.get(activity.activity_id)?.groups ?? []}
                         items={groupItemsDataMap.get(activity.activity_id)?.items ?? []}
                         initialItemOrder={groupItemsDataMap.get(activity.activity_id)?.itemOrder ?? []}
@@ -1369,7 +1386,7 @@ export default async function PupilLessonFriendlyPage({
                         lessonId={lesson.lesson_id}
                         activityId={activity.activity_id}
                         pupilId={pupilId}
-                        canAnswer={isPupilViewer}
+                        canAnswer={canWork}
                         terms={sequenceDataMap.get(activity.activity_id)?.terms ?? []}
                         initialCorrectIds={sequenceDataMap.get(activity.activity_id)?.correctIds ?? []}
                         initialAttempts={sequenceDataMap.get(activity.activity_id)?.attempts ?? 0}
@@ -1380,23 +1397,27 @@ export default async function PupilLessonFriendlyPage({
 
                   if (activity.type === "do-flashcards") {
                     return shell(
-                      <PupilDoFlashcardsActivity
-                        activity={activity}
-                        pupilId={pupilId}
-                        initialScore={rawScore ?? null}
-                      />,
+                      <LockedWhen locked={isPupilViewer && isLocked}>
+                        <PupilDoFlashcardsActivity
+                          activity={activity}
+                          pupilId={pupilId}
+                          initialScore={rawScore ?? null}
+                        />
+                      </LockedWhen>,
                       { typeLabel: "Flashcards", typeGlyph: "🂠" },
                     )
                   }
 
                   if (activity.type === "sketch-render") {
                     return shell(
-                      <PupilSketchRenderActivity
-                        activity={activity}
-                        userId={pupilId}
-                        submission={sketchRenderSubmissionMap.get(activity.activity_id) ?? null}
-                        assignmentId={assignmentIds[0]}
-                      />,
+                      <LockedWhen locked={isPupilViewer && isLocked}>
+                        <PupilSketchRenderActivity
+                          activity={activity}
+                          userId={pupilId}
+                          submission={sketchRenderSubmissionMap.get(activity.activity_id) ?? null}
+                          assignmentId={assignmentIds[0]}
+                        />
+                      </LockedWhen>,
                       { typeLabel: "Sketch", typeGlyph: "✎" },
                     )
                   }
@@ -1407,7 +1428,7 @@ export default async function PupilLessonFriendlyPage({
                         lessonId={lesson.lesson_id}
                         activity={activity}
                         pupilId={pupilId}
-                        canUpload={isPupilViewer}
+                        canUpload={canWork}
                         initialFiles={shareMyWorkDataMap.get(activity.activity_id)?.files ?? []}
                         initialSubmissionId={shareMyWorkDataMap.get(activity.activity_id)?.submissionId ?? null}
                       />,
@@ -1417,7 +1438,9 @@ export default async function PupilLessonFriendlyPage({
 
                   if (activity.type === "review-others-work") {
                     return shell(
-                      <PupilReviewOthersWorkActivity activity={activity} pupilId={pupilId} />,
+                      <LockedWhen locked={isPupilViewer && isLocked}>
+                        <PupilReviewOthersWorkActivity activity={activity} pupilId={pupilId} />
+                      </LockedWhen>,
                       { typeLabel: "Review others' work", typeGlyph: "◎", hideMarking: true },
                     )
                   }
@@ -1486,7 +1509,12 @@ export default async function PupilLessonFriendlyPage({
                                 <h3 className="font-medium leading-none text-foreground">{activity.title}</h3>
                                 <p className="text-sm text-muted-foreground">{extractUploadInstructions(activity) || "Download the attached file(s)."}</p>
                                 
-                                {activityFiles.length > 0 ? (
+                                {!canDownload ? (
+                                  <p className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+                                    <Lock className="h-4 w-4 shrink-0" />
+                                    Downloads are switched off while this lesson is locked.
+                                  </p>
+                                ) : activityFiles.length > 0 ? (
                                   <div className="mt-2 flex flex-col gap-2">
                                     {activityFiles.map((file, i) => (
                                       <Button key={i} asChild size="sm" variant="outline" className="justify-start gap-2 w-full sm:w-auto h-auto py-2">

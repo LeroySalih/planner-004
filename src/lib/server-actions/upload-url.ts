@@ -19,6 +19,7 @@ import {
 } from "@/lib/activity-logging";
 import { emitSubmissionEvent } from "@/lib/sse/topics";
 import { query } from "@/lib/db";
+import { pupilWorkLockedMessage } from "@/lib/lesson-lock";
 import {
     clearResubmitRequest,
     getNextAttemptNumber,
@@ -35,6 +36,10 @@ export async function saveUploadUrlAnswerAction(
     input: z.infer<typeof UploadUrlAnswerInputSchema>,
 ) {
     const payload = UploadUrlAnswerInputSchema.parse(input);
+    const lockedMessage = await pupilWorkLockedMessage(payload.userId, payload.activityId);
+    if (lockedMessage) {
+        return { success: false, error: lockedMessage, data: null as Submission | null };
+    }
 
     const successCriteriaIds = await fetchActivitySuccessCriteriaIds(
         payload.activityId,

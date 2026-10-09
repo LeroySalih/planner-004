@@ -9,6 +9,7 @@ import { readPlannerSowUnitsAction,
   deletePlannerAssignmentAction,
   readPlannerAssignmentsForWeekAction,
   updatePlannerAssignmentExtrasAction,
+  setPlannerLessonLockedAction,
   readTimetableSlotGroupsAction,
   upsertTimetableSlotGroupAction,
   readPlannerPeriodFlagsForWeekAction,
@@ -153,6 +154,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
           lessonTitle: pa.lesson_title,
           assignmentId: pa.id,
           feedbackVisible: pa.feedback_visible,
+          locked: pa.locked,
           hiddenFromPupils: pa.hidden_from_pupils ?? false,
           lessonNotes: pa.notes,
         })
@@ -340,6 +342,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
         lessonTitle,
         assignmentId: data.id,
         feedbackVisible: data.feedback_visible,
+        locked: data.locked,
         hiddenFromPupils: false,
         lessonNotes: '',
       }
@@ -373,6 +376,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
         lessonTitle,
         assignmentId: data.id,
         feedbackVisible: data.feedback_visible,
+        locked: data.locked,
         hiddenFromPupils: false,
         lessonNotes: '',
       }
@@ -418,6 +422,42 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
       () => updateSlot(day, period, () => cell),
     )
   }, [updateSlot, plannerState, commit])
+
+  const handleLockToggle = useCallback(async (day: Day, period: number, lessonId: string) => {
+    const cell = plannerState.get(slotKey(day, period)) ?? emptyCellState()
+    const lesson = cell.lessons.find((l) => l.lessonId === lessonId)
+    const groupId = cell.groupId
+    if (!lesson || !groupId) return
+    const next = !lesson.locked
+
+    // The lock is per class + lesson, so every cached slot holding this
+    // lesson for this class moves with it.
+    const applyEverywhere = (locked: boolean) =>
+      setWeeklyStates((prev) => {
+        const out = new Map(prev)
+        for (const [mapKey, weekState] of prev) {
+          let touched = false
+          const nextWeek = new Map(weekState)
+          for (const [slot, state] of weekState) {
+            if (state.groupId !== groupId || !state.lessons.some((l) => l.lessonId === lessonId)) continue
+            touched = true
+            nextWeek.set(slot, {
+              ...state,
+              lessons: state.lessons.map((l) => (l.lessonId === lessonId ? { ...l, locked } : l)),
+            })
+          }
+          if (touched) out.set(mapKey, nextWeek)
+        }
+        return out
+      })
+
+    applyEverywhere(next)
+    await commit(
+      setPlannerLessonLockedAction(groupId, lessonId, next, selectedTeacherIdRef.current),
+      next ? 'Could not lock the lesson' : 'Could not unlock the lesson',
+      () => applyEverywhere(!next),
+    )
+  }, [plannerState, commit])
 
   const handleHiddenToggle = useCallback(async (day: Day, period: number, lessonId: string) => {
     const key = slotKey(day, period)
@@ -657,6 +697,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
           onUnitSelect={handleUnitSelect}
           onLessonChange={handleLessonChange}
           onFeedbackToggle={handleFeedbackToggle}
+          onLockToggle={handleLockToggle}
           readOnly={readOnly}
         />
 
@@ -678,6 +719,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
         onRemoveLesson={handleRemoveLesson}
         onSwapLesson={handleSwapLesson}
         onFeedbackToggle={handleFeedbackToggle}
+        onLockToggle={handleLockToggle}
         onHiddenToggle={handleHiddenToggle}
         onIssueToggle={handleIssueToggle}
         onIssueNoteChange={handleIssueNoteChange}

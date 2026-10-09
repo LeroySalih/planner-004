@@ -22,7 +22,11 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import type { InterventionSummary } from '@/lib/interventions/store'
-import { deleteInterventionsAction, setInterventionFeedbackAction } from '@/lib/server-actions/interventions'
+import {
+  deleteInterventionsAction,
+  setInterventionFeedbackAction,
+  setInterventionLockedAction,
+} from '@/lib/server-actions/interventions'
 import { cn } from '@/lib/utils'
 
 const ALL = '__all'
@@ -58,6 +62,26 @@ export function InterventionsTable({ interventions }: { interventions: Intervent
   // Optimistic feedback switches, keyed by intervention; cleared on refresh.
   const [feedbackOverrides, setFeedbackOverrides] = useState<Record<string, boolean>>({})
   const [savingFeedback, setSavingFeedback] = useState<Set<string>>(new Set())
+
+  const [lockOverrides, setLockOverrides] = useState<Record<string, boolean>>({})
+  const [savingLock, setSavingLock] = useState<Set<string>>(new Set())
+
+  const setLock = async (id: string, locked: boolean) => {
+    setLockOverrides((prev) => ({ ...prev, [id]: locked }))
+    setSavingLock((prev) => new Set(prev).add(id))
+    const { error } = await setInterventionLockedAction(id, locked)
+    setSavingLock((prev) => {
+      const next = new Set(prev)
+      next.delete(id)
+      return next
+    })
+    if (error) {
+      setLockOverrides((prev) => ({ ...prev, [id]: !locked }))
+      toast.error(`Unable to change the lock: ${error}`)
+      return
+    }
+    toast.success(locked ? 'Locked: the pupil can view it but not change it.' : 'Unlocked.')
+  }
 
   const setFeedback = async (id: string, visible: boolean) => {
     setFeedbackOverrides((prev) => ({ ...prev, [id]: visible }))
@@ -216,6 +240,7 @@ export function InterventionsTable({ interventions }: { interventions: Intervent
                 <th className="px-4 py-2 text-right font-medium">Done</th>
                 <th className="px-4 py-2 text-right font-medium">Score</th>
                 <th className="px-4 py-2 font-medium">Feedback</th>
+                <th className="px-4 py-2 font-medium">Locked</th>
               </tr>
             </thead>
             <tbody>
@@ -278,6 +303,14 @@ export function InterventionsTable({ interventions }: { interventions: Intervent
                         disabled={savingFeedback.has(i.intervention_id)}
                         onCheckedChange={(v) => setFeedback(i.intervention_id, v)}
                         aria-label={`Show feedback to ${i.pupil_name || i.pupil_id}`}
+                      />
+                    </td>
+                    <td className="px-4 py-2">
+                      <Switch
+                        checked={lockOverrides[i.intervention_id] ?? i.locked}
+                        disabled={savingLock.has(i.intervention_id)}
+                        onCheckedChange={(v) => setLock(i.intervention_id, v)}
+                        aria-label={`Lock ${i.lesson_title} for ${i.pupil_name || i.pupil_id}`}
                       />
                     </td>
                   </tr>

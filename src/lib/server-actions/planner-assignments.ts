@@ -66,8 +66,11 @@ export async function upsertPlannerAssignmentAction(
     const { rows } = await query<Record<string, unknown>>(
       `INSERT INTO planner_assignments
          (group_id, lesson_id, week_start_date, day, period,
-          feedback_visible, issue_flag, issue_note, notes, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          feedback_visible, issue_flag, issue_note, notes, created_by, locked)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+               -- A lock is per class + lesson, so a new slot joins it.
+               COALESCE((SELECT bool_or(locked) FROM planner_assignments
+                          WHERE group_id = $1 AND lesson_id = $2), false))
        ON CONFLICT (group_id, week_start_date, day, period, lesson_id)
        DO UPDATE SET
          feedback_visible = EXCLUDED.feedback_visible,
@@ -182,6 +185,36 @@ export async function updatePlannerAssignmentExtrasAction(
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to update assignment'
     return AssignmentResult.parse({ data: null, error: message })
+  }
+}
+
+const LockResult = z.object({
+  data: z.object({ locked: z.boolean() }).nullable(),
+  error: z.string().nullable(),
+})
+
+/**
+ * Locks or unlocks a lesson for one class: read-only for its pupils. Set on
+ * every planner row for that class + lesson so the lesson is never half locked.
+ */
+export async function setPlannerLessonLockedAction(
+  groupId: string,
+  lessonId: string,
+  locked: boolean,
+  targetTeacherId: string,
+): Promise<z.infer<typeof LockResult>> {
+  try {
+    await requireTeacherOrAdminAccess(targetTeacherId)
+    const { rowCount } = await query(
+      `UPDATE planner_assignments SET locked = $3, updated_at = now()
+        WHERE group_id = $1 AND lesson_id = $2`,
+      [groupId, lessonId, Boolean(locked)],
+    )
+    if (!rowCount) return LockResult.parse({ data: null, error: 'Assignment not found' })
+    return LockResult.parse({ data: { locked: Boolean(locked) }, error: null })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to change the lock'
+    return LockResult.parse({ data: null, error: message })
   }
 }
 

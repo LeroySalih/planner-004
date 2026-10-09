@@ -13,6 +13,7 @@ import { getActivityLessonId, logActivitySubmissionEvent } from "@/lib/activity-
 import { emitSubmissionEvent } from "@/lib/sse/topics"
 import { enqueueMarkingTasks, triggerQueueProcessor } from "@/lib/ai/marking-queue"
 import { query } from "@/lib/db"
+import { pupilWorkLockedMessage } from "@/lib/lesson-lock"
 import {
   clearResubmitRequest,
   getNextAttemptNumber,
@@ -74,6 +75,8 @@ const SHORT_TEXT_CORRECTNESS_THRESHOLD = 0.8
 
 export async function saveShortTextAnswerAction(input: z.infer<typeof ShortTextAnswerInputSchema>) {
   const payload = ShortTextAnswerInputSchema.parse(input)
+  const lockedMessage = await pupilWorkLockedMessage(payload.userId, payload.activityId)
+  if (lockedMessage) return { success: false, error: lockedMessage, data: null as Submission | null }
 
   const successCriteriaIds = await fetchActivitySuccessCriteriaIds(payload.activityId)
   const initialScores = normaliseSuccessCriteriaScores({
@@ -336,6 +339,15 @@ export async function toggleSubmissionFlagAction(input: z.infer<typeof ToggleSub
   const payload = ToggleSubmissionFlagInputSchema.parse(input)
 
   try {
+    const { rows: owner } = await query<{ activity_id: string; user_id: string }>(
+      "select activity_id, user_id from submissions where submission_id = $1",
+      [payload.submissionId],
+    )
+    if (owner[0]) {
+      const lockedMessage = await pupilWorkLockedMessage(owner[0].user_id, owner[0].activity_id)
+      if (lockedMessage) return { success: false, error: lockedMessage }
+    }
+
     const { rows } = await query(
       `
         update submissions 
