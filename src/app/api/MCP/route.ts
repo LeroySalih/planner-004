@@ -61,6 +61,7 @@ import {
 } from '@/types'
 import { MCP_UPLOAD_MAX_BYTES, decodeBase64File, fetchFileFromUrl } from '@/lib/mcp/file-input'
 import { createUploadLink } from '@/lib/mcp/upload-links'
+import { createDownloadLink, listLessonFiles } from '@/lib/mcp/download-links'
 import {
   INTERVENTION_STATUSES,
   createIntervention,
@@ -1416,6 +1417,93 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
       outputSchema: z.object({ link: uploadLinkOutput }),
     },
     async ({ lesson_id, file_name }) => uploadLinkTool(lesson_id, null, file_name),
+  )
+
+  const lessonFileOutput = z.object({
+    lesson_id: z.string(),
+    activity_id: z.string().nullable(),
+    activity_title: z.string().nullable(),
+    activity_type: z.string().nullable(),
+    file_name: z.string(),
+    size_bytes: z.number().nullable(),
+    content_type: z.string().nullable(),
+    updated_at: z.string().nullable(),
+  })
+
+  srv.registerTool(
+    'list_lesson_files',
+    {
+      title: 'List a lesson\'s files',
+      description: 'List the teacher files of a lesson: its private lesson files (activity_id null) and the files attached to its activities '
+        + '(file-download, display-image and similar). Pupils\' uploaded work is not included. '
+        + 'Use get_lesson_file_download_link to fetch one.',
+      inputSchema: z.object({
+        lesson_id: z.string().describe('UUID of the lesson'),
+      }),
+      outputSchema: z.object({ files: z.array(lessonFileOutput).nullable() }),
+    },
+    async ({ lesson_id }) => {
+      try {
+        const files = await listLessonFiles(lesson_id)
+        return {
+          content: [{
+            type: 'text' as const,
+            text: files.length > 0
+              ? files.map((f) => `${f.file_name} • ${f.activity_id ? `activity ${f.activity_id}${f.activity_title ? ` — ${f.activity_title}` : ''}` : 'lesson file'}${f.size_bytes != null ? ` • ${f.size_bytes} bytes` : ''}`).join('\n')
+              : `Lesson ${lesson_id} has no files.`,
+          }],
+          structuredContent: { files },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to list lesson files'
+        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { files: null } }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'get_lesson_file_download_link',
+    {
+      title: 'Get a one-time download link for a lesson file',
+      description: 'Best way to open one of a lesson\'s files (e.g. a deck or worksheet) in your code sandbox. '
+        + 'Returns a single-use link, valid 15 minutes, that downloads the file with a plain curl GET — no credentials. '
+        + 'Take lesson_id, activity_id and file_name exactly from list_lesson_files; omit activity_id for a lesson file.',
+      inputSchema: z.object({
+        lesson_id: z.string().describe('UUID of the lesson'),
+        activity_id: z.string().optional().describe('UUID of the activity the file belongs to. Omit for the lesson\'s own teacher files.'),
+        file_name: z.string().describe('Exact file name from list_lesson_files'),
+      }),
+      outputSchema: z.object({
+        link: z.object({
+          download_url: z.string(),
+          expires_at: z.string(),
+          file: lessonFileOutput,
+          instructions: z.string(),
+        }).nullable(),
+      }),
+    },
+    async ({ lesson_id, activity_id, file_name }) => {
+      try {
+        const { token, expiresAt, file } = await createDownloadLink(caller, {
+          lessonId: lesson_id,
+          activityId: activity_id ?? null,
+          fileName: file_name,
+        })
+        const downloadUrl = `${baseUrl}/api/MCP/download/${token}`
+        const instructions =
+          `From your code sandbox, fetch the file with e.g. curl -sSf -o "${file.file_name.replace(/[^\w .()-]/g, '_')}" "${downloadUrl}". `
+          + `No Authorization header is needed. The link works once and expires at ${expiresAt}. `
+          + 'If the request cannot connect, the sandbox\'s network settings '
+          + `are blocking ${new URL(downloadUrl).host}: ask the user to allow that domain in Claude's settings (Capabilities → code execution network access).`
+        return {
+          content: [{ type: 'text' as const, text: `Download link (single use, expires ${expiresAt}):\n${downloadUrl}\n${instructions}` }],
+          structuredContent: { link: { download_url: downloadUrl, expires_at: expiresAt, file, instructions } },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to create download link'
+        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { link: null } }
+      }
+    },
   )
 
   srv.registerTool(

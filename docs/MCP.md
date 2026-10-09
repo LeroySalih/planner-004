@@ -508,6 +508,26 @@ Returns everything needed to POST a file directly to a `file-download` or `displ
 
 ---
 
+### File Downloads
+
+#### `list_lesson_files`
+Lists a lesson's teacher files: its private lesson files (`activity_id: null`) and the files attached to its activities. Pupils' uploaded work, which is stored one folder below each activity, is never listed or downloadable.
+
+**Input:** `{ lesson_id: string }`  
+**Output:** `{ files: [{ lesson_id, activity_id, activity_title, activity_type, file_name, size_bytes, content_type, updated_at }] | null }`
+
+#### `get_lesson_file_download_link`
+Returns a one-time link that downloads one file from `list_lesson_files` with a plain `curl` GET and no credentials, for Claude's code sandbox. Pass `lesson_id`, `activity_id` (omit it for a lesson file) and `file_name` exactly as listed.
+
+This is the second deliberate exception to "no credentials in tool output", alongside the upload links: one file, single use, 15 minutes, only a SHA-256 hash stored (`mcp_download_links`, migration 112). The download is logged in `mcp_audit_log` as `file_download:link`, attributed to the teacher who asked for the link. The file is always served as an `application/octet-stream` attachment. A failed download gives the link back for a retry.
+
+**Input:** `{ lesson_id: string, activity_id?: string, file_name: string }`  
+**Output:** `{ link: { download_url, expires_at, file, instructions } | null }`
+
+Endpoint: `GET /api/MCP/download/<token>`.
+
+---
+
 ### Teachers, Groups & Timetable
 
 Tools do not act as the connected teacher (the service key carries no user
