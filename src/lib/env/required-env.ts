@@ -53,6 +53,8 @@ export const REQUIRED_ONE_OF: readonly (readonly string[])[] = [
  */
 export const IGNORED_FLAGS: readonly string[] = [
   "NODE_ENV",
+  // src/lib/app-env.ts — "coding" on the test site (red menu bar and icon).
+  "APP_ENV",
   "MAINTENANCE_MODE",
   "MAINTENANCE_BYPASS",
   "TELEM_ENABLED",

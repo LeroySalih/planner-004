@@ -13,6 +13,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { getSessionProfileAction } from "@/lib/server-updates"
+import { cn } from "@/lib/utils"
 
 import { SideNav } from "./side-nav"
 
@@ -40,11 +41,17 @@ function SignInButton() {
   )
 }
 
-export function TopBar() {
+export function TopBar({ isCoding = false }: { isCoding?: boolean }) {
   const [mobileOpen, setMobileOpen] = useState(false)
 
   return (
-    <header className="sticky top-0 z-50 border-b bg-card" style={{ height: "80px" }}>
+    <header
+      className={cn(
+        "sticky top-0 z-50 border-b",
+        // Pale red on the coding site so it can't be mistaken for the live one.
+        isCoding ? "border-red-200 bg-red-100 dark:border-red-900 dark:bg-red-950" : "bg-card",
+      )}
+      style={{ height: "80px" }}>
       <div className="flex h-full w-full items-center justify-between px-4 sm:px-6">
         {/* Mobile hamburger */}
         <Button
