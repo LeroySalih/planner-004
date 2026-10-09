@@ -1,16 +1,20 @@
 'use server'
 
+import { revalidatePath } from 'next/cache'
+import { z } from 'zod'
+
 import { requireAuthenticatedProfile, requireRole } from '@/lib/auth'
 import {
   INTERVENTION_STATUSES,
+  deactivateInterventions,
   readInterventions,
   type InterventionStatus,
   type InterventionSummary,
 } from '@/lib/interventions/store'
 
 /**
- * Interventions are created and edited through MCP only; the app reads them.
- * Teachers see every intervention. A pupil sees their own, except cancelled
+ * Interventions are created and edited through MCP; the app reads them and
+ * lets a teacher delete them. Teachers see every intervention. A pupil sees their own, except cancelled
  * ones, which disappear from their list.
  */
 
@@ -73,6 +77,24 @@ export async function readMyInterventionsAction(): Promise<{ data: MyInterventio
       score: row.score,
     }))
     return { data, error: null }
+  } catch (error) {
+    return { data: null, error: errorMessage(error) }
+  }
+}
+
+const DeleteInput = z.array(z.string().uuid()).min(1).max(500)
+
+/** Soft-deletes the selected interventions (see deactivateInterventions). */
+export async function deleteInterventionsAction(
+  interventionIds: string[],
+): Promise<{ data: { deleted: number } | null; error: string | null }> {
+  const profile = await requireRole('teacher')
+  const parsed = DeleteInput.safeParse(interventionIds)
+  if (!parsed.success) return { data: null, error: 'Select at least one intervention.' }
+  try {
+    const deleted = await deactivateInterventions(parsed.data, profile.userId)
+    revalidatePath('/interventions')
+    return { data: { deleted }, error: null }
   } catch (error) {
     return { data: null, error: errorMessage(error) }
   }

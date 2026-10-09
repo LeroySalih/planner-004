@@ -660,6 +660,7 @@ Interventions are created **only through MCP**. The app reads them.
 
 - **One pupil each.** For several pupils, create one intervention per pupil, each written for that pupil's gaps.
 - **Derived status.** `assigned` (nothing handed in) → `in_progress` → `completed` (every active scorable activity has a submission). Only `cancelled` is stored. An intervention with no scorable activities never completes.
+- **Deleted interventions.** A teacher can delete interventions on `/interventions` (migration 109, `intervention_assignments.active = false`). Deleting is soft — the lesson and work are kept — but a deleted intervention is gone from every MCP tool, report and list, and `update_intervention` reports it as not found. There is no MCP tool to delete or restore one.
 - **Score** is the mean of the scored activities' scores (0–1), from `compute_submission_base_score` on the pupil's current attempt.
 - **Kept separate.** Intervention scores never feed class averages or the pupil's normal LO results, and `get_pupil_gaps` ignores intervention work.
 - **Feedback straight away.** The pupil sees marks and feedback as soon as each activity is marked; there is no release switch.

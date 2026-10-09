@@ -28,6 +28,7 @@ export type InterventionSummary = {
   lesson_title: string
   unit_id: string
   unit_title: string
+  subject: string | null
   pupil_id: string
   pupil_name: string
   group_id: string | null
@@ -64,11 +65,12 @@ const isoOrNull = (value: unknown) => (value instanceof Date ? value.toISOString
 export async function readInterventions(filter: InterventionFilter = {}): Promise<InterventionSummary[]> {
   const { rows } = await query(
     `with ia as (
-       select ia.*, l.title as lesson_title, l.unit_id, u.title as unit_title
+       select ia.*, l.title as lesson_title, l.unit_id, u.title as unit_title, u.subject
          from intervention_assignments ia
          join lessons l on l.lesson_id = ia.lesson_id
          join units u on u.unit_id = l.unit_id
-        where ($1::uuid is null or ia.intervention_id = $1::uuid)
+        where ia.active -- deleted interventions are out of every view
+          and ($1::uuid is null or ia.intervention_id = $1::uuid)
           and ($2::text is null or ia.lesson_id = $2)
           and ($3::text is null or ia.pupil_id = $3)
           and ($4::text is null or ia.group_id = $4)
@@ -100,7 +102,7 @@ export async function readInterventions(filter: InterventionFilter = {}): Promis
         group by s.activity_id, acts.lesson_id, acts.scorable
      )
      select ia.intervention_id::text as intervention_id, ia.lesson_id, ia.lesson_title, ia.unit_id, ia.unit_title,
-            ia.pupil_id, trim(coalesce(p.first_name, '') || ' ' || coalesce(p.last_name, '')) as pupil_name,
+            ia.subject, ia.pupil_id, trim(coalesce(p.first_name, '') || ' ' || coalesce(p.last_name, '')) as pupil_name,
             ia.group_id, ia.set_by,
             nullif(trim(coalesce(sb.first_name, '') || ' ' || coalesce(sb.last_name, '')), '') as set_by_name,
             ia.set_at, to_char(ia.due_date, 'YYYY-MM-DD') as due_date, ia.reason,
@@ -150,6 +152,7 @@ export async function readInterventions(filter: InterventionFilter = {}): Promis
       lesson_title: String(row.lesson_title ?? ''),
       unit_id: String(row.unit_id),
       unit_title: String(row.unit_title ?? ''),
+      subject: (row.subject as string | null) ?? null,
       pupil_id: String(row.pupil_id),
       pupil_name: String(row.pupil_name ?? ''),
       group_id: (row.group_id as string | null) ?? null,
@@ -188,7 +191,8 @@ export async function interventionAllowsPupil(userId: string, lessonId: string):
   const { rows } = await query<{ kind: string; own: boolean }>(
     `select l.kind,
             exists (select 1 from intervention_assignments ia
-                     where ia.lesson_id = l.lesson_id and ia.pupil_id = $1 and ia.cancelled_at is null) as own
+                     where ia.lesson_id = l.lesson_id and ia.pupil_id = $1
+                       and ia.cancelled_at is null and ia.active) as own
        from lessons l where l.lesson_id = $2`,
     [userId, lessonId],
   )
@@ -328,7 +332,7 @@ export type UpdateInterventionInput = {
 export async function updateIntervention(input: UpdateInterventionInput): Promise<InterventionSummary> {
   await inTransaction(async (client) => {
     const { rows } = await client.query<{ lesson_id: string }>(
-      'select lesson_id from intervention_assignments where intervention_id::text = $1 for update',
+      'select lesson_id from intervention_assignments where intervention_id::text = $1 and active for update',
       [input.interventionId],
     )
     if (!rows[0]) throw new Error(`Intervention ${input.interventionId} not found`)
@@ -362,6 +366,22 @@ export async function updateIntervention(input: UpdateInterventionInput): Promis
 
   const [updated] = await readInterventions({ interventionId: input.interventionId })
   return updated
+}
+
+/**
+ * Soft-deletes interventions: they leave every view and the pupil loses
+ * access, but the lesson and the pupil's work are kept. Returns how many were
+ * deleted (already-deleted or unknown ids are skipped).
+ */
+export async function deactivateInterventions(interventionIds: string[], deactivatedBy: string): Promise<number> {
+  if (interventionIds.length === 0) return 0
+  const { rowCount } = await query(
+    `update intervention_assignments
+        set active = false, deactivated_at = now(), deactivated_by = $2
+      where intervention_id::text = any($1::text[]) and active`,
+    [interventionIds, deactivatedBy],
+  )
+  return rowCount ?? 0
 }
 
 // ---------------------------------------------------------------------------
