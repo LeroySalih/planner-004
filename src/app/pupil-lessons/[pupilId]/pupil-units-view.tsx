@@ -9,7 +9,7 @@ import { ChevronDown, Lock, RotateCcw, AlertTriangle } from "lucide-react"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import type { PupilUnitsDetail, PupilUnitLesson } from "@/lib/pupil-units-data"
+import type { PupilUnitEntry, PupilUnitsDetail, PupilUnitLesson } from "@/lib/pupil-units-data"
 import { LessonMedia } from "./lesson-media"
 
 function formatDate(value: string | null) {
@@ -88,17 +88,32 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
 
   const allUnits = useMemo(() => filteredSubjects.flatMap((s) => s.units), [filteredSubjects])
 
-  const [selectedUnitId, setSelectedUnitId] = useState<string | null>(() =>
-    detail.subjects
-      .find((s) => (s.subject ?? "Subject not set") === (subjectList[0] ?? ""))
-      ?.units[0]?.unitId ?? null
-  )
+  // The sidebar lists units under the class (group) they were taught to,
+  // newest class first (numbers compared as numbers, so 25-10 sorts above
+  // 25-8). A unit taught to more than one class appears under
+  // each; selecting it still shows the whole unit.
+  const unitsByGroup = useMemo(() => {
+    const byGroup = new Map<string, PupilUnitEntry[]>()
+    for (const unit of allUnits) {
+      const groupIds = [...new Set(unit.lessons.map((lesson) => lesson.groupId))]
+      for (const groupId of groupIds) {
+        const units = byGroup.get(groupId) ?? []
+        units.push(unit)
+        byGroup.set(groupId, units)
+      }
+    }
+    return [...byGroup.entries()]
+      .sort(([a], [b]) => b.localeCompare(a, undefined, { numeric: true }))
+      .map(([groupId, units]) => ({ groupId, units }))
+  }, [allUnits])
+  // Null means the first unit of the newest class (the top of the sidebar).
+  const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null)
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
 
-  // Keep selectedUnitId valid when subject filter changes
   const selectedUnit = useMemo(() => {
     const found = allUnits.find((u) => u.unitId === selectedUnitId)
-    return found ?? allUnits[0] ?? null
-  }, [allUnits, selectedUnitId])
+    return found ?? unitsByGroup[0]?.units[0] ?? null
+  }, [allUnits, unitsByGroup, selectedUnitId])
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-8 sm:px-6 sm:py-10">
@@ -119,10 +134,8 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
             onChange={(event) => {
               const newSubject = event.target.value
               setSelectedSubject(newSubject)
-              const firstUnit = detail.subjects
-                .find((s) => (s.subject ?? "Subject not set") === newSubject)
-                ?.units[0]?.unitId ?? null
-              setSelectedUnitId(firstUnit)
+              setSelectedUnitId(null)
+              setSelectedGroupId(null)
             }}
             className="cursor-pointer appearance-none bg-transparent pr-8 text-2xl font-semibold text-foreground focus:outline-none sm:text-3xl"
           >
@@ -140,17 +153,25 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
           <select
             id="unit-select"
             aria-label="Select unit"
-            value={selectedUnitId ?? ""}
-            onChange={(event) => setSelectedUnitId(event.target.value || null)}
+            value={selectedUnit?.unitId ?? ""}
+            onChange={(event) => {
+              setSelectedUnitId(event.target.value || null)
+              setSelectedGroupId(null)
+            }}
             className="cursor-pointer appearance-none bg-transparent pr-8 text-xl font-semibold text-foreground focus:outline-none"
           >
             {allUnits.length === 0 ? (
               <option value="" disabled>No units</option>
             ) : (
-              allUnits.map((unit) => (
-                <option key={unit.unitId} value={unit.unitId}>
-                  {unit.unitTitle}
-                </option>
+              unitsByGroup.map(({ groupId, units }) => (
+                <optgroup key={groupId} label={groupId}>
+                  {units.map((unit) => (
+                    // A unit in two classes is listed twice; either option selects it.
+                    <option key={`${groupId}::${unit.unitId}`} value={unit.unitId}>
+                      {unit.unitTitle}
+                    </option>
+                  ))}
+                </optgroup>
               ))
             )}
           </select>
@@ -159,23 +180,27 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
 
         <div className="grid grid-cols-1 gap-8 md:grid-cols-[250px_1fr]">
           <aside className="hidden h-fit space-y-6 md:block">
-            {filteredSubjects.map((subjectEntry) => (
-              <div key={subjectEntry.subject ?? "sidebar-subject-not-set"} className="space-y-3">
-                {filteredSubjects.length > 1 ? (
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                    {subjectEntry.subject || "Subject not set"}
-                  </h3>
-                ) : null}
+            {unitsByGroup.map(({ groupId, units }) => (
+              <div key={groupId} className="space-y-3">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{groupId}</h3>
                 <ul className="space-y-2">
-                  {subjectEntry.units.map((unit) => {
+                  {units.map((unit) => {
                     const resubmitLessons = unit.lessons.filter((l) => l.resubmitCount > 0).length
                     const underperformingLessons = unit.lessons.filter(isLessonOverdueAndUnderperforming).length
-                    const isActive = unit.unitId === selectedUnit?.unitId
+                    // Highlight only the entry clicked, not every copy of a unit in two classes.
+                    const isActive =
+                      unit.unitId === selectedUnit?.unitId &&
+                      (selectedGroupId === null
+                        ? groupId === unitsByGroup.find((g) => g.units.includes(unit))?.groupId
+                        : groupId === selectedGroupId)
                     return (
-                      <li key={unit.unitId}>
+                      <li key={`${groupId}::${unit.unitId}`}>
                         <button
                           type="button"
-                          onClick={() => setSelectedUnitId(unit.unitId)}
+                          onClick={() => {
+                            setSelectedUnitId(unit.unitId)
+                            setSelectedGroupId(groupId)
+                          }}
                           className={cn(
                             "flex w-full items-center gap-2 truncate rounded-md px-2 py-1 text-left text-sm transition-colors hover:text-foreground",
                             isActive
