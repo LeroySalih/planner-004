@@ -371,6 +371,14 @@ Unlinks a success criterion from an activity (deletes the `activity_success_crit
 
 ---
 
+#### `reorder_activities`
+Sets the order of a lesson's activities. `activity_ids` must list every active activity in the lesson exactly once, first to last — a partial list, a duplicate, or an id from another lesson is rejected and nothing changes. Inactive activities keep their relative order after the active ones. Returns the activities in their new order.
+
+**Input:** `{ lesson_id: string, activity_ids: string[] }`  
+**Output:** `{ activities: [{ activity_id, lesson_id, title, type, order_index, is_summative, active }] | null }`
+
+---
+
 #### `remove_activity`
 Permanently deletes an activity and its `activity_success_criteria` links.
 

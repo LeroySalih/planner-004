@@ -69,7 +69,7 @@ import {
   updateIntervention,
   type InterventionSummary,
 } from '@/lib/interventions/store'
-import { ACTIVITY_TYPES, listActivitiesForLesson, createActivity, updateActivity, addSuccessCriterionToActivity, removeSuccessCriterionFromActivity, removeActivity, uploadActivityFile } from '@/lib/mcp/activities'
+import { ACTIVITY_TYPES, listActivitiesForLesson, createActivity, updateActivity, addSuccessCriterionToActivity, removeSuccessCriterionFromActivity, removeActivity, reorderActivities, uploadActivityFile } from '@/lib/mcp/activities'
 
 // Force Node.js runtime — MCP SDK is not compatible with the Edge runtime.
 export const runtime = 'nodejs'
@@ -1239,6 +1239,50 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
         return {
           content: [{ type: 'text' as const, text: `Error: ${message}` }],
           structuredContent: { removed: null },
+        }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'reorder_activities',
+    {
+      title: 'Reorder activities in a lesson',
+      description: 'Set the order of a lesson\'s activities. Pass every active activity id (from get_activities_for_lesson) exactly once, first to last.',
+      inputSchema: z.object({
+        lesson_id: z.string().min(1).describe('UUID of the lesson.'),
+        activity_ids: z.preprocess(
+          (v) => (typeof v === 'string' ? JSON.parse(v) : v),
+          z.array(z.string().min(1)).min(1),
+        ).describe('Every active activity id in the lesson, in the new order.'),
+      }),
+      outputSchema: z.object({
+        activities: z.array(z.object({
+          activity_id: z.string(),
+          lesson_id: z.string(),
+          title: z.string().nullable(),
+          type: z.string(),
+          order_index: z.number().nullable(),
+          is_summative: z.boolean(),
+          active: z.boolean(),
+        })).nullable(),
+      }),
+    },
+    async ({ lesson_id, activity_ids }) => {
+      try {
+        const activities = await reorderActivities(lesson_id, activity_ids)
+        return {
+          content: [{
+            type: 'text' as const,
+            text: activities.map((a, i) => `${i + 1}. ${a.activity_id} • ${a.type}${a.title ? ` — ${a.title}` : ''}`).join('\n'),
+          }],
+          structuredContent: { activities },
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${message}` }],
+          structuredContent: { activities: null },
         }
       }
     },

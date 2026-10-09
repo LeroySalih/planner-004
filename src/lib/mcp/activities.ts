@@ -351,6 +351,57 @@ export async function removeActivity(
   return { activity_id: activityId, lesson_id: lessonId }
 }
 
+// The list must name every active activity in the lesson exactly once, so a
+// partial list cannot leave two activities sharing a position. Inactive
+// activities keep their relative order after the active ones.
+export async function reorderActivities(
+  lessonId: string,
+  activityIds: string[],
+): Promise<ActivitySummary[]> {
+  const duplicates = activityIds.filter((id, index) => activityIds.indexOf(id) !== index)
+  if (duplicates.length > 0) {
+    throw new Error(`Activity listed more than once: ${[...new Set(duplicates)].join(', ')}`)
+  }
+
+  await withDbClient(async (client) => {
+    await assertLessonExists(client, lessonId)
+
+    const { rows } = await client.query<{ activity_id: string; active: boolean | null }>(
+      'select activity_id, active from activities where lesson_id = $1 order by order_by asc nulls last, title asc',
+      [lessonId],
+    )
+    const activeIds = rows.filter((row) => row.active !== false).map((row) => row.activity_id)
+    const inactiveIds = rows.filter((row) => row.active === false).map((row) => row.activity_id)
+
+    const unknown = activityIds.filter((id) => !activeIds.includes(id))
+    if (unknown.length > 0) {
+      throw new Error(`Not active activities of lesson ${lessonId}: ${unknown.join(', ')}`)
+    }
+    const missing = activeIds.filter((id) => !activityIds.includes(id))
+    if (missing.length > 0) {
+      throw new Error(`Every active activity must be listed. Missing: ${missing.join(', ')}`)
+    }
+
+    const ordered = [...activityIds, ...inactiveIds]
+    await client.query('begin')
+    try {
+      await client.query(
+        `update activities a
+         set order_by = o.position - 1
+         from unnest($2::text[]) with ordinality as o(activity_id, position)
+         where a.activity_id = o.activity_id and a.lesson_id = $1`,
+        [lessonId, ordered],
+      )
+      await client.query('commit')
+    } catch (error) {
+      await client.query('rollback')
+      throw error
+    }
+  })
+
+  return listActivitiesForLesson(lessonId)
+}
+
 export async function removeSuccessCriterionFromActivity(
   activityId: string,
   successCriteriaId: string,
