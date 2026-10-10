@@ -68,6 +68,45 @@ export async function createUnit(
   }
 }
 
+// An empty description clears it; an omitted field is left unchanged.
+export async function updateUnit(
+  unitId: string,
+  updates: { title?: string; description?: string },
+): Promise<UnitRecord> {
+  const title = updates.title?.trim()
+  if (updates.title !== undefined && !title) throw new Error('Unit title cannot be empty')
+  if (title === undefined && updates.description === undefined) {
+    throw new Error('Nothing to update: pass title and/or description')
+  }
+  const description = updates.description === undefined ? undefined : (updates.description.trim() || null)
+
+  const { rows } = await query<{
+    unit_id: string
+    title: string
+    subject: string
+    description: string | null
+    year: number | null
+    active: boolean | null
+  }>(
+    `update units
+        set title = coalesce($2, title),
+            description = case when $3 then $4 else description end
+      where unit_id = $1
+      returning unit_id, title, subject, description, year, active`,
+    [unitId, title ?? null, description !== undefined, description ?? null],
+  )
+  const row = rows[0]
+  if (!row) throw new Error(`Unit ${unitId} not found`)
+  return {
+    unit_id: row.unit_id,
+    title: row.title,
+    subject: row.subject,
+    description: row.description,
+    year: row.year,
+    is_active: row.active !== false,
+  }
+}
+
 export async function findUnitsByTitle(queryStr: string): Promise<UnitTitleMatch[]> {
   const normalized = queryStr.trim()
   if (!normalized) return []

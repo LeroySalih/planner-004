@@ -267,6 +267,14 @@ Creates a new unit. **Always created with `is_active = false`** — the teacher 
 
 ---
 
+#### `update_unit`
+Changes a unit's title and/or description. Omitted fields are left unchanged; `description: ""` clears it. An empty title is rejected.
+
+**Input:** `{ unit_id: string, title?: string, description?: string }`  
+**Output:** `{ unit: { unit_id, title, subject, description, year, is_active } | null }`
+
+---
+
 ### Lessons
 
 #### `get_lessons_for_unit`
@@ -289,6 +297,14 @@ Returns everything linked to a lesson: its learning objectives, the success crit
 Creates a lesson under a unit. Appended at the end of the unit's lesson order.
 
 **Input:** `{ unit_id: string, title: string }`  
+**Output:** `{ lesson: { lesson_id, unit_id, title, is_active, order_index } | null }`
+
+---
+
+#### `update_lesson`
+Renames a lesson. Lessons have no description column, so title is the only field.
+
+**Input:** `{ lesson_id: string, title: string }`  
 **Output:** `{ lesson: { lesson_id, unit_id, title, is_active, order_index } | null }`
 
 ---

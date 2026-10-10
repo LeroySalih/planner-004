@@ -87,6 +87,33 @@ export async function createLesson(unitId: string, title: string): Promise<Lesso
   return result
 }
 
+export async function updateLessonTitle(lessonId: string, title: string): Promise<LessonRecord> {
+  const trimmed = title.trim()
+  if (!trimmed) throw new Error('Lesson title cannot be empty')
+
+  const { rows } = await query<{
+    lesson_id: string
+    unit_id: string
+    title: string
+    active: boolean | null
+    order_by: number
+  }>(
+    `update lessons set title = $2
+      where lesson_id = $1
+      returning lesson_id, unit_id, title, active, order_by`,
+    [lessonId, trimmed],
+  )
+  const row = rows[0]
+  if (!row) throw new Error(`Lesson ${lessonId} not found`)
+  return {
+    lesson_id: row.lesson_id,
+    unit_id: row.unit_id,
+    title: row.title,
+    is_active: row.active !== false,
+    order_index: row.order_by,
+  }
+}
+
 export type LessonScLinkResult = {
   lesson_id: string
   success_criteria_id: string

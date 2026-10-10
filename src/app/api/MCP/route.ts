@@ -26,8 +26,8 @@ import {
   deactivateLearningObjective,
   deactivateSuccessCriterion,
 } from '@/lib/mcp/losc'
-import { listUnits, findUnitsByTitle, createUnit } from '@/lib/mcp/units'
-import { listLessonsForUnit, getLessonObjectives, createLesson, addSuccessCriterionToLesson, removeSuccessCriterionFromLesson, uploadLessonFile } from '@/lib/mcp/lessons'
+import { listUnits, findUnitsByTitle, createUnit, updateUnit } from '@/lib/mcp/units'
+import { listLessonsForUnit, getLessonObjectives, createLesson, updateLessonTitle, addSuccessCriterionToLesson, removeSuccessCriterionFromLesson, uploadLessonFile } from '@/lib/mcp/lessons'
 import {
   listTeachers,
   listGroups,
@@ -586,6 +586,80 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
         const message = error instanceof Error ? error.message : 'Failed to create lesson'
         return {
           content: [{ type: 'text' as const, text: message }],
+          structuredContent: { lesson: null },
+        }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'update_unit',
+    {
+      title: 'Update unit',
+      description: 'Change a unit\'s title and/or description. Omitted fields are left unchanged; an empty description clears it.',
+      inputSchema: {
+        unit_id: z.string().min(1).describe('Unit identifier.'),
+        title: z.string().optional().describe('New unit title.'),
+        description: z.string().optional().describe('New description. Pass "" to clear it.'),
+      },
+      outputSchema: {
+        unit: z.object({
+          unit_id: z.string(),
+          title: z.string(),
+          subject: z.string(),
+          description: z.string().nullable(),
+          year: z.number().nullable(),
+          is_active: z.boolean(),
+        }).nullable(),
+      },
+    },
+    async ({ unit_id, title, description }) => {
+      try {
+        const unit = await updateUnit(unit_id, { title, description })
+        return {
+          content: [{ type: 'text' as const, text: `Updated unit ${unit.unit_id} • ${unit.title}` }],
+          structuredContent: { unit },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to update unit'
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${message}` }],
+          structuredContent: { unit: null },
+        }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'update_lesson',
+    {
+      title: 'Update lesson',
+      description: 'Rename a lesson. Lessons have a title only — there is no lesson description.',
+      inputSchema: {
+        lesson_id: z.string().min(1).describe('Lesson identifier.'),
+        title: z.string().min(1).describe('New lesson title.'),
+      },
+      outputSchema: {
+        lesson: z.object({
+          lesson_id: z.string(),
+          unit_id: z.string(),
+          title: z.string(),
+          is_active: z.boolean(),
+          order_index: z.number(),
+        }).nullable(),
+      },
+    },
+    async ({ lesson_id, title }) => {
+      try {
+        const lesson = await updateLessonTitle(lesson_id, title)
+        return {
+          content: [{ type: 'text' as const, text: `Updated lesson ${lesson.lesson_id} • ${lesson.title}` }],
+          structuredContent: { lesson },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to update lesson'
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${message}` }],
           structuredContent: { lesson: null },
         }
       }
