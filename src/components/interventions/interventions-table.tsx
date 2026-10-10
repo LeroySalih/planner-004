@@ -30,6 +30,7 @@ import {
 import { cn } from '@/lib/utils'
 
 const ALL = '__all'
+const NO_ASSESSMENT = '__none'
 
 const STATUS_TABS = [
   { value: '', label: 'All' },
@@ -55,6 +56,7 @@ export function InterventionsTable({ interventions }: { interventions: Intervent
   const [pupilQuery, setPupilQuery] = useState('')
   const [groupId, setGroupId] = useState(ALL)
   const [subject, setSubject] = useState(ALL)
+  const [assessmentId, setAssessmentId] = useState(ALL)
   const [tab, setTab] = useState<Tab>('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [confirming, setConfirming] = useState(false)
@@ -102,15 +104,25 @@ export function InterventionsTable({ interventions }: { interventions: Intervent
 
   const groupIds = useMemo(() => distinctSorted(interventions.map((i) => i.group_id)), [interventions])
   const subjects = useMemo(() => distinctSorted(interventions.map((i) => i.subject)), [interventions])
+  // Keyed by id, since two papers can share a title.
+  const assessments = useMemo(() => {
+    const byId = new Map<string, string>()
+    for (const i of interventions) {
+      if (i.source_assessment_id) byId.set(i.source_assessment_id, i.source_assessment_title ?? 'Deleted assessment')
+    }
+    return [...byId].map(([id, title]) => ({ id, title })).sort((a, b) => a.title.localeCompare(b.title))
+  }, [interventions])
+  const hasUnlinked = useMemo(() => interventions.some((i) => !i.source_assessment_id), [interventions])
 
-  // Pupil, class and subject narrow the rows; the tabs then count and cut them.
+  // Pupil, class, subject and assessment narrow the rows; the tabs then count and cut them.
   const filtered = useMemo(() => {
     const needle = pupilQuery.trim().toLowerCase()
     return interventions.filter((i) =>
       (!needle || (i.pupil_name || i.pupil_id).toLowerCase().includes(needle)) &&
       (groupId === ALL || i.group_id === groupId) &&
-      (subject === ALL || i.subject === subject))
-  }, [interventions, pupilQuery, groupId, subject])
+      (subject === ALL || i.subject === subject) &&
+      (assessmentId === ALL || (i.source_assessment_id ?? NO_ASSESSMENT) === assessmentId))
+  }, [interventions, pupilQuery, groupId, subject, assessmentId])
   const rows = useMemo(() => filtered.filter(inTab(tab)), [filtered, tab])
 
   // Only rows on screen count as selected, so a filter change can never
@@ -128,11 +140,12 @@ export function InterventionsTable({ interventions }: { interventions: Intervent
     })
   const toggleAll = (on: boolean) => setSelected(on ? new Set(rows.map((i) => i.intervention_id)) : new Set())
 
-  const hasFilters = pupilQuery !== '' || groupId !== ALL || subject !== ALL
+  const hasFilters = pupilQuery !== '' || groupId !== ALL || subject !== ALL || assessmentId !== ALL
   const clearFilters = () => {
     setPupilQuery('')
     setGroupId(ALL)
     setSubject(ALL)
+    setAssessmentId(ALL)
   }
 
   const deleteSelected = () =>
@@ -181,6 +194,20 @@ export function InterventionsTable({ interventions }: { interventions: Intervent
             ))}
           </SelectContent>
         </Select>
+        {assessments.length > 0 && (
+          <Select value={assessmentId} onValueChange={setAssessmentId}>
+            <SelectTrigger className="w-56" aria-label="Filter by assessment">
+              <SelectValue placeholder="All assessments" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>All assessments</SelectItem>
+              {assessments.map((a) => (
+                <SelectItem key={a.id} value={a.id}>{a.title}</SelectItem>
+              ))}
+              {hasUnlinked && <SelectItem value={NO_ASSESSMENT}>Not from an assessment</SelectItem>}
+            </SelectContent>
+          </Select>
+        )}
         {hasFilters && (
           <Button type="button" variant="ghost" size="sm" onClick={clearFilters}>
             Clear filters
