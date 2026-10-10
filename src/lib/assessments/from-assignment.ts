@@ -1,5 +1,4 @@
 import { query } from '@/lib/db'
-import { FEEDBACK_MAX_ITEM_LENGTH, FEEDBACK_MAX_ITEMS } from '@/lib/assessments/limits'
 import {
   createAssessment,
   recordPupilResult,
@@ -65,6 +64,63 @@ function uniqueLabel(base: string, used: Set<string>): string {
   for (let n = 2; used.has(label); n += 1) label = `${base.slice(0, LABEL_MAX - 4).trim()} (${n})`
   used.add(label)
   return label
+}
+
+/**
+ * The comment each pupil should read per activity, keyed `activity::pupil`:
+ * whichever of the teacher's and the AI's latest comments is newer (an empty
+ * latest entry means that comment was cleared, so the other one is used),
+ * followed by any per-criterion comments the teacher wrote, one per line.
+ */
+async function loadLatestFeedback(matrix: AssignmentResultMatrix): Promise<Map<string, string>> {
+  const activityIds = matrix.activities.map((a) => a.activityId)
+  const pupilIds = matrix.rows.map((r) => r.pupil.userId)
+  const cells = matrix.rows.flatMap((r) => r.cells.filter((c) => c.submissionId))
+  const keyBySubmission = new Map(cells.map((c) => [c.submissionId as string, `${c.activityId}::${c.pupilId}`]))
+
+  const [{ rows: entries }, { rows: criteria }] = await Promise.all([
+    query<{ activity_id: string; pupil_id: string; feedback_text: string | null; created_at: Date }>(
+      `select distinct on (activity_id, pupil_id, source = 'teacher')
+              activity_id, pupil_id, feedback_text, created_at
+         from pupil_activity_feedback
+        where activity_id = any($1::text[]) and pupil_id = any($2::text[])
+        order by activity_id, pupil_id, source = 'teacher', created_at desc`,
+      [activityIds, pupilIds],
+    ),
+    query<{ submission_id: string; description: string | null; teacher_feedback: string }>(
+      `select m.submission_id, sc.description, m.teacher_feedback
+         from submission_sc_marks m
+         join success_criteria sc on sc.success_criteria_id = m.success_criteria_id
+        where m.submission_id = any($1::text[])
+          and nullif(trim(m.teacher_feedback), '') is not null
+        order by sc.order_index, sc.success_criteria_id`,
+      [[...keyBySubmission.keys()]],
+    ),
+  ])
+
+  // Per key: the latest teacher entry and the latest AI entry.
+  const latest = new Map<string, { text: string | null; at: number }[]>()
+  for (const row of entries) {
+    const key = `${row.activity_id}::${row.pupil_id}`
+    latest.set(key, [...(latest.get(key) ?? []), { text: plainText(row.feedback_text), at: new Date(row.created_at).getTime() }])
+  }
+
+  // A submission with no feedback entry at all falls back to the comment on
+  // the cell itself.
+  const parts = new Map<string, string[]>()
+  for (const cell of cells) {
+    const key = `${cell.activityId}::${cell.pupilId}`
+    const newest = (latest.get(key) ?? []).sort((a, b) => b.at - a.at).find((e) => e.text)?.text
+    const text = newest ?? plainText(cell.feedback ?? cell.autoFeedback)
+    if (text) parts.set(key, [text])
+  }
+  for (const row of criteria) {
+    const key = keyBySubmission.get(row.submission_id)
+    const text = plainText(row.teacher_feedback)
+    if (!key || !text) continue
+    parts.set(key, [...(parts.get(key) ?? []), row.description ? `${plainText(row.description)}: ${text}` : text])
+  }
+  return new Map([...parts].map(([key, list]) => [key, list.join('\n')]))
 }
 
 export async function syncAssessmentFromAssignment(
@@ -233,10 +289,10 @@ export async function syncAssessmentFromAssignment(
 
   const labelById = new Map([...activityByLabel].map(([label, activityId]) => [activityId, label]))
   const maxById = new Map(matrix.activities.map((a) => [a.activityId, a.maxMarks]))
+  const feedbackByCell = await loadLatestFeedback(matrix)
   let pupilsRecorded = 0
   const pupilErrors: string[] = []
   for (const row of matrix.rows) {
-    const wentWell: string[] = []
     const marks = row.cells.flatMap((cell) => {
       const label = labelById.get(cell.activityId)
       const max = maxById.get(cell.activityId) ?? 1
@@ -244,22 +300,16 @@ export async function syncAssessmentFromAssignment(
       const raw = cell.marksAwarded ?? (cell.score === null ? null : Math.round(cell.score * max))
       if (raw === null || raw === undefined) return []
       const awarded = Math.min(Math.max(Math.round(raw), 0), max)
-      const feedback = plainText(cell.feedback)
-      // The paper has no per-question slot for praise, so feedback on a
-      // full-marks answer goes to the pupil's "went well" list instead.
-      if (awarded === max && feedback && wentWell.length < FEEDBACK_MAX_ITEMS) {
-        wentWell.push(`${label}: ${feedback}`.slice(0, FEEDBACK_MAX_ITEM_LENGTH))
-      }
       return [{
         label,
         awarded,
-        whyNotAwarded: awarded < max ? feedback : null,
-        howToImprove: null,
+        whyNotAwarded: null,
+        howToImprove: feedbackByCell.get(`${cell.activityId}::${row.pupil.userId}`) ?? null,
       }]
     })
     if (marks.length === 0) continue
     try {
-      await recordPupilResult({ assessmentId, pupilId: row.pupil.userId, marks, wentWell })
+      await recordPupilResult({ assessmentId, pupilId: row.pupil.userId, marks })
       pupilsRecorded += 1
     } catch (error) {
       pupilErrors.push(`${row.pupil.displayName}: ${error instanceof Error ? error.message : String(error)}`)
