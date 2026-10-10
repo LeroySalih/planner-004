@@ -335,6 +335,16 @@ Lists all active activities for a lesson.
 
 ---
 
+#### `get_activity`
+Returns one activity in full: its `body_data` (Display Text's `text` and `displayType`, a question and model answer, MCQ options, flashcards, …), teacher `notes`, `max_marks` and linked success criteria. `get_activities_for_lesson` stays a short list without bodies.
+
+Read it before `update_activity`: `body_data` is replaced as a whole, so send back the complete object with your changes — e.g. to switch a Display Text to an exam tip, resend `text` along with `displayType: "exam-tip"`.
+
+**Input:** `{ activity_id: string }`  
+**Output:** `{ activity: { activity_id, lesson_id, title, type, order_index, is_summative, active, body_data, notes, max_marks, success_criteria: [{ success_criteria_id, description, sc_type }] } | null }`
+
+---
+
 #### `create_activity`
 Creates an activity under a lesson.
 

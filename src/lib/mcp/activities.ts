@@ -71,6 +71,57 @@ export async function listActivitiesForLesson(lessonId: string): Promise<Activit
   }))
 }
 
+export type ActivityDetail = ActivitySummary & {
+  body_data: unknown
+  notes: string | null
+  max_marks: number | null
+  success_criteria: Array<{ success_criteria_id: string; description: string | null; sc_type: string | null }>
+}
+
+export async function getActivity(activityId: string): Promise<ActivityDetail> {
+  const { rows } = await query<{
+    activity_id: string
+    lesson_id: string
+    title: string | null
+    type: string
+    order_by: number | null
+    is_summative: boolean | null
+    active: boolean | null
+    body_data: unknown
+    notes: string | null
+    max_marks: number | null
+  }>(
+    `select activity_id, lesson_id, title, type, order_by, is_summative, active, body_data, notes, max_marks
+       from activities where activity_id = $1 limit 1`,
+    [activityId],
+  )
+  const row = rows[0]
+  if (!row) throw new Error(`Activity ${activityId} not found`)
+
+  const { rows: criteria } = await query<{ success_criteria_id: string; description: string | null; sc_type: string | null }>(
+    `select sc.success_criteria_id, sc.description, sc.sc_type
+       from activity_success_criteria asc_link
+       join success_criteria sc on sc.success_criteria_id = asc_link.success_criteria_id
+      where asc_link.activity_id = $1
+      order by sc.description asc`,
+    [activityId],
+  )
+
+  return {
+    activity_id: row.activity_id,
+    lesson_id: row.lesson_id,
+    title: row.title,
+    type: row.type,
+    order_index: row.order_by,
+    is_summative: row.is_summative ?? false,
+    active: row.active !== false,
+    body_data: row.body_data ?? null,
+    notes: row.notes,
+    max_marks: row.max_marks,
+    success_criteria: criteria,
+  }
+}
+
 export async function createActivity(
   lessonId: string,
   type: ActivityType,

@@ -70,7 +70,7 @@ import {
   updateIntervention,
   type InterventionSummary,
 } from '@/lib/interventions/store'
-import { ACTIVITY_TYPES, listActivitiesForLesson, createActivity, updateActivity, addSuccessCriterionToActivity, removeSuccessCriterionFromActivity, removeActivity, reorderActivities, uploadActivityFile } from '@/lib/mcp/activities'
+import { ACTIVITY_TYPES, listActivitiesForLesson, getActivity, createActivity, updateActivity, addSuccessCriterionToActivity, removeSuccessCriterionFromActivity, removeActivity, reorderActivities, uploadActivityFile } from '@/lib/mcp/activities'
 
 // Force Node.js runtime — MCP SDK is not compatible with the Edge runtime.
 export const runtime = 'nodejs'
@@ -1135,6 +1135,53 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
   )
 
   srv.registerTool(
+    'get_activity',
+    {
+      title: 'Get an activity',
+      description: 'Return one activity in full, including its body_data (the text of a Display Text activity, a question and model answer, '
+        + 'MCQ options, flashcards, …), teacher notes, max marks and linked success criteria. '
+        + 'Read this before update_activity: body_data is replaced as a whole, so send back the complete object with your changes.',
+      inputSchema: {
+        activity_id: z.string().min(1).describe('Activity identifier (from get_activities_for_lesson).'),
+      },
+      outputSchema: {
+        activity: z.object({
+          activity_id: z.string(),
+          lesson_id: z.string(),
+          title: z.string().nullable(),
+          type: z.string(),
+          order_index: z.number().nullable(),
+          is_summative: z.boolean(),
+          active: z.boolean(),
+          body_data: z.unknown(),
+          notes: z.string().nullable(),
+          max_marks: z.number().nullable(),
+          success_criteria: z.array(z.object({
+            success_criteria_id: z.string(),
+            description: z.string().nullable(),
+            sc_type: z.string().nullable(),
+          })),
+        }).nullable(),
+      },
+    },
+    async ({ activity_id }) => {
+      try {
+        const activity = await getActivity(activity_id)
+        return {
+          content: [{ type: 'text' as const, text: `${activity.activity_id} • ${activity.type}${activity.title ? ` — ${activity.title}` : ''}` }],
+          structuredContent: { activity },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to read activity'
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${message}` }],
+          structuredContent: { activity: null },
+        }
+      }
+    },
+  )
+
+  srv.registerTool(
     'create_activity',
     {
       title: 'Create activity',
@@ -1210,7 +1257,7 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
     'update_activity',
     {
       title: 'Update activity',
-      description: 'Update title, body_data, or is_summative on an existing activity. At least one field must be provided.',
+      description: 'Update title, body_data, or is_summative on an existing activity. At least one field must be provided. body_data replaces the stored object as a whole — call get_activity first and send back the complete object with your changes.',
       inputSchema: z.object({
         activity_id: z.string().describe('UUID of the activity to update'),
         title: z.string().nullable().optional().describe('New title (pass null to clear)'),
