@@ -953,6 +953,30 @@ export async function getAssessmentPupilPage(assessmentId: string, pupilId: stri
   })
 }
 
+/**
+ * Every pupil with at least one mark, each with their full result sheet, for
+ * the printable feedback pack. Sorted the same way as the paper's pupil list.
+ */
+export async function getAssessmentFeedbackPack(assessmentId: string): Promise<{
+  paper: AssessmentPaperHeader
+  objectives: AssessmentPaperObjective[]
+  pupils: AssessmentPupilResult[]
+}> {
+  return withDbClient(async (client) => {
+    const paper = await loadPaper(client, assessmentId)
+    const withResults = (await loadPaperPupils(client, paper.assessment_id)).filter((p) => p.has_result)
+    const pupils: AssessmentPupilResult[] = []
+    let objectives: AssessmentPaperObjective[] = []
+    for (const pupil of withResults) {
+      const sheet = await readPupilSheet(client, paper.assessment_id, pupil.pupil_id)
+      pupils.push(sheet.result)
+      objectives = sheet.objectives
+    }
+    if (pupils.length === 0) objectives = (await loadObjectives(client, paper.assessment_id)).map(toObjective)
+    return { paper: header(paper), objectives, pupils }
+  })
+}
+
 async function requireRosterPupil(client: PoolClient, paper: PaperRow, pupilId: string) {
   const pupil = await loadMembership(client, paper.assessment_id, pupilId)
   if (!pupil) throw new Error(`Pupil ${pupilId} not found`)

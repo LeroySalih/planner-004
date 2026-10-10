@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Eye, EyeOff, Loader2, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
+import { Download, Eye, EyeOff, Loader2, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import {
@@ -108,6 +108,12 @@ export function AssessmentRowMenu({ assessmentId, title, feedbackVisible }: Prop
           >
             <Pencil className="size-4" />
             Rename
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <a href={`/api/assessments/${encodeURIComponent(assessmentId)}/feedback-pdf`} download>
+              <Download className="size-4" />
+              Download feedback (PDF)
+            </a>
           </DropdownMenuItem>
           {feedbackVisible ? (
             <DropdownMenuItem onSelect={() => setReleased(false)}>
