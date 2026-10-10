@@ -62,6 +62,7 @@ import {
 import { MCP_UPLOAD_MAX_BYTES, decodeBase64File, fetchFileFromUrl } from '@/lib/mcp/file-input'
 import { createUploadLink } from '@/lib/mcp/upload-links'
 import { createDownloadLink, listLessonFiles } from '@/lib/mcp/download-links'
+import { getPupilLessonFeedback, setPupilFeedback } from '@/lib/mcp/pupil-feedback'
 import {
   INTERVENTION_STATUSES,
   createIntervention,
@@ -2387,6 +2388,92 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to read pupil gaps'
         return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { gaps: null } }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'get_pupil_lesson_feedback',
+    {
+      title: 'Read a pupil\'s feedback for a lesson',
+      description: 'Return one pupil\'s work and feedback on a lesson\'s marked activities, as the assignment results page shows it: '
+        + 'their answer, score and status (override = a teacher set the mark), the overall teacher and automatic feedback, and per success criterion '
+        + 'the mark, the AI\'s comment, the teacher\'s comment and provenance ("teacher" = set by a teacher, kept on re-mark). '
+        + 'feedback_visibility says whether the pupil can see feedback yet; pupils see nothing until a teacher switches feedback on for that assignment. '
+        + 'Get pupil ids from list_group_pupils.',
+      inputSchema: {
+        pupil_id: z.string().min(1).describe('Pupil user id.'),
+        lesson_id: z.string().min(1).describe('Lesson id.'),
+        activity_id: z.string().optional().describe('Only this activity.'),
+      },
+      outputSchema: {
+        feedback: z.object({}).passthrough().nullable(),
+      },
+    },
+    async ({ pupil_id, lesson_id, activity_id }) => {
+      try {
+        const feedback = await getPupilLessonFeedback(pupil_id, lesson_id, activity_id)
+        const submitted = feedback.activities.filter((a) => a.submission_id).length
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `${feedback.lesson_title}: ${submitted} of ${feedback.activities.length} marked activities submitted. `
+              + (feedback.feedback_visibility.assigned
+                ? `Feedback is ${feedback.feedback_visibility.visible_to_pupil ? 'visible' : 'hidden'} to the pupil.`
+                : 'This lesson is not assigned to the pupil.'),
+          }],
+          structuredContent: { feedback },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to read feedback'
+        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { feedback: null } }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'set_pupil_feedback',
+    {
+      title: 'Set a pupil\'s mark or feedback',
+      description: 'Give a pupil feedback on one activity, exactly as a teacher does on the assignment results page. '
+        + 'Overall (omit success_criteria_id): the whole-activity override — sets the activity mark (0..max_marks) and the teacher comment; '
+        + 'whichever you omit keeps its current value. A pupil with no submission gets one created, as on the results page. '
+        + 'Per criterion (pass success_criteria_id): sets that criterion\'s mark (0..available) and/or the teacher\'s comment, which replaces the AI\'s; '
+        + 'the row becomes provenance "teacher" and survives a re-mark when marks are set. The activity total is recomputed. '
+        + 'Pass feedback "" to clear a comment. Read get_pupil_lesson_feedback first. '
+        + 'This does not change whether the pupil can see feedback: if feedback is switched on for the assignment, they see the change straight away.',
+      inputSchema: {
+        pupil_id: z.string().min(1).describe('Pupil user id.'),
+        activity_id: z.string().min(1).describe('Activity id.'),
+        success_criteria_id: z.string().optional().describe('Set feedback for this criterion. Omit for overall feedback.'),
+        marks: z.number().int().min(0).optional().describe('Marks awarded: for the activity (overall) or the criterion.'),
+        feedback: z.string().optional().describe('Teacher comment. "" clears it.'),
+      },
+      outputSchema: {
+        result: z.object({}).passthrough().nullable(),
+      },
+    },
+    async ({ pupil_id, activity_id, success_criteria_id, marks, feedback }) => {
+      try {
+        const result = await setPupilFeedback(caller.userId, {
+          pupilId: pupil_id,
+          activityId: activity_id,
+          successCriteriaId: success_criteria_id,
+          marks,
+          feedback,
+        })
+        const visible = result.feedback_visibility.visible_to_pupil
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `Saved ${success_criteria_id ? 'criterion' : 'overall'} feedback for ${pupil_id} on ${activity_id}. `
+              + (visible ? 'Feedback is switched on, so the pupil can see this now.' : 'Feedback is hidden from the pupil until it is switched on.'),
+          }],
+          structuredContent: { result },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to save feedback'
+        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { result: null } }
       }
     },
   )

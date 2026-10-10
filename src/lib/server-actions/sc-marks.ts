@@ -4,11 +4,8 @@ import { z } from "zod"
 
 import { query } from "@/lib/db"
 import { requireAuthenticatedProfile, requireRole } from "@/lib/auth"
-import {
-  effectiveCriterionFeedback,
-  recomputeSubmissionAggregate,
-} from "@/lib/scoring/aggregate-sc-marks"
-import { emitSubmissionEvent } from "@/lib/sse/topics"
+import { effectiveCriterionFeedback } from "@/lib/scoring/aggregate-sc-marks"
+import { applyTeacherScFeedback, applyTeacherScMark } from "@/lib/feedback/teacher-feedback"
 import { withTelemetry } from "@/lib/telemetry"
 
 const ScMarkRowSchema = z.object({
@@ -192,82 +189,7 @@ export async function updateScMarkAction(input: {
     async () => {
     await requireRole("teacher")
 
-    if (!Number.isInteger(input.awarded) || input.awarded < 0) {
-      return { data: null, error: "Awarded marks must be a whole number of at least 0." }
-    }
-
-    try {
-      const { rows: existing } = await query<{ available: number; activity_id: string }>(
-        `select m.available, s.activity_id
-         from submission_sc_marks m
-         join submissions s on s.submission_id = m.submission_id
-         where m.submission_id = $1 and m.success_criteria_id = $2
-         limit 1`,
-        [input.submissionId, input.successCriteriaId],
-      )
-
-      const row = existing[0]
-      if (!row) {
-        return { data: null, error: "No mark exists for that criterion yet." }
-      }
-
-      const available = Number(row.available)
-      if (input.awarded > available) {
-        return {
-          data: null,
-          error: `Awarded marks cannot exceed ${available} for this criterion.`,
-        }
-      }
-
-      const trimmedFeedback = typeof input.feedback === "string"
-        ? input.feedback.trim()
-        : undefined
-
-      await query(
-        `update submission_sc_marks
-         set awarded = $3,
-             provenance = 'teacher',
-             teacher_feedback = case when $4::boolean
-                                     then nullif($5::text, '')
-                                     else teacher_feedback end,
-             marked_at = timezone('utc', now())
-         where submission_id = $1 and success_criteria_id = $2`,
-        [
-          input.submissionId,
-          input.successCriteriaId,
-          input.awarded,
-          trimmedFeedback !== undefined,
-          trimmedFeedback ?? null,
-        ],
-      )
-
-      const aggregate = await recomputeSubmissionAggregate(input.submissionId, row.activity_id)
-
-      const { rows: pupilRows } = await query<{ user_id: string }>(
-        `select user_id from submissions where submission_id = $1`,
-        [input.submissionId],
-      )
-
-      void emitSubmissionEvent("submission.updated", {
-        submissionId: input.submissionId,
-        activityId: row.activity_id,
-        pupilId: pupilRows[0]?.user_id ?? "",
-        markStatus: "marked",
-        markedAt: new Date().toISOString(),
-      })
-
-      return {
-        data: {
-          awarded: input.awarded,
-          available,
-          aggregate,
-        },
-        error: null,
-      }
-    } catch (error) {
-      console.error("[sc-marks] updateScMarkAction:error", error)
-      return { data: null, error: "Unable to update criterion mark." }
-    }
+    return applyTeacherScMark(input)
   })
 }
 
@@ -283,36 +205,5 @@ export async function updateScFeedbackAction(input: {
 }) {
   await requireRole("teacher")
 
-  try {
-    const { rows } = await query<{ activity_id: string }>(
-      `select s.activity_id
-       from submission_sc_marks m
-       join submissions s on s.submission_id = m.submission_id
-       where m.submission_id = $1 and m.success_criteria_id = $2
-       limit 1`,
-      [input.submissionId, input.successCriteriaId],
-    )
-
-    const activityId = rows[0]?.activity_id
-    if (!activityId) {
-      return { data: null, error: "No mark exists for that criterion yet." }
-    }
-
-    const trimmed = input.feedback?.trim() ?? ""
-
-    await query(
-      `update submission_sc_marks
-       set teacher_feedback = nullif($3::text, ''), marked_at = timezone('utc', now())
-       where submission_id = $1 and success_criteria_id = $2`,
-      [input.submissionId, input.successCriteriaId, trimmed],
-    )
-
-    // Refresh the submission's combined feedback (scores are unchanged).
-    await recomputeSubmissionAggregate(input.submissionId, activityId)
-
-    return { data: { feedback: trimmed || null }, error: null }
-  } catch (error) {
-    console.error("[sc-marks] updateScFeedbackAction:error", error)
-    return { data: null, error: "Unable to save criterion feedback." }
-  }
+  return applyTeacherScFeedback(input)
 }

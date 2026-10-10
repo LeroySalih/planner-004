@@ -689,6 +689,35 @@ The pupil must be a pupil (same roster rule) in one of the paper's groups. `awar
 
 ---
 
+### Pupil feedback
+
+These two tools follow the same flow as the assignment results page. Writes go through the same shared functions as the page (`src/lib/feedback/teacher-feedback.ts`), so the rules match: a criterion edit becomes a teacher mark that survives a re-mark, the activity total is recalculated, and an overall edit is recorded in the pupil's feedback history. Neither tool changes whether the pupil can see feedback. That is still controlled by the assignment's feedback switch. With feedback switched on, the pupil sees an edit straight away.
+
+#### `get_pupil_lesson_feedback`
+Returns one pupil's work and feedback on a lesson's marked activities, or on one activity if `activity_id` is given. For each activity it returns:
+- the pupil's answer, with pasted images left out, and any uploaded file names;
+- `status` (`override` means a teacher set the mark), plus `score` and `marks_awarded` out of `max_marks`;
+- the overall `teacher_feedback` and `auto_feedback`;
+- per success criterion: the mark, the comment the pupil is shown, the AI's comment, the teacher's comment and `provenance`.
+
+`feedback_visibility` lists the pupil's class assignments and interventions for the lesson, and says whether feedback is switched on for any of them.
+
+**Input:** `{ pupil_id: string, lesson_id: string, activity_id?: string }`  
+**Output:** `{ feedback: { pupil_id, lesson_id, lesson_title, feedback_visibility: { assigned, visible_to_pupil, assignments }, activities: [...] } | null }`
+
+#### `set_pupil_feedback`
+Sets a mark and/or comment on one activity for one pupil.
+
+- **Overall** (leave out `success_criteria_id`): the whole-activity override from the results page. `marks` (0 to `max_marks`) and `feedback` are saved together, as on the page. Whichever one you leave out keeps its current value. If the pupil hasn't submitted, a submission is created, as on the page.
+- **Per criterion** (pass `success_criteria_id`): `marks` (0 to the criterion's `available`) makes the row a teacher mark. `feedback` sets the teacher's comment, which replaces the AI's. Either can be given alone. This needs a submission that has criterion marks.
+
+`feedback: ""` clears a comment. The reply contains the activity's updated feedback and its visibility.
+
+**Input:** `{ pupil_id: string, activity_id: string, success_criteria_id?: string, marks?: number, feedback?: string }`  
+**Output:** `{ result: { activity, feedback_visibility } | null }`
+
+---
+
 ### Interventions
 
 A lesson written for **one pupil** and assigned to them alone (`108-interventions.sql`).

@@ -44,6 +44,7 @@ import {
   selectLatestFeedbackEntry,
 } from "@/lib/feedback/pupil-activity-feedback";
 import { computeAccuracyByUser } from "@/lib/scoring/accuracy";
+import { applyTeacherActivityOverride, getSubmissionRow, normaliseTimestamp } from "@/lib/feedback/teacher-feedback";
 import { pupilIdsFromRoleRows } from "@/lib/roles/pupil-membership";
 
 const ASSIGNMENT_ID_SEPARATOR = "__";
@@ -132,20 +133,6 @@ function buildDisplayName(
   const last = (lastName ?? "").trim();
   const combined = `${first} ${last}`.trim();
   return combined.length > 0 ? combined : fallback;
-}
-
-function normaliseTimestamp(value: unknown): string | null {
-  if (!value) return null;
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
-  if (typeof value === "string") {
-    const parsed = new Date(value);
-    if (!Number.isNaN(parsed.valueOf())) {
-      return parsed.toISOString();
-    }
-  }
-  return null;
 }
 
 function normaliseDate(value: unknown): string | null {
@@ -1455,54 +1442,6 @@ async function detectPendingUploadSubmissions(
   return results;
 }
 
-async function getSubmissionRow(
-  activityId: string,
-  pupilId: string,
-  submissionId: string | null,
-) {
-  try {
-    if (submissionId) {
-      const { rows } = await query(
-        `
-          select submission_id, body, submitted_at
-          from submissions
-          where submission_id = $1
-          limit 1
-        `,
-        [submissionId],
-      );
-
-      const data = rows?.[0] ?? null;
-      if (data) {
-        return { data, error: null };
-      }
-    }
-
-    const { rows } = await query(
-      `
-        select submission_id, body, submitted_at
-        from submissions
-        where activity_id = $1
-          and user_id = $2
-        order by attempt_number desc
-        limit 1
-      `,
-      [activityId, pupilId],
-    );
-
-    const data = rows?.[0] ?? null;
-    return { data, error: null };
-  } catch (error) {
-    console.error("[assignment-results] Failed to load submission row:", error);
-    return {
-      data: null,
-      error: error instanceof Error
-        ? error
-        : new Error("Unable to load submission."),
-    };
-  }
-}
-
 export async function overrideAssignmentScoreAction(
   input: z.infer<typeof AssignmentOverrideInputSchema>,
   options?: { authEndTime?: number | null; routeTag?: string },
@@ -1540,204 +1479,21 @@ export async function overrideAssignmentScoreAction(
       }
 
       try {
-        const { rows: activityRows } = await query(
-          "select activity_id, type, max_marks from activities where activity_id = $1 limit 1",
-          [parsed.data.activityId],
+        const outcome = await applyTeacherActivityOverride(
+          {
+            activityId: parsed.data.activityId,
+            pupilId: parsed.data.pupilId,
+            submissionId: parsed.data.submissionId,
+            marksOverride: parsed.data.marksOverride,
+            feedback: parsed.data.feedback ?? null,
+            criterionScores: parsed.data.criterionScores,
+          },
+          teacherProfile.userId,
         );
-        const activityRow = activityRows?.[0] ?? null;
-
-        if (!activityRow) {
-          return MutateAssignmentScoreReturnSchema.parse({
-            success: false,
-            error: "Activity not found.",
-          });
+        if (!outcome.success) {
+          return MutateAssignmentScoreReturnSchema.parse(outcome);
         }
-
-        const type = typeof activityRow.type === "string"
-          ? activityRow.type.trim()
-          : "";
-
-        const maxMarks = typeof activityRow.max_marks === "number"
-          ? activityRow.max_marks
-          : Number(activityRow.max_marks);
-
-        if (
-          !Number.isInteger(parsed.data.marksOverride) ||
-          parsed.data.marksOverride < 0 ||
-          parsed.data.marksOverride > maxMarks
-        ) {
-          return MutateAssignmentScoreReturnSchema.parse({
-            success: false,
-            error: `marksOverride must be a whole number between 0 and ${maxMarks}`,
-          });
-        }
-
-        const successCriteriaIds = await fetchActivitySuccessCriteriaIds(
-          parsed.data.activityId,
-        );
-
-        const buildOverrideScores = (
-          existing?: Record<string, number | null>,
-        ) =>
-          parsed.data.criterionScores
-            ? normaliseSuccessCriteriaScores({
-              successCriteriaIds,
-              existingScores: parsed.data.criterionScores,
-              fillValue: parsed.data.marksOverride,
-            })
-            : normaliseSuccessCriteriaScores({
-              successCriteriaIds,
-              existingScores: existing,
-              fillValue: parsed.data.marksOverride,
-            });
-
-        const submissionLookup = await getSubmissionRow(
-          parsed.data.activityId,
-          parsed.data.pupilId,
-          parsed.data.submissionId,
-        );
-
-        if (submissionLookup.error) {
-          console.error(
-            "[assignment-results] Failed to load submission for override:",
-            submissionLookup.error,
-          );
-          return MutateAssignmentScoreReturnSchema.parse({
-            success: false,
-            error: "Unable to load submission.",
-          });
-        }
-
-        let submissionId =
-          typeof submissionLookup.data?.submission_id === "string"
-            ? submissionLookup.data.submission_id
-            : null;
-        let submittedAt =
-          normaliseTimestamp(submissionLookup.data?.submitted_at) ??
-            new Date().toISOString();
-        const currentBody = submissionLookup.data?.body;
-
-        const resolveOverrideBody = (): Record<string, unknown> => {
-          if (type === "short-text-question") {
-            const snapshot = ShortTextSubmissionBodySchema.safeParse(
-              currentBody ?? {},
-            );
-            const base = snapshot.success
-              ? snapshot.data
-              : ShortTextSubmissionBodySchema.parse({});
-            return {
-              ...base,
-              marks_override: parsed.data.marksOverride,
-              teacher_feedback: parsed.data.feedback ?? null,
-              success_criteria_scores: buildOverrideScores(
-                base.success_criteria_scores,
-              ),
-            };
-          }
-
-          if (type === "multiple-choice-question") {
-            const snapshot = McqSubmissionBodySchema.safeParse(
-              currentBody ?? {},
-            );
-            const base = snapshot.success
-              ? snapshot.data
-              : McqSubmissionBodySchema.parse({
-                answer_chosen: TEACHER_OVERRIDE_PLACEHOLDER,
-                is_correct: false,
-                success_criteria_scores: {},
-              });
-            return {
-              ...base,
-              marks_override: parsed.data.marksOverride,
-              teacher_feedback: parsed.data.feedback ?? null,
-              success_criteria_scores: buildOverrideScores(
-                base.success_criteria_scores,
-              ),
-            };
-          }
-
-          if (currentBody && typeof currentBody === "object") {
-            const record = currentBody as Record<string, unknown>;
-            const existingScores =
-              typeof record.success_criteria_scores === "object"
-                ? (record.success_criteria_scores as Record<
-                  string,
-                  number | null
-                >)
-                : undefined;
-            return {
-              ...record,
-              marks_override: parsed.data.marksOverride,
-              teacher_feedback: parsed.data.feedback ?? null,
-              success_criteria_scores: buildOverrideScores(existingScores),
-            };
-          }
-
-          return {
-            marks_override: parsed.data.marksOverride,
-            teacher_feedback: parsed.data.feedback ?? null,
-            success_criteria_scores: buildOverrideScores(),
-          };
-        };
-
-        let nextBody = resolveOverrideBody();
-        const isNewSubmission = !submissionLookup.data;
-
-        if (isNewSubmission) {
-          nextBody = {
-            ...nextBody,
-            teacher_created_submission: true,
-          };
-        }
-
-        if (submissionId) {
-          await query(
-            `
-              update submissions
-              set body = $1, submitted_at = $2
-              where submission_id = $3
-            `,
-            [nextBody, submittedAt, submissionId],
-          );
-        } else {
-          const { rows: insertedRows } = await query(
-            `
-              insert into submissions (activity_id, user_id, submitted_at, body)
-              values ($1, $2, $3, $4)
-              returning submission_id, submitted_at
-            `,
-            [
-              parsed.data.activityId,
-              parsed.data.pupilId,
-              submittedAt,
-              nextBody,
-            ],
-          );
-
-          const insertedSubmission = insertedRows?.[0] ?? null;
-          if (!insertedSubmission) {
-            return MutateAssignmentScoreReturnSchema.parse({
-              success: false,
-              error: "Unable to save override.",
-            });
-          }
-
-          submissionId = typeof insertedSubmission.submission_id === "string"
-            ? insertedSubmission.submission_id
-            : null;
-          submittedAt = normaliseTimestamp(insertedSubmission.submitted_at) ??
-            submittedAt;
-        }
-
-        await insertPupilActivityFeedbackEntry({
-          activityId: parsed.data.activityId,
-          pupilId: parsed.data.pupilId,
-          submissionId,
-          source: "teacher",
-          score: maxMarks > 0 ? parsed.data.marksOverride / maxMarks : null,
-          feedbackText: parsed.data.feedback ?? null,
-          createdBy: teacherProfile.userId,
-        });
+        const submissionId = outcome.submissionId;
 
         revalidatePath(`/results/assignments/${parsed.data.assignmentId}`);
 
