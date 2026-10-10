@@ -1032,6 +1032,20 @@ export async function setFeedbackVisible(assessmentId: string, visible: boolean)
 }
 
 /**
+ * Soft delete: the paper and its marks stay in the database but every read
+ * (teacher, pupil and MCP) filters on `active`, so it disappears everywhere.
+ */
+export async function deleteAssessment(assessmentId: string): Promise<void> {
+  await inTransaction(async (client) => {
+    const paper = await loadPaper(client, assessmentId, 'update')
+    await client.query(
+      'update assessments set active = false, updated_at = now() where assessment_id = $1',
+      [paper.assessment_id],
+    )
+  })
+}
+
+/**
  * Released, active papers on which the pupil holds at least one mark. This one
  * predicate is the whole pupil-visibility rule; both pupil reads go through it.
  * Group membership is deliberately not required: a pupil who moved class still

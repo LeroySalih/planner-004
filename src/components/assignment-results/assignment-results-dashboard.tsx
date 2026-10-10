@@ -46,6 +46,7 @@ import {
   readActivityMarkingGuidanceAction,
   updateActivityMarkingGuidanceAction,
   editWorksheetTextAction,
+  createAssessmentFromAssignmentAction,
 } from "@/lib/server-updates"
 import { resolveScoreTone } from "@/lib/results/colors"
 import {
@@ -766,6 +767,7 @@ export function AssignmentResultsDashboard({
   const [feedbackTogglePending, startFeedbackToggleTransition] = useTransition()
   const [flagPending, startFlagTransition] = useTransition()
   const [resubmitPending, startResubmitTransition] = useTransition()
+  const [assessmentPending, startAssessmentTransition] = useTransition()
   const [resubmitNote, setResubmitNote] = useState("")
   const router = useRouter()
   const matrixStateRef = useRef(matrixState)
@@ -1323,6 +1325,29 @@ export function AssignmentResultsDashboard({
       }
     })
   }, [groupedRows, activities, matrixState.assignmentId, startAiMarkTransition])
+
+  const handleCreateAssessment = useCallback(() => {
+    startAssessmentTransition(async () => {
+      try {
+        const result = await createAssessmentFromAssignmentAction(matrixState.assignmentId)
+        if (!result.data) {
+          toast.error(result.error ?? "Unable to create the assessment.")
+          return
+        }
+        const { assessmentId, created, pupilsRecorded, pupilErrors } = result.data
+        const message = `${created ? "Assessment created" : "Assessment updated"} with results for ${pupilsRecorded} pupil${pupilsRecorded === 1 ? "" : "s"}.`
+        const open = { label: "Open", onClick: () => router.push(`/assessments/${encodeURIComponent(assessmentId)}`) }
+        if (pupilErrors.length > 0) {
+          toast.warning(`${message} Not recorded: ${pupilErrors.join("; ")}`, { action: open, duration: 15000 })
+        } else {
+          toast.success(message, { action: open })
+        }
+      } catch (error) {
+        console.error("[assignment-results] Create assessment failed", error)
+        toast.error("Unable to create the assessment.")
+      }
+    })
+  }, [matrixState.assignmentId, router])
 
   const handleMarkAll = useCallback(() => {
     // 1. Filter for short-text activities
@@ -3350,6 +3375,23 @@ export function AssignmentResultsDashboard({
                     disabled={aiMarkPending}
                   >
                     {aiMarkPending ? "Queueing..." : "Mark All"}
+                  </Button>
+                </div>
+                <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border/60 bg-muted/40 px-3 py-3">
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-foreground">Save as assessment</p>
+                    <p className="text-xs text-muted-foreground">
+                      Copy the scores, learning objectives and feedback into an assessment paper.
+                      Running it again updates the same paper.
+                    </p>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleCreateAssessment}
+                    disabled={assessmentPending || !matrixState.assignment}
+                  >
+                    {assessmentPending ? "Saving..." : "Save"}
                   </Button>
                 </div>
                 <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-3">

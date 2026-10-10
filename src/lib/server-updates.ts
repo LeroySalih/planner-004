@@ -475,4 +475,6 @@ export {
   mapAssessmentObjectiveAction,
   readMyAssessmentsAction,
   readMyAssessmentAction,
+  createAssessmentFromAssignmentAction,
+  deleteAssessmentAction,
 } from './server-actions/assessments'

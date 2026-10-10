@@ -1,5 +1,6 @@
 import Link from 'next/link'
 
+import { AssessmentRowMenu } from '@/components/assessments/assessment-row-menu'
 import { AssessmentGroupFilter } from '@/components/assessments/group-filter'
 import { formatAssessmentDate } from '@/components/assessments/format'
 import { TeacherPageLayout } from '@/components/layouts/TeacherPageLayout'
@@ -39,6 +40,7 @@ export default async function AssessmentsPage({ searchParams }: PageProps) {
                 <th className="px-4 py-2 text-right font-medium">Marks</th>
                 <th className="px-4 py-2 text-right font-medium">Pupils with results</th>
                 <th className="px-4 py-2 font-medium">Feedback</th>
+                <th className="w-12 px-2 py-2"><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
             <tbody>
@@ -68,6 +70,9 @@ export default async function AssessmentsPage({ searchParams }: PageProps) {
                     ) : (
                       <Badge variant="secondary">Not released</Badge>
                     )}
+                  </td>
+                  <td className="px-2 py-2 text-right">
+                    <AssessmentRowMenu assessmentId={paper.assessment_id} title={paper.title} />
                   </td>
                 </tr>
               ))}

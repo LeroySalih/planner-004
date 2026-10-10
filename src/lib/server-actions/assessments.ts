@@ -5,7 +5,10 @@ import { z } from 'zod'
 
 import { requireAuthenticatedProfile, requireRole } from '@/lib/auth'
 import { FEEDBACK_MAX_ITEM_LENGTH, FEEDBACK_MAX_ITEMS } from '@/lib/assessments/limits'
+import { syncAssessmentFromAssignment } from '@/lib/assessments/from-assignment'
+import { readAssignmentResultsAction } from '@/lib/server-actions/assignment-results'
 import {
+  deleteAssessment,
   getAssessmentPage,
   getAssessmentPupilPage,
   getReleasedPupilResult,
@@ -54,6 +57,50 @@ function revalidatePaper(assessmentId: string) {
   revalidatePath('/assessments')
   revalidatePath(`/assessments/${assessmentId}`, 'layout')
   revalidatePath('/my-assessments', 'layout')
+}
+
+export async function deleteAssessmentAction(
+  assessmentId: string,
+): Promise<{ success: boolean; error: string | null }> {
+  await requireRole('teacher')
+  try {
+    const id = Id.parse(assessmentId)
+    await deleteAssessment(id)
+    revalidatePaper(id)
+    return { success: true, error: null }
+  } catch (error) {
+    return { success: false, error: errorMessage(error) }
+  }
+}
+
+const FromAssignmentResult = z.object({
+  data: z.object({
+    assessmentId: z.string(),
+    created: z.boolean(),
+    questions: z.number().int(),
+    pupilsRecorded: z.number().int(),
+    pupilErrors: z.array(z.string()),
+  }).nullable(),
+  error: z.string().nullable(),
+})
+
+/**
+ * Creates (or refreshes) the assessment paper for an assignment from the same
+ * results the teacher sees on the results page.
+ */
+export async function createAssessmentFromAssignmentAction(
+  assignmentId: string,
+): Promise<z.infer<typeof FromAssignmentResult>> {
+  await requireRole('teacher')
+  try {
+    const { data: matrix, error } = await readAssignmentResultsAction(Id.parse(assignmentId))
+    if (!matrix) return FromAssignmentResult.parse({ data: null, error: error ?? 'Assignment not found.' })
+    const summary = await syncAssessmentFromAssignment(matrix)
+    revalidatePaper(summary.assessmentId)
+    return FromAssignmentResult.parse({ data: summary, error: null })
+  } catch (error) {
+    return FromAssignmentResult.parse({ data: null, error: errorMessage(error) })
+  }
 }
 
 const ListResult = z.object({
