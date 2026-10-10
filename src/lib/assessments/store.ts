@@ -1031,6 +1031,19 @@ export async function setFeedbackVisible(assessmentId: string, visible: boolean)
   })
 }
 
+export async function renameAssessment(assessmentId: string, title: string): Promise<AssessmentPaperHeader> {
+  const cleaned = cleanText(title)
+  if (!cleaned) throw new Error('A title is required')
+  return inTransaction(async (client) => {
+    const paper = await loadPaper(client, assessmentId, 'update')
+    await client.query(
+      'update assessments set title = $2, updated_at = now() where assessment_id = $1',
+      [paper.assessment_id, cleaned],
+    )
+    return header({ ...paper, title: cleaned })
+  })
+}
+
 /**
  * Soft delete: the paper and its marks stay in the database but every read
  * (teacher, pupil and MCP) filters on `active`, so it disappears everywhere.

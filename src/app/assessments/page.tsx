@@ -72,7 +72,7 @@ export default async function AssessmentsPage({ searchParams }: PageProps) {
                     )}
                   </td>
                   <td className="px-2 py-2 text-right">
-                    <AssessmentRowMenu assessmentId={paper.assessment_id} title={paper.title} />
+                    <AssessmentRowMenu assessmentId={paper.assessment_id} title={paper.title} feedbackVisible={paper.feedback_visible} />
                   </td>
                 </tr>
               ))}

@@ -9,6 +9,7 @@ import { syncAssessmentFromAssignment } from '@/lib/assessments/from-assignment'
 import { readAssignmentResultsAction } from '@/lib/server-actions/assignment-results'
 import {
   deleteAssessment,
+  renameAssessment,
   getAssessmentPage,
   getAssessmentPupilPage,
   getReleasedPupilResult,
@@ -57,6 +58,21 @@ function revalidatePaper(assessmentId: string) {
   revalidatePath('/assessments')
   revalidatePath(`/assessments/${assessmentId}`, 'layout')
   revalidatePath('/my-assessments', 'layout')
+}
+
+export async function renameAssessmentAction(
+  assessmentId: string,
+  title: string,
+): Promise<{ title: string | null; error: string | null }> {
+  await requireRole('teacher')
+  try {
+    const id = Id.parse(assessmentId)
+    const header = await renameAssessment(id, z.string().max(200, 'Title must be 200 characters or fewer').parse(title))
+    revalidatePaper(id)
+    return { title: header.title, error: null }
+  } catch (error) {
+    return { title: null, error: errorMessage(error) }
+  }
 }
 
 export async function deleteAssessmentAction(
