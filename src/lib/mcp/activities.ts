@@ -5,6 +5,7 @@ import { MCP_UPLOAD_MAX_BYTES } from '@/lib/mcp/file-input'
 import { assertScAllowedForActivity } from '@/lib/curriculum/unit-curriculum-guard'
 import { recalculateActivityMaxMarks, recalculateGroupItemsMaxMarks, recalculateMatcherMaxMarks } from '@/lib/scoring/derive-max-marks'
 import { createLocalStorageClient } from '@/lib/storage/local-storage'
+import { GroupItemsActivityBodySchema, MatcherActivityBodySchema, SequenceActivityBodySchema } from '@/types'
 
 export const ACTIVITY_TYPES = [...SCORABLE_ACTIVITY_TYPES, ...NON_SCORABLE_ACTIVITY_TYPES] as const
 export type ActivityType = typeof ACTIVITY_TYPES[number]
@@ -21,8 +22,110 @@ export type ActivitySummary = {
 
 const TEXT_BODY_DATA_FORMAT = '{ "text": "<markdown content>", "displayType"?: "default" | "exam-tip" }'
 
+/**
+ * A body_data the app could not render. Without this check MCP stored such a
+ * body happily (e.g. a 13-item group-items activity), and the activity then
+ * failed silently everywhere the app parses it against its schema.
+ *
+ * `code` is LIMIT_EXCEEDED when a list or text is longer than the app allows,
+ * BELOW_MINIMUM when it is shorter, and INVALID_BODY_DATA otherwise.
+ */
+export class ActivityBodyDataError extends Error {
+  constructor(
+    readonly code: 'LIMIT_EXCEEDED' | 'BELOW_MINIMUM' | 'INVALID_BODY_DATA',
+    readonly field: string,
+    message: string,
+    readonly limit: number | null = null,
+    readonly received: number | null = null,
+  ) {
+    super(`[${code}] ${message}`)
+    this.name = 'ActivityBodyDataError'
+  }
+}
+
+// The same schemas the app renders and marks with, so MCP cannot store a body
+// the app will refuse. Limits come from the schemas rather than being copied.
+const BODY_SCHEMAS = {
+  'group-items': GroupItemsActivityBodySchema,
+  matcher: MatcherActivityBodySchema,
+  sequence: SequenceActivityBodySchema,
+} as const
+
+const UNIT_NAMES: Record<string, [string, string]> = {
+  items: ['item', 'items'],
+  groups: ['group', 'groups'],
+  pairs: ['pair', 'pairs'],
+  terms: ['term', 'terms'],
+}
+
+function fieldName(path: PropertyKey[]): string {
+  return ['body_data', ...path].reduce<string>(
+    (name, key) => (typeof key === 'number' ? `${name}[${key}]` : `${name}.${String(key)}`),
+    '',
+  ).replace(/^\./, '')
+}
+
+function valueAt(data: unknown, path: PropertyKey[]): unknown {
+  return path.reduce<unknown>((value, key) => (value as Record<PropertyKey, unknown> | null)?.[key], data)
+}
+
+function validateAgainstSchema(type: keyof typeof BODY_SCHEMAS, bodyData: unknown): void {
+  const parsed = BODY_SCHEMAS[type].safeParse(bodyData)
+  if (parsed.success) {
+    if (type === 'group-items') {
+      const body = parsed.data as { groups: Array<{ id: string }>; items: Array<{ id: string; groupId: string }> }
+      const groupIds = new Set(body.groups.map((g) => g.id))
+      const index = body.items.findIndex((item) => !groupIds.has(item.groupId))
+      if (index >= 0) {
+        throw new ActivityBodyDataError(
+          'INVALID_BODY_DATA',
+          `body_data.items[${index}].groupId`,
+          `body_data.items[${index}].groupId "${body.items[index].groupId}" does not match any group id (${[...groupIds].join(', ')}).`,
+        )
+      }
+    }
+    return
+  }
+
+  const issue = parsed.error.issues[0]
+  const field = fieldName(issue.path)
+  const value = valueAt(bodyData, issue.path)
+  if ((issue.code === 'too_big' || issue.code === 'too_small') && (issue.origin === 'array' || issue.origin === 'string')) {
+    const limit = Number(issue.code === 'too_big' ? issue.maximum : issue.minimum)
+    const received = Array.isArray(value) || typeof value === 'string' ? value.length : null
+    const last = issue.path[issue.path.length - 1]
+    const [one, many] = issue.origin === 'array'
+      ? UNIT_NAMES[String(last)] ?? ['entry', 'entries']
+      : ['character', 'characters']
+    const count = (n: number) => `${n} ${n === 1 ? one : many}`
+    if (issue.code === 'too_big') {
+      throw new ActivityBodyDataError(
+        'LIMIT_EXCEEDED',
+        field,
+        `${field} has ${received === null ? 'too many' : count(received)}, but a ${type} activity allows at most ${count(limit)}.`
+          + (issue.origin === 'array' ? ' Split the content across more than one activity.' : ''),
+        limit,
+        received,
+      )
+    }
+    throw new ActivityBodyDataError(
+      'BELOW_MINIMUM',
+      field,
+      `${field} has ${received === null ? 'too few' : count(received)}, but a ${type} activity needs at least ${count(limit)}.`,
+      limit,
+      received,
+    )
+  }
+  throw new ActivityBodyDataError('INVALID_BODY_DATA', field, `${field}: ${issue.message}`)
+}
+
 export function validateBodyDataForType(type: string, bodyData: unknown): void {
   if (bodyData == null) return
+
+  if (type in BODY_SCHEMAS) {
+    validateAgainstSchema(type as keyof typeof BODY_SCHEMAS, bodyData)
+    return
+  }
 
   if (type === 'text') {
     if (typeof bodyData !== 'object' || Array.isArray(bodyData)) {

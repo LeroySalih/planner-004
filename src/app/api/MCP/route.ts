@@ -75,7 +75,7 @@ import {
   updateIntervention,
   type InterventionSummary,
 } from '@/lib/interventions/store'
-import { ACTIVITY_TYPES, listActivitiesForLesson, getActivity, createActivity, updateActivity, addSuccessCriterionToActivity, removeSuccessCriterionFromActivity, removeActivity, reorderActivities, uploadActivityFile } from '@/lib/mcp/activities'
+import { ACTIVITY_TYPES, ActivityBodyDataError, listActivitiesForLesson, getActivity, createActivity, updateActivity, addSuccessCriterionToActivity, removeSuccessCriterionFromActivity, removeActivity, reorderActivities, uploadActivityFile } from '@/lib/mcp/activities'
 
 // Force Node.js runtime — MCP SDK is not compatible with the Edge runtime.
 export const runtime = 'nodejs'
@@ -1186,6 +1186,32 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
     },
   )
 
+  // A body_data the app cannot use is a real failure, not an empty result, so
+  // it is flagged isError with a machine-readable code and the limit broken.
+  const activityBodyErrorShape = z.object({
+    code: z.string(),
+    field: z.string(),
+    limit: z.number().nullable(),
+    received: z.number().nullable(),
+  })
+  const activityErrorResult = (err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err)
+    if (err instanceof ActivityBodyDataError) {
+      return {
+        isError: true,
+        content: [{ type: 'text' as const, text: `Error ${message}` }],
+        structuredContent: {
+          activity: null,
+          error: { code: err.code, field: err.field, limit: err.limit, received: err.received },
+        },
+      }
+    }
+    return {
+      content: [{ type: 'text' as const, text: `Error: ${message}` }],
+      structuredContent: { activity: null },
+    }
+  }
+
   srv.registerTool(
     'create_activity',
     {
@@ -1194,7 +1220,11 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
 - short-text-question: provide question and model_answer (required).
 - multiple-choice-question: provide question, mcq_options (2–4 items), and correct_option_id matching one option id (required).
 - text: body_data must be { "text": "<markdown content>", "displayType"?: "default" | "exam-tip" }.
-- All other types: use body_data for any extra JSON payload.`,
+- group-items: body_data { "groups": 2–4 × { "id", "name" }, "items": 2–12 × { "id", "text", "groupId" } }.
+- matcher: body_data { "pairs": 2–8 × { "id", "term", "definition" } }.
+- sequence: body_data { "terms": 2–12 × { "id", "text" } }, in the correct order.
+- All other types: use body_data for any extra JSON payload.
+A body_data over a limit is refused with isError and error.code LIMIT_EXCEEDED (BELOW_MINIMUM or INVALID_BODY_DATA for other problems), naming the field, the limit and the count received. Split the content across several activities.`,
       inputSchema: z.object({
         lesson_id: z.string().min(1).describe('Lesson identifier.'),
         type: z.enum(ACTIVITY_TYPES).describe(
@@ -1224,6 +1254,7 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
           is_summative: z.boolean(),
           active: z.boolean(),
         }).nullable(),
+        error: activityBodyErrorShape.optional(),
       }),
     },
     async ({ lesson_id, type, title, question, model_answer, mcq_options, correct_option_id, body_data, is_summative }) => {
@@ -1249,11 +1280,7 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
           structuredContent: { activity },
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to create activity'
-        return {
-          content: [{ type: 'text' as const, text: message }],
-          structuredContent: { activity: null },
-        }
+        return activityErrorResult(error)
       }
     },
   )
@@ -1262,7 +1289,8 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
     'update_activity',
     {
       title: 'Update activity',
-      description: 'Update title, body_data, or is_summative on an existing activity. At least one field must be provided. body_data replaces the stored object as a whole — call get_activity first and send back the complete object with your changes.',
+      description: 'Update title, body_data, or is_summative on an existing activity. At least one field must be provided. body_data replaces the stored object as a whole — call get_activity first and send back the complete object with your changes. '
+        + 'body_data is checked against the same limits as create_activity; a body over a limit is refused with isError and error.code LIMIT_EXCEEDED.',
       inputSchema: z.object({
         activity_id: z.string().describe('UUID of the activity to update'),
         title: z.string().nullable().optional().describe('New title (pass null to clear)'),
@@ -1279,6 +1307,7 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
           is_summative: z.boolean(),
           active: z.boolean(),
         }).nullable(),
+        error: activityBodyErrorShape.optional(),
       }),
     },
     async ({ activity_id, title, body_data, is_summative }) => {
@@ -1294,11 +1323,7 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
           structuredContent: { activity },
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        return {
-          content: [{ type: 'text' as const, text: `Error: ${message}` }],
-          structuredContent: { activity: null },
-        }
+        return activityErrorResult(err)
       }
     },
   )

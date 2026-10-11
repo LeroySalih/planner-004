@@ -371,6 +371,30 @@ Setting `is_summative = true` on a non-scorable type returns an error without wr
 { "flashcardActivityId": "<activity_id of the display-flashcards activity>" }
 ```
 
+##### Limits on body_data
+`group-items`, `matcher` and `sequence` bodies are checked against the same Zod schemas the app uses to display and mark them (`src/types/index.ts`). Before this check, MCP saved a body that broke these limits, for example a group-items activity with 13 items. The tool reported success, but the app could not parse the activity, so it failed without any message.
+
+| Type | Field | Allowed |
+|---|---|---|
+| `group-items` | `groups` | 2–4 |
+| `group-items` | `items` | 2–12, each `groupId` must match a group |
+| `group-items` | item `text` / group `name` | ≤ 200 / ≤ 100 characters |
+| `matcher` | `pairs` | 2–8 |
+| `sequence` | `terms` | 2–12 |
+
+A body that breaks a limit is refused and nothing is written. The result has `isError: true`, and the text starts with the code:
+
+```
+Error [LIMIT_EXCEEDED] body_data.items has 13 items, but a group-items activity allows at most 12 items. Split the content across more than one activity.
+```
+
+`structuredContent.error` is `{ code, field, limit, received }`. `code` is one of:
+- `LIMIT_EXCEEDED`: too many entries or characters;
+- `BELOW_MINIMUM`: too few;
+- `INVALID_BODY_DATA`: a missing field, a wrong type, or a `groupId` that doesn't match a group.
+
+`update_activity` applies the same checks.
+
 ---
 
 #### `update_activity`
