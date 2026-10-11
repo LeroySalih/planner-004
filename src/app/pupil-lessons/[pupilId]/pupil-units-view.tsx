@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import type { PupilUnitEntry, PupilUnitsDetail, PupilUnitLesson } from "@/lib/pupil-units-data"
 import { LessonMedia } from "./lesson-media"
+import { PupilPicker, type PupilPickerProps } from "./pupil-picker"
 
 function formatDate(value: string | null) {
   if (!value) return "No date set"
@@ -73,7 +74,14 @@ const robotoCondensed = Roboto_Condensed({
   display: "swap",
 })
 
-export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
+export function PupilUnitsView({
+  detail,
+  picker = null,
+}: {
+  detail: PupilUnitsDetail
+  /** Admin-only "view as pupil" controls; null for everyone else. */
+  picker?: PupilPickerProps | null
+}) {
   const subjectList = detail.subjects
     .map((s) => s.subject ?? "Subject not set")
     .filter((s, i, arr) => arr.indexOf(s) === i)
@@ -117,6 +125,7 @@ export function PupilUnitsView({ detail }: { detail: PupilUnitsDetail }) {
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-8 sm:px-6 sm:py-10">
+      {picker && <PupilPicker {...picker} />}
       <header className="rounded-2xl bg-gradient-to-r from-sky-600 to-indigo-600 px-6 py-6 text-white shadow-lg sm:px-8">
         <div className="flex flex-col gap-2">
           <h1 className="text-3xl font-semibold text-white sm:text-4xl">My Units</h1>
