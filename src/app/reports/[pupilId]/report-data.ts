@@ -23,6 +23,7 @@ import {
 import { getLevelForYearScore } from "@/lib/levels"
 import { withTelemetry } from "@/lib/telemetry"
 import { query } from "@/lib/db"
+import { latestAttempts } from "@/lib/scoring/latest-attempt"
 import { computeSubmissionMarks } from "@/lib/scoring/submission-marks"
 import { isScorableActivityType } from "@/dino.config"
 
@@ -523,8 +524,9 @@ function buildLessonSubmissionSummaries(
 ): LessonSubmissionSummary[] {
   const scorableActivities = activities.filter((activity) => isScorableActivityType(activity.type))
 
+  // The dataset carries every attempt; only each pupil's latest one scores.
   const submissionsByActivity = new Map<string, Submission[]>()
-  for (const submission of submissions) {
+  for (const submission of latestAttempts(submissions)) {
     const list = submissionsByActivity.get(submission.activity_id) ?? []
     list.push(submission)
     submissionsByActivity.set(submission.activity_id, list)
@@ -607,7 +609,6 @@ function buildLessonSubmissionSummaries(
       summary.scores = scoreEntries.map((entry) => ({
         userId: entry.userId,
         score: entry.score,
-        accuracy: null,
         isCorrect: entry.isCorrect,
         marksAwarded: entry.marksAwarded,
         maxMarks,
@@ -658,7 +659,6 @@ function buildLessonSubmissionSummaries(
       summary.scores = scoreEntries.map((entry) => ({
         userId: entry.userId,
         score: entry.score,
-        accuracy: null,
         isCorrect: entry.isCorrect,
         marksAwarded: entry.marksAwarded,
         maxMarks,
@@ -694,7 +694,6 @@ function buildLessonSubmissionSummaries(
         return {
           userId: submission.user_id,
           score: finalScore,
-          accuracy: null,
           marksAwarded,
           maxMarks,
         }
@@ -816,23 +815,16 @@ export async function loadUnitLessonContextFromDataset(
         let lessonActivityCount = 0
 
         for (const summary of submissionSummaries) {
-          const pupilScores = summary.scores.filter(
-            (entry) =>
-              entry.userId === pupilId &&
-              typeof entry.score === "number" &&
-              Number.isFinite(entry.score),
-          )
-          if (pupilScores.length === 0) {
+          // One entry per pupil: their latest attempt (see latestAttempts).
+          const activityScore = summary.scores.find((entry) => entry.userId === pupilId)?.score
+          if (typeof activityScore !== "number" || !Number.isFinite(activityScore)) {
             continue
           }
 
-          const activityAverage =
-            pupilScores.reduce((acc, entry) => acc + (entry.score ?? 0), 0) / pupilScores.length
-
-          activitiesScoreSum += activityAverage
+          activitiesScoreSum += activityScore
           totalActivityCount += 1
 
-          lessonTotalSum += activityAverage
+          lessonTotalSum += activityScore
           lessonActivityCount += 1
         }
 

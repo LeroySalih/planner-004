@@ -132,7 +132,7 @@ export async function uploadShareMyWorkImageAction(formData: FormData) {
           `SELECT submission_id, body
            FROM submissions
            WHERE activity_id = $1 AND user_id = $2
-           ORDER BY submitted_at DESC
+           ORDER BY attempt_number DESC, submitted_at DESC
            LIMIT 1`,
           [activityId, userId],
         );
@@ -243,7 +243,7 @@ export async function removeShareMyWorkImageAction(
           `SELECT submission_id, body
            FROM submissions
            WHERE activity_id = $1 AND user_id = $2
-           ORDER BY submitted_at DESC
+           ORDER BY attempt_number DESC, submitted_at DESC
            LIMIT 1`,
           [activityId, userId],
         );
@@ -325,7 +325,7 @@ export async function reorderShareMyWorkImagesAction(
           `SELECT submission_id, body
            FROM submissions
            WHERE activity_id = $1 AND user_id = $2
-           ORDER BY submitted_at DESC
+           ORDER BY attempt_number DESC, submitted_at DESC
            LIMIT 1`,
           [activityId, userId],
         );

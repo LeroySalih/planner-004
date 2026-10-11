@@ -126,7 +126,7 @@ export async function readMyScMarksForActivityAction(
          select submission_id
          from submissions
          where activity_id = $1 and user_id = $2
-         order by submitted_at desc nulls last
+         order by attempt_number desc, submitted_at desc nulls last
          limit 1
        )
        select m.success_criteria_id,

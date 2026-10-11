@@ -82,7 +82,7 @@ async function loadClassProgress(
          s.activity_id, s.user_id, s.body
        FROM submissions s
        JOIN scoped_activities sa ON sa.activity_id = s.activity_id
-       ORDER BY s.activity_id, s.user_id, s.submitted_at DESC NULLS LAST, s.submission_id DESC
+       ORDER BY s.activity_id, s.user_id, s.attempt_number DESC, s.submitted_at DESC NULLS LAST, s.submission_id DESC
      )
      SELECT
        u.unit_id,
@@ -142,7 +142,7 @@ export async function getProgressMatrixAction(summativeOnly = false) {
        SELECT DISTINCT ON (s.activity_id, s.user_id)
          s.activity_id, s.user_id, s.body
        FROM submissions s
-       ORDER BY s.activity_id, s.user_id, s.submitted_at DESC NULLS LAST, s.submission_id DESC
+       ORDER BY s.activity_id, s.user_id, s.attempt_number DESC, s.submitted_at DESC NULLS LAST, s.submission_id DESC
      )
      SELECT
        g.group_id,
@@ -225,7 +225,7 @@ export async function getClassPupilMatrixAction(groupId: string, summativeOnly =
          s.activity_id, s.user_id, s.body
        FROM submissions s
        JOIN scoped_activities sa ON sa.activity_id = s.activity_id
-       ORDER BY s.activity_id, s.user_id, s.submitted_at DESC NULLS LAST, s.submission_id DESC
+       ORDER BY s.activity_id, s.user_id, s.attempt_number DESC, s.submitted_at DESC NULLS LAST, s.submission_id DESC
      )
      SELECT
        u.unit_id,
@@ -304,7 +304,7 @@ export async function getUnitLessonMatrixAction(groupId: string, unitId: string,
          s.activity_id, s.user_id, s.body
        FROM submissions s
        JOIN scoped_activities sa ON sa.activity_id = s.activity_id
-       ORDER BY s.activity_id, s.user_id, s.submitted_at DESC NULLS LAST, s.submission_id DESC
+       ORDER BY s.activity_id, s.user_id, s.attempt_number DESC, s.submitted_at DESC NULLS LAST, s.submission_id DESC
      ),
      lesson_activity_scores AS (
        SELECT
@@ -395,7 +395,7 @@ export async function getPupilUnitLessonsAction(groupId: string, unitId: string,
          s.activity_id, s.user_id, s.body
        FROM submissions s
        WHERE s.user_id = $2
-       ORDER BY s.activity_id, s.user_id, s.submitted_at DESC NULLS LAST, s.submission_id DESC
+       ORDER BY s.activity_id, s.user_id, s.attempt_number DESC, s.submitted_at DESC NULLS LAST, s.submission_id DESC
      )
      SELECT
        l.lesson_id,
@@ -471,11 +471,17 @@ export async function getPupilUnitLOSCAction(groupId: string, unitId: string, pu
          s.user_id,
          sc_kv.key as success_criteria_id,
          (sc_kv.value)::numeric as rating
-       FROM submissions s
+       -- Each pupil's latest attempt per activity only: a superseded attempt
+       -- never supplies a criterion rating.
+       FROM (
+         SELECT DISTINCT ON (activity_id, user_id) user_id, body, submitted_at
+         FROM submissions
+         WHERE user_id = $3
+         ORDER BY activity_id, user_id, attempt_number DESC, submitted_at DESC NULLS LAST, submission_id DESC
+       ) s
        CROSS JOIN LATERAL json_each_text(s.body->'success_criteria_scores') as sc_kv
        WHERE s.body->'success_criteria_scores' IS NOT NULL
-         AND s.user_id = $3
-       ORDER BY s.user_id, sc_kv.key, s.submitted_at DESC
+       ORDER BY s.user_id, sc_kv.key, s.submitted_at DESC NULLS LAST
      )
      SELECT DISTINCT
        lo.learning_objective_id as lo_id,

@@ -19,10 +19,16 @@ export async function getLOProgressMatrixAction() {
          s.user_id,
          sc_kv.key as success_criteria_id,
          (sc_kv.value)::numeric as rating
-       FROM submissions s
+       -- Each pupil's latest attempt per activity only: a superseded attempt
+       -- never supplies a criterion rating.
+       FROM (
+         SELECT DISTINCT ON (activity_id, user_id) user_id, body, submitted_at
+         FROM submissions
+         ORDER BY activity_id, user_id, attempt_number DESC, submitted_at DESC NULLS LAST, submission_id DESC
+       ) s
        CROSS JOIN LATERAL json_each_text(s.body->'success_criteria_scores') as sc_kv
        WHERE s.body->'success_criteria_scores' IS NOT NULL
-       ORDER BY s.user_id, sc_kv.key, s.submitted_at DESC
+       ORDER BY s.user_id, sc_kv.key, s.submitted_at DESC NULLS LAST
      )
      SELECT
        g.group_id,
@@ -102,10 +108,16 @@ export async function getClassLOMatrixAction(groupId: string) {
          s.user_id,
          sc_kv.key as success_criteria_id,
          (sc_kv.value)::numeric as rating
-       FROM submissions s
+       -- Each pupil's latest attempt per activity only: a superseded attempt
+       -- never supplies a criterion rating.
+       FROM (
+         SELECT DISTINCT ON (activity_id, user_id) user_id, body, submitted_at
+         FROM submissions
+         ORDER BY activity_id, user_id, attempt_number DESC, submitted_at DESC NULLS LAST, submission_id DESC
+       ) s
        CROSS JOIN LATERAL json_each_text(s.body->'success_criteria_scores') as sc_kv
        WHERE s.body->'success_criteria_scores' IS NOT NULL
-       ORDER BY s.user_id, sc_kv.key, s.submitted_at DESC
+       ORDER BY s.user_id, sc_kv.key, s.submitted_at DESC NULLS LAST
      )
      SELECT
        lo.learning_objective_id as lo_id,
@@ -158,11 +170,17 @@ export async function getPupilLOSuccessCriteriaAction(groupId: string, loId: str
          s.user_id,
          sc_kv.key as success_criteria_id,
          (sc_kv.value)::numeric as rating
-       FROM submissions s
+       -- Each pupil's latest attempt per activity only: a superseded attempt
+       -- never supplies a criterion rating.
+       FROM (
+         SELECT DISTINCT ON (activity_id, user_id) user_id, body, submitted_at
+         FROM submissions
+         WHERE user_id = $1
+         ORDER BY activity_id, user_id, attempt_number DESC, submitted_at DESC NULLS LAST, submission_id DESC
+       ) s
        CROSS JOIN LATERAL json_each_text(s.body->'success_criteria_scores') as sc_kv
        WHERE s.body->'success_criteria_scores' IS NOT NULL
-         AND s.user_id = $1
-       ORDER BY s.user_id, sc_kv.key, s.submitted_at DESC
+       ORDER BY s.user_id, sc_kv.key, s.submitted_at DESC NULLS LAST
      )
      SELECT
        p.user_id,
@@ -245,10 +263,16 @@ export async function getClassLOSCMatrixAction(groupId: string, loId: string) {
          s.user_id,
          sc_kv.key as success_criteria_id,
          (sc_kv.value)::numeric as rating
-       FROM submissions s
+       -- Each pupil's latest attempt per activity only: a superseded attempt
+       -- never supplies a criterion rating.
+       FROM (
+         SELECT DISTINCT ON (activity_id, user_id) user_id, body, submitted_at
+         FROM submissions
+         ORDER BY activity_id, user_id, attempt_number DESC, submitted_at DESC NULLS LAST, submission_id DESC
+       ) s
        CROSS JOIN LATERAL json_each_text(s.body->'success_criteria_scores') as sc_kv
        WHERE s.body->'success_criteria_scores' IS NOT NULL
-       ORDER BY s.user_id, sc_kv.key, s.submitted_at DESC
+       ORDER BY s.user_id, sc_kv.key, s.submitted_at DESC NULLS LAST
      )
      SELECT
        sc.success_criteria_id as sc_id,

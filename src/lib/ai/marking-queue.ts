@@ -656,6 +656,7 @@ async function processSingleItem(
           marks_awarded: marked.marksAwarded,
           max_marks: effectiveMaxMarks,
           feedback: marked.feedback,
+          submission_id: item.submission_id,
           ...(criterionId ? { success_criteria_id: criterionId } : {}),
         }],
       });

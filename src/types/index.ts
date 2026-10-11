@@ -1069,7 +1069,6 @@ export type ShortTextFeedbackResult = z.infer<
 export interface LessonSubmissionScore {
     userId: string;
     score: number | null;
-    accuracy: number | null;
     isCorrect?: boolean;
     successCriteriaScores?: Record<string, number | null>;
     marksAwarded?: number | null;
@@ -1276,7 +1275,6 @@ export const AssignmentResultCellSchema = z.object({
     score: z.number().min(0).max(1).nullable(),
     marksAwarded: z.number().int().min(0).nullable().optional(),
     maxMarks: z.number().int().min(1).optional(),
-    accuracy: z.number().min(0).max(1).nullable().optional(),
     autoScore: z.number().min(0).max(1).nullable(),
     overrideScore: z.number().min(0).max(1).nullable(),
     status: z.enum(["missing", "auto", "override"]).default("missing"),

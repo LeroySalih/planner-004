@@ -26,19 +26,30 @@ export async function fetchPupilActivityFeedbackMap(
   try {
     const { rows } = await query(
       `
-        select feedback_id,
-               activity_id,
-               pupil_id,
-               submission_id,
-               source,
-               score,
-               feedback_text,
-               created_at,
-               created_by
-        from pupil_activity_feedback
-        where activity_id = any($1::text[])
-          and pupil_id = any($2::text[])
-        order by created_at desc
+        select f.feedback_id,
+               f.activity_id,
+               f.pupil_id,
+               f.submission_id,
+               f.source,
+               f.score,
+               f.feedback_text,
+               f.created_at,
+               f.created_by
+        from pupil_activity_feedback f
+        -- Feedback belongs to an attempt: only comments on the pupil's latest
+        -- attempt are current. Earlier attempts' comments stay for audit.
+        -- Rows with no submission_id predate that link and are kept.
+        left join lateral (
+          select s.submission_id
+            from submissions s
+           where s.activity_id = f.activity_id and s.user_id = f.pupil_id
+           order by s.attempt_number desc, s.submitted_at desc nulls last, s.submission_id desc
+           limit 1
+        ) latest on true
+        where f.activity_id = any($1::text[])
+          and f.pupil_id = any($2::text[])
+          and (f.submission_id is null or latest.submission_id is null or f.submission_id = latest.submission_id)
+        order by f.created_at desc
       `,
       [activityIds, pupilIds],
     )

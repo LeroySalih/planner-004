@@ -67,6 +67,13 @@ export async function readMarkingQueueAction(groupId?: string) {
                                             AND gm_teacher.user_id = $1
             WHERE a.type = 'short-text-question'
               AND compute_submission_base_score(s.body, a.type, a.max_marks) IS NULL
+              -- Latest attempt only: a superseded attempt is never outstanding work.
+              AND NOT EXISTS (
+                SELECT 1 FROM submissions later
+                WHERE later.activity_id = s.activity_id
+                  AND later.user_id = s.user_id
+                  AND later.attempt_number > s.attempt_number
+              )
               ${groupFilter}
             GROUP BY l.lesson_id, l.title, g.group_id, g.subject, u.title
             ORDER BY COUNT(DISTINCT s.submission_id) DESC
@@ -468,6 +475,13 @@ export async function markAllUnmarkedForLessonAction(input: z.infer<typeof MarkA
             WHERE l.lesson_id = $1
               AND a.type = 'short-text-question'
               AND compute_submission_base_score(s.body, a.type, a.max_marks) IS NULL
+              -- Latest attempt only: never spend marking on a superseded attempt.
+              AND NOT EXISTS (
+                SELECT 1 FROM submissions later
+                WHERE later.activity_id = s.activity_id
+                  AND later.user_id = s.user_id
+                  AND later.attempt_number > s.attempt_number
+              )
           `,
           [lessonId, groupId],
         )

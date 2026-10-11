@@ -84,8 +84,10 @@ async function loadLatestFeedback(matrix: AssignmentResultMatrix): Promise<Map<s
               activity_id, pupil_id, feedback_text, created_at
          from pupil_activity_feedback
         where activity_id = any($1::text[]) and pupil_id = any($2::text[])
+          -- Only comments on the attempt the matrix scores (the latest).
+          and (submission_id is null or submission_id = any($3::text[]))
         order by activity_id, pupil_id, source = 'teacher', created_at desc`,
-      [activityIds, pupilIds],
+      [activityIds, pupilIds, [...keyBySubmission.keys()]],
     ),
     query<{ submission_id: string; description: string | null; teacher_feedback: string }>(
       `select m.submission_id, sc.description, m.teacher_feedback

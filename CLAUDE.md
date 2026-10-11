@@ -432,6 +432,11 @@ row before deciding whether the set is complete.
 
 **Never write ad-hoc COALESCE chains** over individual body fields — they will miss score fields and produce incorrect results. The function accepts both `json` and `jsonb` so it works with the `submissions.body` column directly.
 
+**Scores always come from the latest attempt.** A pupil can have several rows in `submissions` for one activity (`attempt_number` 1, 2, …). The score, marks, feedback comments and every average use only the latest one: highest `attempt_number`, then newest `submitted_at`. Older attempts are kept for audit. Never average, sum or count across a pupil's attempts, and never pick one with `.find` or `limit 1` without that ordering.
+- SQL: `distinct on (activity_id, user_id) … order by activity_id, user_id, attempt_number desc, submitted_at desc nulls last, submission_id desc`.
+- TypeScript: `latestAttempts()` in `src/lib/scoring/latest-attempt.ts`.
+- Don't order by `submitted_at` alone. Some write paths rewrite it on existing rows.
+
 **Scorable activity types** are defined in `src/dino.config.ts` as `SCORABLE_ACTIVITY_TYPES`. Use `isScorableActivityType()` from that module when filtering in TypeScript, and pass the same array as a parameter when filtering in SQL.
 
 ## Telemetry

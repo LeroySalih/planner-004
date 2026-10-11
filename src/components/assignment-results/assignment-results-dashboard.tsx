@@ -2071,6 +2071,13 @@ export function AssignmentResultsDashboard({
 
       applyCellUpdate(
         (cell) => {
+          // A cell shows the pupil's latest attempt. A mark for a different
+          // submission is for an older attempt (a newer one reaches the cell
+          // through its own insert event before it can be marked), so it must
+          // not replace the latest attempt's score.
+          if (rawPayload.submissionId && cell.submissionId && rawPayload.submissionId !== cell.submissionId) {
+            return cell
+          }
           const hasOverride =
             typeof cell.overrideScore === "number" && Number.isFinite(cell.overrideScore)
           const nextAutoScore =

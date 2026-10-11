@@ -283,7 +283,7 @@ export async function readGroupSowLessonsAction(
                   SELECT s.body, 1 AS present
                     FROM submissions s
                    WHERE s.activity_id = a.activity_id AND s.user_id = gm.user_id
-                   ORDER BY s.submitted_at DESC NULLS LAST, s.submission_id DESC
+                   ORDER BY s.attempt_number DESC, s.submitted_at DESC NULLS LAST, s.submission_id DESC
                    LIMIT 1
                 ) latest ON true
                 WHERE a.lesson_id = pa.lesson_id

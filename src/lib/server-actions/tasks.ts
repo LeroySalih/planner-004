@@ -126,7 +126,7 @@ export async function readPupilTasksAction(userId: string): Promise<{
         from submissions s
         join scorable_activities sa on sa.activity_id = s.activity_id
         where s.user_id = $1
-        order by s.activity_id, s.submitted_at desc
+        order by s.activity_id, s.attempt_number desc, s.submitted_at desc
       ),
       lesson_scores as (
         select

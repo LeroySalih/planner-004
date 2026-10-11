@@ -73,6 +73,9 @@ const ResultEntrySchema = z
     // Present when the call assessed a single criterion. Its absence means the
     // legacy whole-activity path (activities with no criteria attached).
     success_criteria_id: z.string().optional().nullable(),
+    // The attempt that was marked. Without it the pupil's latest attempt is
+    // used — never an arbitrary one.
+    submission_id: z.string().optional().nullable(),
   })
   .refine((value) => value.pupilid || value.pupilId || value.pupil_id, {
     message: "pupil identifier is required",
@@ -174,15 +177,19 @@ export async function applyAiMarkPayload(json: unknown): Promise<ApplyAiMarkResu
   const { rows: submissionRows } = await query<
     { submission_id: string; user_id: string | null; body: unknown; submitted_at: string | null }
   >(
-    `select submission_id, user_id, body, submitted_at from submissions where activity_id = $1 and user_id = any($2::text[])`,
+    `select submission_id, user_id, body, submitted_at from submissions
+      where activity_id = $1 and user_id = any($2::text[])
+      order by attempt_number asc, submitted_at asc nulls first, submission_id asc`,
     [parsed.data.activity_id, pupilIds],
   );
 
+  // Ascending, so each pupil's latest attempt is the one the map keeps.
   const submissionsByPupil = new Map(
     (submissionRows ?? [])
       .filter((row) => typeof row.user_id === "string")
       .map((row) => [row.user_id as string, row]),
   );
+  const submissionsById = new Map((submissionRows ?? []).map((row) => [row.submission_id, row]));
 
   const answersByPupil = buildAnswersMap(parsed.data);
   const summary = { updated: 0, created: 0, skipped: 0, errors: 0 };
@@ -195,7 +202,11 @@ export async function applyAiMarkPayload(json: unknown): Promise<ApplyAiMarkResu
       summary.skipped += 1;
       continue;
     }
-    const existingSubmission = submissionsByPupil.get(resultPupilId) ?? null;
+    const namedSubmission = result.submission_id ? submissionsById.get(result.submission_id) : undefined;
+    const existingSubmission =
+      (namedSubmission && namedSubmission.user_id === resultPupilId ? namedSubmission : null)
+      ?? submissionsByPupil.get(resultPupilId)
+      ?? null;
 
     try {
       // Per-criterion result: record it and let the gather decide whether the

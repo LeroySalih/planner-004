@@ -39,7 +39,6 @@ import {
   getNextAttemptNumber,
 } from "@/lib/server-actions/submission-attempts";
 import { enqueueMarkingTasks, triggerQueueProcessor } from "@/lib/ai/marking-queue";
-import { computeAccuracyByUser } from "@/lib/scoring/accuracy";
 import { computeSubmissionMarks } from "@/lib/scoring/submission-marks";
 import { getAuthenticatedProfile, hasRole } from "@/lib/auth";
 import { pupilWorkLockedMessage } from "@/lib/lesson-lock";
@@ -252,9 +251,13 @@ export async function readLessonSubmissionSummariesAction(
     try {
       const { rows } = await query(
         `
-          select submission_id, activity_id, user_id, attempt_number, submitted_at, body
+          -- Each pupil's latest attempt only. Earlier attempts stay in the
+          -- table for audit, but scores, marks and averages never use them.
+          select distinct on (activity_id, user_id)
+                 submission_id, activity_id, user_id, attempt_number, submitted_at, body
           from submissions
           where activity_id = any($1::text[])
+          order by activity_id, user_id, attempt_number desc, submitted_at desc nulls last, submission_id desc
         `,
         [activityIds],
       );
@@ -301,7 +304,7 @@ export async function readLessonSubmissionSummariesAction(
 
       // Marks-based contributions to the lesson-level averages (separate from
       // summary.scores[].score below, which remains a 0-1 fraction for per-pupil
-      // display/accuracy and is intentionally left untouched here).
+      // display).
       const marksByUser = new Map<string, number | null>();
       const addMarksContribution = (userId: string, marksAwarded: number | null) => {
         marksByUser.set(userId, marksAwarded);
@@ -402,14 +405,8 @@ export async function readLessonSubmissionSummariesAction(
         summary.scores = scoreEntries.map((entry) => ({
           userId: entry.userId,
           score: entry.score,
-          accuracy: null,
           isCorrect: entry.isCorrect,
           successCriteriaScores: entry.successCriteriaScores,
-        }));
-        const mcqAccuracyByUser = computeAccuracyByUser(summary.scores);
-        summary.scores = summary.scores.map((entry) => ({
-          ...entry,
-          accuracy: mcqAccuracyByUser.get(entry.userId) ?? null,
         }));
         summary.correctCount = scoreEntries.filter((entry) =>
           entry.isCorrect
@@ -488,14 +485,8 @@ export async function readLessonSubmissionSummariesAction(
         summary.scores = scoreEntries.map((entry) => ({
           userId: entry.userId,
           score: entry.score,
-          accuracy: null,
           isCorrect: entry.isCorrect,
           successCriteriaScores: entry.successCriteriaScores,
-        }));
-        const shortTextAccuracyByUser = computeAccuracyByUser(summary.scores);
-        summary.scores = summary.scores.map((entry) => ({
-          ...entry,
-          accuracy: shortTextAccuracyByUser.get(entry.userId) ?? null,
         }));
 
         summary.correctCount = scoreEntries.filter((entry) =>
@@ -583,14 +574,8 @@ export async function readLessonSubmissionSummariesAction(
         summary.scores = scoreEntries.map((entry) => ({
           userId: entry.userId,
           score: entry.score,
-          accuracy: null,
           isCorrect: entry.isCorrect,
           successCriteriaScores: entry.successCriteriaScores,
-        }));
-        const uploadAccuracyByUser = computeAccuracyByUser(summary.scores);
-        summary.scores = summary.scores.map((entry) => ({
-          ...entry,
-          accuracy: uploadAccuracyByUser.get(entry.userId) ?? null,
         }));
 
         summary.correctCount = scoreEntries.filter((entry) =>
@@ -623,17 +608,7 @@ export async function readLessonSubmissionSummariesAction(
           );
         }
       } else if (activityType === "sequence") {
-        // Only each pupil's most recent attempt counts toward the score.
-        const latestByUser = new Map<string, Submission>();
-        for (const submission of submissionList) {
-          const existing = latestByUser.get(submission.user_id);
-          if (!existing || submission.attempt_number > existing.attempt_number) {
-            latestByUser.set(submission.user_id, submission);
-          }
-        }
-        const latestList = Array.from(latestByUser.values());
-
-        const scoreEntries = latestList
+        const scoreEntries = submissionList
           .map((submission) => {
             const parsedSubmission = SequenceSubmissionBodySchema.safeParse(
               submission.body,
@@ -679,14 +654,8 @@ export async function readLessonSubmissionSummariesAction(
         summary.scores = scoreEntries.map((entry) => ({
           userId: entry.userId,
           score: entry.score,
-          accuracy: null,
           isCorrect: entry.isCorrect,
           successCriteriaScores: entry.successCriteriaScores,
-        }));
-        const sequenceAccuracyByUser = computeAccuracyByUser(summary.scores);
-        summary.scores = summary.scores.map((entry) => ({
-          ...entry,
-          accuracy: sequenceAccuracyByUser.get(entry.userId) ?? null,
         }));
         summary.correctCount = scoreEntries.filter((entry) =>
           entry.isCorrect
@@ -699,7 +668,7 @@ export async function readLessonSubmissionSummariesAction(
           );
           summary.averageScore = activitiesScore / scoreEntries.length;
         }
-        for (const submission of latestList) {
+        for (const submission of submissionList) {
           addMarksContribution(
             submission.user_id,
             computeSubmissionMarks(submission.body, activityType, maxMarks),
@@ -764,16 +733,11 @@ export async function readLessonSubmissionSummariesAction(
           return {
             userId: submission.user_id,
             score: finalScore,
-            accuracy: null,
             successCriteriaScores: normalisedScores,
           };
         });
 
-        const generalAccuracyByUser = computeAccuracyByUser(generalScores);
-        summary.scores = generalScores.map((entry) => ({
-          ...entry,
-          accuracy: generalAccuracyByUser.get(entry.userId) ?? null,
-        }));
+        summary.scores = generalScores;
 
         const numericScores = generalScores.filter((entry) =>
           typeof entry.score === "number"

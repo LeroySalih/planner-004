@@ -378,7 +378,7 @@ export async function readQueueItemsAction(input: {
                  case when body::jsonb ? 'uploaded_files' then body->'uploaded_files' else null end as uploaded_files
               from submissions
               where activity_id = $1 and user_id = any($2::text[])
-              order by user_id, submitted_at desc
+              order by user_id, attempt_number desc, submitted_at desc
             `,
             [activityId, pupilIds],
           );
