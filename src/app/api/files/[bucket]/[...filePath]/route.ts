@@ -24,6 +24,7 @@ async function heicToJpeg(input: Buffer): Promise<Buffer> {
 }
 
 import { getAuthenticatedProfile, hasRole } from "@/lib/auth"
+import { pupilMayOpenAssessmentFile } from "@/lib/assessments/store"
 import { query } from "@/lib/db"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 import { isLessonLockedForUser, LESSON_LOCKED_MESSAGE } from "@/lib/lesson-lock"
@@ -85,9 +86,15 @@ export async function GET(
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
   }
 
-  // Assessment papers and mark schemes are for teachers only.
+  // Assessment papers and mark schemes are for teachers only. A pupil may open
+  // a scan linked to them, once the paper's feedback is released to them.
   if (bucket === "assessments" && !hasRole(profile, "teacher")) {
-    return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 })
+    const [assessmentId, fileName, ...rest] = decodedSegments
+    const allowed = rest.length === 0 && Boolean(fileName)
+      && (await pupilMayOpenAssessmentFile(profile.userId, assessmentId, fileName))
+    if (!allowed) {
+      return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 })
+    }
   }
 
   const storage = createLocalStorageClient(bucket)

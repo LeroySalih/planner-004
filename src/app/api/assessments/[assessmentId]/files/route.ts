@@ -9,6 +9,7 @@ import type { AssessmentFile } from '@/types'
 // Teacher upload of scans (or any PDF/image) against a paper, from the
 // Assessments page. Several files may be sent at once under the "file" field;
 // each is stored independently, so one bad file does not lose the others.
+// A file named after a pupil is linked to them (see storeAssessmentFile).
 
 type Params = { params: Promise<{ assessmentId: string }> }
 
@@ -39,7 +40,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     }
     try {
       const buffer = Buffer.from(await file.arrayBuffer())
-      stored.push(await storeAssessmentFile(assessmentId, name, buffer, file.type || null, profile.userId))
+      stored.push(await storeAssessmentFile(assessmentId, name, buffer, { contentType: file.type || null, uploadedBy: profile.userId, matchByName: true }))
     } catch (error) {
       errors.push(`${name}: ${error instanceof Error ? error.message : 'upload failed'}`)
     }

@@ -1917,8 +1917,17 @@ export const AssessmentFileSchema = z.object({
   file_name: z.string(),
   size_bytes: z.number().int(),
   path: z.string(),
+  /** The pupil whose script this is; they can open it once feedback is released. */
+  pupil_id: z.string().nullable().default(null),
 });
 export type AssessmentFile = z.infer<typeof AssessmentFileSchema>;
+
+/** A scan of the pupil's own script, as the pupil may see it. */
+export const PupilAssessmentScriptSchema = z.object({
+  file_name: z.string(),
+  path: z.string(),
+});
+export type PupilAssessmentScript = z.infer<typeof PupilAssessmentScriptSchema>;
 
 export const AssessmentGridMarkSchema = z.object({
   awarded: z.number().int(),

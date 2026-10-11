@@ -50,6 +50,8 @@ import {
   recordPupilResult,
   attachAssessmentFile,
   listAssessmentFiles,
+  linkAssessmentFileToPupil,
+  removeAssessmentFile,
   ASSESSMENT_UPLOAD_MAX_BYTES,
 } from '@/lib/assessments/store'
 import {
@@ -1489,7 +1491,7 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
     instructions: z.string(),
   }).nullable()
   const uploadLinkTool = async (
-    target: { lessonId: string; activityId: string | null } | { assessmentId: string },
+    target: { lessonId: string; activityId: string | null } | { assessmentId: string; pupilId: string | null },
     fileName: string | undefined,
   ) => {
     const maxBytes = 'assessmentId' in target ? ASSESSMENT_UPLOAD_MAX_BYTES : MCP_UPLOAD_MAX_BYTES
@@ -2331,14 +2333,17 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
       title: 'Create a one-time upload link for an assessment paper file',
       description: 'Best way to attach scans of pupils\' marked papers (or any PDF/image in your code sandbox) to an assessment paper. '
         + 'Returns a single-use link, valid 15 minutes, that accepts one file (max 25 MB) with a plain curl POST — no credentials, no base64. '
-        + 'Call once per file. Files are teacher-only and listed by list_assessment_paper_files.',
+        + 'Call once per file. For one pupil\'s script, pass that pupil\'s pupil_id (get_assessment_paper / list_group_pupils): '
+        + 'the pupil can then open it once feedback is released. Omit pupil_id for whole-paper files such as the question paper '
+        + 'or mark scheme, which stay teacher-only. Files are listed by list_assessment_paper_files.',
       inputSchema: z.object({
         assessment_id: z.string().min(1).describe('Assessment paper id.'),
+        pupil_id: z.string().optional().describe('The pupil whose script this is. Omit for the question paper, mark scheme or other whole-paper files.'),
         file_name: z.string().optional().describe('Name to store the file under, including extension, e.g. "10A scans.pdf". Defaults to the uploaded file\'s name.'),
       }),
       outputSchema: z.object({ link: uploadLinkOutput }),
     },
-    async ({ assessment_id, file_name }) => uploadLinkTool({ assessmentId: assessment_id }, file_name),
+    async ({ assessment_id, pupil_id, file_name }) => uploadLinkTool({ assessmentId: assessment_id, pupilId: pupil_id ?? null }, file_name),
   )
 
   srv.registerTool(
@@ -2356,7 +2361,7 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
           content: [{
             type: 'text' as const,
             text: files.length > 0
-              ? files.map((f) => `${f.file_name} (${f.size_bytes} bytes)`).join('\n')
+              ? files.map((f) => `${f.file_name} (${f.size_bytes} bytes)${f.pupil_id ? ` — pupil ${f.pupil_id}` : ' — not linked to a pupil'}`).join('\n')
               : 'No files are attached to this paper.',
           }],
           structuredContent: { files },
@@ -2364,6 +2369,57 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to list files'
         return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { files: null } }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'remove_assessment_paper_file',
+    {
+      title: 'Remove a file from an assessment paper',
+      description: 'Delete a file attached to an assessment paper, and its link to a pupil. This cannot be undone.',
+      inputSchema: {
+        assessment_id: z.string().min(1).describe('Assessment paper id.'),
+        file_name: z.string().min(1).describe('File name exactly as list_assessment_paper_files gives it.'),
+      },
+      outputSchema: { removed: z.boolean() },
+    },
+    async ({ assessment_id, file_name }) => {
+      try {
+        const file = (await listAssessmentFiles(assessment_id)).find((f) => f.file_name === file_name)
+        if (!file) throw new Error(`File "${file_name}" is not attached to this paper`)
+        await removeAssessmentFile(assessment_id, file_name)
+        return { content: [{ type: 'text' as const, text: `Removed ${file_name}` }], structuredContent: { removed: true } }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to remove file'
+        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { removed: false } }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'link_assessment_paper_file_to_pupil',
+    {
+      title: 'Link an assessment paper file to a pupil',
+      description: 'Say whose script a file attached to a paper is. The pupil can open it once the paper\'s feedback is released; '
+        + 'unlinked files stay teacher-only. Pass pupil_id null to unlink.',
+      inputSchema: {
+        assessment_id: z.string().min(1).describe('Assessment paper id.'),
+        file_name: z.string().min(1).describe('File name exactly as list_assessment_paper_files gives it.'),
+        pupil_id: z.string().min(1).nullable().describe('The pupil whose script it is, or null to unlink.'),
+      },
+      outputSchema: { file: AssessmentFileSchema.nullable() },
+    },
+    async ({ assessment_id, file_name, pupil_id }) => {
+      try {
+        const file = await linkAssessmentFileToPupil(assessment_id, file_name, pupil_id)
+        return {
+          content: [{ type: 'text' as const, text: pupil_id ? `Linked ${file.file_name} to pupil ${pupil_id}` : `Unlinked ${file.file_name}` }],
+          structuredContent: { file },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to link file'
+        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { file: null } }
       }
     },
   )

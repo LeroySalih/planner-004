@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, FileText } from 'lucide-react'
 
 import { pupilName } from '@/components/assessments/format'
 import { PupilFeedbackEditor } from '@/components/assessments/pupil-feedback-editor'
@@ -23,7 +23,7 @@ export default async function AssessmentPupilPage({ params }: PageProps) {
     )
   }
 
-  const { result, objectives, previous, next, onRoster } = data
+  const { result, objectives, previous, next, onRoster, files } = data
   const base = `/assessments/${result.assessment.assessment_id}`
 
   return (
@@ -59,6 +59,22 @@ export default async function AssessmentPupilPage({ params }: PageProps) {
         <p className="text-sm text-muted-foreground">
           This pupil is no longer in the paper&apos;s groups, so the result is read-only.
         </p>
+      )}
+      {files.length > 0 && (
+        <div className="flex flex-wrap gap-3">
+          {files.map((file) => (
+            <a
+              key={file.file_name}
+              href={file.path}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
+            >
+              <FileText className="size-4" />
+              {file.file_name}
+            </a>
+          ))}
+        </div>
       )}
       <PupilFeedbackEditor key={result.pupil_id} result={result} objectives={objectives} editable={onRoster} />
     </TeacherPageLayout>

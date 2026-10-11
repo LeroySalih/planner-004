@@ -689,12 +689,22 @@ The pupil must be a pupil (same roster rule) in one of the paper's groups. `awar
 
 #### `create_assessment_paper_file_upload_link`
 Use this to attach scans of pupils' papers that are in Claude's code sandbox. It works like the lesson upload links (migration 107, and migration 114 for papers): the link can be used once, lasts 15 minutes and takes one file of up to 25 MB, with no credentials. HTML and SVG files are refused. Teachers can also upload the same files from the paper's ⋯ menu → *Scans & files* on the Assessments page.
-**Input:** `{ assessment_id, file_name? }`
+**Input:** `{ assessment_id, pupil_id?, file_name? }`. For a pupil's script, pass `pupil_id` to link the file to that pupil (migration 115). Leave it out for files that cover the whole paper, such as the question paper or mark scheme; these stay teacher-only. MCP uploads never match pupils by name. Only uploads made by teachers on the page are linked from the file name ("Surname Firstname …").
 **Output:** `{ link: { upload_url, expires_at, max_bytes, instructions } }`
 
 #### `list_assessment_paper_files`
 **Input:** `{ assessment_id }`
-**Output:** `{ files: [{ assessment_id, file_name, size_bytes, path }] }`
+**Output:** `{ files: [{ assessment_id, file_name, size_bytes, path, pupil_id }] }`
+
+#### `remove_assessment_paper_file`
+Deletes a file from the paper, along with any link to a pupil. This can't be undone.
+**Input:** `{ assessment_id, file_name }`
+**Output:** `{ removed }`
+
+#### `link_assessment_paper_file_to_pupil`
+Records whose script a file is. Once the paper's feedback is released, the linked pupil can open it from *My Assessments*. Unlinked files stay teacher-only.
+**Input:** `{ assessment_id, file_name, pupil_id | null }`. Pass `null` to unlink.
+**Output:** `{ file }`
 
 ---
 

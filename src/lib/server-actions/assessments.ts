@@ -9,7 +9,10 @@ import { syncAssessmentFromAssignment } from '@/lib/assessments/from-assignment'
 import { readAssignmentResultsAction } from '@/lib/server-actions/assignment-results'
 import {
   deleteAssessment,
+  linkAssessmentFileToPupil,
   listAssessmentFiles,
+  listAssessmentPupils,
+  matchAssessmentFilesToPupils,
   removeAssessmentFile,
   renameAssessment,
   getAssessmentPage,
@@ -34,7 +37,9 @@ import {
   PupilAssessmentListItemSchema,
   PupilAssessmentObjectiveSchema,
   PupilAssessmentResultSchema,
+  PupilAssessmentScriptSchema,
   type AssessmentFile,
+  type AssessmentPupilListItem,
 } from '@/types'
 
 /**
@@ -94,10 +99,12 @@ export async function deleteAssessmentAction(
 
 export async function listAssessmentFilesAction(
   assessmentId: string,
-): Promise<{ data: AssessmentFile[] | null; error: string | null }> {
+): Promise<{ data: { files: AssessmentFile[]; pupils: AssessmentPupilListItem[] } | null; error: string | null }> {
   await requireRole('teacher')
   try {
-    return { data: await listAssessmentFiles(Id.parse(assessmentId)), error: null }
+    const id = Id.parse(assessmentId)
+    const [files, pupils] = await Promise.all([listAssessmentFiles(id), listAssessmentPupils(id)])
+    return { data: { files, pupils }, error: null }
   } catch (error) {
     return { data: null, error: errorMessage(error) }
   }
@@ -115,6 +122,36 @@ export async function removeAssessmentFileAction(
     return { success: true, error: null }
   } catch (error) {
     return { success: false, error: errorMessage(error) }
+  }
+}
+
+export async function linkAssessmentFileAction(
+  assessmentId: string,
+  fileName: string,
+  pupilId: string | null,
+): Promise<{ data: AssessmentFile | null; error: string | null }> {
+  await requireRole('teacher')
+  try {
+    const id = Id.parse(assessmentId)
+    const file = await linkAssessmentFileToPupil(id, z.string().min(1).parse(fileName), pupilId === null ? null : Id.parse(pupilId))
+    revalidatePaper(id)
+    return { data: file, error: null }
+  } catch (error) {
+    return { data: null, error: errorMessage(error) }
+  }
+}
+
+export async function matchAssessmentFilesAction(
+  assessmentId: string,
+): Promise<{ data: { matched: number; unmatched: string[] } | null; error: string | null }> {
+  await requireRole('teacher')
+  try {
+    const id = Id.parse(assessmentId)
+    const data = await matchAssessmentFilesToPupils(id)
+    revalidatePaper(id)
+    return { data, error: null }
+  } catch (error) {
+    return { data: null, error: errorMessage(error) }
   }
 }
 
@@ -195,6 +232,7 @@ const PupilResult = z.object({
     previous: AssessmentPupilListItemSchema.nullable(),
     next: AssessmentPupilListItemSchema.nullable(),
     onRoster: z.boolean(),
+    files: z.array(AssessmentFileSchema),
   }).nullable(),
   error: z.string().nullable(),
 })
@@ -344,6 +382,7 @@ const MyPaperResult = z.object({
   data: z.object({
     result: PupilAssessmentResultSchema,
     objectives: z.array(PupilAssessmentObjectiveSchema),
+    scripts: z.array(PupilAssessmentScriptSchema),
   }).nullable(),
   error: z.string().nullable(),
 })

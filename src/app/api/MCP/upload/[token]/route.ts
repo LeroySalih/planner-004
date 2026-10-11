@@ -77,7 +77,7 @@ async function handle(request: NextRequest, { params }: Params): Promise<Respons
     }
 
     const file = link.assessment_id
-      ? await storeAssessmentFile(link.assessment_id, fileName, buffer, type, link.caller.userId)
+      ? await storeAssessmentFile(link.assessment_id, fileName, buffer, { contentType: type, uploadedBy: link.caller.userId, pupilId: link.pupil_id })
       : link.activity_id
         ? await uploadActivityFile(link.lesson_id!, link.activity_id, fileName, buffer, type)
         : await uploadLessonFile(link.lesson_id!, fileName, buffer, type)

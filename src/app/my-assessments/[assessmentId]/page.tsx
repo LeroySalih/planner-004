@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { ChevronLeft } from 'lucide-react'
+import { ChevronLeft, FileText } from 'lucide-react'
 
 import { PupilFeedbackView } from '@/components/assessments/pupil-feedback-view'
 import { readMyAssessmentAction } from '@/lib/server-updates'
@@ -21,7 +21,28 @@ export default async function MyAssessmentPage({ params }: PageProps) {
         <ChevronLeft className="size-4" /> My Assessments
       </Link>
       {data ? (
-        <PupilFeedbackView result={data.result} objectives={data.objectives} />
+        <>
+          <PupilFeedbackView result={data.result} objectives={data.objectives} />
+          {data.scripts.length > 0 && (
+            <section className="space-y-2">
+              <h2 className="text-lg font-semibold">Your marked paper</h2>
+              <div className="flex flex-wrap gap-3">
+                {data.scripts.map((script) => (
+                  <a
+                    key={script.file_name}
+                    href={script.path}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
+                  >
+                    <FileText className="size-4" />
+                    {script.file_name}
+                  </a>
+                ))}
+              </div>
+            </section>
+          )}
+        </>
       ) : (
         <p className="text-sm text-destructive">Unable to load this assessment.</p>
       )}

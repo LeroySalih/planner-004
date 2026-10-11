@@ -15,6 +15,8 @@ import {
   PupilAssessmentListItemSchema,
   PupilAssessmentObjectiveSchema,
   PupilAssessmentResultSchema,
+  PupilAssessmentScriptSchema,
+  type PupilAssessmentScript,
   RecordAssessmentResultSchema,
   type AssessmentFile,
   type AssessmentGrid,
@@ -812,21 +814,27 @@ export async function attachAssessmentFile(
   if (buffer.byteLength > FILES_MAX_BYTES) {
     throw new Error(`File exceeds the 5 MB limit (${buffer.byteLength} bytes)`)
   }
-  return storeAssessmentFile(assessmentId, fileName, buffer, contentType)
+  return storeAssessmentFile(assessmentId, fileName, buffer, { contentType })
 }
 
 // Files are served inline from DINO's own origin, where these could run script.
 const UNSAFE_FILE_TYPES = new Set(['text/html', 'application/xhtml+xml', 'image/svg+xml'])
 const UNSAFE_FILE_EXTENSIONS = /\.(html?|xhtml|svg)$/i
 
-/** Stores raw bytes against a paper, e.g. scans of pupils' marked papers. */
+/**
+ * Stores raw bytes against a paper: scans of pupils' marked papers, or the
+ * question paper and mark scheme. `pupilId` links the file to that pupil. With
+ * `matchByName` (teacher uploads only), a file not already linked is linked to
+ * the one pupil whose name it starts with ("Surname Firstname - …"). MCP
+ * uploads name the pupil explicitly, so a paper snapshot never gets matched.
+ */
 export async function storeAssessmentFile(
   assessmentId: string,
   fileName: string,
   buffer: Buffer,
-  contentType?: string | null,
-  uploadedBy?: string | null,
+  options: { contentType?: string | null; uploadedBy?: string | null; pupilId?: string | null; matchByName?: boolean } = {},
 ): Promise<AssessmentFile> {
+  const { contentType, uploadedBy, pupilId, matchByName = false } = options
   const name = fileName?.trim() ?? ''
   if (!name || name === '.' || name === '..' || /[/\\]/.test(name)) {
     throw new Error(`Invalid file name "${fileName}": it must not contain / or \\ or be . or ..`)
@@ -839,7 +847,14 @@ export async function storeAssessmentFile(
     throw new Error(`File exceeds the 25 MB limit (${buffer.byteLength} bytes)`)
   }
 
-  const paper = await withDbClient((client) => loadPaper(client, assessmentId))
+  const { paper, pupils } = await withDbClient(async (client) => {
+    const found = await loadPaper(client, assessmentId)
+    return { paper: found, pupils: await loadPaperPupils(client, found.assessment_id) }
+  })
+  if (pupilId && !pupils.some((p) => p.pupil_id === pupilId)) {
+    throw new Error(`Pupil ${pupilId} did not sit this paper`)
+  }
+
   const fullPath = `${paper.assessment_id}/${name}`
   const storage = createLocalStorageClient(FILES_BUCKET)
   const { error } = await storage.upload(fullPath, buffer, {
@@ -849,17 +864,116 @@ export async function storeAssessmentFile(
   })
   if (error) throw new Error(`Storage upload failed: ${error.message}`)
 
+  let linked: string | null
+  if (pupilId) {
+    await writeFileLink(paper.assessment_id, name, pupilId)
+    linked = pupilId
+  } else {
+    const { rows } = await query<{ pupil_id: string }>(
+      'select pupil_id from assessment_pupil_files where assessment_id = $1 and file_name = $2',
+      [paper.assessment_id, name],
+    )
+    linked = rows[0]?.pupil_id ?? (matchByName ? matchPupilByFileName(name, pupils) : null)
+    if (linked && !rows[0]) await writeFileLink(paper.assessment_id, name, linked)
+  }
+
   return AssessmentFileSchema.parse({
     assessment_id: paper.assessment_id,
     file_name: name,
     size_bytes: buffer.byteLength,
     path: filePath(paper.assessment_id, name),
+    pupil_id: linked,
   })
+}
+
+async function writeFileLink(assessmentId: string, fileName: string, pupilId: string): Promise<void> {
+  await query(
+    `insert into assessment_pupil_files (assessment_id, file_name, pupil_id) values ($1, $2, $3)
+     on conflict (assessment_id, file_name) do update set pupil_id = excluded.pupil_id, linked_at = now()`,
+    [assessmentId, fileName, pupilId],
+  )
+}
+
+function normaliseName(value: string): string {
+  return value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+}
+
+/**
+ * The pupil a file name starts with, as "Surname Firstname" or "Firstname
+ * Surname". The longest match wins, so "Khan Hisan" beats a pupil called just
+ * "Khan"; a tie between two pupils links nobody rather than guessing.
+ */
+function matchPupilByFileName(fileName: string, pupils: AssessmentPupilListItem[]): string | null {
+  const base = normaliseName(fileName.replace(/\.[^.]+$/, ''))
+  let best: { pupilId: string; length: number } | null = null
+  let tied = false
+  for (const pupil of pupils) {
+    const first = normaliseName(pupil.first_name ?? '')
+    const last = normaliseName(pupil.last_name ?? '')
+    if (!first || !last) continue
+    for (const candidate of [`${last} ${first}`, `${first} ${last}`]) {
+      if (base !== candidate && !base.startsWith(`${candidate} `)) continue
+      if (!best || candidate.length > best.length) {
+        best = { pupilId: pupil.pupil_id, length: candidate.length }
+        tied = false
+      } else if (candidate.length === best.length && pupil.pupil_id !== best.pupilId) {
+        tied = true
+      }
+    }
+  }
+  return best && !tied ? best.pupilId : null
+}
+
+/** Everyone who sat the paper, for picking whose script a file is. */
+export async function listAssessmentPupils(assessmentId: string): Promise<AssessmentPupilListItem[]> {
+  return withDbClient(async (client) => loadPaperPupils(client, (await loadPaper(client, assessmentId)).assessment_id))
 }
 
 export async function listAssessmentFiles(assessmentId: string): Promise<AssessmentFile[]> {
   const paper = await withDbClient((client) => loadPaper(client, assessmentId))
   return loadFiles(paper.assessment_id)
+}
+
+/** Links a file to the pupil whose script it is, or unlinks it with `pupilId: null`. */
+export async function linkAssessmentFileToPupil(
+  assessmentId: string,
+  fileName: string,
+  pupilId: string | null,
+): Promise<AssessmentFile> {
+  const { paper, pupils } = await withDbClient(async (client) => {
+    const found = await loadPaper(client, assessmentId)
+    return { paper: found, pupils: await loadPaperPupils(client, found.assessment_id) }
+  })
+  const file = (await loadFiles(paper.assessment_id)).find((f) => f.file_name === fileName)
+  if (!file) throw new Error(`File "${fileName}" is not attached to this paper`)
+  if (pupilId === null) {
+    await query('delete from assessment_pupil_files where assessment_id = $1 and file_name = $2', [paper.assessment_id, fileName])
+  } else {
+    if (!pupils.some((p) => p.pupil_id === pupilId)) throw new Error(`Pupil ${pupilId} did not sit this paper`)
+    await writeFileLink(paper.assessment_id, fileName, pupilId)
+  }
+  return { ...file, pupil_id: pupilId }
+}
+
+/** Links every unlinked file whose name starts with exactly one pupil's name. */
+export async function matchAssessmentFilesToPupils(assessmentId: string): Promise<{ matched: number; unmatched: string[] }> {
+  const { paper, pupils } = await withDbClient(async (client) => {
+    const found = await loadPaper(client, assessmentId)
+    return { paper: found, pupils: await loadPaperPupils(client, found.assessment_id) }
+  })
+  let matched = 0
+  const unmatched: string[] = []
+  for (const file of await loadFiles(paper.assessment_id)) {
+    if (file.pupil_id) continue
+    const pupilId = matchPupilByFileName(file.file_name, pupils)
+    if (pupilId) {
+      await writeFileLink(paper.assessment_id, file.file_name, pupilId)
+      matched += 1
+    } else {
+      unmatched.push(file.file_name)
+    }
+  }
+  return { matched, unmatched }
 }
 
 export async function removeAssessmentFile(assessmentId: string, fileName: string): Promise<void> {
@@ -868,6 +982,7 @@ export async function removeAssessmentFile(assessmentId: string, fileName: strin
   const paper = await withDbClient((client) => loadPaper(client, assessmentId))
   const { error } = await createLocalStorageClient(FILES_BUCKET).remove([`${paper.assessment_id}/${name}`])
   if (error) throw new Error(error.message)
+  await query('delete from assessment_pupil_files where assessment_id = $1 and file_name = $2', [paper.assessment_id, name])
 }
 
 /**
@@ -902,12 +1017,18 @@ async function loadFiles(assessmentId: string): Promise<AssessmentFile[]> {
     console.error('[assessments] Could not list files', { assessmentId, error })
     return []
   }
+  const { rows: links } = await query<{ file_name: string; pupil_id: string }>(
+    'select file_name, pupil_id from assessment_pupil_files where assessment_id = $1',
+    [assessmentId],
+  )
+  const pupilByFile = new Map(links.map((link) => [link.file_name, link.pupil_id]))
   return (data ?? [])
     .map((file) => AssessmentFileSchema.parse({
       assessment_id: assessmentId,
       file_name: file.name,
       size_bytes: file.metadata?.size ?? 0,
       path: filePath(assessmentId, file.name),
+      pupil_id: pupilByFile.get(file.name) ?? null,
     }))
     .sort((a, b) => a.file_name.localeCompare(b.file_name))
 }
@@ -976,8 +1097,9 @@ export async function getAssessmentPupilPage(assessmentId: string, pupilId: stri
   previous: AssessmentPupilListItem | null
   next: AssessmentPupilListItem | null
   onRoster: boolean
+  files: AssessmentFile[]
 }> {
-  return withDbClient(async (client) => {
+  const page = await withDbClient(async (client) => {
     const paper = await loadPaper(client, assessmentId)
     const pupils = await loadPaperPupils(client, paper.assessment_id)
     const index = pupils.findIndex((p) => p.pupil_id === pupilId)
@@ -989,6 +1111,8 @@ export async function getAssessmentPupilPage(assessmentId: string, pupilId: stri
       onRoster: pupils[index].on_roster,
     }
   })
+  const files = (await loadFiles(page.result.assessment.assessment_id)).filter((f) => f.pupil_id === pupilId)
+  return { ...page, files }
 }
 
 /**
@@ -1166,6 +1290,7 @@ export async function listReleasedAssessmentsForPupil(pupilId: string): Promise<
 export async function getReleasedPupilResult(assessmentId: string, pupilId: string): Promise<{
   result: PupilAssessmentResult
   objectives: PupilAssessmentObjective[]
+  scripts: PupilAssessmentScript[]
 } | null> {
   const id = assessmentId?.trim() ?? ''
   if (!UUID_RE.test(id)) return null
@@ -1176,9 +1301,29 @@ export async function getReleasedPupilResult(assessmentId: string, pupilId: stri
     )
     if (!rowCount) return null
     const { result, objectives } = await readPupilSheet(client, id, pupilId)
+    const { rows: scripts } = await client.query<{ file_name: string }>(
+      'select file_name from assessment_pupil_files where assessment_id = $1 and pupil_id = $2 order by file_name',
+      [id, pupilId],
+    )
     return {
       result: PupilAssessmentResultSchema.parse(result),
       objectives: objectives.map((o) => PupilAssessmentObjectiveSchema.parse(o)),
+      scripts: scripts.map((row) => PupilAssessmentScriptSchema.parse({ file_name: row.file_name, path: filePath(id, row.file_name) })),
     }
   })
+}
+
+/**
+ * Whether a pupil may download a file from the assessments bucket: only a
+ * file linked to them, on a paper whose feedback is released to them.
+ */
+export async function pupilMayOpenAssessmentFile(pupilId: string, assessmentId: string, fileName: string): Promise<boolean> {
+  if (!UUID_RE.test(assessmentId)) return false
+  const { rowCount } = await query(
+    `select 1 from assessments a
+       join assessment_pupil_files f on f.assessment_id = a.assessment_id
+      where a.assessment_id = $2 and f.file_name = $3 and f.pupil_id = $1 and ${RELEASED_FOR_PUPIL_SQL}`,
+    [pupilId, assessmentId, fileName],
+  )
+  return (rowCount ?? 0) > 0
 }
