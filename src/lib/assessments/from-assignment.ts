@@ -9,6 +9,8 @@ import {
 } from '@/lib/assessments/store'
 import type { AssignmentResultMatrix } from '@/types'
 
+export const NO_ANSWER_FEEDBACK = 'No answer submitted'
+
 /**
  * Turns an assignment's results into an assessment paper: one question per
  * scorable activity, objectives from the lesson's learning objectives, and each
@@ -298,7 +300,13 @@ export async function syncAssessmentFromAssignment(
     const marks = row.cells.flatMap((cell) => {
       const label = labelById.get(cell.activityId)
       const max = maxById.get(cell.activityId) ?? 1
-      if (!label || !cell.submissionId) return []
+      if (!label) return []
+      // No submission is a missing answer: 0 marks, still in the denominator,
+      // with a fixed comment so missing answers can be picked out later. A
+      // pupil who submitted nothing is recorded too, all zeros.
+      if (!cell.submissionId) {
+        return [{ label, awarded: 0, whyNotAwarded: null, howToImprove: NO_ANSWER_FEEDBACK }]
+      }
       const raw = cell.marksAwarded ?? (cell.score === null ? null : Math.round(cell.score * max))
       if (raw === null || raw === undefined) return []
       const awarded = Math.min(Math.max(Math.round(raw), 0), max)

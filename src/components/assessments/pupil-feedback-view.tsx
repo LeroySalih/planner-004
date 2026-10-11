@@ -48,16 +48,9 @@ export function PupilFeedbackView<Q extends ViewQuestion>({
           {result.marked_questions === 0 ? (
             <p className="text-xl font-semibold text-muted-foreground">Not marked yet</p>
           ) : (
-            <>
-              <p className="text-3xl font-bold tabular-nums">
-                {result.total_awarded} / {result.total_available} · {result.percent}%
-              </p>
-              {result.marked_questions < result.question_count && (
-                <p className="text-sm text-muted-foreground tabular-nums">
-                  {result.marked_questions} of {result.question_count} questions marked
-                </p>
-              )}
-            </>
+            <p className="text-3xl font-bold tabular-nums">
+              {result.total_awarded} / {result.total_available} · {result.percent}%
+            </p>
           )}
         </div>
       </section>
@@ -114,6 +107,7 @@ export function PupilFeedbackView<Q extends ViewQuestion>({
             key={question.label}
             question={question}
             showProvenance={showProvenance}
+            hasResult={result.marked_questions > 0}
             actions={renderQuestionActions?.(question)}
           />
         ))}
@@ -142,13 +136,17 @@ function FeedbackList({ title, items }: { title: string; items: string[] }) {
 function QuestionCard({
   question,
   showProvenance,
+  hasResult,
   actions,
 }: {
   question: ViewQuestion
   showProvenance: boolean
+  hasResult: boolean
   actions?: ReactNode
 }) {
   const marked = question.awarded !== null
+  // Once the pupil has a result, a question with no mark is a missing answer: 0.
+  const missing = !marked && hasResult
   return (
     <article className="rounded-lg border bg-card p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -165,10 +163,12 @@ function QuestionCard({
           <span
             className={cn(
               'rounded px-2 py-0.5 text-sm font-medium tabular-nums',
-              marked ? SCORE_BAND_CLASSES[scoreBand(question.awarded!, question.max_marks)] : 'bg-muted text-muted-foreground',
+              marked
+                ? SCORE_BAND_CLASSES[scoreBand(question.awarded!, question.max_marks)]
+                : missing ? SCORE_BAND_CLASSES.zero : 'bg-muted text-muted-foreground',
             )}
           >
-            {marked ? question.awarded : '–'} / {question.max_marks}
+            {marked ? question.awarded : missing ? 0 : '–'} / {question.max_marks}
           </span>
           {actions}
         </div>

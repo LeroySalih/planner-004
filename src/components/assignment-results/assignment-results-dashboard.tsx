@@ -268,7 +268,11 @@ function resolveCellBackgroundTone(cell: AssignmentResultCell, maxMarks: number)
   if (cell.needsMarking) {
     return "bg-gray-400 text-gray-900 border border-gray-500 hover:bg-gray-300"
   }
-  if (cell.status === "missing" || !cell.submissionId) {
+  // No submission is a missing answer: 0 marks, shown red like any zero.
+  if (!cell.submissionId) {
+    return resolveScoreTone(0, "auto")
+  }
+  if (cell.status === "missing") {
     return "bg-background text-muted-foreground border border-dashed border-border"
   }
   // Colour from the same marksAwarded/maxMarks fraction the cell displays, not the stored score.

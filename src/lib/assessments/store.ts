@@ -239,6 +239,9 @@ function computeTotals(
   questions: QuestionRow[],
   marks: MarkRow[],
 ) {
+  // A question with no mark is a missing answer and counts as 0: every
+  // question is in the denominator, so a skipped question lowers the
+  // percentage rather than disappearing from it.
   const awardedByQuestion = new Map(marks.map((m) => [m.question_id, m.awarded]))
   const marked = questions.filter((q) => awardedByQuestion.has(q.question_id))
   const sum = (list: QuestionRow[]) => ({
@@ -247,9 +250,9 @@ function computeTotals(
   })
   const subtotals: AssessmentObjectiveSubtotal[] = objectives.map((o) => ({
     code: o.code,
-    ...sum(marked.filter((q) => q.objective_code === o.code)),
+    ...sum(questions.filter((q) => q.objective_code === o.code)),
   }))
-  const total = sum(marked)
+  const total = sum(questions)
   return {
     total_awarded: total.awarded,
     total_available: total.available,

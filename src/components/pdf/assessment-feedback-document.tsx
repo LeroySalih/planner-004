@@ -26,7 +26,6 @@ const styles = StyleSheet.create({
   pupilName: { fontSize: 18, fontFamily: "Helvetica-Bold" },
   totals: { alignItems: "flex-end" },
   totalMarks: { fontSize: 14, fontFamily: "Helvetica-Bold" },
-  totalNote: { fontSize: 8, color: MUTED },
   sectionTitle: { fontSize: 10, fontFamily: "Helvetica-Bold", marginBottom: 4, marginTop: 6 },
   table: { borderWidth: 1, borderColor: BORDER, borderBottomWidth: 0 },
   row: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: BORDER },
@@ -81,11 +80,6 @@ function PupilSheet({ paper, objectives, pupil }: { paper: AssessmentPaperHeader
           <Text style={styles.totalMarks}>
             {pupil.total_awarded} / {pupil.total_available} marks  ·  {pupil.percent}%
           </Text>
-          {pupil.marked_questions < pupil.question_count && (
-            <Text style={styles.totalNote}>
-              {pupil.marked_questions} of {pupil.question_count} questions marked
-            </Text>
-          )}
         </View>
       </View>
 
@@ -156,8 +150,9 @@ function PupilSheet({ paper, objectives, pupil }: { paper: AssessmentPaperHeader
           <View key={question.label} style={styles.row} wrap={false}>
             <Text style={[styles.cell, { width: Q_COLS.label }]}>{question.label}</Text>
             <Text style={[styles.cell, { width: Q_COLS.lo }]}>{question.objective_code}</Text>
-            <Text style={[styles.cell, { width: Q_COLS.marks }]}>
-              {question.awarded === null ? "—" : `${question.awarded} / ${question.max_marks}`}
+            {/* A missing answer is 0 marks, shown red like any zero. */}
+            <Text style={[styles.cell, { width: Q_COLS.marks }, (question.awarded ?? 0) === 0 ? { color: "#dc2626", fontFamily: "Helvetica-Bold" } : {}]}>
+              {`${question.awarded ?? 0} / ${question.max_marks}`}
             </Text>
             <Text style={[styles.cell, { width: Q_COLS.answer }]}>{question.correct_answer ?? ""}</Text>
             <Text style={[styles.cell, { width: Q_COLS.why }]}>{question.why_not_awarded ?? ""}</Text>

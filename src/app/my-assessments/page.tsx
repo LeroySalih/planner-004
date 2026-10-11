@@ -35,11 +35,6 @@ export default async function MyAssessmentsPage() {
                   <p className="font-semibold tabular-nums">
                     {paper.total_awarded} / {paper.total_available} · {paper.percent}%
                   </p>
-                  {paper.marked_questions < paper.question_count && (
-                    <p className="text-sm text-muted-foreground tabular-nums">
-                      {paper.marked_questions} of {paper.question_count} questions marked
-                    </p>
-                  )}
                 </div>
               </Link>
             </li>

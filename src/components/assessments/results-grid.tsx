@@ -10,27 +10,27 @@ const STICKY = 'sticky left-0 z-10 bg-card'
 /**
  * Pupils x questions, then total and per-objective columns.
  *
- * Footer averages follow one rule. Per question: the mean mark as a % of max,
- * over the pupils who have that question marked. Total and per objective: the
- * mean of the pupils' own percentages, over the pupils with at least one mark
- * in that scope (a pupil's totals already count only their marked questions).
- * Off-roster ("left group") pupils who sat the paper are included: they sat
- * it. Unmarked pupils and questions never pull an average down to 0.
+ * A missing answer is 0 marks. For a pupil with a result, a question with no
+ * mark shows as a red 0 and counts as 0 everywhere: in their total (every
+ * question is in the denominator) and in the class averages. Pupils with no
+ * result at all are listed but left out of the averages until they have one.
+ * Off-roster ("left group") pupils who sat the paper are included: they sat it.
  */
 export function ResultsGrid({ paper }: { paper: AssessmentGrid }) {
+  const sat = paper.pupils.filter((p) => p.has_result)
   const questionAverage = (label: string, max: number) => {
-    const marks = paper.pupils.map((p) => p.marks[label]).filter((m) => m !== undefined)
-    if (marks.length === 0) return null
-    return percentOf(marks.reduce((sum, m) => sum + m.awarded, 0), marks.length * max)
+    if (sat.length === 0) return null
+    const awarded = sat.reduce((sum, p) => sum + (p.marks[label]?.awarded ?? 0), 0)
+    return percentOf(awarded, sat.length * max)
   }
   const meanPercent = (scopes: { awarded: number; available: number }[]) => {
     const scored = scopes.filter((s) => s.available > 0)
     if (scored.length === 0) return null
     return Math.round(scored.reduce((sum, s) => sum + (s.awarded / s.available) * 100, 0) / scored.length)
   }
-  const totalAverage = meanPercent(paper.pupils.map((p) => ({ awarded: p.total_awarded, available: p.total_available })))
+  const totalAverage = meanPercent(sat.map((p) => ({ awarded: p.total_awarded, available: p.total_available })))
   const objectiveAverage = (code: string) =>
-    meanPercent(paper.pupils.map((p) => p.objectives.find((s) => s.code === code) ?? { awarded: 0, available: 0 }))
+    meanPercent(sat.map((p) => p.objectives.find((s) => s.code === code) ?? { awarded: 0, available: 0 }))
 
   return (
     <div className="space-y-3">
@@ -70,16 +70,20 @@ export function ResultsGrid({ paper }: { paper: AssessmentGrid }) {
                 </th>
                 {paper.questions.map((q) => {
                   const mark = pupil.marks[q.label]
+                  // No mark on a pupil with a result is a missing answer: 0.
+                  const missing = !mark && pupil.has_result
                   return (
                     <td
                       key={q.label}
                       className={cn(
                         'relative border-b px-1.5 py-1.5 text-center tabular-nums',
-                        mark ? SCORE_BAND_CLASSES[scoreBand(mark.awarded, q.max_marks)] : 'bg-muted/40',
+                        mark
+                          ? SCORE_BAND_CLASSES[scoreBand(mark.awarded, q.max_marks)]
+                          : missing ? SCORE_BAND_CLASSES.zero : 'bg-muted/40',
                       )}
-                      title={mark?.provenance === 'teacher' ? 'Edited by a teacher' : undefined}
+                      title={mark?.provenance === 'teacher' ? 'Edited by a teacher' : missing ? 'No answer: 0 marks' : undefined}
                     >
-                      {mark ? mark.awarded : ''}
+                      {mark ? mark.awarded : missing ? 0 : ''}
                       {mark?.provenance === 'teacher' && (
                         <span className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-sky-600" aria-label="teacher edited" />
                       )}
@@ -90,14 +94,7 @@ export function ResultsGrid({ paper }: { paper: AssessmentGrid }) {
                   {pupil.marked_questions === 0 ? (
                     <span className="text-xs italic">Not marked yet</span>
                   ) : (
-                    <>
-                      {pupil.total_awarded} / {pupil.total_available} · {pupil.percent}%
-                      {pupil.marked_questions < pupil.question_count && (
-                        <div className="text-xs font-normal text-muted-foreground">
-                          {pupil.marked_questions} of {pupil.question_count} marked
-                        </div>
-                      )}
-                    </>
+                    <>{pupil.total_awarded} / {pupil.total_available} · {pupil.percent}%</>
                   )}
                 </td>
                 {pupil.objectives.map((o) => (
@@ -143,8 +140,8 @@ function Legend() {
   const items = [
     { label: 'Full marks', className: SCORE_BAND_CLASSES.full },
     { label: 'Some marks', className: SCORE_BAND_CLASSES.partial },
-    { label: 'No marks', className: SCORE_BAND_CLASSES.zero },
-    { label: 'Not marked', className: 'bg-muted/40' },
+    { label: 'No marks or no answer', className: SCORE_BAND_CLASSES.zero },
+    { label: 'No result', className: 'bg-muted/40' },
   ]
   return (
     <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
