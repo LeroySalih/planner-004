@@ -4,25 +4,31 @@ import { useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { Eye, Loader2 } from "lucide-react"
 
-export type PupilPickerProps = {
-  groups: Array<{ groupId: string; subject: string | null }>
-  groupId: string | null
-  pupils: Array<{ pupilId: string; name: string }>
-  pupilId: string
+import type { PupilPickerData } from "@/lib/pupil-picker"
+
+export type PupilPickerProps = PupilPickerData & {
+  /** The page to open for the chosen pupil, e.g. "/pupil-lessons" or "/my-assessments". */
+  basePath: string
+  /** "path" puts the pupil id in the URL path (My Units); "query" uses ?pupil=. */
+  pupilIn: "path" | "query"
 }
 
 /**
- * Admin only: pick a class, then a pupil in it, to see My Units exactly as
- * that pupil does. The class travels in ?group= so the pupil list survives
- * the navigation.
+ * Admin only: pick a class, then a pupil in it, to see a pupil-facing page
+ * exactly as that pupil does. The class travels in ?group= so the pupil list
+ * survives the navigation.
  */
-export function PupilPicker({ groups, groupId, pupils, pupilId }: PupilPickerProps) {
+export function PupilPicker({ groups, groupId, pupils, pupilId, basePath, pupilIn }: PupilPickerProps) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
 
   const go = (nextPupilId: string, nextGroupId: string | null) => {
-    const query = nextGroupId ? `?group=${encodeURIComponent(nextGroupId)}` : ""
-    startTransition(() => router.push(`/pupil-lessons/${encodeURIComponent(nextPupilId)}${query}`))
+    const params = new URLSearchParams()
+    if (pupilIn === "query") params.set("pupil", nextPupilId)
+    if (nextGroupId) params.set("group", nextGroupId)
+    const path = pupilIn === "path" ? `${basePath}/${encodeURIComponent(nextPupilId)}` : basePath
+    const search = params.toString()
+    startTransition(() => router.push(search ? `${path}?${search}` : path))
   }
 
   const selectClass =

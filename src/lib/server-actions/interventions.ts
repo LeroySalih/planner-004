@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 
 import { requireAuthenticatedProfile, requireRole } from '@/lib/auth'
+import { viewedPupilId } from '@/lib/pupil-picker'
 import {
   INTERVENTION_STATUSES,
   deactivateInterventions,
@@ -58,10 +59,11 @@ export type MyIntervention = Pick<
   | 'score'
 >
 
-export async function readMyInterventionsAction(): Promise<{ data: MyIntervention[] | null; error: string | null }> {
+/** `pupilId` lets an admin see the page as that pupil; ignored for anyone else. */
+export async function readMyInterventionsAction(pupilId?: string): Promise<{ data: MyIntervention[] | null; error: string | null }> {
   const profile = await requireAuthenticatedProfile()
   try {
-    const rows = await readInterventions({ pupilId: profile.userId, statuses: ['assigned', 'in_progress', 'completed'] })
+    const rows = await readInterventions({ pupilId: viewedPupilId(profile, pupilId), statuses: ['assigned', 'in_progress', 'completed'] })
     // The reason and who set it are notes for teachers, not the pupil.
     const data = rows.map((row) => ({
       intervention_id: row.intervention_id,

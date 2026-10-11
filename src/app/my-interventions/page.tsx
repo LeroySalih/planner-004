@@ -1,13 +1,28 @@
 import Link from 'next/link'
 
 import { InterventionStatusBadge, formatDay, formatScore } from '@/components/interventions/status-badge'
+import { PupilPicker } from '@/components/pupil-picker'
+import { requireAuthenticatedProfile } from '@/lib/auth'
+import { loadPupilPicker, viewedPupilId } from '@/lib/pupil-picker'
 import { readMyInterventionsAction } from '@/lib/server-actions/interventions'
 
-export default async function MyInterventionsPage() {
-  const { data, error } = await readMyInterventionsAction()
+type PageProps = {
+  searchParams: Promise<{ pupil?: string; group?: string }>
+}
+
+export default async function MyInterventionsPage({ searchParams }: PageProps) {
+  const profile = await requireAuthenticatedProfile()
+  const { pupil, group } = await searchParams
+  // Admins may view the page as any pupil (?pupil=); everyone else sees their own.
+  const pupilId = viewedPupilId(profile, pupil)
+  const [{ data, error }, picker] = await Promise.all([
+    readMyInterventionsAction(pupilId),
+    loadPupilPicker(profile, pupilId, group),
+  ])
 
   return (
     <main className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-10">
+      {picker && <PupilPicker {...picker} basePath="/my-interventions" pupilIn="query" />}
       <header className="space-y-1">
         <h1 className="text-3xl font-semibold">My Interventions</h1>
         <p className="text-sm text-muted-foreground">Lessons your teacher has set just for you.</p>

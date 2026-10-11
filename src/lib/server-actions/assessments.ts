@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 
 import { requireAuthenticatedProfile, requireRole } from '@/lib/auth'
+import { viewedPupilId } from '@/lib/pupil-picker'
 import { FEEDBACK_MAX_ITEM_LENGTH, FEEDBACK_MAX_ITEMS } from '@/lib/assessments/limits'
 import { syncAssessmentFromAssignment } from '@/lib/assessments/from-assignment'
 import { readAssignmentResultsAction } from '@/lib/server-actions/assignment-results'
@@ -369,10 +370,11 @@ const MyListResult = z.object({
   error: z.string().nullable(),
 })
 
-export async function readMyAssessmentsAction(): Promise<z.infer<typeof MyListResult>> {
+/** `pupilId` lets an admin see the page as that pupil; ignored for anyone else. */
+export async function readMyAssessmentsAction(pupilId?: string): Promise<z.infer<typeof MyListResult>> {
   const profile = await requireAuthenticatedProfile()
   try {
-    return MyListResult.parse({ data: await listReleasedAssessmentsForPupil(profile.userId), error: null })
+    return MyListResult.parse({ data: await listReleasedAssessmentsForPupil(viewedPupilId(profile, pupilId)), error: null })
   } catch (error) {
     return MyListResult.parse({ data: null, error: errorMessage(error) })
   }
@@ -391,10 +393,10 @@ const MyPaperResult = z.object({
  * `data: null, error: null` means not found. Unknown, unreleased and not-sat
  * papers all look the same, so an unreleased paper's existence never leaks.
  */
-export async function readMyAssessmentAction(assessmentId: string): Promise<z.infer<typeof MyPaperResult>> {
+export async function readMyAssessmentAction(assessmentId: string, pupilId?: string): Promise<z.infer<typeof MyPaperResult>> {
   const profile = await requireAuthenticatedProfile()
   try {
-    const found = await getReleasedPupilResult(assessmentId, profile.userId)
+    const found = await getReleasedPupilResult(assessmentId, viewedPupilId(profile, pupilId))
     return MyPaperResult.parse({ data: found, error: null })
   } catch (error) {
     return MyPaperResult.parse({ data: null, error: errorMessage(error) })

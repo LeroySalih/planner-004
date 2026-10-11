@@ -7,17 +7,21 @@ import { readMyAssessmentAction } from '@/lib/server-updates'
 
 type PageProps = {
   params: Promise<{ assessmentId: string }>
+  searchParams: Promise<{ pupil?: string; group?: string }>
 }
 
-export default async function MyAssessmentPage({ params }: PageProps) {
+export default async function MyAssessmentPage({ params, searchParams }: PageProps) {
   const { assessmentId } = await params
-  const { data, error } = await readMyAssessmentAction(assessmentId)
+  const { pupil, group } = await searchParams
+  // ?pupil= is honoured for admins only (see viewedPupilId).
+  const { data, error } = await readMyAssessmentAction(assessmentId, pupil)
+  const backQuery = pupil ? `?${new URLSearchParams({ pupil, ...(group ? { group } : {}) }).toString()}` : ''
 
   if (!data && !error) notFound()
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-6 py-10">
-      <Link href="/my-assessments" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+      <Link href={`/my-assessments${backQuery}`} className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
         <ChevronLeft className="size-4" /> My Assessments
       </Link>
       {data ? (
