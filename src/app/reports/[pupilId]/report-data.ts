@@ -1,7 +1,7 @@
 import { z } from "zod"
 
 import {
-  AssignmentsWithUnitSchema,
+  AssignmentWithUnitSchema,
   FeedbacksSchema,
   GroupMembershipsWithGroupSchema,
   LearningObjectiveWithCriteriaSchema,
@@ -39,17 +39,21 @@ export const ReportDatasetUnitSchema = z.object({
   lessons: z.array(ReportDatasetLessonSchema).default([]),
 })
 
+// The dataset's assignments carry the lesson, which the shared schema omits;
+// it decides which lessons count towards progress (startedLessonIds).
+const ReportAssignmentSchema = AssignmentWithUnitSchema.extend({ lesson_id: z.string() })
+
 export const ReportDatasetSchema = z.object({
   profile: ProfileSchema.nullable().optional().default(null),
   memberships: GroupMembershipsWithGroupSchema.default([]),
-  assignments: AssignmentsWithUnitSchema.default([]),
+  assignments: z.array(ReportAssignmentSchema).default([]),
   feedback: FeedbacksSchema.default([]),
   units: z.array(ReportDatasetUnitSchema).default([]),
 })
 
 export type ReportDataset = z.infer<typeof ReportDatasetSchema>
 export type ReportMembership = z.infer<typeof GroupMembershipsWithGroupSchema>[number]
-export type ReportAssignment = z.infer<typeof AssignmentsWithUnitSchema>[number]
+export type ReportAssignment = z.infer<typeof ReportAssignmentSchema>
 
 async function fetchReportDataset(
   pupilId: string,
@@ -351,6 +355,7 @@ export async function getPreparedUnitReport(
             unitId,
             pupilId,
             unitDataset,
+            startedLessonIds(dataset.assignments),
             options?.authEndTime
           )
 
@@ -455,7 +460,13 @@ export async function buildDatasetUnitSummaries({
   for (const [unitId, unitAssignments] of assignmentsByUnit.entries()) {
     const meta = unitMeta.get(unitId)
     const unitDataset = unitDatasetMap.get(unitId)
-    const lessonContext = await loadUnitLessonContextFromDataset(unitId, pupilId, unitDataset, authEndTime)
+    const lessonContext = await loadUnitLessonContextFromDataset(
+      unitId,
+      pupilId,
+      unitDataset,
+      startedLessonIds(dataset.assignments, groupIdFilter),
+      authEndTime,
+    )
     const { rows, unitAverages } = buildUnitRows({
       objectives: unitDataset?.learning_objectives ?? [],
       lessons: lessonContext.lessons,
@@ -522,7 +533,9 @@ function buildLessonSubmissionSummaries(
   activities: LessonActivity[],
   submissions: Submission[],
 ): LessonSubmissionSummary[] {
-  const scorableActivities = activities.filter((activity) => isScorableActivityType(activity.type))
+  const scorableActivities = activities.filter(
+    (activity) => activity.active !== false && isScorableActivityType(activity.type),
+  )
 
   // The dataset carries every attempt; only each pupil's latest one scores.
   const submissionsByActivity = new Map<string, Submission[]>()
@@ -744,10 +757,29 @@ type UnitLessonContext = {
   scoreSummary: { average: number | null; error: string | null }
 }
 
+/**
+ * Lessons that count for a pupil's report, by the progress baseline: set to
+ * them (optionally through one group) with a start date that has arrived.
+ * Lessons of the unit that were never set, or not started yet, don't count.
+ */
+export function startedLessonIds(
+  assignments: ReportDataset["assignments"],
+  groupId?: string | null,
+): Set<string> {
+  const today = new Date().toISOString().slice(0, 10)
+  return new Set(
+    assignments
+      .filter((assignment) => !groupId || assignment.group_id === groupId)
+      .filter((assignment) => typeof assignment.start_date === "string" && assignment.start_date.slice(0, 10) <= today)
+      .map((assignment) => assignment.lesson_id),
+  )
+}
+
 export async function loadUnitLessonContextFromDataset(
   unitId: string,
   pupilId: string,
   unitDataset: ReportDataset["units"][number] | undefined,
+  countedLessonIds: Set<string>,
   authEndTime?: number,
 ): Promise<UnitLessonContext> {
   return withTelemetry(
@@ -765,7 +797,7 @@ export async function loadUnitLessonContextFromDataset(
         }
       }
 
-      const lessons = unitDataset.lessons ?? []
+      const lessons = (unitDataset.lessons ?? []).filter((lesson) => countedLessonIds.has(lesson.lesson_id))
       if (lessons.length === 0) {
         return {
           lessons: [],
@@ -773,8 +805,10 @@ export async function loadUnitLessonContextFromDataset(
         }
       }
 
-      let activitiesScoreSum = 0
-      let totalActivityCount = 0
+      // Progress baseline: total marks over total available, every scorable
+      // activity counting and a missing or unmarked one scoring 0.
+      let unitMarks = 0
+      let unitMaxMarks = 0
       const enrichedLessons: UnitLessonContext["lessons"] = []
 
       for (const lesson of lessons) {
@@ -811,24 +845,20 @@ export async function loadUnitLessonContextFromDataset(
 
         const submissionSummaries = buildLessonSubmissionSummaries(lesson.activities ?? [], lesson.submissions ?? [])
 
-        let lessonTotalSum = 0
-        let lessonActivityCount = 0
-
+        let lessonMarks = 0
+        let lessonMaxMarks = 0
+        const maxMarksByActivity = new Map((lesson.activities ?? []).map((a) => [a.activity_id, a.max_marks ?? 1]))
         for (const summary of submissionSummaries) {
           // One entry per pupil: their latest attempt (see latestAttempts).
-          const activityScore = summary.scores.find((entry) => entry.userId === pupilId)?.score
-          if (typeof activityScore !== "number" || !Number.isFinite(activityScore)) {
-            continue
-          }
-
-          activitiesScoreSum += activityScore
-          totalActivityCount += 1
-
-          lessonTotalSum += activityScore
-          lessonActivityCount += 1
+          const entry = summary.scores.find((score) => score.userId === pupilId)
+          const maxMarks = maxMarksByActivity.get(summary.activityId) ?? 1
+          lessonMarks += entry?.marksAwarded ?? 0
+          lessonMaxMarks += maxMarks
         }
+        unitMarks += lessonMarks
+        unitMaxMarks += lessonMaxMarks
 
-        const lessonAverage = lessonActivityCount > 0 ? lessonTotalSum / lessonActivityCount : null
+        const lessonAverage = lessonMaxMarks > 0 ? lessonMarks / lessonMaxMarks : null
 
         const { activities, submissions, ...lessonBase } = lesson
         const normalizedLesson = lessonBase as LessonWithObjectives
@@ -843,7 +873,7 @@ export async function loadUnitLessonContextFromDataset(
         })
       }
 
-      const average = totalActivityCount > 0 ? activitiesScoreSum / totalActivityCount : null
+      const average = unitMaxMarks > 0 ? unitMarks / unitMaxMarks : null
 
       return {
         lessons: enrichedLessons,

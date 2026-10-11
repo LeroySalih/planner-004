@@ -291,6 +291,8 @@ export async function readLessonSubmissionSummariesAction(
     const viewerTotals = { marks: 0, maxMarks: 0 };
     const viewerSummativeTotals = { marks: 0, maxMarks: 0 };
 
+    const marksByActivity = new Map<string, Map<string, number | null>>();
+
     for (const activity of scorableActivities) {
       const activityType = (activity.type ?? "").trim();
       const activityTitle = (activity.title ?? "Untitled activity").trim() ||
@@ -302,27 +304,13 @@ export async function readLessonSubmissionSummariesAction(
       const isSummative = activity.is_summative ?? false;
       const maxMarks = activity.max_marks;
 
-      // Marks-based contributions to the lesson-level averages (separate from
-      // summary.scores[].score below, which remains a 0-1 fraction for per-pupil
-      // display).
+      // Each pupil's marks on this activity, for the lesson-level averages
+      // (separate from summary.scores[].score below, a 0-1 fraction for
+      // per-pupil display). Totals are summed after every activity is seen.
       const marksByUser = new Map<string, number | null>();
+      marksByActivity.set(activity.activity_id, marksByUser);
       const addMarksContribution = (userId: string, marksAwarded: number | null) => {
         marksByUser.set(userId, marksAwarded);
-        if (marksAwarded === null) return;
-        overallTotals.marks += marksAwarded;
-        overallTotals.maxMarks += maxMarks;
-        if (isSummative) {
-          overallSummativeTotals.marks += marksAwarded;
-          overallSummativeTotals.maxMarks += maxMarks;
-        }
-        if (viewerUserId && userId === viewerUserId) {
-          viewerTotals.marks += marksAwarded;
-          viewerTotals.maxMarks += maxMarks;
-          if (isSummative) {
-            viewerSummativeTotals.marks += marksAwarded;
-            viewerSummativeTotals.maxMarks += maxMarks;
-          }
-        }
       };
 
       const summary: LessonSubmissionSummary = {
@@ -771,6 +759,29 @@ export async function readLessonSubmissionSummariesAction(
       }));
 
       summaries.push(summary);
+    }
+
+    // Progress baseline: every scorable activity counts for every pupil, and a
+    // missing or unmarked one is 0 marks out of its max. For the viewer that is
+    // their own work; otherwise every pupil who took part in the lesson.
+    const participants = viewerUserId
+      ? [viewerUserId]
+      : Array.from(new Set(submissions.map((submission) => submission.user_id)));
+    for (const activity of scorableActivities) {
+      const maxMarks = activity.max_marks;
+      const isSummative = activity.is_summative ?? false;
+      const marksByUser = marksByActivity.get(activity.activity_id);
+      for (const userId of participants) {
+        const marks = marksByUser?.get(userId) ?? 0;
+        const totals = viewerUserId ? viewerTotals : overallTotals;
+        const summativeTotals = viewerUserId ? viewerSummativeTotals : overallSummativeTotals;
+        totals.marks += marks;
+        totals.maxMarks += maxMarks;
+        if (isSummative) {
+          summativeTotals.marks += marks;
+          summativeTotals.maxMarks += maxMarks;
+        }
+      }
     }
 
     // Marks-weighted percentage: sum(marksAwarded) / sum(maxMarks) * 100, rather than

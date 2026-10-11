@@ -73,17 +73,6 @@ export async function readPupilTasksAction(userId: string): Promise<{
     );
 
     // 2. Underperforming tasks: overdue lessons with < 80% score
-    const scorableTypes = [
-      "multiple-choice-question",
-      "short-text-question",
-      "text-question",
-      "long-text-question",
-      "upload-file",
-      "upload-url",
-      "feedback",
-      "sketch-render",
-    ];
-
     const { rows: underperformingRows } = await query<{
       lesson_id: string;
       lesson_title: string;
@@ -116,7 +105,7 @@ export async function readPupilTasksAction(userId: string): Promise<{
         select a.activity_id, a.lesson_id, a.type as activity_type, a.max_marks
         from activities a
         where a.lesson_id in (select lesson_id from pupil_lessons)
-          and a.type = any($2::text[])
+          and is_scorable_activity_type(a.type)
           and coalesce(a.active, true) = true
       ),
       latest_submissions as (
@@ -128,6 +117,7 @@ export async function readPupilTasksAction(userId: string): Promise<{
         where s.user_id = $1
         order by s.activity_id, s.attempt_number desc, s.submitted_at desc
       ),
+      -- Progress baseline: every scorable activity counts, missing = 0.
       lesson_scores as (
         select
           sa.lesson_id,
@@ -151,7 +141,7 @@ export async function readPupilTasksAction(userId: string): Promise<{
       where ls.max_score > 0
         and (ls.score::numeric / nullif(ls.max_score, 0)) < 0.8
       `,
-      [normalizedUserId, scorableTypes],
+      [normalizedUserId],
     );
 
     // Combine into tasks grouped by subject

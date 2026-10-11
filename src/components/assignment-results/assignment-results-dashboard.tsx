@@ -343,12 +343,16 @@ function recalculateMatrix(
       return cell
     })
 
-    const activityCount = activities.length
-    const activitiesScore = nextCells.reduce(
-      (acc, cell) => acc + (typeof cell.score === "number" ? cell.score : 0),
-      0,
-    )
-    const averageScore = activityCount > 0 ? activitiesScore / activityCount : null
+    // Progress baseline: total marks over total available, a missing or
+    // unmarked activity counting as 0 of its max marks.
+    let rowMarks = 0
+    let rowMaxMarks = 0
+    nextCells.forEach((cell, index) => {
+      const maxMarks = activities[index]?.maxMarks || 1
+      rowMarks += (typeof cell.score === "number" ? cell.score : 0) * maxMarks
+      rowMaxMarks += maxMarks
+    })
+    const averageScore = rowMaxMarks > 0 ? rowMarks / rowMaxMarks : null
 
     return { ...row, cells: nextCells, averageScore }
   })
@@ -360,12 +364,15 @@ function recalculateMatrix(
 
   const activitySummaries: AssignmentResultActivitySummary[] = activities.map((activity) => {
     const entry = totals.get(activity.activityId) ?? { total: 0, count: 0, submittedCount: 0 }
+    // Weighted by max marks: overall figures are total marks over total
+    // available, not a mean of per-activity percentages.
     if (entry.count > 0) {
-      overallTotal += entry.total
-      overallCount += entry.count
+      const maxMarks = activity.maxMarks || 1
+      overallTotal += entry.total * maxMarks
+      overallCount += entry.count * maxMarks
       if (activity.isSummative) {
-        summativeOverallTotal += entry.total
-        summativeOverallCount += entry.count
+        summativeOverallTotal += entry.total * maxMarks
+        summativeOverallCount += entry.count * maxMarks
       }
     }
     return {

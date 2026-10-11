@@ -17,6 +17,8 @@ type LessonMatrixData = {
   firstName: string
   lastName: string
   avgScore: number | null
+  marks: number
+  maxMarks: number
 }
 
 type LessonMatrixProps = {
@@ -33,6 +35,8 @@ type MatrixStructure = {
     lessonTitle: string
     pupilMetrics: Map<string, {
       avgScore: number | null
+      marks: number
+      maxMarks: number
     }>
   }[]
 }
@@ -84,24 +88,21 @@ function parseYearFromGroupId(groupId: string): number | null {
   return null
 }
 
+// Progress baseline: total marks over total available across the lessons,
+// not a mean of lesson percentages.
 function calculatePupilAverage(
   pupilId: string,
-  lessons: { pupilMetrics: Map<string, { avgScore: number | null }> }[]
+  lessons: { pupilMetrics: Map<string, { marks: number; maxMarks: number }> }[]
 ): number | null {
-  const scores: number[] = []
-
+  let marks = 0
+  let maxMarks = 0
   for (const lesson of lessons) {
     const metrics = lesson.pupilMetrics.get(pupilId)
-    if (metrics && typeof metrics.avgScore === 'number' && !Number.isNaN(metrics.avgScore)) {
-      scores.push(metrics.avgScore)
-    }
+    if (!metrics) continue
+    marks += metrics.marks
+    maxMarks += metrics.maxMarks
   }
-
-  if (scores.length === 0) {
-    return null
-  }
-
-  return scores.reduce((sum, score) => sum + score, 0) / scores.length
+  return maxMarks > 0 ? (marks / maxMarks) * 100 : null
 }
 
 export function LessonMatrix({ data, summativeOnly, groupId, unitId }: LessonMatrixProps) {
@@ -133,6 +134,8 @@ export function LessonMatrix({ data, summativeOnly, groupId, unitId }: LessonMat
     lessonTitle: string
     pupilMetrics: Map<string, {
       avgScore: number | null
+      marks: number
+      maxMarks: number
     }>
   }>()
 
@@ -157,7 +160,9 @@ export function LessonMatrix({ data, summativeOnly, groupId, unitId }: LessonMat
 
     const lessonEntry = lessonMap.get(row.lessonId)!
     lessonEntry.pupilMetrics.set(row.pupilId, {
-      avgScore: row.avgScore
+      avgScore: row.avgScore,
+      marks: row.marks,
+      maxMarks: row.maxMarks,
     })
   }
 

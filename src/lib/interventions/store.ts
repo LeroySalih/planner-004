@@ -92,7 +92,9 @@ export async function readInterventions(filter: InterventionFilter = {}): Promis
        select distinct on (s.activity_id)
               s.activity_id, acts.lesson_id, acts.scorable,
               case when acts.scorable
-                   then compute_submission_base_score(s.body::jsonb, acts.type, acts.max_marks) end as score
+                   then compute_submission_base_score(s.body::jsonb, acts.type, acts.max_marks) end as score,
+              case when acts.scorable
+                   then compute_submission_marks(s.body::jsonb, acts.type, coalesce(acts.max_marks, 1)) end as marks
          from submissions s
          join acts on acts.activity_id = s.activity_id
          join ia on ia.lesson_id = acts.lesson_id and ia.pupil_id = s.user_id
@@ -117,7 +119,11 @@ export async function readInterventions(filter: InterventionFilter = {}): Promis
             (select count(*) from acts where acts.lesson_id = ia.lesson_id and acts.scorable)::int as scorable_activities,
             (select count(*) from cur where cur.lesson_id = ia.lesson_id and cur.scorable)::int as submitted_activities,
             (select count(cur.score) from cur where cur.lesson_id = ia.lesson_id)::int as scored_activities,
-            (select avg(cur.score) from cur where cur.lesson_id = ia.lesson_id)::float8 as score,
+            -- Progress baseline: total marks over total available across every
+            -- scorable activity, a missing or unmarked one scoring 0.
+            (select sum(coalesce(cur.marks, 0))::float8 / nullif(sum(coalesce(acts.max_marks, 1)), 0)
+               from acts left join cur on cur.activity_id = acts.activity_id
+              where acts.lesson_id = ia.lesson_id and acts.scorable) as score,
             (select min(first_at) from firsts where firsts.lesson_id = ia.lesson_id) as started_at,
             (select max(first_at) from firsts where firsts.lesson_id = ia.lesson_id and firsts.scorable) as last_scorable_at,
             coalesce((

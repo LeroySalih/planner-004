@@ -1055,15 +1055,16 @@ export async function readAssignmentResultsAction(
             return resolved;
           });
 
-          const activityCount = activities.length;
-          const activitiesScore = cells.reduce(
-            (acc, cell) =>
-              acc + (typeof cell.score === "number" ? cell.score : 0),
-            0,
-          );
-          const averageScore = activityCount > 0
-            ? activitiesScore / activityCount
-            : null;
+          // Progress baseline: total marks over total available, a missing or
+          // unmarked activity counting as 0 of its max marks.
+          let rowMarks = 0;
+          let rowMaxMarks = 0;
+          cells.forEach((cell, index) => {
+            const maxMarks = activities[index]?.maxMarks || 1;
+            rowMarks += (typeof cell.score === "number" ? cell.score : 0) * maxMarks;
+            rowMaxMarks += maxMarks;
+          });
+          const averageScore = rowMaxMarks > 0 ? rowMarks / rowMaxMarks : null;
 
           return AssignmentResultRowSchema.parse({
             pupil,
@@ -1081,9 +1082,12 @@ export async function readAssignmentResultsAction(
             ? entry.total / entry.count
             : null;
 
+          // Weighted by max marks, so the overall figure is total marks over
+          // total available rather than a mean of per-activity percentages.
           if (entry) {
-            overallTotal += entry.total;
-            overallCount += entry.count;
+            const maxMarks = activity.maxMarks || 1;
+            overallTotal += entry.total * maxMarks;
+            overallCount += entry.count * maxMarks;
           }
 
           return {

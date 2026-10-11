@@ -11,26 +11,11 @@ export async function getLOProgressMatrixAction() {
     throw new Error('Unauthorized')
   }
 
-  // Get all learning objectives, classes, and their metrics across all classes
-  // Using per-SC scores from submissions body
+  // Every class x learning objective, from pupil_criterion_scores
+  // (migration 117): each pupil x activity x criterion in a started lesson set
+  // to the class, rated from the latest attempt, missing = 0.
   const { rows } = await query(
-    `WITH latest_feedback AS (
-       SELECT DISTINCT ON (s.user_id, sc_kv.key)
-         s.user_id,
-         sc_kv.key as success_criteria_id,
-         (sc_kv.value)::numeric as rating
-       -- Each pupil's latest attempt per activity only: a superseded attempt
-       -- never supplies a criterion rating.
-       FROM (
-         SELECT DISTINCT ON (activity_id, user_id) user_id, body, submitted_at
-         FROM submissions
-         ORDER BY activity_id, user_id, attempt_number DESC, submitted_at DESC NULLS LAST, submission_id DESC
-       ) s
-       CROSS JOIN LATERAL json_each_text(s.body->'success_criteria_scores') as sc_kv
-       WHERE s.body->'success_criteria_scores' IS NOT NULL
-       ORDER BY s.user_id, sc_kv.key, s.submitted_at DESC NULLS LAST
-     )
-     SELECT
+    `SELECT
        g.group_id,
        g.subject as group_subject,
        g.active as group_active,
@@ -42,23 +27,17 @@ export async function getLOProgressMatrixAction() {
        c.title as curriculum_title,
        u.unit_id,
        u.title as unit_title,
-       COUNT(DISTINCT gm.user_id) as pupil_count,
-       AVG(lf.rating) as avg_rating
-     FROM groups g
-     JOIN lesson_assignments la ON la.group_id = g.group_id
-     JOIN lessons l ON l.lesson_id = la.lesson_id
-     LEFT JOIN units u ON u.unit_id = l.unit_id
-     JOIN lessons_learning_objective llo ON llo.lesson_id = la.lesson_id
-     JOIN learning_objectives lo ON lo.learning_objective_id = llo.learning_objective_id
+       COUNT(DISTINCT pcs.pupil_id) as pupil_count,
+       AVG(pcs.rating) as avg_rating
+     FROM pupil_criterion_scores pcs
+     JOIN groups g ON g.group_id = pcs.group_id
+     LEFT JOIN units u ON u.unit_id = pcs.unit_id
+     JOIN success_criteria sc ON sc.success_criteria_id = pcs.success_criteria_id
+     JOIN learning_objectives lo ON lo.learning_objective_id = sc.learning_objective_id
      JOIN assessment_objectives ao ON ao.assessment_objective_id = lo.assessment_objective_id
      LEFT JOIN curricula c ON c.curriculum_id = ao.curriculum_id
-     JOIN success_criteria sc ON sc.learning_objective_id = lo.learning_objective_id
-     JOIN group_membership gm ON gm.group_id = g.group_id AND gm.user_id = ANY($1::text[])
-     LEFT JOIN latest_feedback lf ON lf.success_criteria_id = sc.success_criteria_id
-                                  AND lf.user_id = gm.user_id
      GROUP BY g.group_id, g.subject, g.active, lo.learning_objective_id, lo.title, ao.assessment_objective_id, ao.title, ao.curriculum_id, c.title, u.unit_id, u.title
      ORDER BY g.subject, ao.title, lo.title, g.group_id`,
-    [await resolvePupilIds(query)],
   )
 
   return rows.map((row) => ({
@@ -100,45 +79,24 @@ export async function getClassLOMatrixAction(groupId: string) {
     throw new Error('Class not found')
   }
 
-  // Get all learning objectives assigned to this class with metrics for each pupil
-  // Using per-SC scores from submissions body
+  // Each pupil's rating per learning objective, from pupil_criterion_scores.
   const { rows } = await query(
-    `WITH latest_feedback AS (
-       SELECT DISTINCT ON (s.user_id, sc_kv.key)
-         s.user_id,
-         sc_kv.key as success_criteria_id,
-         (sc_kv.value)::numeric as rating
-       -- Each pupil's latest attempt per activity only: a superseded attempt
-       -- never supplies a criterion rating.
-       FROM (
-         SELECT DISTINCT ON (activity_id, user_id) user_id, body, submitted_at
-         FROM submissions
-         ORDER BY activity_id, user_id, attempt_number DESC, submitted_at DESC NULLS LAST, submission_id DESC
-       ) s
-       CROSS JOIN LATERAL json_each_text(s.body->'success_criteria_scores') as sc_kv
-       WHERE s.body->'success_criteria_scores' IS NOT NULL
-       ORDER BY s.user_id, sc_kv.key, s.submitted_at DESC NULLS LAST
-     )
-     SELECT
+    `SELECT
        lo.learning_objective_id as lo_id,
        lo.title as lo_title,
        ao.title as ao_title,
-       gm.user_id as pupil_id,
-       COALESCE(p.first_name || ' ' || p.last_name, p.first_name, p.last_name, gm.user_id) as pupil_name,
-       AVG(lf.rating) as avg_rating
-     FROM lesson_assignments la
-     JOIN lessons_learning_objective llo ON llo.lesson_id = la.lesson_id
-     JOIN learning_objectives lo ON lo.learning_objective_id = llo.learning_objective_id
+       pcs.pupil_id,
+       COALESCE(p.first_name || ' ' || p.last_name, p.first_name, p.last_name, pcs.pupil_id) as pupil_name,
+       AVG(pcs.rating) as avg_rating
+     FROM pupil_criterion_scores pcs
+     JOIN success_criteria sc ON sc.success_criteria_id = pcs.success_criteria_id
+     JOIN learning_objectives lo ON lo.learning_objective_id = sc.learning_objective_id
      JOIN assessment_objectives ao ON ao.assessment_objective_id = lo.assessment_objective_id
-     JOIN success_criteria sc ON sc.learning_objective_id = lo.learning_objective_id
-     JOIN group_membership gm ON gm.group_id = la.group_id AND gm.user_id = ANY($2::text[])
-     JOIN profiles p ON p.user_id = gm.user_id
-     LEFT JOIN latest_feedback lf ON lf.success_criteria_id = sc.success_criteria_id
-                                  AND lf.user_id = gm.user_id
-     WHERE la.group_id = $1
-     GROUP BY lo.learning_objective_id, lo.title, ao.title, ao.order_index, lo.order_index, gm.user_id, p.first_name, p.last_name
+     JOIN profiles p ON p.user_id = pcs.pupil_id
+     WHERE pcs.group_id = $1
+     GROUP BY lo.learning_objective_id, lo.title, ao.title, ao.order_index, lo.order_index, pcs.pupil_id, p.first_name, p.last_name
      ORDER BY ao.order_index, lo.order_index, p.first_name, p.last_name`,
-    [groupId, await resolvePupilIds(query)]
+    [groupId]
   )
 
   return {
@@ -162,27 +120,11 @@ export async function getPupilLOSuccessCriteriaAction(groupId: string, loId: str
     throw new Error('Unauthorized')
   }
 
-  // Get pupil info, LO info, and success criteria with latest ratings
-  // Using per-SC scores from submissions body
+  // Every criterion of the objective, with the pupil's rating from
+  // pupil_criterion_scores: the mean over the activities set to the class that
+  // carry it, missing = 0. A criterion no started activity carries has none.
   const { rows } = await query(
-    `WITH latest_feedback AS (
-       SELECT DISTINCT ON (s.user_id, sc_kv.key)
-         s.user_id,
-         sc_kv.key as success_criteria_id,
-         (sc_kv.value)::numeric as rating
-       -- Each pupil's latest attempt per activity only: a superseded attempt
-       -- never supplies a criterion rating.
-       FROM (
-         SELECT DISTINCT ON (activity_id, user_id) user_id, body, submitted_at
-         FROM submissions
-         WHERE user_id = $1
-         ORDER BY activity_id, user_id, attempt_number DESC, submitted_at DESC NULLS LAST, submission_id DESC
-       ) s
-       CROSS JOIN LATERAL json_each_text(s.body->'success_criteria_scores') as sc_kv
-       WHERE s.body->'success_criteria_scores' IS NOT NULL
-       ORDER BY s.user_id, sc_kv.key, s.submitted_at DESC NULLS LAST
-     )
-     SELECT
+    `SELECT
        p.user_id,
        COALESCE(p.first_name || ' ' || p.last_name, p.first_name, p.last_name, p.user_id) as pupil_name,
        g.group_id,
@@ -192,14 +134,14 @@ export async function getPupilLOSuccessCriteriaAction(groupId: string, loId: str
        ao.title as ao_title,
        sc.success_criteria_id,
        sc.description as sc_title,
-       lf.rating as latest_rating
+       (SELECT AVG(pcs.rating) FROM pupil_criterion_scores pcs
+         WHERE pcs.group_id = g.group_id AND pcs.pupil_id = p.user_id
+           AND pcs.success_criteria_id = sc.success_criteria_id) as latest_rating
      FROM profiles p
      CROSS JOIN groups g
      CROSS JOIN learning_objectives lo
      JOIN assessment_objectives ao ON ao.assessment_objective_id = lo.assessment_objective_id
      LEFT JOIN success_criteria sc ON sc.learning_objective_id = lo.learning_objective_id
-     LEFT JOIN latest_feedback lf ON lf.success_criteria_id = sc.success_criteria_id
-                                  AND lf.user_id = p.user_id
      WHERE p.user_id = $1 AND g.group_id = $2 AND lo.learning_objective_id = $3
      ORDER BY sc.order_index`,
     [pupilId, groupId, loId]
@@ -256,37 +198,24 @@ export async function getClassLOSCMatrixAction(groupId: string, loId: string) {
     throw new Error('Class or learning objective not found')
   }
 
-  // Get per-pupil, per-SC scores
+  // Each pupil x criterion of the objective, from pupil_criterion_scores.
+  // A criterion no started activity carries is listed with no rating.
   const { rows } = await query(
-    `WITH latest_feedback AS (
-       SELECT DISTINCT ON (s.user_id, sc_kv.key)
-         s.user_id,
-         sc_kv.key as success_criteria_id,
-         (sc_kv.value)::numeric as rating
-       -- Each pupil's latest attempt per activity only: a superseded attempt
-       -- never supplies a criterion rating.
-       FROM (
-         SELECT DISTINCT ON (activity_id, user_id) user_id, body, submitted_at
-         FROM submissions
-         ORDER BY activity_id, user_id, attempt_number DESC, submitted_at DESC NULLS LAST, submission_id DESC
-       ) s
-       CROSS JOIN LATERAL json_each_text(s.body->'success_criteria_scores') as sc_kv
-       WHERE s.body->'success_criteria_scores' IS NOT NULL
-       ORDER BY s.user_id, sc_kv.key, s.submitted_at DESC NULLS LAST
-     )
-     SELECT
+    `SELECT
        sc.success_criteria_id as sc_id,
        sc.description as sc_title,
        sc.order_index as sc_order,
        gm.user_id as pupil_id,
        COALESCE(p.first_name || ' ' || p.last_name, p.first_name, p.last_name, gm.user_id) as pupil_name,
-       lf.rating
+       AVG(pcs.rating) as rating
      FROM success_criteria sc
      JOIN group_membership gm ON gm.group_id = $1 AND gm.user_id = ANY($3::text[])
      JOIN profiles p ON p.user_id = gm.user_id
-     LEFT JOIN latest_feedback lf ON lf.success_criteria_id = sc.success_criteria_id
-                                  AND lf.user_id = gm.user_id
+     LEFT JOIN pupil_criterion_scores pcs
+       ON pcs.group_id = gm.group_id AND pcs.pupil_id = gm.user_id
+      AND pcs.success_criteria_id = sc.success_criteria_id
      WHERE sc.learning_objective_id = $2
+     GROUP BY sc.success_criteria_id, sc.description, sc.order_index, gm.user_id, p.first_name, p.last_name
      ORDER BY sc.order_index, p.first_name, p.last_name`,
     [groupId, loId, await resolvePupilIds(query)]
   )

@@ -17,6 +17,8 @@ type PupilMatrixData = {
   firstName: string
   lastName: string
   avgScore: number | null
+  marks: number
+  maxMarks: number
 }
 
 type PupilMatrixProps = {
@@ -32,6 +34,8 @@ type MatrixStructure = {
     lastName: string
     unitMetrics: Map<string, {
       avgScore: number | null
+      marks: number
+      maxMarks: number
     }>
   }[]
   units: {
@@ -102,6 +106,8 @@ export function PupilMatrix({ groupId, data, summativeOnly }: PupilMatrixProps) 
     lastName: string
     unitMetrics: Map<string, {
       avgScore: number | null
+      marks: number
+      maxMarks: number
     }>
   }>()
   const unitMap = new Map<string, { unitId: string; unitTitle: string }>()
@@ -119,7 +125,9 @@ export function PupilMatrix({ groupId, data, summativeOnly }: PupilMatrixProps) 
 
     const pupilEntry = pupilMap.get(row.pupilId)!
     pupilEntry.unitMetrics.set(row.unitId, {
-      avgScore: row.avgScore
+      avgScore: row.avgScore,
+      marks: row.marks,
+      maxMarks: row.maxMarks,
     })
 
     // Track units
@@ -137,11 +145,18 @@ export function PupilMatrix({ groupId, data, summativeOnly }: PupilMatrixProps) 
   const [sortField, setSortField] = useState<SortField>('score')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
 
+  // Progress baseline: total marks over total available across the units,
+  // not a mean of unit percentages.
   function getPupilAvg(pupil: typeof matrix.pupils[number]): number | null {
-    const scores = matrix.units
-      .map(u => pupil.unitMetrics.get(u.unitId)?.avgScore)
-      .filter((s): s is number => typeof s === 'number' && !Number.isNaN(s))
-    return scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : null
+    let marks = 0
+    let maxMarks = 0
+    for (const unit of matrix.units) {
+      const metrics = pupil.unitMetrics.get(unit.unitId)
+      if (!metrics) continue
+      marks += metrics.marks
+      maxMarks += metrics.maxMarks
+    }
+    return maxMarks > 0 ? (marks / maxMarks) * 100 : null
   }
 
   const sortedPupils = [...matrix.pupils].sort((a, b) => {

@@ -5,25 +5,13 @@ import { requireAuthenticatedProfile } from '@/lib/auth'
 import { resolvePupilIds } from "@/lib/roles/pupil-membership"
 
 /**
- * Progress for EVERY class in one query.
+ * Progress for every class, in one server action and one query.
  *
- * The all-classes view used to await getClassProgressAction once per group —
- * fifty-two sequential server actions, each a round trip with its own session
- * lookup, which is what made the page take minutes. Grouping by group_id as
- * well as unit returns the same information in a single call.
- */
-/**
- * Progress for every class, in one server action.
- *
- * The all-classes view used to await getClassProgressAction once per group:
- * fifty-two sequential round trips, each with its own session lookup, which is
- * what made the page take minutes.
- *
- * The queries still run per group. Filtering by group is what keeps the plan
- * sane — the same aggregate across every class at once, whether by removing the
- * filter or by ANY($1), does not finish inside ninety seconds, while one group
- * takes about a hundred milliseconds. So this batches the round trip rather
- * than the query, and runs the batch with bounded concurrency.
+ * Scores come from pupil_activity_scores (migration 117), the common baseline:
+ * every scorable activity in a started lesson set to the class, latest
+ * attempt, missing work = 0, averaged as total marks over total available.
+ * The old per-class queries had to run one group at a time to stay fast; the
+ * view aggregates every class at once in well under a second.
  */
 export async function getAllClassesProgressAction(summativeOnly = false) {
   const profile = await requireAuthenticatedProfile()
@@ -35,81 +23,39 @@ export async function getAllClassesProgressAction(summativeOnly = false) {
   const { rows: groupRows } = await query(
     `SELECT DISTINCT group_id FROM lesson_assignments ORDER BY group_id`,
   )
-  const groupIds = groupRows.map((row) => row.group_id as string)
-
-  // Resolved once for the whole page rather than per class.
-  const pupilIds = await resolvePupilIds(query)
-
-  // Enough to overlap the latency, not enough to swamp the pool.
-  const CONCURRENCY = 8
-  const results: Array<readonly [string, Awaited<ReturnType<typeof loadClassProgress>>]> = []
-
-  for (let i = 0; i < groupIds.length; i += CONCURRENCY) {
-    const batch = groupIds.slice(i, i + CONCURRENCY)
-    const loaded = await Promise.all(
-      batch.map(async (groupId) => [groupId, await loadClassProgress(groupId, summativeOnly, pupilIds)] as const),
-    )
-    results.push(...loaded)
+  const byGroup: Record<string, Awaited<ReturnType<typeof loadClassProgress>>> = Object.fromEntries(
+    groupRows.map((row) => [row.group_id as string, []]),
+  )
+  for (const row of await loadClassProgress(null, summativeOnly)) {
+    byGroup[row.groupId] = [...(byGroup[row.groupId] ?? []), row]
   }
-
-  // Plain object: a Map does not survive the server-action boundary.
-  return Object.fromEntries(results)
+  return byGroup
 }
 
 /**
- * One class's unit progress. No auth of its own: callers have already checked,
- * and the all-classes action would otherwise repeat the session lookup fifty
- * times for a single page.
+ * Unit progress per class from the baseline view. No auth of its own: callers
+ * have already checked. `groupId` null loads every class.
  */
-async function loadClassProgress(
-  groupId: string,
-  summativeOnly = false,
-  /** Resolved once by the caller when loading many classes. */
-  pupilIds?: string[],
-) {
-  const pupils = pupilIds ?? (await resolvePupilIds(query))
-  // Get units assigned to this group with average metrics across all pupils
-  // Aggregated from submission-level scores (not individual feedback records)
+async function loadClassProgress(groupId: string | null, summativeOnly = false) {
   const { rows: unitRows } = await query(
-    `WITH scoped_activities AS (
-       SELECT DISTINCT a.activity_id
-       FROM activities a
-       JOIN lessons l ON l.lesson_id = a.lesson_id
-       JOIN lesson_assignments la ON la.lesson_id = l.lesson_id AND la.group_id = $1
-     ),
-     latest_submissions AS (
-       SELECT DISTINCT ON (s.activity_id, s.user_id)
-         s.activity_id, s.user_id, s.body
-       FROM submissions s
-       JOIN scoped_activities sa ON sa.activity_id = s.activity_id
-       ORDER BY s.activity_id, s.user_id, s.attempt_number DESC, s.submitted_at DESC NULLS LAST, s.submission_id DESC
-     )
-     SELECT
+    `SELECT
+       pas.group_id,
        u.unit_id,
        u.title as unit_title,
        u.subject as unit_subject,
-       COUNT(DISTINCT gm.user_id) as pupil_count,
-       (SUM(CASE WHEN $2 = true AND a.is_summative = false THEN NULL
-                 ELSE COALESCE(compute_submission_marks(s.body::jsonb, a.type, a.max_marks), 0) END)::numeric
-         / NULLIF(SUM(CASE WHEN $2 = true AND a.is_summative = false THEN NULL
-                            ELSE a.max_marks END), 0)) * 100 as avg_score
-     FROM lesson_assignments la
-     JOIN lessons l ON l.lesson_id = la.lesson_id
-     JOIN units u ON u.unit_id = l.unit_id
-     JOIN activities a ON a.lesson_id = l.lesson_id
-       AND coalesce(a.active, true) = true
-       AND lower(trim(coalesce(a.type, ''))) = ANY (ARRAY['multiple-choice-question', 'short-text-question', 'upload-file'])
-     JOIN group_membership gm ON gm.group_id = la.group_id AND gm.user_id = ANY($3::text[])
-     LEFT JOIN latest_submissions s ON s.activity_id = a.activity_id
-                                    AND s.user_id = gm.user_id
-     WHERE la.group_id = $1
-       AND coalesce(l.active, true) = true
-     GROUP BY u.unit_id, u.title, u.subject
+       COUNT(DISTINCT pas.pupil_id) as pupil_count,
+       (SUM(pas.marks) FILTER (WHERE NOT $2 OR pas.is_summative)::numeric
+         / NULLIF(SUM(pas.max_marks) FILTER (WHERE NOT $2 OR pas.is_summative), 0)) * 100 as avg_score
+     FROM pupil_activity_scores pas
+     JOIN units u ON u.unit_id = pas.unit_id
+     WHERE $1::text IS NULL OR pas.group_id = $1
+     GROUP BY pas.group_id, u.unit_id, u.title, u.subject
      ORDER BY u.title`,
-    [groupId, summativeOnly, pupils]
+    [groupId, summativeOnly],
   )
 
   return unitRows.map((row) => ({
+    groupId: row.group_id as string,
     unitId: row.unit_id as string,
     unitTitle: row.unit_title as string,
     unitSubject: row.unit_subject as string | null,
@@ -135,16 +81,9 @@ export async function getProgressMatrixAction(summativeOnly = false) {
     throw new Error('Unauthorized')
   }
 
-  // Get all units, classes, and their metrics across all classes
-  // Aggregated from submission-level scores (not individual feedback records)
+  // Every unit x class, from the baseline view (see getAllClassesProgressAction).
   const { rows } = await query(
-    `WITH latest_submissions AS (
-       SELECT DISTINCT ON (s.activity_id, s.user_id)
-         s.activity_id, s.user_id, s.body
-       FROM submissions s
-       ORDER BY s.activity_id, s.user_id, s.attempt_number DESC, s.submitted_at DESC NULLS LAST, s.submission_id DESC
-     )
-     SELECT
+    `SELECT
        g.group_id,
        g.subject as group_subject,
        g.active as group_active,
@@ -153,26 +92,16 @@ export async function getProgressMatrixAction(summativeOnly = false) {
        u.subject as unit_subject,
        u.curriculum_id,
        cur.title as curriculum_title,
-       COUNT(DISTINCT gm.user_id) as pupil_count,
-       (SUM(CASE WHEN $1 = true AND a.is_summative = false THEN NULL
-                 ELSE COALESCE(compute_submission_marks(s.body::jsonb, a.type, a.max_marks), 0) END)::numeric
-         / NULLIF(SUM(CASE WHEN $1 = true AND a.is_summative = false THEN NULL
-                            ELSE a.max_marks END), 0)) * 100 as avg_score
-     FROM groups g
-     JOIN lesson_assignments la ON la.group_id = g.group_id
-     JOIN lessons l ON l.lesson_id = la.lesson_id
-     JOIN units u ON u.unit_id = l.unit_id
+       COUNT(DISTINCT pas.pupil_id) as pupil_count,
+       (SUM(pas.marks) FILTER (WHERE NOT $1 OR pas.is_summative)::numeric
+         / NULLIF(SUM(pas.max_marks) FILTER (WHERE NOT $1 OR pas.is_summative), 0)) * 100 as avg_score
+     FROM pupil_activity_scores pas
+     JOIN groups g ON g.group_id = pas.group_id
+     JOIN units u ON u.unit_id = pas.unit_id
      LEFT JOIN curricula cur ON cur.curriculum_id = u.curriculum_id
-     JOIN activities a ON a.lesson_id = l.lesson_id
-       AND coalesce(a.active, true) = true
-       AND lower(trim(coalesce(a.type, ''))) = ANY (ARRAY['multiple-choice-question', 'short-text-question', 'upload-file'])
-     JOIN group_membership gm ON gm.group_id = g.group_id AND gm.user_id = ANY($2::text[])
-     LEFT JOIN latest_submissions s ON s.activity_id = a.activity_id
-                                    AND s.user_id = gm.user_id
-     WHERE coalesce(l.active, true) = true
      GROUP BY g.group_id, g.subject, g.active, u.unit_id, u.title, u.subject, u.curriculum_id, cur.title
      ORDER BY g.subject, u.title, g.group_id`,
-    [summativeOnly, await resolvePupilIds(query)]
+    [summativeOnly]
   )
 
   return rows.map((row) => ({
@@ -211,48 +140,26 @@ export async function getClassPupilMatrixAction(groupId: string, summativeOnly =
     throw new Error('Class not found')
   }
 
-  // Get all units assigned to this class with metrics for each pupil
-  // Aggregated from submission-level scores (not individual feedback records)
+  // Each pupil's score per unit, from the baseline view.
   const { rows } = await query(
-    `WITH scoped_activities AS (
-       SELECT DISTINCT a.activity_id
-       FROM activities a
-       JOIN lessons l ON l.lesson_id = a.lesson_id
-       JOIN lesson_assignments la ON la.lesson_id = l.lesson_id AND la.group_id = $1
-     ),
-     latest_submissions AS (
-       SELECT DISTINCT ON (s.activity_id, s.user_id)
-         s.activity_id, s.user_id, s.body
-       FROM submissions s
-       JOIN scoped_activities sa ON sa.activity_id = s.activity_id
-       ORDER BY s.activity_id, s.user_id, s.attempt_number DESC, s.submitted_at DESC NULLS LAST, s.submission_id DESC
-     )
-     SELECT
+    `SELECT
        u.unit_id,
        u.title as unit_title,
        u.subject as unit_subject,
-       gm.user_id as pupil_id,
+       pas.pupil_id,
        p.first_name,
        p.last_name,
-       (SUM(CASE WHEN $2 = true AND a.is_summative = false THEN NULL
-                 ELSE COALESCE(compute_submission_marks(s.body::jsonb, a.type, a.max_marks), 0) END)::numeric
-         / NULLIF(SUM(CASE WHEN $2 = true AND a.is_summative = false THEN NULL
-                            ELSE a.max_marks END), 0)) * 100 as avg_score
-     FROM lesson_assignments la
-     JOIN lessons l ON l.lesson_id = la.lesson_id
-     JOIN units u ON u.unit_id = l.unit_id
-     JOIN activities a ON a.lesson_id = l.lesson_id
-       AND coalesce(a.active, true) = true
-       AND lower(trim(coalesce(a.type, ''))) = ANY (ARRAY['multiple-choice-question', 'short-text-question', 'upload-file'])
-     JOIN group_membership gm ON gm.group_id = la.group_id AND gm.user_id = ANY($3::text[])
-     JOIN profiles p ON p.user_id = gm.user_id
-     LEFT JOIN latest_submissions s ON s.activity_id = a.activity_id
-                                    AND s.user_id = gm.user_id
-     WHERE la.group_id = $1
-       AND coalesce(l.active, true) = true
-     GROUP BY u.unit_id, u.title, u.subject, gm.user_id, p.first_name, p.last_name
+       (SUM(pas.marks) FILTER (WHERE NOT $2 OR pas.is_summative)::numeric
+         / NULLIF(SUM(pas.max_marks) FILTER (WHERE NOT $2 OR pas.is_summative), 0)) * 100 as avg_score,
+       SUM(pas.marks) FILTER (WHERE NOT $2 OR pas.is_summative) as marks,
+       SUM(pas.max_marks) FILTER (WHERE NOT $2 OR pas.is_summative) as max_marks
+     FROM pupil_activity_scores pas
+     JOIN units u ON u.unit_id = pas.unit_id
+     JOIN profiles p ON p.user_id = pas.pupil_id
+     WHERE pas.group_id = $1
+     GROUP BY u.unit_id, u.title, u.subject, pas.pupil_id, p.first_name, p.last_name
      ORDER BY p.last_name, p.first_name, u.title`,
-    [groupId, summativeOnly, await resolvePupilIds(query)]
+    [groupId, summativeOnly]
   )
 
   return {
@@ -266,6 +173,9 @@ export async function getClassPupilMatrixAction(groupId: string, summativeOnly =
       firstName: row.first_name as string,
       lastName: row.last_name as string,
       avgScore: row.avg_score != null ? Number(row.avg_score) : null,
+      // For weighted roll-ups across units or lessons: total marks over total available.
+      marks: row.marks != null ? Number(row.marks) : 0,
+      maxMarks: row.max_marks != null ? Number(row.max_marks) : 0,
     }))
   }
 }
@@ -291,56 +201,31 @@ export async function getUnitLessonMatrixAction(groupId: string, unitId: string,
     throw new Error('Class or unit not found')
   }
 
-  // Get lesson-level metrics by aggregating submission-level scores
+  // Every lesson of the unit set to the class x every pupil, scored from the
+  // baseline view. Lessons not started yet, or with nothing to score, are
+  // still listed, with no score.
   const { rows } = await query(
-    `WITH scoped_activities AS (
-       SELECT DISTINCT a.activity_id
-       FROM activities a
-       JOIN lessons l ON l.lesson_id = a.lesson_id
-       JOIN lesson_assignments la ON la.lesson_id = l.lesson_id AND la.group_id = $1
-     ),
-     latest_submissions AS (
-       SELECT DISTINCT ON (s.activity_id, s.user_id)
-         s.activity_id, s.user_id, s.body
-       FROM submissions s
-       JOIN scoped_activities sa ON sa.activity_id = s.activity_id
-       ORDER BY s.activity_id, s.user_id, s.attempt_number DESC, s.submitted_at DESC NULLS LAST, s.submission_id DESC
-     ),
-     lesson_activity_scores AS (
-       SELECT
-         l.lesson_id,
-         l.title as lesson_title,
-         l.order_by,
-         gm.user_id as pupil_id,
-         p.first_name,
-         p.last_name,
-         a.activity_id,
-         a.is_summative,
-         CASE WHEN a.activity_id IS NOT NULL THEN COALESCE(compute_submission_marks(s.body::jsonb, a.type, a.max_marks), 0) END as marks,
-         CASE WHEN a.activity_id IS NOT NULL THEN a.max_marks END as max_marks
-       FROM lessons l
-       JOIN lesson_assignments la ON la.lesson_id = l.lesson_id AND la.group_id = $1
-       JOIN group_membership gm ON gm.group_id = la.group_id AND gm.user_id = ANY($4::text[])
-       JOIN profiles p ON p.user_id = gm.user_id
-       LEFT JOIN activities a ON a.lesson_id = l.lesson_id
-         AND coalesce(a.active, true) = true
-         AND lower(trim(coalesce(a.type, ''))) = ANY (ARRAY['multiple-choice-question', 'short-text-question', 'upload-file'])
-       LEFT JOIN latest_submissions s ON s.activity_id = a.activity_id AND s.user_id = gm.user_id
-       WHERE l.unit_id = $2
-        AND coalesce(l.active, true) = true
-     )
-     SELECT
-       lesson_id,
-       lesson_title,
-       order_by,
-       pupil_id,
-       first_name,
-       last_name,
-       (SUM(CASE WHEN $3 = true AND is_summative = false THEN NULL ELSE marks END)::numeric
-         / NULLIF(SUM(CASE WHEN $3 = true AND is_summative = false THEN NULL ELSE max_marks END), 0)) * 100 as avg_score
-     FROM lesson_activity_scores
-     GROUP BY lesson_id, lesson_title, order_by, pupil_id, first_name, last_name
-     ORDER BY order_by, last_name, first_name`,
+    `SELECT
+       l.lesson_id,
+       l.title as lesson_title,
+       l.order_by,
+       gm.user_id as pupil_id,
+       p.first_name,
+       p.last_name,
+       (SUM(pas.marks) FILTER (WHERE NOT $3 OR pas.is_summative)::numeric
+         / NULLIF(SUM(pas.max_marks) FILTER (WHERE NOT $3 OR pas.is_summative), 0)) * 100 as avg_score,
+       SUM(pas.marks) FILTER (WHERE NOT $3 OR pas.is_summative) as marks,
+       SUM(pas.max_marks) FILTER (WHERE NOT $3 OR pas.is_summative) as max_marks
+     FROM lessons l
+     JOIN lesson_assignments la ON la.lesson_id = l.lesson_id AND la.group_id = $1
+     JOIN group_membership gm ON gm.group_id = la.group_id AND gm.user_id = ANY($4::text[])
+     JOIN profiles p ON p.user_id = gm.user_id
+     LEFT JOIN pupil_activity_scores pas
+       ON pas.group_id = la.group_id AND pas.lesson_id = l.lesson_id AND pas.pupil_id = gm.user_id
+     WHERE l.unit_id = $2
+       AND coalesce(l.active, true) = true
+     GROUP BY l.lesson_id, l.title, l.order_by, gm.user_id, p.first_name, p.last_name
+     ORDER BY l.order_by, p.last_name, p.first_name`,
     [groupId, unitId, summativeOnly, await resolvePupilIds(query)]
   )
 
@@ -356,6 +241,9 @@ export async function getUnitLessonMatrixAction(groupId: string, unitId: string,
       firstName: row.first_name as string,
       lastName: row.last_name as string,
       avgScore: row.avg_score != null ? Number(row.avg_score) : null,
+      // For weighted roll-ups across units or lessons: total marks over total available.
+      marks: row.marks != null ? Number(row.marks) : 0,
+      maxMarks: row.max_marks != null ? Number(row.max_marks) : 0,
     }))
   }
 }
@@ -388,30 +276,19 @@ export async function getPupilUnitLessonsAction(groupId: string, unitId: string,
     throw new Error('Pupil, class, or unit not found')
   }
 
-  // Get lesson-level averages by aggregating from submission-level scores
+  // The pupil's score per lesson of the unit set to the class, from the
+  // baseline view. Unstarted or unscored lessons are listed with no score.
   const { rows: lessonRows } = await query(
-    `WITH latest_submissions AS (
-       SELECT DISTINCT ON (s.activity_id, s.user_id)
-         s.activity_id, s.user_id, s.body
-       FROM submissions s
-       WHERE s.user_id = $2
-       ORDER BY s.activity_id, s.user_id, s.attempt_number DESC, s.submitted_at DESC NULLS LAST, s.submission_id DESC
-     )
-     SELECT
+    `SELECT
        l.lesson_id,
        l.title as lesson_title,
        l.order_by,
-       (SUM(CASE WHEN $4 = true AND a.is_summative = false THEN NULL
-                 WHEN a.activity_id IS NOT NULL THEN COALESCE(compute_submission_marks(s.body::jsonb, a.type, a.max_marks), 0) END)::numeric
-         / NULLIF(SUM(CASE WHEN $4 = true AND a.is_summative = false THEN NULL
-                            WHEN a.activity_id IS NOT NULL THEN a.max_marks END), 0)) * 100 as avg_score
+       (SUM(pas.marks) FILTER (WHERE NOT $4 OR pas.is_summative)::numeric
+         / NULLIF(SUM(pas.max_marks) FILTER (WHERE NOT $4 OR pas.is_summative), 0)) * 100 as avg_score
      FROM lessons l
      JOIN lesson_assignments la ON la.lesson_id = l.lesson_id AND la.group_id = $1
-     LEFT JOIN activities a ON a.lesson_id = l.lesson_id
-       AND coalesce(a.active, true) = true
-       AND lower(trim(coalesce(a.type, ''))) = ANY (ARRAY['multiple-choice-question', 'short-text-question', 'upload-file'])
-     LEFT JOIN latest_submissions s ON s.activity_id = a.activity_id
-                                    AND s.user_id = $2
+     LEFT JOIN pupil_activity_scores pas
+       ON pas.group_id = la.group_id AND pas.lesson_id = l.lesson_id AND pas.pupil_id = $2
      WHERE l.unit_id = $3
        AND coalesce(l.active, true) = true
      GROUP BY l.lesson_id, l.title, l.order_by
@@ -466,24 +343,10 @@ export async function getPupilUnitLOSCAction(groupId: string, unitId: string, pu
 
   // Get LOs linked to lessons in this unit, their SCs, and the pupil's latest SC scores
   const { rows } = await query(
-    `WITH latest_feedback AS (
-       SELECT DISTINCT ON (s.user_id, sc_kv.key)
-         s.user_id,
-         sc_kv.key as success_criteria_id,
-         (sc_kv.value)::numeric as rating
-       -- Each pupil's latest attempt per activity only: a superseded attempt
-       -- never supplies a criterion rating.
-       FROM (
-         SELECT DISTINCT ON (activity_id, user_id) user_id, body, submitted_at
-         FROM submissions
-         WHERE user_id = $3
-         ORDER BY activity_id, user_id, attempt_number DESC, submitted_at DESC NULLS LAST, submission_id DESC
-       ) s
-       CROSS JOIN LATERAL json_each_text(s.body->'success_criteria_scores') as sc_kv
-       WHERE s.body->'success_criteria_scores' IS NOT NULL
-       ORDER BY s.user_id, sc_kv.key, s.submitted_at DESC NULLS LAST
-     )
-     SELECT DISTINCT
+    // Ratings from pupil_criterion_scores (migration 117), limited to this
+    // unit's activities: latest attempt, missing = 0, mean over the
+    // activities carrying the criterion. Uncarried criteria have no rating.
+    `SELECT DISTINCT
        lo.learning_objective_id as lo_id,
        lo.title as lo_title,
        ao.title as ao_title,
@@ -492,14 +355,15 @@ export async function getPupilUnitLOSCAction(groupId: string, unitId: string, pu
        sc.success_criteria_id as sc_id,
        sc.description as sc_description,
        sc.order_index as sc_order,
-       lf.rating
+       (SELECT AVG(pcs.rating) FROM pupil_criterion_scores pcs
+         WHERE pcs.group_id = $1 AND pcs.unit_id = $2 AND pcs.pupil_id = $3
+           AND pcs.success_criteria_id = sc.success_criteria_id) as rating
      FROM lessons l
      JOIN lesson_assignments la ON la.lesson_id = l.lesson_id AND la.group_id = $1
      JOIN lessons_learning_objective llo ON llo.lesson_id = l.lesson_id
      JOIN learning_objectives lo ON lo.learning_objective_id = llo.learning_objective_id
      JOIN assessment_objectives ao ON ao.assessment_objective_id = lo.assessment_objective_id
      LEFT JOIN success_criteria sc ON sc.learning_objective_id = lo.learning_objective_id
-     LEFT JOIN latest_feedback lf ON lf.success_criteria_id = sc.success_criteria_id
      WHERE l.unit_id = $2
        AND coalesce(l.active, true) = true
      ORDER BY ao.order_index, lo.order_index, sc.order_index`,

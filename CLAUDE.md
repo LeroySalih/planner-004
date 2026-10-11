@@ -437,6 +437,16 @@ row before deciding whether the set is complete.
 - TypeScript: `latestAttempts()` in `src/lib/scoring/latest-attempt.ts`.
 - Don't order by `submitted_at` alone. Some write paths rewrite it on existing rows.
 
+**Progress baseline: missing work counts as 0.** Every progress figure (lesson, unit, class, dashboard, report, LO) uses the same rule, defined once in migration 117:
+- **Scope:** every active scorable activity in a lesson set to the pupil's class whose `start_date` has arrived.
+- **Score:** the latest attempt's marks. No submission, or not yet marked, is 0, and the activity still counts in the denominator.
+- **Average:** `sum(marks) / sum(max_marks)`, never a mean of per-activity percentages.
+- **Pupils only:** staff in a class never count.
+
+For per-activity rows, read the `pupil_activity_scores` view. For per-criterion ratings (LO/SC reports, 0–1, mean of rows), read `pupil_criterion_scores`. Don't re-derive the rules. `is_scorable_activity_type()` in SQL mirrors `SCORABLE_ACTIVITY_TYPES`, so keep the two in step.
+
+On assessment papers, a question with no mark is likewise 0 and stays in the total. "Save as assessment" records missing answers as 0 with "No answer submitted".
+
 **Scorable activity types** are defined in `src/dino.config.ts` as `SCORABLE_ACTIVITY_TYPES`. Use `isScorableActivityType()` from that module when filtering in TypeScript, and pass the same array as a parameter when filtering in SQL.
 
 ## Telemetry
