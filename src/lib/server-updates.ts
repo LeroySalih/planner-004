@@ -477,5 +477,7 @@ export {
   readMyAssessmentAction,
   createAssessmentFromAssignmentAction,
   deleteAssessmentAction,
+  listAssessmentFilesAction,
+  removeAssessmentFileAction,
   renameAssessmentAction,
 } from './server-actions/assessments'

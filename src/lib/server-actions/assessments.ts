@@ -9,6 +9,8 @@ import { syncAssessmentFromAssignment } from '@/lib/assessments/from-assignment'
 import { readAssignmentResultsAction } from '@/lib/server-actions/assignment-results'
 import {
   deleteAssessment,
+  listAssessmentFiles,
+  removeAssessmentFile,
   renameAssessment,
   getAssessmentPage,
   getAssessmentPupilPage,
@@ -32,6 +34,7 @@ import {
   PupilAssessmentListItemSchema,
   PupilAssessmentObjectiveSchema,
   PupilAssessmentResultSchema,
+  type AssessmentFile,
 } from '@/types'
 
 /**
@@ -82,6 +85,32 @@ export async function deleteAssessmentAction(
   try {
     const id = Id.parse(assessmentId)
     await deleteAssessment(id)
+    revalidatePaper(id)
+    return { success: true, error: null }
+  } catch (error) {
+    return { success: false, error: errorMessage(error) }
+  }
+}
+
+export async function listAssessmentFilesAction(
+  assessmentId: string,
+): Promise<{ data: AssessmentFile[] | null; error: string | null }> {
+  await requireRole('teacher')
+  try {
+    return { data: await listAssessmentFiles(Id.parse(assessmentId)), error: null }
+  } catch (error) {
+    return { data: null, error: errorMessage(error) }
+  }
+}
+
+export async function removeAssessmentFileAction(
+  assessmentId: string,
+  fileName: string,
+): Promise<{ success: boolean; error: string | null }> {
+  await requireRole('teacher')
+  try {
+    const id = Id.parse(assessmentId)
+    await removeAssessmentFile(id, z.string().min(1).parse(fileName))
     revalidatePaper(id)
     return { success: true, error: null }
   } catch (error) {

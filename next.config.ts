@@ -15,6 +15,9 @@ const nextConfig: NextConfig = {
       // rejected with "An unexpected response was received from the server."
       bodySizeLimit: "12mb",
     },
+    // The proxy (src/middleware.ts) buffers request bodies and truncates them
+    // past 10MB by default; assessment scans may be up to 25MB each.
+    proxyClientMaxBodySize: "26mb",
   },
   async headers() {
     const securityHeaders = [

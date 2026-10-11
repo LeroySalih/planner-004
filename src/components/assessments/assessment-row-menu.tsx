@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Download, Eye, EyeOff, Loader2, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
+import { Download, Eye, EyeOff, Loader2, MoreHorizontal, Paperclip, Pencil, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import {
@@ -15,6 +15,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { AssessmentFilesDialog } from '@/components/assessments/assessment-files-dialog'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -42,6 +43,7 @@ export function AssessmentRowMenu({ assessmentId, title, feedbackVisible }: Prop
   const [confirming, setConfirming] = useState(false)
   const [confirmingRelease, setConfirmingRelease] = useState(false)
   const [renaming, setRenaming] = useState(false)
+  const [managingFiles, setManagingFiles] = useState(false)
   const [draftTitle, setDraftTitle] = useState(title)
   const [pending, startTransition] = useTransition()
 
@@ -109,6 +111,10 @@ export function AssessmentRowMenu({ assessmentId, title, feedbackVisible }: Prop
             <Pencil className="size-4" />
             Rename
           </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setManagingFiles(true)}>
+            <Paperclip className="size-4" />
+            Scans &amp; files
+          </DropdownMenuItem>
           <DropdownMenuItem asChild>
             <a href={`/api/assessments/${encodeURIComponent(assessmentId)}/feedback-pdf`} download>
               <Download className="size-4" />
@@ -133,6 +139,13 @@ export function AssessmentRowMenu({ assessmentId, title, feedbackVisible }: Prop
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <AssessmentFilesDialog
+        assessmentId={assessmentId}
+        title={title}
+        open={managingFiles}
+        onOpenChange={setManagingFiles}
+      />
 
       <Dialog open={renaming} onOpenChange={(open) => !pending && setRenaming(open)}>
         <DialogContent>

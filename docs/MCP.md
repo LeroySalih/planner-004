@@ -687,6 +687,15 @@ The pupil must be a pupil (same roster rule) in one of the paper's groups. `awar
 **Input:** `{ assessment_id, file_name, base64_content, content_type? }` — max 5 MB, no `/` or `\` in the name.
 **Output:** `{ file: { assessment_id, file_name, size_bytes, path } }` — `path` is the `/api/files/assessments/…` download URL. Downloads from the `assessments` bucket are teacher-only (403 otherwise).
 
+#### `create_assessment_paper_file_upload_link`
+Use this to attach scans of pupils' papers that are in Claude's code sandbox. It works like the lesson upload links (migration 107, and migration 114 for papers): the link can be used once, lasts 15 minutes and takes one file of up to 25 MB, with no credentials. HTML and SVG files are refused. Teachers can also upload the same files from the paper's ⋯ menu → *Scans & files* on the Assessments page.
+**Input:** `{ assessment_id, file_name? }`
+**Output:** `{ link: { upload_url, expires_at, max_bytes, instructions } }`
+
+#### `list_assessment_paper_files`
+**Input:** `{ assessment_id }`
+**Output:** `{ files: [{ assessment_id, file_name, size_bytes, path }] }`
+
 ---
 
 ### Pupil feedback

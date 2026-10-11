@@ -49,6 +49,8 @@ import {
   listGroupPupils,
   recordPupilResult,
   attachAssessmentFile,
+  listAssessmentFiles,
+  ASSESSMENT_UPLOAD_MAX_BYTES,
 } from '@/lib/assessments/store'
 import {
   AssessmentFileSchema,
@@ -1486,19 +1488,24 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
     max_bytes: z.number(),
     instructions: z.string(),
   }).nullable()
-  const uploadLinkTool = async (lessonId: string, activityId: string | null, fileName: string | undefined) => {
+  const uploadLinkTool = async (
+    target: { lessonId: string; activityId: string | null } | { assessmentId: string },
+    fileName: string | undefined,
+  ) => {
+    const maxBytes = 'assessmentId' in target ? ASSESSMENT_UPLOAD_MAX_BYTES : MCP_UPLOAD_MAX_BYTES
+    const maxLabel = `${maxBytes / (1024 * 1024)} MB`
     try {
-      const { token, expiresAt } = await createUploadLink(caller, { lessonId, activityId, fileName: fileName ?? null })
+      const { token, expiresAt } = await createUploadLink(caller, { ...target, fileName: fileName ?? null })
       const uploadUrl = `${baseUrl}/api/MCP/upload/${token}`
       const instructions =
         `From your code sandbox, send the file to upload_url, e.g. curl -sS -F "file=@/path/to/file.pptx" "${uploadUrl}" `
         + '(or PUT/POST the raw bytes, adding ?file_name=name.ext to the URL). No Authorization header is needed. '
-        + `The link works once and expires at ${expiresAt}. Max 5 MB; HTML and SVG are refused. `
+        + `The link works once and expires at ${expiresAt}. Max ${maxLabel}; HTML and SVG are refused. `
         + 'A JSON reply with "success": true confirms the upload. If the request cannot connect, the sandbox\'s network settings '
         + `are blocking ${new URL(uploadUrl).host}: ask the user to allow that domain in Claude's settings (Capabilities → code execution network access).`
       return {
         content: [{ type: 'text' as const, text: `Upload link (single use, expires ${expiresAt}):\n${uploadUrl}\n${instructions}` }],
-        structuredContent: { link: { upload_url: uploadUrl, expires_at: expiresAt, max_bytes: MCP_UPLOAD_MAX_BYTES, instructions } },
+        structuredContent: { link: { upload_url: uploadUrl, expires_at: expiresAt, max_bytes: maxBytes, instructions } },
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to create upload link'
@@ -1523,7 +1530,7 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
       }),
       outputSchema: z.object({ link: uploadLinkOutput }),
     },
-    async ({ lesson_id, activity_id, file_name }) => uploadLinkTool(lesson_id, activity_id, file_name),
+    async ({ lesson_id, activity_id, file_name }) => uploadLinkTool({ lessonId: lesson_id, activityId: activity_id }, file_name),
   )
 
   srv.registerTool(
@@ -1538,7 +1545,7 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
       }),
       outputSchema: z.object({ link: uploadLinkOutput }),
     },
-    async ({ lesson_id, file_name }) => uploadLinkTool(lesson_id, null, file_name),
+    async ({ lesson_id, file_name }) => uploadLinkTool({ lessonId: lesson_id, activityId: null }, file_name),
   )
 
   const lessonFileOutput = z.object({
@@ -2292,8 +2299,8 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
     {
       title: 'Attach a file to an assessment paper',
       description:
-        'Store a file (question paper, mark scheme, scan) against a paper. Content is base64, max 5 MB; uploading the same file_name again replaces it. '
-        + 'Downloads are teacher-only.',
+        'Store a small file (question paper, mark scheme) against a paper. Content is base64, max 5 MB; uploading the same file_name again replaces it. '
+        + 'For scans of pupils\' papers, or any file in your code sandbox, use create_assessment_paper_file_upload_link instead. Downloads are teacher-only.',
       inputSchema: {
         assessment_id: z.string().min(1).describe('Assessment paper id.'),
         file_name: z.string().min(1).describe('File name with extension, no slashes.'),
@@ -2314,6 +2321,49 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to attach file'
         return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { file: null } }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'create_assessment_paper_file_upload_link',
+    {
+      title: 'Create a one-time upload link for an assessment paper file',
+      description: 'Best way to attach scans of pupils\' marked papers (or any PDF/image in your code sandbox) to an assessment paper. '
+        + 'Returns a single-use link, valid 15 minutes, that accepts one file (max 25 MB) with a plain curl POST — no credentials, no base64. '
+        + 'Call once per file. Files are teacher-only and listed by list_assessment_paper_files.',
+      inputSchema: z.object({
+        assessment_id: z.string().min(1).describe('Assessment paper id.'),
+        file_name: z.string().optional().describe('Name to store the file under, including extension, e.g. "10A scans.pdf". Defaults to the uploaded file\'s name.'),
+      }),
+      outputSchema: z.object({ link: uploadLinkOutput }),
+    },
+    async ({ assessment_id, file_name }) => uploadLinkTool({ assessmentId: assessment_id }, file_name),
+  )
+
+  srv.registerTool(
+    'list_assessment_paper_files',
+    {
+      title: 'List an assessment paper\'s files',
+      description: 'List the files attached to an assessment paper: scans, question papers and mark schemes. Teacher-only.',
+      inputSchema: { assessment_id: z.string().min(1).describe('Assessment paper id.') },
+      outputSchema: { files: z.array(AssessmentFileSchema).nullable() },
+    },
+    async ({ assessment_id }) => {
+      try {
+        const files = await listAssessmentFiles(assessment_id)
+        return {
+          content: [{
+            type: 'text' as const,
+            text: files.length > 0
+              ? files.map((f) => `${f.file_name} (${f.size_bytes} bytes)`).join('\n')
+              : 'No files are attached to this paper.',
+          }],
+          structuredContent: { files },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to list files'
+        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { files: null } }
       }
     },
   )

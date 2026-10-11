@@ -45,6 +45,8 @@ import {
 
 const FILES_BUCKET = 'assessments'
 const FILES_MAX_BYTES = 5 * 1024 * 1024
+/** Scans of a class set run large, so raw uploads get more room than base64. */
+export const ASSESSMENT_UPLOAD_MAX_BYTES = 25 * 1024 * 1024
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export type AssessmentObjectiveInput = {
@@ -799,10 +801,6 @@ export async function attachAssessmentFile(
   base64Content: string,
   contentType?: string | null,
 ): Promise<AssessmentFile> {
-  const name = fileName?.trim() ?? ''
-  if (!name || name === '.' || name === '..' || /[/\\]/.test(name)) {
-    throw new Error(`Invalid file name "${fileName}": it must not contain / or \\ or be . or ..`)
-  }
   // Buffer.from silently skips characters outside the alphabet, so a corrupted
   // upload would be stored truncated. Normalise, then demand a round trip.
   const normalised = (base64Content ?? '').replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/').replace(/=+$/, '')
@@ -814,12 +812,39 @@ export async function attachAssessmentFile(
   if (buffer.byteLength > FILES_MAX_BYTES) {
     throw new Error(`File exceeds the 5 MB limit (${buffer.byteLength} bytes)`)
   }
+  return storeAssessmentFile(assessmentId, fileName, buffer, contentType)
+}
+
+// Files are served inline from DINO's own origin, where these could run script.
+const UNSAFE_FILE_TYPES = new Set(['text/html', 'application/xhtml+xml', 'image/svg+xml'])
+const UNSAFE_FILE_EXTENSIONS = /\.(html?|xhtml|svg)$/i
+
+/** Stores raw bytes against a paper, e.g. scans of pupils' marked papers. */
+export async function storeAssessmentFile(
+  assessmentId: string,
+  fileName: string,
+  buffer: Buffer,
+  contentType?: string | null,
+  uploadedBy?: string | null,
+): Promise<AssessmentFile> {
+  const name = fileName?.trim() ?? ''
+  if (!name || name === '.' || name === '..' || /[/\\]/.test(name)) {
+    throw new Error(`Invalid file name "${fileName}": it must not contain / or \\ or be . or ..`)
+  }
+  if (UNSAFE_FILE_EXTENSIONS.test(name) || (contentType && UNSAFE_FILE_TYPES.has(contentType.toLowerCase()))) {
+    throw new Error('HTML and SVG files cannot be attached. Upload a PDF or an image instead.')
+  }
+  if (buffer.byteLength === 0) throw new Error('File content is empty')
+  if (buffer.byteLength > ASSESSMENT_UPLOAD_MAX_BYTES) {
+    throw new Error(`File exceeds the 25 MB limit (${buffer.byteLength} bytes)`)
+  }
 
   const paper = await withDbClient((client) => loadPaper(client, assessmentId))
   const fullPath = `${paper.assessment_id}/${name}`
   const storage = createLocalStorageClient(FILES_BUCKET)
   const { error } = await storage.upload(fullPath, buffer, {
-    contentType: contentType ?? 'application/octet-stream',
+    contentType: contentType || 'application/octet-stream',
+    uploadedBy: uploadedBy ?? null,
     originalPath: fullPath,
   })
   if (error) throw new Error(`Storage upload failed: ${error.message}`)
@@ -830,6 +855,19 @@ export async function attachAssessmentFile(
     size_bytes: buffer.byteLength,
     path: filePath(paper.assessment_id, name),
   })
+}
+
+export async function listAssessmentFiles(assessmentId: string): Promise<AssessmentFile[]> {
+  const paper = await withDbClient((client) => loadPaper(client, assessmentId))
+  return loadFiles(paper.assessment_id)
+}
+
+export async function removeAssessmentFile(assessmentId: string, fileName: string): Promise<void> {
+  const name = fileName?.trim() ?? ''
+  if (!name || /[/\\]/.test(name)) throw new Error(`Invalid file name "${fileName}"`)
+  const paper = await withDbClient((client) => loadPaper(client, assessmentId))
+  const { error } = await createLocalStorageClient(FILES_BUCKET).remove([`${paper.assessment_id}/${name}`])
+  if (error) throw new Error(error.message)
 }
 
 /**
