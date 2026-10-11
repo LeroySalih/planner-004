@@ -53,9 +53,11 @@ export type ActivityFeedback = {
   /** Per-item results for matcher and group-items activities. */
   answer_detail: unknown
   uploaded_files: string[]
+  /** 'missing' = no answer, or answered but not marked yet (submission_id tells which). */
   status: 'override' | 'auto' | 'missing'
   score: number | null
-  marks_awarded: number | null
+  /** A missing answer is 0 marks, as everywhere else in DINO (progress baseline). */
+  marks_awarded: number
   teacher_feedback: string | null
   auto_feedback: string | null
   criteria: CriterionFeedback[]
@@ -192,7 +194,7 @@ async function readActivityFeedback(
     uploaded_files: [],
     status: 'missing',
     score: null,
-    marks_awarded: null,
+    marks_awarded: 0,
     teacher_feedback: null,
     auto_feedback: null,
     criteria: [],
@@ -228,7 +230,7 @@ async function readActivityFeedback(
       : typeof extracted.effectiveScore === 'number' ? 'auto'
       : 'missing',
     score: extracted.effectiveScore,
-    marks_awarded: extracted.effectiveScore !== null ? Math.round(extracted.effectiveScore * maxMarks) : null,
+    marks_awarded: extracted.effectiveScore !== null ? Math.round(extracted.effectiveScore * maxMarks) : 0,
     teacher_feedback: teacherEntry?.feedback_text?.trim() || extracted.feedback || null,
     auto_feedback: autoEntry?.feedback_text?.trim() || extracted.autoFeedback || null,
     criteria: await readCriteria(submission.submission_id as string),
@@ -266,11 +268,22 @@ export async function getPupilLessonFeedback(pupilId: string, lessonId: string, 
     results.push(await readActivityFeedback(pupilId, activity, feedbackMap?.get(`${pupilId}::${activity.activity_id}`)))
   }
 
+  // Progress baseline: every marked activity counts, a missing answer is 0,
+  // and the percentage is total marks over total available.
+  const marksAwarded = results.reduce((sum, a) => sum + a.marks_awarded, 0)
+  const maxMarks = results.reduce((sum, a) => sum + a.max_marks, 0)
   return {
     pupil_id: pupilId,
     lesson_id: lessonId,
     lesson_title: lessonRows[0].title,
     feedback_visibility: await readFeedbackVisibility(pupilId, lessonId),
+    totals: {
+      marks_awarded: marksAwarded,
+      max_marks: maxMarks,
+      percent: maxMarks > 0 ? Math.round((marksAwarded / maxMarks) * 100) : null,
+      unanswered: results.filter((a) => !a.submission_id).length,
+      not_yet_marked: results.filter((a) => a.submission_id && a.status === 'missing').length,
+    },
     activities: results,
   }
 }
@@ -327,7 +340,9 @@ export async function setPupilFeedback(teacherId: string | null, input: SetPupil
     // was not given keeps its current value rather than being cleared.
     const current = await getPupilLessonFeedback(input.pupilId, activity.lesson_id, activity.activity_id)
     const now = current.activities[0]
-    const marks = input.marks ?? now?.marks_awarded ?? null
+    // A missing answer reads as 0 marks, but saving a comment alone must not
+    // turn it into a recorded 0: only an existing mark is kept.
+    const marks = input.marks ?? (now && now.status !== 'missing' ? now.marks_awarded : null)
     if (marks === null) {
       throw new Error('The pupil has no mark for this activity yet, so pass marks along with the feedback')
     }

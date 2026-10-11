@@ -2530,6 +2530,8 @@ A body_data over a limit is refused with isError and error.code LIMIT_EXCEEDED (
       description: 'Return one pupil\'s work and feedback on a lesson\'s marked activities, as the assignment results page shows it: '
         + 'their answer, score and status (override = a teacher set the mark), the overall teacher and automatic feedback, and per success criterion '
         + 'the mark, the AI\'s comment, the teacher\'s comment and provenance ("teacher" = set by a teacher, kept on re-mark). '
+        + 'A missing answer counts as 0: it has status "missing" and marks_awarded 0 (submission_id null = not answered; set = answered, not yet marked). '
+        + 'totals gives the lesson score on the same baseline as every DINO report: marks over the full max of every marked activity. '
         + 'feedback_visibility says whether the pupil can see feedback yet; pupils see nothing until a teacher switches feedback on for that assignment. '
         + 'Get pupil ids from list_group_pupils.',
       inputSchema: {
@@ -2548,7 +2550,9 @@ A body_data over a limit is refused with isError and error.code LIMIT_EXCEEDED (
         return {
           content: [{
             type: 'text' as const,
-            text: `${feedback.lesson_title}: ${submitted} of ${feedback.activities.length} marked activities submitted. `
+            text: `${feedback.lesson_title}: ${feedback.totals.marks_awarded}/${feedback.totals.max_marks}`
+              + `${feedback.totals.percent === null ? '' : ` (${feedback.totals.percent}%)`}, missing answers counted as 0. `
+              + `${submitted} of ${feedback.activities.length} marked activities submitted. `
               + (feedback.feedback_visibility.assigned
                 ? `Feedback is ${feedback.feedback_visibility.visible_to_pupil ? 'visible' : 'hidden'} to the pupil.`
                 : 'This lesson is not assigned to the pupil.'),

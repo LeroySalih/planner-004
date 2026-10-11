@@ -735,14 +735,16 @@ These two tools follow the same flow as the assignment results page. Writes go t
 #### `get_pupil_lesson_feedback`
 Returns one pupil's work and feedback on a lesson's marked activities, or on one activity if `activity_id` is given. For each activity it returns:
 - the pupil's answer, with pasted images left out, and any uploaded file names;
-- `status` (`override` means a teacher set the mark), plus `score` and `marks_awarded` out of `max_marks`;
+- `status` (`override` means a teacher set the mark), plus `score` and `marks_awarded` out of `max_marks`. A missing answer has `status: "missing"` and `marks_awarded: 0`, because missing work counts as 0 everywhere in DINO. When `submission_id` is null the pupil didn't answer; when it's set, the answer hasn't been marked yet;
 - the overall `teacher_feedback` and `auto_feedback`;
 - per success criterion: the mark, the comment the pupil is shown, the AI's comment, the teacher's comment and `provenance`.
 
 `feedback_visibility` lists the pupil's class assignments and interventions for the lesson, and says whether feedback is switched on for any of them.
 
 **Input:** `{ pupil_id: string, lesson_id: string, activity_id?: string }`  
-**Output:** `{ feedback: { pupil_id, lesson_id, lesson_title, feedback_visibility: { assigned, visible_to_pupil, assignments }, activities: [...] } | null }`
+`totals` gives the lesson score on the same baseline as every report: `marks_awarded` out of the full `max_marks` of every marked activity, and `percent`. It also counts `unanswered` and `not_yet_marked` questions.
+
+**Output:** `{ feedback: { pupil_id, lesson_id, lesson_title, feedback_visibility: { assigned, visible_to_pupil, assignments }, totals: { marks_awarded, max_marks, percent, unanswered, not_yet_marked }, activities: [...] } | null }`
 
 #### `set_pupil_feedback`
 Sets a mark and/or comment on one activity for one pupil.
