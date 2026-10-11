@@ -1228,7 +1228,7 @@ A body_data over a limit is refused with isError and error.code LIMIT_EXCEEDED (
       inputSchema: z.object({
         lesson_id: z.string().min(1).describe('Lesson identifier.'),
         type: z.enum(ACTIVITY_TYPES).describe(
-          'Activity type. Scorable: multiple-choice-question, short-text-question, text-question, long-text-question, upload-file, upload-url, feedback, sketch-render, do-flashcards. Non-scorable: text, display-image, display-flashcards, file-download, show-video, voice, share-my-work, review-others-work, display-section.',
+          'Activity type. Scorable: multiple-choice-question, short-text-question, text-question, long-text-question, upload-file, upload-url, feedback, sketch-render, group-items, matcher, sequence. Non-scorable: text, display-image, display-flashcards, file-download, show-video, voice, share-my-work, review-others-work, display-section. do-flashcards is legacy and cannot be created.',
         ),
         title: z.string().optional().describe('Optional activity title.'),
         question: z.string().optional().describe('Question text — required for short-text-question and multiple-choice-question.'),

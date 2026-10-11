@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/select"
 import { Download, ExternalLink, GripVertical, Trash2, X } from "lucide-react"
 import { LessonActivityView } from "@/components/lessons/activity-view"
+import { isMothballedActivityType } from "@/dino.config"
 import {
   computeSectionIndexMap,
   getActivityFileUrlValue,
@@ -1582,7 +1583,7 @@ export function LessonSidebar({
                         <SelectValue placeholder="Select activity type" />
                       </SelectTrigger>
                       <SelectContent>
-                        {ACTIVITY_TYPES.map((option) => (
+                        {ACTIVITY_TYPES.filter((option) => !isMothballedActivityType(option.value)).map((option) => (
                           <SelectItem key={option.value} value={option.value}>
                             {option.label}
                           </SelectItem>
@@ -1727,7 +1728,11 @@ export function LessonSidebar({
                                 <SelectValue />
                               </SelectTrigger>
                           <SelectContent>
-                            {ACTIVITY_TYPES.map((option) => (
+                            {/* A legacy type stays listed for an activity that already
+                                uses it, so editing one never rewrites its type. */}
+                            {ACTIVITY_TYPES.filter(
+                              (option) => !isMothballedActivityType(option.value) || option.value === activityType,
+                            ).map((option) => (
                               <SelectItem key={option.value} value={option.value}>
                                 {option.label}
                               </SelectItem>

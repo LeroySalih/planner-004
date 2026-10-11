@@ -28,7 +28,7 @@ import {
   rescaleStoredMarks,
 } from "@/lib/scoring/derive-max-marks";
 import { withTelemetry } from "@/lib/telemetry";
-import { isScorableActivityType } from "@/dino.config";
+import { isLegacyActivityType, isScorableActivityType, legacyActivityTypeMessage } from "@/dino.config";
 import { enqueueLessonMutationJob } from "@/lib/lesson-job-runner";
 import { requireRole } from "@/lib/auth";
 
@@ -209,6 +209,10 @@ export async function createLessonActivityAction(
   input: z.infer<typeof CreateActivityInputSchema>,
 ) {
   const payload = CreateActivityInputSchema.parse(input);
+
+  if (isLegacyActivityType(payload.type)) {
+    return { success: false, error: legacyActivityTypeMessage(payload.type), data: null };
+  }
 
   const normalizedBody = normalizeActivityBody(payload.type, payload.bodyData);
 

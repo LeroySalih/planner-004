@@ -1,5 +1,5 @@
 import { query, withDbClient } from '@/lib/db'
-import { SCORABLE_ACTIVITY_TYPES, NON_SCORABLE_ACTIVITY_TYPES } from '@/dino.config'
+import { SCORABLE_ACTIVITY_TYPES, NON_SCORABLE_ACTIVITY_TYPES, isLegacyActivityType, legacyActivityTypeMessage } from '@/dino.config'
 import { assertLessonExists } from '@/lib/mcp/guards'
 import { MCP_UPLOAD_MAX_BYTES } from '@/lib/mcp/file-input'
 import { assertScAllowedForActivity } from '@/lib/curriculum/unit-curriculum-guard'
@@ -232,6 +232,10 @@ export async function createActivity(
   bodyData?: unknown,
   isSummative?: boolean,
 ): Promise<ActivitySummary> {
+  if (isLegacyActivityType(type)) {
+    throw new Error(legacyActivityTypeMessage(type))
+  }
+
   const isScorableType = (SCORABLE_ACTIVITY_TYPES as readonly string[]).includes(type)
 
   if (isSummative && !isScorableType) {

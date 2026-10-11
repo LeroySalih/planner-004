@@ -14,6 +14,7 @@ import { query, withDbClient } from "@/lib/db"
 import { emitUnitEvent } from "@/lib/sse/topics"
 import { withTelemetry } from "@/lib/telemetry"
 import { incrementUnitTitle } from "@/lib/unit-version"
+import { isLegacyActivityType } from "@/dino.config"
 
 const UnitsReturnValue = z.object({
   data: UnitsSchema.nullable(),
@@ -841,6 +842,9 @@ export async function duplicateUnitAction(unitId: string) {
         }
 
         for (const act of activityRows.rows) {
+          // A legacy type is kept only on the activities that already exist;
+          // a copy would be a new one, so the duplicate leaves it out.
+          if (isLegacyActivityType(act.type)) continue
           const newActivityId = randomUUID()
           const newLessonId = lessonIdMap.get(act.lesson_id)
           if (!newLessonId) continue

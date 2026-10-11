@@ -348,8 +348,10 @@ Read it before `update_activity`: `body_data` is replaced as a whole, so send ba
 #### `create_activity`
 Creates an activity under a lesson.
 
-Scorable types: `multiple-choice-question`, `short-text-question`, `text-question`, `long-text-question`, `upload-file`, `upload-url`, `feedback`, `sketch-render`, `do-flashcards`  
+Scorable types: `multiple-choice-question`, `short-text-question`, `text-question`, `long-text-question`, `upload-file`, `upload-url`, `feedback`, `sketch-render`, `group-items`, `matcher`, `sequence`  
 Non-scorable types: `text`, `display-image`, `display-flashcards`, `file-download`, `show-video`, `voice`, `share-my-work`, `review-others-work`, `display-section`
+
+`do-flashcards` is a legacy type. Asking for one returns an error and nothing is written. Existing do-flashcards activities still work. The list of legacy types is `LEGACY_ACTIVITY_TYPES` in `src/dino.config.ts`.
 
 Setting `is_summative = true` on a non-scorable type returns an error without writing to the DB.
 
@@ -363,12 +365,6 @@ Setting `is_summative = true` on a non-scorable type returns an error without wr
 {
   "lines": "The **mitochondria** is the powerhouse of the cell\nPhotosynthesis converts **light energy** into chemical energy"
 }
-```
-
-`do-flashcards` references a `display-flashcards` activity by ID:
-
-```json
-{ "flashcardActivityId": "<activity_id of the display-flashcards activity>" }
 ```
 
 ##### Limits on body_data

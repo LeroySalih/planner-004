@@ -53,12 +53,27 @@ export const IMAGE_GENERATION_ENABLED = false;
 /** Activity types that cannot function without image generation. */
 export const IMAGE_GENERATION_ACTIVITY_TYPES = Object.freeze(["sketch-render"]);
 
+// Defunct types kept only so existing activities (and pupils' work on them)
+// still display and score. No surface may create a new one: the lesson
+// activity picker, the lesson sidebar, MCP and the server actions all refuse.
+export const LEGACY_ACTIVITY_TYPES = Object.freeze(["do-flashcards"]);
+
+export function isLegacyActivityType(type: string | null | undefined): boolean {
+  return LEGACY_ACTIVITY_TYPES.includes(normalizeActivityType(type));
+}
+
+export function legacyActivityTypeMessage(type: string): string {
+  return `"${type}" is a legacy activity type and can no longer be created. Existing ${type} activities still work.`;
+}
+
 /**
- * True when a type depends on image generation and that is currently mothballed.
- * Callers use this to hide a type from creation surfaces — never to hide or
- * disable activities that already exist.
+ * True when a new activity of this type must not be created: a legacy type, or
+ * one that depends on image generation while that is mothballed. Callers use
+ * this to hide a type from creation surfaces — never to hide or disable
+ * activities that already exist.
  */
 export function isMothballedActivityType(type: string | null | undefined): boolean {
+  if (isLegacyActivityType(type)) return true;
   if (IMAGE_GENERATION_ENABLED) return false;
   return IMAGE_GENERATION_ACTIVITY_TYPES.includes(normalizeActivityType(type));
 }
