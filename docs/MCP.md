@@ -309,6 +309,14 @@ Renames a lesson. Lessons have no description column, so title is the only field
 
 ---
 
+#### `reorder_lessons`
+Sets the order of a unit's lessons. `lesson_ids` must list every active lesson in the unit exactly once, first to last. A partial list, a duplicate, an inactive lesson, or an id from another unit is rejected and nothing changes. Inactive lessons keep their relative order after the active ones. Interventions aren't part of the unit's order and are left alone. Returns the lessons in their new order.
+
+**Input:** `{ unit_id: string, lesson_ids: string[] }`  
+**Output:** `{ lessons: [{ lesson_id, unit_id, title, is_active, order_index }] | null }`
+
+---
+
 #### `add_success_criterion_to_lesson`
 Links a success criterion to a lesson. The parent learning objective is automatically linked to the lesson if not already present.
 

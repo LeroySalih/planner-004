@@ -34,7 +34,7 @@ export async function listLessonsForUnit(unitId: string): Promise<LessonSummary[
       lesson_id: typeof row.lesson_id === 'string' ? row.lesson_id : String(row.lesson_id ?? ''),
       unit_id: typeof row.unit_id === 'string' ? row.unit_id : String(row.unit_id ?? ''),
       title: typeof row.title === 'string' ? row.title : '',
-      is_active: row.active === true,
+      is_active: row.active !== false,
       order_index: Number.isFinite(numericOrder) ? (numericOrder as number) : index,
     }
   })
@@ -112,6 +112,57 @@ export async function updateLessonTitle(lessonId: string, title: string): Promis
     is_active: row.active !== false,
     order_index: row.order_by,
   }
+}
+
+// Mirrors reorderActivities: the list must name every active lesson in the
+// unit exactly once, so a partial list cannot leave two lessons sharing a
+// position. Inactive lessons keep their relative order after the active ones.
+// Interventions are one pupil's lessons, not part of the unit's sequence, and
+// are left alone.
+export async function reorderLessons(unitId: string, lessonIds: string[]): Promise<LessonSummary[]> {
+  const duplicates = lessonIds.filter((id, index) => lessonIds.indexOf(id) !== index)
+  if (duplicates.length > 0) {
+    throw new Error(`Lesson listed more than once: ${[...new Set(duplicates)].join(', ')}`)
+  }
+
+  await withDbClient(async (client) => {
+    await assertUnitExists(client, unitId)
+
+    const { rows } = await client.query<{ lesson_id: string; active: boolean | null }>(
+      `select lesson_id, active from lessons
+        where unit_id = $1 and kind = 'standard'
+        order by order_by asc nulls last, title asc`,
+      [unitId],
+    )
+    const activeIds = rows.filter((row) => row.active !== false).map((row) => row.lesson_id)
+    const inactiveIds = rows.filter((row) => row.active === false).map((row) => row.lesson_id)
+
+    const unknown = lessonIds.filter((id) => !activeIds.includes(id))
+    if (unknown.length > 0) {
+      throw new Error(`Not active lessons of unit ${unitId}: ${unknown.join(', ')}`)
+    }
+    const missing = activeIds.filter((id) => !lessonIds.includes(id))
+    if (missing.length > 0) {
+      throw new Error(`Every active lesson must be listed. Missing: ${missing.join(', ')}`)
+    }
+
+    await client.query('begin')
+    try {
+      await client.query(
+        `update lessons l
+         set order_by = o.position - 1
+         from unnest($2::text[]) with ordinality as o(lesson_id, position)
+         where l.lesson_id = o.lesson_id and l.unit_id = $1`,
+        [unitId, [...lessonIds, ...inactiveIds]],
+      )
+      await client.query('commit')
+    } catch (error) {
+      await client.query('rollback')
+      throw error
+    }
+  })
+
+  return listLessonsForUnit(unitId)
 }
 
 export type LessonScLinkResult = {

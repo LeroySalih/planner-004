@@ -27,7 +27,7 @@ import {
   deactivateSuccessCriterion,
 } from '@/lib/mcp/losc'
 import { listUnits, findUnitsByTitle, createUnit, updateUnit } from '@/lib/mcp/units'
-import { listLessonsForUnit, getLessonObjectives, createLesson, updateLessonTitle, addSuccessCriterionToLesson, removeSuccessCriterionFromLesson, uploadLessonFile } from '@/lib/mcp/lessons'
+import { listLessonsForUnit, getLessonObjectives, createLesson, updateLessonTitle, reorderLessons, addSuccessCriterionToLesson, removeSuccessCriterionFromLesson, uploadLessonFile } from '@/lib/mcp/lessons'
 import {
   listTeachers,
   listGroups,
@@ -420,6 +420,50 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
           },
         ],
         structuredContent: { lessons },
+      }
+    },
+  )
+
+  srv.registerTool(
+    'reorder_lessons',
+    {
+      title: 'Reorder lessons in a unit',
+      description: 'Set the order of a unit\'s lessons. Pass every active lesson id (from get_lessons_for_unit) exactly once, first to last. '
+        + 'Inactive lessons stay after them; interventions are not part of the order.',
+      inputSchema: z.object({
+        unit_id: z.string().min(1).describe('Unit identifier.'),
+        lesson_ids: z.preprocess(
+          (v) => (typeof v === 'string' ? JSON.parse(v) : v),
+          z.array(z.string().min(1)).min(1),
+        ).describe('Every active lesson id in the unit, in the new order.'),
+      }),
+      outputSchema: z.object({
+        lessons: z.array(z.object({
+          lesson_id: z.string(),
+          unit_id: z.string(),
+          title: z.string(),
+          is_active: z.boolean(),
+          order_index: z.number(),
+        })).nullable(),
+      }),
+    },
+    async ({ unit_id, lesson_ids }) => {
+      try {
+        const lessons = await reorderLessons(unit_id, lesson_ids)
+        return {
+          content: [{
+            type: 'text' as const,
+            text: lessons.map((l, i) => `${i + 1}. ${l.lesson_id} • ${l.title}${l.is_active ? '' : ' (inactive)'}`).join('\n'),
+          }],
+          structuredContent: { lessons },
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return {
+          isError: true,
+          content: [{ type: 'text' as const, text: `Error: ${message}` }],
+          structuredContent: { lessons: null },
+        }
       }
     },
   )
