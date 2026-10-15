@@ -75,7 +75,7 @@ import {
   updateIntervention,
   type InterventionSummary,
 } from '@/lib/interventions/store'
-import { ACTIVITY_TYPES, ActivityBodyDataError, listActivitiesForLesson, getActivity, createActivity, updateActivity, addSuccessCriterionToActivity, removeSuccessCriterionFromActivity, removeActivity, reorderActivities, uploadActivityFile } from '@/lib/mcp/activities'
+import { ACTIVITY_TYPES, ActivityBodyDataError, listActivitiesForLesson, getActivity, createActivity, updateActivity, setActivityMaxMarks, addSuccessCriterionToActivity, removeSuccessCriterionFromActivity, removeActivity, reorderActivities, uploadActivityFile } from '@/lib/mcp/activities'
 
 // Force Node.js runtime — MCP SDK is not compatible with the Edge runtime.
 export const runtime = 'nodejs'
@@ -1224,6 +1224,7 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
 - matcher: body_data { "pairs": 2–8 × { "id", "term", "definition" } }.
 - sequence: body_data { "terms": 2–12 × { "id", "text" } }, in the correct order.
 - All other types: use body_data for any extra JSON payload.
+max_marks sets the marks the activity is out of, e.g. 6 for a "(6 marks)" question. Omitted, a short-text-question is out of 3 and every other type out of 1. It is refused for non-scorable types and for matcher and group-items, which are worth one mark per pair or item. Linking success criteria later replaces it with the marks the criteria are worth.
 A body_data over a limit is refused with isError and error.code LIMIT_EXCEEDED (BELOW_MINIMUM or INVALID_BODY_DATA for other problems), naming the field, the limit and the count received. Split the content across several activities.`,
       inputSchema: z.object({
         lesson_id: z.string().min(1).describe('Lesson identifier.'),
@@ -1243,6 +1244,7 @@ A body_data over a limit is refused with isError and error.code LIMIT_EXCEEDED (
         correct_option_id: z.string().optional().describe('id of the correct option — required for multiple-choice-question.'),
         body_data: z.record(z.string(), z.unknown()).optional().describe('Generic body JSON for other activity types.'),
         is_summative: z.boolean().optional().describe('Mark as summative assessment (scorable types only).'),
+        max_marks: z.coerce.number().int().min(1).optional().describe('Marks available (scorable types only, not matcher or group-items). Defaults: short-text-question 3, others 1.'),
       }),
       outputSchema: z.object({
         activity: z.object({
@@ -1257,7 +1259,7 @@ A body_data over a limit is refused with isError and error.code LIMIT_EXCEEDED (
         error: activityBodyErrorShape.optional(),
       }),
     },
-    async ({ lesson_id, type, title, question, model_answer, mcq_options, correct_option_id, body_data, is_summative }) => {
+    async ({ lesson_id, type, title, question, model_answer, mcq_options, correct_option_id, body_data, is_summative, max_marks }) => {
       try {
         let resolvedBodyData: Record<string, unknown> | null = body_data ?? null
 
@@ -1274,7 +1276,7 @@ A body_data over a limit is refused with isError and error.code LIMIT_EXCEEDED (
           resolvedBodyData = { question: question.trim(), options: mcq_options, correctOptionId: correct_option_id }
         }
 
-        const activity = await createActivity(lesson_id, type, title ?? null, resolvedBodyData, is_summative)
+        const activity = await createActivity(lesson_id, type, title ?? null, resolvedBodyData, is_summative, max_marks)
         return {
           content: [{ type: 'text' as const, text: `Created activity ${activity.activity_id} • ${activity.type}${activity.title ? ` — ${activity.title}` : ''}` }],
           structuredContent: { activity },
@@ -1324,6 +1326,48 @@ A body_data over a limit is refused with isError and error.code LIMIT_EXCEEDED (
         }
       } catch (err) {
         return activityErrorResult(err)
+      }
+    },
+  )
+
+  srv.registerTool(
+    'set_activity_max_marks',
+    {
+      title: 'Set activity max marks',
+      description: 'Set the marks an existing activity is out of, e.g. 6 for a "(6 marks)" question. '
+        + 'Marks pupils already hold are rescaled with it, so full marks stay full marks. '
+        + 'Refused for non-scorable types, for matcher and group-items (one mark per pair or item), and for an activity with success criteria linked, '
+        + 'whose max_marks is derived from them (binary = 1, levelled = 1 per descriptor).',
+      inputSchema: z.object({
+        activity_id: z.string().describe('UUID of the activity'),
+        max_marks: z.coerce.number().int().min(1).describe('Marks available, a whole number of at least 1.'),
+      }),
+      outputSchema: z.object({
+        activity: z.object({
+          activity_id: z.string(),
+          type: z.string(),
+          title: z.string().nullable(),
+          previous_max_marks: z.number().nullable(),
+          max_marks: z.number(),
+          rescaled_submissions: z.number(),
+        }).nullable(),
+      }),
+    },
+    async ({ activity_id, max_marks }) => {
+      try {
+        const activity = await setActivityMaxMarks(activity_id, max_marks)
+        const rescaled = activity.rescaled_submissions > 0 ? `; ${activity.rescaled_submissions} submission(s) rescaled` : ''
+        return {
+          content: [{ type: 'text' as const, text: `${activity.title ?? activity_id}: max_marks ${activity.previous_max_marks} → ${activity.max_marks}${rescaled}` }],
+          structuredContent: { activity },
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return {
+          isError: true,
+          content: [{ type: 'text' as const, text: `Error: ${message}` }],
+          structuredContent: { activity: null },
+        }
       }
     },
   )

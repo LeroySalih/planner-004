@@ -3,7 +3,7 @@ import { SCORABLE_ACTIVITY_TYPES, NON_SCORABLE_ACTIVITY_TYPES, isLegacyActivityT
 import { assertLessonExists } from '@/lib/mcp/guards'
 import { MCP_UPLOAD_MAX_BYTES } from '@/lib/mcp/file-input'
 import { assertScAllowedForActivity } from '@/lib/curriculum/unit-curriculum-guard'
-import { recalculateActivityMaxMarks, recalculateGroupItemsMaxMarks, recalculateMatcherMaxMarks } from '@/lib/scoring/derive-max-marks'
+import { recalculateActivityMaxMarks, recalculateGroupItemsMaxMarks, recalculateMatcherMaxMarks, rescaleStoredMarks } from '@/lib/scoring/derive-max-marks'
 import { createLocalStorageClient } from '@/lib/storage/local-storage'
 import { GroupItemsActivityBodySchema, MatcherActivityBodySchema, SequenceActivityBodySchema } from '@/types'
 
@@ -231,6 +231,7 @@ export async function createActivity(
   title?: string | null,
   bodyData?: unknown,
   isSummative?: boolean,
+  maxMarks?: number,
 ): Promise<ActivitySummary> {
   if (isLegacyActivityType(type)) {
     throw new Error(legacyActivityTypeMessage(type))
@@ -241,6 +242,9 @@ export async function createActivity(
   if (isSummative && !isScorableType) {
     throw new Error('Only scorable activity types can be marked as summative')
   }
+  if (maxMarks !== undefined) assertMaxMarksSettable(type, maxMarks)
+  // Same default as the app's activity form.
+  const effectiveMaxMarks = maxMarks ?? (type === 'short-text-question' ? 3 : 1)
 
   const effectiveIsSummative = isScorableType ? (isSummative ?? false) : false
 
@@ -266,8 +270,8 @@ export async function createActivity(
       is_summative: boolean
       active: boolean
     }>(
-      `insert into activities (lesson_id, title, type, body_data, is_summative, order_by, active)
-       values ($1, $2, $3, $4, $5, $6, true)
+      `insert into activities (lesson_id, title, type, body_data, is_summative, order_by, max_marks, active)
+       values ($1, $2, $3, $4, $5, $6, $7, true)
        returning activity_id, lesson_id, title, type, order_by, is_summative, active`,
       [
         lessonId,
@@ -276,10 +280,15 @@ export async function createActivity(
         bodyData != null ? JSON.stringify(bodyData) : null,
         effectiveIsSummative,
         nextOrder,
+        effectiveMaxMarks,
       ],
     )
     const row = rows[0]
     if (!row) throw new Error('Failed to create activity')
+    // A matcher is out of its pair count and a group-items out of its item
+    // count, as when the app creates them.
+    await recalculateMatcherMaxMarks(client, row.activity_id)
+    await recalculateGroupItemsMaxMarks(client, row.activity_id)
     result = {
       activity_id: row.activity_id,
       lesson_id: row.lesson_id,
@@ -419,6 +428,11 @@ export async function updateActivity(
     )
     const row = rows[0]
     if (!row) throw new Error('Update failed')
+    // New pairs or items change what a matcher or group-items is out of.
+    if ('bodyData' in fields) {
+      await recalculateMatcherMaxMarks(client, activityId)
+      await recalculateGroupItemsMaxMarks(client, activityId)
+    }
     result = {
       activity_id: row.activity_id,
       lesson_id: row.lesson_id,
@@ -432,6 +446,79 @@ export async function updateActivity(
 
   if (!result) throw new Error('Failed to update activity')
   return result
+}
+
+/** Matcher and group-items marks come from their pairs and items, not a tariff. */
+const MAX_MARKS_FROM_BODY_TYPES = ['matcher', 'group-items']
+
+function assertMaxMarksSettable(type: string, maxMarks: number) {
+  if (!Number.isInteger(maxMarks) || maxMarks < 1) {
+    throw new Error(`max_marks must be a whole number of at least 1 (received ${maxMarks})`)
+  }
+  if (!(SCORABLE_ACTIVITY_TYPES as readonly string[]).includes(type)) {
+    throw new Error(`"${type}" is not scorable, so it has no max_marks`)
+  }
+  if (MAX_MARKS_FROM_BODY_TYPES.includes(type)) {
+    throw new Error(`A ${type} is worth one mark per ${type === 'matcher' ? 'pair' : 'item'}; its max_marks is set from body_data, not by hand`)
+  }
+}
+
+export type ActivityMaxMarksResult = {
+  activity_id: string
+  type: string
+  title: string | null
+  previous_max_marks: number | null
+  max_marks: number
+  rescaled_submissions: number
+}
+
+/**
+ * Sets the marks an activity is out of. Marks pupils already hold are rescaled
+ * with it, as the app does, so full marks stay full marks.
+ *
+ * Refused when success criteria are linked: max_marks is then derived from
+ * them and would be overwritten on the next criterion change.
+ */
+export async function setActivityMaxMarks(activityId: string, maxMarks: number): Promise<ActivityMaxMarksResult> {
+  return withDbClient(async (client) => {
+    await client.query('begin')
+    try {
+      const { rows } = await client.query<{ type: string; title: string | null; max_marks: number | null; criteria: number }>(
+        `select a.type, a.title, a.max_marks,
+                (select count(*)::int from activity_success_criteria acs where acs.activity_id = a.activity_id) as criteria
+           from activities a
+          where a.activity_id = $1
+          for update`,
+        [activityId],
+      )
+      const activity = rows[0]
+      if (!activity) throw new Error(`Activity ${activityId} not found`)
+      assertMaxMarksSettable(activity.type, maxMarks)
+      if (activity.criteria > 0) {
+        throw new Error(
+          `Activity has ${activity.criteria} success criteria linked, so its max_marks (${activity.max_marks}) is derived from them. `
+          + 'Change the criteria (binary = 1 mark, levelled = 1 per descriptor) instead.',
+        )
+      }
+
+      const { rowCount } = await client.query('select 1 from submissions where activity_id = $1', [activityId])
+      await client.query('update activities set max_marks = $2 where activity_id = $1', [activityId, maxMarks])
+      await rescaleStoredMarks(client, activityId, activity.max_marks, maxMarks)
+      await client.query('commit')
+
+      return {
+        activity_id: activityId,
+        type: activity.type,
+        title: activity.title,
+        previous_max_marks: activity.max_marks,
+        max_marks: maxMarks,
+        rescaled_submissions: activity.max_marks === maxMarks ? 0 : (rowCount ?? 0),
+      }
+    } catch (error) {
+      await client.query('rollback')
+      throw error
+    }
+  })
 }
 
 export type ActivityScLinkResult = {

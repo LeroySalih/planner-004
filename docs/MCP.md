@@ -355,7 +355,9 @@ Non-scorable types: `text`, `display-image`, `display-flashcards`, `file-downloa
 
 Setting `is_summative = true` on a non-scorable type returns an error without writing to the DB.
 
-**Input:** `{ lesson_id: string, type: ActivityType, title?: string, body_data?: object, is_summative?: boolean }`  
+`max_marks` sets the marks the activity is out of, for example 6 for a "(6 marks)" question. If it is left out, a `short-text-question` is out of 3 and every other type out of 1, the same defaults as the app's form. It is refused for non-scorable types and for `matcher` and `group-items`, which are always worth one mark per pair or item. Linking success criteria afterwards replaces it with the marks the criteria are worth.
+
+**Input:** `{ lesson_id: string, type: ActivityType, title?: string, body_data?: object, is_summative?: boolean, max_marks?: number }`  
 **Output:** `{ activity: { activity_id, lesson_id, title, type, order_index, is_summative, active } | null }`
 
 ##### Flashcard body_data format
@@ -398,6 +400,21 @@ Updates `title`, `body_data`, and/or `is_summative` on an existing activity. Onl
 
 **Input:** `{ activity_id: string, title?: string | null, body_data?: object | null, is_summative?: boolean }`  
 **Output:** `{ activity: { activity_id, lesson_id, title, type, order_index, is_summative, active } | null }`
+
+A new `body_data` on a `matcher` or `group-items` also resets `max_marks` to the new pair or item count, as in the app.
+
+---
+
+#### `set_activity_max_marks`
+Sets the marks an existing activity is out of. Marks pupils already hold are rescaled with it (`rescaleStoredMarks`), so a pupil on full marks stays on full marks.
+
+Refused with `isError` and nothing written:
+- for non-scorable types;
+- for `matcher` and `group-items`, whose marks come from their pairs and items;
+- for an activity with success criteria linked. Its `max_marks` is derived from them (binary = 1, levelled = 1 per descriptor), so change the criteria instead.
+
+**Input:** `{ activity_id: string, max_marks: number }`  
+**Output:** `{ activity: { activity_id, type, title, previous_max_marks, max_marks, rescaled_submissions } | null }`
 
 ---
 
