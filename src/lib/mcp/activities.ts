@@ -304,6 +304,32 @@ export async function createActivity(
   return result
 }
 
+const FILE_ACTIVITY_TYPES = ['file-download', 'display-image', 'display-webpage']
+
+/** Which activities take a file, and for a web page, that the file is HTML. */
+export function assertActivityAcceptsFile(activityId: string, type: string, fileName?: string | null) {
+  if (!FILE_ACTIVITY_TYPES.includes(type)) {
+    throw new Error(`Activity ${activityId} is type "${type}" — only file-download, display-image and display-webpage activities accept file uploads`)
+  }
+  if (type === 'display-webpage' && fileName != null && !/\.html?$/i.test(fileName)) {
+    throw new Error(`A display-webpage activity takes one .html file; "${fileName}" is not one`)
+  }
+}
+
+/** Sets body_data.htmlFile, keeping `url`. Returns the file it replaced. */
+async function setWebpageFile(activityId: string, fileName: string): Promise<string | null> {
+  const { rows } = await query<{ previous: string | null }>(
+    `with old as (select body_data::jsonb ->> 'htmlFile' as previous from activities where activity_id = $1 for update)
+     update activities a
+        set body_data = (coalesce(a.body_data::jsonb, '{}'::jsonb) - 'htmlFile' || jsonb_build_object('htmlFile', $2::text))
+       from old
+      where a.activity_id = $1
+     returning old.previous`,
+    [activityId, fileName],
+  )
+  return rows[0]?.previous ?? null
+}
+
 export type UploadedFileResult = {
   activity_id: string
   lesson_id: string
@@ -333,15 +359,14 @@ export async function uploadActivityFile(
   )
   const activity = rows[0]
   if (!activity) throw new Error(`Activity ${activityId} not found in lesson ${lessonId}`)
-  if (activity.type !== 'file-download' && activity.type !== 'display-image') {
-    throw new Error(`Activity ${activityId} is type "${activity.type}" — only file-download and display-image activities accept file uploads`)
-  }
+  assertActivityAcceptsFile(activityId, activity.type, fileName)
+  const isWebpage = activity.type === 'display-webpage'
 
   // Upload using the same path convention as the app
-  const fullPath = `lessons/${lessonId}/activities/${activityId}/${fileName}`
+  const activityDir = `lessons/${lessonId}/activities/${activityId}`
   const storage = createLocalStorageClient('lessons')
-  const { error } = await storage.upload(fullPath, buffer, {
-    contentType: contentType ?? undefined,
+  const { error } = await storage.upload(`${activityDir}/${fileName}`, buffer, {
+    contentType: isWebpage ? 'text/html' : contentType ?? undefined,
     uploadedBy: 'mcp',
     originalPath: fileName,
   })
@@ -350,13 +375,24 @@ export async function uploadActivityFile(
   const urlParts = ['lessons', lessonId, 'activities', activityId, fileName]
     .map(encodeURIComponent)
     .join('/')
-  const url = `/api/files/${urlParts}`
+  // /api/files sends HTML as a download; the page itself opens through the
+  // sandboxed webpage route.
+  const url = isWebpage
+    ? `/api/activity-webpage/${encodeURIComponent(activityId)}`
+    : `/api/files/${urlParts}`
 
   if (activity.type === 'display-image') {
     await query(
       'update activities set body_data = $1::jsonb where activity_id = $2',
       [JSON.stringify({ imageFile: fileName, fileUrl: fileName }), activityId],
     )
+  } else if (isWebpage) {
+    // A web page holds one file: point the activity at the new one, keep any
+    // link it also carries, and delete the file it replaces.
+    const previous = await setWebpageFile(activityId, fileName)
+    if (previous && previous !== fileName) {
+      await storage.remove([`${activityDir}/${previous}`])
+    }
   }
 
   return {

@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto'
 
 import { query } from '@/lib/db'
 import { listAssessmentPupils } from '@/lib/assessments/store'
+import { assertActivityAcceptsFile } from '@/lib/mcp/activities'
 import type { McpCaller } from '@/lib/mcp/auth'
 
 const LINK_LIFETIME_MINUTES = 15
@@ -40,9 +41,7 @@ export async function createUploadLink(
       [target.activityId, target.lessonId],
     )
     if (!rows[0]) throw new Error(`Activity ${target.activityId} not found in lesson ${target.lessonId}`)
-    if (rows[0].type !== 'file-download' && rows[0].type !== 'display-image') {
-      throw new Error(`Activity ${target.activityId} is type "${rows[0].type}" — only file-download and display-image activities accept file uploads`)
-    }
+    assertActivityAcceptsFile(target.activityId, rows[0].type, target.fileName)
   } else {
     const { rows } = await query('select 1 from lessons where lesson_id = $1 limit 1', [target.lessonId])
     if (!rows[0]) throw new Error(`Lesson ${target.lessonId} not found`)

@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server'
 
+import { query } from '@/lib/db'
 import { recordMcpCall } from '@/lib/mcp/audit'
 import { MCP_UPLOAD_MAX_BYTES, cleanFileName } from '@/lib/mcp/file-input'
 import { uploadActivityFile } from '@/lib/mcp/activities'
@@ -18,6 +19,13 @@ type Params = { params: Promise<{ token: string }> }
 // DINO serves uploads inline from its own origin, where these could run script.
 const UNSAFE_TYPES = new Set(['text/html', 'application/xhtml+xml', 'image/svg+xml'])
 const UNSAFE_EXTENSIONS = /\.(html?|xhtml|svg)$/i
+const WEBPAGE_EXTENSIONS = /\.html?$/i
+const WEBPAGE_TYPES = new Set(['text/html', 'text/plain', 'application/octet-stream'])
+
+async function isWebpageActivity(activityId: string): Promise<boolean> {
+  const { rows } = await query<{ type: string }>('select type from activities where activity_id = $1 limit 1', [activityId])
+  return rows[0]?.type === 'display-webpage'
+}
 
 const limitLabel = (maxBytes: number) => `${maxBytes / (1024 * 1024)} MB`
 
@@ -72,8 +80,12 @@ async function handle(request: NextRequest, { params }: Params): Promise<Respons
     }
     const fileName = cleanFileName(link.file_name || name || 'upload')
     Object.assign(args, { file_name: fileName, size_bytes: buffer.byteLength, content_type: type })
-    if (UNSAFE_EXTENSIONS.test(fileName) || (type && UNSAFE_TYPES.has(type))) {
-      throw new UploadError(415, 'HTML and SVG files cannot be uploaded. Convert the image to PNG first.')
+    // A display-webpage's page is the exception: it is only ever opened
+    // through the sandboxed /api/activity-webpage route.
+    const htmlAllowed = link.activity_id !== null && (await isWebpageActivity(link.activity_id))
+    const isHtml = WEBPAGE_EXTENSIONS.test(fileName) && (!type || WEBPAGE_TYPES.has(type))
+    if (!(htmlAllowed && isHtml) && (UNSAFE_EXTENSIONS.test(fileName) || (type && UNSAFE_TYPES.has(type)))) {
+      throw new UploadError(415, 'HTML and SVG files cannot be uploaded, except an .html page to a display-webpage activity. Convert an image to PNG first.')
     }
 
     const file = link.assessment_id

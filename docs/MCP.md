@@ -357,7 +357,7 @@ Read it before `update_activity`: `body_data` is replaced as a whole, so send ba
 Creates an activity under a lesson.
 
 Scorable types: `multiple-choice-question`, `short-text-question`, `text-question`, `long-text-question`, `upload-file`, `upload-url`, `feedback`, `sketch-render`, `group-items`, `matcher`, `sequence`  
-Non-scorable types: `text`, `display-image`, `display-flashcards`, `file-download`, `show-video`, `voice`, `share-my-work`, `review-others-work`, `display-section`
+Non-scorable types: `text`, `display-image`, `display-webpage`, `display-flashcards`, `file-download`, `show-video`, `voice`, `share-my-work`, `review-others-work`, `display-section`
 
 `do-flashcards` is a legacy type. Asking for one returns an error and nothing is written. Existing do-flashcards activities still work. The list of legacy types is `LEGACY_ACTIVITY_TYPES` in `src/dino.config.ts`.
 
@@ -376,6 +376,14 @@ Setting `is_summative = true` on a non-scorable type returns an error without wr
   "lines": "The **mitochondria** is the powerhouse of the cell\nPhotosynthesis converts **light energy** into chemical energy"
 }
 ```
+
+##### Display Web Page (`display-webpage`)
+A web page activity shows one uploaded HTML file, a link to a website, or both. `body_data` is `{ "htmlFile"?: string, "url"?: string }`.
+
+1. `create_activity` with `type: "display-webpage"`. Pass `body_data: { "url": "https://…" }` for a link, or no `body_data` if it will only have a page.
+2. Upload one `.html` or `.htm` file with any activity upload route (the one-time upload link is easiest). Any other extension is refused.
+
+The upload sets `htmlFile` to the new file and keeps `url`. A web page holds a single file, so uploading again replaces the page and deletes the old file. The result's `url` is `/api/activity-webpage/<activity_id>`, the sandboxed route that opens the page. It runs with scripts allowed but no network access and no access to DINO, so the page must be self-contained, with inline CSS, JS and `data:` images.
 
 ##### Limits on body_data
 `group-items`, `matcher` and `sequence` bodies are checked against the same Zod schemas the app uses to display and mark them (`src/types/index.ts`). Before this check, MCP saved a body that broke these limits, for example a group-items activity with 13 items. The tool reported success, but the app could not parse the activity, so it failed without any message.
@@ -471,7 +479,7 @@ Uploads a base64-encoded file to the lesson's private teacher file store. Not vi
 **Output:** `{ file: { lesson_id, file_name, size_bytes, url } | null }`
 
 ##### `upload_activity_file`
-Uploads a base64-encoded file to a `file-download` activity (so pupils can download it) or a `display-image` activity (to set its image). Max 5 MB.
+Uploads a base64-encoded file to a `file-download` activity (so pupils can download it) a `display-image` activity (to set its image), or a `display-webpage` activity (its HTML page). Max 5 MB.
 
 **Input:** `{ lesson_id: string, activity_id: string, file_name: string, base64_content: string, content_type?: string }`  
 **Output:** `{ file: { activity_id, lesson_id, file_name, size_bytes, url } | null }`
@@ -510,7 +518,7 @@ curl -sS -X PUT --data-binary @deck.pptx "<upload_url>?file_name=deck.pptx"
 Claude's chat apps cannot reliably pass a file of more than a few hundred KB as base64, and their sandbox does not hold the connector's credentials, so neither strategy A nor B works from there. These tools take a link and DINO downloads the file itself.
 
 ##### `upload_activity_file_from_url`
-Downloads a file into a `file-download` or `display-image` activity.
+Downloads a file into a `file-download`, `display-image` or `display-webpage` activity. A link that serves HTML as `text/html` is still refused, because that is usually a viewer or sign-in page rather than the file; use a one-time upload link for an HTML page instead.
 
 **Input:** `{ lesson_id: string, activity_id: string, url: string, file_name?: string }`  
 **Output:** `{ file: { activity_id, lesson_id, file_name, size_bytes, url } | null }`
@@ -557,7 +565,7 @@ Returns everything needed to POST a file directly to the lesson teacher file sto
 ```
 
 ##### `get_activity_file_upload_info`
-Returns everything needed to POST a file directly to a `file-download` or `display-image` activity.
+Returns everything needed to POST a file directly to a `file-download`, `display-image` or `display-webpage` activity. The route uses the same `uploadActivityFile` as the upload tools, so the checks and `body_data` updates are identical.
 
 **Input:** `{ lesson_id: string, activity_id: string }`  
 **Output:**
@@ -566,7 +574,7 @@ Returns everything needed to POST a file directly to a `file-download` or `displ
   "upload_url": "https://dino.mr-salih.org/api/MCP/files/activity",
   "method": "POST",
   "form_fields": { "lesson_id": "<lesson_id>", "activity_id": "<activity_id>" },
-  "instructions": "Send a multipart/form-data POST with your MCP Authorization header. File field name: 'file'. Max 5 MB. Activity must be type file-download or display-image."
+  "instructions": "Send a multipart/form-data POST with your MCP Authorization header. File field name: 'file'. Max 5 MB. Activity must be type file-download, display-image or display-webpage."
 }
 ```
 
@@ -575,7 +583,7 @@ Returns everything needed to POST a file directly to a `file-download` or `displ
 | Endpoint | Purpose |
 |---|---|
 | `POST /api/MCP/files/lesson` | Upload to lesson teacher file store |
-| `POST /api/MCP/files/activity` | Upload to a `file-download` or `display-image` activity |
+| `POST /api/MCP/files/activity` | Upload to a `file-download`, `display-image` or `display-webpage` activity |
 
 ---
 

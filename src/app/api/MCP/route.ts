@@ -1267,13 +1267,14 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
 - group-items: body_data { "groups": 2–4 × { "id", "name" }, "items": 2–12 × { "id", "text", "groupId" } }.
 - matcher: body_data { "pairs": 2–8 × { "id", "term", "definition" } }.
 - sequence: body_data { "terms": 2–12 × { "id", "text" } }, in the correct order.
+- display-webpage: body_data { "url"?: "https://…" } for a link. To show an HTML page, create the activity, then upload one .html file to it; the upload sets body_data.htmlFile.
 - All other types: use body_data for any extra JSON payload.
 max_marks sets the marks the activity is out of, e.g. 6 for a "(6 marks)" question. Omitted, a short-text-question is out of 3 and every other type out of 1. It is refused for non-scorable types and for matcher and group-items, which are worth one mark per pair or item. Linking success criteria later replaces it with the marks the criteria are worth.
 A body_data over a limit is refused with isError and error.code LIMIT_EXCEEDED (BELOW_MINIMUM or INVALID_BODY_DATA for other problems), naming the field, the limit and the count received. Split the content across several activities.`,
       inputSchema: z.object({
         lesson_id: z.string().min(1).describe('Lesson identifier.'),
         type: z.enum(ACTIVITY_TYPES).describe(
-          'Activity type. Scorable: multiple-choice-question, short-text-question, text-question, long-text-question, upload-file, upload-url, feedback, sketch-render, group-items, matcher, sequence. Non-scorable: text, display-image, display-flashcards, file-download, show-video, voice, share-my-work, review-others-work, display-section. do-flashcards is legacy and cannot be created.',
+          'Activity type. Scorable: multiple-choice-question, short-text-question, text-question, long-text-question, upload-file, upload-url, feedback, sketch-render, group-items, matcher, sequence. Non-scorable: text, display-image, display-webpage, display-flashcards, file-download, show-video, voice, share-my-work, review-others-work, display-section. do-flashcards is legacy and cannot be created.',
         ),
         title: z.string().optional().describe('Optional activity title.'),
         question: z.string().optional().describe('Question text — required for short-text-question and multiple-choice-question.'),
@@ -1564,10 +1565,10 @@ A body_data over a limit is refused with isError and error.code LIMIT_EXCEEDED (
     'get_activity_file_upload_info',
     {
       title: 'Get activity file upload info',
-      description: 'Returns the URL and form fields needed to upload a file directly to a file-download or display-image activity via multipart POST — no base64 encoding required.',
+      description: 'Returns the URL and form fields needed to upload a file directly to a file-download, display-image or display-webpage activity via multipart POST — no base64 encoding required.',
       inputSchema: z.object({
         lesson_id: z.string().describe('UUID of the lesson'),
-        activity_id: z.string().describe('UUID of the file-download or display-image activity'),
+        activity_id: z.string().describe('UUID of the file-download, display-image or display-webpage activity'),
       }),
       outputSchema: z.object({
         upload_url: z.string(),
@@ -1584,7 +1585,7 @@ A body_data over a limit is refused with isError and error.code LIMIT_EXCEEDED (
         upload_url: uploadUrl,
         method: 'POST',
         form_fields: { lesson_id, activity_id },
-        instructions: `Send a multipart/form-data POST to upload_url. Authenticate with the same Authorization header you use for this MCP connection (the service key or your OAuth access token). Add the form_fields as form fields. Include the file under the field name "file". Max file size 5 MB. Activity must be type file-download or display-image.`,
+        instructions: `Send a multipart/form-data POST to upload_url. Authenticate with the same Authorization header you use for this MCP connection (the service key or your OAuth access token). Add the form_fields as form fields. Include the file under the field name "file". Max file size 5 MB. Activity must be type file-download, display-image or display-webpage (one .html file, which replaces any earlier one).`,
       }
       return {
         content: [{ type: 'text' as const, text: `Upload to: POST ${uploadUrl}\nForm fields: lesson_id=${lesson_id}, activity_id=${activity_id}\nFile field name: file` }],
@@ -1635,12 +1636,12 @@ A body_data over a limit is refused with isError and error.code LIMIT_EXCEEDED (
     'create_activity_file_upload_link',
     {
       title: 'Create a one-time upload link for an activity file',
-      description: 'Best way to upload a file you have in your code sandbox (e.g. a deck you made) to a file-download or display-image activity. '
+      description: 'Best way to upload a file you have in your code sandbox (e.g. a deck you made) to a file-download, display-image or display-webpage activity. '
         + 'Returns a single-use link, valid 15 minutes, that accepts the file with a plain curl POST — no credentials, no base64. '
         + 'Create the activity first with create_activity.',
       inputSchema: z.object({
         lesson_id: z.string().describe('UUID of the lesson'),
-        activity_id: z.string().describe('UUID of the file-download or display-image activity'),
+        activity_id: z.string().describe('UUID of the file-download, display-image or display-webpage activity'),
         file_name: z.string().optional().describe('Name to store the file under, including extension. Defaults to the uploaded file\'s name.'),
       }),
       outputSchema: z.object({ link: uploadLinkOutput }),
@@ -1790,11 +1791,11 @@ A body_data over a limit is refused with isError and error.code LIMIT_EXCEEDED (
   srv.registerTool(
     'upload_activity_file',
     {
-      title: 'Upload file to file-download or display-image activity',
-      description: 'Uploads a base64-encoded file to a file-download activity (so pupils can download it) or a display-image activity (to set its image).',
+      title: 'Upload file to a file-download, display-image or display-webpage activity',
+      description: 'Uploads a base64-encoded file to a file-download activity (so pupils can download it) a display-image activity (to set its image), or a display-webpage activity (one .html file, replacing any earlier one).',
       inputSchema: z.object({
         lesson_id: z.string().describe('UUID of the lesson'),
-        activity_id: z.string().describe('UUID of the file-download or display-image activity'),
+        activity_id: z.string().describe('UUID of the file-download, display-image or display-webpage activity'),
         file_name: z.string().describe('File name including extension, e.g. "worksheet.pdf"'),
         base64_content: z.string().describe('Base64-encoded file content'),
         content_type: z.string().optional().describe('MIME type, e.g. "application/pdf" or "image/png"'),
@@ -1835,11 +1836,11 @@ A body_data over a limit is refused with isError and error.code LIMIT_EXCEEDED (
     'upload_activity_file_from_url',
     {
       title: 'Upload file to activity from a link',
-      description: 'Downloads a file from a link into a file-download activity (so pupils can download it) or a display-image activity (to set its image). '
+      description: 'Downloads a file from a link into a file-download activity (so pupils can download it) or a display-image activity (to set its image). A display-webpage activity takes an .html file, but by link only when the server sends it as something other than text/html; otherwise use a one-time upload link. '
         + 'Create the activity first with create_activity. ' + FROM_URL_HELP,
       inputSchema: z.object({
         lesson_id: z.string().describe('UUID of the lesson'),
-        activity_id: z.string().describe('UUID of the file-download or display-image activity'),
+        activity_id: z.string().describe('UUID of the file-download, display-image or display-webpage activity'),
         url: z.string().describe('Public https link to the file'),
         file_name: z.string().optional().describe('File name to store, including extension. Defaults to the name the link provides.'),
       }),
