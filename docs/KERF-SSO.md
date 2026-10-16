@@ -45,8 +45,10 @@ npx tsx scripts/register-oauth-client.ts --id kerf-admin --name "Kerf Sabre Admi
 
 Running it again updates the client; live connections are kept. It refuses
 to turn an MCP client into a first-party one. On production, where the app
-image has no `tsx`, add the clients at `/admin/oauth` instead. That page
-applies the same rules (`src/lib/oauth/clients.ts`) and audits the change.
+image has no `tsx`, add and edit the clients at `/admin/oauth` instead. That
+page applies the same rules (`src/lib/oauth/clients.ts`) and audits the change.
+What an edit does to users who are already signed in is in
+`docs/FIRST-PARTY-CLIENTS.md` (*The JWT caveat*).
 
 A disabled client (`/admin/oauth`, or by the project that owns it) cannot
 sign anyone in or refresh, and userinfo refuses its tokens.

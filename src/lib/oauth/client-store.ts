@@ -244,7 +244,7 @@ export async function getFirstPartyClient(db: Queryable, actor: AuditActor, clie
   return loadOwned(db, actor, clientId)
 }
 
-async function inTransaction<T>(db: Queryable, fn: () => Promise<T>): Promise<T> {
+export async function inTransaction<T>(db: Queryable, fn: () => Promise<T>): Promise<T> {
   await db.query("begin")
   try {
     const result = await fn()
@@ -353,6 +353,37 @@ export type ClientPatch = Partial<
   >
 >
 
+/**
+ * The ceiling a change is held to: the acting key's, or for an admin or a
+ * script the owning key's, so a client a project owns never ends up outside
+ * what that project may change.
+ */
+async function ceilingFor(db: Queryable, actor: AuditActor, client: FirstPartyClient): Promise<ClientCeiling | null> {
+  const own = ceilingOf(actor)
+  if (own || !client.ownerKeyId) return own
+  const { rows } = await db.query<{
+    allowed_roles: string[]
+    allowed_scopes: string[]
+    allowed_redirect_hosts: string[]
+    allowed_audiences: string[]
+    client_id_prefix: string
+  }>(
+    `select allowed_roles, allowed_scopes, allowed_redirect_hosts, allowed_audiences, client_id_prefix
+     from oauth_api_keys where id = $1`,
+    [client.ownerKeyId],
+  )
+  const row = rows[0]
+  return row
+    ? {
+        allowedRoles: row.allowed_roles,
+        allowedScopes: row.allowed_scopes,
+        allowedRedirectHosts: row.allowed_redirect_hosts,
+        allowedAudiences: row.allowed_audiences,
+        clientIdPrefix: row.client_id_prefix,
+      }
+    : null
+}
+
 /** Applies a change and re-checks the whole result, ceiling included. */
 async function writeSettings(db: Queryable, actor: AuditActor, before: FirstPartyClient, patch: ClientPatch) {
   const settings = validateClientSettings(
@@ -369,7 +400,7 @@ async function writeSettings(db: Queryable, actor: AuditActor, before: FirstPart
       accessTtlSeconds: patch.accessTtlSeconds ?? before.accessTtlSeconds,
       refreshTtlSeconds: patch.refreshTtlSeconds !== undefined ? patch.refreshTtlSeconds : before.refreshTtlSeconds,
     },
-    ceilingOf(actor),
+    await ceilingFor(db, actor, before),
   )
   await assertAudiencesSeparate(db, settings)
   const { rows } = await db.query<ClientRow>(

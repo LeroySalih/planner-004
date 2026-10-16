@@ -2,7 +2,7 @@ import { generateKeyPairSync } from 'node:crypto'
 import { createLocalJWKSet, decodeJwt, jwtVerify, SignJWT } from 'jose'
 
 import { query, withDbClient } from '@/lib/db'
-import { createFirstPartyClient } from '@/lib/oauth/client-store'
+import { createFirstPartyClient, updateFirstPartyClient } from '@/lib/oauth/client-store'
 import { buildAccessTokenClaims, signAccessToken } from '@/lib/oauth/jwt'
 import { checkAuthorizeRequest, verifyAccessToken } from '@/lib/oauth/server'
 import {
@@ -126,6 +126,15 @@ async function main() {
   await query("update oauth_clients set allowed_roles = array['teacher'] where client_id = $1", [ED])
   check('user losing every allowed role cannot refresh', (await refresh(ED, t4.json!.refresh_token)).json?.error === 'invalid_grant')
   await query("update oauth_clients set allowed_roles = array['pupil','teacher','admin','technician'] where client_id = $1", [ED])
+  const t7 = await exchange(AD, AD_URI, await codeFor(AD, AD_URI, teacher, 'profile groups'))
+  check('control: kerf-admin grants groups', t7.json?.scope === 'profile groups' && Array.isArray(decodeJwt(t7.json!.access_token).groups))
+  await withDbClient((db) => updateFirstPartyClient(db, script, AD, { allowedScopes: ['profile'] }))
+  const r7 = await refresh(AD, t7.json!.refresh_token)
+  const c7 = decodeJwt(r7.json!.access_token)
+  check('a scope removed from the client is dropped at refresh', r7.status === 200 && r7.json!.scope === 'profile' && c7.scope === 'profile' && !('groups' in c7), JSON.stringify(r7.json?.scope))
+  check('… and stays dropped on the connection', (await query<{ scope: string }>('select scope from oauth_tokens where id = $1', [c7.sid])).rows[0].scope === 'profile')
+  await withDbClient((db) => updateFirstPartyClient(db, script, AD, { allowedScopes: ['profile', 'groups'] }))
+  check('re-adding the scope does not bring it back without a new sign-in', (await refresh(AD, r7.json!.refresh_token)).json?.scope === 'profile')
 
   // --- revoke
   const t5 = await exchange(ED, ED_URI, await codeFor(ED, ED_URI, pupil, 'profile'))

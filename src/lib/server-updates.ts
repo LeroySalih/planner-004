@@ -489,7 +489,9 @@ export {
   createApiKeyAction,
   rotateApiKeyAction,
   revokeApiKeyAction,
+  updateApiKeyAction,
   createOAuthClientAction,
+  updateOAuthClientAction,
   setOAuthClientEnabledAction,
   rotateOAuthClientSecretAction,
 } from './server-actions/oauth-admin'

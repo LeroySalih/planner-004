@@ -1,8 +1,8 @@
 import { createLocalJWKSet, decodeJwt, jwtVerify } from 'jose'
 
 import { query, withDbClient } from '@/lib/db'
-import { createApiKey, revokeApiKey, rotateApiKey } from '@/lib/oauth/api-keys'
-import { setClientEnabled, sha256 } from '@/lib/oauth/client-store'
+import { createApiKey, revokeApiKey, rotateApiKey, updateApiKey } from '@/lib/oauth/api-keys'
+import { setClientEnabled, sha256, updateFirstPartyClient } from '@/lib/oauth/client-store'
 import { verifyAccessJwt, verifyServiceJwt } from '@/lib/oauth/jwt'
 import { checkAuthorizeRequest } from '@/lib/oauth/server'
 import { authParams, BASE, check, codeFor, deleteUsers, exchange, form, issuer, makeUser, mcpCall, pkce, refresh, run, userinfo } from './lib'
@@ -126,6 +126,31 @@ async function main() {
     && (await api(A.key, 'POST', `/${mcp.client_id}/disable`)).status === 404)
   check('kerf/admin-made client → 404 to a key', (await api(A.key, 'GET', '/kerf-editor')).status === 404)
   check('client_id already taken → 409', (await api(B.key, 'POST', '', { client_id: bWeb, client_name: 'again', redirect_uris: [`https://${B.host}/cb`], roles: ['pupil'], audience: B.aud })).status === 409)
+
+  // --- editing a key's ceiling (admin page)
+  const policyOf = (k: typeof B.apiKey) => ({
+    clientIdPrefix: k.clientIdPrefix, allowedRoles: k.allowedRoles, allowedScopes: k.allowedScopes,
+    allowedRedirectHosts: k.allowedRedirectHosts, allowedAudiences: k.allowedAudiences, maxClients: k.maxClients,
+    requiresApproval: k.requiresApproval, expiresAt: null,
+  })
+  const editKey = (over: Record<string, unknown>) =>
+    withDbClient((db) => updateApiKey(db, B.apiKey.id, { ...policyOf(B.apiKey), ...over }, script)).then(() => 'ok', (e: Error) => e.message)
+  check('key edit that keeps its clients inside → ok', (await editKey({ allowedRoles: ['pupil', 'teacher', 'technician'], maxClients: 3 })) === 'ok')
+  const edited = (await query<Json>('select allowed_roles, max_clients, key_hash, name from oauth_api_keys where id = $1', [B.apiKey.id])).rows[0]
+  check('… saved, same key and name', edited.allowed_roles.includes('technician') && edited.max_clients === 3 && edited.key_hash === sha256(B.key) && edited.name === B.apiKey.name)
+  check('… and the key still works', (await api(B.key, 'GET', '')).status === 200)
+  check('key edit dropping a role its client uses → refused', /would no longer fit/.test(await editKey({ allowedRoles: ['teacher'] })))
+  check('key edit dropping its client\'s redirect host → refused', /would no longer fit/.test(await editKey({ allowedRedirectHosts: ['other.test'] })))
+  check('key edit to a prefix its client lacks → refused', /would no longer fit/.test(await editKey({ clientIdPrefix: 'zz-' })))
+  check('key edit below the clients it owns → refused', /already owns/.test(await editKey({ maxClients: 0 })))
+  check('refused key edits changed nothing', (await query<Json>('select allowed_roles from oauth_api_keys where id = $1', [B.apiKey.id])).rows[0].allowed_roles.includes('pupil'))
+  check('a revoked key cannot be edited', /revoked/.test(await withDbClient((db) => updateApiKey(db, R.apiKey.id, policyOf(R.apiKey), script)).then(() => 'ok', (e: Error) => e.message)))
+  // An admin edits a project's client, but still within that project's ceiling.
+  const adminEdit = (patch: Record<string, unknown>) =>
+    withDbClient((db) => updateFirstPartyClient(db, script, bWeb, patch)).then(() => 'ok', (e: { status?: number }) => e.status)
+  check('admin edit of an owned client within the ceiling → ok', (await adminEdit({ clientName: 'B web renamed', allowedRoles: ['pupil', 'teacher'] })) === 'ok')
+  check('admin edit of an owned client beyond its ceiling → 403', (await adminEdit({ allowedRoles: ['pupil', 'admin'] })) === 403)
+  check('… the project can still change it afterwards', (await api(B.key, 'PATCH', `/${bWeb}`, { client_name: 'B web' })).status === 200)
 
   // --- ceiling: 403
   const base = { client_name: 'x', redirect_uris: [`https://${A.host}/cb`], roles: ['pupil'], audience: A.aud }
@@ -265,7 +290,8 @@ async function main() {
   const uriChange = audit.find((a) => a.action === 'client.redirect_uri.add' && a.outcome === 'ok')
   check('audit: before/after of redirect URIs', !!uriChange && !uriChange.before.redirect_uris.includes(`https://${A.host}/second`) && uriChange.after.redirect_uris.includes(`https://${A.host}/second`))
   check('audit: key name and prefix recorded', audit.some((a) => a.key_name === 'oauthtest-a' && a.key_prefix?.length === 8))
-  check('audit: key create/rotate/revoke recorded', has('key.create', 'ok') && has('key.rotate', 'ok') && has('key.revoke', 'ok'))
+  check('audit: key create/rotate/revoke/update recorded', has('key.create', 'ok') && has('key.rotate', 'ok') && has('key.revoke', 'ok')
+    && has('key.update', 'ok') && has('key.update', 'refused', 422))
   const auditText = JSON.stringify(audit)
   check('audit contains no key, secret or hash', secrets.every((s) => !auditText.includes(s) && !auditText.includes(s.slice(8, 30)) && !auditText.includes(sha256(s)))
     && !auditText.includes('dino_cs_') && !auditText.includes('dino_pk_'))

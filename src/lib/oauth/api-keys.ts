@@ -1,8 +1,8 @@
 import { randomBytes } from "node:crypto"
 
 import type { Queryable } from "@/lib/curriculum/unit-curriculum-guard"
-import { ClientValidationError, validateKeyPolicy, type KeyPolicyInput } from "@/lib/oauth/clients"
-import { recordAudit, sameHash, sha256, type AuditActor } from "@/lib/oauth/client-store"
+import { ClientValidationError, validateClientSettings, validateKeyPolicy, type KeyPolicyInput } from "@/lib/oauth/clients"
+import { inTransaction, listFirstPartyClients, recordAudit, sameHash, sha256, type AuditActor } from "@/lib/oauth/client-store"
 
 // Per-project API keys for /api/oauth-clients (docs/FIRST-PARTY-CLIENTS.md).
 // Each project has its own key with its own ceiling, so a leak is revoked for
@@ -155,6 +155,72 @@ export async function revokeApiKey(db: Queryable, idOrName: string, actor: Audit
   const apiKey = toApiKey(rows[0])
   await recordAudit(db, actor, { action: "key.revoke", apiKey, before: keySnapshot(before), after: keySnapshot(apiKey), outcome: "ok" })
   return apiKey
+}
+
+/**
+ * Changes a key's ceiling. The name and the key itself stay. Refused if any
+ * client the key already owns would fall outside the new ceiling, or if it
+ * owns more clients than the new maximum: change or disable those first.
+ * `db` must be a single connection (it runs a transaction).
+ */
+export async function updateApiKey(
+  db: Queryable,
+  idOrName: string,
+  input: Omit<KeyPolicyInput, "name">,
+  actor: AuditActor,
+): Promise<ApiKey> {
+  const before = await loadKey(db, idOrName)
+  try {
+    if (before.revokedAt) throw new KeyError(422, "A revoked key cannot be changed. Create a new one.")
+    const policy = validateKeyPolicy({ ...input, name: before.name })
+    const apiKey = await inTransaction(db, async () => {
+      await db.query("select 1 from oauth_api_keys where id = $1 for update", [before.id])
+      const owned = await listFirstPartyClients(db, { kind: "api_key", key: before })
+      if (owned.length > policy.maxClients) {
+        throw new KeyError(422, `It already owns ${owned.length} clients, more than ${policy.maxClients}.`)
+      }
+      for (const client of owned) {
+        try {
+          validateClientSettings(client, policy)
+        } catch (error) {
+          if (error instanceof ClientValidationError) {
+            throw new KeyError(422, `${client.clientId} would no longer fit: ${error.message}`)
+          }
+          throw error
+        }
+      }
+      const { rows } = await db.query<ApiKeyRow>(
+        `update oauth_api_keys
+         set allowed_roles = $2, allowed_scopes = $3, allowed_redirect_hosts = $4, allowed_audiences = $5,
+             max_clients = $6, client_id_prefix = $7, requires_approval = $8, expires_at = $9
+         where id = $1 returning ${KEY_COLUMNS}`,
+        [
+          before.id,
+          policy.allowedRoles,
+          policy.allowedScopes,
+          policy.allowedRedirectHosts,
+          policy.allowedAudiences,
+          policy.maxClients,
+          policy.clientIdPrefix,
+          policy.requiresApproval,
+          policy.expiresAt?.toISOString() ?? null,
+        ],
+      )
+      return toApiKey(rows[0])
+    })
+    await recordAudit(db, actor, { action: "key.update", apiKey, before: keySnapshot(before), after: keySnapshot(apiKey), outcome: "ok" })
+    return apiKey
+  } catch (error) {
+    const refused = error instanceof ClientValidationError
+    await recordAudit(db, actor, {
+      action: "key.update",
+      apiKey: before,
+      outcome: refused ? "refused" : "error",
+      status: refused ? error.status : 500,
+      error: refused ? error.message : "internal error",
+    })
+    throw error
+  }
 }
 
 /**

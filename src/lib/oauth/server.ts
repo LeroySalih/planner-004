@@ -563,13 +563,18 @@ export async function refreshAccessToken(input: { refreshToken: string; clientId
           await db.query("rollback")
           return null
         }
-        const tokens = await issueTokens(db, client, { tokenId: row.id, userId: row.user_id, scope: row.scope, issuer: input.issuer })
+        // A scope an admin has since removed from the client is dropped here,
+        // not kept until the user next signs in.
+        const scope = client.firstParty
+          ? row.scope.split(" ").filter((value) => client.allowedScopes.includes(value)).join(" ")
+          : row.scope
+        const tokens = await issueTokens(db, client, { tokenId: row.id, userId: row.user_id, scope, issuer: input.issuer })
         await db.query(
           `update oauth_tokens
            set access_token_hash = $1, refresh_token_hash = $2, prev_refresh_token_hash = $3,
-               access_expires_at = $4, refresh_expires_at = $5
+               access_expires_at = $4, refresh_expires_at = $5, scope = $7
            where id = $6`,
-          [tokens.accessHash, tokens.refreshHash, presented, tokens.accessExpiresAt, tokens.refreshExpiresAt, row.id],
+          [tokens.accessHash, tokens.refreshHash, presented, tokens.accessExpiresAt, tokens.refreshExpiresAt, row.id, scope],
         )
         await db.query("commit")
         console.info("[oauth] tokens issued", { clientId: client.clientId, sub: row.user_id, grant: "refresh_token" })

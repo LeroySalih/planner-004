@@ -16,6 +16,8 @@ import {
   rotateApiKeyAction,
   rotateOAuthClientSecretAction,
   setOAuthClientEnabledAction,
+  updateApiKeyAction,
+  updateOAuthClientAction,
 } from '@/lib/server-updates'
 
 type Props = {
@@ -95,18 +97,29 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   )
 }
 
-function CreateKeyForm({ roles, onCreated }: { roles: string[]; onCreated: (revealed: Revealed) => void }) {
+/** Creates a key, or with `apiKey` changes that key's ceiling. */
+function KeyForm({
+  apiKey,
+  roles,
+  onCreated,
+  onDone,
+}: {
+  apiKey?: ApiKey
+  roles: string[]
+  onCreated?: (revealed: Revealed) => void
+  onDone?: () => void
+}) {
   const [pending, startTransition] = useTransition()
   const [form, setForm] = useState({
-    name: '',
-    clientIdPrefix: '',
-    roles: ['pupil', 'teacher'],
-    scopes: 'profile',
-    redirectHosts: '',
-    audiences: '',
-    maxClients: 5,
-    requiresApproval: true,
-    expiresAt: '',
+    name: apiKey?.name ?? '',
+    clientIdPrefix: apiKey?.clientIdPrefix ?? '',
+    roles: apiKey?.allowedRoles ?? ['pupil', 'teacher'],
+    scopes: apiKey ? apiKey.allowedScopes.join(', ') : 'profile',
+    redirectHosts: apiKey?.allowedRedirectHosts.join(', ') ?? '',
+    audiences: apiKey?.allowedAudiences.join(', ') ?? '',
+    maxClients: apiKey?.maxClients ?? 5,
+    requiresApproval: apiKey?.requiresApproval ?? true,
+    expiresAt: apiKey?.expiresAt?.slice(0, 10) ?? '',
   })
   const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm((f) => ({ ...f, [key]: value }))
 
@@ -116,12 +129,23 @@ function CreateKeyForm({ roles, onCreated }: { roles: string[]; onCreated: (reve
       onSubmit={(event) => {
         event.preventDefault()
         startTransition(async () => {
+          if (apiKey) {
+            // The action ignores the name, which cannot change.
+            const result = await updateApiKeyAction(apiKey.id, { ...form, expiresAt: form.expiresAt || null })
+            if (result.error) {
+              toast.error(result.error)
+              return
+            }
+            toast.success(`Saved ${apiKey.name}`)
+            onDone?.()
+            return
+          }
           const result = await createApiKeyAction({ ...form, expiresAt: form.expiresAt || null })
           if (result.error || !result.data) {
             toast.error(result.error ?? 'Could not create the key.')
             return
           }
-          onCreated({
+          onCreated?.({
             label: `API key for ${result.data.name}`,
             value: result.data.key,
             note: 'Shown once. Put it in that project’s .env; DINO keeps only its hash.',
@@ -130,8 +154,8 @@ function CreateKeyForm({ roles, onCreated }: { roles: string[]; onCreated: (reve
         })
       }}
     >
-      <Field label="Project name" hint="Lower-case, e.g. kerf-sabre">
-        <Input value={form.name} onChange={(e) => set('name', e.target.value)} required />
+      <Field label="Project name" hint={apiKey ? 'Cannot be changed' : 'Lower-case, e.g. kerf-sabre'}>
+        <Input value={form.name} onChange={(e) => set('name', e.target.value)} disabled={Boolean(apiKey)} required />
       </Field>
       <Field label="client_id prefix" hint="Every client the key creates must start with this, e.g. kerf-">
         <Input value={form.clientIdPrefix} onChange={(e) => set('clientIdPrefix', e.target.value)} required />
@@ -159,36 +183,64 @@ function CreateKeyForm({ roles, onCreated }: { roles: string[]; onCreated: (reve
         New clients wait for an admin to approve them
       </label>
       <div className="md:col-span-2">
-        <Button type="submit" disabled={pending}>
-          {pending ? 'Creating…' : 'Create key'}
-        </Button>
+        <FormButtons pending={pending} editing={Boolean(apiKey)} createLabel="Create key" onCancel={onDone} />
       </div>
     </form>
   )
 }
 
-function CreateClientForm({
+function FormButtons({
+  pending,
+  editing,
+  createLabel,
+  onCancel,
+}: {
+  pending: boolean
+  editing: boolean
+  createLabel: string
+  onCancel?: () => void
+}) {
+  return (
+    <div className="flex gap-2">
+      <Button type="submit" disabled={pending}>
+        {pending ? (editing ? 'Saving…' : 'Creating…') : editing ? 'Save' : createLabel}
+      </Button>
+      {editing ? (
+        <Button type="button" variant="ghost" disabled={pending} onClick={onCancel}>
+          Cancel
+        </Button>
+      ) : null}
+    </div>
+  )
+}
+
+/** Creates a client, or with `client` changes it. Type and client_id are fixed once created. */
+function ClientForm({
+  client,
   roles,
   userScopes,
   onCreated,
+  onDone,
 }: {
+  client?: FirstPartyClient
   roles: string[]
   userScopes: string[]
-  onCreated: (revealed: Revealed | null) => void
+  onCreated?: (revealed: Revealed | null) => void
+  onDone?: () => void
 }) {
   const [pending, startTransition] = useTransition()
   const [form, setForm] = useState({
-    clientType: 'public' as 'public' | 'service',
-    clientId: '',
-    clientName: '',
-    redirectUris: '',
-    roles: ['pupil', 'teacher'],
-    scopes: ['profile'],
-    audience: '',
-    allowedAudiences: '',
-    serviceScopes: '',
-    accessTtlSeconds: '',
-    refreshTtlSeconds: '',
+    clientType: client?.clientType ?? ('public' as 'public' | 'service'),
+    clientId: client?.clientId ?? '',
+    clientName: client?.clientName ?? '',
+    redirectUris: client?.redirectUris.join('\n') ?? '',
+    roles: client?.allowedRoles ?? ['pupil', 'teacher'],
+    scopes: client?.allowedScopes ?? ['profile'],
+    audience: client?.audience ?? '',
+    allowedAudiences: client?.allowedAudiences.join(', ') ?? '',
+    serviceScopes: client?.allowedServiceScopes.join(', ') ?? '',
+    accessTtlSeconds: client ? String(client.accessTtlSeconds) : '',
+    refreshTtlSeconds: client?.refreshTtlSeconds != null ? String(client.refreshTtlSeconds) : '',
   })
   const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm((f) => ({ ...f, [key]: value }))
   const service = form.clientType === 'service'
@@ -200,17 +252,28 @@ function CreateClientForm({
       onSubmit={(event) => {
         event.preventDefault()
         startTransition(async () => {
-          const result = await createOAuthClientAction({
-            ...form,
+          const ttls = {
             accessTtlSeconds: seconds(form.accessTtlSeconds),
             refreshTtlSeconds: seconds(form.refreshTtlSeconds),
-          })
+          }
+          if (client) {
+            // The action ignores the type and client_id, which cannot change.
+            const result = await updateOAuthClientAction(client.clientId, { ...form, ...ttls })
+            if (result.error) {
+              toast.error(result.error)
+              return
+            }
+            toast.success(`Saved ${client.clientId}`)
+            onDone?.()
+            return
+          }
+          const result = await createOAuthClientAction({ ...form, ...ttls })
           if (result.error || !result.data) {
             toast.error(result.error ?? 'Could not create the client.')
             return
           }
           toast.success(`Created ${result.data.clientId}`)
-          onCreated(
+          onCreated?.(
             result.data.clientSecret
               ? {
                   label: `Secret for ${result.data.clientId}`,
@@ -227,6 +290,7 @@ function CreateClientForm({
         <select
           className="h-9 w-full rounded-md border bg-background px-2 text-sm"
           value={form.clientType}
+          disabled={Boolean(client)}
           onChange={(e) => set('clientType', e.target.value as 'public' | 'service')}
         >
           <option value="public">Sign-in app (PKCE, signs people in)</option>
@@ -234,7 +298,7 @@ function CreateClientForm({
         </select>
       </Field>
       <Field label="client_id">
-        <Input value={form.clientId} onChange={(e) => set('clientId', e.target.value)} required />
+        <Input value={form.clientId} onChange={(e) => set('clientId', e.target.value)} disabled={Boolean(client)} required />
       </Field>
       <Field label="Name">
         <Input value={form.clientName} onChange={(e) => set('clientName', e.target.value)} required />
@@ -279,16 +343,25 @@ function CreateClientForm({
         </>
       )}
       <div className="md:col-span-2">
-        <Button type="submit" disabled={pending}>
-          {pending ? 'Creating…' : 'Create client'}
-        </Button>
+        <FormButtons pending={pending} editing={Boolean(client)} createLabel="Create client" onCancel={onDone} />
       </div>
     </form>
   )
 }
 
-function KeyRow({ apiKey, owned, onRevealed }: { apiKey: ApiKey; owned: FirstPartyClient[]; onRevealed: (r: Revealed) => void }) {
+function KeyRow({
+  apiKey,
+  owned,
+  roles,
+  onRevealed,
+}: {
+  apiKey: ApiKey
+  owned: FirstPartyClient[]
+  roles: string[]
+  onRevealed: (r: Revealed) => void
+}) {
   const [pending, startTransition] = useTransition()
+  const [editing, setEditing] = useState(false)
   const status = keyStatus(apiKey)
   return (
     <div className="space-y-2 rounded-md border p-4 text-sm">
@@ -311,54 +384,75 @@ function KeyRow({ apiKey, owned, onRevealed }: { apiKey: ApiKey; owned: FirstPar
       {owned.length ? (
         <p className="text-xs">Owns: {owned.map((c) => `${c.clientId} (${clientStatus(c)})`).join(', ')}</p>
       ) : null}
-      {status === 'active' ? (
+      {editing ? <KeyForm apiKey={apiKey} roles={roles} onDone={() => setEditing(false)} /> : null}
+      {!apiKey.revokedAt && !editing ? (
         <div className="flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={pending}
-            onClick={() => {
-              const hours = window.prompt('Keep the old key working for how many hours? (0 = stop it now)', '0')
-              if (hours === null) return
-              startTransition(async () => {
-                const result = await rotateApiKeyAction(apiKey.id, Math.round(Number(hours) * 3600))
-                if (result.error || !result.data) {
-                  toast.error(result.error ?? 'Could not rotate the key.')
-                  return
-                }
-                onRevealed({
-                  label: `New API key for ${result.data.name}`,
-                  value: result.data.key,
-                  note: 'Shown once. Replace the old key in that project’s .env.',
-                })
-              })
-            }}
-          >
-            Rotate
+          <Button size="sm" variant="outline" disabled={pending} onClick={() => setEditing(true)}>
+            Edit
           </Button>
-          <Button
-            size="sm"
-            variant="destructive"
-            disabled={pending}
-            onClick={() => {
-              if (!window.confirm(`Revoke ${apiKey.name}? It stops working at once. Its clients keep working.`)) return
-              startTransition(async () => {
-                const result = await revokeApiKeyAction(apiKey.id)
-                if (result.error) toast.error(result.error)
-                else toast.success(`Revoked ${apiKey.name}`)
-              })
-            }}
-          >
-            Revoke
-          </Button>
+          {status === 'active' ? (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={pending}
+                onClick={() => {
+                  const hours = window.prompt('Keep the old key working for how many hours? (0 = stop it now)', '0')
+                  if (hours === null) return
+                  startTransition(async () => {
+                    const result = await rotateApiKeyAction(apiKey.id, Math.round(Number(hours) * 3600))
+                    if (result.error || !result.data) {
+                      toast.error(result.error ?? 'Could not rotate the key.')
+                      return
+                    }
+                    onRevealed({
+                      label: `New API key for ${result.data.name}`,
+                      value: result.data.key,
+                      note: 'Shown once. Replace the old key in that project’s .env.',
+                    })
+                  })
+                }}
+              >
+                Rotate
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={pending}
+                onClick={() => {
+                  if (!window.confirm(`Revoke ${apiKey.name}? It stops working at once. Its clients keep working.`)) return
+                  startTransition(async () => {
+                    const result = await revokeApiKeyAction(apiKey.id)
+                    if (result.error) toast.error(result.error)
+                    else toast.success(`Revoked ${apiKey.name}`)
+                  })
+                }}
+              >
+                Revoke
+              </Button>
+            </>
+          ) : null}
         </div>
       ) : null}
     </div>
   )
 }
 
-function ClientRow({ client, owner, onRevealed }: { client: FirstPartyClient; owner: string | null; onRevealed: (r: Revealed) => void }) {
+function ClientRow({
+  client,
+  owner,
+  roles,
+  userScopes,
+  onRevealed,
+}: {
+  client: FirstPartyClient
+  owner: string | null
+  roles: string[]
+  userScopes: string[]
+  onRevealed: (r: Revealed) => void
+}) {
   const [pending, startTransition] = useTransition()
+  const [editing, setEditing] = useState(false)
   const status = clientStatus(client)
   const enabled = status === 'enabled'
   const toggle = (next: boolean) =>
@@ -369,68 +463,85 @@ function ClientRow({ client, owner, onRevealed }: { client: FirstPartyClient; ow
     })
 
   return (
-    <tr className="border-t align-top">
-      <td className="py-2 pr-3">
-        <div className="font-medium">{client.clientId}</div>
-        <div className="text-xs text-[var(--color-text-secondary)]">{client.clientName}</div>
-      </td>
-      <td className="py-2 pr-3 text-xs">{client.clientType === 'service' ? 'service' : 'sign-in'}</td>
-      <td className="py-2 pr-3 text-xs">{owner ?? 'admin / script'}</td>
-      <td className="py-2 pr-3 text-xs">
-        {client.clientType === 'service' ? (
-          <>
-            <div>calls: {client.allowedAudiences.join(', ')}</div>
-            <div>scopes: {client.allowedServiceScopes.join(', ') || '—'}</div>
-          </>
-        ) : (
-          <>
-            <div>aud: {client.audience}</div>
-            <div>roles: {client.allowedRoles.join(', ')}</div>
-            <div>scopes: {client.allowedScopes.join(', ') || '—'}</div>
-            <div className="break-all">{client.redirectUris.join(' ')}</div>
-          </>
-        )}
-      </td>
-      <td className="py-2 pr-3">
-        <Badge variant={enabled ? 'secondary' : status === 'pending approval' ? 'outline' : 'destructive'}>{status}</Badge>
-      </td>
-      <td className="py-2">
-        <div className="flex flex-wrap gap-2">
-          {status === 'pending approval' ? (
-            <Button size="sm" disabled={pending} onClick={() => toggle(true)}>Approve</Button>
-          ) : enabled ? (
-            <Button size="sm" variant="outline" disabled={pending} onClick={() => toggle(false)}>Disable</Button>
-          ) : (
-            <Button size="sm" variant="outline" disabled={pending} onClick={() => toggle(true)}>Enable</Button>
-          )}
+    <>
+      <tr className="border-t align-top">
+        <td className="py-2 pr-3">
+          <div className="font-medium">{client.clientId}</div>
+          <div className="text-xs text-[var(--color-text-secondary)]">{client.clientName}</div>
+        </td>
+        <td className="py-2 pr-3 text-xs">{client.clientType === 'service' ? 'service' : 'sign-in'}</td>
+        <td className="py-2 pr-3 text-xs">{owner ?? 'admin / script'}</td>
+        <td className="py-2 pr-3 text-xs">
           {client.clientType === 'service' ? (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={pending}
-              onClick={() => {
-                const hours = window.prompt('Keep the old secret working for how many hours? (0 = stop it now)', '0')
-                if (hours === null) return
-                startTransition(async () => {
-                  const result = await rotateOAuthClientSecretAction(client.clientId, Math.round(Number(hours) * 3600))
-                  if (result.error || !result.data) {
-                    toast.error(result.error ?? 'Could not rotate the secret.')
-                    return
-                  }
-                  onRevealed({
-                    label: `New secret for ${result.data.clientId}`,
-                    value: result.data.clientSecret,
-                    note: 'Shown once. Replace the old secret in that service’s .env.',
-                  })
-                })
-              }}
-            >
-              Rotate secret
+            <>
+              <div>calls: {client.allowedAudiences.join(', ')}</div>
+              <div>scopes: {client.allowedServiceScopes.join(', ') || '—'}</div>
+            </>
+          ) : (
+            <>
+              <div>aud: {client.audience}</div>
+              <div>roles: {client.allowedRoles.join(', ')}</div>
+              <div>scopes: {client.allowedScopes.join(', ') || '—'}</div>
+              <div className="break-all">{client.redirectUris.join(' ')}</div>
+            </>
+          )}
+        </td>
+        <td className="py-2 pr-3">
+          <Badge variant={enabled ? 'secondary' : status === 'pending approval' ? 'outline' : 'destructive'}>{status}</Badge>
+        </td>
+        <td className="py-2">
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" disabled={pending || editing} onClick={() => setEditing(true)}>
+              Edit
             </Button>
-          ) : null}
-        </div>
-      </td>
-    </tr>
+            {status === 'pending approval' ? (
+              <Button size="sm" disabled={pending} onClick={() => toggle(true)}>Approve</Button>
+            ) : enabled ? (
+              <Button size="sm" variant="outline" disabled={pending} onClick={() => toggle(false)}>Disable</Button>
+            ) : (
+              <Button size="sm" variant="outline" disabled={pending} onClick={() => toggle(true)}>Enable</Button>
+            )}
+            {client.clientType === 'service' ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={pending}
+                onClick={() => {
+                  const hours = window.prompt('Keep the old secret working for how many hours? (0 = stop it now)', '0')
+                  if (hours === null) return
+                  startTransition(async () => {
+                    const result = await rotateOAuthClientSecretAction(client.clientId, Math.round(Number(hours) * 3600))
+                    if (result.error || !result.data) {
+                      toast.error(result.error ?? 'Could not rotate the secret.')
+                      return
+                    }
+                    onRevealed({
+                      label: `New secret for ${result.data.clientId}`,
+                      value: result.data.clientSecret,
+                      note: 'Shown once. Replace the old secret in that service’s .env.',
+                    })
+                  })
+                }}
+              >
+                Rotate secret
+              </Button>
+            ) : null}
+          </div>
+        </td>
+      </tr>
+      {editing ? (
+        <tr>
+          <td colSpan={6} className="pb-4">
+            <p className="mb-2 text-xs text-[var(--color-text-secondary)]">
+              {owner
+                ? `Owned by ${owner}: the change must stay within that key’s ceiling.`
+                : 'Changes apply to new sign-ins and tokens; tokens already issued keep their claims until they expire.'}
+            </p>
+            <ClientForm client={client} roles={roles} userScopes={userScopes} onDone={() => setEditing(false)} />
+          </td>
+        </tr>
+      ) : null}
+    </>
   )
 }
 
@@ -473,6 +584,8 @@ export function OAuthClientsManager({ keys, clients, roles, userScopes }: Props)
                   key={client.clientId}
                   client={client}
                   owner={client.ownerKeyId ? keyName.get(client.ownerKeyId) ?? null : null}
+                  roles={roles}
+                  userScopes={userScopes}
                   onRevealed={setRevealed}
                 />
               ))}
@@ -483,7 +596,7 @@ export function OAuthClientsManager({ keys, clients, roles, userScopes }: Props)
         <details>
           <summary className="cursor-pointer text-sm font-medium">Add a client</summary>
           <div className="mt-3">
-            <CreateClientForm roles={roles} userScopes={userScopes} onCreated={(r) => r && setRevealed(r)} />
+            <ClientForm roles={roles} userScopes={userScopes} onCreated={(r) => r && setRevealed(r)} />
           </div>
         </details>
       </section>
@@ -499,13 +612,14 @@ export function OAuthClientsManager({ keys, clients, roles, userScopes }: Props)
             key={apiKey.id}
             apiKey={apiKey}
             owned={clients.filter((c) => c.ownerKeyId === apiKey.id)}
+            roles={roles}
             onRevealed={setRevealed}
           />
         ))}
         <details>
           <summary className="cursor-pointer text-sm font-medium">Create a key</summary>
           <div className="mt-3">
-            <CreateKeyForm roles={roles} onCreated={setRevealed} />
+            <KeyForm roles={roles} onCreated={setRevealed} />
           </div>
         </details>
       </section>

@@ -6,14 +6,16 @@ import { z } from 'zod'
 
 import { requireRole } from '@/lib/auth'
 import { withDbClient } from '@/lib/db'
-import { createApiKey, listApiKeys, revokeApiKey, rotateApiKey, type ApiKey } from '@/lib/oauth/api-keys'
+import { createApiKey, listApiKeys, revokeApiKey, rotateApiKey, updateApiKey, type ApiKey } from '@/lib/oauth/api-keys'
 import { ClientValidationError } from '@/lib/oauth/clients'
 import {
   ClientRequestError,
   createFirstPartyClient,
+  getFirstPartyClient,
   listFirstPartyClients,
   rotateClientSecret,
   setClientEnabled,
+  updateFirstPartyClient,
   type AuditActor,
   type FirstPartyClient,
 } from '@/lib/oauth/client-store'
@@ -90,6 +92,34 @@ export async function createApiKeyAction(input: z.infer<typeof CreateKeyInput>):
   })
 }
 
+const UpdateKeyInput = CreateKeyInput.omit({ name: true })
+
+/** Changes a key's ceiling; the key itself is unchanged. */
+export async function updateApiKeyAction(keyId: string, input: z.infer<typeof UpdateKeyInput>): Promise<Result<null>> {
+  return asAdmin(async (actor) => {
+    const payload = UpdateKeyInput.parse(input)
+    await withDbClient((db) =>
+      updateApiKey(
+        db,
+        z.string().uuid().parse(keyId),
+        {
+          clientIdPrefix: payload.clientIdPrefix,
+          allowedRoles: payload.roles,
+          allowedScopes: csv(payload.scopes),
+          allowedRedirectHosts: csv(payload.redirectHosts),
+          allowedAudiences: csv(payload.audiences),
+          maxClients: payload.maxClients,
+          requiresApproval: payload.requiresApproval,
+          expiresAt: payload.expiresAt ? new Date(payload.expiresAt) : null,
+        },
+        actor,
+      ),
+    )
+    revalidatePath(PAGE)
+    return null
+  })
+}
+
 export async function rotateApiKeyAction(keyId: string, overlapSeconds: number): Promise<Result<{ key: string; name: string }>> {
   return asAdmin(async (actor) => {
     const { key, apiKey } = await withDbClient((db) => rotateApiKey(db, z.string().uuid().parse(keyId), overlapSeconds, actor))
@@ -144,6 +174,40 @@ export async function createOAuthClientAction(
     )
     revalidatePath(PAGE)
     return { clientId: client.clientId, clientSecret }
+  })
+}
+
+const UpdateClientInput = CreateClientInput.omit({ clientType: true, clientId: true })
+
+/**
+ * Changes a client's settings. Its type and client_id stay. A client a
+ * project owns stays within that project's ceiling.
+ */
+export async function updateOAuthClientAction(clientId: string, input: z.infer<typeof UpdateClientInput>): Promise<Result<null>> {
+  return asAdmin(async (actor) => {
+    const payload = UpdateClientInput.parse(input)
+    await withDbClient(async (db) => {
+      const id = z.string().parse(clientId)
+      const service = (await getFirstPartyClient(db, actor, id)).clientType === 'service'
+      await updateFirstPartyClient(db, actor, id, {
+        clientName: payload.clientName,
+        ...(service
+          ? {
+              allowedAudiences: csv(payload.allowedAudiences),
+              allowedServiceScopes: csv(payload.serviceScopes),
+            }
+          : {
+              redirectUris: csv(payload.redirectUris),
+              allowedRoles: payload.roles,
+              allowedScopes: payload.scopes,
+              audience: payload.audience,
+              refreshTtlSeconds: payload.refreshTtlSeconds,
+            }),
+        accessTtlSeconds: payload.accessTtlSeconds,
+      })
+    })
+    revalidatePath(PAGE)
+    return null
   })
 }
 

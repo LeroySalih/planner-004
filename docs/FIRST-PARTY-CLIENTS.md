@@ -37,10 +37,10 @@ rotated, and never logged.
 All three use the same rules (`src/lib/oauth/clients.ts`) and every change is
 written to `oauth_client_audit_log`.
 
-1. **Admin UI**: `/admin/oauth` (admins only). Create sign-in or service
-   clients, approve clients a project created, disable and enable clients, and
-   rotate service secrets. Clients made here have no owner key and are enabled
-   at once. This is the way to do it on production, where the app image has
+1. **Admin UI**: `/admin/oauth` (admins only). Create and edit sign-in or
+   service clients, approve clients a project created, disable and enable
+   clients, rotate service secrets, and create, edit, rotate and revoke project
+   keys. Clients made here have no owner key and are enabled at once. This is the way to do it on production, where the app image has
    no `tsx`.
 2. **Script** (dev, or anywhere with `tsx`): `scripts/register-oauth-client.ts`
    creates or updates a client (examples in the script and in
@@ -97,7 +97,15 @@ The key looks like `dino_pk_` followed by 43 characters. Lists and logs show onl
 A key can **never**: act as a person, open `/api/MCP` or `/oauth/userinfo`,
 see or change another project's clients, MCP clients or admin-made clients,
 create or change keys, approve its own clients, or set anything outside its
-ceiling. Admin changes to a client are allowed beyond the ceiling.
+ceiling. An admin editing a project's client is held to that project's
+ceiling too, so the project can always go on managing it; to go beyond it,
+widen the key first.
+
+**Editing a key** (`/admin/oauth` → Edit) changes its ceiling. The key itself,
+its name and its clients stay. The change is refused if any client the key
+already owns would fall outside the new ceiling, or if it owns more than the
+new `max_clients`: change or disable those clients first. A revoked key cannot
+be edited.
 
 **Rotation.** Rotating issues a new key for the same project. Its ceiling and
 clients stay the same. With an overlap, the old key keeps working for that
@@ -270,6 +278,18 @@ revoking a key or rotating a secret stops **new** tokens at once. Tokens
 already issued work until `exp`: up to 15 minutes for Kerf sign-in tokens,
 10 minutes for service tokens. That is why they are short. Do not lengthen
 them to make up for it.
+
+**Editing a client** works the same way. Its type and `client_id` are fixed;
+everything else can change. New sign-ins use the new settings at once. A
+connection that is already signed in:
+
+- loses access at its next refresh if the user no longer has one of the
+  client's roles;
+- loses a scope at its next refresh if the scope was removed from the client
+  (for example, `groups` stops appearing in its tokens). Adding a scope back
+  does not return it to that connection; the user has to sign in again;
+- keeps its old redirect URI only until it next signs in, since redirect URIs
+  are only used at sign-in.
 
 ## Audit
 
