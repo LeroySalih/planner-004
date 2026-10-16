@@ -5,6 +5,7 @@ import { cookies, headers } from "next/headers"
 import { z } from "zod"
 
 import { query } from "@/lib/db"
+import { isDefaultPassword } from "@/lib/default-password"
 import {
   createSession,
   endSession,
@@ -34,6 +35,7 @@ const AuthResultSchema = z.object({
   userId: z.string().nullable(),
   isTeacher: z.boolean().nullable(),
   firstName: z.string().nullable().optional(),
+  mustChangePassword: z.boolean().optional(),
 })
 
 type AuthResult = z.infer<typeof AuthResultSchema>
@@ -195,12 +197,13 @@ async function findProfileByEmail(email: string) {
       user_id: string
       email: string | null
       password_hash: string | null
+      must_change_password: boolean | null
       is_teacher: boolean | null
       first_name: string | null
       last_name: string | null
     }>(
       `
-        select user_id, email, password_hash, is_teacher, first_name, last_name
+        select user_id, email, password_hash, must_change_password, is_teacher, first_name, last_name
         from profiles
         where lower(email) = lower($1)
         limit 1
@@ -481,6 +484,13 @@ export async function signinAction(input: unknown): Promise<AuthResult> {
         })
       }
 
+      // Catches every account on the shared default password, including ones
+      // reset before the flag existed, whose hashes differ by salt.
+      const mustChangePassword = isDefaultPassword(password) || Boolean(profile.must_change_password)
+      if (mustChangePassword && !profile.must_change_password) {
+        await query("update profiles set must_change_password = true where user_id = $1", [profile.user_id])
+      }
+
       await createSession(profile.user_id)
       console.info("[auth] sign-in success", { email, userId: profile.user_id, isTeacher: Boolean(profile.is_teacher) })
       await recordSigninAttempt({ email, ip, userId: profile.user_id, success: true, reason: null })
@@ -495,6 +505,7 @@ export async function signinAction(input: unknown): Promise<AuthResult> {
         userId: profile.user_id,
         isTeacher: Boolean(profile.is_teacher),
         firstName: profile.first_name ?? null,
+        mustChangePassword,
       })
     },
   )

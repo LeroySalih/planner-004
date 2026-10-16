@@ -25,6 +25,7 @@ import {
   requireTeacherProfile,
 } from "@/lib/auth";
 import { query } from "@/lib/db";
+import { DEFAULT_PUPIL_PASSWORD } from "@/lib/default-password";
 import { withTelemetry } from "@/lib/telemetry";
 import { computePromotedGroupId } from "@/lib/groups/promote";
 
@@ -109,7 +110,6 @@ const ResetPupilPasswordResultSchema = z.object({
   error: z.string().nullable(),
 });
 
-const DEFAULT_PUPIL_PASSWORD = "bisak123";
 export type AuthenticatedProfile = BaseAuthenticatedProfile;
 
 export type GroupActionResult = z.infer<typeof GroupReturnValue>;
@@ -790,7 +790,8 @@ export async function resetPupilPasswordAction(
     try {
       await client.connect();
       const { rowCount } = await client.query(
-        "update profiles set password_hash = $1 where user_id = $2",
+        // The pupil must choose their own password the next time they sign in.
+        "update profiles set password_hash = $1, must_change_password = true where user_id = $2",
         [hashedPassword, userId],
       );
 

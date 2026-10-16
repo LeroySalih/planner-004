@@ -110,6 +110,7 @@ Custom session-based auth (not Supabase Auth):
 - `src/lib/auth.ts`: `getAuthenticatedProfile()`, `requireRole()`, `hasRole()`
 - Role-based access control stored in database, checked via helper functions
 - Bcrypt password hashing with cost factor 10
+- **Default password must be changed.** `profiles.must_change_password` (migration 118) is set when a teacher resets a password to the default, when anyone signs in with the default password, and by the migration for accounts still on the column's default hash. While it is set, `getAuthenticatedProfile` redirects every page, action and route to `/change-password`. Setting a password of your own clears it, and the default is refused. The default lives in `src/lib/default-password.ts`.
 
 ### Client/Server Boundaries
 

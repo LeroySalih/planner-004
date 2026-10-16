@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { CurrentProfileSchema } from "@/types";
 import { query } from "@/lib/db";
+import { isDefaultPassword } from "@/lib/default-password";
 import { hashPassword, requireAuthenticatedProfile, requireTeacherProfile } from "@/lib/auth";
 
 const ReadCurrentProfileResultSchema = z.object({
@@ -187,9 +188,16 @@ export async function updateProfilePasswordAction(
     });
   }
 
+  if (isDefaultPassword(parsed.data.password)) {
+    return UpdatePasswordResultSchema.parse({
+      success: false,
+      error: "Choose a password of your own, not the default one.",
+    });
+  }
+
   const hashedPassword = await hashPassword(parsed.data.password);
   const { rowCount } = await query(
-    "update profiles set password_hash = $1 where user_id = $2",
+    "update profiles set password_hash = $1, must_change_password = false where user_id = $2",
     [
       hashedPassword,
       authProfile.userId,

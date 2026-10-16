@@ -61,9 +61,13 @@ export function SigninForm({ returnTo }: { returnTo?: string }) {
         defaultDestination = `/pupil-lessons/${encodeURIComponent(result.userId!)}`
       }
 
-      const destination = result.success
-        ? isValidReturnTo(returnTo) ? returnTo : defaultDestination
-        : null
+      const next = isValidReturnTo(returnTo) ? returnTo : defaultDestination
+      // On the default password the pupil sets their own first, then carries on.
+      const destination = !result.success
+        ? null
+        : result.mustChangePassword
+          ? `/change-password?returnTo=${encodeURIComponent(next)}`
+          : next
 
       setState({ success: result.success, error: result.error, destination })
     })

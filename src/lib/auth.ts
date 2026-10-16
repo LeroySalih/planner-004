@@ -17,6 +17,8 @@ export type AuthenticatedProfile = {
   firstName?: string | null
   lastName?: string | null
   showExperimentalActivities: boolean
+  // Signed in with the shared default password: must set their own first.
+  mustChangePassword: boolean
 }
 
 type SessionRow = {
@@ -163,11 +165,12 @@ async function readProfile(userId: string): Promise<AuthenticatedProfile | null>
     first_name: string | null
     last_name: string | null
     show_experimental_activities: boolean | null
+    must_change_password: boolean | null
     roles: string[] | null
   }>(
     `
       select p.user_id, p.email, p.is_teacher, p.first_name, p.last_name,
-             p.show_experimental_activities,
+             p.show_experimental_activities, p.must_change_password,
              array_agg(ur.role_id) filter (where ur.role_id is not null) as roles
       from profiles p
       left join user_roles ur on ur.user_id = p.user_id
@@ -205,6 +208,7 @@ async function readProfile(userId: string): Promise<AuthenticatedProfile | null>
     firstName: row.first_name ?? null,
     lastName: row.last_name ?? null,
     showExperimentalActivities: Boolean(row.show_experimental_activities),
+    mustChangePassword: Boolean(row.must_change_password),
   }
 }
 
@@ -275,7 +279,20 @@ async function loadSessionProfile(refreshSessionCookie = false): Promise<Authent
     return null
   }
 
+  // Until they set their own password, every page, action and route that reads
+  // the session sends them to /change-password instead.
+  if (profile.mustChangePassword && !(await isPasswordChangePath())) {
+    redirect(CHANGE_PASSWORD_PATH)
+  }
+
   return profile
+}
+
+export const CHANGE_PASSWORD_PATH = "/change-password"
+
+async function isPasswordChangePath(): Promise<boolean> {
+  const pathname = ((await headers()).get("x-pathname") ?? "").split("?")[0]
+  return pathname === CHANGE_PASSWORD_PATH
 }
 
 export async function getProfileFromSessionCookie(
