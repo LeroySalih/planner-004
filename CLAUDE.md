@@ -490,7 +490,7 @@ All server functions should use `withTelemetry` wrapper for performance tracking
 - SQL migrations in `src/migrations/` (note: no `supabase/` directory in this project)
 - Scripts in `scripts/` and `bin/` directories for database sync and utilities
 - MCP server lives at `src/app/api/MCP/route.ts` — there is no separate `MCP/` directory
-- The OAuth server in `src/lib/oauth/` serves two kinds of client: MCP (opaque tokens, teacher only) and first-party Kerf clients (RS256 JWTs, `allowed_roles`, no consent). Every first-party behaviour is a column on `oauth_clients` whose default is MCP's, so keep new behaviour behind those columns. See `docs/KERF-SSO.md`. Roles for a session and for a token both come from `effectiveRoles` in `src/lib/roles.ts`.
+- The OAuth server in `src/lib/oauth/` serves two kinds of client: MCP (opaque tokens, teacher only) and first-party Kerf clients (RS256 JWTs, `allowed_roles`, no consent). Every first-party behaviour is a column on `oauth_clients` whose default is MCP's, so keep new behaviour behind those columns. See `docs/KERF-SSO.md`. Roles for a session and for a token both come from `effectiveRoles` in `src/lib/roles.ts`. First-party clients can also be `client_type = 'service'` (confidential, `client_credentials` only, `token_use: "service"` JWTs) and can be managed by per-project API keys at `/api/oauth-clients`, held to a ceiling. Every surface that creates or changes a first-party client must go through `src/lib/oauth/client-store.ts`, which validates with `src/lib/oauth/clients.ts` and audits. See `docs/FIRST-PARTY-CLIENTS.md`.
 
 ## SQL Gotchas
 

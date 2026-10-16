@@ -1,11 +1,13 @@
 # Kerf Sabre sign-in (first-party OAuth)
 
 DINO's OAuth server (`src/lib/oauth/`, `src/app/oauth/`) signs people in to the
-Kerf Sabre apps as well as to MCP. MCP is unchanged; see `docs/MCP.md`.
+Kerf Sabre apps as well as to MCP. MCP is unchanged; see `docs/MCP.md`. How
+first-party clients are added and managed (admin UI, script, project API
+keys) and service-to-service tokens are in `docs/FIRST-PARTY-CLIENTS.md`.
 
 | | MCP clients (Claude) | First-party clients (Kerf) |
 |---|---|---|
-| Registration | Self-register at `/oauth/register` (RFC 7591) | Pre-registered with `scripts/register-oauth-client.ts` |
+| Registration | Self-register at `/oauth/register` (RFC 7591) | `/admin/oauth`, `scripts/register-oauth-client.ts`, or a project API key |
 | Redirect URI | Claude callback or loopback on any port | Exact match against the registered list |
 | Who can sign in | Teachers | The client's `allowed_roles` |
 | Consent page | Allow / Deny | None |
@@ -43,20 +45,11 @@ npx tsx scripts/register-oauth-client.ts --id kerf-admin --name "Kerf Sabre Admi
 
 Running it again updates the client; live connections are kept. It refuses
 to turn an MCP client into a first-party one. On production, where the app
-image has no `tsx`, the same upsert in SQL is:
+image has no `tsx`, add the clients at `/admin/oauth` instead. That page
+applies the same rules (`src/lib/oauth/clients.ts`) and audits the change.
 
-```sql
-INSERT INTO oauth_clients (client_id, client_name, redirect_uris, first_party, token_format,
-                           allowed_roles, audience, allowed_scopes, access_ttl_seconds, refresh_ttl_seconds)
-VALUES ('kerf-editor', 'Kerf Sabre Editor', ARRAY['https://kerf.example.org/auth/callback'],
-        true, 'jwt', ARRAY['pupil','teacher','admin','technician'], 'kerf-sabre',
-        ARRAY['profile'], 900, 604800)
-ON CONFLICT (client_id) DO UPDATE SET client_name = EXCLUDED.client_name,
-  redirect_uris = EXCLUDED.redirect_uris, allowed_roles = EXCLUDED.allowed_roles,
-  audience = EXCLUDED.audience, allowed_scopes = EXCLUDED.allowed_scopes,
-  access_ttl_seconds = EXCLUDED.access_ttl_seconds, refresh_ttl_seconds = EXCLUDED.refresh_ttl_seconds
-WHERE oauth_clients.first_party;
-```
+A disabled client (`/admin/oauth`, or by the project that owns it) cannot
+sign anyone in or refresh, and userinfo refuses its tokens.
 
 `/oauth/register` can never create or change a first-party client: it always
 mints a new random `client_id` with `first_party = false`. `pruneExpired` never
@@ -94,6 +87,7 @@ A JWT, header `{ alg: "RS256", typ: "at+jwt", kid }` (RFC 9068), built by
 
 | Claim | Value |
 |---|---|
+| `token_use` | `"user"`. A service token says `"service"` (docs/FIRST-PARTY-CLIENTS.md); userinfo refuses one. |
 | `iss` | `APP_ORIGIN` (no trailing slash) |
 | `sub` | `profiles.user_id`, a lowercase UUID. Kerf uses it as the person's ID. Personal data. |
 | `aud` | the client's audience, `kerf-sabre` |
@@ -110,7 +104,9 @@ logs.
 
 **The Kerf server must** verify the signature against `/oauth/jwks`, pin
 `alg` to RS256 (refuse `none` and HS256), require `typ: at+jwt`, and check
-`iss`, `aud`, `exp` and `nbf`.
+`iss`, `aud`, `exp` and `nbf`. It should also require `token_use: "user"`
+and a `sid`, and that `client_id` is one of its own clients, so a service
+token is never taken for a person.
 
 An access JWT cannot be revoked before it expires. Revoking a connection or
 removing a role stops refresh at once, but an issued JWT works until `exp`.

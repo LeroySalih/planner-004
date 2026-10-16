@@ -103,6 +103,8 @@ export type AccessTokenClient = {
 }
 
 export type AccessTokenClaims = {
+  /** Tells a user token from a service token (ServiceTokenClaims). */
+  token_use: "user"
   iss: string
   sub: string
   aud: string
@@ -131,6 +133,7 @@ export function buildAccessTokenClaims(
 ): AccessTokenClaims {
   const iat = Math.floor(context.now.getTime() / 1000)
   const claims: AccessTokenClaims = {
+    token_use: "user",
     iss: context.issuer,
     sub: subject.userId,
     aud: client.audience,
@@ -149,24 +152,59 @@ export function buildAccessTokenClaims(
   return claims
 }
 
+/**
+ * A service token (client_credentials): a service client calling another app
+ * as itself. No user, roles or groups, and no `sid`, so nothing that expects
+ * a user token (verifyAccessJwt, userinfo) accepts it.
+ */
+export type ServiceTokenClaims = {
+  token_use: "service"
+  iss: string
+  /** The calling service client's client_id. */
+  sub: string
+  aud: string
+  iat: number
+  nbf: number
+  exp: number
+  jti: string
+  client_id: string
+  scope: string
+}
+
+export function buildServiceTokenClaims(
+  client: { clientId: string; accessTtlSeconds: number },
+  audience: string,
+  scope: string,
+  context: { issuer: string; now: Date; jti?: string },
+): ServiceTokenClaims {
+  const iat = Math.floor(context.now.getTime() / 1000)
+  return {
+    token_use: "service",
+    iss: context.issuer,
+    sub: client.clientId,
+    aud: audience,
+    iat,
+    nbf: iat,
+    exp: iat + client.accessTtlSeconds,
+    jti: context.jti ?? randomBytes(16).toString("base64url"),
+    client_id: client.clientId,
+    scope,
+  }
+}
+
 /** Signs with the current key. Throws JwtKeyError rather than ever issuing an unsigned token. */
-export async function signAccessToken(claims: AccessTokenClaims, env?: NodeJS.ProcessEnv): Promise<string> {
+export async function signAccessToken(claims: AccessTokenClaims | ServiceTokenClaims, env?: NodeJS.ProcessEnv): Promise<string> {
   const { privateKey, kid } = await signingKeys(env)
   return new SignJWT({ ...claims } as JWTPayload)
     .setProtectedHeader({ alg: ALG, typ: TOKEN_TYPE, kid })
     .sign(privateKey)
 }
 
-/**
- * The claims of a token this server signed, or null. Pins RS256 (so `none` and
- * HS256 are refused), requires typ at+jwt, and checks iss, exp and nbf, plus
- * aud when given.
- */
-export async function verifyAccessJwt(
+async function verifySigned(
   token: string,
-  expected: { issuer: string; audience?: string },
+  expected: { issuer: string; audience?: string; requiredClaims: string[] },
   env?: NodeJS.ProcessEnv,
-): Promise<AccessTokenClaims | null> {
+): Promise<JWTPayload | null> {
   const keySet = createLocalJWKSet(await publicJwks(env))
   try {
     const { payload } = await jwtVerify(token, keySet, {
@@ -174,12 +212,43 @@ export async function verifyAccessJwt(
       typ: TOKEN_TYPE,
       issuer: expected.issuer,
       audience: expected.audience,
-      requiredClaims: ["sub", "exp", "nbf", "jti", "sid", "client_id"],
+      requiredClaims: ["sub", "exp", "nbf", "jti", "client_id", "token_use", ...expected.requiredClaims],
       clockTolerance: 5,
     })
-    return payload as unknown as AccessTokenClaims
+    return payload
   } catch {
     return null
   }
+}
+
+/**
+ * The claims of a user token this server signed, or null. Pins RS256 (so
+ * `none` and HS256 are refused), requires typ at+jwt and token_use "user",
+ * and checks iss, exp and nbf, plus aud when given. A service token is refused.
+ */
+export async function verifyAccessJwt(
+  token: string,
+  expected: { issuer: string; audience?: string },
+  env?: NodeJS.ProcessEnv,
+): Promise<AccessTokenClaims | null> {
+  const payload = await verifySigned(token, { ...expected, requiredClaims: ["sid"] }, env)
+  return payload?.token_use === "user" ? (payload as unknown as AccessTokenClaims) : null
+}
+
+/**
+ * The reference check for an incoming service token, as every service must
+ * do it (docs/FIRST-PARTY-CLIENTS.md): signature, RS256, typ at+jwt, iss,
+ * aud = the receiving service, exp, nbf, token_use "service", and the caller
+ * on the receiver's allow-list. A user token is refused.
+ */
+export async function verifyServiceJwt(
+  token: string,
+  expected: { issuer: string; audience: string; allowedClients: readonly string[] },
+  env?: NodeJS.ProcessEnv,
+): Promise<ServiceTokenClaims | null> {
+  const payload = await verifySigned(token, { ...expected, requiredClaims: [] }, env)
+  if (!payload || payload.token_use !== "service") return null
+  if (payload.sub !== payload.client_id || !expected.allowedClients.includes(String(payload.client_id))) return null
+  return payload as unknown as ServiceTokenClaims
 }
 

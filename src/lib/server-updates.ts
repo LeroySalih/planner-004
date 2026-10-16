@@ -483,3 +483,13 @@ export {
   removeAssessmentFileAction,
   renameAssessmentAction,
 } from './server-actions/assessments'
+
+export {
+  readOAuthAdminStateAction,
+  createApiKeyAction,
+  rotateApiKeyAction,
+  revokeApiKeyAction,
+  createOAuthClientAction,
+  setOAuthClientEnabledAction,
+  rotateOAuthClientSecretAction,
+} from './server-actions/oauth-admin'

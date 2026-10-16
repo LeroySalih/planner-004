@@ -26,9 +26,11 @@ export function authorizationServerMetadata(origin: string) {
     token_endpoint: `${origin}/oauth/token`,
     registration_endpoint: `${origin}/oauth/register`,
     response_types_supported: ["code"],
-    grant_types_supported: ["authorization_code", "refresh_token"],
+    grant_types_supported: ["authorization_code", "refresh_token", "client_credentials"],
     code_challenge_methods_supported: ["S256"],
-    token_endpoint_auth_methods_supported: ["none"],
+    // "none" for sign-in clients (PKCE) and MCP; the secret methods are for
+    // first-party service clients only (docs/FIRST-PARTY-CLIENTS.md).
+    token_endpoint_auth_methods_supported: ["none", "client_secret_basic", "client_secret_post"],
     // First-party sign-in (docs/KERF-SSO.md). MCP clients ignore all of these:
     // their tokens stay opaque and they are granted no scopes.
     jwks_uri: `${origin}/oauth/jwks`,

@@ -5,9 +5,21 @@ dotenv.config()
 dotenv.config({ path: ".env.build" })
 import { Pool } from "pg"
 
-// Upserts a first-party OAuth client (docs/KERF-SSO.md). Redirect URIs differ
-// per environment, so clients are registered here rather than by migration.
+import { ClientValidationError } from "@/lib/oauth/clients"
+import {
+  ClientRequestError,
+  createFirstPartyClient,
+  getFirstPartyClient,
+  updateFirstPartyClient,
+  type AuditActor,
+} from "@/lib/oauth/client-store"
+
+// Creates or updates a first-party OAuth client (docs/FIRST-PARTY-CLIENTS.md),
+// with the same rules as the admin UI and the project-key API
+// (src/lib/oauth/clients.ts). Redirect URIs differ per environment, so
+// clients are registered here rather than by migration.
 //
+// A sign-in client (Kerf):
 //   npx tsx scripts/register-oauth-client.ts \
 //     --id kerf-editor --name "Kerf Sabre Editor" \
 //     --redirect-uri https://kerf.example.org/auth/callback \
@@ -15,29 +27,21 @@ import { Pool } from "pg"
 //     --roles pupil,teacher,admin,technician --scopes profile \
 //     --audience kerf-sabre --access-ttl 900 --refresh-ttl 604800
 //
+// A service client (prints its secret once, on creation only):
+//   npx tsx scripts/register-oauth-client.ts --type service \
+//     --id kerf-sync --name "Kerf sync job" \
+//     --audiences planner-api --service-scopes groups:read --access-ttl 300
+//
 // Every redirect URI is matched exactly, so list each origin you use. Running
-// it again replaces the client's settings; its live connections are kept.
-
-const ROLES = ["pupil", "teacher", "admin", "technician"]
-const SCOPES = ["profile", "groups"]
-
-type Args = {
-  id: string
-  name: string
-  redirectUris: string[]
-  roles: string[]
-  scopes: string[]
-  audience: string
-  accessTtl: number
-  refreshTtl: number
-}
+// it again replaces the client's settings; its live connections are kept. It
+// refuses to touch an MCP client. Rotate a service secret in the admin UI.
 
 function fail(message: string): never {
   console.error(`register-oauth-client: ${message}`)
   process.exit(1)
 }
 
-function parseArgs(argv: string[]): Args {
+function parseArgs(argv: string[]) {
   const values = new Map<string, string[]>()
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i]
@@ -46,73 +50,53 @@ function parseArgs(argv: string[]): Args {
     values.set(flag.slice(2), [...(values.get(flag.slice(2)) ?? []), value])
     i += 1
   }
-  const one = (key: string, fallback?: string) => values.get(key)?.at(-1) ?? fallback ?? fail(`--${key} is required`)
-  const list = (key: string) => one(key).split(",").map((v) => v.trim()).filter(Boolean)
-  const seconds = (key: string, fallback: string) => {
-    const n = Number(one(key, fallback))
-    if (!Number.isInteger(n) || n <= 0) fail(`--${key} must be a whole number of seconds`)
-    return n
+  const one = (key: string) => values.get(key)?.at(-1)
+  const list = (key: string) => (one(key) ?? "").split(",").map((v) => v.trim()).filter(Boolean)
+  const seconds = (key: string) => (one(key) === undefined ? undefined : Number(one(key)))
+  const type = one("type") ?? "public"
+  if (type !== "public" && type !== "service") fail("--type must be public or service")
+  return {
+    clientId: one("id") ?? fail("--id is required"),
+    clientName: one("name") ?? fail("--name is required"),
+    clientType: type as "public" | "service",
+    redirectUris: values.get("redirect-uri") ?? [],
+    allowedRoles: list("roles"),
+    allowedScopes: list("scopes"),
+    audience: one("audience") ?? null,
+    allowedAudiences: list("audiences"),
+    allowedServiceScopes: list("service-scopes"),
+    accessTtlSeconds: seconds("access-ttl"),
+    refreshTtlSeconds: seconds("refresh-ttl"),
   }
-
-  const args: Args = {
-    id: one("id"),
-    name: one("name"),
-    redirectUris: values.get("redirect-uri") ?? fail("give at least one --redirect-uri"),
-    roles: list("roles"),
-    scopes: values.has("scopes") ? list("scopes") : [],
-    audience: one("audience"),
-    accessTtl: seconds("access-ttl", "900"),
-    refreshTtl: seconds("refresh-ttl", "604800"),
-  }
-
-  if (!/^[A-Za-z0-9_-]{3,64}$/.test(args.id)) fail("--id may use letters, digits, _ and -, 3 to 64 characters")
-  for (const uri of args.redirectUris) {
-    let url: URL
-    try {
-      url = new URL(uri)
-    } catch {
-      fail(`not an absolute URL: ${uri}`)
-    }
-    const loopback = url.hostname === "localhost" || url.hostname === "127.0.0.1"
-    if (url.hash || uri.includes("#")) fail(`redirect URIs cannot have a fragment: ${uri}`)
-    if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
-      fail(`use https, or http only on localhost: ${uri}`)
-    }
-  }
-  const badRole = args.roles.find((role) => !ROLES.includes(role))
-  if (badRole || args.roles.length === 0) fail(`--roles must be some of ${ROLES.join(", ")}`)
-  const badScope = args.scopes.find((scope) => !SCOPES.includes(scope))
-  if (badScope) fail(`--scopes must be some of ${SCOPES.join(", ")}`)
-  return args
 }
 
 async function main() {
   const args = parseArgs(process.argv.slice(2))
   const pool = new Pool({ connectionString: process.env.DATABASE_URL })
+  const db = await pool.connect()
+  const actor: AuditActor = { kind: "script" }
   try {
-    // The WHERE refuses to turn an MCP client (dynamically registered) into a
-    // first-party one.
-    const { rows } = await pool.query<{ client_id: string; inserted: boolean }>(
-      `insert into oauth_clients
-         (client_id, client_name, redirect_uris, first_party, token_format, allowed_roles,
-          audience, allowed_scopes, access_ttl_seconds, refresh_ttl_seconds)
-       values ($1, $2, $3, true, 'jwt', $4, $5, $6, $7, $8)
-       on conflict (client_id) do update set
-         client_name = excluded.client_name,
-         redirect_uris = excluded.redirect_uris,
-         token_format = excluded.token_format,
-         allowed_roles = excluded.allowed_roles,
-         audience = excluded.audience,
-         allowed_scopes = excluded.allowed_scopes,
-         access_ttl_seconds = excluded.access_ttl_seconds,
-         refresh_ttl_seconds = excluded.refresh_ttl_seconds
-       where oauth_clients.first_party
-       returning client_id, (xmax = 0) as inserted`,
-      [args.id, args.name, args.redirectUris, args.roles, args.audience, args.scopes, args.accessTtl, args.refreshTtl],
-    )
-    if (!rows[0]) fail(`${args.id} is already an MCP client and cannot be made first-party`)
-    console.log(`${rows[0].inserted ? "Registered" : "Updated"} ${args.id}: ${args.redirectUris.join(", ")}`)
+    const existing = await getFirstPartyClient(db, actor, args.clientId).catch((error) => {
+      if (error instanceof ClientRequestError && error.status === 404) return null
+      throw error
+    })
+    if (existing) {
+      if (existing.clientType !== args.clientType) fail(`${args.clientId} is a ${existing.clientType} client; its type cannot change`)
+      await updateFirstPartyClient(db, actor, args.clientId, args)
+      console.log(`Updated ${args.clientId}`)
+    } else {
+      const { clientSecret } = await createFirstPartyClient(db, actor, args)
+      console.log(`Registered ${args.clientId}`)
+      if (clientSecret) {
+        console.log(`client_secret (shown once, store it in the service's .env): ${clientSecret}`)
+      }
+    }
+  } catch (error) {
+    if (error instanceof ClientRequestError && error.status === 409) fail(`${args.clientId} is already an MCP client and cannot be made first-party`)
+    if (error instanceof ClientRequestError || error instanceof ClientValidationError) fail(error.message)
+    throw error
   } finally {
+    db.release()
     await pool.end()
   }
 }

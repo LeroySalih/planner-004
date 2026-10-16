@@ -1,9 +1,18 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto"
+import { randomBytes, randomUUID } from "node:crypto"
 
 import type { Queryable } from "@/lib/curriculum/unit-curriculum-guard"
 import { query, withDbClient } from "@/lib/db"
+import { sameHash, sha256 } from "@/lib/oauth/client-store"
+import { USER_SCOPES } from "@/lib/oauth/clients"
 import { mcpResourceUrl } from "@/lib/oauth/metadata"
-import { buildAccessTokenClaims, publicJwks, signAccessToken, verifyAccessJwt, type AccessTokenClaims } from "@/lib/oauth/jwt"
+import {
+  buildAccessTokenClaims,
+  buildServiceTokenClaims,
+  publicJwks,
+  signAccessToken,
+  verifyAccessJwt,
+  type AccessTokenClaims,
+} from "@/lib/oauth/jwt"
 import { effectiveRoles, hasAnyEffectiveRoleSql } from "@/lib/roles"
 import type { ConnectedApp, OAuthAuthorizeParams, OAuthClientRegistration } from "@/types"
 
@@ -15,6 +24,9 @@ import type { ConnectedApp, OAuthAuthorizeParams, OAuthClientRegistration } from
 //  - First-party clients (the Kerf Sabre apps, docs/KERF-SSO.md) are
 //    pre-registered rows with exact redirect URIs, their own allowed roles and
 //    lifetimes, no consent page, and RS256 JWT access tokens (jwt.ts).
+//    A first-party *service* client (client_type = 'service') signs nobody
+//    in: it authenticates with its own secret and gets a short service token
+//    through client_credentials (docs/FIRST-PARTY-CLIENTS.md).
 //
 // Everything a first-party client changes is a column on oauth_clients whose
 // default is MCP's behaviour, so an MCP client is handled exactly as before.
@@ -22,9 +34,6 @@ import type { ConnectedApp, OAuthAuthorizeParams, OAuthClientRegistration } from
 const CODE_TTL_MS = 10 * 60 * 1000
 const ACCESS_TTL_S = 60 * 60
 const REFRESH_TTL_S = 30 * 24 * 60 * 60
-
-/** Every scope a first-party client can be granted. MCP has none. */
-export const SUPPORTED_SCOPES = ["profile", "groups"] as const
 
 // Claude's hosted connectors return here: claude.ai web and Desktop, and the
 // organisation-managed custom connectors.
@@ -61,6 +70,8 @@ type OAuthClient = {
   allowedScopes: string[]
   accessTtlSeconds: number
   refreshTtlSeconds: number
+  clientType: "public" | "service"
+  disabled: boolean
 }
 
 async function loadClient(db: Queryable, clientId: string): Promise<OAuthClient | null> {
@@ -75,9 +86,12 @@ async function loadClient(db: Queryable, clientId: string): Promise<OAuthClient 
     allowed_scopes: string[]
     access_ttl_seconds: number | null
     refresh_ttl_seconds: number | null
+    client_type: "public" | "service"
+    disabled: boolean
   }>(
     `select client_id, client_name, redirect_uris, first_party, token_format, allowed_roles,
-            audience, allowed_scopes, access_ttl_seconds, refresh_ttl_seconds
+            audience, allowed_scopes, access_ttl_seconds, refresh_ttl_seconds, client_type,
+            disabled_at is not null as disabled
      from oauth_clients where client_id = $1`,
     [clientId],
   )
@@ -94,6 +108,8 @@ async function loadClient(db: Queryable, clientId: string): Promise<OAuthClient 
     allowedScopes: row.allowed_scopes,
     accessTtlSeconds: row.access_ttl_seconds ?? ACCESS_TTL_S,
     refreshTtlSeconds: row.refresh_ttl_seconds ?? REFRESH_TTL_S,
+    clientType: row.client_type,
+    disabled: row.disabled,
   }
 }
 
@@ -104,10 +120,6 @@ export function rolesAllowedByClient(allowedRoles: string[] | null, roles: reado
 
 function newSecret(): string {
   return randomBytes(32).toString("base64url")
-}
-
-function sha256(value: string): string {
-  return createHash("sha256").update(value).digest("base64url")
 }
 
 /** A Claude Code callback: http on localhost/127.0.0.1 with an explicit port. */
@@ -209,7 +221,7 @@ function grantScope(client: OAuthClient, requested: string | undefined): string 
   if (!client.firstParty) return ""
   const asked = [...new Set((requested ?? "").split(" ").filter(Boolean))]
   if (asked.some((scope) => !client.allowedScopes.includes(scope))) return null
-  return SUPPORTED_SCOPES.filter((scope) => asked.includes(scope)).join(" ")
+  return USER_SCOPES.filter((scope) => asked.includes(scope)).join(" ")
 }
 
 export async function checkAuthorizeRequest(
@@ -222,6 +234,12 @@ export async function checkAuthorizeRequest(
   const client = await loadClient({ query } as Queryable, params.client_id)
   if (!client) {
     return { status: "invalid", message: "This app is not registered with DINO. Try connecting again." }
+  }
+  if (client.clientType === "service") {
+    return { status: "invalid", message: "This app cannot sign people in." }
+  }
+  if (client.disabled) {
+    return { status: "invalid", message: `${client.clientName} is switched off in DINO. Ask an administrator.` }
   }
   if (!params.redirect_uri || !redirectUriMatches(client, params.redirect_uri)) {
     return { status: "invalid", message: "This app asked to return somewhere it did not register." }
@@ -415,7 +433,9 @@ function tokenResponse(tokens: IssuedTokens) {
  */
 async function clientForTokenRequest(clientId: string): Promise<OAuthClient | null> {
   const client = await loadClient({ query } as Queryable, clientId)
-  if (client?.tokenFormat === "jwt") await publicJwks()
+  // A service client never holds a user's code or refresh token.
+  if (!client || client.clientType === "service") return null
+  if (client.tokenFormat === "jwt") await publicJwks()
   return client
 }
 
@@ -480,6 +500,7 @@ export async function exchangeAuthorizationCode(input: {
       const failure =
         row.expired ? "Authorization code has expired."
         : !client || row.client_id !== client.clientId ? "Authorization code was issued to another client."
+        : client.disabled ? "This app is switched off in DINO."
         : row.redirect_uri !== input.redirectUri ? "redirect_uri does not match the authorization request."
         : sha256(input.codeVerifier) !== row.code_challenge ? "PKCE verification failed."
         : !row.allowed ? roleRefusal(client)
@@ -532,6 +553,7 @@ export async function refreshAccessToken(input: { refreshToken: string; clientId
              and t.revoked_at is null
              and t.refresh_expires_at > now()
              and t.client_id = $2
+             and c.disabled_at is null
              and ${ALLOWED_FOR_CLIENT("t.user_id", "c")}
            for update of t`,
           [presented, client.clientId],
@@ -568,6 +590,82 @@ export async function refreshAccessToken(input: { refreshToken: string; clientId
     console.warn("[oauth] Rotated-out refresh token presented; connection revoked", { clientId: input.clientId })
   }
   throw new OAuthError("invalid_grant", "Refresh token is invalid, expired or revoked.")
+}
+
+// Compared against when there is no hash to compare with, so an unknown
+// client and a wrong secret take the same time. Random per process: it must
+// never be a hash anyone could produce, and a match against it never counts.
+const NO_CLIENT_HASH = sha256(randomBytes(32).toString("base64url"))
+
+/**
+ * client_credentials (RFC 6749 §4.4) for a first-party service client. The
+ * secret is checked in constant time against the current one and, during a
+ * rotation overlap, the previous one. An unknown client, a wrong secret and a
+ * disabled client all get the same invalid_client. The token is a service
+ * JWT for one audience the client may call; there is no refresh token.
+ */
+export async function issueServiceToken(input: {
+  clientId: string
+  clientSecret: string
+  audience: string | null
+  scope: string | null
+  issuer: string
+}) {
+  const { rows } = await query<{
+    client_secret_hash: string | null
+    previous_client_secret_hash: string | null
+    previous_live: boolean | null
+    disabled: boolean
+    allowed_audiences: string[]
+    allowed_service_scopes: string[]
+    access_ttl_seconds: number | null
+  }>(
+    `select client_secret_hash, previous_client_secret_hash,
+            previous_secret_expires_at > now() as previous_live,
+            disabled_at is not null as disabled,
+            allowed_audiences, allowed_service_scopes, access_ttl_seconds
+     from oauth_clients
+     where client_id = $1 and client_type = 'service' and first_party`,
+    [input.clientId],
+  )
+  const row = rows[0]
+  const presented = sha256(input.clientSecret)
+  const currentHash = row?.client_secret_hash ?? null
+  const previousHash = (row?.previous_live && row.previous_client_secret_hash) || null
+  // Both comparisons always run; only a comparison against a real hash counts.
+  const current = sameHash(presented, currentHash ?? NO_CLIENT_HASH) && currentHash !== null
+  const previous = sameHash(presented, previousHash ?? NO_CLIENT_HASH) && previousHash !== null
+  if (!row || !(current || previous) || row.disabled) {
+    console.info("[oauth] client authentication refused", { clientId: input.clientId, grant: "client_credentials" })
+    throw new OAuthError("invalid_client", "Client authentication failed.", 401)
+  }
+
+  if (!input.audience) {
+    throw new OAuthError("invalid_request", "audience (or resource) is required.")
+  }
+  if (!row.allowed_audiences.includes(input.audience)) {
+    throw new OAuthError("invalid_target", `This client may not call ${input.audience}.`)
+  }
+  const asked = [...new Set((input.scope ?? "").split(" ").filter(Boolean))]
+  if (asked.some((scope) => !row.allowed_service_scopes.includes(scope))) {
+    throw new OAuthError("invalid_scope", `This client may ask for: ${row.allowed_service_scopes.join(" ") || "no scopes"}.`)
+  }
+  const scope = row.allowed_service_scopes.filter((value) => asked.includes(value)).join(" ")
+
+  const claims = buildServiceTokenClaims(
+    { clientId: input.clientId, accessTtlSeconds: row.access_ttl_seconds ?? 300 },
+    input.audience,
+    scope,
+    { issuer: input.issuer, now: new Date() },
+  )
+  const accessToken = await signAccessToken(claims)
+  console.info("[oauth] service token issued", { clientId: input.clientId, aud: input.audience })
+  return {
+    access_token: accessToken,
+    token_type: "Bearer",
+    expires_in: claims.exp - claims.iat,
+    scope,
+  }
 }
 
 /**
@@ -645,8 +743,10 @@ export async function readUserinfo(token: string, issuer: string): Promise<Useri
     `select p.first_name, p.last_name, p.email, p.is_teacher,
             (select array_agg(ur.role_id) from user_roles ur where ur.user_id = p.user_id) as roles
      from oauth_tokens t
+     join oauth_clients c on c.client_id = t.client_id
      join profiles p on p.user_id = t.user_id
-     where t.id = $1 and t.client_id = $2 and t.user_id = $3 and t.revoked_at is null`,
+     where t.id = $1 and t.client_id = $2 and t.user_id = $3 and t.revoked_at is null
+       and c.disabled_at is null`,
     [claims.sid, claims.client_id, claims.sub],
   )
   const row = rows[0]
