@@ -1745,6 +1745,8 @@ export const OAuthAuthorizeParamsSchema = z.object({
   code_challenge_method: z.string().optional(),
   state: z.string().max(2000).optional(),
   resource: z.string().optional(),
+  // Space separated; first-party clients only (MCP clients are granted none).
+  scope: z.string().max(200).optional(),
 });
 export type OAuthAuthorizeParams = z.infer<typeof OAuthAuthorizeParamsSchema>;
 

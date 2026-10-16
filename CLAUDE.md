@@ -490,6 +490,7 @@ All server functions should use `withTelemetry` wrapper for performance tracking
 - SQL migrations in `src/migrations/` (note: no `supabase/` directory in this project)
 - Scripts in `scripts/` and `bin/` directories for database sync and utilities
 - MCP server lives at `src/app/api/MCP/route.ts` — there is no separate `MCP/` directory
+- The OAuth server in `src/lib/oauth/` serves two kinds of client: MCP (opaque tokens, teacher only) and first-party Kerf clients (RS256 JWTs, `allowed_roles`, no consent). Every first-party behaviour is a column on `oauth_clients` whose default is MCP's, so keep new behaviour behind those columns. See `docs/KERF-SSO.md`. Roles for a session and for a token both come from `effectiveRoles` in `src/lib/roles.ts`.
 
 ## SQL Gotchas
 

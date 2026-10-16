@@ -62,6 +62,8 @@ How it works (MCP authorization spec 2025-06-18):
 `verifyMcpAuthorization()` returns the teacher's `userId` for an OAuth token
 (`null` for the service key); tools do not use it yet.
 
+The same OAuth server also signs people in to the Kerf Sabre apps as first-party clients with JWT access tokens. MCP clients are unaffected: their tokens stay opaque, teacher only, with no scopes, and a Kerf token is refused by `/api/MCP`. See `docs/KERF-SSO.md`.
+
 ### Connecting with the service key (`.mcp.json`)
 
 Scripts and header-configured clients keep using `MCP_SERVICE_KEY`, sent as

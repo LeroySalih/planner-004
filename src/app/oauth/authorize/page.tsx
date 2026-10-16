@@ -4,8 +4,8 @@ import { redirect } from "next/navigation"
 
 import { ConsentButtons } from "@/components/oauth/consent-buttons"
 import { SameSiteReload } from "@/components/oauth/same-site-reload"
-import { getAuthenticatedProfile, hasRole } from "@/lib/auth"
-import { checkAuthorizeRequest } from "@/lib/oauth/server"
+import { getAuthenticatedProfile } from "@/lib/auth"
+import { checkAuthorizeRequest, issueAuthorizationCode, rolesAllowedByClient } from "@/lib/oauth/server"
 import { publicOrigin } from "@/lib/public-origin"
 import { OAuthAuthorizeParamsSchema } from "@/types"
 
@@ -20,6 +20,7 @@ export const metadata: Metadata = {
 
 // OAuth authorization endpoint (RFC 6749 §3.1). A teacher approves an MCP
 // client here; the server actions behind the buttons check everything again.
+// A first-party client is approved without asking (see below).
 export default async function AuthorizePage({
   searchParams,
 }: {
@@ -54,11 +55,20 @@ export default async function AuthorizePage({
     const here = headerList.get("x-pathname") ?? `/oauth/authorize?${new URLSearchParams(query)}`
     redirect(`/signin?returnTo=${encodeURIComponent(here)}`)
   }
-  if (!hasRole(profile, "teacher")) {
-    return <AuthorizeError message="Only teachers can connect Claude to DINO." />
+  const { request } = check
+  if (!rolesAllowedByClient(request.allowedRoles, profile.roles)) {
+    return (
+      <AuthorizeError
+        message={request.firstParty ? `Your account cannot sign in to ${request.clientName}.` : "Only teachers can connect Claude to DINO."}
+      />
+    )
   }
 
-  const { request } = check
+  // A first-party app (Kerf) is DINO's own: no consent page, the code goes
+  // straight back to its exactly-registered redirect URI.
+  if (request.firstParty) {
+    redirect(await issueAuthorizationCode(request, profile.userId))
+  }
   const teacherName = [profile.firstName, profile.lastName].filter(Boolean).join(" ") || profile.email
   const returnHost = new URL(request.redirectUri).host
 

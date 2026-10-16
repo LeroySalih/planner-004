@@ -29,5 +29,12 @@ export function authorizationServerMetadata(origin: string) {
     grant_types_supported: ["authorization_code", "refresh_token"],
     code_challenge_methods_supported: ["S256"],
     token_endpoint_auth_methods_supported: ["none"],
+    // First-party sign-in (docs/KERF-SSO.md). MCP clients ignore all of these:
+    // their tokens stay opaque and they are granted no scopes.
+    jwks_uri: `${origin}/oauth/jwks`,
+    userinfo_endpoint: `${origin}/oauth/userinfo`,
+    revocation_endpoint: `${origin}/oauth/revoke`,
+    scopes_supported: ["profile", "groups"],
+    access_token_signing_alg_values_supported: ["RS256"],
   }
 }

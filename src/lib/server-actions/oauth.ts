@@ -5,11 +5,12 @@ import { headers } from "next/headers"
 import { redirect } from "next/navigation"
 import { z } from "zod"
 
-import { getAuthenticatedProfile, hasRole, requireTeacherProfile } from "@/lib/auth"
+import { getAuthenticatedProfile, requireTeacherProfile } from "@/lib/auth"
 import {
   callbackUrl,
   checkAuthorizeRequest,
   issueAuthorizationCode,
+  rolesAllowedByClient,
   revokeConnectedApp,
   type AuthorizeRequest,
 } from "@/lib/oauth/server"
@@ -39,7 +40,7 @@ async function recheckConsentForm(formData: FormData): Promise<AuthorizeRequest>
 export async function approveOAuthAuthorizationAction(formData: FormData): Promise<void> {
   const request = await recheckConsentForm(formData)
   const profile = await getAuthenticatedProfile()
-  if (!profile || !hasRole(profile, "teacher")) {
+  if (!profile || !rolesAllowedByClient(request.allowedRoles, profile.roles)) {
     throw new Error("Only teachers can connect Claude to DINO.")
   }
 

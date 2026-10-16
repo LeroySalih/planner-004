@@ -4,6 +4,7 @@ import { redirect } from "next/navigation"
 import bcrypt from "bcryptjs"
 
 import { query } from "@/lib/db"
+import { effectiveRoles } from "@/lib/roles"
 
 const SESSION_COOKIE = "planner_session"
 const SESSION_TTL_MS = 60 * 60 * 1000 // 1 hour rolling
@@ -186,19 +187,8 @@ async function readProfile(userId: string): Promise<AuthenticatedProfile | null>
     return null
   }
 
-  const roles = row.roles ?? []
-  
-  // Backward compatibility: If no roles in DB but is_teacher is set, treat as teacher.
-  // Although migration should have fixed this, it's a safe fallback.
-  const isTeacherFlag = Boolean(row.is_teacher)
-  if (isTeacherFlag && !roles.includes("teacher")) {
-    roles.push("teacher")
-  }
-  
-  // Default to 'pupil' if no roles found (safe default)
-  if (roles.length === 0) {
-    roles.push("pupil")
-  }
+  // Shared with the OAuth access token's `roles` claim (src/lib/roles.ts).
+  const roles = effectiveRoles(row.roles ?? [], Boolean(row.is_teacher))
 
   return {
     userId: row.user_id,
@@ -281,19 +271,19 @@ async function loadSessionProfile(refreshSessionCookie = false): Promise<Authent
 
   // Until they set their own password, every page, action and route that reads
   // the session sends them to /change-password instead.
-  if (profile.mustChangePassword && !(await isPasswordChangePath())) {
-    redirect(CHANGE_PASSWORD_PATH)
+  if (profile.mustChangePassword) {
+    const here = (await headers()).get("x-pathname") ?? ""
+    if (here.split("?")[0] !== CHANGE_PASSWORD_PATH) {
+      // Carry on to the same place afterwards, e.g. an OAuth sign-in for Kerf.
+      const back = here.startsWith("/") && !here.startsWith("//") && !here.startsWith("/api/") ? here : ""
+      redirect(back ? `${CHANGE_PASSWORD_PATH}?returnTo=${encodeURIComponent(back)}` : CHANGE_PASSWORD_PATH)
+    }
   }
 
   return profile
 }
 
 export const CHANGE_PASSWORD_PATH = "/change-password"
-
-async function isPasswordChangePath(): Promise<boolean> {
-  const pathname = ((await headers()).get("x-pathname") ?? "").split("?")[0]
-  return pathname === CHANGE_PASSWORD_PATH
-}
 
 export async function getProfileFromSessionCookie(
   rawSessionCookie: string | undefined | null,

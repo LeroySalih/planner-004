@@ -173,6 +173,9 @@ importers:
       isomorphic-dompurify:
         specifier: ^3.1.0
         version: 3.1.0
+      jose:
+        specifier: ^6.2.2
+        version: 6.2.2
       katex:
         specifier: ^0.17.0
         version: 0.17.0
@@ -2456,6 +2459,7 @@ packages:
 
   crypto-js@4.2.0:
     resolution: {integrity: sha512-KALDyEYgpY+Rlob/iriUtjV6d5Eq+Y191A5g4UqLAi8CyGP9N1+FdVbkc1SxKc2r4YAYqG8JzO2KGL+AizD70Q==}
+    deprecated: Active development of CryptoJS has been discontinued. This library is no longer maintained.
 
   css-tree@3.2.1:
     resolution: {integrity: sha512-X7sjQzceUhu1u7Y/ylrRZFU2FS6LRiFVp6rKLPg23y3x3c3DOKAwuXGDp+PAGjh6CSnCjYeAul8pcT8bAl+lSA==}

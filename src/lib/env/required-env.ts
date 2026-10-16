@@ -27,6 +27,10 @@ export const REQUIRED_ENV: readonly string[] = [
   // MCP server
   "MCP_SERVICE_KEY", // src/lib/mcp/auth.ts — MCP bearer/service key
 
+  // First-party OAuth sign-in (docs/KERF-SSO.md) — signs the JWT access tokens
+  "OAUTH_JWT_PRIVATE_KEY", // src/lib/oauth/jwt.ts — RSA PKCS#8 PEM, \n-escaped
+  "OAUTH_JWT_KEY_ID", // its kid in /oauth/jwks
+
   // PDF rendering (Gotenberg)
   "GOTENBERG_URL",
   "GOTENBERG_USERNAME",
@@ -65,6 +69,9 @@ export const IGNORED_FLAGS: readonly string[] = [
   // production (docs/MCP.md); unset, a local dev server derives it from the
   // request headers, which clients control.
   "APP_ORIGIN",
+  // src/lib/oauth/jwt.ts — only set during a signing-key rotation.
+  "OAUTH_JWT_PREVIOUS_PUBLIC_KEY",
+  "OAUTH_JWT_PREVIOUS_KEY_ID",
 ] as const
 
 export type EnvCheckResult = {
