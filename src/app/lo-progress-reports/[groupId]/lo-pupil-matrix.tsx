@@ -14,6 +14,9 @@ type LOPupilMatrixData = {
 type LOPupilMatrixProps = {
   groupId: string
   data: LOPupilMatrixData[]
+  pupils: { pupilId: string; pupilName: string }[]
+  /** LOs of the class's units with no scores yet; isSet false = no lesson for it set to the class. */
+  unscoredLos: { loId: string; loTitle: string; aoTitle: string; isSet: boolean }[]
 }
 
 type MatrixStructure = {
@@ -22,6 +25,7 @@ type MatrixStructure = {
     loId: string
     loTitle: string
     aoTitle: string
+    isSet: boolean
     pupilMetrics: Map<string, {
       avgRating: number | null
     }>
@@ -63,18 +67,19 @@ function getCellBgColor(value: number | null): string {
   }
 }
 
-export function LOPupilMatrix({ groupId, data }: LOPupilMatrixProps) {
+export function LOPupilMatrix({ groupId, data, pupils, unscoredLos }: LOPupilMatrixProps) {
   // Build matrix structure
   const matrix: MatrixStructure = {
     pupils: [],
     learningObjectives: []
   }
 
-  const pupilMap = new Map<string, { pupilId: string; pupilName: string }>()
+  const pupilMap = new Map(pupils.map((pupil) => [pupil.pupilId, pupil]))
   const loMap = new Map<string, {
     loId: string
     loTitle: string
     aoTitle: string
+    isSet: boolean
     pupilMetrics: Map<string, {
       avgRating: number | null
     }>
@@ -95,6 +100,7 @@ export function LOPupilMatrix({ groupId, data }: LOPupilMatrixProps) {
         loId: row.loId,
         loTitle: row.loTitle,
         aoTitle: row.aoTitle,
+        isSet: true,
         pupilMetrics: new Map()
       })
     }
@@ -103,6 +109,10 @@ export function LOPupilMatrix({ groupId, data }: LOPupilMatrixProps) {
     loEntry.pupilMetrics.set(row.pupilId, {
       avgRating: row.avgRating
     })
+  }
+
+  for (const lo of unscoredLos) {
+    if (!loMap.has(lo.loId)) loMap.set(lo.loId, { ...lo, pupilMetrics: new Map() })
   }
 
   matrix.pupils = Array.from(pupilMap.values()).sort((a, b) =>
@@ -144,10 +154,15 @@ export function LOPupilMatrix({ groupId, data }: LOPupilMatrixProps) {
           </thead>
           <tbody>
             {matrix.learningObjectives.map((lo) => (
-              <tr key={lo.loId} className="border-b border-border last:border-b-0">
-                <td className="sticky left-0 z-10 bg-card px-4 py-3">
+              <tr key={lo.loId} className={`border-b border-border last:border-b-0 ${lo.isSet ? '' : 'bg-muted/40'}`}>
+                <td className={`sticky left-0 z-10 px-4 py-3 ${lo.isSet ? 'bg-card' : 'bg-muted'}`}>
                   <div className="text-xs text-muted-foreground">{lo.aoTitle}</div>
-                  <div className="text-sm font-medium text-foreground">{lo.loTitle}</div>
+                  <div className={`text-sm font-medium ${lo.isSet ? 'text-foreground' : 'text-muted-foreground'}`}>{lo.loTitle}</div>
+                  {lo.isSet ? null : (
+                    <div className="text-xs text-muted-foreground" title="In a unit this class studies, but no lesson for it has been set yet">
+                      not set yet
+                    </div>
+                  )}
                 </td>
                 {matrix.pupils.map((pupil) => {
                   const metrics = lo.pupilMetrics.get(pupil.pupilId)
@@ -155,7 +170,7 @@ export function LOPupilMatrix({ groupId, data }: LOPupilMatrixProps) {
                     return (
                       <td
                         key={pupil.pupilId}
-                        className="px-3 py-3 text-center text-xs text-muted-foreground"
+                        className={`px-3 py-3 text-center text-xs text-muted-foreground ${lo.isSet ? '' : 'bg-muted'}`}
                       >
                         —
                       </td>

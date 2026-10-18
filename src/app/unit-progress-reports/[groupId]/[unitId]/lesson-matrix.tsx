@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { getLevelForYearScore } from '@/lib/levels'
+import { getLevelForYearScore, type YearGroupLevels } from '@/lib/levels'
 
 type SortField = 'firstName' | 'lastName' | 'score'
 type SortDir = 'asc' | 'desc'
@@ -13,6 +13,8 @@ type SortDir = 'asc' | 'desc'
 type LessonMatrixData = {
   lessonId: string
   lessonTitle: string
+  /** Set to this class; a lesson that is not has no scores. */
+  isSet: boolean
   pupilId: string
   firstName: string
   lastName: string
@@ -26,6 +28,7 @@ type LessonMatrixProps = {
   summativeOnly: boolean
   groupId: string
   unitId: string
+  levelRanges: YearGroupLevels[]
 }
 
 type MatrixStructure = {
@@ -33,6 +36,7 @@ type MatrixStructure = {
   lessons: {
     lessonId: string
     lessonTitle: string
+    isSet: boolean
     pupilMetrics: Map<string, {
       avgScore: number | null
       marks: number
@@ -79,13 +83,7 @@ function getCellBgColor(value: number | null): string {
 function parseYearFromGroupId(groupId: string): number | null {
   // Expected format: "25-7A-IT" where 7 is the year group
   const match = groupId.match(/^\d+-(\d+)[A-Z]?-/)
-  if (match && match[1]) {
-    const year = parseInt(match[1], 10)
-    if (year >= 7 && year <= 11) {
-      return year
-    }
-  }
-  return null
+  return match?.[1] ? parseInt(match[1], 10) : null
 }
 
 // Progress baseline: total marks over total available across the lessons,
@@ -105,7 +103,7 @@ function calculatePupilAverage(
   return maxMarks > 0 ? (marks / maxMarks) * 100 : null
 }
 
-export function LessonMatrix({ data, summativeOnly, groupId, unitId }: LessonMatrixProps) {
+export function LessonMatrix({ data, summativeOnly, groupId, unitId, levelRanges }: LessonMatrixProps) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -132,6 +130,7 @@ export function LessonMatrix({ data, summativeOnly, groupId, unitId }: LessonMat
   const lessonMap = new Map<string, {
     lessonId: string
     lessonTitle: string
+    isSet: boolean
     pupilMetrics: Map<string, {
       avgScore: number | null
       marks: number
@@ -154,6 +153,7 @@ export function LessonMatrix({ data, summativeOnly, groupId, unitId }: LessonMat
       lessonMap.set(row.lessonId, {
         lessonId: row.lessonId,
         lessonTitle: row.lessonTitle,
+        isSet: row.isSet,
         pupilMetrics: new Map()
       })
     }
@@ -255,15 +255,22 @@ export function LessonMatrix({ data, summativeOnly, groupId, unitId }: LessonMat
               {matrix.lessons.map((lesson) => (
                 <th
                   key={lesson.lessonId}
-                  className="px-3 py-3 text-center text-sm font-semibold text-foreground"
+                  className={`px-3 py-3 text-center text-sm font-semibold ${lesson.isSet ? 'text-foreground' : 'bg-muted text-muted-foreground'}`}
                 >
                   <div className="min-w-[80px]">
-                    <Link
-                      href={`/results/assignments/${encodeURIComponent(`${groupId}__${lesson.lessonId}`)}`}
-                      className="hover:text-primary hover:underline"
-                    >
-                      {lesson.lessonTitle}
-                    </Link>
+                    {lesson.isSet ? (
+                      <Link
+                        href={`/results/assignments/${encodeURIComponent(`${groupId}__${lesson.lessonId}`)}`}
+                        className="hover:text-primary hover:underline"
+                      >
+                        {lesson.lessonTitle}
+                      </Link>
+                    ) : (
+                      <span className="text-muted-foreground" title="Not set to this class yet">
+                        {lesson.lessonTitle}
+                        <span className="block text-xs font-normal">not set</span>
+                      </span>
+                    )}
                   </div>
                 </th>
               ))}
@@ -282,7 +289,7 @@ export function LessonMatrix({ data, summativeOnly, groupId, unitId }: LessonMat
           <tbody>
             {sortedPupils.map((pupil) => {
               const avgScore = calculatePupilAverage(pupil.pupilId, matrix.lessons)
-              const level = getLevelForYearScore(yearGroup, avgScore)
+              const level = getLevelForYearScore(levelRanges, yearGroup, avgScore)
 
               return (
                 <tr key={pupil.pupilId} className="border-b border-border last:border-b-0">
@@ -296,6 +303,16 @@ export function LessonMatrix({ data, summativeOnly, groupId, unitId }: LessonMat
                   </td>
                   {matrix.lessons.map((lesson) => {
                     const metrics = lesson.pupilMetrics.get(pupil.pupilId)
+                    if (!lesson.isSet) {
+                      return (
+                        <td
+                          key={lesson.lessonId}
+                          className="bg-muted px-3 py-3 text-center text-xs text-muted-foreground"
+                        >
+                          —
+                        </td>
+                      )
+                    }
                     if (!metrics) {
                       return (
                         <td

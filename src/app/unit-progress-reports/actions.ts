@@ -201,14 +201,15 @@ export async function getUnitLessonMatrixAction(groupId: string, unitId: string,
     throw new Error('Class or unit not found')
   }
 
-  // Every lesson of the unit set to the class x every pupil, scored from the
-  // baseline view. Lessons not started yet, or with nothing to score, are
-  // still listed, with no score.
+  // Every active lesson of the unit x every pupil, scored from the baseline
+  // view. Lessons not set to the class, not started yet, or with nothing to
+  // score are still listed, with no score; they add nothing to the average.
   const { rows } = await query(
     `SELECT
        l.lesson_id,
        l.title as lesson_title,
        l.order_by,
+       EXISTS (SELECT 1 FROM lesson_assignments la WHERE la.lesson_id = l.lesson_id AND la.group_id = $1) as is_set,
        gm.user_id as pupil_id,
        p.first_name,
        p.last_name,
@@ -217,15 +218,15 @@ export async function getUnitLessonMatrixAction(groupId: string, unitId: string,
        SUM(pas.marks) FILTER (WHERE NOT $3 OR pas.is_summative) as marks,
        SUM(pas.max_marks) FILTER (WHERE NOT $3 OR pas.is_summative) as max_marks
      FROM lessons l
-     JOIN lesson_assignments la ON la.lesson_id = l.lesson_id AND la.group_id = $1
-     JOIN group_membership gm ON gm.group_id = la.group_id AND gm.user_id = ANY($4::text[])
+     JOIN group_membership gm ON gm.group_id = $1 AND gm.user_id = ANY($4::text[])
      JOIN profiles p ON p.user_id = gm.user_id
      LEFT JOIN pupil_activity_scores pas
-       ON pas.group_id = la.group_id AND pas.lesson_id = l.lesson_id AND pas.pupil_id = gm.user_id
+       ON pas.group_id = $1 AND pas.lesson_id = l.lesson_id AND pas.pupil_id = gm.user_id
      WHERE l.unit_id = $2
-       AND coalesce(l.active, true) = true
+       AND l.active IS NOT FALSE
+       AND l.kind = 'standard'
      GROUP BY l.lesson_id, l.title, l.order_by, gm.user_id, p.first_name, p.last_name
-     ORDER BY l.order_by, p.last_name, p.first_name`,
+     ORDER BY l.order_by, l.title, p.last_name, p.first_name`,
     [groupId, unitId, summativeOnly, await resolvePupilIds(query)]
   )
 
@@ -237,6 +238,7 @@ export async function getUnitLessonMatrixAction(groupId: string, unitId: string,
     data: rows.map((row) => ({
       lessonId: row.lesson_id as string,
       lessonTitle: row.lesson_title as string,
+      isSet: row.is_set as boolean,
       pupilId: row.pupil_id as string,
       firstName: row.first_name as string,
       lastName: row.last_name as string,

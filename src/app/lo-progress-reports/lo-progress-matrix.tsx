@@ -21,6 +21,8 @@ type MatrixData = {
   unitTitle: string | null
   pupilCount: number
   avgRating: number | null
+  /** False: in a unit the class studies, but no lesson for it set to the class yet. */
+  isSet: boolean
 }
 
 type LOProgressMatrixProps = {
@@ -43,6 +45,7 @@ type SubjectData = {
     classMetrics: Map<string, {
       avgRating: number | null
       pupilCount: number
+      isSet: boolean
     }>
   }[]
 }
@@ -131,7 +134,8 @@ export function LOProgressMatrix({ data }: LOProgressMatrixProps) {
 
     loEntry.classMetrics.set(row.groupId, {
       avgRating: row.avgRating,
-      pupilCount: row.pupilCount
+      pupilCount: row.pupilCount,
+      isSet: row.isSet,
     })
   }
 
@@ -326,11 +330,17 @@ export function LOProgressMatrix({ data }: LOProgressMatrixProps) {
               </tr>
             </thead>
             <tbody>
-              {filteredLOs.map((lo) => (
-                <tr key={lo.loId} className="border-b border-border last:border-b-0">
-                  <td className="sticky left-0 z-10 bg-card px-4 py-3">
+              {filteredLOs.map((lo) => {
+                // Grey when none of the classes shown has had a lesson for it set.
+                const notSetAnywhere = filteredClasses.every((cId) => lo.classMetrics.get(cId)?.isSet !== true)
+                return (
+                <tr key={lo.loId} className={`border-b border-border last:border-b-0 ${notSetAnywhere ? 'bg-muted/40' : ''}`}>
+                  <td className={`sticky left-0 z-10 px-4 py-3 ${notSetAnywhere ? 'bg-muted' : 'bg-card'}`}>
                     <div className="text-xs text-muted-foreground">{lo.aoTitle}</div>
-                    <div className="text-sm font-medium text-foreground">{lo.loTitle}</div>
+                    <div className={`text-sm font-medium ${notSetAnywhere ? 'text-muted-foreground' : 'text-foreground'}`}>
+                      {lo.loTitle}
+                    </div>
+                    {notSetAnywhere ? <div className="text-xs text-muted-foreground">not set yet</div> : null}
                   </td>
                   {(() => {
                     const ratings = filteredClasses
@@ -352,6 +362,28 @@ export function LOProgressMatrix({ data }: LOProgressMatrixProps) {
                         <td
                           key={classId}
                           className="px-3 py-3 text-center text-xs text-muted-foreground"
+                        >
+                          —
+                        </td>
+                      )
+                    }
+                    if (!metrics.isSet) {
+                      return (
+                        <td
+                          key={classId}
+                          className="bg-muted px-3 py-3 text-center text-xs text-muted-foreground"
+                          title="In a unit this class studies, but no lesson for it has been set yet"
+                        >
+                          not set
+                        </td>
+                      )
+                    }
+                    if (metrics.pupilCount === 0) {
+                      return (
+                        <td
+                          key={classId}
+                          className="px-3 py-3 text-center text-xs text-muted-foreground"
+                          title="Set to this class, but nothing scored yet"
                         >
                           —
                         </td>
@@ -380,7 +412,8 @@ export function LOProgressMatrix({ data }: LOProgressMatrixProps) {
                     )
                   })}
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         </div>

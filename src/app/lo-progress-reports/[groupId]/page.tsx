@@ -19,7 +19,7 @@ export default async function ClassLOProgressPage({ params }: PageProps) {
       title={`${result.groupId} - ${result.groupSubject}`}
       subtitle="Individual pupil progress by learning objectives"
     >
-      <LOPupilMatrix groupId={result.groupId} data={result.data} />
+      <LOPupilMatrix groupId={result.groupId} data={result.data} pupils={result.pupils} unscoredLos={result.unscoredLos} />
     </TeacherPageLayout>
   )
 }

@@ -21,6 +21,7 @@ import {
   type Submission,
 } from "@/types"
 import { getLevelForYearScore } from "@/lib/levels"
+import { readYearGroupLevels } from "@/lib/levels/store"
 import { withTelemetry } from "@/lib/telemetry"
 import { query } from "@/lib/db"
 import { latestAttempts } from "@/lib/scoring/latest-attempt"
@@ -455,6 +456,7 @@ export async function buildDatasetUnitSummaries({
   }
 
   const unitDatasetMap = new Map(dataset.units.map((unit) => [unit.unit_id, unit]))
+  const levelRanges = await readYearGroupLevels()
   const summaries: ReportUnitSummary[] = []
 
   for (const [unitId, unitAssignments] of assignmentsByUnit.entries()) {
@@ -503,7 +505,7 @@ export async function buildDatasetUnitSummaries({
     const unitYear = meta?.year ?? null
     const assessmentLevel =
       typeof unitYear === "number" && average !== null
-        ? getLevelForYearScore(unitYear, average)
+        ? getLevelForYearScore(levelRanges, unitYear, average)
         : null
 
     const relatedGroups = unitAssignments.map(

@@ -21,6 +21,7 @@ MIGRATIONS=(
   "118-must-change-password.sql|select exists (select 1 from information_schema.columns where table_name = 'profiles' and column_name = 'must_change_password')"
   "119-kerf-sso.sql|select exists (select 1 from information_schema.columns where table_name = 'oauth_tokens' and column_name = 'scope')"
   "120-oauth-project-keys.sql|select exists (select 1 from information_schema.columns where table_name = 'oauth_clients' and column_name = 'disabled_by_admin')"
+  "121-year-group-levels.sql|select exists (select 1 from information_schema.tables where table_name = 'year_group_levels')"
 )
 
 YES=false

@@ -179,7 +179,7 @@ Files placed in `public/` are served at the root URL with no auth — e.g. `publ
 - Direct lesson links (`/lessons/[id]`) work without auth for public lessons; private lessons redirect to `/signin?returnTo=…`
 - Unit page (`/units/[id]`) shows a globe icon on every lesson — green = public, grey = private; clicking the icon toggles `is_public`
 
-**Report Levels**: Use boundary helper in `src/lib/levels/index.ts` for level lookups - update centrally if scale changes.
+**Report Levels**: Each year group's level range (lowest and highest level) is set by an admin at `/admin/levels`, stored in `year_group_levels` (migration 121). A score is placed on the sub-levels from the lowest level's L to the highest level's H, evenly spaced over 0–100%. Read the ranges with `readYearGroupLevels()` (`src/lib/levels/store.ts`) on the server and pass them to `getLevelForYearScore` (`src/lib/levels/index.ts`). Never hardcode level boundaries. These are not `success_criteria.level`, which is a criterion's own attainment level.
 
 ## AI Marking Pipeline
 
