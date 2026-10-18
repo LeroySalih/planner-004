@@ -15,6 +15,7 @@ export default async function ClassProgressPage({ params, searchParams }: PagePr
 
   return (
     <TeacherPageLayout
+      maxWidth="full"
       breadcrumbs={[
         { label: "Unit Progress Reports", href: "/unit-progress-reports" },
         { label: result.groupId },

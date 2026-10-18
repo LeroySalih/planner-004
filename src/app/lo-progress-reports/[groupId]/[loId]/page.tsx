@@ -12,6 +12,7 @@ export default async function ClassLOSCProgressPage({ params }: PageProps) {
 
   return (
     <TeacherPageLayout
+      maxWidth="full"
       breadcrumbs={[
         { label: "LO Progress Reports", href: "/lo-progress-reports" },
         { label: result.groupId, href: `/lo-progress-reports/${encodeURIComponent(groupId)}` },

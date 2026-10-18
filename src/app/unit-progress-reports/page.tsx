@@ -13,6 +13,7 @@ export default async function ProgressReportsPage({
 
   return (
     <TeacherPageLayout
+      maxWidth="full"
       title="Unit Progress Reports"
       subtitle="Monitor class progress by units"
     >

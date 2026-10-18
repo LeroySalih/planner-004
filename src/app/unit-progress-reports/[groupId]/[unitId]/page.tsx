@@ -20,6 +20,7 @@ export default async function UnitLessonProgressPage({ params, searchParams }: P
 
   return (
     <TeacherPageLayout
+      maxWidth="full"
       breadcrumbs={[
         { label: "Unit Progress Reports", href: "/unit-progress-reports" },
         { label: result.groupId, href: `/unit-progress-reports/${encodeURIComponent(groupId)}` },

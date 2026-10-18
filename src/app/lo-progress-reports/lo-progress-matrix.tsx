@@ -6,6 +6,7 @@ import {
   ClassFilterControls,
   matchesClassFilter,
 } from '@/components/reports/class-filter-controls'
+import { ReportGrid } from '@/components/reports/report-grid'
 
 type MatrixData = {
   groupId: string
@@ -299,11 +300,11 @@ export function LOProgressMatrix({ data }: LOProgressMatrixProps) {
             </p>
           </div>
         ) : (
-        <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
+        <ReportGrid>
           <table className="w-full">
             <thead>
-              <tr className="border-b border-border bg-muted/50">
-                <th className="sticky left-0 z-10 bg-muted/50 px-4 py-3 text-left text-sm font-semibold text-foreground">
+              <tr className="border-b border-border bg-muted">
+                <th className="sticky left-0 z-10 bg-muted px-4 py-3 text-left text-sm font-semibold text-foreground">
                   Learning Objective
                 </th>
                 <th className="px-3 py-3 text-center text-sm font-semibold text-foreground">
@@ -416,7 +417,7 @@ export function LOProgressMatrix({ data }: LOProgressMatrixProps) {
               })}
             </tbody>
           </table>
-        </div>
+        </ReportGrid>
         )}
         </>
       })()}

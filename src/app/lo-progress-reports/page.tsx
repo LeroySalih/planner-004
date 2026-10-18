@@ -7,6 +7,7 @@ export default async function LOProgressReportsPage() {
 
   return (
     <TeacherPageLayout
+      maxWidth="full"
       title="Learning Objective Progress Reports"
       subtitle="Use this report to identify where we can make whole class improvements to the unit"
     >

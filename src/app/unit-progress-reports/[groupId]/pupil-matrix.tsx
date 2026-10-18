@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { ReportGrid } from '@/components/reports/report-grid'
 
 type SortField = 'firstName' | 'lastName' | 'score'
 type SortDir = 'asc' | 'desc'
@@ -232,11 +233,11 @@ export function PupilMatrix({ groupId, data, summativeOnly }: PupilMatrixProps) 
       </div>
 
       {/* Matrix */}
-      <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
+      <ReportGrid>
         <table className="w-full">
           <thead>
-            <tr className="border-b border-border bg-muted/50">
-              <th className="sticky left-0 z-10 bg-muted/50 px-4 py-3 text-left text-sm font-semibold text-foreground">
+            <tr className="border-b border-border bg-muted">
+              <th className="sticky left-0 z-10 bg-muted px-4 py-3 text-left text-sm font-semibold text-foreground">
                 Pupil
               </th>
               <th className="px-3 py-3 text-center text-sm font-semibold text-foreground">
@@ -303,7 +304,7 @@ export function PupilMatrix({ groupId, data, summativeOnly }: PupilMatrixProps) 
             })}
           </tbody>
         </table>
-      </div>
+      </ReportGrid>
 
       {/* Legend */}
       <div className="flex items-center gap-6 text-xs text-muted-foreground">
