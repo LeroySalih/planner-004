@@ -67,6 +67,7 @@ export async function saveYearGroupLevelsAction(input: YearGroupLevels[]): Promi
     })
     revalidatePath('/admin/levels')
     revalidatePath('/unit-progress-reports', 'layout')
+    revalidatePath('/group-progress-reports', 'layout')
     revalidatePath('/reports', 'layout')
     return { data: await readYearGroupLevels(), error: null }
   } catch (error) {

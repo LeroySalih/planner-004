@@ -72,3 +72,9 @@ export function getLevelForYearScore(
   }
   return resolved
 }
+
+/** The year group in a class id such as "25-7A-IT" (year 7), or null. */
+export function yearGroupFromGroupId(groupId: string): number | null {
+  const match = groupId.match(/^\d+-(\d+)[A-Z]?-/)
+  return match?.[1] ? parseInt(match[1], 10) : null
+}

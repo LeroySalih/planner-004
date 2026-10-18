@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { getLevelForYearScore, type YearGroupLevels } from '@/lib/levels'
+import { getLevelForYearScore, yearGroupFromGroupId, type YearGroupLevels } from '@/lib/levels'
 import { ReportGrid } from '@/components/reports/report-grid'
 
 type SortField = 'firstName' | 'lastName' | 'score'
@@ -81,12 +81,6 @@ function getCellBgColor(value: number | null): string {
   }
 }
 
-function parseYearFromGroupId(groupId: string): number | null {
-  // Expected format: "25-7A-IT" where 7 is the year group
-  const match = groupId.match(/^\d+-(\d+)[A-Z]?-/)
-  return match?.[1] ? parseInt(match[1], 10) : null
-}
-
 // Progress baseline: total marks over total available across the lessons,
 // not a mean of lesson percentages.
 function calculatePupilAverage(
@@ -119,7 +113,7 @@ export function LessonMatrix({ data, summativeOnly, groupId, unitId, levelRanges
     router.push(`${pathname}?${params.toString()}`)
   }
 
-  const yearGroup = parseYearFromGroupId(groupId)
+  const yearGroup = yearGroupFromGroupId(groupId)
 
   // Build matrix structure
   const matrix: MatrixStructure = {
