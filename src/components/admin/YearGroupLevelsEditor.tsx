@@ -5,31 +5,29 @@ import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { getLevelBoundaries, MAX_LEVEL, MIN_LEVEL, type YearGroupLevels } from '@/lib/levels'
+import { getLevelBoundaries, TOP_LEVELS, type YearGroupLevels } from '@/lib/levels'
 import { saveYearGroupLevelsAction } from '@/lib/server-updates'
 
-type Row = { key: number; yearGroup: string; minLevel: string; maxLevel: string }
+type Row = { key: number; yearGroup: string; topLevel: string }
 
 const toRows = (ranges: YearGroupLevels[]): Row[] =>
-  ranges.map((range, index) => ({
-    key: index,
-    yearGroup: String(range.yearGroup),
-    minLevel: String(range.minLevel),
-    maxLevel: String(range.maxLevel),
-  }))
+  ranges.map((range, index) => ({ key: index, yearGroup: String(range.yearGroup), topLevel: range.topLevel }))
 
-const toRange = (row: Row): YearGroupLevels => ({
-  yearGroup: Number(row.yearGroup),
-  minLevel: Number(row.minLevel),
-  maxLevel: Number(row.maxLevel),
-})
+const toRange = (row: Row): YearGroupLevels => ({ yearGroup: Number(row.yearGroup), topLevel: row.topLevel })
 
-/** How the bands fall, e.g. "1L 0% · 1M 11% · … · 3H 89%". */
-function bandsSummary(range: YearGroupLevels): string {
+/** Where each level starts, e.g. "1L 0% · 1M 13% · … · 5M 93%". */
+function Bands({ range }: { range: YearGroupLevels }) {
   const bands = getLevelBoundaries(range)
-  if (bands.length === 0) return '—'
-  const shown = bands.length > 6 ? [...bands.slice(0, 3), null, ...bands.slice(-2)] : bands
-  return shown.map((band) => (band ? `${band.level} ${Math.round(band.minPercent)}%` : '…')).join(' · ')
+  if (bands.length === 0) return <>—</>
+  return (
+    <div className="flex flex-wrap gap-x-3 gap-y-1">
+      {bands.map((band) => (
+        <span key={band.level} className="whitespace-nowrap">
+          <span className="font-medium text-foreground">{band.level}</span> {band.minPercent}%
+        </span>
+      ))}
+    </div>
+  )
 }
 
 export function YearGroupLevelsEditor({ initial }: { initial: YearGroupLevels[] }) {
@@ -37,19 +35,19 @@ export function YearGroupLevelsEditor({ initial }: { initial: YearGroupLevels[] 
   const [nextKey, setNextKey] = useState(initial.length)
   const [pending, startTransition] = useTransition()
 
-  const update = (key: number, field: keyof Omit<Row, 'key'>, value: string) =>
+  const update = (key: number, field: 'yearGroup' | 'topLevel', value: string) =>
     setRows((current) => current.map((row) => (row.key === key ? { ...row, [field]: value } : row)))
 
   const save = () =>
     startTransition(async () => {
       const result = await saveYearGroupLevelsAction(rows.map(toRange))
       if (result.error || !result.data) {
-        toast.error(result.error ?? 'Could not save the level ranges.')
+        toast.error(result.error ?? 'Could not save the levels.')
         return
       }
       setRows(toRows(result.data))
       setNextKey(result.data.length)
-      toast.success('Level ranges saved')
+      toast.success('Levels saved')
     })
 
   return (
@@ -59,15 +57,14 @@ export function YearGroupLevelsEditor({ initial }: { initial: YearGroupLevels[] 
           <thead>
             <tr className="border-b bg-muted/50 text-left text-xs text-[var(--color-text-secondary)]">
               <th className="px-3 py-2">Year group</th>
-              <th className="px-3 py-2">Lowest level</th>
-              <th className="px-3 py-2">Highest level</th>
-              <th className="px-3 py-2">Bands</th>
+              <th className="px-3 py-2">Top level</th>
+              <th className="px-3 py-2">Each level starts at</th>
               <th className="px-3 py-2" />
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.key} className="border-b last:border-b-0">
+              <tr key={row.key} className="border-b align-top last:border-b-0">
                 <td className="px-3 py-2">
                   <Input
                     type="number"
@@ -80,28 +77,22 @@ export function YearGroupLevelsEditor({ initial }: { initial: YearGroupLevels[] 
                   />
                 </td>
                 <td className="px-3 py-2">
-                  <Input
-                    type="number"
-                    min={MIN_LEVEL}
-                    max={MAX_LEVEL}
-                    className="w-20"
-                    aria-label="Lowest level"
-                    value={row.minLevel}
-                    onChange={(e) => update(row.key, 'minLevel', e.target.value)}
-                  />
+                  <select
+                    className="h-9 rounded-md border bg-background px-2 text-sm"
+                    aria-label="Top level"
+                    value={row.topLevel}
+                    onChange={(e) => update(row.key, 'topLevel', e.target.value)}
+                  >
+                    {TOP_LEVELS.map((level) => (
+                      <option key={level} value={level}>
+                        {level}
+                      </option>
+                    ))}
+                  </select>
                 </td>
-                <td className="px-3 py-2">
-                  <Input
-                    type="number"
-                    min={MIN_LEVEL}
-                    max={MAX_LEVEL}
-                    className="w-20"
-                    aria-label="Highest level"
-                    value={row.maxLevel}
-                    onChange={(e) => update(row.key, 'maxLevel', e.target.value)}
-                  />
+                <td className="px-3 py-2 text-xs text-[var(--color-text-secondary)]">
+                  <Bands range={toRange(row)} />
                 </td>
-                <td className="px-3 py-2 text-xs text-[var(--color-text-secondary)]">{bandsSummary(toRange(row))}</td>
                 <td className="px-3 py-2 text-right">
                   <Button
                     size="sm"
@@ -125,7 +116,7 @@ export function YearGroupLevelsEditor({ initial }: { initial: YearGroupLevels[] 
           variant="outline"
           disabled={pending}
           onClick={() => {
-            setRows((current) => [...current, { key: nextKey, yearGroup: '', minLevel: '1', maxLevel: '3' }])
+            setRows((current) => [...current, { key: nextKey, yearGroup: '', topLevel: '5M' }])
             setNextKey((key) => key + 1)
           }}
         >

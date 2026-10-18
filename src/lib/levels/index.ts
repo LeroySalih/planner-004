@@ -1,15 +1,18 @@
-// The level a score earns, for a year group whose range an admin sets at
-// /admin/levels (table year_group_levels, migration 121). Pure, so the same
-// rule runs on the server and in the browser.
+// The level a score earns, by the school's Grade Boundary Calculator. Each year
+// group has a top level an admin sets at /admin/levels (table
+// year_group_levels, migrations 121-122). Pure, so the same rule runs on the
+// server and in the browser.
 //
-// A range of min..max covers the sub-levels min L, min M, min H, ... max H,
-// evenly spaced over 0-100%. Year 7 at 1..3 has nine bands of 11.1%: 1L from
-// 0%, 1M from 11.1%, ... 3H from 88.9%.
+// The calculator numbers 0, 1L, 1M, 1H, 2L ... up to the top level as steps
+// 0..N, and step i starts at i / (N + 1) of the marks, rounded to a whole
+// percent. So the top level starts one step below 100%: Year 7, top 5M
+// (N = 14), has 1M from 13%, 1H from 20%, ... 5M from 93%. The lowest level
+// awarded is 1L: a score below 1L's boundary is 1L, never 0.
 
 export type YearGroupLevels = {
   yearGroup: number
-  minLevel: number
-  maxLevel: number
+  /** The highest level the year group can be awarded, e.g. "5M". */
+  topLevel: string
 }
 
 export type LevelBoundary = {
@@ -17,26 +20,28 @@ export type LevelBoundary = {
   minPercent: number
 }
 
+/** Every level in order, 1L ... 9H; any of them can be a year group's top level. */
+export const TOP_LEVELS: readonly string[] = Array.from({ length: 9 }, (_, i) =>
+  ["L", "M", "H"].map((sub) => `${i + 1}${sub}`),
+).flat()
+
 /** Used only when the table cannot be read (e.g. migration 121 not applied). */
 export const DEFAULT_YEAR_GROUP_LEVELS: YearGroupLevels[] = [
-  { yearGroup: 7, minLevel: 1, maxLevel: 3 },
-  { yearGroup: 8, minLevel: 2, maxLevel: 4 },
-  { yearGroup: 9, minLevel: 3, maxLevel: 5 },
-  { yearGroup: 10, minLevel: 1, maxLevel: 7 },
-  { yearGroup: 11, minLevel: 1, maxLevel: 9 },
+  { yearGroup: 7, topLevel: "5M" },
+  { yearGroup: 8, topLevel: "6M" },
+  { yearGroup: 9, topLevel: "7M" },
+  { yearGroup: 10, topLevel: "8H" },
+  { yearGroup: 11, topLevel: "9H" },
 ]
 
-export const MIN_LEVEL = 1
-export const MAX_LEVEL = 9
-const SUB_LEVELS = ["L", "M", "H"] as const
-
+/** 1L first, from 0%; then each level from its whole-number boundary. */
 export function getLevelBoundaries(range: YearGroupLevels | null | undefined): LevelBoundary[] {
-  if (!range || range.minLevel > range.maxLevel) return []
-  const labels: string[] = []
-  for (let level = range.minLevel; level <= range.maxLevel; level += 1) {
-    for (const sub of SUB_LEVELS) labels.push(`${level}${sub}`)
-  }
-  return labels.map((level, index) => ({ level, minPercent: (index * 100) / labels.length }))
+  const top = range ? TOP_LEVELS.indexOf(range.topLevel) + 1 : 0
+  if (top <= 0) return []
+  return TOP_LEVELS.slice(0, top).map((level, index) => ({
+    level,
+    minPercent: index === 0 ? 0 : Math.round(((index + 1) * 100) / (top + 1)),
+  }))
 }
 
 export function rangeForYear(ranges: YearGroupLevels[], year: number | null | undefined): YearGroupLevels | null {
@@ -46,7 +51,7 @@ export function rangeForYear(ranges: YearGroupLevels[], year: number | null | un
 
 /**
  * The level for a score in a year group, or null when the year group has no
- * range or there is no score. `rawScore` is a percentage (0-100) or a
+ * top level or there is no score. `rawScore` is a percentage (0-100) or a
  * fraction (0-1).
  */
 export function getLevelForYearScore(

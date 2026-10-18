@@ -133,7 +133,7 @@ export default function AdminDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">By year group</div>
-            <p className="text-xs text-muted-foreground">Lowest and highest level each year can be awarded</p>
+            <p className="text-xs text-muted-foreground">Top level each year can be awarded</p>
           </CardContent>
         </Card>
       </Link>
