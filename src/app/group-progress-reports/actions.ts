@@ -2,6 +2,7 @@
 
 import { query } from '@/lib/db'
 import { requireAuthenticatedProfile } from '@/lib/auth'
+import { resolvePupilIds } from '@/lib/roles/pupil-membership'
 
 /**
  * Every class with its overall score, from the progress baseline view
@@ -43,8 +44,9 @@ export async function getGroupProgressListAction(summativeOnly = false) {
 }
 
 /**
- * One class: each pupil's marks per unit, from the baseline view. Units come
- * in the order the class started them.
+ * One class: each pupil's marks per unit, from the baseline view, with units
+ * in the order the class started them; and each pupil's result on every
+ * active assessment paper set to the class, in date order.
  */
 export async function getGroupProgressAction(groupId: string, summativeOnly = false) {
   const profile = await requireAuthenticatedProfile()
@@ -94,10 +96,61 @@ export async function getGroupProgressAction(groupId: string, summativeOnly = fa
     .sort((a, b) => a.start - b.start || a.unitTitle.localeCompare(b.unitTitle))
     .map(({ unitId, unitTitle }) => ({ unitId, unitTitle }))
 
+  // A paper's score is every mark awarded over the paper's total: a question
+  // with no mark is 0 and stays in the total, as on the paper's own results.
+  // A pupil with no marks at all on a paper has no result for it.
+  const { rows: paperRows } = await query(
+    `WITH papers AS (
+       SELECT a.assessment_id, a.title, a.assessed_on, a.created_at,
+              (SELECT COALESCE(SUM(q.max_marks), 0) FROM assessment_questions q
+                WHERE q.assessment_id = a.assessment_id) as total_marks
+         FROM assessments a
+         JOIN assessment_groups ag ON ag.assessment_id = a.assessment_id AND ag.group_id = $1
+        WHERE a.active
+     ), results AS (
+       SELECT m.assessment_id, m.pupil_id, SUM(m.awarded) as awarded
+         FROM assessment_question_marks m
+         JOIN papers ON papers.assessment_id = m.assessment_id
+         JOIN group_membership gm ON gm.group_id = $1 AND gm.user_id = m.pupil_id
+        WHERE m.pupil_id = ANY($2::text[])
+        GROUP BY m.assessment_id, m.pupil_id
+     )
+     SELECT papers.assessment_id::text as assessment_id, papers.title, papers.total_marks,
+            r.pupil_id, p.first_name, p.last_name, r.awarded
+       FROM papers
+       LEFT JOIN results r ON r.assessment_id = papers.assessment_id
+       LEFT JOIN profiles p ON p.user_id = r.pupil_id
+      ORDER BY papers.assessed_on, papers.created_at`,
+    [groupId, await resolvePupilIds(query)],
+  )
+
+  const assessments: { assessmentId: string; title: string }[] = []
+  const seenPapers = new Set<string>()
+  const assessmentResults: { assessmentId: string; pupilId: string; firstName: string; lastName: string; marks: number; maxMarks: number }[] = []
+  for (const row of paperRows) {
+    const assessmentId = row.assessment_id as string
+    if (!seenPapers.has(assessmentId)) {
+      seenPapers.add(assessmentId)
+      assessments.push({ assessmentId, title: row.title as string })
+    }
+    if (row.pupil_id) {
+      assessmentResults.push({
+        assessmentId,
+        pupilId: row.pupil_id as string,
+        firstName: row.first_name as string,
+        lastName: row.last_name as string,
+        marks: Number(row.awarded),
+        maxMarks: Number(row.total_marks),
+      })
+    }
+  }
+
   return {
     groupId: groupRows[0].group_id as string,
     groupSubject: groupRows[0].subject as string,
     units,
+    assessments,
+    assessmentResults,
     cells: rows.map((row) => ({
       unitId: row.unit_id as string,
       pupilId: row.pupil_id as string,

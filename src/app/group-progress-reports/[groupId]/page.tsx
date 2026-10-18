@@ -32,6 +32,8 @@ export default async function GroupProgressPage({ params, searchParams }: PagePr
         groupId={result.groupId}
         units={result.units}
         cells={result.cells}
+        assessments={result.assessments}
+        assessmentResults={result.assessmentResults}
         summativeOnly={summativeOnly}
         levelRanges={levelRanges}
       />
