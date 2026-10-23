@@ -137,3 +137,45 @@ export async function findUnitsByTitle(queryStr: string): Promise<UnitTitleMatch
     unit_title: typeof row.title === 'string' ? row.title : '',
   }))
 }
+
+export type UnitDetail = UnitRecord & {
+  curriculum_id: string | null
+  curriculum_title: string | null
+  lesson_count: number
+}
+
+export async function getUnit(unitId: string): Promise<UnitDetail> {
+  const { rows } = await query<{
+    unit_id: string
+    title: string
+    subject: string
+    description: string | null
+    year: number | null
+    active: boolean | null
+    curriculum_id: string | null
+    curriculum_title: string | null
+    lesson_count: number
+  }>(
+    `select u.unit_id, u.title, u.subject, u.description, u.year, u.active, u.curriculum_id,
+            c.title as curriculum_title,
+            (select count(*)::int from lessons l
+              where l.unit_id = u.unit_id and l.kind = 'standard' and l.active is not false) as lesson_count
+       from units u
+       left join curricula c on c.curriculum_id = u.curriculum_id
+      where u.unit_id = $1`,
+    [unitId],
+  )
+  const row = rows[0]
+  if (!row) throw new Error(`Unit ${unitId} not found`)
+  return {
+    unit_id: row.unit_id,
+    title: row.title,
+    subject: row.subject,
+    description: row.description,
+    year: row.year,
+    is_active: row.active !== false,
+    curriculum_id: row.curriculum_id,
+    curriculum_title: row.curriculum_title,
+    lesson_count: row.lesson_count,
+  }
+}

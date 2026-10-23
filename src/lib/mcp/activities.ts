@@ -1,11 +1,13 @@
+import { createHash } from 'node:crypto'
+
 import { query, withDbClient } from '@/lib/db'
-import { SCORABLE_ACTIVITY_TYPES, NON_SCORABLE_ACTIVITY_TYPES, isLegacyActivityType, legacyActivityTypeMessage } from '@/dino.config'
+import { SCORABLE_ACTIVITY_TYPES, NON_SCORABLE_ACTIVITY_TYPES, isLegacyActivityType, isMothballedActivityType, legacyActivityTypeMessage } from '@/dino.config'
 import { assertLessonExists } from '@/lib/mcp/guards'
 import { MCP_UPLOAD_MAX_BYTES } from '@/lib/mcp/file-input'
 import { assertScAllowedForActivity } from '@/lib/curriculum/unit-curriculum-guard'
 import { recalculateActivityMaxMarks, recalculateGroupItemsMaxMarks, recalculateMatcherMaxMarks, rescaleStoredMarks } from '@/lib/scoring/derive-max-marks'
 import { createLocalStorageClient } from '@/lib/storage/local-storage'
-import { GroupItemsActivityBodySchema, MatcherActivityBodySchema, SequenceActivityBodySchema } from '@/types'
+import { GroupItemsActivityBodySchema, MatcherActivityBodySchema, McqActivityBodySchema, SequenceActivityBodySchema, ShortTextActivityBodySchema } from '@/types'
 
 export const ACTIVITY_TYPES = [...SCORABLE_ACTIVITY_TYPES, ...NON_SCORABLE_ACTIVITY_TYPES] as const
 export type ActivityType = typeof ACTIVITY_TYPES[number]
@@ -404,84 +406,305 @@ export async function uploadActivityFile(
   }
 }
 
-export async function updateActivity(
+const activityFileUrl = (lessonId: string, activityId: string, fileName: string) =>
+  `/api/files/${['lessons', lessonId, 'activities', activityId, fileName].map(encodeURIComponent).join('/')}`
+
+async function readActivityForFiles(activityId: string) {
+  const { rows } = await query<{ lesson_id: string; type: string; body_data: unknown }>(
+    'select lesson_id, type, body_data from activities where activity_id = $1 limit 1',
+    [activityId],
+  )
+  if (!rows[0]) throw new Error(`Activity ${activityId} not found`)
+  return rows[0]
+}
+
+export type RemovedActivityFile = {
+  activity_id: string
+  lesson_id: string
+  file_name: string
+  /** body_data fields that named the file and were cleared. */
+  cleared_fields: string[]
+  /** True when body_data text (e.g. an <img> in a question) still links to the file. */
+  still_referenced: boolean
+}
+
+/**
+ * Deletes one teacher file from an activity. A display-image's image, a web
+ * page's HTML file and an MCQ's question image are cleared from body_data
+ * with it, so the activity does not point at a missing file.
+ */
+export async function removeActivityFile(activityId: string, fileName: string): Promise<RemovedActivityFile> {
+  const activity = await readActivityForFiles(activityId)
+  const scope = `${activity.lesson_id}/activities/${activityId}`
+  const { rows } = await query('select 1 from stored_files where bucket = $1 and scope_path = $2 and file_name = $3 limit 1', ['lessons', scope, fileName])
+  if (!rows[0]) {
+    throw new Error(`Activity ${activityId} has no file "${fileName}". Call list_lesson_files for the exact names.`)
+  }
+
+  const { error } = await createLocalStorageClient('lessons').remove([`${scope}/${fileName}`])
+  if (error) throw new Error(`Storage delete failed: ${error.message}`)
+
+  const body = activity.body_data && typeof activity.body_data === 'object' ? activity.body_data as Record<string, unknown> : {}
+  const cleared = ['imageFile', 'fileUrl', 'htmlFile'].filter((key) => body[key] === fileName)
+  if (cleared.length > 0) {
+    await query(
+      'update activities set body_data = body_data::jsonb - $2::text[] where activity_id = $1',
+      [activityId, cleared],
+    )
+  }
+
+  const url = activityFileUrl(activity.lesson_id, activityId, fileName)
+  return {
+    activity_id: activityId,
+    lesson_id: activity.lesson_id,
+    file_name: fileName,
+    cleared_fields: cleared,
+    still_referenced: JSON.stringify(body).includes(url),
+  }
+}
+
+const IMAGE_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+}
+
+export type ActivityImage = {
+  activity_id: string
+  lesson_id: string
+  file_name: string
+  size_bytes: number
+  url: string
+  img_tag: string
+}
+
+/**
+ * Stores an image in an activity's folder for its body_data to link to, as
+ * <img src="url"> in a question, so the image is not held inline as base64.
+ * Not for file-download activities, where every file in the folder is offered
+ * to pupils as a download; nor display-image, which upload_activity_file sets.
+ */
+async function storeActivityImage(
+  activity: { lesson_id: string; type: string },
   activityId: string,
-  fields: {
-    title?: string | null
-    bodyData?: unknown
-    isSummative?: boolean
-  },
-): Promise<ActivitySummary> {
-  let result: ActivitySummary | null = null
+  fileName: string,
+  buffer: Buffer,
+): Promise<ActivityImage> {
+  const extension = fileName.split('.').pop()?.toLowerCase() ?? ''
+  const contentType = IMAGE_TYPES[extension]
+  if (!contentType) throw new Error(`"${fileName}" is not a png, jpg, gif or webp image`)
+  if (FILE_ACTIVITY_TYPES.includes(activity.type)) {
+    throw new Error(`Activity ${activityId} is a ${activity.type}; use upload_activity_file for its files`)
+  }
+  const { error } = await createLocalStorageClient('lessons').upload(
+    `lessons/${activity.lesson_id}/activities/${activityId}/${fileName}`,
+    buffer,
+    { contentType, uploadedBy: 'mcp', originalPath: fileName },
+  )
+  if (error) throw new Error(`Storage upload failed: ${error.message}`)
+  const url = activityFileUrl(activity.lesson_id, activityId, fileName)
+  return {
+    activity_id: activityId,
+    lesson_id: activity.lesson_id,
+    file_name: fileName,
+    size_bytes: buffer.byteLength,
+    url,
+    img_tag: `<img src="${url}" alt="">`,
+  }
+}
 
-  await withDbClient(async (client) => {
-    const { rows: existing } = await client.query<{ activity_id: string; lesson_id: string; type: string }>(
-      'select activity_id, lesson_id, type from activities where activity_id = $1 limit 1',
-      [activityId],
-    )
-    if (!existing[0]) throw new Error(`Activity ${activityId} not found`)
+export async function uploadActivityImage(activityId: string, fileName: string, buffer: Buffer): Promise<ActivityImage> {
+  if (buffer.byteLength > MCP_UPLOAD_MAX_BYTES) {
+    throw new Error(`File exceeds the 5 MB limit (${buffer.byteLength} bytes)`)
+  }
+  return storeActivityImage(await readActivityForFiles(activityId), activityId, fileName, buffer)
+}
 
-    if ('bodyData' in fields) {
-      validateBodyDataForType(existing[0].type, fields.bodyData)
+const INLINE_IMAGE = /data:image\/(png|jpe?g|gif|webp);base64,([A-Za-z0-9+/=\s]+)/g
+
+export type MovedInlineImages = {
+  activity_id: string
+  images_moved: number
+  body_bytes_before: number
+  body_bytes_after: number
+  files: string[]
+}
+
+/**
+ * Moves every base64 image held inline in an activity's body_data (an <img>
+ * pasted into a question, an option's imageUrl) into a file in the activity's
+ * folder, and points body_data at the file. The text is otherwise unchanged.
+ * The same image twice becomes one file.
+ */
+export async function moveInlineImagesToFiles(activityId: string): Promise<MovedInlineImages> {
+  const activity = await readActivityForFiles(activityId)
+  const before = JSON.stringify(activity.body_data ?? null)
+  const images = new Map<string, { extension: string; data: string }>()
+  for (const match of before.matchAll(INLINE_IMAGE)) {
+    const data = match[2].replace(/\s+/g, '')
+    const name = `image-${createHash('sha256').update(data).digest('hex').slice(0, 12)}.${match[1] === 'jpeg' ? 'jpg' : match[1]}`
+    images.set(name, { extension: match[1], data })
+  }
+  if (images.size === 0) {
+    return { activity_id: activityId, images_moved: 0, body_bytes_before: before.length, body_bytes_after: before.length, files: [] }
+  }
+
+  const urls = new Map<string, string>()
+  for (const [name, image] of images) {
+    const stored = await storeActivityImage(activity, activityId, name, Buffer.from(image.data, 'base64'))
+    urls.set(image.data, stored.url)
+  }
+  const after = before.replace(INLINE_IMAGE, (whole, _ext: string, data: string) => urls.get(data.replace(/\s+/g, '')) ?? whole)
+
+  // Compare-and-set: an edit made while the files were written is not overwritten.
+  const { rowCount } = await query(
+    'update activities set body_data = $2::jsonb where activity_id = $1 and body_data::jsonb = $3::jsonb',
+    [activityId, after, before],
+  )
+  if (!rowCount) throw new Error(`Activity ${activityId} changed while its images were moved; run it again`)
+
+  return {
+    activity_id: activityId,
+    images_moved: images.size,
+    body_bytes_before: before.length,
+    body_bytes_after: after.length,
+    files: [...images.keys()],
+  }
+}
+
+// The body shapes the app checks before saving a question, so a patch or a
+// type change cannot leave a question the app will not render.
+const QUESTION_BODY_SCHEMAS: Record<string, typeof McqActivityBodySchema | typeof ShortTextActivityBodySchema> = {
+  'multiple-choice-question': McqActivityBodySchema,
+  'short-text-question': ShortTextActivityBodySchema,
+}
+
+function validateActivityBody(type: string, bodyData: unknown) {
+  const schema = QUESTION_BODY_SCHEMAS[type]
+  if (schema) {
+    const parsed = schema.safeParse(bodyData)
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0]
+      const field = fieldName(issue.path)
+      throw new ActivityBodyDataError('INVALID_BODY_DATA', field, `${field}: ${issue.message} (a ${type} needs ${type === 'short-text-question' ? 'question and modelAnswer' : 'question, 2–4 options and a correctOptionId naming one of them'})`)
     }
+    return
+  }
+  if (type === 'show-video') {
+    const fileUrl = (bodyData as Record<string, unknown> | null)?.fileUrl
+    if (typeof fileUrl !== 'string' || !/^https?:\/\//i.test(fileUrl)) {
+      throw new ActivityBodyDataError('INVALID_BODY_DATA', 'body_data.fileUrl', 'body_data.fileUrl: a show-video activity needs { "fileUrl": "https://…" }, the video\'s link')
+    }
+    return
+  }
+  validateBodyDataForType(type, bodyData)
+}
 
-    // Guard: can't mark a non-scorable type as summative
-    if (fields.isSummative === true) {
-      const isScorableType = SCORABLE_ACTIVITY_TYPES.includes(existing[0].type as typeof SCORABLE_ACTIVITY_TYPES[number])
-      if (!isScorableType) {
-        throw new Error(`Only scorable activity types can be marked as summative. "${existing[0].type}" is non-scorable.`)
+/** Shallow merge: a key set to null is removed. */
+function patchBody(existing: unknown, patch: Record<string, unknown>): Record<string, unknown> {
+  const base = existing && typeof existing === 'object' && !Array.isArray(existing) ? { ...(existing as Record<string, unknown>) } : {}
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null) delete base[key]
+    else base[key] = value
+  }
+  return base
+}
+
+export type ActivityUpdate = {
+  title?: string | null
+  /** Replaces body_data as a whole. */
+  bodyData?: unknown
+  /** Merged into the stored body_data, so large fields need not be sent back. */
+  bodyPatch?: Record<string, unknown>
+  isSummative?: boolean
+  type?: ActivityType
+}
+
+export async function updateActivity(activityId: string, fields: ActivityUpdate): Promise<ActivitySummary> {
+  if ('bodyData' in fields && fields.bodyPatch) {
+    throw new Error('Pass either body_data (replaces the whole body) or a patch, not both')
+  }
+
+  return withDbClient(async (client) => {
+    await client.query('begin')
+    try {
+      const { rows: existing } = await client.query<{ type: string; body_data: unknown; is_summative: boolean | null }>(
+        'select type, body_data, is_summative from activities where activity_id = $1 for update',
+        [activityId],
+      )
+      const current = existing[0]
+      if (!current) throw new Error(`Activity ${activityId} not found`)
+
+      const type = fields.type ?? current.type
+      const typeChanged = type !== current.type
+      const scorable = (SCORABLE_ACTIVITY_TYPES as readonly string[]).includes(type)
+      if (typeChanged) {
+        if (isMothballedActivityType(type)) throw new Error(`"${type}" cannot be chosen for an activity`)
+        const { rows: work } = await client.query<{ n: number }>('select count(*)::int as n from submissions where activity_id = $1', [activityId])
+        if (work[0].n > 0) {
+          throw new Error(`Activity ${activityId} has ${work[0].n} pupil submission(s) as a ${current.type}; its type cannot change. Create a new activity instead.`)
+        }
       }
-    }
 
-    // Build SET clause dynamically from provided fields
-    const setClauses: string[] = []
-    const values: unknown[] = []
+      const bodyChanged = 'bodyData' in fields || Boolean(fields.bodyPatch)
+      const body = 'bodyData' in fields ? fields.bodyData ?? null : fields.bodyPatch ? patchBody(current.body_data, fields.bodyPatch) : current.body_data
+      if (bodyChanged || typeChanged) validateActivityBody(type, body)
 
-    if ('title' in fields) {
-      values.push(fields.title?.trim() ?? null)
-      setClauses.push(`title = $${values.length}`)
-    }
-    if ('bodyData' in fields) {
-      values.push(fields.bodyData !== undefined ? JSON.stringify(fields.bodyData) : null)
-      setClauses.push(`body_data = $${values.length}`)
-    }
-    if ('isSummative' in fields && fields.isSummative !== undefined) {
-      values.push(fields.isSummative)
-      setClauses.push(`is_summative = $${values.length}`)
-    }
+      if (fields.isSummative === true && !scorable) {
+        throw new Error(`Only scorable activity types can be marked as summative. "${type}" is non-scorable.`)
+      }
 
-    if (setClauses.length === 0) throw new Error('No fields provided to update')
+      const setClauses: string[] = []
+      const values: unknown[] = []
+      const set = (column: string, value: unknown) => {
+        values.push(value)
+        setClauses.push(`${column} = $${values.length}`)
+      }
+      if ('title' in fields) set('title', fields.title?.trim() ?? null)
+      if (bodyChanged) set('body_data', body != null ? JSON.stringify(body) : null)
+      if (fields.isSummative !== undefined) set('is_summative', fields.isSummative)
+      if (typeChanged) {
+        set('type', type)
+        if (!scorable && fields.isSummative === undefined) set('is_summative', false)
+        // Out of the app's default until criteria, pairs or items say otherwise.
+        set('max_marks', type === 'short-text-question' ? 3 : 1)
+      }
+      if (setClauses.length === 0) throw new Error('No fields provided to update')
 
-    values.push(activityId)
-    const { rows } = await client.query<{
-      activity_id: string; lesson_id: string; title: string | null
-      type: string; order_by: number; is_summative: boolean; active: boolean
-    }>(
-      `update activities set ${setClauses.join(', ')}
-       where activity_id = $${values.length}
-       returning activity_id, lesson_id, title, type, order_by, is_summative, active`,
-      values,
-    )
-    const row = rows[0]
-    if (!row) throw new Error('Update failed')
-    // New pairs or items change what a matcher or group-items is out of.
-    if ('bodyData' in fields) {
-      await recalculateMatcherMaxMarks(client, activityId)
-      await recalculateGroupItemsMaxMarks(client, activityId)
-    }
-    result = {
-      activity_id: row.activity_id,
-      lesson_id: row.lesson_id,
-      title: row.title,
-      type: row.type,
-      order_index: row.order_by,
-      is_summative: row.is_summative ?? false,
-      active: row.active ?? true,
+      values.push(activityId)
+      const { rows } = await client.query<{
+        activity_id: string; lesson_id: string; title: string | null
+        type: string; order_by: number; is_summative: boolean; active: boolean
+      }>(
+        `update activities set ${setClauses.join(', ')}
+         where activity_id = $${values.length}
+         returning activity_id, lesson_id, title, type, order_by, is_summative, active`,
+        values,
+      )
+      const row = rows[0]
+      // New pairs, items or a new type change what the activity is out of.
+      if (bodyChanged || typeChanged) {
+        if (typeChanged) await recalculateActivityMaxMarks(client, activityId)
+        await recalculateMatcherMaxMarks(client, activityId)
+        await recalculateGroupItemsMaxMarks(client, activityId)
+      }
+      await client.query('commit')
+      return {
+        activity_id: row.activity_id,
+        lesson_id: row.lesson_id,
+        title: row.title,
+        type: row.type,
+        order_index: row.order_by,
+        is_summative: row.is_summative ?? false,
+        active: row.active ?? true,
+      }
+    } catch (error) {
+      await client.query('rollback')
+      throw error
     }
   })
-
-  if (!result) throw new Error('Failed to update activity')
-  return result
 }
 
 /** Matcher and group-items marks come from their pairs and items, not a tariff. */

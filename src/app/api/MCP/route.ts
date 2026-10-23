@@ -26,10 +26,10 @@ import {
   deactivateLearningObjective,
   deactivateSuccessCriterion,
 } from '@/lib/mcp/losc'
-import { listUnits, findUnitsByTitle, createUnit, updateUnit } from '@/lib/mcp/units'
+import { listUnits, findUnitsByTitle, createUnit, updateUnit, getUnit } from '@/lib/mcp/units'
 import { listUnitAudits, readUnitAudit, recordUnitAudit, MAX_AUDIT_ACTIONS, type UnitAudit } from '@/lib/unit-audits/store'
 import { withDbClient } from '@/lib/db'
-import { listLessonsForUnit, getLessonObjectives, createLesson, updateLessonTitle, reorderLessons, addSuccessCriterionToLesson, removeSuccessCriterionFromLesson, uploadLessonFile } from '@/lib/mcp/lessons'
+import { listLessonsForUnit, getLessonObjectives, createLesson, updateLessonTitle, reorderLessons, addSuccessCriterionToLesson, removeSuccessCriterionFromLesson, removeLearningObjectiveFromLesson, uploadLessonFile, removeLessonFile } from '@/lib/mcp/lessons'
 import {
   listTeachers,
   listGroups,
@@ -77,7 +77,7 @@ import {
   updateIntervention,
   type InterventionSummary,
 } from '@/lib/interventions/store'
-import { ACTIVITY_TYPES, ActivityBodyDataError, listActivitiesForLesson, getActivity, createActivity, updateActivity, setActivityMaxMarks, addSuccessCriterionToActivity, removeSuccessCriterionFromActivity, removeActivity, reorderActivities, uploadActivityFile } from '@/lib/mcp/activities'
+import { ACTIVITY_TYPES, ActivityBodyDataError, listActivitiesForLesson, getActivity, createActivity, updateActivity, setActivityMaxMarks, addSuccessCriterionToActivity, removeSuccessCriterionFromActivity, removeActivity, reorderActivities, uploadActivityFile, removeActivityFile, uploadActivityImage, moveInlineImagesToFiles, type ActivityUpdate } from '@/lib/mcp/activities'
 
 // Force Node.js runtime — MCP SDK is not compatible with the Edge runtime.
 export const runtime = 'nodejs'
@@ -383,6 +383,42 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
           },
         ],
         structuredContent: { matches },
+      }
+    },
+  )
+
+  srv.registerTool(
+    'get_unit',
+    {
+      title: 'Get a unit',
+      description: 'Return one unit: title, description, subject, year, active, its curriculum and how many lessons it has. Read this before update_unit to see the description you are changing.',
+      inputSchema: {
+        unit_id: z.string().min(1).describe('Unit identifier.'),
+      },
+      outputSchema: {
+        unit: z.object({
+          unit_id: z.string(),
+          title: z.string(),
+          subject: z.string(),
+          description: z.string().nullable(),
+          year: z.number().nullable(),
+          is_active: z.boolean(),
+          curriculum_id: z.string().nullable(),
+          curriculum_title: z.string().nullable(),
+          lesson_count: z.number(),
+        }).nullable(),
+      },
+    },
+    async ({ unit_id }) => {
+      try {
+        const unit = await getUnit(unit_id)
+        return {
+          content: [{ type: 'text' as const, text: `${unit.unit_id} • ${unit.title} (${unit.subject}${unit.year ? `, Year ${unit.year}` : ''}, ${unit.lesson_count} lessons)` }],
+          structuredContent: { unit },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to read unit'
+        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { unit: null } }
       }
     },
   )
@@ -1123,12 +1159,15 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
     'update_success_criterion',
     {
       title: 'Update success criterion',
-      description: 'Update a success criterion. Omitted fields keep their current value.',
+      description: 'Update a success criterion. Omitted fields keep their current value. '
+        + 'learning_objective_id moves the criterion to another LO in the same curriculum, keeping its lesson and activity links and pupils\' marks; '
+        + 'each lesson linking the criterion gets the new LO linked (lessons_linked_to_new_lo). The old LO stays linked to those lessons: remove it with remove_learning_objective_from_lesson if nothing else there uses it.',
       inputSchema: {
         success_criteria_id: z.string().min(1).describe('Success criterion identifier.'),
         description: z.string().min(1).optional().describe('New description.'),
         level: z.number().int().min(1).max(9).optional().describe('New level (1–9).'),
         active: z.boolean().optional().describe('Set false to deactivate, true to reactivate.'),
+        learning_objective_id: z.string().min(1).optional().describe('Move the criterion to this learning objective (same curriculum).'),
       },
       outputSchema: {
         success_criterion: z.object({
@@ -1138,14 +1177,20 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
           level: z.number(),
           order_index: z.number(),
           active: z.boolean(),
+          lessons_linked_to_new_lo: z.array(z.string()),
         }).nullable(),
       },
     },
-    async ({ success_criteria_id, description, level, active }) => {
+    async ({ success_criteria_id, description, level, active, learning_objective_id }) => {
       try {
-        const success_criterion = await updateSuccessCriterion(success_criteria_id, { description: description ?? null, level: level ?? null, active: active ?? null })
+        const success_criterion = await updateSuccessCriterion(success_criteria_id, {
+          description: description ?? null,
+          level: level ?? null,
+          active: active ?? null,
+          learningObjectiveId: learning_objective_id ?? null,
+        })
         return {
-          content: [{ type: 'text' as const, text: `Updated success criterion ${success_criterion.success_criteria_id} (level ${success_criterion.level})` }],
+          content: [{ type: 'text' as const, text: `Updated success criterion ${success_criterion.success_criteria_id} (level ${success_criterion.level}, LO ${success_criterion.learning_objective_id})` }],
           structuredContent: { success_criterion },
         }
       } catch (error) {
@@ -1255,6 +1300,48 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
   )
 
   srv.registerTool(
+    'remove_learning_objective_from_lesson',
+    {
+      title: 'Remove learning objective from lesson',
+      description: 'Unlink a learning objective from a lesson, together with the lesson\'s links to that LO\'s success criteria (a criterion left linked would show the LO again). '
+        + 'The LO itself is untouched. Activities in the lesson still linked to one of its criteria are listed in activities_still_linked and keep the LO showing in get_lesson_objectives; '
+        + 'unlink them with remove_success_criterion_from_activity if they should go too.',
+      inputSchema: {
+        lesson_id: z.string().min(1).describe('Lesson identifier.'),
+        learning_objective_id: z.string().min(1).describe('Learning objective identifier.'),
+      },
+      outputSchema: {
+        result: z.object({
+          lesson_id: z.string(),
+          learning_objective_id: z.string(),
+          removed: z.boolean(),
+          success_criteria_unlinked: z.array(z.string()),
+          activities_still_linked: z.array(z.object({
+            activity_id: z.string(),
+            title: z.string().nullable(),
+            success_criteria_id: z.string(),
+          })),
+        }).nullable(),
+      },
+    },
+    async ({ lesson_id, learning_objective_id }) => {
+      try {
+        const result = await removeLearningObjectiveFromLesson(lesson_id, learning_objective_id)
+        const still = result.activities_still_linked.length
+        const text = !result.removed
+          ? `Lesson ${lesson_id} did not link learning objective ${learning_objective_id}`
+          : `Unlinked learning objective ${learning_objective_id} from lesson ${lesson_id}`
+            + (result.success_criteria_unlinked.length ? `, with ${result.success_criteria_unlinked.length} of its success criteria` : '')
+            + (still ? `. ${still} activity link(s) to its criteria remain` : '')
+        return { content: [{ type: 'text' as const, text }], structuredContent: { result } }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to remove learning objective from lesson'
+        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { result: null } }
+      }
+    },
+  )
+
+  srv.registerTool(
     'remove_success_criterion_from_activity',
     {
       title: 'Remove success criterion from activity',
@@ -1328,7 +1415,7 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
       title: 'Get an activity',
       description: 'Return one activity in full, including its body_data (the text of a Display Text activity, a question and model answer, '
         + 'MCQ options, flashcards, …), teacher notes, max marks and linked success criteria. '
-        + 'Read this before update_activity: body_data is replaced as a whole, so send back the complete object with your changes.',
+        + 'To change part of body_data, pass only those fields to update_activity (question, model_answer, mcq_options, correct_option_id or body_data_patch) rather than resending it.',
       inputSchema: {
         activity_id: z.string().min(1).describe('Activity identifier (from get_activities_for_lesson).'),
       },
@@ -1475,12 +1562,29 @@ A body_data over a limit is refused with isError and error.code LIMIT_EXCEEDED (
     'update_activity',
     {
       title: 'Update activity',
-      description: 'Update title, body_data, or is_summative on an existing activity. At least one field must be provided. body_data replaces the stored object as a whole — call get_activity first and send back the complete object with your changes. '
-        + 'body_data is checked against the same limits as create_activity; a body over a limit is refused with isError and error.code LIMIT_EXCEEDED.',
+      description: `Update an existing activity. Omitted fields are left unchanged; at least one must be given.
+- title, is_summative: as on create_activity.
+- Patch body_data without resending it: question, model_answer (short-text-question), mcq_options, correct_option_id (multiple-choice-question) set those fields; body_data_patch sets any other top-level fields of body_data, and a field set to null is removed. Everything else in body_data, such as images, is kept.
+- body_data replaces the stored object as a whole; it cannot be combined with the patch fields.
+- type changes the activity's type, refused once pupils have submitted work for it. The body must suit the new type: pass it in the same call (e.g. text → show-video with body_data { "fileUrl": "https://…" }). max_marks resets to the new type's default, or to what its success criteria are worth.
+The result is checked as create_activity checks it; a body over a limit is refused with isError and error.code LIMIT_EXCEEDED.`,
       inputSchema: z.object({
         activity_id: z.string().describe('UUID of the activity to update'),
         title: z.string().nullable().optional().describe('New title (pass null to clear)'),
-        body_data: z.record(z.string(), z.unknown()).nullable().optional().describe('New body data (pass null to clear)'),
+        type: z.enum(ACTIVITY_TYPES).optional().describe('New activity type. Refused when pupils have submitted work.'),
+        question: z.string().min(1).optional().describe('New question text (short-text-question, multiple-choice-question).'),
+        model_answer: z.string().min(1).optional().describe('New model answer (short-text-question).'),
+        mcq_options: z.preprocess(
+          (v) => (typeof v === 'string' ? JSON.parse(v) : v),
+          z.array(z.object({
+            id: z.string(),
+            text: z.string(),
+            imageUrl: z.string().nullable().optional(),
+          })),
+        ).optional().describe('Replacement answer options, 2–4 × { id, text } (multiple-choice-question).'),
+        correct_option_id: z.string().min(1).optional().describe('id of the correct option (multiple-choice-question).'),
+        body_data_patch: z.record(z.string(), z.unknown()).optional().describe('Top-level body_data fields to set; null removes a field.'),
+        body_data: z.record(z.string(), z.unknown()).nullable().optional().describe('Replacement body data, as a whole (pass null to clear)'),
         is_summative: z.boolean().optional().describe('Mark or unmark as summative assessment (scorable types only)'),
       }),
       outputSchema: z.object({
@@ -1496,16 +1600,24 @@ A body_data over a limit is refused with isError and error.code LIMIT_EXCEEDED (
         error: activityBodyErrorShape.optional(),
       }),
     },
-    async ({ activity_id, title, body_data, is_summative }) => {
+    async ({ activity_id, title, type, question, model_answer, mcq_options, correct_option_id, body_data_patch, body_data, is_summative }) => {
       try {
-        const fields: Record<string, unknown> = {}
+        const patch: Record<string, unknown> = { ...body_data_patch }
+        if (question !== undefined) patch.question = question.trim()
+        if (model_answer !== undefined) patch.modelAnswer = model_answer.trim()
+        if (mcq_options !== undefined) patch.options = mcq_options
+        if (correct_option_id !== undefined) patch.correctOptionId = correct_option_id
+
+        const fields: ActivityUpdate = {}
         if (title !== undefined) fields.title = title
+        if (type !== undefined) fields.type = type
         if (body_data !== undefined) fields.bodyData = body_data
+        if (Object.keys(patch).length > 0) fields.bodyPatch = patch
         if (is_summative !== undefined) fields.isSummative = is_summative
 
         const activity = await updateActivity(activity_id, fields)
         return {
-          content: [{ type: 'text' as const, text: `Updated activity ${activity_id}${activity.is_summative ? ' (summative)' : ''}` }],
+          content: [{ type: 'text' as const, text: `Updated activity ${activity_id} • ${activity.type}${activity.is_summative ? ' (summative)' : ''}` }],
           structuredContent: { activity },
         }
       } catch (err) {
@@ -2044,6 +2156,155 @@ A body_data over a limit is refused with isError and error.code LIMIT_EXCEEDED (
           content: [{ type: 'text' as const, text: `Error: ${message}` }],
           structuredContent: { file: null },
         }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'remove_lesson_file',
+    {
+      title: 'Remove a lesson file',
+      description: 'Delete one of a lesson\'s private teacher files (an old deck, a timestamped copy). Take file_name exactly from list_lesson_files, where lesson files have activity_id null. '
+        + 'For a file attached to an activity, use remove_activity_file.',
+      inputSchema: z.object({
+        lesson_id: z.string().describe('UUID of the lesson'),
+        file_name: z.string().describe('Exact file name from list_lesson_files'),
+      }),
+      outputSchema: z.object({
+        file: z.object({ lesson_id: z.string(), file_name: z.string() }).nullable(),
+      }),
+    },
+    async ({ lesson_id, file_name }) => {
+      try {
+        const file = await removeLessonFile(lesson_id, file_name)
+        return { content: [{ type: 'text' as const, text: `Removed "${file_name}" from lesson ${lesson_id}` }], structuredContent: { file } }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { file: null } }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'remove_activity_file',
+    {
+      title: 'Remove a file from an activity',
+      description: 'Delete one file from an activity, e.g. one of a file-download\'s sheets. Take file_name exactly from list_lesson_files. '
+        + 'If body_data names the file (a display-image\'s image, a display-webpage\'s HTML file, an MCQ\'s question image) that field is cleared. '
+        + 'still_referenced is true when body_data text, such as an <img> in a question, still links to the file. To replace a file, remove it and upload the new one.',
+      inputSchema: z.object({
+        activity_id: z.string().describe('UUID of the activity'),
+        file_name: z.string().describe('Exact file name from list_lesson_files'),
+      }),
+      outputSchema: z.object({
+        file: z.object({
+          activity_id: z.string(),
+          lesson_id: z.string(),
+          file_name: z.string(),
+          cleared_fields: z.array(z.string()),
+          still_referenced: z.boolean(),
+        }).nullable(),
+      }),
+    },
+    async ({ activity_id, file_name }) => {
+      try {
+        const file = await removeActivityFile(activity_id, file_name)
+        const notes = [
+          file.cleared_fields.length ? `cleared body_data ${file.cleared_fields.join(', ')}` : null,
+          file.still_referenced ? 'body_data still links to it' : null,
+        ].filter(Boolean)
+        return {
+          content: [{ type: 'text' as const, text: `Removed "${file_name}" from activity ${activity_id}${notes.length ? ` (${notes.join('; ')})` : ''}` }],
+          structuredContent: { file },
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { file: null } }
+      }
+    },
+  )
+
+  const activityImageOutput = z.object({
+    activity_id: z.string(),
+    lesson_id: z.string(),
+    file_name: z.string(),
+    size_bytes: z.number(),
+    url: z.string(),
+    img_tag: z.string(),
+  })
+
+  srv.registerTool(
+    'upload_activity_image',
+    {
+      title: 'Upload an image for an activity\'s question',
+      description: 'Store a png, jpg, gif or webp image with an activity and get a url to place in its body_data, e.g. <img src="url"> in a question (update_activity question=…) '
+        + 'or an MCQ option\'s imageUrl, instead of an inline base64 image. Pass base64_content or a public https url (DINO downloads it). Max 5 MB. '
+        + 'Not for file-download, display-image or display-webpage activities: use upload_activity_file.',
+      inputSchema: z.object({
+        activity_id: z.string().describe('UUID of the activity'),
+        file_name: z.string().optional().describe('File name with extension, e.g. "circuit.png". Required with base64_content; defaults to the link\'s name with url.'),
+        base64_content: z.string().optional().describe('Base64-encoded image'),
+        url: z.string().optional().describe('Public https link to the image'),
+      }),
+      outputSchema: z.object({ image: activityImageOutput.nullable() }),
+    },
+    async ({ activity_id, file_name, base64_content, url }) => {
+      try {
+        if (Boolean(base64_content) === Boolean(url)) throw new Error('Pass exactly one of base64_content or url')
+        let image
+        if (url) {
+          const fetched = await fetchFileFromUrl(url, file_name)
+          image = await uploadActivityImage(activity_id, fetched.fileName, fetched.buffer)
+        } else {
+          if (!file_name) throw new Error('file_name is required with base64_content')
+          image = await uploadActivityImage(activity_id, file_name, decodeBase64File(base64_content!))
+        }
+        return {
+          content: [{ type: 'text' as const, text: `Stored "${image.file_name}" (${image.size_bytes} bytes) with activity ${activity_id}. Use ${image.img_tag}` }],
+          structuredContent: { image },
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { image: null } }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'move_activity_images_to_files',
+    {
+      title: 'Move an activity\'s inline images to files',
+      description: 'Move every base64 image held inline in an activity\'s body_data (pasted into a question, or an option\'s imageUrl) into a file stored with the activity, '
+        + 'and point body_data at the file. Nothing else in body_data changes and pupils see the same images. '
+        + 'Run it before editing a question whose body_data is too large to read or resend.',
+      inputSchema: z.object({
+        activity_id: z.string().describe('UUID of the activity'),
+      }),
+      outputSchema: z.object({
+        result: z.object({
+          activity_id: z.string(),
+          images_moved: z.number(),
+          body_bytes_before: z.number(),
+          body_bytes_after: z.number(),
+          files: z.array(z.string()),
+        }).nullable(),
+      }),
+    },
+    async ({ activity_id }) => {
+      try {
+        const result = await moveInlineImagesToFiles(activity_id)
+        return {
+          content: [{
+            type: 'text' as const,
+            text: result.images_moved === 0
+              ? `Activity ${activity_id} has no inline images`
+              : `Moved ${result.images_moved} image(s) to files; body_data is ${result.body_bytes_after} bytes (was ${result.body_bytes_before})`,
+          }],
+          structuredContent: { result },
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { result: null } }
       }
     },
   )

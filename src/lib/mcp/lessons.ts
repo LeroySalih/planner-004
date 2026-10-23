@@ -408,3 +408,78 @@ export async function getLessonObjectives(lessonId: string): Promise<LessonObjec
 
   return { lesson_id: lesson.lesson_id, unit_id: lesson.unit_id, title: lesson.title, learning_objectives }
 }
+
+export type LessonLoUnlinkResult = {
+  lesson_id: string
+  learning_objective_id: string
+  /** False when the lesson linked neither the LO nor any of its criteria. */
+  removed: boolean
+  success_criteria_unlinked: string[]
+  /** Activities in the lesson still linked to one of the LO's criteria; the LO still shows through them. */
+  activities_still_linked: Array<{ activity_id: string; title: string | null; success_criteria_id: string }>
+}
+
+/**
+ * Unlinks a learning objective from a lesson, with the lesson's links to the
+ * LO's success criteria: a criterion left linked would show the LO again.
+ * Activity links are left alone and reported, since removing them changes
+ * what the activity is marked against.
+ */
+export async function removeLearningObjectiveFromLesson(
+  lessonId: string,
+  learningObjectiveId: string,
+): Promise<LessonLoUnlinkResult> {
+  return withDbClient(async (client) => {
+    await assertLessonExists(client, lessonId)
+    await client.query('begin')
+    try {
+      const { rows: scRows } = await client.query<{ success_criteria_id: string }>(
+        `delete from lesson_success_criteria lsc
+          using success_criteria sc
+          where lsc.lesson_id = $1
+            and sc.success_criteria_id = lsc.success_criteria_id
+            and sc.learning_objective_id = $2
+          returning lsc.success_criteria_id`,
+        [lessonId, learningObjectiveId],
+      )
+      const { rowCount } = await client.query(
+        'delete from lessons_learning_objective where lesson_id = $1 and learning_objective_id = $2',
+        [lessonId, learningObjectiveId],
+      )
+      const { rows: activityRows } = await client.query<{ activity_id: string; title: string | null; success_criteria_id: string }>(
+        `select a.activity_id, a.title, acs.success_criteria_id
+           from activities a
+           join activity_success_criteria acs on acs.activity_id = a.activity_id
+           join success_criteria sc on sc.success_criteria_id = acs.success_criteria_id
+          where a.lesson_id = $1 and a.active is not false and sc.learning_objective_id = $2
+          order by a.order_by asc nulls last`,
+        [lessonId, learningObjectiveId],
+      )
+      await client.query('commit')
+      return {
+        lesson_id: lessonId,
+        learning_objective_id: learningObjectiveId,
+        removed: (rowCount ?? 0) > 0 || scRows.length > 0,
+        success_criteria_unlinked: scRows.map((row) => row.success_criteria_id),
+        activities_still_linked: activityRows,
+      }
+    } catch (error) {
+      await client.query('rollback')
+      throw error
+    }
+  })
+}
+
+/** Deletes one of a lesson's private teacher files (not an activity's). */
+export async function removeLessonFile(lessonId: string, fileName: string): Promise<{ lesson_id: string; file_name: string }> {
+  const { rows } = await query(
+    `select 1 from stored_files where bucket = $1 and scope_path = $2 and file_name = $3 limit 1`,
+    [LESSON_FILES_BUCKET, lessonId, fileName],
+  )
+  if (!rows[0]) {
+    throw new Error(`Lesson ${lessonId} has no teacher file "${fileName}". Call list_lesson_files for the exact names (lesson files have activity_id null).`)
+  }
+  const { error } = await createLocalStorageClient(LESSON_FILES_BUCKET).remove([`${lessonId}/${fileName}`])
+  if (error) throw new Error(`Storage delete failed: ${error.message}`)
+  return { lesson_id: lessonId, file_name: fileName }
+}

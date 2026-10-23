@@ -228,10 +228,12 @@ Creates a success criterion under a learning objective. Validates the LO exists.
 ---
 
 #### `update_success_criterion`
-Updates a success criterion's `description`, `level` (1–9), and/or `active`. Omitted fields keep their current value.
+Updates a success criterion's `description`, `level` (1–9), `active` and/or `learning_objective_id`. Omitted fields keep their current value.
 
-**Input:** `{ success_criteria_id: string, description?: string, level?: number, active?: boolean }`  
-**Output:** `{ success_criterion: { success_criteria_id, learning_objective_id, description, level, order_index, active } | null }`
+`learning_objective_id` moves the criterion to another LO, keeping every lesson and activity link and the marks pupils hold against it. The new LO must be in the same curriculum (for a unit's own AO, the same AO). The criterion goes last in the new LO. Each lesson that links the criterion gets the new LO linked, as `add_success_criterion_to_lesson` would, listed in `lessons_linked_to_new_lo`. The old LO stays linked to those lessons; remove it with `remove_learning_objective_from_lesson` if nothing else there uses it.
+
+**Input:** `{ success_criteria_id: string, description?: string, level?: number, active?: boolean, learning_objective_id?: string }`  
+**Output:** `{ success_criterion: { success_criteria_id, learning_objective_id, description, level, order_index, active, lessons_linked_to_new_lo } | null }`
 
 ---
 
@@ -250,6 +252,16 @@ Returns all units.
 
 **Input:** none  
 **Output:** `{ units: [{ unit_id, title, subject, is_active }] }`
+
+---
+
+#### `get_unit`
+Returns one unit, including its description, so a caller can read what `update_unit` will replace.
+
+**Input:** `{ unit_id: string }`  
+**Output:** `{ unit: { unit_id, title, subject, description, year, is_active, curriculum_id, curriculum_title, lesson_count } | null }`
+
+`lesson_count` counts active standard lessons, not interventions.
 
 ---
 
@@ -373,6 +385,16 @@ Unlinks a success criterion from a lesson (deletes the `lesson_success_criteria`
 
 ---
 
+#### `remove_learning_objective_from_lesson`
+Unlinks a learning objective from a lesson. The lesson's links to that LO's success criteria go with it, because a criterion left linked would show the LO again. The LO itself is untouched. `removed` is `false` if the lesson linked neither the LO nor any of its criteria.
+
+Activity links are left alone: removing one changes what the activity is marked against. Activities in the lesson still linked to one of the LO's criteria are listed in `activities_still_linked`, and `get_lesson_objectives` keeps showing the LO through them with `linked_to_lesson: false`. Unlink them with `remove_success_criterion_from_activity` if they should go too.
+
+**Input:** `{ lesson_id: string, learning_objective_id: string }`  
+**Output:** `{ result: { lesson_id, learning_objective_id, removed, success_criteria_unlinked: string[], activities_still_linked: [{ activity_id, title, success_criteria_id }] } | null }`
+
+---
+
 ### Activities
 
 #### `get_activities_for_lesson`
@@ -386,7 +408,7 @@ Lists all active activities for a lesson.
 #### `get_activity`
 Returns one activity in full: its `body_data` (Display Text's `text` and `displayType`, a question and model answer, MCQ options, flashcards, …), teacher `notes`, `max_marks` and linked success criteria. `get_activities_for_lesson` stays a short list without bodies.
 
-Read it before `update_activity`: `body_data` is replaced as a whole, so send back the complete object with your changes — e.g. to switch a Display Text to an exam tip, resend `text` along with `displayType: "exam-tip"`.
+To change part of `body_data`, pass only the changed fields to `update_activity` rather than resending the whole body. A body holding inline base64 images can be too large to read or resend; run `move_activity_images_to_files` first.
 
 **Input:** `{ activity_id: string }`  
 **Output:** `{ activity: { activity_id, lesson_id, title, type, order_index, is_summative, active, body_data, notes, max_marks, success_criteria: [{ success_criteria_id, description, sc_type }] } | null }`
@@ -452,9 +474,15 @@ Error [LIMIT_EXCEEDED] body_data.items has 13 items, but a group-items activity 
 ---
 
 #### `update_activity`
-Updates `title`, `body_data`, and/or `is_summative` on an existing activity. Only provided fields are changed — omitted fields are left as-is. Setting `is_summative = true` on a non-scorable type is rejected.
+Updates an existing activity. Only provided fields are changed. Setting `is_summative = true` on a non-scorable type is rejected.
 
-**Input:** `{ activity_id: string, title?: string | null, body_data?: object | null, is_summative?: boolean }`  
+- **Patch `body_data`** without resending it. `question`, `model_answer`, `mcq_options` and `correct_option_id` set the question fields (stored as `question`, `modelAnswer`, `options`, `correctOptionId`). `body_data_patch` sets any other top-level fields; a field set to `null` is removed. Everything else in the body, such as images, is kept.
+- **Replace `body_data`** as a whole with `body_data`. It cannot be combined with the patch fields.
+- **Change `type`.** This is refused once pupils have submitted work for the activity. The body must suit the new type, so pass it in the same call. For example, a text activity holding a video link becomes `type: "show-video"` with `body_data: { fileUrl: "https://…" }`. A patch keeps the old type's fields, so pass `body_data` to drop them. `max_marks` resets to the new type's default (short-text-question 3, others 1), or to what its success criteria, pairs or items are worth. A change to a non-scorable type clears `is_summative`.
+
+The resulting body is checked as `create_activity` checks it. A short-text-question needs `question` and `modelAnswer`; a multiple-choice question needs `question`, 2–4 options and a `correctOptionId` naming one of them; a show-video needs an http(s) `fileUrl`.
+
+**Input:** `{ activity_id: string, title?: string | null, type?: string, question?: string, model_answer?: string, mcq_options?: [{ id, text, imageUrl? }], correct_option_id?: string, body_data_patch?: object, body_data?: object | null, is_summative?: boolean }`  
 **Output:** `{ activity: { activity_id, lesson_id, title, type, order_index, is_summative, active } | null }`
 
 A new `body_data` on a `matcher` or `group-items` also resets `max_marks` to the new pair or item count, as in the app.
@@ -644,6 +672,44 @@ This is the second deliberate exception to "no credentials in tool output", alon
 **Output:** `{ link: { download_url, expires_at, file, instructions } | null }`
 
 Endpoint: `GET /api/MCP/download/<token>`.
+
+---
+
+### Removing files
+
+#### `remove_lesson_file`
+Deletes one of a lesson's private teacher files, such as an old deck or a timestamped copy. `file_name` must be exactly as `list_lesson_files` gives it, where lesson files have `activity_id: null`.
+
+**Input:** `{ lesson_id: string, file_name: string }`  
+**Output:** `{ file: { lesson_id, file_name } | null }`
+
+#### `remove_activity_file`
+Deletes one teacher file from an activity, such as one of a file-download's sheets. To replace a file, remove it and upload the new one.
+
+Some fields of `body_data` name a file: a display-image's `imageFile`/`fileUrl`, a display-webpage's `htmlFile`, and an MCQ's `imageFile`. If one of them names the removed file, it is cleared (`cleared_fields`). `still_referenced` is `true` when body text still links to the file, for example an `<img>` in a question.
+
+**Input:** `{ activity_id: string, file_name: string }`  
+**Output:** `{ file: { activity_id, lesson_id, file_name, cleared_fields: string[], still_referenced } | null }`
+
+---
+
+### Question images
+
+Images pasted into a question in the app are stored inline in `body_data` as base64 `data:` URLs. One such question can be hundreds of KB, which makes it impractical to read or resend. These tools store images as files in the activity's folder, and `body_data` links to them by URL (`/api/files/lessons/<lesson>/activities/<activity>/<file>`). Pupils see the same image.
+
+They are refused for `file-download` activities, because every file in that folder is offered to pupils as a download. They are also refused for `display-image` and `display-webpage` activities; use `upload_activity_file` for those.
+
+#### `upload_activity_image`
+Stores one png, jpg, gif or webp image with an activity. Pass `base64_content` with a `file_name`, or a public https `url` that DINO downloads. The limit is 5 MB. Put the returned `url` in the body, either as `<img src="url">` in a question via `update_activity` or as an MCQ option's `imageUrl`.
+
+**Input:** `{ activity_id: string, file_name?: string, base64_content?: string, url?: string }`  
+**Output:** `{ image: { activity_id, lesson_id, file_name, size_bytes, url, img_tag } | null }`
+
+#### `move_activity_images_to_files`
+Moves every inline base64 image in an activity's `body_data` into a file and points the body at it. Nothing else in the body changes. Identical images become one file, named `image-<hash>.<ext>`. The write is compare-and-set: if the activity is edited meanwhile, the call fails and is safe to repeat.
+
+**Input:** `{ activity_id: string }`  
+**Output:** `{ result: { activity_id, images_moved, body_bytes_before, body_bytes_after, files: string[] } | null }`
 
 ---
 

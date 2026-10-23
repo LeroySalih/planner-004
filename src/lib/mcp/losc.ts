@@ -420,26 +420,90 @@ export async function updateLearningObjective(
   return result
 }
 
+export type SuccessCriterionUpdate = SuccessCriterionRecord & {
+  /** Lessons that link the criterion and now link its new learning objective too. */
+  lessons_linked_to_new_lo: string[]
+}
+
+/**
+ * `learningObjectiveId` moves the criterion to another LO of the same
+ * curriculum (or the same unit-owned AO), keeping every lesson and activity
+ * link and the marks recorded against it. Each lesson linking the criterion
+ * gets the new LO linked, as add_success_criterion_to_lesson would; the old
+ * LO stays linked until it is removed from the lesson.
+ */
 export async function updateSuccessCriterion(
   successCriteriaId: string,
-  patch: { description?: string | null; level?: number | null; active?: boolean | null },
-): Promise<SuccessCriterionRecord> {
-  let result: SuccessCriterionRecord | null = null
-  await withDbClient(async (client) => {
-    const { rows } = await client.query<SuccessCriterionRecord>(
-      `update success_criteria
-         set description = coalesce($2, description),
-             level = coalesce($3, level),
-             active = coalesce($4, active)
-       where success_criteria_id = $1
-       returning success_criteria_id, learning_objective_id, description, level, order_index, active`,
-      [successCriteriaId, patch.description?.trim() ?? null, patch.level ?? null, patch.active ?? null],
-    )
-    if (!rows[0]) throw new Error(`Success criterion ${successCriteriaId} not found`)
-    result = rows[0]
+  patch: { description?: string | null; level?: number | null; active?: boolean | null; learningObjectiveId?: string | null },
+): Promise<SuccessCriterionUpdate> {
+  return withDbClient(async (client) => {
+    await client.query("begin")
+    try {
+      const lessonsLinked: string[] = []
+      if (patch.learningObjectiveId) {
+        const { rows } = await client.query<{ which: string; learning_objective_id: string; assessment_objective_id: string; curriculum_id: string | null; title: string }>(
+          `select 'old' as which, lo.learning_objective_id, lo.assessment_objective_id, ao.curriculum_id, lo.title
+             from success_criteria sc
+             join learning_objectives lo on lo.learning_objective_id = sc.learning_objective_id
+             join assessment_objectives ao on ao.assessment_objective_id = lo.assessment_objective_id
+            where sc.success_criteria_id = $1
+           union all
+           select 'new', lo.learning_objective_id, lo.assessment_objective_id, ao.curriculum_id, lo.title
+             from learning_objectives lo
+             join assessment_objectives ao on ao.assessment_objective_id = lo.assessment_objective_id
+            where lo.learning_objective_id = $2`,
+          [successCriteriaId, patch.learningObjectiveId],
+        )
+        const from = rows.find((row) => row.which === "old")
+        const to = rows.find((row) => row.which === "new")
+        if (!from) throw new Error(`Success criterion ${successCriteriaId} not found`)
+        if (!to) throw new Error(`Learning objective ${patch.learningObjectiveId} not found`)
+        const sameHome = from.curriculum_id !== null
+          ? from.curriculum_id === to.curriculum_id
+          : from.assessment_objective_id === to.assessment_objective_id
+        if (!sameHome) {
+          throw new Error("A success criterion can only move to a learning objective in the same curriculum (or, for a unit's own AO, the same AO)")
+        }
+
+        if (from.learning_objective_id !== to.learning_objective_id) {
+          await client.query(
+            `update success_criteria
+                set learning_objective_id = $2,
+                    order_index = coalesce((select max(order_index) + 1 from success_criteria where learning_objective_id = $2), 0)
+              where success_criteria_id = $1`,
+            [successCriteriaId, to.learning_objective_id],
+          )
+          const { rows: linked } = await client.query<{ lesson_id: string }>(
+            `insert into lessons_learning_objective (lesson_id, learning_objective_id, order_by, title, active)
+             select lsc.lesson_id, $2, coalesce((select max(llo.order_by) + 1 from lessons_learning_objective llo where llo.lesson_id = lsc.lesson_id), 0), $3, true
+               from lesson_success_criteria lsc
+              where lsc.success_criteria_id = $1
+                and not exists (select 1 from lessons_learning_objective llo
+                                 where llo.lesson_id = lsc.lesson_id and llo.learning_objective_id = $2)
+             returning lesson_id`,
+            [successCriteriaId, to.learning_objective_id, to.title],
+          )
+          lessonsLinked.push(...linked.map((row) => row.lesson_id))
+        }
+      }
+
+      const { rows } = await client.query<SuccessCriterionRecord>(
+        `update success_criteria
+           set description = coalesce($2, description),
+               level = coalesce($3, level),
+               active = coalesce($4, active)
+         where success_criteria_id = $1
+         returning success_criteria_id, learning_objective_id, description, level, order_index, active`,
+        [successCriteriaId, patch.description?.trim() ?? null, patch.level ?? null, patch.active ?? null],
+      )
+      if (!rows[0]) throw new Error(`Success criterion ${successCriteriaId} not found`)
+      await client.query("commit")
+      return { ...rows[0], lessons_linked_to_new_lo: lessonsLinked }
+    } catch (error) {
+      await client.query("rollback")
+      throw error
+    }
   })
-  if (!result) throw new Error('Failed to update success criterion')
-  return result
 }
 
 // ── Soft delete (deactivate) ───────────────────────────────────────────────
