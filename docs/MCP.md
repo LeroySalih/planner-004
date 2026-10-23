@@ -277,6 +277,44 @@ Changes a unit's title and/or description. Omitted fields are left unchanged; `d
 
 ---
 
+### Unit audits
+
+An auditor checks a unit and its lessons and records a pass, or a fail with the actions that would fix it. The status is derived (migration 123):
+
+| `status` | Meaning |
+|---|---|
+| `audited` | The last audit passed and nothing has changed since. |
+| `failed` | The last audit failed and nothing has changed since; `actions` say what to fix. |
+| `not_audited` | Never audited, or the unit or its lessons changed after the last audit. `last_result`, `audited_at` and `actions` still describe that audit, so a failed audit's actions remain the to-do list. |
+
+A change is anything to the unit itself (title, subject, description, year, curriculum, active), its lessons (added, removed, retitled, reordered, (de)activated, moved), their activities, links, LO and SC links, and unit, lesson and activity files. Making a lesson public or hiding it from pupils is not a change; nor is pupils' work, an intervention lesson, or editing a shared LO/SC's wording on the curriculum page. Database triggers record changes, so every route (app, MCP, AI chat) counts.
+
+Audit shape: `{ unit_id, unit_title, subject, status, last_result: "passed" | "failed" | null, audited_at, audited_by, changed_at, actions: [{ action, lesson_id, lesson_title }] }`. Times are ISO; `audited_by` is the signed-in teacher's name, null over the service key.
+
+#### `get_unit_audit`
+**Input:** `{ unit_id: string }`  
+**Output:** `{ audit: Audit | null }`
+
+---
+
+#### `list_unit_audits`
+Every active unit's audit, optionally filtered. `status: "not_audited"` lists the units that need auditing.
+
+**Input:** `{ subject?: string, curriculum_id?: string, status?: "audited" | "failed" | "not_audited" }`  
+**Output:** `{ audits: Audit[] }`
+
+---
+
+#### `record_unit_audit`
+Records an audit. `passed` takes no actions; `failed` needs at least one (at most 100). Each action says what must change and, when it concerns one lesson, carries that lesson's id, which must be a lesson of the unit. The actions replace those of the previous audit.
+
+`started_at` is when the auditor began reading the unit (at most a day ago). The audit is stamped with it, so an edit made while the audit ran leaves the unit `not_audited`. An auditor that fixes things itself should make the fixes first, then read and record, or the pass will read as stale.
+
+**Input:** `{ unit_id: string, result: "passed" | "failed", actions?: [{ action: string, lesson_id?: string }], started_at?: string }`  
+**Output:** `{ audit: Audit | null }`
+
+---
+
 ### Lessons
 
 #### `get_lessons_for_unit`

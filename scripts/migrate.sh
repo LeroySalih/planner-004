@@ -23,6 +23,7 @@ MIGRATIONS=(
   "120-oauth-project-keys.sql|select exists (select 1 from information_schema.columns where table_name = 'oauth_clients' and column_name = 'disabled_by_admin')"
   "121-year-group-levels.sql|select exists (select 1 from information_schema.tables where table_name = 'year_group_levels')"
   "122-year-group-top-level.sql|select exists (select 1 from information_schema.columns where table_name = 'year_group_levels' and column_name = 'top_level')"
+  "123-unit-audits.sql|select exists (select 1 from information_schema.tables where table_name = 'unit_audits')"
 )
 
 YES=false

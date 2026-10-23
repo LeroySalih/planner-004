@@ -492,6 +492,10 @@ All server functions should use `withTelemetry` wrapper for performance tracking
 - MCP server lives at `src/app/api/MCP/route.ts` — there is no separate `MCP/` directory
 - The OAuth server in `src/lib/oauth/` serves two kinds of client: MCP (opaque tokens, teacher only) and first-party Kerf clients (RS256 JWTs, `allowed_roles`, no consent). Every first-party behaviour is a column on `oauth_clients` whose default is MCP's, so keep new behaviour behind those columns. See `docs/KERF-SSO.md`. Roles for a session and for a token both come from `effectiveRoles` in `src/lib/roles.ts`. First-party clients can also be `client_type = 'service'` (confidential, `client_credentials` only, `token_use: "service"` JWTs) and can be managed by per-project API keys at `/api/oauth-clients`, held to a ceiling. Every surface that creates or changes a first-party client must go through `src/lib/oauth/client-store.ts`, which validates with `src/lib/oauth/clients.ts` and audits. See `docs/FIRST-PARTY-CLIENTS.md`.
 
+## Unit Audits
+
+A unit is audited over MCP (`get_unit_audit`, `list_unit_audits`, `record_unit_audit`; see `docs/MCP.md`) and shows its status on `/units/[unitId]`, with a failed audit's actions listed under the description. The status is derived, never stored: `unit_audits.audited_at` against `unit_audits.changed_at` (migration 123). Triggers on `units`, `lessons`, `activities`, `lesson_links`, the LO/SC link tables and `stored_files` stamp `changed_at`, so any new write path is covered without code. A new table that holds unit or lesson content needs a trigger too: `EXECUTE FUNCTION unit_audits_on_change('lesson')` (or `'unit'` / `'activity'`). Code is in `src/lib/unit-audits/store.ts`; tests in `tests/unit-audits/unit-audits.check.ts`.
+
 ## SQL Gotchas
 
 ### units → curricula join is via subject, not a foreign key

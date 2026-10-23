@@ -22,6 +22,8 @@ import { UnitEditSidebar } from "@/components/units/unit-edit-sidebar"
 import { UnitAiChatPanel } from "@/components/units/unit-ai-chat-panel"
 import type { UnitCurriculumState } from "@/lib/server-actions/unit-curriculum"
 import { UnitFilesPanel } from "@/components/units/unit-files-panel"
+import { UnitAuditActions, UnitAuditBadge } from "@/components/units/unit-audit"
+import type { UnitAudit } from "@/lib/unit-audits/store"
 const UNIT_UPDATE_EVENT = "unit:update"
 const UNIT_DEACTIVATE_EVENT = "unit:deactivate"
 const UNIT_SSE_URL = "/sse?topics=units"
@@ -46,6 +48,7 @@ interface UnitDetailViewProps {
   unitFiles: { name: string; path: string; created_at?: string; updated_at?: string; size?: number }[]
   curricula: { curriculum_id: string; subject: string | null; title: string }[]
   curriculumState: UnitCurriculumState | null
+  audit: UnitAudit | null
 }
 
 export function UnitDetailView({
@@ -58,6 +61,7 @@ export function UnitDetailView({
   unitFiles,
   curricula,
   curriculumState,
+  audit,
 }: UnitDetailViewProps) {
   const router = useRouter()
   const [isUnitSidebarOpen, setIsUnitSidebarOpen] = useState(false)
@@ -312,6 +316,7 @@ export function UnitDetailView({
               <Badge variant="outline" className={statusClassName}>
                 {isActive ? "Active" : "Inactive"}
               </Badge>
+              <UnitAuditBadge audit={audit} />
             </div>
             <div className="flex flex-wrap items-center gap-3 text-muted-foreground">
               <Badge variant="outline">Subject: {currentUnit.subject}</Badge>
@@ -355,6 +360,8 @@ export function UnitDetailView({
             )}
           </CardContent>
         </Card>
+
+        <UnitAuditActions audit={audit} />
       </div>
 
       <Card>

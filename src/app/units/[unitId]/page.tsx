@@ -17,6 +17,7 @@ import {
   readSubjectsAction,
   readUnitAction,
   listUnitFilesAction,
+  readUnitAuditAction,
 } from "@/lib/server-updates"
 import { requireTeacherProfile } from "@/lib/auth"
 import { readCurriculaAction } from "@/lib/server-actions/curricula"
@@ -43,6 +44,7 @@ export default async function UnitDetailPage({
     unitFilesResult,
     curriculaResult,
     curriculumStateResult,
+    auditResult,
   ] = await withTelemetry(
     {
       routeTag: "/units/[unitId]",
@@ -64,6 +66,7 @@ export default async function UnitDetailPage({
         listUnitFilesAction(unitId, { routeTag: "/units/[unitId]", authEndTime: authEnd }),
         readCurriculaAction({ routeTag: "/units/[unitId]", authEndTime: authEnd }),
         readUnitCurriculumStateAction(unitId),
+        readUnitAuditAction(unitId),
       ]),
   )
 
@@ -125,6 +128,7 @@ export default async function UnitDetailPage({
           unitFiles={unitFilesResult.data ?? []}
           curricula={curriculaResult.data ?? []}
           curriculumState={curriculumStateResult.data ?? null}
+          audit={auditResult.data}
         />
       </main>
     </Suspense>

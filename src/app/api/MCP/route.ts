@@ -27,6 +27,8 @@ import {
   deactivateSuccessCriterion,
 } from '@/lib/mcp/losc'
 import { listUnits, findUnitsByTitle, createUnit, updateUnit } from '@/lib/mcp/units'
+import { listUnitAudits, readUnitAudit, recordUnitAudit, MAX_AUDIT_ACTIONS, type UnitAudit } from '@/lib/unit-audits/store'
+import { withDbClient } from '@/lib/db'
 import { listLessonsForUnit, getLessonObjectives, createLesson, updateLessonTitle, reorderLessons, addSuccessCriterionToLesson, removeSuccessCriterionFromLesson, uploadLessonFile } from '@/lib/mcp/lessons'
 import {
   listTeachers,
@@ -674,6 +676,143 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
         return {
           content: [{ type: 'text' as const, text: `Error: ${message}` }],
           structuredContent: { unit: null },
+        }
+      }
+    },
+  )
+
+  // Unit audits (migration 123): the status is "audited" only while nothing in
+  // the unit or its lessons has changed since the audit.
+  const unitAuditShape = z.object({
+    unit_id: z.string(),
+    unit_title: z.string(),
+    subject: z.string(),
+    status: z.enum(['audited', 'failed', 'not_audited']),
+    last_result: z.enum(['passed', 'failed']).nullable(),
+    audited_at: z.string().nullable(),
+    audited_by: z.string().nullable(),
+    changed_at: z.string().nullable(),
+    actions: z.array(z.object({
+      action: z.string(),
+      lesson_id: z.string().nullable(),
+      lesson_title: z.string().nullable(),
+    })),
+  })
+  const toUnitAuditOutput = (audit: UnitAudit) => ({
+    unit_id: audit.unitId,
+    unit_title: audit.unitTitle,
+    subject: audit.subject,
+    status: audit.status,
+    last_result: audit.lastResult,
+    audited_at: audit.auditedAt,
+    audited_by: audit.auditedBy,
+    changed_at: audit.changedAt,
+    actions: audit.actions.map((item) => ({ action: item.action, lesson_id: item.lessonId, lesson_title: item.lessonTitle })),
+  })
+  const describeAudit = (audit: UnitAudit) => {
+    const date = audit.auditedAt ? audit.auditedAt.slice(0, 10) : null
+    if (audit.status === 'audited') return `${audit.unitTitle}: audited ${date}`
+    if (audit.status === 'failed') return `${audit.unitTitle}: audit failed ${date}, ${audit.actions.length} action(s)`
+    return audit.auditedAt
+      ? `${audit.unitTitle}: not audited (changed since the ${audit.lastResult} audit of ${date})`
+      : `${audit.unitTitle}: not audited`
+  }
+
+  srv.registerTool(
+    'get_unit_audit',
+    {
+      title: 'Get unit audit',
+      description: 'Return a unit\'s audit status: "audited" (passed, nothing changed since), "failed" (with the actions to fix), '
+        + 'or "not_audited" (never audited, or the unit or its lessons changed since the last audit). '
+        + 'After a change, last_result, audited_at and the actions of the last audit are still returned.',
+      inputSchema: {
+        unit_id: z.string().min(1).describe('Unit identifier.'),
+      },
+      outputSchema: { audit: unitAuditShape.nullable() },
+    },
+    async ({ unit_id }) => {
+      const audit = await withDbClient((client) => readUnitAudit(client, unit_id))
+      if (!audit) {
+        return {
+          content: [{ type: 'text' as const, text: `Unit ${unit_id} was not found.` }],
+          structuredContent: { audit: null },
+        }
+      }
+      return {
+        content: [{ type: 'text' as const, text: describeAudit(audit) }],
+        structuredContent: { audit: toUnitAuditOutput(audit) },
+      }
+    },
+  )
+
+  srv.registerTool(
+    'list_unit_audits',
+    {
+      title: 'List unit audits',
+      description: 'Return the audit status of every active unit, optionally filtered by subject, curriculum or status. '
+        + 'Use status "not_audited" to find units that need auditing.',
+      inputSchema: {
+        subject: z.string().min(1).optional().describe('Only units of this subject.'),
+        curriculum_id: z.string().min(1).optional().describe('Only units linked to this curriculum.'),
+        status: z.enum(['audited', 'failed', 'not_audited']).optional().describe('Only units with this status.'),
+      },
+      outputSchema: { audits: z.array(unitAuditShape) },
+    },
+    async ({ subject, curriculum_id, status }) => {
+      const audits = await withDbClient((client) =>
+        listUnitAudits(client, { subject: subject ?? null, curriculumId: curriculum_id ?? null, status: status ?? null }),
+      )
+      return {
+        content: [{
+          type: 'text' as const,
+          text: audits.length > 0 ? audits.map(describeAudit).join('\n') : 'No units match.',
+        }],
+        structuredContent: { audits: audits.map(toUnitAuditOutput) },
+      }
+    },
+  )
+
+  srv.registerTool(
+    'record_unit_audit',
+    {
+      title: 'Record unit audit',
+      description: 'Record the result of auditing a unit and its lessons. "passed" marks the unit audited with today\'s date '
+        + 'and takes no actions. "failed" needs at least one action, each saying what to fix and, where it concerns one lesson, '
+        + 'that lesson\'s id. The actions replace those of any earlier audit. Any later change to the unit or its lessons makes '
+        + 'it not audited again. Pass started_at (when you began reading the unit) so that an edit made while you were auditing '
+        + 'is not hidden; make your own fixes before that time, or audit again after them.',
+      inputSchema: z.object({
+        unit_id: z.string().min(1).describe('Unit identifier.'),
+        result: z.enum(['passed', 'failed']).describe('The audit outcome.'),
+        actions: z.preprocess(
+          (v) => (typeof v === 'string' ? JSON.parse(v) : v),
+          z.array(z.object({
+            action: z.string().min(1).describe('What must change, e.g. "Add an STQ checking the LO".'),
+            lesson_id: z.string().min(1).optional().describe('The lesson the action concerns; omit for the unit as a whole.'),
+          })).max(MAX_AUDIT_ACTIONS),
+        ).optional().describe('Why the audit failed: one entry per thing to fix. Omit for a pass.'),
+        started_at: z.string().optional().describe('ISO time you started reading the unit for this audit. Defaults to now.'),
+      }),
+      outputSchema: z.object({ audit: unitAuditShape.nullable() }),
+    },
+    async ({ unit_id, result, actions, started_at }) => {
+      try {
+        const audit = await withDbClient((client) =>
+          recordUnitAudit(
+            client,
+            { unitId: unit_id, result, actions: actions ?? [], startedAt: started_at ?? null },
+            { userId: caller.userId, clientId: caller.clientId },
+          ),
+        )
+        return {
+          content: [{ type: 'text' as const, text: `Recorded. ${describeAudit(audit)}` }],
+          structuredContent: { audit: toUnitAuditOutput(audit) },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to record the audit'
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${message}` }],
+          structuredContent: { audit: null },
         }
       }
     },
