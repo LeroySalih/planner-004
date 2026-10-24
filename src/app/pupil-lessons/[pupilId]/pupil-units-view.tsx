@@ -248,7 +248,7 @@ export function PupilUnitsView({
               <p className="mt-12 text-la-muted">No units have been set yet.</p>
             ) : (
               <ol className="mt-10 space-y-4" aria-label={`Lessons in ${selectedUnit.unitTitle}`}>
-                {selectedUnit.lessons.map((lesson, index) => (
+                {lessonsByDueDate(selectedUnit.lessons).map((lesson, index) => (
                   <LessonCard
                     key={lesson.lessonId}
                     lesson={lesson}
@@ -263,6 +263,20 @@ export function PupilUnitsView({
       </div>
     </div>
   )
+}
+
+/**
+ * Latest due date first, so the lesson most recently due is at the top and
+ * the numbers count down from it. Lessons due the same day keep the unit's
+ * order, later lessons first; undated lessons go last.
+ */
+function lessonsByDueDate(lessons: PupilUnitLesson[]): PupilUnitLesson[] {
+  return [...lessons].sort((a, b) => {
+    const dueA = lessonDueDate(a.startDate) ?? ""
+    const dueB = lessonDueDate(b.startDate) ?? ""
+    if (dueA !== dueB) return dueA < dueB ? 1 : -1
+    return (b.lessonOrder ?? 0) - (a.lessonOrder ?? 0)
+  })
 }
 
 function UnitMeta({ unit }: { unit: PupilUnitEntry }) {
