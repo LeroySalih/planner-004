@@ -8,7 +8,6 @@ import { lessonDueDate } from "@/lib/lesson-due-date"
 import { lessonArticleFontClass } from "@/components/lesson-article/fonts"
 import { ChevronIcon, LockIcon } from "@/components/lesson-article/icons"
 import type { PupilUnitEntry, PupilUnitsDetail, PupilUnitLesson } from "@/lib/pupil-units-data"
-import { LessonMedia } from "./lesson-media"
 import { PupilPicker } from "@/components/pupil-picker"
 import type { PupilPickerData } from "@/lib/pupil-picker"
 
@@ -359,17 +358,17 @@ function LessonCard({ lesson, number, pupilId }: { lesson: PupilUnitLesson; numb
             </div>
           </div>
 
-          <p className="mt-1 text-[15px] text-la-muted">
-            {lesson.objectives.length > 0 ? lesson.objectives.map((objective) => objective.title).join(" · ") : "No learning objectives set"}
-          </p>
+          {lesson.description ? (
+            <p className="mt-1 font-[family-name:var(--font-source-serif)] text-[17px] leading-relaxed text-la-muted">
+              {lesson.description}
+            </p>
+          ) : null}
 
           {lesson.resubmitCount > 0 ? (
             <p className="mt-3 inline-flex rounded-full bg-la-amber-bg px-2.5 py-0.5 text-sm font-medium text-la-amber">
               {lesson.resubmitCount} {lesson.resubmitCount === 1 ? "activity needs" : "activities need"} resubmitting
             </p>
           ) : null}
-
-          <LessonMedia lessonId={lesson.lessonId} lessonTitle={lesson.lessonTitle} images={lesson.displayImages} files={lesson.files} />
 
           {revision ? (
             <p className="mt-3 flex flex-wrap items-center gap-2 text-sm">

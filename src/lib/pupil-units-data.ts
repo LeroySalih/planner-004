@@ -1,22 +1,5 @@
 import { readPupilUnitsBootstrapAction } from "@/lib/server-updates";
 
-export type PupilUnitLessonMediaImage = {
-  activityId: string;
-  title: string | null;
-  orderBy: number | null;
-  imageFile: string | null;
-  imageUrl: string | null;
-  fileUrl: string | null;
-};
-
-export type PupilUnitLessonFile = {
-  name: string;
-  path: string;
-  mimeType: string | null;
-  size: number | null;
-  updatedAt: string | null;
-};
-
 export type PupilUnitLesson = {
   lessonId: string;
   lessonTitle: string;
@@ -27,13 +10,8 @@ export type PupilUnitLesson = {
   feedbackVisible: boolean;
   isEnrolled: boolean;
   locked: boolean;
-  objectives: Array<{
-    id: string;
-    title: string;
-    orderIndex: number | null;
-  }>;
-  displayImages: PupilUnitLessonMediaImage[];
-  files: PupilUnitLessonFile[];
+  /** One sentence for pupils on what the lesson achieves (migration 124). */
+  description: string | null;
   revisionScore: number | null;
   revisionMaxScore: number | null;
   revisionDate: string | null;
