@@ -26,6 +26,7 @@ import {
   deactivateLearningObjective,
   deactivateSuccessCriterion,
 } from '@/lib/mcp/losc'
+import { listLessonAssignments } from '@/lib/mcp/assignments'
 import { listUnits, findUnitsByTitle, createUnit, updateUnit, getUnit } from '@/lib/mcp/units'
 import { LESSON_DESCRIPTION_MAX } from '@/lib/lesson-description'
 import { listUnitAudits, readUnitAudit, recordUnitAudit, MAX_AUDIT_ACTIONS, type UnitAudit } from '@/lib/unit-audits/store'
@@ -2409,6 +2410,78 @@ The result is checked as create_activity checks it; a body over a limit is refus
           },
         ],
         structuredContent: { teacher_id: teacherId, slots },
+      }
+    },
+  )
+
+  const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use yyyy-MM-dd.')
+
+  srv.registerTool(
+    'list_lesson_assignments',
+    {
+      title: 'List lesson assignments',
+      description:
+        'Read-only. Which lessons each class has been given, and when, from the planner. One row per (class, lesson): '
+        + 'start_date is the week the class first has it (the date progress and due dates use), due_date is start_date + 7 days, '
+        + 'and sessions lists every planned slot with its calendar date, day and period. Newest first. '
+        + 'Filter by group_id, unit_id, lesson_id and/or a from/to range on start_date (yyyy-MM-dd, inclusive). '
+        + 'Retired classes are excluded unless include_inactive is true or group_id names one.',
+      inputSchema: {
+        group_id: z.string().optional().describe('Class, e.g. 26-10-DT. See list_groups.'),
+        unit_id: z.string().optional(),
+        lesson_id: z.string().optional(),
+        from: isoDate.optional().describe('Earliest start_date, yyyy-MM-dd.'),
+        to: isoDate.optional().describe('Latest start_date, yyyy-MM-dd.'),
+        include_inactive: z.boolean().optional().describe('Include retired classes. Defaults to false.'),
+      },
+      outputSchema: {
+        assignments: z
+          .array(
+            z.object({
+              group_id: z.string(),
+              group_subject: z.string().nullable(),
+              lesson_id: z.string(),
+              lesson_title: z.string(),
+              unit_id: z.string(),
+              unit_title: z.string(),
+              start_date: z.string(),
+              due_date: z.string().nullable(),
+              locked: z.boolean(),
+              feedback_visible: z.boolean(),
+              sessions: z.array(
+                z.object({ date: z.string(), week_start_date: z.string(), day: z.string(), period: z.number() }),
+              ),
+            }),
+          )
+          .nullable(),
+      },
+    },
+    async ({ group_id, unit_id, lesson_id, from, to, include_inactive }) => {
+      try {
+        const assignments = await listLessonAssignments({
+          groupId: group_id,
+          unitId: unit_id,
+          lessonId: lesson_id,
+          from,
+          to,
+          includeInactive: include_inactive,
+        })
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: assignments.length
+                ? assignments
+                    .map((a) => `${a.start_date} • ${a.group_id} • ${a.unit_title} › ${a.lesson_title} (due ${a.due_date ?? 'n/a'})`)
+                    .join('\n')
+                : 'No lesson assignments match.',
+            },
+          ],
+          structuredContent: { assignments },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to list lesson assignments'
+        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { assignments: null } }
       }
     },
   )

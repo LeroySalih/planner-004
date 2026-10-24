@@ -780,6 +780,31 @@ there was nothing there, rather than erroring.
 
 ---
 
+### Lesson assignments
+
+Read-only. Which lessons each class has been given and when, from the
+planner. Assignments are made in the planner, not over MCP.
+
+#### `list_lesson_assignments`
+One row per (class, lesson), newest first.
+
+- `start_date` — the week (Sunday) the class first has the lesson. Progress,
+  My Units and due dates all work from this date.
+- `due_date` — `start_date` + 7 days (`src/lib/lesson-due-date.ts`).
+- `sessions` — every planned slot, with its calendar `date`, `day` and `period`.
+  A lesson taught over two slots has two sessions.
+- `locked` — pupils can view the lesson but not change answers.
+  `feedback_visible` — pupils can see their feedback.
+
+`from` / `to` (yyyy-MM-dd, inclusive) filter on `start_date`. Inactive lessons
+are left out. Retired classes are left out unless `include_inactive` is true or
+`group_id` names one.
+
+**Input:** `{ group_id?: string, unit_id?: string, lesson_id?: string, from?: string, to?: string, include_inactive?: boolean }`  
+**Output:** `{ assignments: [{ group_id, group_subject, lesson_id, lesson_title, unit_id, unit_title, start_date, due_date, locked, feedback_visible, sessions: [{ date, week_start_date, day, period }] }] | null }`
+
+---
+
 ### Assessment papers
 
 Written papers marked outside a lesson (e.g. "Practice B"). Results live in
@@ -988,5 +1013,6 @@ Health probe.
 | `src/lib/mcp/losc.ts` | AO / LO / SC read/write helpers |
 | `src/lib/mcp/activities.ts` | Activity read/write/upload helpers |
 | `src/lib/mcp/timetable.ts` | Teacher / group lookup and timetable slot CRUD |
+| `src/lib/mcp/assignments.ts` | Read-only lesson assignments (class, lesson, dates) from the planner |
 | `src/lib/interventions/store.ts` | Intervention reads/writes, derived status and score, pupil gaps, and the pupil access rule |
 | `src/lib/assessments/store.ts` | Assessment paper reads/writes (shared with future server actions) |
