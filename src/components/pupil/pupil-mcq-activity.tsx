@@ -57,7 +57,6 @@ export function PupilMcqActivity({
   const normalizedInitial = initialSelection && optionMap.has(initialSelection) ? initialSelection : null
 
   const [selection, setSelection] = useState<string | null>(normalizedInitial)
-  const [lastSaved, setLastSaved] = useState<string | null>(normalizedInitial)
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(
     normalizedInitial ? { type: "success", message: "Answer saved" } : null,
   )
@@ -73,7 +72,6 @@ export function PupilMcqActivity({
     console.log(`[PupilMcqActivity] Mount/Update: ${activity.activity_id}`, { initialSelection })
     const nextInitial = initialSelection && optionMap.has(initialSelection) ? initialSelection : null
     setSelection(nextInitial)
-    setLastSaved(nextInitial)
     setFeedback(nextInitial ? { type: "success", message: "Answer saved" } : null)
   }, [initialSelection, optionMap, activity.activity_id])
 
@@ -150,6 +148,7 @@ export function PupilMcqActivity({
           activityId: activity.activity_id,
           userId: pupilId,
           optionId,
+          assignmentId: feedbackAssignmentIds[0],
         })
 
         if (!result.success) {
@@ -164,24 +163,22 @@ export function PupilMcqActivity({
           return
         }
 
-        setLastSaved(optionId)
         setFeedback({ type: "success", message: "Answer saved" })
         onSelectionChange?.(optionId)
-        triggerFeedbackRefresh(lessonId)
+        triggerFeedbackRefresh(lessonId, activity.activity_id)
       })
     },
-    [activity.activity_id, canAnswerEffective, lessonId, onSelectionChange, optionMap, pupilId, selection, startTransition],
+    [activity.activity_id, canAnswerEffective, feedbackAssignmentIds, lessonId, onSelectionChange, optionMap, pupilId, selection, startTransition],
   )
 
   const question = mcqBody.question.trim()
   const hasOptions = mcqBody.options.length > 0
   const currentSelection = selection ?? ""
-  const savedOptionText = lastSaved ? optionMap.get(lastSaved)?.text?.trim() || null : null
 
   return (
     <div className="space-y-3">
       {!canAnswerEffective ? (
-        <p className="text-xs text-pa-muted-3">
+        <p className="text-sm text-pa-muted-3">
           You can review this question, but only pupils can select an answer.
         </p>
       ) : null}
@@ -206,7 +203,8 @@ export function PupilMcqActivity({
         <RadioGroup
           value={currentSelection}
           onValueChange={handleSelect}
-          className="flex flex-col gap-[11px]"
+          aria-labelledby={`activity-${activity.activity_id}-heading`}
+          className="grid gap-2.5 sm:grid-cols-2"
         >
           {mcqBody.options.map((option, index) => {
             const optionId = option.id
@@ -218,11 +216,11 @@ export function PupilMcqActivity({
                 key={optionId}
                 htmlFor={`${activity.activity_id}-${optionId}`}
                 className={cn(
-                  "flex items-center gap-[13px] rounded-pa-opt border-[1.5px] px-4 py-[15px] transition-colors",
-                  canAnswerEffective && !isPending ? "cursor-pointer" : "cursor-not-allowed opacity-90",
+                  "flex min-h-11 items-center gap-3 rounded-[10px] border px-4 py-2.5 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-pa-green/40",
+                  canAnswerEffective && !isPending ? "cursor-pointer" : "cursor-not-allowed",
                   isSelected
-                    ? "border-2 border-pa-green bg-pa-green-tint"
-                    : "border-pa-field-border bg-pa-field hover:border-pa-green/50",
+                    ? "border-2 border-pa-green bg-pa-green-tint px-[15px]"
+                    : "border-pa-field-border bg-pa-field hover:border-pa-green",
                 )}
               >
                 <RadioGroupItem
@@ -234,14 +232,17 @@ export function PupilMcqActivity({
                 <span
                   aria-hidden
                   className={cn(
-                    "grid h-6 w-6 flex-none place-items-center rounded-lg border-2 text-xs font-bold",
-                    isSelected ? "border-pa-green text-pa-green" : "border-pa-key-border text-pa-key-text",
+                    "grid h-5 w-5 flex-none place-items-center rounded-full border-2",
+                    isSelected ? "border-pa-green" : "border-pa-key-border",
                   )}
                 >
+                  {isSelected ? <span className="h-2.5 w-2.5 rounded-full bg-pa-green" /> : null}
+                </span>
+                <span className="mr-0.5 text-sm font-semibold text-pa-muted-2" aria-hidden>
                   {String.fromCharCode(65 + index)}
                 </span>
                 <span
-                  className={cn("prose prose-sm max-w-none text-[15.5px] text-pa-ink [&_p]:my-0 [&_p]:inline", isSelected && "font-semibold")}
+                  className={cn("prose prose-sm max-w-none text-[15px] text-pa-ink [&_p]:my-0 [&_p]:inline", isSelected && "font-semibold")}
                   dangerouslySetInnerHTML={{ __html: getRichTextMarkup(optionText) ?? optionText }}
                 />
               </label>
@@ -252,16 +253,14 @@ export function PupilMcqActivity({
         <p className="text-sm text-pa-muted-3">The teacher hasn’t added answer options yet.</p>
       )}
 
-      <div className="flex flex-wrap items-center gap-2 text-xs text-pa-muted-3">
+      <div role="status" className="flex min-h-5 flex-wrap items-center gap-2 text-sm text-pa-muted-3">
         {isPending ? (
           <span className="inline-flex items-center gap-1.5">
             <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
             Saving your answer…
           </span>
-        ) : savedOptionText ? (
-          <span>
-            Saved: <span className="font-medium text-pa-ink">{savedOptionText}</span>
-          </span>
+        ) : feedback?.type === "error" ? (
+          <span className="text-destructive">{feedback.message}</span>
         ) : null}
       </div>
     </div>

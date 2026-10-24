@@ -26,11 +26,14 @@ const FeedbackVisibilityContext = createContext<VisibilityState | null>(null)
 export function FeedbackVisibilityProvider({
   assignmentIds,
   lessonId,
+  pupilId,
   initialVisible,
   children,
 }: {
   assignmentIds: string[]
   lessonId: string
+  /** Whose page this is. The stream carries every pupil's results; only theirs count. */
+  pupilId?: string
   initialVisible: boolean
   children: ReactNode
 }) {
@@ -136,7 +139,7 @@ export function FeedbackVisibilityProvider({
           aiScore: p?.aiScore,
           aiFeedback: p?.aiFeedback,
         })
-        if (typeof p?.activityId === "string" && typeof p?.pupilId === "string") {
+        if (typeof p?.activityId === "string" && typeof p?.pupilId === "string" && (!pupilId || p.pupilId === pupilId)) {
           handleMarkingResult(
             p.activityId,
             p.pupilId,
@@ -172,7 +175,7 @@ export function FeedbackVisibilityProvider({
     }
   // Use channelsKey (string) not channels (array) — prevents reconnect when array ref changes but content is same
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [channelsKey, lessonId])
+  }, [channelsKey, lessonId, pupilId])
 
   const value = useMemo(
     () => ({ channels, events, currentVisible, sseStatus, lastEventAt, markingResults }),

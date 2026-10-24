@@ -31,6 +31,8 @@ const nextConfig: NextConfig = {
           "font-src 'self' data:",
           "connect-src 'self' https:",
           "worker-src 'self' blob:",
+          // Lesson videos play in place on the pupil lesson page.
+          "frame-src 'self' https://www.youtube-nocookie.com https://player.vimeo.com",
           "frame-ancestors 'none'",
           // The OAuth consent form redirects to the MCP client's callback
           // (src/lib/oauth/server.ts); browsers apply form-action to that

@@ -27,9 +27,10 @@ import {
   deactivateSuccessCriterion,
 } from '@/lib/mcp/losc'
 import { listUnits, findUnitsByTitle, createUnit, updateUnit, getUnit } from '@/lib/mcp/units'
+import { LESSON_DESCRIPTION_MAX } from '@/lib/lesson-description'
 import { listUnitAudits, readUnitAudit, recordUnitAudit, MAX_AUDIT_ACTIONS, type UnitAudit } from '@/lib/unit-audits/store'
 import { withDbClient } from '@/lib/db'
-import { listLessonsForUnit, getLessonObjectives, createLesson, updateLessonTitle, reorderLessons, addSuccessCriterionToLesson, removeSuccessCriterionFromLesson, removeLearningObjectiveFromLesson, uploadLessonFile, removeLessonFile } from '@/lib/mcp/lessons'
+import { listLessonsForUnit, getLessonObjectives, createLesson, updateLesson, reorderLessons, addSuccessCriterionToLesson, removeSuccessCriterionFromLesson, removeLearningObjectiveFromLesson, uploadLessonFile, removeLessonFile } from '@/lib/mcp/lessons'
 import {
   listTeachers,
   listGroups,
@@ -437,6 +438,7 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
             lesson_id: z.string(),
             unit_id: z.string(),
             title: z.string(),
+            description: z.string().nullable(),
             is_active: z.boolean(),
             order_index: z.number(),
           }),
@@ -512,7 +514,8 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
       title: 'Get lesson objectives and success criteria',
       description: 'Return everything linked to a lesson: its learning objectives, the success criteria under each, and which of the lesson\'s activities use each criterion. '
         + 'Use it to check links after add_success_criterion_to_lesson / add_success_criterion_to_activity, or to find stale ones to remove. '
-        + 'linked_to_lesson is false for an LO or SC that only reaches the lesson through a criterion or activity, rather than being linked to the lesson itself.',
+        + 'linked_to_lesson is false for an LO or SC that only reaches the lesson through a criterion or activity, rather than being linked to the lesson itself. '
+        + 'Also returns the lesson\'s description (null if unset), which update_lesson writes.',
       inputSchema: {
         lesson_id: z.string().min(1).describe('Lesson identifier.'),
       },
@@ -521,6 +524,7 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
           lesson_id: z.string(),
           unit_id: z.string(),
           title: z.string(),
+          description: z.string().nullable(),
           learning_objectives: z.array(z.object({
             learning_objective_id: z.string(),
             assessment_objective_code: z.string().nullable(),
@@ -643,6 +647,16 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
     },
   )
 
+  const LESSON_DESCRIPTION_HELP = `One short sentence (at most ${LESSON_DESCRIPTION_MAX} characters) telling pupils what they will achieve in the lesson, written from its learning objectives and success criteria. Shown under the title on the pupil lesson page.`
+  const lessonRecordShape = z.object({
+    lesson_id: z.string(),
+    unit_id: z.string(),
+    title: z.string(),
+    description: z.string().nullable(),
+    is_active: z.boolean(),
+    order_index: z.number(),
+  })
+
   srv.registerTool(
     'create_lesson',
     {
@@ -651,20 +665,15 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
       inputSchema: {
         unit_id: z.string().min(1).describe('Unit identifier.'),
         title: z.string().min(1).describe('Lesson title.'),
+        description: z.string().max(LESSON_DESCRIPTION_MAX).optional().describe(LESSON_DESCRIPTION_HELP),
       },
       outputSchema: {
-        lesson: z.object({
-          lesson_id: z.string(),
-          unit_id: z.string(),
-          title: z.string(),
-          is_active: z.boolean(),
-          order_index: z.number(),
-        }).nullable(),
+        lesson: lessonRecordShape.nullable(),
       },
     },
-    async ({ unit_id, title }) => {
+    async ({ unit_id, title, description }) => {
       try {
-        const lesson = await createLesson(unit_id, title)
+        const lesson = await createLesson(unit_id, title, description)
         return {
           content: [{ type: 'text' as const, text: `Created lesson ${lesson.lesson_id} • ${lesson.title} in unit ${unit_id}` }],
           structuredContent: { lesson },
@@ -858,26 +867,26 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
     'update_lesson',
     {
       title: 'Update lesson',
-      description: 'Rename a lesson. Lessons have a title only — there is no lesson description.',
+      description: 'Change a lesson\'s title and/or description. Omitted fields are left unchanged; an empty description clears it. '
+        + 'The description is one short sentence for pupils on what they will achieve, written from the lesson\'s learning objectives and success criteria '
+        + '(read them with get_lesson_objectives, which also returns the current description).',
       inputSchema: {
         lesson_id: z.string().min(1).describe('Lesson identifier.'),
-        title: z.string().min(1).describe('New lesson title.'),
+        title: z.string().min(1).optional().describe('New lesson title.'),
+        description: z.string().max(LESSON_DESCRIPTION_MAX).optional().describe(`${LESSON_DESCRIPTION_HELP} Pass "" to clear it.`),
       },
       outputSchema: {
-        lesson: z.object({
-          lesson_id: z.string(),
-          unit_id: z.string(),
-          title: z.string(),
-          is_active: z.boolean(),
-          order_index: z.number(),
-        }).nullable(),
+        lesson: lessonRecordShape.nullable(),
       },
     },
-    async ({ lesson_id, title }) => {
+    async ({ lesson_id, title, description }) => {
       try {
-        const lesson = await updateLessonTitle(lesson_id, title)
+        const lesson = await updateLesson(lesson_id, { title, description })
         return {
-          content: [{ type: 'text' as const, text: `Updated lesson ${lesson.lesson_id} • ${lesson.title}` }],
+          content: [{
+            type: 'text' as const,
+            text: `Updated lesson ${lesson.lesson_id} • ${lesson.title}${lesson.description ? ` — ${lesson.description}` : ''}`,
+          }],
           structuredContent: { lesson },
         }
       } catch (error) {

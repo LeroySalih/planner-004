@@ -260,6 +260,91 @@
   --font-pa-num: var(--font-space);
 }
 
+/* ── Pupil lesson article ──────────────────────────────────────────────────
+   The pupil lesson page reads as one article (/pupil-lessons/…/lessons/…).
+   `la-` tokens style the page; inside it the Warm Study `pa-` tokens are
+   re-pointed at the same palette, so every activity renderer matches it
+   without each one being rewritten. */
+.lesson-article {
+  --la-bg: #fafaf7;
+  --la-card: #ffffff;
+  --la-border: #e3e5e1;
+  --la-ink: #191c1a;
+  --la-muted: #5b625e;
+  --la-input: #c9cdc8;
+  --la-green: #1d6b45;
+  --la-green-hover: #134a30;
+  --la-green-pale: #e8f2ec;
+  --la-amber: #92400e;
+  --la-amber-bg: #fef3e2;
+  --la-red: #a1251b;
+  --la-red-bg: #fde8e7;
+
+  --pa-green: var(--la-green);
+  --pa-green-tint: var(--la-green-pale);
+  --pa-green-panel: var(--la-green-pale);
+  --pa-green-border: #c5dccd;
+  --pa-green-released: var(--la-green);
+  --pa-ink: var(--la-ink);
+  --pa-prose: var(--la-ink);
+  --pa-card: var(--la-card);
+  --pa-card-border: var(--la-border);
+  --pa-panel: var(--la-card);
+  --pa-field: var(--la-card);
+  --pa-field-border: var(--la-input);
+  --pa-muted-1: var(--la-muted);
+  --pa-muted-2: var(--la-muted);
+  --pa-muted-3: var(--la-muted);
+  --pa-key-border: var(--la-input);
+  --pa-key-text: var(--la-muted);
+  --pa-amber: var(--la-amber);
+  --pa-amber-tint: var(--la-amber-bg);
+  --pa-amber-dot: var(--la-amber);
+  --pa-page: var(--la-bg);
+  --pa-ring-track: var(--la-border);
+  --pa-thumb-border: var(--la-border);
+  --radius-pa-card: 12px;
+  --radius-pa-panel: 12px;
+  --radius-pa-box: 10px;
+  --radius-pa-opt: 10px;
+  --font-pa-head: var(--font-inter);
+  --font-pa-body: var(--font-inter);
+  --font-pa-num: var(--font-inter);
+}
+
+.dark .lesson-article {
+  --la-bg: #121513;
+  --la-card: #1b1f1c;
+  --la-border: #2e342f;
+  --la-ink: #eceeec;
+  --la-muted: #a6ada8;
+  --la-input: #48504a;
+  --la-green: #5fbf8b;
+  --la-green-hover: #86d3a8;
+  --la-green-pale: #1a2c21;
+  --la-amber: #f2b66d;
+  --la-amber-bg: #33240f;
+  --la-red: #f2938a;
+  --la-red-bg: #3a1714;
+  --pa-green-border: #2c4636;
+}
+
+@theme inline {
+  --color-la-bg: var(--la-bg);
+  --color-la-card: var(--la-card);
+  --color-la-border: var(--la-border);
+  --color-la-ink: var(--la-ink);
+  --color-la-muted: var(--la-muted);
+  --color-la-input: var(--la-input);
+  --color-la-green: var(--la-green);
+  --color-la-green-hover: var(--la-green-hover);
+  --color-la-green-pale: var(--la-green-pale);
+  --color-la-amber: var(--la-amber);
+  --color-la-amber-bg: var(--la-amber-bg);
+  --color-la-red: var(--la-red);
+  --color-la-red-bg: var(--la-red-bg);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

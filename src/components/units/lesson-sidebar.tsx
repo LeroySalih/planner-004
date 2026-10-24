@@ -17,6 +17,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { RichTextEditor } from "@/components/ui/rich-text-editor"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Textarea } from "@/components/ui/textarea"
+import { LESSON_DESCRIPTION_MAX } from "@/lib/lesson-description"
 import {
   Select,
   SelectContent,
@@ -248,6 +249,7 @@ export function LessonSidebar({
   const isPending = isSaving || createPending
   const router = useRouter()
   const [title, setTitle] = useState(lesson?.title ?? "")
+  const [description, setDescription] = useState(lesson?.description ?? "")
   const [isConfirmingDeactivate, setIsConfirmingDeactivate] = useState(false)
   const [selectedObjectiveIds, setSelectedObjectiveIds] = useState<string[]>([])
   const [activities, setActivities] = useState<LessonActivity[]>([])
@@ -299,6 +301,7 @@ export function LessonSidebar({
     lastCreateJobIdRef.current = null
     pendingCreateTitleRef.current = ""
     setTitle(lesson?.title ?? "")
+    setDescription(lesson?.description ?? "")
     setIsConfirmingDeactivate(false)
     const availableIds = new Set(
       learningObjectives.map((objective) => objective.learning_objective_id),
@@ -1414,6 +1417,7 @@ export function LessonSidebar({
           unitId,
           trimmedTitle,
           selectedObjectiveIds,
+          { description },
         )
 
         if (result.error || !result.data) {
@@ -1515,6 +1519,28 @@ export function LessonSidebar({
                     disabled={isPending}
                   />
                 </div>
+
+                {lesson ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="lesson-description">Description</Label>
+                    <Textarea
+                      id="lesson-description"
+                      value={description}
+                      onChange={(event) => setDescription(event.target.value)}
+                      placeholder="One short sentence: what pupils will achieve in this lesson"
+                      maxLength={LESSON_DESCRIPTION_MAX}
+                      rows={3}
+                      disabled={isPending}
+                      aria-describedby="lesson-description-help"
+                    />
+                    <p id="lesson-description-help" className="flex justify-between gap-3 text-xs text-muted-foreground">
+                      <span>Shown to pupils under the lesson title. Base it on the lesson&apos;s objectives and success criteria.</span>
+                      <span className="tabular-nums">
+                        {description.trim().length}/{LESSON_DESCRIPTION_MAX}
+                      </span>
+                    </p>
+                  </div>
+                ) : null}
 
                 {lesson ? (
                   <div className="space-y-2">

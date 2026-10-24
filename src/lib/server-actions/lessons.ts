@@ -28,6 +28,7 @@ import {
 import { type NormalizedSuccessCriterion } from "./learning-objectives";
 import { isScorableActivityType } from "@/dino.config";
 import { requireTeacherProfile } from "@/lib/auth";
+import { cleanLessonDescription } from "@/lib/lesson-description";
 import { withTelemetry } from "@/lib/telemetry";
 import {
   LESSON_CHANNEL_NAME,
@@ -524,7 +525,10 @@ export async function updateLessonAction(
   unitId: string,
   title: string,
   objectiveIds: string[] = [],
+  // Omitted leaves the description as it is; "" clears it.
+  options: { description?: string } = {},
 ) {
+  await requireTeacherProfile();
   console.log("[v0] Server action started for lesson update:", {
     lessonId,
     unitId,
@@ -533,12 +537,27 @@ export async function updateLessonAction(
 
   const sanitizedObjectiveIds = ObjectiveIdsSchema.parse(objectiveIds);
 
+  let description: string | null | undefined;
+  try {
+    description = options.description === undefined
+      ? undefined
+      : cleanLessonDescription(options.description);
+  } catch (error) {
+    return LessonReturnValue.parse({
+      data: null,
+      error: error instanceof Error ? error.message : "Invalid description.",
+    });
+  }
+
   try {
     await withDbClient(async (client) => {
-      await client.query("update lessons set title = $1 where lesson_id = $2", [
-        title,
-        lessonId,
-      ]);
+      await client.query(
+        `update lessons
+            set title = $1,
+                description = case when $3 then $4 else description end
+          where lesson_id = $2`,
+        [title, lessonId, description !== undefined, description ?? null],
+      );
 
       const { rows: existingLinks } = await client.query(
         "select learning_objective_id from lessons_learning_objective where lesson_id = $1",

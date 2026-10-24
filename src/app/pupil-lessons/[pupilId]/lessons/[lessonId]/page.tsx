@@ -1,25 +1,13 @@
 import type { ReactNode } from "react"
 import Link from "next/link"
 import { notFound, redirect } from "next/navigation"
-import { format } from "date-fns"
-import {
-  ArrowLeft,
-  Download,
-  FileIcon,
-  Globe,
-  HelpCircle,
-  Link as LinkIcon,
-  Lock,
-  Mic,
-  Music2,
-  Play,
-  PlaySquare,
-  TestTube,
-  Video,
-} from "lucide-react"
+import { differenceInCalendarDays, format, parseISO } from "date-fns"
+import { ArrowLeft, Lock } from "lucide-react"
 
 import { requireAuthenticatedProfile, hasRole } from "@/lib/auth"
-import { query } from "@/lib/db"
+import { query, withDbClient } from "@/lib/db"
+import { readLessonUnderstanding } from "@/lib/lesson-understanding/store"
+import { lessonDueDate } from "@/lib/lesson-due-date"
 import { resolveActivityImageUrl } from "@/lib/activity-assets"
 import { loadPupilLessonsSummaries } from "@/lib/pupil-lessons-data"
 import {
@@ -31,17 +19,15 @@ import {
   readLessonSubmissionSummariesAction,
   getActivityFileDownloadUrlAction,
 } from "@/lib/server-updates"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { StartRevisionButton } from "@/components/revisions/start-revision-button"
+import { isScorableActivityType } from "@/dino.config"
+import { cn } from "@/lib/utils"
+import { findLessonResources } from "@/lib/lesson-resources"
+import { loadCourseUnits, loadLessonPosition, loadSubmittedActivityIds } from "@/lib/pupil-lesson-article-data"
 import { PupilUploadActivity } from "@/components/pupil/pupil-upload-activity"
 import { PupilUploadCodeActivity } from "@/components/pupil/pupil-upload-code-activity"
 import { highlightCode, renderTaskMarkup } from "@/lib/code-highlight"
 import { PupilUploadSpreadsheetActivity } from "@/components/pupil/pupil-upload-spreadsheet-activity"
 import { PupilUploadWorksheetActivity } from "@/components/pupil/pupil-upload-worksheet-activity"
-
-
 import { PupilMcqActivity } from "@/components/pupil/pupil-mcq-activity"
 import { PupilMatcherActivity } from "@/components/pupil/pupil-matcher-activity"
 import { PupilGroupItemsActivity } from "@/components/pupil/pupil-group-items-activity"
@@ -55,8 +41,14 @@ import { PupilUploadUrlActivity } from "@/components/pupil/pupil-upload-url-acti
 import { PupilSketchRenderActivity } from "@/components/lessons/activity-view/pupil-sketch-render-activity"
 import { PupilShareMyWorkActivity } from "@/components/pupil/pupil-share-my-work-activity"
 import { PupilReviewOthersWorkActivity } from "@/components/pupil/pupil-review-others-work-activity"
-
-import { MediaImage } from "@/components/ui/media-image"
+import { ArticleActivity, type ArticleActivityVariant } from "@/components/lesson-article/article-activity"
+import { ArrowLeftIcon, LockIcon } from "@/components/lesson-article/icons"
+import { LessonContents, type ContentsSection } from "@/components/lesson-article/lesson-contents"
+import { LessonFooter } from "@/components/lesson-article/lesson-footer"
+import { LessonObjectives } from "@/components/lesson-article/lesson-objectives"
+import { LessonProgressProvider } from "@/components/lesson-article/lesson-progress"
+import { ResourceCards } from "@/components/lesson-article/resource-cards"
+import { lessonArticleFontClass } from "@/components/lesson-article/fonts"
 import {
   GroupItemsActivityBodySchema,
   GroupItemsSubmissionBodySchema,
@@ -74,25 +66,13 @@ import {
 import { extractScoreFromSubmission } from "@/lib/scoring/activity-scores"
 import { fetchPupilActivityFeedbackMap, selectLatestFeedbackEntry } from "@/lib/feedback/pupil-activity-feedback"
 import {
-  getActivityFileUrlValue,
   getActivityTextValue,
   getDisplayWebpageBody,
   getFlashcardsText,
   getRichTextMarkup,
-  getYouTubeThumbnailUrl,
+  getYouTubeVideoId,
 } from "@/components/lessons/activity-view/utils"
 import { FeedbackVisibilityProvider } from "./feedback-visibility-debug"
-import {
-  ActivityMotion,
-  LessonEnd,
-  LessonHero,
-  LessonScrollProgress,
-  StickySectionHeading,
-  type ScrollObjective,
-  type ScrollObjectiveCriterion,
-} from "@/components/lessons/lesson-scroll-layout"
-import { LiveActivityShell } from "./live-activity-shell"
-import { ActivitySidebar } from "@/components/lessons/activity-sidebar"
 import { interventionAllowsPupil } from "@/lib/interventions/store"
 import { isLessonLockedForUser } from "@/lib/lesson-lock"
 import { LockedWhen } from "./locked-when"
@@ -188,19 +168,6 @@ function shuffleArray<T>(items: T[]): T[] {
   return result
 }
 
-function formatDateLabel(value: string | null | undefined) {
-  if (!value) {
-    return "No start date"
-  }
-
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) {
-    return value
-  }
-
-  return format(parsed, "PPP")
-}
-
 function formatActivityType(type: string | null | undefined): string {
   if (!type) return ""
   return type
@@ -208,38 +175,6 @@ function formatActivityType(type: string | null | undefined): string {
     .filter(Boolean)
     .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
     .join(" ")
-}
-
-function selectActivityIcon(type: string | null | undefined, hasAudio: boolean, linkUrl: string | null) {
-  if (!type) {
-    return hasAudio ? <Music2 className="h-4 w-4 text-muted-foreground" aria-hidden="true" /> : null
-  }
-
-  const normalized = type.toLowerCase()
-
-  if (normalized.includes("test")) {
-    return <TestTube className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-  }
-  if (normalized.includes("download") || normalized.includes("file")) {
-    return <Download className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-  }
-  if (normalized.includes("audio") || normalized.includes("voice") || hasAudio) {
-    return <Music2 className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-  }
-  if (normalized.includes("video") || (linkUrl && isYouTubeUrl(linkUrl))) {
-    return <PlaySquare className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-  }
-
-  return null
-}
-
-function isYouTubeUrl(url: string) {
-  try {
-    const parsed = new URL(url)
-    return parsed.hostname.includes("youtube.com") || parsed.hostname.includes("youtu.be")
-  } catch {
-    return false
-  }
 }
 
 function looksLikeImageUrl(url: string | null | undefined) {
@@ -260,17 +195,6 @@ function getActivityQuestion(activity: { body_data: unknown; title: string }): s
     }
   }
   return activity.title || ""
-}
-
-/** Type pill label/glyph for display-only activities (no marking chrome). */
-const DISPLAY_META: Record<string, { typeLabel: string; typeGlyph?: string }> = {
-  "display-image": { typeLabel: "Image", typeGlyph: "🖼" },
-  "display-webpage": { typeLabel: "Webpage", typeGlyph: "🌐" },
-  "show-video": { typeLabel: "Video", typeGlyph: "▶" },
-  "file-download": { typeLabel: "Download", typeGlyph: "⭳" },
-  "display-flashcards": { typeLabel: "Flashcards", typeGlyph: "🂠" },
-  text: { typeLabel: "Read", typeGlyph: "≡" },
-  voice: { typeLabel: "Audio", typeGlyph: "♪" },
 }
 
 function extractActivityLink(activity: { body_data: unknown; title: string }) {
@@ -961,10 +885,17 @@ export default async function PupilLessonFriendlyPage({
   // id. It gets a synthetic one, as a teacher preview does, so AI-marked
   // answers still enqueue and feedback still arrives live. Whether its marks
   // and feedback show is the intervention's own switch (on by default).
-  const { rows: kindRows } = await query<{ kind: string; feedback_visible: boolean | null }>(
-    `select l.kind,
+  const { rows: kindRows } = await query<{
+    kind: string
+    description: string | null
+    feedback_visible: boolean | null
+    due_date: Date | string | null
+  }>(
+    `select l.kind, l.description,
             (select ia.feedback_visible from intervention_assignments ia
-              where ia.lesson_id = l.lesson_id and ia.active) as feedback_visible
+              where ia.lesson_id = l.lesson_id and ia.active) as feedback_visible,
+            (select ia.due_date from intervention_assignments ia
+              where ia.lesson_id = l.lesson_id and ia.active) as due_date
        from lessons l where l.lesson_id = $1`,
     [lesson.lesson_id],
   )
@@ -1024,702 +955,838 @@ export default async function PupilLessonFriendlyPage({
   }
 
 
-  // --- Scroll-layout data ---------------------------------------------------
-  // Group success criteria under their learning objective for the opening hero.
-  const criteriaByObjective = new Map<string, ScrollObjectiveCriterion[]>()
+  // --- Article data ---------------------------------------------------------
+  const groupId = assignments[0]?.groupId ?? null
+  // An intervention carries its own due date; a class lesson is due a week after it is taught.
+  const dueDate = isIntervention ? toIsoDate(kindRows[0]?.due_date ?? null) : lessonDueDate(toIsoDate(assignments[0]?.date ?? null))
+  const releasedToViewer = initialFeedbackVisible || isTeacher
+
+  const lessonLinks = lesson.lesson_links ?? []
+  const resources = findLessonResources({
+    lessonId: lesson.lesson_id,
+    activities: activities.map((activity) => {
+      const webpage = activity.type === "display-webpage" ? getDisplayWebpageBody(activity) : null
+      return {
+        activityId: activity.activity_id,
+        type: activity.type ?? "",
+        title: activity.title ?? "",
+        files: fileDownloadUrlMap.get(activity.activity_id) ?? [],
+        linkUrl: webpage ? webpage.url || null : extractActivityLink(activity),
+        webpageHref: webpage?.htmlFile ? `/api/activity-webpage/${encodeURIComponent(activity.activity_id)}` : null,
+      }
+    }),
+    links: lessonLinks.map((link) => ({ url: link.url, description: link.description ?? null })),
+    lessonFiles,
+  })
+  const resourceActivityIds = new Set(resources.map((resource) => resource.activityId).filter(Boolean))
+
+  // The teacher's Display Section activities make the sections, each holding
+  // the activities after it. A lesson without any is grouped by activity type.
+  // Sections left empty (once resource cards are taken out) are dropped.
+  const sections = buildSections(activities, resourceActivityIds).filter((section) => section.items.length > 0)
+  if (sections.length === 0 && resources.length > 0) {
+    sections.push({ key: "resources", title: "Resources", introHtml: null, items: [] })
+  }
+  const ordered = sections.flatMap((section) => section.items)
+  const activityNumbers = new Map(ordered.map((activity, index) => [activity.activity_id, index + 1]))
+
+  const countable = ordered.filter((activity) => isCountable(activity.type))
+  const countableIds = countable.map((activity) => activity.activity_id)
+  const [submittedIds, position, courseUnits, understanding] = await Promise.all([
+    loadSubmittedActivityIds(pupilId, countableIds),
+    unit ? loadLessonPosition(unit.unit_id, lesson.lesson_id, groupId) : Promise.resolve(null),
+    groupId ? loadCourseUnits(groupId, pupilId, unit?.unit_id ?? null) : Promise.resolve([]),
+    withDbClient((client) => readLessonUnderstanding(client, pupilId, lesson.lesson_id)),
+  ])
+  const totalMarks = countable.reduce((sum, activity) => sum + (activity.max_marks ?? 1), 0)
+  const awarded = releasedToViewer
+    ? countable.reduce((sum, activity) => sum + (activityMarksMap.get(activity.activity_id)?.marksAwarded ?? 0), 0)
+    : null
+  const remainingWork = countableIds.filter((id) => !submittedIds.includes(id)).length
+  const dueTone = dueDateTone(dueDate, remainingWork)
+
+  // Learning objectives, each with its success criteria.
+  const criteriaByObjective = new Map<string, Array<{ id: string; text: string; level: number | null }>>()
   for (const sc of lesson.lesson_success_criteria ?? []) {
     const key = sc.learning_objective_id ?? "__ungrouped__"
     const bucket = criteriaByObjective.get(key) ?? []
-    bucket.push({
-      id: sc.success_criteria_id,
-      title: sc.title,
-      description: sc.description ?? null,
-      level: sc.level ?? null,
-    })
+    bucket.push({ id: sc.success_criteria_id, text: sc.description?.trim() || sc.title, level: sc.level ?? null })
     criteriaByObjective.set(key, bucket)
   }
-
-  const heroObjectives: ScrollObjective[] = (lesson.lesson_objectives ?? [])
+  const objectives = (lesson.lesson_objectives ?? [])
     .slice()
     .sort((a, b) => (a.order_by ?? 0) - (b.order_by ?? 0))
     .map((lo) => ({
       id: lo.learning_objective_id,
       title: lo.learning_objective?.title ?? lo.title ?? lo.learning_objective_id,
-      criteria: (criteriaByObjective.get(lo.learning_objective_id) ?? []).sort(
-        (a, b) => (a.level ?? 0) - (b.level ?? 0),
-      ),
+      criteria: (criteriaByObjective.get(lo.learning_objective_id) ?? []).sort((a, b) => (a.level ?? 0) - (b.level ?? 0)),
     }))
+  const ungroupedCriteria = criteriaByObjective.get("__ungrouped__") ?? []
+  if (ungroupedCriteria.length > 0) objectives.push({ id: "__ungrouped__", title: "Success criteria", criteria: ungroupedCriteria })
 
-  const heroUngroupedCriteria = criteriaByObjective.get("__ungrouped__") ?? []
+  const contentsSections: ContentsSection[] = sections.map((section, index) => ({
+    anchorId: `section-${section.key}`,
+    number: index + 1,
+    title: section.title,
+    items: section.items.map((activity) => ({
+      activityId: activity.activity_id,
+      anchorId: `activity-${activity.activity_id}`,
+      title: activityTitle(activity),
+      countable: isCountable(activity.type),
+    })),
+  }))
 
-  // Group activities under any `display-section` headings, preserving order.
-  const segments: { section: (typeof activities)[number] | null; items: typeof activities }[] = []
-  for (const activity of activities) {
-    if (activity.type === "display-section") {
-      segments.push({ section: activity, items: [] })
-    } else {
-      if (segments.length === 0) segments.push({ section: null, items: [] })
-      segments[segments.length - 1].items.push(activity)
+  let figureNumber = 0
+  const backHref = `/pupil-lessons/${encodeURIComponent(pupilId)}`
+
+  const renderActivity = (activity: (typeof activities)[number]) => {
+    const number = activityNumbers.get(activity.activity_id) ?? 0
+    const anchorId = `activity-${activity.activity_id}`
+    const rawScore = activityScoreMap.get(activity.activity_id)
+    const scorable = isCountable(activity.type)
+    const feedbackText = activityFeedbackMap.get(activity.activity_id) ?? null
+
+    const frame = (
+      body: ReactNode,
+      opts: {
+        variant: ArticleActivityVariant
+        title?: string
+        question?: string
+        inputId?: string
+        flag?: { submissionId: string; isFlagged: boolean }
+      },
+    ) => (
+      <ArticleActivity
+        key={activity.activity_id}
+        activityId={activity.activity_id}
+        pupilId={pupilId}
+        anchorId={anchorId}
+        number={number}
+        variant={opts.variant}
+        title={opts.title ?? activityTitle(activity)}
+        question={opts.question}
+        inputId={opts.inputId}
+        flag={opts.flag}
+        scorable={scorable}
+        maxMarks={activity.max_marks ?? 1}
+        scoreLabel={formatScoreLabel(rawScore, activity.activity_id)}
+        isMarked={typeof rawScore === "number"}
+        isPendingMarking={rawScore === null}
+        feedbackText={feedbackText}
+        modelAnswer={activityModelAnswerMap.get(activity.activity_id)}
+        viewerIsTeacher={isTeacher}
+      >
+        {body}
+      </ArticleActivity>
+    )
+
+    switch (activity.type) {
+      case "short-text-question": {
+        const data = shortTextDataMap.get(activity.activity_id)
+        const inputId = `answer-${activity.activity_id}`
+        return frame(
+          <PupilShortTextActivity
+            lessonId={lesson.lesson_id}
+            activity={activity}
+            pupilId={pupilId}
+            canAnswer={canWork}
+            inputId={inputId}
+            initialAnswer={data?.answer ?? ""}
+            initialResubmitRequested={data?.resubmitRequested ?? false}
+            resubmitNote={data?.resubmitNote ?? null}
+            feedbackAssignmentIds={assignmentIds}
+          />,
+          {
+            variant: "field",
+            question: getActivityQuestion(activity),
+            inputId,
+            flag: data?.submissionId ? { submissionId: data.submissionId, isFlagged: data.isFlagged } : undefined,
+          },
+        )
+      }
+      case "long-text-question":
+      case "text-question": {
+        // The answer field's own id, set by the component.
+        const inputId = `long-text-answer-${activity.activity_id}`
+        return frame(
+          <PupilLongTextActivity
+            lessonId={lesson.lesson_id}
+            activity={activity}
+            pupilId={pupilId}
+            canAnswer={canWork}
+            initialAnswer={longTextAnswerMap.get(activity.activity_id) ?? ""}
+            feedbackAssignmentIds={assignmentIds}
+          />,
+          { variant: "field", question: getLongTextBodyServer(activity).question || activity.title, inputId },
+        )
+      }
+      case "multiple-choice-question":
+        return frame(
+          <PupilMcqActivity
+            lessonId={lesson.lesson_id}
+            activity={activity}
+            pupilId={pupilId}
+            canAnswer={canWork}
+            initialSelection={mcqSelectionMap.get(activity.activity_id) ?? null}
+            feedbackAssignmentIds={assignmentIds}
+          />,
+          { variant: "question", question: getActivityQuestion(activity) },
+        )
+      case "upload-code": {
+        const body = (activity.body_data ?? {}) as Record<string, unknown>
+        const language = typeof body.language === "string" && body.language.trim() ? body.language : "python"
+        return frame(
+          <PupilUploadCodeActivity
+            activityId={activity.activity_id}
+            language={language}
+            starterCode={typeof body.starterCode === "string" ? body.starterCode : ""}
+            assignmentId={assignmentIds[0] ?? null}
+            readOnly={!canWork}
+            submittedHtml={uploadCodeHtmlMap.get(activity.activity_id) ?? null}
+            taskHtml={renderTaskMarkup(typeof body.task === "string" ? body.task : "")}
+          />,
+          { variant: "task", title: activity.title || "Code task" },
+        )
+      }
+      case "upload-url": {
+        const data = uploadUrlDataMap.get(activity.activity_id)
+        return frame(
+          <PupilUploadUrlActivity
+            lessonId={lesson.lesson_id}
+            activity={activity}
+            pupilId={pupilId}
+            canAnswer={canWork}
+            initialAnswer={data?.answer ?? ""}
+            initialSubmissionId={data?.submissionId ?? null}
+            initialIsFlagged={data?.isFlagged ?? false}
+            initialResubmitRequested={data?.resubmitRequested ?? false}
+            resubmitNote={data?.resubmitNote ?? null}
+            feedbackAssignmentIds={assignmentIds}
+          />,
+          { variant: "task" },
+        )
+      }
+      case "upload-file":
+        return frame(
+          <PupilUploadActivity
+            lessonId={lesson.lesson_id}
+            activity={activity}
+            pupilId={pupilId}
+            instructions={extractUploadInstructions(activity)}
+            initialSubmissions={submissionMap.get(activity.activity_id) ?? []}
+            canUpload={canWork}
+            feedbackAssignmentIds={assignmentIds}
+          />,
+          { variant: "task", title: activity.title || "Upload your work" },
+        )
+      case "upload-spreadsheet":
+        return frame(
+          <PupilUploadSpreadsheetActivity
+            lessonId={lesson.lesson_id}
+            activity={activity}
+            pupilId={pupilId}
+            canUpload={canWork}
+            initialFileName={uploadSpreadsheetFileNameMap.get(activity.activity_id) ?? null}
+            feedbackAssignmentIds={assignmentIds}
+          />,
+          { variant: "task", title: activity.title || "Upload a spreadsheet" },
+        )
+      case "upload-worksheet":
+      case "mark-worksheet":
+        return frame(
+          <PupilUploadWorksheetActivity
+            lessonId={lesson.lesson_id}
+            activity={activity}
+            pupilId={pupilId}
+            canUpload={canWork}
+            initialFileName={uploadWorksheetFileNameMap.get(activity.activity_id) ?? null}
+            initialFileUrl={uploadWorksheetFileUrlMap.get(activity.activity_id) ?? null}
+            feedbackAssignmentIds={assignmentIds}
+            {...(activity.type === "mark-worksheet"
+              ? { uploadEndpoint: "/api/pupil-submission/mark-worksheet", stagedSubmit: true }
+              : {})}
+          />,
+          { variant: "task", title: activity.title || "Upload your worksheet" },
+        )
+      case "matcher":
+        return frame(
+          <PupilMatcherActivity
+            lessonId={lesson.lesson_id}
+            activity={activity}
+            pupilId={pupilId}
+            canAnswer={canWork}
+            initialLayout={matcherDataMap.get(activity.activity_id)?.layout ?? []}
+            initialAnswers={matcherDataMap.get(activity.activity_id)?.answers ?? {}}
+          />,
+          { variant: "task" },
+        )
+      case "group-items":
+        return frame(
+          <PupilGroupItemsActivity
+            lessonId={lesson.lesson_id}
+            activityId={activity.activity_id}
+            title={activity.title}
+            pupilId={pupilId}
+            canAnswer={canWork}
+            groups={groupItemsDataMap.get(activity.activity_id)?.groups ?? []}
+            items={groupItemsDataMap.get(activity.activity_id)?.items ?? []}
+            initialItemOrder={groupItemsDataMap.get(activity.activity_id)?.itemOrder ?? []}
+            initialPlacements={groupItemsDataMap.get(activity.activity_id)?.placements ?? {}}
+          />,
+          { variant: "task" },
+        )
+      case "sequence":
+        return frame(
+          <PupilSequenceActivity
+            lessonId={lesson.lesson_id}
+            activityId={activity.activity_id}
+            pupilId={pupilId}
+            canAnswer={canWork}
+            terms={sequenceDataMap.get(activity.activity_id)?.terms ?? []}
+            initialCorrectIds={sequenceDataMap.get(activity.activity_id)?.correctIds ?? []}
+            initialAttempts={sequenceDataMap.get(activity.activity_id)?.attempts ?? 0}
+          />,
+          { variant: "task" },
+        )
+      case "do-flashcards":
+        return frame(
+          <LockedWhen locked={isPupilViewer && isLocked}>
+            <PupilDoFlashcardsActivity activity={activity} pupilId={pupilId} initialScore={rawScore ?? null} />
+          </LockedWhen>,
+          { variant: "task" },
+        )
+      case "sketch-render":
+        return frame(
+          <LockedWhen locked={isPupilViewer && isLocked}>
+            <PupilSketchRenderActivity
+              activity={activity}
+              userId={pupilId}
+              submission={sketchRenderSubmissionMap.get(activity.activity_id) ?? null}
+              assignmentId={assignmentIds[0]}
+            />
+          </LockedWhen>,
+          { variant: "task" },
+        )
+      case "share-my-work":
+        return frame(
+          <PupilShareMyWorkActivity
+            lessonId={lesson.lesson_id}
+            activity={activity}
+            pupilId={pupilId}
+            canUpload={canWork}
+            initialFiles={shareMyWorkDataMap.get(activity.activity_id)?.files ?? []}
+            initialSubmissionId={shareMyWorkDataMap.get(activity.activity_id)?.submissionId ?? null}
+          />,
+          { variant: "task" },
+        )
+      case "review-others-work":
+        return frame(
+          <LockedWhen locked={isPupilViewer && isLocked}>
+            <PupilReviewOthersWorkActivity activity={activity} pupilId={pupilId} />
+          </LockedWhen>,
+          { variant: "task" },
+        )
+      case "feedback":
+        return frame(
+          <PupilFeedbackActivity
+            activity={activity}
+            lessonId={lesson.lesson_id}
+            assignmentIds={assignmentIds}
+            initialVisible={initialFeedbackVisible}
+          />,
+          { variant: "task" },
+        )
+      case "display-image": {
+        figureNumber += 1
+        const url = displayImageUrlMap.get(activity.activity_id) ?? (looksLikeImageUrl(extractActivityLink(activity)) ? extractActivityLink(activity) : null)
+        const caption = `Figure ${figureNumber}.${activity.title ? ` ${activity.title}` : ""}`
+        return (
+          <figure key={activity.activity_id} id={anchorId} className="scroll-mt-28">
+            {url ? (
+              <ImageLightbox
+                src={url}
+                alt={activity.title || caption}
+                label="Open full size"
+                triggerClassName="block w-full cursor-zoom-in overflow-hidden rounded-xl border border-la-border bg-la-card focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-la-green"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={url} alt={activity.title || caption} loading="lazy" className="mx-auto max-h-[480px] w-full object-contain" />
+              </ImageLightbox>
+            ) : (
+              <p className="rounded-xl border border-dashed border-la-input p-6 text-sm text-la-muted">
+                This image isn&apos;t available yet. Please let your teacher know.
+              </p>
+            )}
+            <figcaption className="mt-2 text-sm text-la-muted">{caption}</figcaption>
+          </figure>
+        )
+      }
+      case "show-video": {
+        const link = extractActivityLink(activity)
+        const embed = link ? videoEmbedUrl(link) : null
+        return (
+          <figure key={activity.activity_id} id={anchorId} className="scroll-mt-28">
+            {embed ? (
+              <div className="aspect-video w-full overflow-hidden rounded-xl border border-la-border bg-black">
+                <iframe
+                  src={embed}
+                  title={activity.title || "Lesson video"}
+                  className="h-full w-full"
+                  loading="lazy"
+                  allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                  referrerPolicy="strict-origin-when-cross-origin"
+                />
+              </div>
+            ) : link ? (
+              <a
+                href={link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex min-h-[72px] items-center rounded-xl border border-la-border bg-la-card p-4 font-semibold text-la-green hover:border-la-green"
+              >
+                Watch the video (opens in a new tab)
+              </a>
+            ) : (
+              <p className="rounded-xl border border-dashed border-la-input p-6 text-sm text-la-muted">
+                Your teacher has not added the video yet.
+              </p>
+            )}
+            <figcaption className="mt-2 text-sm text-la-muted">Video.{activity.title ? ` ${activity.title}` : ""}</figcaption>
+          </figure>
+        )
+      }
+      case "display-webpage": {
+        const webpage = getDisplayWebpageBody(activity)
+        const href = webpage.htmlFile
+          ? `/api/activity-webpage/${encodeURIComponent(activity.activity_id)}`
+          : webpage.url || null
+        return (
+          <LinkCard
+            key={activity.activity_id}
+            id={anchorId}
+            title={activity.title || "Web page"}
+            detail={href ? "Opens in a new tab" : "Your teacher has not added a page or link yet."}
+            href={href}
+          />
+        )
+      }
+      case "file-download": {
+        const files = fileDownloadUrlMap.get(activity.activity_id) ?? []
+        const link = extractActivityLink(activity)
+        return (
+          <div key={activity.activity_id} id={anchorId} className="scroll-mt-28 rounded-xl border border-la-border bg-la-card p-4">
+            <h3 className="font-semibold text-la-ink">{activity.title || "Download"}</h3>
+            {extractUploadInstructions(activity) ? (
+              <p className="mt-1 text-[15px] text-la-muted">{extractUploadInstructions(activity)}</p>
+            ) : null}
+            {!canDownload ? (
+              <p className="mt-2 text-sm text-la-muted">Downloads are switched off while this lesson is locked.</p>
+            ) : files.length > 0 || link ? (
+              <ul className="mt-2 divide-y divide-la-border">
+                {(files.length > 0 ? files : [{ name: "Download file", url: link }]).map((file) => (
+                  <li key={file.name}>
+                    <a
+                      href={file.url ?? "#"}
+                      download
+                      className="flex min-h-11 items-center justify-between gap-3 py-2 text-[15px] font-medium text-la-green hover:text-la-green-hover"
+                    >
+                      <span className="truncate">{file.name}</span>
+                      <span className="flex-none text-xs font-semibold text-la-muted">{fileBadge(file.name)}</span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-sm text-la-muted">Your teacher has not attached a file yet.</p>
+            )}
+          </div>
+        )
+      }
+      case "display-key-terms": {
+        const body = (activity.body_data ?? {}) as Record<string, unknown>
+        const markup = getRichTextMarkup(typeof body.markdown === "string" ? body.markdown : "")
+        return (
+          <div key={activity.activity_id} id={anchorId} className="scroll-mt-28 rounded-xl border border-la-border bg-la-card p-5">
+            <h3 className="mb-2 font-semibold text-la-ink">{activity.title || "Key terms"}</h3>
+            {markup ? <div className={PROSE} dangerouslySetInnerHTML={{ __html: markup }} /> : null}
+          </div>
+        )
+      }
+      case "voice": {
+        const audioUrl = extractAudioUrl(activity)
+        return (
+          <div key={activity.activity_id} id={anchorId} className="scroll-mt-28">
+            {activity.title ? <h3 className="mb-2 text-[20px] font-semibold text-la-ink">{activity.title}</h3> : null}
+            {audioUrl ? (
+              <audio className="w-full" controls preload="none" src={audioUrl}>
+                Your browser does not support the audio element.
+              </audio>
+            ) : (
+              <p className="text-sm text-la-muted">There is no recording yet.</p>
+            )}
+          </div>
+        )
+      }
+      default: {
+        // text, display-flashcards and anything without its own renderer: read it.
+        const markup = getRichTextMarkup(
+          activity.type === "display-flashcards" ? getFlashcardsText(activity) : getActivityTextValue(activity),
+        )
+        const isExamTip = ((activity.body_data ?? {}) as Record<string, unknown>).displayType === "exam-tip"
+        return (
+          <div
+            key={activity.activity_id}
+            id={anchorId}
+            className={cn("scroll-mt-28", isExamTip && "rounded-xl border-l-4 border-la-green bg-la-green-pale p-5")}
+          >
+            {activity.title ? (
+              <h3 className="mb-2 text-[20px] font-semibold text-la-ink">
+                {isExamTip ? `Exam tip: ${activity.title}` : activity.title}
+              </h3>
+            ) : isExamTip ? (
+              <h3 className="mb-2 text-[20px] font-semibold text-la-ink">Exam tip</h3>
+            ) : null}
+            {markup ? <div className={PROSE} dangerouslySetInnerHTML={{ __html: markup }} /> : null}
+          </div>
+        )
+      }
     }
   }
 
-  // Number only the answerable/display activities (not the section headings).
-  const activityNumbers = new Map<string, number>()
-  let runningActivityNumber = 0
-  for (const activity of activities) {
-    if (activity.type === "display-section") continue
-    runningActivityNumber += 1
-    activityNumbers.set(activity.activity_id, runningActivityNumber)
-  }
-  const totalActivities = runningActivityNumber
-
-  // Left-rail entries: one per activity (excluding section headings), with a
-  // score once marked or a "Marking" chip while awaiting a mark.
-  const sidebarItems = activities
-    .filter((activity) => activity.type !== "display-section")
-    .map((activity) => {
-      const raw = activityScoreMap.get(activity.activity_id)
-      return {
-        activityId: activity.activity_id,
-        anchorId: `activity-${activity.activity_id}`,
-        number: activityNumbers.get(activity.activity_id) ?? 0,
-        title:
-          activity.title?.trim() ||
-          getActivityQuestion(activity) ||
-          formatActivityType(activity.type),
-        scoreLabel:
-          typeof raw === "number" ? formatScoreLabel(raw, activity.activity_id) : undefined,
-        marking: raw === null,
+  // Consecutive images sit side by side, two to a row.
+  const renderSectionItems = (items: typeof activities) => {
+    const blocks: ReactNode[] = []
+    for (let i = 0; i < items.length; i += 1) {
+      const activity = items[i]
+      const next = items[i + 1]
+      if (activity.type === "display-image" && next?.type === "display-image") {
+        blocks.push(
+          <div key={`pair-${activity.activity_id}`} className="grid gap-6 sm:grid-cols-2">
+            {renderActivity(activity)}
+            {renderActivity(next)}
+          </div>,
+        )
+        i += 1
+      } else {
+        blocks.push(renderActivity(activity))
       }
-    })
+    }
+    return blocks
+  }
+
+  const metaParts = [
+    dueDate ? (
+      <span
+        key="due"
+        className={cn(
+          "rounded-full px-2.5 py-0.5",
+          dueTone === "overdue" && "bg-la-red-bg font-semibold text-la-red",
+          dueTone === "soon" && "bg-la-amber-bg font-semibold text-la-amber",
+        )}
+      >
+        {dueTone === "overdue" ? "Overdue · " : ""}Due {format(parseISO(dueDate), "EEE d MMM yyyy")}
+      </span>
+    ) : null,
+    totalMarks > 0 ? <span key="marks">{totalMarks} marks</span> : null,
+    <span key="count">
+      {ordered.length} {ordered.length === 1 ? "activity" : "activities"}
+    </span>,
+  ].filter(Boolean)
 
   return (
     <FeedbackVisibilityProvider
       assignmentIds={assignmentIds}
       lessonId={lesson.lesson_id}
+      pupilId={pupilId}
       initialVisible={initialFeedbackVisible}
     >
-      <main className="relative bg-gradient-to-b from-background via-background to-muted/40 md:pl-56">
-        <LessonScrollProgress />
-        <ActivitySidebar items={sidebarItems} />
-
-        <LessonHero
-          id="lesson-top"
-          lessonTitle={lesson.title}
-          unitTitle={unit?.title ?? ""}
-          objectives={heroObjectives}
-          ungroupedCriteria={heroUngroupedCriteria}
-          backHref={`/pupil-lessons/${encodeURIComponent(pupilId)}`}
-          backLabel="Back to My Lessons"
-          greetingName={summary?.name ?? null}
-        />
-
-        {isLocked ? (
-          <div className="mx-auto w-full max-w-3xl px-6 pt-8">
-            <div
-              role="status"
-              className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-amber-900 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-100"
-            >
-              <Lock className="mt-0.5 h-5 w-5 shrink-0" />
-              <div className="space-y-0.5">
-                <p className="font-semibold">This lesson is locked</p>
-                <p className="text-sm">
-                  {isPupilViewer
-                    ? "You can look through it, but you can't change answers, upload or download files."
-                    : "This pupil can view it but cannot change answers, upload or download files."}
-                </p>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        <div className="mx-auto w-full max-w-3xl px-6 pb-40 pt-16">
-          {activities.length === 0 ? (
-            <p className="text-center text-muted-foreground">
-              There aren&apos;t any activities attached yet.
-            </p>
-          ) : (
-            segments.map((segment, segmentIndex) => (
-              <section key={segment.section?.activity_id ?? `segment-${segmentIndex}`}>
-                {segment.section ? (
-                  <StickySectionHeading title={segment.section.title} />
-                ) : null}
-
-                <div className="flex flex-col gap-12 sm:gap-16">
-                  {segment.items.map((activity) => {
-                  const index = (activityNumbers.get(activity.activity_id) ?? 1) - 1
-                  const linkUrl = extractActivityLink(activity)
-                  const activityFiles = fileDownloadUrlMap.get(activity.activity_id) ?? []
-                  const webpage =
-                    activity.type === "display-webpage" ? getDisplayWebpageBody(activity) : null
-                  
-                  const audioUrl = extractAudioUrl(activity)
-                  const isDisplayImage = activity.type === "display-image"
-                  const resolvedImageUrl = isDisplayImage
-                    ? displayImageUrlMap.get(activity.activity_id) ?? (looksLikeImageUrl(linkUrl) ? linkUrl : null)
-                    : null
-                  const titleLink = !isDisplayImage || !resolvedImageUrl ? linkUrl : null
-                  const icon = selectActivityIcon(activity.type, Boolean(audioUrl), titleLink)
-                  const rawScore = activityScoreMap.get(activity.activity_id)
-                  
-                  let feedbackText =
-                    activity.type === "feedback"
-                      ? "Your teacher has shared feedback in this activity."
-                      : activityFeedbackMap.get(activity.activity_id)
-
-                  if (rawScore === null && !feedbackText) {
-                      feedbackText = "Not Yet Marked"
-                  }
-                  
-                  const modelAnswer = activityModelAnswerMap.get(activity.activity_id)
-
-                  // Restyled types render inside the Warm Study shell (bare motion
-                  // wrapper + LiveActivityShell). Anything not covered here falls
-                  // through to the legacy ActivityReveal path below.
-                  const shell = (
-                    body: ReactNode,
-                    opts: { typeLabel: string; typeGlyph?: string; question?: string; hideMarking?: boolean },
-                  ) => (
-                    <ActivityMotion key={activity.activity_id} id={`activity-${activity.activity_id}`}>
-                      <LiveActivityShell
-                        activityId={activity.activity_id}
-                        pupilId={pupilId}
-                        question={opts.question ?? getActivityQuestion(activity)}
-                        activityIndex={index + 1}
-                        activityTotal={totalActivities}
-                        typeLabel={opts.typeLabel}
-                        typeGlyph={opts.typeGlyph}
-                        hideMarking={opts.hideMarking}
-                        scoreLabel={formatScoreLabel(rawScore, activity.activity_id)}
-                        isMarked={typeof rawScore === "number"}
-                        isPendingMarking={rawScore === null}
-                        feedbackText={feedbackText}
-                        modelAnswer={modelAnswer}
-                        maxMarks={activity.max_marks ?? 1}
-                        viewerIsTeacher={isTeacher}
-                      >
-                        {body}
-                      </LiveActivityShell>
-                    </ActivityMotion>
-                  )
-
-                  if (activity.type === "short-text-question") {
-                    return shell(
-                      <PupilShortTextActivity
-                        lessonId={lesson.lesson_id}
-                        activity={activity}
-                        pupilId={pupilId}
-                        canAnswer={canWork}
-                        initialAnswer={shortTextDataMap.get(activity.activity_id)?.answer ?? ""}
-                        initialSubmissionId={shortTextDataMap.get(activity.activity_id)?.submissionId ?? null}
-                        initialIsFlagged={shortTextDataMap.get(activity.activity_id)?.isFlagged ?? false}
-                        initialResubmitRequested={shortTextDataMap.get(activity.activity_id)?.resubmitRequested ?? false}
-                        resubmitNote={shortTextDataMap.get(activity.activity_id)?.resubmitNote ?? null}
-                        feedbackAssignmentIds={assignmentIds}
-                      />,
-                      { typeLabel: "Short answer", typeGlyph: "✎" },
-                    )
-                  }
-
-                  if (activity.type === "upload-code") {
-                    const body = (activity.body_data ?? {}) as Record<string, unknown>
-                    const language =
-                      typeof body.language === "string" && body.language.trim() ? body.language : "python"
-                    return shell(
-                      <PupilUploadCodeActivity
-                        activityId={activity.activity_id}
-                        language={language}
-                        starterCode={typeof body.starterCode === "string" ? body.starterCode : ""}
-                        assignmentId={assignmentIds[0] ?? null}
-                        readOnly={!canWork}
-                        submittedHtml={uploadCodeHtmlMap.get(activity.activity_id) ?? null}
-                        taskHtml={renderTaskMarkup(typeof body.task === "string" ? body.task : "")}
-                      />,
-                      // The task is rendered inside the activity, not as the
-                      // heading: the heading strips markup and would flatten a
-                      // fenced code sample onto a single line.
-                      { typeLabel: "Code", typeGlyph: "{ }", question: activity.title ?? "Code task" },
-                    )
-                  }
-
-                  if (activity.type === "multiple-choice-question") {
-                    return shell(
-                      <PupilMcqActivity
-                        lessonId={lesson.lesson_id}
-                        activity={activity}
-                        pupilId={pupilId}
-                        canAnswer={canWork}
-                        initialSelection={mcqSelectionMap.get(activity.activity_id) ?? null}
-                        feedbackAssignmentIds={assignmentIds}
-                      />,
-                      { typeLabel: "Multiple choice", typeGlyph: "◉" },
-                    )
-                  }
-
-                  if (activity.type === "long-text-question" || activity.type === "text-question") {
-                    return shell(
-                      <PupilLongTextActivity
-                        lessonId={lesson.lesson_id}
-                        activity={activity}
-                        pupilId={pupilId}
-                        canAnswer={canWork}
-                        initialAnswer={longTextAnswerMap.get(activity.activity_id) ?? ""}
-                        feedbackAssignmentIds={assignmentIds}
-                      />,
-                      { typeLabel: "Long answer", typeGlyph: "✎" },
-                    )
-                  }
-
-                  if (activity.type === "upload-url") {
-                    return shell(
-                      <PupilUploadUrlActivity
-                        lessonId={lesson.lesson_id}
-                        activity={activity}
-                        pupilId={pupilId}
-                        canAnswer={canWork}
-                        initialAnswer={uploadUrlDataMap.get(activity.activity_id)?.answer ?? ""}
-                        initialSubmissionId={uploadUrlDataMap.get(activity.activity_id)?.submissionId ?? null}
-                        initialIsFlagged={uploadUrlDataMap.get(activity.activity_id)?.isFlagged ?? false}
-                        initialResubmitRequested={uploadUrlDataMap.get(activity.activity_id)?.resubmitRequested ?? false}
-                        resubmitNote={uploadUrlDataMap.get(activity.activity_id)?.resubmitNote ?? null}
-                        feedbackAssignmentIds={assignmentIds}
-                      />,
-                      { typeLabel: "Submit a link", typeGlyph: "🔗" },
-                    )
-                  }
-
-                  if (activity.type === "upload-file") {
-                    return shell(
-                      <PupilUploadActivity
-                        lessonId={lesson.lesson_id}
-                        activity={activity}
-                        pupilId={pupilId}
-                        instructions={extractUploadInstructions(activity)}
-                        initialSubmissions={submissionMap.get(activity.activity_id) ?? []}
-                        canUpload={canWork}
-                        feedbackAssignmentIds={assignmentIds}
-                      />,
-                      { typeLabel: "File upload", typeGlyph: "⬆", question: activity.title || "Upload your work" },
-                    )
-                  }
-
-                  if (activity.type === "upload-spreadsheet") {
-                    return shell(
-                      <PupilUploadSpreadsheetActivity
-                        lessonId={lesson.lesson_id}
-                        activity={activity}
-                        pupilId={pupilId}
-                        canUpload={canWork}
-                        initialFileName={uploadSpreadsheetFileNameMap.get(activity.activity_id) ?? null}
-                        feedbackAssignmentIds={assignmentIds}
-                      />,
-                      { typeLabel: "Spreadsheet", typeGlyph: "▦", question: activity.title || "Upload a spreadsheet" },
-                    )
-                  }
-
-                  if (activity.type === "upload-worksheet") {
-                    return shell(
-                      <PupilUploadWorksheetActivity
-                        lessonId={lesson.lesson_id}
-                        activity={activity}
-                        pupilId={pupilId}
-                        canUpload={canWork}
-                        initialFileName={uploadWorksheetFileNameMap.get(activity.activity_id) ?? null}
-                        initialFileUrl={uploadWorksheetFileUrlMap.get(activity.activity_id) ?? null}
-                        feedbackAssignmentIds={assignmentIds}
-                      />,
-                      { typeLabel: "Worksheet", typeGlyph: "▦", question: activity.title || "Upload a worksheet" },
-                    )
-                  }
-
-                  if (activity.type === "mark-worksheet") {
-                    return shell(
-                      <PupilUploadWorksheetActivity
-                        lessonId={lesson.lesson_id}
-                        activity={activity}
-                        pupilId={pupilId}
-                        canUpload={canWork}
-                        initialFileName={uploadWorksheetFileNameMap.get(activity.activity_id) ?? null}
-                        initialFileUrl={uploadWorksheetFileUrlMap.get(activity.activity_id) ?? null}
-                        feedbackAssignmentIds={assignmentIds}
-                        uploadEndpoint="/api/pupil-submission/mark-worksheet"
-                        stagedSubmit
-                      />,
-                      { typeLabel: "Worksheet", typeGlyph: "▦", question: activity.title || "Upload your worksheet" },
-                    )
-                  }
-
-                  if (activity.type === "matcher") {
-                    return shell(
-                      <PupilMatcherActivity
-                        lessonId={lesson.lesson_id}
-                        activity={activity}
-                        pupilId={pupilId}
-                        canAnswer={canWork}
-                        initialLayout={matcherDataMap.get(activity.activity_id)?.layout ?? []}
-                        initialAnswers={matcherDataMap.get(activity.activity_id)?.answers ?? {}}
-                      />,
-                      { typeLabel: "Match up", typeGlyph: "⇄" },
-                    )
-                  }
-
-                  if (activity.type === "group-items") {
-                    return shell(
-                      <PupilGroupItemsActivity
-                        lessonId={lesson.lesson_id}
-                        activityId={activity.activity_id}
-                        title={activity.title}
-                        pupilId={pupilId}
-                        canAnswer={canWork}
-                        groups={groupItemsDataMap.get(activity.activity_id)?.groups ?? []}
-                        items={groupItemsDataMap.get(activity.activity_id)?.items ?? []}
-                        initialItemOrder={groupItemsDataMap.get(activity.activity_id)?.itemOrder ?? []}
-                        initialPlacements={groupItemsDataMap.get(activity.activity_id)?.placements ?? {}}
-                      />,
-                      { typeLabel: "Sort into groups", typeGlyph: "▤" },
-                    )
-                  }
-
-                  if (activity.type === "sequence") {
-                    return shell(
-                      <PupilSequenceActivity
-                        lessonId={lesson.lesson_id}
-                        activityId={activity.activity_id}
-                        pupilId={pupilId}
-                        canAnswer={canWork}
-                        terms={sequenceDataMap.get(activity.activity_id)?.terms ?? []}
-                        initialCorrectIds={sequenceDataMap.get(activity.activity_id)?.correctIds ?? []}
-                        initialAttempts={sequenceDataMap.get(activity.activity_id)?.attempts ?? 0}
-                      />,
-                      { typeLabel: "Put in order", typeGlyph: "↕" },
-                    )
-                  }
-
-                  if (activity.type === "do-flashcards") {
-                    return shell(
-                      <LockedWhen locked={isPupilViewer && isLocked}>
-                        <PupilDoFlashcardsActivity
-                          activity={activity}
-                          pupilId={pupilId}
-                          initialScore={rawScore ?? null}
-                        />
-                      </LockedWhen>,
-                      { typeLabel: "Flashcards", typeGlyph: "🂠" },
-                    )
-                  }
-
-                  if (activity.type === "sketch-render") {
-                    return shell(
-                      <LockedWhen locked={isPupilViewer && isLocked}>
-                        <PupilSketchRenderActivity
-                          activity={activity}
-                          userId={pupilId}
-                          submission={sketchRenderSubmissionMap.get(activity.activity_id) ?? null}
-                          assignmentId={assignmentIds[0]}
-                        />
-                      </LockedWhen>,
-                      { typeLabel: "Sketch", typeGlyph: "✎" },
-                    )
-                  }
-
-                  if (activity.type === "share-my-work") {
-                    return shell(
-                      <PupilShareMyWorkActivity
-                        lessonId={lesson.lesson_id}
-                        activity={activity}
-                        pupilId={pupilId}
-                        canUpload={canWork}
-                        initialFiles={shareMyWorkDataMap.get(activity.activity_id)?.files ?? []}
-                        initialSubmissionId={shareMyWorkDataMap.get(activity.activity_id)?.submissionId ?? null}
-                      />,
-                      { typeLabel: "Share my work", typeGlyph: "⬆", hideMarking: true },
-                    )
-                  }
-
-                  if (activity.type === "review-others-work") {
-                    return shell(
-                      <LockedWhen locked={isPupilViewer && isLocked}>
-                        <PupilReviewOthersWorkActivity activity={activity} pupilId={pupilId} />
-                      </LockedWhen>,
-                      { typeLabel: "Review others' work", typeGlyph: "◎", hideMarking: true },
-                    )
-                  }
-
-                  if (activity.type === "feedback") {
-                    return shell(
-                      <PupilFeedbackActivity
-                        activity={activity}
-                        lessonId={lesson.lesson_id}
-                        assignmentIds={assignmentIds}
-                        initialVisible={initialFeedbackVisible}
-                      />,
-                      { typeLabel: "Feedback", typeGlyph: "★", hideMarking: true },
-                    )
-                  }
-
-                  const displayMeta = DISPLAY_META[activity.type ?? ""] ?? { typeLabel: "Activity" }
-                  return shell(
-                    activity.type === "display-webpage" ? (
-                      <div className="rounded-md bg-card p-4 border border-border/60">
-                        <div className="flex items-start gap-3">
-                          <div className="mt-0.5 rounded-full bg-primary/10 p-2 text-primary">
-                            <Globe className="h-5 w-5" />
-                          </div>
-                          <div className="space-y-1">
-                            <h3 className="font-medium leading-none text-foreground">{activity.title}</h3>
-                            {webpage?.htmlFile || webpage?.url ? (
-                              <>
-                                <p className="text-sm text-muted-foreground">Open this page in a new tab.</p>
-                                <div className="mt-2 flex flex-wrap gap-2">
-                                  {webpage.htmlFile ? (
-                                    <Button asChild size="sm" variant="outline" className="gap-2">
-                                      <a
-                                        href={`/api/activity-webpage/${encodeURIComponent(activity.activity_id)}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                      >
-                                        <Globe className="h-4 w-4" /> Open webpage
-                                      </a>
-                                    </Button>
-                                  ) : null}
-                                  {webpage.url ? (
-                                    <Button asChild size="sm" variant="outline" className="gap-2">
-                                      <a href={webpage.url} target="_blank" rel="noopener noreferrer">
-                                        <Globe className="h-4 w-4" /> Visit {new URL(webpage.url).hostname}
-                                      </a>
-                                    </Button>
-                                  ) : null}
-                                </div>
-                              </>
-                            ) : (
-                              <p className="text-sm text-muted-foreground">
-                                Your teacher has not added a page or link yet.
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ) : activity.type === "file-download" && (activityFiles.length > 0 || linkUrl) ? (
-                         <div className="rounded-md bg-card p-4 border border-border/60">
-                            <div className="flex items-start gap-3">
-                              <div className="mt-0.5 rounded-full bg-primary/10 p-2 text-primary">
-                                <Download className="h-5 w-5" />
-                              </div>
-                              <div className="space-y-1 w-full">
-                                <h3 className="font-medium leading-none text-foreground">{activity.title}</h3>
-                                <p className="text-sm text-muted-foreground">{extractUploadInstructions(activity) || "Download the attached file(s)."}</p>
-                                
-                                {!canDownload ? (
-                                  <p className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
-                                    <Lock className="h-4 w-4 shrink-0" />
-                                    Downloads are switched off while this lesson is locked.
-                                  </p>
-                                ) : activityFiles.length > 0 ? (
-                                  <div className="mt-2 flex flex-col gap-2">
-                                    {activityFiles.map((file, i) => (
-                                      <Button key={i} asChild size="sm" variant="outline" className="justify-start gap-2 w-full sm:w-auto h-auto py-2">
-                                        <a href={file.url ?? "#"} download target="_blank" rel="noopener noreferrer">
-                                          <Download className="h-4 w-4 shrink-0" />
-                                          <span className="truncate">{file.name}</span>
-                                        </a>
-                                      </Button>
-                                    ))}
-                                  </div>
-                                ) : linkUrl ? (
-                                  <Button asChild size="sm" variant="outline" className="mt-2 gap-2">
-                                    <a href={linkUrl} download target="_blank" rel="noopener noreferrer">
-                                      <Download className="h-4 w-4" />
-                                      Download File
-                                    </a>
-                                  </Button>
-                                ) : null}
-                              </div>
-                            </div>
-                         </div>
-                      ) : activity.type === "show-video" && linkUrl ? (
-                         (() => {
-                            const thumbnailUrl = getYouTubeThumbnailUrl(linkUrl)
-                            if (thumbnailUrl) {
-                              return (
-                                <div className="rounded-md bg-card p-4 border border-border/60">
-                                   <div className="flex flex-col gap-3">
-                                      <div className="flex items-center gap-2">
-                                         <div className="mt-0.5 rounded-full bg-primary/10 p-2 text-primary">
-                                            <Video className="h-5 w-5" />
-                                         </div>
-                                         <h3 className="font-medium leading-none text-foreground">{activity.title}</h3>
-                                      </div>
-                                      <a 
-                                        href={linkUrl} 
-                                        target="_blank" 
-                                        rel="noopener noreferrer"
-                                        className="relative block w-full max-w-md aspect-video rounded-md overflow-hidden bg-muted group"
-                                      >
-                                        <img src={thumbnailUrl} alt={activity.title} className="w-full h-full object-cover transition-transform group-hover:scale-105" />
-                                        <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/30 transition-colors">
-                                           <div className="rounded-full bg-white/90 p-3 shadow-lg transition-transform group-hover:scale-110">
-                                              <Play className="h-6 w-6 text-primary fill-primary" />
-                                           </div>
-                                        </div>
-                                      </a>
-                                   </div>
-                                </div>
-                              )
-                            }
-                            // Fallback to generic rendering if no thumbnail
-                            return (
-                               <div className="flex items-start gap-2">
-                                 <span className="text-xs font-semibold text-muted-foreground">{index + 1}.</span>
-                                 <div className="flex flex-col gap-1">
-                                   <div className="flex flex-wrap items-center gap-2">
-                                     {icon}
-                                     <Link
-                                       href={linkUrl}
-                                       target="_blank"
-                                       className="font-medium text-blue-600 hover:underline"
-                                     >
-                                       {activity.title}
-                                     </Link>
-                                     <Badge variant="outline" className="text-[10px] font-normal">
-                                        Video
-                                     </Badge>
-                                   </div>
-                                 </div>
-                               </div>
-                            )
-                         })()
-                      ) : (
-                        <>
-                          <div className="flex items-start gap-2">
-                            <span className="text-xs font-semibold text-muted-foreground">{index + 1}.</span>
-                            <div className="flex flex-col gap-1">
-                              <div className="flex flex-wrap items-center gap-2">
-                                {icon}
-                                {titleLink ? (
-                                  <Link
-                                    href={titleLink}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="font-medium text-primary underline-offset-4 hover:underline"
-                                  >
-                                    {activity.title}
-                                  </Link>
-                                ) : (
-                                  <span className="font-medium text-foreground">{activity.title || formatActivityType(activity.type)}</span>
-                                )}
-                              </div>
-                              {activity.title ? (
-                                <span className="text-xs text-muted-foreground">{formatActivityType(activity.type)}</span>
-                              ) : null}
-                              {titleLink ? (
-                                <span className="break-all text-xs text-muted-foreground">{titleLink}</span>
-                              ) : null}
-                            </div>
-                          </div>
-
-                          {(() => {
-                            const textValue = activity.type === "display-flashcards"
-                              ? getFlashcardsText(activity)
-                              : getActivityTextValue(activity)
-                            const htmlContent = getRichTextMarkup(textValue)
-
-                            if (!htmlContent) return null
-
-                            return (
-                              <div
-                                className="prose prose-sm mt-3 max-w-none text-muted-foreground dark:prose-invert"
-                                dangerouslySetInnerHTML={{ __html: htmlContent }}
-                              />
-                            )
-                          })()}
-
-                          {isDisplayImage ? (
-                            resolvedImageUrl ? (
-                              <figure className="mt-3 space-y-2">
-                                <div className="relative aspect-[4/3] w-full overflow-hidden rounded-lg border border-border bg-background max-h-[420px]">
-                                  <MediaImage
-                                    src={resolvedImageUrl}
-                                    alt={activity.title || "Lesson activity image"}
-                                    fill
-                                    sizes="100vw"
-                                    className="object-contain"
-                                    loading="lazy"
-                                  />
-                                </div>
-                                <div className="flex justify-end">
-                                  <ImageLightbox
-                                    src={resolvedImageUrl}
-                                    alt={activity.title || "Lesson activity image"}
-                                  />
-                                </div>
-                              </figure>
-                            ) : (
-                              <p className="mt-3 text-xs text-muted-foreground">
-                                This image isn&apos;t available yet. Please let your teacher know.
-                              </p>
-                            )
-                      ) : audioUrl && activity.type !== "show-video" ? (
-                        <audio className="mt-3 w-full" controls preload="none" src={audioUrl}>
-                          Your browser does not support the audio element.
-                        </audio>
-                      ) : null}
-                    </>
-                  ),
-                    { ...displayMeta, hideMarking: true, question: "" },
-                  )
-                })}
-                </div>
-              </section>
-            ))
+      <LessonProgressProvider lessonId={lesson.lesson_id} countableIds={countableIds} initialDoneIds={submittedIds}>
+        <div
+          className={cn(
+            "lesson-article min-h-screen bg-la-bg font-[family-name:var(--font-inter)] text-[16px] text-la-ink",
+            lessonArticleFontClass,
           )}
+        >
+          <div className="mx-auto flex w-full max-w-[1040px] flex-col px-4 pb-24 sm:px-6 min-[900px]:flex-row min-[900px]:gap-12 min-[900px]:pt-10">
+            <LessonContents
+              sections={contentsSections}
+              awarded={awarded}
+              totalMarks={totalMarks}
+              course={groupId ? { units: courseUnits, pupilId } : null}
+              fontClass={lessonArticleFontClass}
+            />
 
-          <div className="mt-16 space-y-6">
-        {(lesson.lesson_links?.length ?? 0) > 0 ? (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold text-foreground">Helpful Links</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm text-muted-foreground">
-              <ul className="space-y-2">
-                {lesson.lesson_links!.map((link) => (
-                  <li key={link.lesson_link_id} className="rounded-md bg-muted/40 px-3 py-2">
-                    <Link
-                      href={link.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium text-primary underline-offset-4 hover:underline"
+            <main id="lesson-top" className="min-w-0 max-w-[720px] flex-1 pt-8 min-[900px]:pt-0">
+              <Link
+                href={backHref}
+                className="mb-6 inline-flex min-h-11 items-center gap-1.5 text-sm text-la-muted hover:text-la-ink"
+              >
+                <ArrowLeftIcon className="h-4 w-4" />
+                My lessons
+              </Link>
+
+              <header>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-la-green">
+                  {[unit?.title, position?.number ? `Lesson ${position.number} of ${position.total}` : null]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+                <h1 className="mt-3 text-balance font-[family-name:var(--font-source-serif)] text-[38px] font-semibold leading-[1.1] tracking-tight sm:text-[56px]">
+                  {lesson.title}
+                </h1>
+                {kindRows[0]?.description ? (
+                  <p className="mt-4 max-w-[640px] font-[family-name:var(--font-source-serif)] text-[20px] leading-relaxed text-la-muted">
+                    {kindRows[0].description}
+                  </p>
+                ) : null}
+                <p className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-[15px] text-la-muted">
+                  {metaParts.map((part, index) => (
+                    // The separator ends the item before it, so a wrapped line never starts with one.
+                    <span key={index} className="inline-flex items-center gap-3">
+                      {part}
+                      {index < metaParts.length - 1 ? <span aria-hidden="true">·</span> : null}
+                    </span>
+                  ))}
+                </p>
+              </header>
+
+              {isLocked ? (
+                <p
+                  role="status"
+                  className="mt-6 flex items-start gap-2 rounded-xl border border-la-amber/30 bg-la-amber-bg px-4 py-3 text-[15px] text-la-amber"
+                >
+                  <LockIcon className="mt-0.5 h-4 w-4 flex-none" />
+                  <span>
+                    <strong className="font-semibold">This lesson is locked.</strong>{" "}
+                    {isPupilViewer
+                      ? "You can read it, but you can't change answers, upload or download files."
+                      : "This pupil can read it but cannot change answers, upload or download files."}
+                  </span>
+                </p>
+              ) : null}
+
+              {objectives.length > 0 ? (
+                <LessonObjectives storageKey={`${pupilId}:${lesson.lesson_id}`} objectives={objectives} />
+              ) : null}
+
+              {sections.length === 0 ? (
+                <p className="mt-12 text-la-muted">There aren&apos;t any activities in this lesson yet.</p>
+              ) : (
+                sections.map((section, index) => (
+                  <section
+                    key={section.key}
+                    id={`section-${section.key}`}
+                    aria-labelledby={`section-${section.key}-title`}
+                    className="mt-16 scroll-mt-28"
+                  >
+                    <h2
+                      id={`section-${section.key}-title`}
+                      className="font-[family-name:var(--font-source-serif)] text-[28px] font-semibold leading-tight sm:text-[34px]"
                     >
-                      {link.description?.trim() || link.url}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
-        ) : null}
+                      <span className="text-la-green">{index + 1}.</span> {section.title}
+                    </h2>
+                    {section.introHtml ? (
+                      <div
+                        className="mt-3 font-[family-name:var(--font-source-serif)] text-[20px] leading-relaxed text-la-muted [&_p]:m-0"
+                        dangerouslySetInnerHTML={{ __html: section.introHtml }}
+                      />
+                    ) : null}
+                    <div className="mt-8 flex flex-col gap-12">
+                      {index === 0 ? <ResourceCards resources={resources} canDownload={canDownload} /> : null}
+                      {renderSectionItems(section.items)}
+                    </div>
+                  </section>
+                ))
+              )}
 
-        {lessonFiles.length > 0 ? (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold text-foreground">Resources</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm text-muted-foreground">
-              <p>Ask your teacher for the latest copy of these resources:</p>
-              <ul className="space-y-1">
-                {lessonFiles.map((file) => (
-                  <li key={file.path} className="rounded-md bg-muted/30 px-3 py-2">
-                    {file.name}
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
-        ) : null}
+              {lessonFiles.length > 0 ? (
+                <p className="mt-16 border-t border-la-border pt-8 text-[15px] text-la-muted">
+                  Your teacher also has {lessonFiles.length === 1 ? "a file" : "files"} for this lesson (
+                  {lessonFiles.map((file) => file.name).join(", ")}). Ask them for a copy.
+                </p>
+              ) : null}
+
+              <LessonFooter
+                lessonId={lesson.lesson_id}
+                pupilId={pupilId}
+                initialUnderstanding={understanding}
+                canAnswer={isPupilViewer && !isTeacher}
+                nextLesson={
+                  position?.next
+                    ? {
+                        href: `/pupil-lessons/${encodeURIComponent(pupilId)}/lessons/${encodeURIComponent(position.next.lessonId)}`,
+                        title: position.next.title,
+                      }
+                    : null
+                }
+              />
+            </main>
           </div>
-
-          <LessonEnd />
         </div>
-      </main>
+      </LessonProgressProvider>
     </FeedbackVisibilityProvider>
+  )
+}
+
+const PROSE =
+  "prose max-w-none text-[17px] leading-relaxed text-la-ink prose-headings:text-la-ink prose-a:text-la-green prose-strong:text-la-ink prose-img:rounded-xl dark:prose-invert"
+
+type ArticleSection = {
+  key: string
+  title: string
+  /** Rich text under the heading: a Display Section's description. */
+  introHtml: string | null
+  items: LessonActivityRow[]
+}
+
+type LessonActivityRow = { activity_id: string; type: string | null; title: string; body_data: unknown }
+
+/**
+ * The lesson's sections. Display Section activities are the teacher's
+ * structure: each starts a section of the activities after it, and anything
+ * before the first one becomes an "Introduction". Without any, activities are
+ * grouped by type (learn, practise, check, explain), keeping their order.
+ * Resource activities shown as cards are left out of both.
+ */
+function buildSections<T extends LessonActivityRow>(activities: T[], resourceIds: Set<string | null>): Array<ArticleSection & { items: T[] }> {
+  const shown = (activity: T) => !resourceIds.has(activity.activity_id)
+
+  if (activities.some((activity) => activity.type === "display-section")) {
+    const sections: Array<ArticleSection & { items: T[] }> = []
+    for (const activity of activities) {
+      if (activity.type === "display-section") {
+        sections.push({
+          key: activity.activity_id,
+          title: activity.title?.trim() || "Section",
+          introHtml: sectionDescriptionHtml(activity.body_data),
+          items: [],
+        })
+      } else if (shown(activity)) {
+        if (sections.length === 0) sections.push({ key: "introduction", title: "Introduction", introHtml: null, items: [] })
+        sections[sections.length - 1].items.push(activity)
+      }
+    }
+    return sections
+  }
+
+  return TYPE_SECTIONS.map((section) => ({
+    key: section.key,
+    title: section.title,
+    introHtml: section.intro ? `<p>${section.intro}</p>` : null,
+    items: activities.filter((activity) => shown(activity) && sectionForType(activity.type) === section.key),
+  }))
+}
+
+function sectionDescriptionHtml(body: unknown): string | null {
+  const description = (body as { description?: unknown } | null)?.description
+  if (typeof description !== "string") return null
+  if (description.replace(/<[^>]*>|&nbsp;/g, "").trim().length === 0) return null
+  return getRichTextMarkup(description)
+}
+
+type TypeSectionKey = "learn" | "practise" | "check" | "explain"
+
+const TYPE_SECTIONS: Array<{ key: TypeSectionKey; title: string; intro?: string }> = [
+  { key: "learn", title: "Learn" },
+  { key: "practise", title: "Practise" },
+  { key: "check", title: "Check your understanding" },
+  {
+    key: "explain",
+    title: "Explain in a few words",
+    intro: "Your teacher marks these after the lesson. You can edit an answer until it is marked.",
+  },
+]
+
+const LEARN_TYPES = new Set([
+  "text",
+  "display-image",
+  "show-video",
+  "display-webpage",
+  "file-download",
+  "display-flashcards",
+  "display-key-terms",
+  "voice",
+])
+
+function sectionForType(type: string | null | undefined): TypeSectionKey {
+  if (type === "multiple-choice-question") return "check"
+  if (type === "short-text-question" || type === "long-text-question" || type === "text-question") return "explain"
+  if (!type || LEARN_TYPES.has(type)) return "learn"
+  if (!isScorableActivityType(type) && !PRACTISE_EXTRA.has(type)) return "learn"
+  return "practise"
+}
+
+// Non-scorable types that are still something the pupil does.
+const PRACTISE_EXTRA = new Set(["share-my-work", "review-others-work"])
+
+/** Activities the pupil answers: these count for progress, marks and "done". */
+function isCountable(type: string | null | undefined) {
+  return Boolean(type) && isScorableActivityType(type!) && type !== "feedback" && type !== "voice"
+}
+
+function activityTitle(activity: { title: string; type: string | null; body_data: unknown }) {
+  const title = activity.title?.trim()
+  if (title) return title
+  const question = getActivityQuestion(activity).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()
+  return question.length > 0 ? (question.length > 60 ? `${question.slice(0, 57)}…` : question) : formatActivityType(activity.type)
+}
+
+function toIsoDate(value: Date | string | null | undefined): string | null {
+  if (!value) return null
+  if (value instanceof Date) return format(value, "yyyy-MM-dd")
+  return /^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10) : null
+}
+
+/** Overdue once the date has passed with work missing; due soon within three days. */
+function dueDateTone(dueDate: string | null, remainingWork: number): "overdue" | "soon" | null {
+  if (!dueDate || remainingWork === 0) return null
+  const today = format(new Date(), "yyyy-MM-dd")
+  if (dueDate < today) return "overdue"
+  return differenceInCalendarDays(parseISO(dueDate), parseISO(today)) <= 3 ? "soon" : null
+}
+
+function fileBadge(name: string) {
+  const extension = name.split(".").pop()
+  return extension && extension !== name ? extension.toUpperCase() : ""
+}
+
+/** An embeddable player URL for YouTube or Vimeo, or null to link out instead. */
+function videoEmbedUrl(url: string): string | null {
+  const youtubeId = getYouTubeVideoId(url)
+  if (youtubeId) return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(youtubeId)}`
+  try {
+    const parsed = new URL(url)
+    if (parsed.hostname.replace(/^www\./, "") === "vimeo.com") {
+      const id = parsed.pathname.split("/").filter(Boolean)[0]
+      if (id && /^\d+$/.test(id)) return `https://player.vimeo.com/video/${id}`
+    }
+  } catch {
+    return null
+  }
+  return null
+}
+
+function LinkCard({ id, title, detail, href }: { id: string; title: string; detail: string; href: string | null }) {
+  const body = (
+    <>
+      <span className="block font-semibold text-la-ink">{title}</span>
+      <span className="block text-sm text-la-muted">{detail}</span>
+    </>
+  )
+  return href ? (
+    <a
+      id={id}
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="block min-h-[72px] scroll-mt-28 rounded-xl border border-la-border bg-la-card p-4 transition-colors hover:border-la-green focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-la-green"
+    >
+      {body}
+    </a>
+  ) : (
+    <div id={id} className="min-h-[72px] scroll-mt-28 rounded-xl border border-dashed border-la-input p-4">
+      {body}
+    </div>
   )
 }

@@ -3,18 +3,21 @@ import { assertUnitExists, assertLessonExists } from '@/lib/mcp/guards'
 import { assertScAllowedForLesson, assertLoAllowedForLesson } from '@/lib/curriculum/unit-curriculum-guard'
 import { createLocalStorageClient } from '@/lib/storage/local-storage'
 import { MCP_UPLOAD_MAX_BYTES } from '@/lib/mcp/file-input'
+import { cleanLessonDescription as cleanDescription } from '@/lib/lesson-description'
 
 export type LessonSummary = {
   lesson_id: string
   unit_id: string
   title: string
+  description: string | null
   is_active: boolean
   order_index: number
 }
 
+
 export async function listLessonsForUnit(unitId: string): Promise<LessonSummary[]> {
   const { rows } = await query(
-    `SELECT lesson_id, unit_id, title, active, order_by
+    `SELECT lesson_id, unit_id, title, description, active, order_by
      FROM lessons
      WHERE unit_id = $1 AND kind = 'standard'
      ORDER BY order_by ASC NULLS LAST, title ASC`,
@@ -34,6 +37,7 @@ export async function listLessonsForUnit(unitId: string): Promise<LessonSummary[
       lesson_id: typeof row.lesson_id === 'string' ? row.lesson_id : String(row.lesson_id ?? ''),
       unit_id: typeof row.unit_id === 'string' ? row.unit_id : String(row.unit_id ?? ''),
       title: typeof row.title === 'string' ? row.title : '',
+      description: typeof row.description === 'string' ? row.description : null,
       is_active: row.active !== false,
       order_index: Number.isFinite(numericOrder) ? (numericOrder as number) : index,
     }
@@ -44,12 +48,14 @@ export type LessonRecord = {
   lesson_id: string
   unit_id: string
   title: string
+  description: string | null
   is_active: boolean
   order_index: number
 }
 
-export async function createLesson(unitId: string, title: string): Promise<LessonRecord> {
+export async function createLesson(unitId: string, title: string, description?: string): Promise<LessonRecord> {
   let result: LessonRecord | null = null
+  const cleanedDescription = description === undefined ? null : cleanDescription(description)
 
   await withDbClient(async (client) => {
     await assertUnitExists(client, unitId)
@@ -64,13 +70,14 @@ export async function createLesson(unitId: string, title: string): Promise<Lesso
       lesson_id: string
       unit_id: string
       title: string
+      description: string | null
       active: boolean
       order_by: number
     }>(
-      `insert into lessons (unit_id, title, active, order_by)
-       values ($1, $2, true, $3)
-       returning lesson_id, unit_id, title, active, order_by`,
-      [unitId, title.trim(), nextOrder],
+      `insert into lessons (unit_id, title, description, active, order_by)
+       values ($1, $2, $3, true, $4)
+       returning lesson_id, unit_id, title, description, active, order_by`,
+      [unitId, title.trim(), cleanedDescription, nextOrder],
     )
     const row = rows[0]
     if (!row) throw new Error('Failed to create lesson')
@@ -78,6 +85,7 @@ export async function createLesson(unitId: string, title: string): Promise<Lesso
       lesson_id: row.lesson_id,
       unit_id: row.unit_id,
       title: row.title,
+      description: row.description,
       is_active: row.active,
       order_index: row.order_by,
     }
@@ -87,21 +95,32 @@ export async function createLesson(unitId: string, title: string): Promise<Lesso
   return result
 }
 
-export async function updateLessonTitle(lessonId: string, title: string): Promise<LessonRecord> {
-  const trimmed = title.trim()
-  if (!trimmed) throw new Error('Lesson title cannot be empty')
+/** Omitted fields are left unchanged; an empty description clears it. */
+export async function updateLesson(
+  lessonId: string,
+  updates: { title?: string; description?: string },
+): Promise<LessonRecord> {
+  const title = updates.title?.trim()
+  if (updates.title !== undefined && !title) throw new Error('Lesson title cannot be empty')
+  if (title === undefined && updates.description === undefined) {
+    throw new Error('Nothing to update: pass title and/or description')
+  }
+  const description = updates.description === undefined ? undefined : cleanDescription(updates.description)
 
   const { rows } = await query<{
     lesson_id: string
     unit_id: string
     title: string
+    description: string | null
     active: boolean | null
     order_by: number
   }>(
-    `update lessons set title = $2
+    `update lessons
+        set title = coalesce($2, title),
+            description = case when $3 then $4 else description end
       where lesson_id = $1
-      returning lesson_id, unit_id, title, active, order_by`,
-    [lessonId, trimmed],
+      returning lesson_id, unit_id, title, description, active, order_by`,
+    [lessonId, title ?? null, description !== undefined, description ?? null],
   )
   const row = rows[0]
   if (!row) throw new Error(`Lesson ${lessonId} not found`)
@@ -109,6 +128,7 @@ export async function updateLessonTitle(lessonId: string, title: string): Promis
     lesson_id: row.lesson_id,
     unit_id: row.unit_id,
     title: row.title,
+    description: row.description,
     is_active: row.active !== false,
     order_index: row.order_by,
   }
@@ -299,6 +319,7 @@ export type LessonObjectives = {
   lesson_id: string
   unit_id: string
   title: string
+  description: string | null
   learning_objectives: Array<{
     learning_objective_id: string
     assessment_objective_code: string | null
@@ -325,8 +346,8 @@ export type LessonObjectives = {
  * flagged, so a stale link is visible rather than hidden.
  */
 export async function getLessonObjectives(lessonId: string): Promise<LessonObjectives> {
-  const { rows: lessonRows } = await query<{ lesson_id: string; unit_id: string; title: string }>(
-    'select lesson_id, unit_id, title from lessons where lesson_id = $1 limit 1',
+  const { rows: lessonRows } = await query<{ lesson_id: string; unit_id: string; title: string; description: string | null }>(
+    'select lesson_id, unit_id, title, description from lessons where lesson_id = $1 limit 1',
     [lessonId],
   )
   const lesson = lessonRows[0]
@@ -406,7 +427,13 @@ export async function getLessonObjectives(lessonId: string): Promise<LessonObjec
       (lessonLoOrder.get(a.learning_objective_id) ?? Number.MAX_SAFE_INTEGER)
       - (lessonLoOrder.get(b.learning_objective_id) ?? Number.MAX_SAFE_INTEGER))
 
-  return { lesson_id: lesson.lesson_id, unit_id: lesson.unit_id, title: lesson.title, learning_objectives }
+  return {
+    lesson_id: lesson.lesson_id,
+    unit_id: lesson.unit_id,
+    title: lesson.title,
+    description: lesson.description,
+    learning_objectives,
+  }
 }
 
 export type LessonLoUnlinkResult = {

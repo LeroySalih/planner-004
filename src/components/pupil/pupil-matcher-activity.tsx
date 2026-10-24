@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { triggerFeedbackRefresh } from "@/lib/feedback-events"
+import { seededRandom, seededShuffle } from "@/lib/seeded-shuffle"
 
 interface PupilMatcherActivityProps {
   lessonId: string
@@ -27,19 +28,10 @@ interface PupilMatcherActivityProps {
   initialAnswers: Record<string, string | null>
 }
 
-function shuffle<T>(items: T[]): T[] {
-  const result = [...items]
-  for (let i = result.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[result[i], result[j]] = [result[j], result[i]]
-  }
-  return result
-}
-
-function buildLayout(pairIds: string[]): MatcherLayoutEntry[] {
+function buildLayout(pairIds: string[], random: () => number): MatcherLayoutEntry[] {
   return pairIds.map((pairId) => ({
     pairId,
-    promptSide: Math.random() < 0.5 ? "term" : "definition",
+    promptSide: random() < 0.5 ? "term" : "definition",
   }))
 }
 
@@ -62,8 +54,8 @@ export function PupilMatcherActivity({
     const hasValidLayout =
       initialLayout.length === pairIds.length &&
       pairIds.every((id) => initialLayout.some((entry) => entry.pairId === id))
-    return hasValidLayout ? initialLayout : buildLayout(pairIds)
-  }, [initialLayout, pairIds])
+    return hasValidLayout ? initialLayout : buildLayout(pairIds, seededRandom(`${activity.activity_id}:${pupilId}:layout`))
+  }, [initialLayout, pairIds, activity.activity_id, pupilId])
 
   const [answers, setAnswers] = useState<Record<string, string | null>>(() => {
     const next: Record<string, string | null> = {}
@@ -89,10 +81,11 @@ export function PupilMatcherActivity({
   }, [activity.activity_id, initialAnswers, pairIds])
 
   const optionsBySide = useMemo(() => {
-    const terms = shuffle(matcherBody.pairs.map((pair) => ({ id: pair.id, label: pair.term })))
-    const definitions = shuffle(matcherBody.pairs.map((pair) => ({ id: pair.id, label: pair.definition })))
+    const random = seededRandom(`${activity.activity_id}:${pupilId}:options`)
+    const terms = seededShuffle(matcherBody.pairs.map((pair) => ({ id: pair.id, label: pair.term })), random)
+    const definitions = seededShuffle(matcherBody.pairs.map((pair) => ({ id: pair.id, label: pair.definition })), random)
     return { term: terms, definition: definitions }
-  }, [matcherBody.pairs])
+  }, [matcherBody.pairs, activity.activity_id, pupilId])
 
   const handleAnswerChange = useCallback(
     (pairId: string, selectedPairId: string) => {
@@ -122,7 +115,7 @@ export function PupilMatcherActivity({
         }
 
         setFeedback({ type: "success", message: "Answer saved" })
-        triggerFeedbackRefresh(lessonId)
+        triggerFeedbackRefresh(lessonId, activity.activity_id)
       })
     },
     [activity.activity_id, answers, canAnswer, layout, lessonId, pupilId],
@@ -131,12 +124,12 @@ export function PupilMatcherActivity({
   return (
     <div className="space-y-3">
       {!canAnswer ? (
-        <p className="text-xs text-pa-muted-3">
+        <p className="text-sm text-pa-muted-3">
           You can review this activity, but only pupils can select answers.
         </p>
       ) : null}
 
-      <ul className="space-y-3">
+      <ul className="divide-y divide-pa-card-border overflow-hidden rounded-[10px] border border-pa-card-border bg-pa-panel">
         {layout.map(({ pairId, promptSide }) => {
           const pair = pairById.get(pairId)
           if (!pair) return null
@@ -144,21 +137,23 @@ export function PupilMatcherActivity({
           const answerSide = promptSide === "term" ? "definition" : "term"
           const options = optionsBySide[answerSide]
           const selected = answers[pairId] ?? ""
+          const promptId = `${activity.activity_id}-${pairId}-prompt`
 
           return (
-            <li
-              key={pairId}
-              className="space-y-2 rounded-pa-box border-[1.5px] border-pa-field-border bg-pa-field p-4"
-            >
-              <p className="text-sm font-semibold text-pa-ink">
+            <li key={pairId} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+              {/* A div: RichInline renders paragraphs, which a <p> cannot hold. */}
+              <div id={promptId} className="text-[15px] text-pa-ink">
                 <RichInline text={promptText.trim() || "(missing text)"} />
-              </p>
+              </div>
               <Select
                 value={selected}
                 onValueChange={(value) => handleAnswerChange(pairId, value)}
                 disabled={!canAnswer || isPending}
               >
-                <SelectTrigger className="w-full">
+                <SelectTrigger
+                  aria-labelledby={promptId}
+                  className="min-h-11 w-full flex-none border-pa-field-border bg-pa-field sm:w-[220px]"
+                >
                   <SelectValue placeholder={`Choose a ${answerSide}`} />
                 </SelectTrigger>
                 <SelectContent>
@@ -173,6 +168,11 @@ export function PupilMatcherActivity({
           )
         })}
       </ul>
+      {feedback?.type === "error" ? (
+        <p role="alert" className="text-sm text-destructive">
+          {feedback.message}
+        </p>
+      ) : null}
     </div>
   )
 }

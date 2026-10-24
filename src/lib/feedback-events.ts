@@ -38,16 +38,18 @@ export function addMarkingCompleteListener(
 
 interface FeedbackRefreshDetail {
   lessonId?: string | null
+  /** The activity whose answer was just saved, when the caller knows it. */
+  activityId?: string | null
 }
 
-export function triggerFeedbackRefresh(lessonId: string | null | undefined) {
+export function triggerFeedbackRefresh(lessonId: string | null | undefined, activityId?: string | null) {
   if (typeof window === "undefined") return
-  const detail: FeedbackRefreshDetail = { lessonId: lessonId ?? null }
+  const detail: FeedbackRefreshDetail = { lessonId: lessonId ?? null, activityId: activityId ?? null }
   window.dispatchEvent(new CustomEvent<FeedbackRefreshDetail>(FEEDBACK_REFRESH_EVENT, { detail }))
 }
 
 export function addFeedbackRefreshListener(
-  handler: (lessonId: string | null) => void,
+  handler: (lessonId: string | null, activityId: string | null) => void,
 ): () => void {
   if (typeof window === "undefined") {
     return () => {}
@@ -55,7 +57,7 @@ export function addFeedbackRefreshListener(
 
   const listener = (event: Event) => {
     const customEvent = event as CustomEvent<FeedbackRefreshDetail>
-    handler(customEvent.detail?.lessonId ?? null)
+    handler(customEvent.detail?.lessonId ?? null, customEvent.detail?.activityId ?? null)
   }
 
   window.addEventListener(FEEDBACK_REFRESH_EVENT, listener as EventListener)

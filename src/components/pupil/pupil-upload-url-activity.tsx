@@ -131,7 +131,7 @@ export function PupilUploadUrlActivity({
 
         setLastSaved(trimmedUrl)
         setFeedback({ type: "success", message: "Answer saved" })
-        triggerFeedbackRefresh(lessonId)
+        triggerFeedbackRefresh(lessonId, activity.activity_id)
       } finally {
         isSavingRef.current = false
       }

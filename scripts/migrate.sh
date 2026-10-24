@@ -24,6 +24,8 @@ MIGRATIONS=(
   "121-year-group-levels.sql|select exists (select 1 from information_schema.tables where table_name = 'year_group_levels')"
   "122-year-group-top-level.sql|select exists (select 1 from information_schema.columns where table_name = 'year_group_levels' and column_name = 'top_level')"
   "123-unit-audits.sql|select exists (select 1 from information_schema.tables where table_name = 'unit_audits')"
+  "124-lesson-description.sql|select exists (select 1 from information_schema.columns where table_name = 'lessons' and column_name = 'description')"
+  "125-lesson-understanding.sql|select exists (select 1 from information_schema.tables where table_name = 'lesson_understanding')"
 )
 
 YES=false

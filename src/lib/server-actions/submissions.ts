@@ -34,6 +34,7 @@ import {
   logActivitySubmissionEvent,
 } from "@/lib/activity-logging";
 import { emitSubmissionEvent } from "@/lib/sse/topics";
+import { publishAssignmentResultsEvents } from "@/lib/results-sse";
 import {
   clearResubmitRequest,
   getNextAttemptNumber,
@@ -52,6 +53,8 @@ const McqSubmissionInputSchema = z.object({
   activityId: z.string().min(1),
   userId: z.string().min(1),
   optionId: z.string().min(1),
+  /** The page's assignment, so the instant mark is sent live like an AI mark. */
+  assignmentId: z.string().min(1).optional(),
 });
 
 const MatcherSubmissionInputSchema = z.object({
@@ -964,6 +967,21 @@ export async function upsertMcqSubmissionAction(
       // an early, incomplete answer marked against their finished one.
       body: parsed.data.body,
     });
+
+    // Marked the moment it is saved, so send the result the way AI marking
+    // does: the pupil's open lesson shows the new mark without a reload.
+    if (payload.assignmentId) {
+      void publishAssignmentResultsEvents(payload.assignmentId, [{
+        submissionId: parsed.data.submission_id,
+        pupilId: payload.userId,
+        activityId: payload.activityId,
+        aiScore: isCorrect ? 1 : 0,
+        aiFeedback: null,
+        successCriteriaScores: Object.fromEntries(
+          Object.entries(successCriteriaScores).filter((entry): entry is [string, number] => entry[1] !== null),
+        ),
+      }]).catch((error) => console.error("[submissions] Failed to publish MCQ result:", error));
+    }
 
     console.log("[realtime-debug] MCQ submission stored", {
       type: "insert",

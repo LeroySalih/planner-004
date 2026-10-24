@@ -1,9 +1,8 @@
 "use client"
 
 import { useEffect, useState, useTransition } from "react"
-import { Download, Loader2, Maximize2 } from "lucide-react"
+import { Download, Loader2 } from "lucide-react"
 
-import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { MediaImage } from "@/components/ui/media-image"
 import { cn } from "@/lib/utils"
@@ -114,89 +113,82 @@ export function LessonMedia({ lessonId, lessonTitle, images, files }: LessonMedi
 
   const hasImages = images.length > 0
 
-  if (!hasImages && files.length === 0) {
-    return <p className="text-xs text-muted-foreground">No media attached to this lesson.</p>
-  }
+  // Nothing to show is left out rather than announced on every lesson.
+  if (!hasImages && files.length === 0) return null
 
   return (
-    <div className="space-y-3">
+    <div className="mt-4 space-y-3">
       {hasImages ? (
-        <div className="space-y-2">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Images</p>
-          <div className="flex flex-wrap gap-3">
-            {images.map((image) => {
-              const state = imageState[image.activityId] ?? { url: null, loading: true }
-              const url = state.url
-              const isLoading = state.loading
+        <ul className="flex flex-wrap gap-3" aria-label="Lesson images">
+          {images.map((image) => {
+            const state = imageState[image.activityId] ?? { url: null, loading: true }
+            const url = state.url
+            const isLoading = state.loading
 
-              return (
+            return (
+              <li key={image.activityId}>
                 <button
                   type="button"
-                  key={image.activityId}
                   onClick={() => url && setOpenImage(url)}
                   disabled={Boolean(isLoading || !url)}
                   className={cn(
-                    "relative h-24 w-32 overflow-hidden rounded-lg border border-border/60 bg-muted/40",
-                    state?.loading ? "" : "hover:border-primary",
+                    "relative block h-24 w-32 overflow-hidden rounded-lg border border-la-border bg-la-bg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-la-green",
+                    !isLoading && url && "cursor-zoom-in hover:border-la-green",
                   )}
-                  aria-label={url ? "Open image" : "Image unavailable"}
+                  aria-label={url ? `Open image: ${image.title ?? lessonTitle}` : "Image unavailable"}
                 >
                   {isLoading ? (
-                    <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-                      Loading…
-                    </div>
+                    <span className="flex h-full items-center justify-center text-la-muted">
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                      <span className="sr-only">Loading image</span>
+                    </span>
                   ) : url ? (
-                    <>
-                      <MediaImage
-                        src={url}
-                        alt={image.title ?? lessonTitle}
-                        fill
-                        sizes="(max-width: 768px) 50vw, 200px"
-                        className="object-cover"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
-                      <div className="absolute bottom-1 right-1 rounded-full bg-background/80 p-1 text-foreground shadow">
-                        <Maximize2 className="h-4 w-4" />
-                      </div>
-                    </>
+                    <MediaImage
+                      src={url}
+                      alt={image.title ?? lessonTitle}
+                      fill
+                      sizes="(max-width: 768px) 50vw, 200px"
+                      className="object-cover"
+                    />
                   ) : (
-                    <div className="flex h-full items-center justify-center text-xs text-muted-foreground">No image</div>
+                    <span className="flex h-full items-center justify-center text-xs text-la-muted">No image</span>
                   )}
                 </button>
-              )
-            })}
-          </div>
-        </div>
+              </li>
+            )
+          })}
+        </ul>
       ) : null}
 
       {files.length > 0 ? (
-        <div className="space-y-2">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Files</p>
-          <div className="flex flex-wrap gap-2">
-            {files.map((file) => {
-              const isDownloading = downloadingFile === file.name && (isPending || Boolean(downloadingFile))
-              const extension = file.name.includes(".") ? file.name.split(".").pop() : ""
-              return (
-                <Button
-                  key={file.path}
-                  variant="outline"
-                  size="sm"
+        <ul className="flex flex-wrap gap-2" aria-label="Lesson files">
+          {files.map((file) => {
+            const isDownloading = downloadingFile === file.name && (isPending || Boolean(downloadingFile))
+            const extension = file.name.includes(".") ? file.name.split(".").pop() : ""
+            return (
+              <li key={file.path}>
+                <button
+                  type="button"
                   onClick={() => handleDownload(file)}
-                  className="flex items-center gap-2"
                   disabled={isDownloading}
+                  className="inline-flex min-h-11 max-w-full items-center gap-2 rounded-lg border border-la-border bg-la-card px-3 text-sm font-medium text-la-ink hover:border-la-green focus-visible:outline-2 focus-visible:outline-la-green disabled:opacity-70"
                 >
-                  {isDownloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                  <span className="truncate max-w-[10rem]" title={file.name}>
+                  {isDownloading ? (
+                    <Loader2 className="h-4 w-4 flex-none animate-spin" aria-hidden="true" />
+                  ) : (
+                    <Download className="h-4 w-4 flex-none text-la-green" aria-hidden="true" />
+                  )}
+                  <span className="max-w-[12rem] truncate" title={file.name}>
                     {file.name}
                   </span>
                   {extension ? (
-                    <span className="rounded bg-muted px-1 text-[10px] uppercase text-muted-foreground">{extension}</span>
+                    <span className="rounded bg-la-green-pale px-1.5 text-[11px] font-semibold uppercase text-la-green">{extension}</span>
                   ) : null}
-                </Button>
-              )
-            })}
-          </div>
-        </div>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
       ) : null}
 
       <Dialog open={Boolean(openImage)} onOpenChange={(open) => !open && setOpenImage(null)}>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { X } from "lucide-react"
 
@@ -8,6 +8,9 @@ interface ImageLightboxProps {
   src: string
   alt: string
   label?: string
+  /** The trigger's content, e.g. the image itself; defaults to the label text. */
+  children?: ReactNode
+  triggerClassName?: string
 }
 
 /**
@@ -15,7 +18,7 @@ interface ImageLightboxProps {
  * current tab (instead of opening a new tab). Closes on the X button, a
  * backdrop click, or Escape; locks body scroll while open.
  */
-export function ImageLightbox({ src, alt, label = "Open full image" }: ImageLightboxProps) {
+export function ImageLightbox({ src, alt, label = "Open full image", children, triggerClassName }: ImageLightboxProps) {
   const [open, setOpen] = useState(false)
   const [mounted, setMounted] = useState(false)
 
@@ -40,9 +43,10 @@ export function ImageLightbox({ src, alt, label = "Open full image" }: ImageLigh
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="text-xs font-medium text-primary underline-offset-4 hover:underline"
+        aria-label={children ? `${label}: ${alt}` : undefined}
+        className={triggerClassName ?? "text-xs font-medium text-primary underline-offset-4 hover:underline"}
       >
-        {label}
+        {children ?? label}
       </button>
 
       {open && mounted
