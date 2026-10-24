@@ -186,7 +186,7 @@ export function PupilSequenceActivity({
       }
       setAttempts(result.data?.attempt_number ?? attempts + 1)
       setDirty(false)
-      triggerFeedbackRefresh(lessonId)
+      triggerFeedbackRefresh(lessonId, activityId)
       toast.success("Order checked")
     })
   }

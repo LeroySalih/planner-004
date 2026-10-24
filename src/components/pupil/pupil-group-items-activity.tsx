@@ -18,6 +18,7 @@ import { upsertGroupItemsSubmissionAction } from "@/lib/server-updates"
 import { RichInline } from "@/components/lessons/activity-view/rich-inline"
 import { cn } from "@/lib/utils"
 import { triggerFeedbackRefresh } from "@/lib/feedback-events"
+import { seededRandom, seededShuffle } from "@/lib/seeded-shuffle"
 
 interface GroupItemsGroupOption {
   id: string
@@ -44,21 +45,12 @@ interface PupilGroupItemsActivityProps {
 
 const BANK_ID = "bank"
 
-function shuffle<T>(items: T[]): T[] {
-  const result = [...items]
-  for (let i = result.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[result[i], result[j]] = [result[j], result[i]]
-  }
-  return result
-}
-
 function ItemChipContent({ item }: { item: GroupItemsItemOption }) {
   return (
-    <div className="flex items-center gap-2 rounded-pa-opt border-[1.5px] border-pa-field-border bg-pa-field px-4 py-[15px] text-[15px] text-pa-ink">
+    <div className="flex min-h-11 items-center gap-2 rounded-full border border-pa-field-border bg-pa-panel px-4 py-2 text-[15px] text-pa-ink shadow-[0_1px_0_rgba(0,0,0,0.04)]">
       {item.imageUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={item.imageUrl} alt="" className="h-12 w-12 rounded object-cover" />
+        <img src={item.imageUrl} alt="" className="h-9 w-9 rounded-full object-cover" />
       ) : null}
       <span><RichInline text={item.text} /></span>
     </div>
@@ -98,12 +90,14 @@ function DropZone({
   itemIds,
   itemsById,
   canAnswer,
+  variant = "group",
 }: {
   id: string
   label: string
   itemIds: string[]
   itemsById: Map<string, GroupItemsItemOption>
   canAnswer: boolean
+  variant?: "group" | "bank"
 }) {
   const { setNodeRef, isOver } = useDroppable({ id })
 
@@ -111,11 +105,14 @@ function DropZone({
     <div
       ref={setNodeRef}
       className={cn(
-        "min-h-[100px] flex-1 space-y-2 rounded-pa-box border-2 border-dashed border-pa-field-border bg-pa-field p-4",
+        "space-y-2 rounded-[10px] p-4",
+        variant === "group"
+          ? "min-h-[120px] border-2 border-dashed border-pa-field-border bg-pa-panel"
+          : "min-h-[72px] border border-pa-card-border bg-pa-green-tint/40",
         isOver && "border-pa-green bg-pa-green-tint",
       )}
     >
-      <p className="text-xs font-semibold uppercase tracking-wide text-pa-muted-3"><RichInline text={label} /></p>
+      <div className="text-sm font-semibold text-pa-muted-2"><RichInline text={label} /></div>
       <div className="flex flex-wrap gap-2">
         {itemIds.map((itemId) => {
           const item = itemsById.get(itemId)
@@ -145,8 +142,8 @@ export function PupilGroupItemsActivity({
     const hasValidOrder =
       initialItemOrder.length === itemIds.length &&
       itemIds.every((id) => initialItemOrder.includes(id))
-    return hasValidOrder ? initialItemOrder : shuffle(itemIds)
-  }, [initialItemOrder, itemIds])
+    return hasValidOrder ? initialItemOrder : seededShuffle(itemIds, seededRandom(`${activityId}:${pupilId}`))
+  }, [initialItemOrder, itemIds, activityId, pupilId])
 
   const [placements, setPlacements] = useState<Record<string, string | null>>(() => {
     const next: Record<string, string | null> = {}
@@ -210,7 +207,7 @@ export function PupilGroupItemsActivity({
         }
 
         setHasSaved(true)
-        triggerFeedbackRefresh(lessonId)
+        triggerFeedbackRefresh(lessonId, activityId)
       })
     },
     [activityId, canAnswer, groupIds, itemOrder, lessonId, placements, pupilId],
@@ -222,13 +219,23 @@ export function PupilGroupItemsActivity({
   return (
     <div className="space-y-3">
       {!canAnswer ? (
-        <p className="text-xs text-pa-muted-3">
+        <p className="text-sm text-pa-muted-3">
           You can review this activity, but only pupils can move items.
         </p>
       ) : null}
 
-      <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        <div className="flex flex-col gap-3 sm:flex-row">
+      {/* A stable id keeps dnd-kit's aria ids the same on the server and the client. */}
+      <DndContext id={`group-items-${activityId}`} sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+        <DropZone
+          id={BANK_ID}
+          label={bankItemIds.length > 0 ? "Drag each item into a group" : "All items sorted. Drag one back here to move it."}
+          itemIds={bankItemIds}
+          itemsById={itemsById}
+          canAnswer={canAnswer}
+          variant="bank"
+        />
+
+        <div className={cn("grid gap-3", groups.length > 2 ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
           {groups.map((group) => (
             <DropZone
               key={group.id}
@@ -240,14 +247,6 @@ export function PupilGroupItemsActivity({
             />
           ))}
         </div>
-
-        <DropZone
-          id={BANK_ID}
-          label="Item bank"
-          itemIds={bankItemIds}
-          itemsById={itemsById}
-          canAnswer={canAnswer}
-        />
 
         <DragOverlay>
           {activeItem ? <ItemChipContent item={activeItem} /> : null}

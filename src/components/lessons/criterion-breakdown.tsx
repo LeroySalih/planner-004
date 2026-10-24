@@ -41,6 +41,11 @@ export function CriterionBreakdown({
       const next = (result.data as CriterionBreakdownRow[] | null) ?? []
       setRows(next)
       onLoaded?.(next.length)
+    }).catch(() => {
+      // A failed load shows no breakdown rather than leaving a caller waiting.
+      if (cancelled) return
+      setRows([])
+      onLoaded?.(0)
     })
     return () => {
       cancelled = true

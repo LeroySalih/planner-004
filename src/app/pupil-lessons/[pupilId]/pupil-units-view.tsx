@@ -1,106 +1,79 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, type ReactNode } from "react"
 import Link from "next/link"
-import { format, parseISO, differenceInMonths, addWeeks, isBefore } from "date-fns"
+import { format, parseISO, differenceInMonths, isBefore } from "date-fns"
 import { cn } from "@/lib/utils"
-import { Roboto_Condensed } from "next/font/google"
-import { ChevronDown, Lock, RotateCcw, AlertTriangle } from "lucide-react"
-
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
+import { lessonDueDate } from "@/lib/lesson-due-date"
+import { lessonArticleFontClass } from "@/components/lesson-article/fonts"
+import { ChevronIcon, LockIcon } from "@/components/lesson-article/icons"
 import type { PupilUnitEntry, PupilUnitsDetail, PupilUnitLesson } from "@/lib/pupil-units-data"
-import { LessonMedia } from "./lesson-media"
 import { PupilPicker } from "@/components/pupil-picker"
 import type { PupilPickerData } from "@/lib/pupil-picker"
 
-function formatDate(value: string | null) {
-  if (!value) return "No date set"
+function formatDate(value: string | null, pattern = "d MMM yyyy") {
+  if (!value) return null
   try {
-    return format(parseISO(value), "dd-MM-yyyy")
+    return format(parseISO(value), pattern)
   } catch {
     return value
   }
 }
 
-function getRevisionBadgeColor(dateString: string | null) {
-  if (!dateString) return "bg-green-50 text-green-700 ring-green-600/20"
-
+/** Revision older than a month is amber, two months red. */
+function revisionTone(dateString: string | null): "ok" | "amber" | "red" {
+  if (!dateString) return "ok"
   try {
-    const date = parseISO(dateString)
-    const monthsDiff = differenceInMonths(new Date(), date)
-
-    if (monthsDiff >= 2) {
-      return "bg-red-50 text-red-700 ring-red-600/20"
-    }
-    if (monthsDiff >= 1) {
-      return "bg-amber-50 text-amber-700 ring-amber-600/20"
-    }
-    return "bg-green-50 text-green-700 ring-green-600/20"
+    const months = differenceInMonths(new Date(), parseISO(dateString))
+    return months >= 2 ? "red" : months >= 1 ? "amber" : "ok"
   } catch {
-    return "bg-green-50 text-green-700 ring-green-600/20"
+    return "ok"
   }
-}
-
-function renderLessonObjectivesInline(lesson: PupilUnitLesson) {
-  if (lesson.objectives.length === 0) {
-    return <span className="text-xs text-muted-foreground">LO: None set</span>
-  }
-
-  const titles = lesson.objectives.map((objective) => objective.title).join(", ")
-  return <span className="text-xs text-muted-foreground">LO: {titles}</span>
 }
 
 function isLessonOverdueAndUnderperforming(lesson: PupilUnitLesson) {
-  if (!lesson.startDate) return false
-
-  const dueDate = addWeeks(parseISO(lesson.startDate), 1)
-  // Check if overdue
-  if (!isBefore(dueDate, new Date())) return false
-
-  // Check if has activities (max score > 0)
+  const due = lessonDueDate(lesson.startDate)
+  if (!due || !isBefore(parseISO(due), new Date())) return false
   const maxScore = lesson.lessonMaxScore ?? 0
   if (maxScore <= 0) return false
-
-  // Check if score < 80%
-  const score = lesson.lessonScore ?? 0
-  const percent = score / maxScore
-
-  return percent < 0.8
+  return (lesson.lessonScore ?? 0) / maxScore < 0.8
 }
 
-const robotoCondensed = Roboto_Condensed({
-  subsets: ["latin"],
-  weight: ["400", "700"],
-  display: "swap",
-})
+const selectClass =
+  "min-h-11 w-full cursor-pointer appearance-none rounded-lg border border-la-input bg-la-card py-2 pl-3 pr-9 text-[15px] font-semibold text-la-ink focus-visible:outline-2 focus-visible:outline-la-green"
 
 export function PupilUnitsView({
   detail,
   picker = null,
+  initialUnitId = null,
 }: {
   detail: PupilUnitsDetail
   /** Admin-only "view as pupil" controls; null for everyone else. */
   picker?: PupilPickerData | null
+  /** A unit to open with (?unit=), e.g. from a lesson's course list. */
+  initialUnitId?: string | null
 }) {
   const subjectList = detail.subjects
     .map((s) => s.subject ?? "Subject not set")
     .filter((s, i, arr) => arr.indexOf(s) === i)
     .sort()
 
-  const [selectedSubject, setSelectedSubject] = useState(() => subjectList[0] ?? "")
+  const [selectedSubject, setSelectedSubject] = useState(() => {
+    const withUnit = detail.subjects.find((s) => s.units.some((u) => u.unitId === initialUnitId))
+    return withUnit ? withUnit.subject ?? "Subject not set" : subjectList[0] ?? ""
+  })
 
   const filteredSubjects = useMemo(
     () => detail.subjects.filter((s) => (s.subject ?? "Subject not set") === selectedSubject),
-    [detail, selectedSubject]
+    [detail, selectedSubject],
   )
 
   const allUnits = useMemo(() => filteredSubjects.flatMap((s) => s.units), [filteredSubjects])
 
-  // The sidebar lists units under the class (group) they were taught to,
+  // The side menu lists units under the class (group) they were taught to,
   // newest class first (numbers compared as numbers, so 25-10 sorts above
-  // 25-8). A unit taught to more than one class appears under
-  // each; selecting it still shows the whole unit.
+  // 25-8). A unit taught to more than one class appears under each;
+  // selecting it still shows the whole unit.
   const unitsByGroup = useMemo(() => {
     const byGroup = new Map<string, PupilUnitEntry[]>()
     for (const unit of allUnits) {
@@ -115,8 +88,8 @@ export function PupilUnitsView({
       .sort(([a], [b]) => b.localeCompare(a, undefined, { numeric: true }))
       .map(([groupId, units]) => ({ groupId, units }))
   }, [allUnits])
-  // Null means the first unit of the newest class (the top of the sidebar).
-  const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null)
+  // Null means the first unit of the newest class (the top of the side menu).
+  const [selectedUnitId, setSelectedUnitId] = useState<string | null>(initialUnitId)
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
 
   const selectedUnit = useMemo(() => {
@@ -124,248 +97,297 @@ export function PupilUnitsView({
     return found ?? unitsByGroup[0]?.units[0] ?? null
   }, [allUnits, unitsByGroup, selectedUnitId])
 
+  const chooseSubject = (subject: string) => {
+    setSelectedSubject(subject)
+    setSelectedUnitId(null)
+    setSelectedGroupId(null)
+  }
+
+  const subjectSelect = (id: string) => (
+    <div className="relative">
+      <label htmlFor={id} className="sr-only">
+        Subject
+      </label>
+      <select id={id} value={selectedSubject} onChange={(event) => chooseSubject(event.target.value)} className={selectClass}>
+        {subjectList.map((subject) => (
+          <option key={subject} value={subject}>
+            {subject}
+          </option>
+        ))}
+      </select>
+      <ChevronIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 rotate-90 text-la-muted" />
+    </div>
+  )
+
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-8 sm:px-6 sm:py-10">
-      {picker && <PupilPicker {...picker} basePath="/pupil-lessons" pupilIn="path" />}
-      <header className="rounded-2xl bg-gradient-to-r from-sky-600 to-indigo-600 px-6 py-6 text-white shadow-lg sm:px-8">
-        <div className="flex flex-col gap-2">
-          <h1 className="text-3xl font-semibold text-white sm:text-4xl">My Units</h1>
-          <p className="text-sm text-slate-100 sm:text-base">
-            Units and lessons assigned to {detail.pupilName}
-          </p>
-        </div>
-      </header>
+    <div className={cn("lesson-article min-h-screen bg-la-bg font-[family-name:var(--font-inter)] text-[16px] text-la-ink", lessonArticleFontClass)}>
+      <div className="mx-auto w-full max-w-[1040px] px-4 pb-24 pt-8 sm:px-6 min-[900px]:pt-10">
+        {picker && (
+          <div className="mb-6">
+            <PupilPicker {...picker} basePath="/pupil-lessons" pupilIn="path" />
+          </div>
+        )}
 
-      <div className="flex flex-col gap-8 sm:gap-10">
-        <div className="relative flex w-fit items-center">
-          <select
-            id="subject-select"
-            value={selectedSubject}
-            onChange={(event) => {
-              const newSubject = event.target.value
-              setSelectedSubject(newSubject)
-              setSelectedUnitId(null)
-              setSelectedGroupId(null)
-            }}
-            className="cursor-pointer appearance-none bg-transparent pr-8 text-2xl font-semibold text-foreground focus:outline-none sm:text-3xl"
+        <div className="flex flex-col min-[900px]:flex-row min-[900px]:gap-12">
+          {/* Side menu: subject, then the units by class. */}
+          <aside
+            aria-label="Your units"
+            className="sticky top-24 hidden max-h-[calc(100vh-7rem)] w-60 flex-none self-start overflow-y-auto pb-8 min-[900px]:block"
           >
-            {subjectList.map((subject) => (
-              <option key={subject} value={subject}>
-                {subject}
-              </option>
-            ))}
-          </select>
-          <ChevronDown className="pointer-events-none absolute right-0 top-1/2 h-6 w-6 -translate-y-1/2 text-muted-foreground" />
-        </div>
-
-        {/* Mobile unit selector — hidden on desktop where sidebar handles unit selection */}
-        <div className="relative flex w-fit items-center md:hidden">
-          <select
-            id="unit-select"
-            aria-label="Select unit"
-            value={selectedUnit?.unitId ?? ""}
-            onChange={(event) => {
-              setSelectedUnitId(event.target.value || null)
-              setSelectedGroupId(null)
-            }}
-            className="cursor-pointer appearance-none bg-transparent pr-8 text-xl font-semibold text-foreground focus:outline-none"
-          >
-            {allUnits.length === 0 ? (
-              <option value="" disabled>No units</option>
-            ) : (
-              unitsByGroup.map(({ groupId, units }) => (
-                <optgroup key={groupId} label={groupId}>
-                  {units.map((unit) => (
-                    // A unit in two classes is listed twice; either option selects it.
-                    <option key={`${groupId}::${unit.unitId}`} value={unit.unitId}>
-                      {unit.unitTitle}
-                    </option>
-                  ))}
-                </optgroup>
-              ))
-            )}
-          </select>
-          <ChevronDown className="pointer-events-none absolute right-0 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-        </div>
-
-        <div className="grid grid-cols-1 gap-8 md:grid-cols-[250px_1fr]">
-          <aside className="hidden h-fit space-y-6 md:block">
-            {unitsByGroup.map(({ groupId, units }) => (
-              <div key={groupId} className="space-y-3">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{groupId}</h3>
-                <ul className="space-y-2">
-                  {units.map((unit) => {
-                    const resubmitLessons = unit.lessons.filter((l) => l.resubmitCount > 0).length
-                    const underperformingLessons = unit.lessons.filter(isLessonOverdueAndUnderperforming).length
-                    // Highlight only the entry clicked, not every copy of a unit in two classes.
-                    const isActive =
-                      unit.unitId === selectedUnit?.unitId &&
-                      (selectedGroupId === null
-                        ? groupId === unitsByGroup.find((g) => g.units.includes(unit))?.groupId
-                        : groupId === selectedGroupId)
-                    return (
-                      <li key={`${groupId}::${unit.unitId}`}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedUnitId(unit.unitId)
-                            setSelectedGroupId(groupId)
-                          }}
-                          className={cn(
-                            "flex w-full items-center gap-2 truncate rounded-md px-2 py-1 text-left text-sm transition-colors hover:text-foreground",
-                            isActive
-                              ? "bg-accent font-medium text-accent-foreground"
-                              : "text-muted-foreground hover:bg-accent/50"
-                          )}
-                          title={unit.unitTitle}
-                        >
-                          <span className="truncate">{unit.unitTitle}</span>
-                          {resubmitLessons > 0 && (
-                            <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-600/20">
-                              <RotateCcw className="h-2.5 w-2.5" />
-                              {resubmitLessons}
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-la-muted">Subject</p>
+            {subjectSelect("subject-select")}
+            <nav aria-label="Units" className="mt-6 space-y-5 text-sm">
+              {unitsByGroup.map(({ groupId, units }) => (
+                <div key={groupId}>
+                  <p className="mb-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-la-muted">{groupId}</p>
+                  <ul className="space-y-0.5">
+                    {units.map((unit) => {
+                      const resubmitLessons = unit.lessons.filter((l) => l.resubmitCount > 0).length
+                      const underperformingLessons = unit.lessons.filter(isLessonOverdueAndUnderperforming).length
+                      // Highlight only the entry clicked, not every copy of a unit in two classes.
+                      const isActive =
+                        unit.unitId === selectedUnit?.unitId &&
+                        (selectedGroupId === null
+                          ? groupId === unitsByGroup.find((g) => g.units.includes(unit))?.groupId
+                          : groupId === selectedGroupId)
+                      return (
+                        <li key={`${groupId}::${unit.unitId}`}>
+                          <button
+                            type="button"
+                            aria-current={isActive ? "page" : undefined}
+                            onClick={() => {
+                              setSelectedUnitId(unit.unitId)
+                              setSelectedGroupId(groupId)
+                            }}
+                            className={cn(
+                              "flex min-h-11 w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors focus-visible:outline-2 focus-visible:outline-la-green",
+                              isActive ? "bg-la-green-pale font-semibold text-la-ink" : "text-la-ink hover:bg-la-border/50",
+                            )}
+                          >
+                            <span className="min-w-0 flex-1 truncate" title={unit.unitTitle}>
+                              {unit.unitTitle}
                             </span>
-                          )}
-                          {underperformingLessons > 0 && (
-                            <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 ring-1 ring-inset ring-red-600/20">
-                              <AlertTriangle className="h-2.5 w-2.5" />
-                              {underperformingLessons}
-                            </span>
-                          )}
-                        </button>
-                      </li>
-                    )
-                  })}
-                </ul>
-              </div>
-            ))}
+                            {resubmitLessons > 0 ? (
+                              <span
+                                title={`${resubmitLessons} ${resubmitLessons === 1 ? "lesson needs" : "lessons need"} resubmitting`}
+                                className="flex-none rounded-full bg-la-amber-bg px-2 py-0.5 text-xs font-semibold text-la-amber"
+                              >
+                                {resubmitLessons}
+                                <span className="sr-only"> to resubmit</span>
+                              </span>
+                            ) : null}
+                            {underperformingLessons > 0 ? (
+                              <span
+                                title={`${underperformingLessons} overdue ${underperformingLessons === 1 ? "lesson" : "lessons"} below 80%`}
+                                className="flex-none rounded-full bg-la-red-bg px-2 py-0.5 text-xs font-semibold text-la-red"
+                              >
+                                {underperformingLessons}
+                                <span className="sr-only"> overdue below 80%</span>
+                              </span>
+                            ) : null}
+                          </button>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </div>
+              ))}
+            </nav>
           </aside>
 
-          <div className="h-[calc(100vh-16rem)] overflow-y-auto pr-4 pb-10">
+          <main className="min-w-0 max-w-[720px] flex-1">
+            {/* Phones choose a subject and a unit from two selects instead of the side menu. */}
+            <div className="mb-8 grid gap-3 min-[900px]:hidden">
+              {subjectSelect("subject-select-mobile")}
+              <div className="relative">
+                <label htmlFor="unit-select" className="sr-only">
+                  Unit
+                </label>
+                <select
+                  id="unit-select"
+                  value={selectedUnit?.unitId ?? ""}
+                  onChange={(event) => {
+                    setSelectedUnitId(event.target.value || null)
+                    setSelectedGroupId(null)
+                  }}
+                  className={selectClass}
+                >
+                  {allUnits.length === 0 ? (
+                    <option value="" disabled>
+                      No units
+                    </option>
+                  ) : (
+                    unitsByGroup.map(({ groupId, units }) => (
+                      <optgroup key={groupId} label={groupId}>
+                        {units.map((unit) => (
+                          // A unit in two classes is listed twice; either option selects it.
+                          <option key={`${groupId}::${unit.unitId}`} value={unit.unitId}>
+                            {unit.unitTitle}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))
+                  )}
+                </select>
+                <ChevronIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 rotate-90 text-la-muted" />
+              </div>
+            </div>
+
+            <header>
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-la-green">
+                My units · {selectedSubject}
+              </p>
+              <h1 className="mt-3 text-balance font-[family-name:var(--font-source-serif)] text-[38px] font-semibold leading-[1.1] tracking-tight sm:text-[56px]">
+                {selectedUnit?.unitTitle ?? "My units"}
+              </h1>
+              {selectedUnit ? <UnitMeta unit={selectedUnit} /> : null}
+              <p className="mt-2 text-[15px] text-la-muted">Units and lessons set for {detail.pupilName}.</p>
+            </header>
+
             {selectedUnit === null ? (
-              <p className="text-sm text-muted-foreground">No units assigned yet.</p>
+              <p className="mt-12 text-la-muted">No units have been set yet.</p>
             ) : (
-              <Card className="border border-border/70 shadow-sm">
-                <CardHeader className="space-y-1">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <CardTitle
-                      className={`${robotoCondensed.className} text-3xl font-bold uppercase text-foreground sm:text-4xl`}
-                    >
-                      {selectedUnit.unitTitle}
-                    </CardTitle>
-                    <p className="text-xs text-muted-foreground sm:text-right">
-                      First lesson: {formatDate(selectedUnit.firstLessonDate)}
-                    </p>
-                    {selectedUnit.unitScore !== null && selectedUnit.unitScore !== undefined && selectedUnit.unitMaxScore !== null && selectedUnit.unitMaxScore !== undefined && selectedUnit.unitMaxScore > 0 && (
-                      <div className="sm:text-right">
-                        <span className="inline-flex items-center rounded-md bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700 ring-1 ring-inset ring-indigo-700/10">
-                          Unit Score: {Math.round(selectedUnit.unitScore * 10) / 10}/{selectedUnit.unitMaxScore} ({Math.round((selectedUnit.unitScore / selectedUnit.unitMaxScore) * 100)}%)
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="relative ml-4 space-y-8 border-l-2 border-slate-300 dark:border-slate-600">
-                    {selectedUnit.lessons.map((lesson, index) => (
-                      <div
-                        key={lesson.lessonId}
-                        className={cn(
-                          "relative py-2 pl-8 pr-2 sm:pr-3 rounded-md transition-colors mx-2",
-                          isLessonOverdueAndUnderperforming(lesson) &&
-                            "bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-900/50"
-                        )}
-                      >
-                        <span
-                          aria-hidden
-                          className="absolute -left-3 top-2 flex h-6 w-6 items-center justify-center rounded-full border-2 border-background bg-primary text-xs font-bold text-primary-foreground shadow-sm"
-                        >
-                          {selectedUnit.lessons.length - index}
-                        </span>
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                          <div className="flex flex-col gap-1">
-                            {lesson.isEnrolled ? (
-                              // A locked lesson still opens — read-only — so it keeps its link.
-                              <Link
-                                href={`/pupil-lessons/${encodeURIComponent(detail.pupilId)}/lessons/${encodeURIComponent(lesson.lessonId)}`}
-                                className="flex items-center gap-2 text-xl font-semibold text-foreground underline-offset-4 hover:text-primary hover:underline sm:text-2xl"
-                              >
-                                {lesson.lessonTitle}
-                                {lesson.locked && (
-                                  <Lock className="h-4 w-4 shrink-0 text-amber-600" aria-label="Locked: view only" />
-                                )}
-                              </Link>
-                            ) : (
-                              <span className="text-xl font-semibold text-foreground sm:text-2xl">
-                                {lesson.lessonTitle}
-                              </span>
-                            )}
-                            {renderLessonObjectivesInline(lesson)}
-                          </div>
-                          <div className="flex flex-col items-end gap-1 sm:ml-auto">
-                            <span className="text-xs text-muted-foreground sm:text-sm">
-                              Due date:{" "}
-                              {lesson.startDate
-                                ? format(addWeeks(parseISO(lesson.startDate), 1), "dd-MM-yyyy")
-                                : "No due date"}
-                            </span>
-                            {lesson.lessonScore !== null && lesson.lessonMaxScore !== null && lesson.lessonMaxScore > 0 && (
-                              <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10">
-                                {Math.round(lesson.lessonScore * 10) / 10}/{lesson.lessonMaxScore} ({Math.round(lesson.lessonScorePercentage ?? 0)}%)
-                              </span>
-                            )}
-                            {typeof lesson.avgSubmissionsPerActivity === "number" && lesson.avgSubmissionsPerActivity > 0 && (
-                              <span
-                                className="inline-flex shrink-0 items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 ring-1 ring-inset ring-slate-500/20 dark:bg-slate-800 dark:text-slate-300"
-                                title="Average submissions per activity"
-                              >
-                                {lesson.avgSubmissionsPerActivity === 1
-                                  ? "avg 1 attempt"
-                                  : `avg ${lesson.avgSubmissionsPerActivity} attempts`}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        {lesson.resubmitCount > 0 && (
-                          <div className="mt-3 flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-700 dark:bg-amber-950/30">
-                            <RotateCcw className="h-4 w-4 shrink-0 text-amber-600" />
-                            <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
-                              {lesson.resubmitCount} {lesson.resubmitCount === 1 ? "activity requires" : "activities require"} resubmission
-                            </p>
-                          </div>
-                        )}
-
-                        <div className="mt-3 space-y-3">
-                          <LessonMedia
-                            lessonId={lesson.lessonId}
-                            lessonTitle={lesson.lessonTitle}
-                            images={lesson.displayImages}
-                            files={lesson.files}
-                          />
-                        </div>
-
-                        {lesson.isEnrolled && lesson.revisionScore !== null && lesson.revisionMaxScore !== null && lesson.revisionMaxScore > 0 && (
-                          <div className="mt-3 flex items-center gap-2 flex-wrap">
-                            <span className={`inline-flex items-center rounded-md px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${getRevisionBadgeColor(lesson.revisionDate)}`}>
-                              Revision: {Math.round(lesson.revisionScore * 10) / 10}/{lesson.revisionMaxScore} ({Math.round((lesson.revisionScore / lesson.revisionMaxScore) * 100)}%)
-                            </span>
-                            {lesson.revisionDate && (
-                              <span className="text-xs text-muted-foreground">
-                                Last revised: {formatDate(lesson.revisionDate)}
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
+              <ol className="mt-10 space-y-4" aria-label={`Lessons in ${selectedUnit.unitTitle}`}>
+                {selectedUnit.lessons.map((lesson, index) => (
+                  <LessonCard
+                    key={lesson.lessonId}
+                    lesson={lesson}
+                    number={selectedUnit.lessons.length - index}
+                    pupilId={detail.pupilId}
+                  />
+                ))}
+              </ol>
             )}
-          </div>
+          </main>
         </div>
       </div>
-    </main>
+    </div>
+  )
+}
+
+function UnitMeta({ unit }: { unit: PupilUnitEntry }) {
+  const parts: ReactNode[] = []
+  const first = formatDate(unit.firstLessonDate)
+  if (first) parts.push(`First lesson ${first}`)
+  parts.push(`${unit.lessons.length} ${unit.lessons.length === 1 ? "lesson" : "lessons"}`)
+  if (unit.unitScore != null && unit.unitMaxScore != null && unit.unitMaxScore > 0) {
+    parts.push(
+      <span className="rounded-full bg-la-green-pale px-2.5 py-0.5 font-semibold text-la-green">
+        Unit score {Math.round(unit.unitScore * 10) / 10}/{unit.unitMaxScore} (
+        {Math.round((unit.unitScore / unit.unitMaxScore) * 100)}%)
+      </span>,
+    )
+  }
+  return (
+    <p className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-[15px] text-la-muted">
+      {parts.map((part, index) => (
+        // The separator ends the item before it, so a wrapped line never starts with one.
+        <span key={index} className="inline-flex items-center gap-3">
+          {part}
+          {index < parts.length - 1 ? <span aria-hidden="true">·</span> : null}
+        </span>
+      ))}
+    </p>
+  )
+}
+
+function LessonCard({ lesson, number, pupilId }: { lesson: PupilUnitLesson; number: number; pupilId: string }) {
+  const due = lessonDueDate(lesson.startDate)
+  const behind = isLessonOverdueAndUnderperforming(lesson)
+  const hasScore = lesson.lessonScore !== null && lesson.lessonMaxScore !== null && lesson.lessonMaxScore > 0
+  const revision =
+    lesson.isEnrolled && lesson.revisionScore !== null && lesson.revisionMaxScore !== null && lesson.revisionMaxScore > 0
+  const tone = revisionTone(lesson.revisionDate)
+
+  return (
+    <li
+      className={cn(
+        "rounded-xl border bg-la-card p-5",
+        behind ? "border-la-red/40" : "border-la-border",
+      )}
+    >
+      <div className="flex items-start gap-4">
+        <span
+          aria-hidden="true"
+          className="grid h-8 w-8 flex-none place-items-center rounded-full bg-la-green-pale text-sm font-semibold text-la-green"
+        >
+          {number}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+            <h2 className="text-[20px] font-semibold leading-snug">
+              {lesson.isEnrolled ? (
+                // A locked lesson still opens (read-only), so it keeps its link.
+                <Link
+                  href={`/pupil-lessons/${encodeURIComponent(pupilId)}/lessons/${encodeURIComponent(lesson.lessonId)}`}
+                  className="inline-flex items-center gap-2 text-la-ink underline-offset-4 hover:text-la-green hover:underline focus-visible:outline-2 focus-visible:outline-la-green"
+                >
+                  {lesson.lessonTitle}
+                  {lesson.locked ? <LockIcon className="h-4 w-4 flex-none text-la-amber" aria-label="Locked: view only" /> : null}
+                </Link>
+              ) : (
+                lesson.lessonTitle
+              )}
+            </h2>
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              {due ? (
+                <span
+                  className={cn(
+                    "rounded-full px-2.5 py-0.5",
+                    behind ? "bg-la-red-bg font-semibold text-la-red" : "text-la-muted",
+                  )}
+                >
+                  {behind ? "Overdue · " : ""}Due {formatDate(due, "EEE d MMM yyyy")}
+                </span>
+              ) : (
+                <span className="text-la-muted">No due date</span>
+              )}
+              {hasScore ? (
+                <span className="rounded-full bg-la-green-pale px-2.5 py-0.5 text-xs font-semibold text-la-green">
+                  {Math.round(lesson.lessonScore! * 10) / 10}/{lesson.lessonMaxScore} ({Math.round(lesson.lessonScorePercentage ?? 0)}%)
+                </span>
+              ) : null}
+              {typeof lesson.avgSubmissionsPerActivity === "number" && lesson.avgSubmissionsPerActivity > 0 ? (
+                <span
+                  className="rounded-full bg-la-border/60 px-2.5 py-0.5 text-xs font-medium text-la-muted"
+                  title="Average attempts per activity"
+                >
+                  {lesson.avgSubmissionsPerActivity === 1 ? "avg 1 attempt" : `avg ${lesson.avgSubmissionsPerActivity} attempts`}
+                </span>
+              ) : null}
+            </div>
+          </div>
+
+          {lesson.description ? (
+            <p className="mt-1 font-[family-name:var(--font-source-serif)] text-[17px] leading-relaxed text-la-muted">
+              {lesson.description}
+            </p>
+          ) : null}
+
+          {lesson.resubmitCount > 0 ? (
+            <p className="mt-3 inline-flex rounded-full bg-la-amber-bg px-2.5 py-0.5 text-sm font-medium text-la-amber">
+              {lesson.resubmitCount} {lesson.resubmitCount === 1 ? "activity needs" : "activities need"} resubmitting
+            </p>
+          ) : null}
+
+          {revision ? (
+            <p className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+              <span
+                className={cn(
+                  "rounded-full px-2.5 py-0.5 font-medium",
+                  tone === "red" && "bg-la-red-bg text-la-red",
+                  tone === "amber" && "bg-la-amber-bg text-la-amber",
+                  tone === "ok" && "bg-la-green-pale text-la-green",
+                )}
+              >
+                Revision {Math.round(lesson.revisionScore! * 10) / 10}/{lesson.revisionMaxScore} (
+                {Math.round((lesson.revisionScore! / lesson.revisionMaxScore!) * 100)}%)
+              </span>
+              {lesson.revisionDate ? <span className="text-la-muted">Last revised {formatDate(lesson.revisionDate)}</span> : null}
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </li>
   )
 }

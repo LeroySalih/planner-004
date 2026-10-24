@@ -472,6 +472,8 @@ export const LessonSchema = z.object({
     lesson_id: z.string(),
     unit_id: z.string(),
     title: z.string().min(1).max(255),
+    // One short sentence for pupils on what they will achieve (migration 124).
+    description: z.string().nullable().optional(),
     order_by: z.number().default(0),
     active: z.boolean().default(true),
     is_public: z.boolean().default(false),

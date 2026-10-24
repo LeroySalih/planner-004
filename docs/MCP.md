@@ -333,7 +333,7 @@ Records an audit. `passed` takes no actions; `failed` needs at least one (at mos
 Lists all lessons for a unit.
 
 **Input:** `{ unit_id: string }`  
-**Output:** `{ lessons: [{ lesson_id, unit_id, title, is_active, order_index }] }`
+**Output:** `{ lessons: [{ lesson_id, unit_id, title, description, is_active, order_index }] }`
 
 ---
 
@@ -341,23 +341,27 @@ Lists all lessons for a unit.
 Returns everything linked to a lesson: its learning objectives, the success criteria under each (ordered as in the curriculum), and which of the lesson's active activities use each criterion. A criterion that only an activity links is still listed, with `linked_to_lesson: false`; likewise an LO reached only through one of its criteria. Use it to confirm links after `add_success_criterion_to_lesson` and to find stale ones.
 
 **Input:** `{ lesson_id: string }`  
-**Output:** `{ lesson: { lesson_id, unit_id, title, learning_objectives: [{ learning_objective_id, assessment_objective_code, title, active, linked_to_lesson, success_criteria: [{ success_criteria_id, description, level, active, linked_to_lesson, activities: [{ activity_id, title, type }] }] }] } | null }`
+Also returns the lesson's `description` (null if unset), so a caller can write one from the objectives and criteria with `update_lesson`.
+
+**Output:** `{ lesson: { lesson_id, unit_id, title, description, learning_objectives: [{ learning_objective_id, assessment_objective_code, title, active, linked_to_lesson, success_criteria: [{ success_criteria_id, description, level, active, linked_to_lesson, activities: [{ activity_id, title, type }] }] }] } | null }`
 
 ---
 
 #### `create_lesson`
 Creates a lesson under a unit. Appended at the end of the unit's lesson order.
 
-**Input:** `{ unit_id: string, title: string }`  
-**Output:** `{ lesson: { lesson_id, unit_id, title, is_active, order_index } | null }`
+**Input:** `{ unit_id: string, title: string, description?: string }`  
+**Output:** `{ lesson: { lesson_id, unit_id, title, description, is_active, order_index } | null }`
 
 ---
 
 #### `update_lesson`
-Renames a lesson. Lessons have no description column, so title is the only field.
+Changes a lesson's title and/or description. Omitted fields are left unchanged, and `description: ""` clears it. An empty title is rejected.
 
-**Input:** `{ lesson_id: string, title: string }`  
-**Output:** `{ lesson: { lesson_id, unit_id, title, is_active, order_index } | null }`
+The description (`lessons.description`, migration 124) is one short sentence telling pupils what they will achieve in the lesson. Write it from the lesson's learning objectives and success criteria (`get_lesson_objectives`). It appears under the title on the pupil lesson page. It is limited to 300 characters; a longer one is refused. Changing it makes the unit "not audited", like any other lesson content.
+
+**Input:** `{ lesson_id: string, title?: string, description?: string }`  
+**Output:** `{ lesson: { lesson_id, unit_id, title, description, is_active, order_index } | null }`
 
 ---
 

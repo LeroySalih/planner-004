@@ -11,7 +11,7 @@ export default async function PupilLessonsDetailPage({
   searchParams,
 }: {
   params: Promise<{ pupilId: string }>
-  searchParams: Promise<{ group?: string }>
+  searchParams: Promise<{ group?: string; unit?: string }>
 }) {
   const profile = await requireAuthenticatedProfile()
   const { pupilId } = await params
@@ -20,10 +20,11 @@ export default async function PupilLessonsDetailPage({
     redirect(`/pupil-lessons/${encodeURIComponent(profile.userId)}`)
   }
 
+  const { group, unit } = await searchParams
   const detail = await loadPupilUnitsDetail(pupilId)
   // Admins can switch to any pupil's view of this page.
-  const picker = await loadPupilPicker(profile, pupilId, (await searchParams).group)
+  const picker = await loadPupilPicker(profile, pupilId, group)
 
   // Keyed by pupil so switching pupils resets the selected subject and unit.
-  return <PupilUnitsView key={pupilId} detail={detail} picker={picker} />
+  return <PupilUnitsView key={pupilId} detail={detail} picker={picker} initialUnitId={unit ?? null} />
 }

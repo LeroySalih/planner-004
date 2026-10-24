@@ -96,7 +96,7 @@ export function PupilLongTextActivity({
 
         setLastSaved(answer)
         setFeedback({ type: "success", message: "Answer saved" })
-        triggerFeedbackRefresh(lessonId)
+        triggerFeedbackRefresh(lessonId, activity.activity_id)
       } finally {
         isSavingRef.current = false
       }
@@ -108,7 +108,7 @@ export function PupilLongTextActivity({
       return "You can view this question, but answers can only be edited by pupils."
     }
     if (!feedback) {
-      return "Write your response in as much detail as needed."
+      return null
     }
     return feedback.type === "success" ? feedback.message : feedback.message
   }, [canAnswerEffective, feedback])
@@ -131,21 +131,20 @@ export function PupilLongTextActivity({
         placeholder="Type your response here"
         disabled={!canAnswerEffective || isPending}
       />
-      <p className={feedback ? (feedback.type === "success" ? "text-xs font-medium text-pa-green" : "text-xs font-medium text-destructive") : "text-xs text-pa-muted-3"}>
-        {helperMessage}
-      </p>
-
       {canAnswerEffective ? (
-        <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-3">
           <Button
             onClick={handleSave}
             disabled={isPending}
-            className="h-auto w-full rounded-[14px] bg-pa-green py-3.5 text-[15px] font-bold text-white hover:bg-pa-green/90"
+            className="min-h-11 rounded-lg bg-pa-green px-5 text-[15px] font-semibold text-white hover:bg-pa-green/90"
           >
             {isPending ? "Saving…" : "Save answer"}
           </Button>
-          <p className="text-xs text-pa-muted-3">
-            You can edit your answer until your teacher marks the work.
+          <p
+            role="status"
+            className={feedback ? (feedback.type === "success" ? "text-sm font-medium text-pa-green" : "text-sm font-medium text-destructive") : "text-sm text-pa-muted-3"}
+          >
+            {helperMessage}
           </p>
         </div>
       ) : null}

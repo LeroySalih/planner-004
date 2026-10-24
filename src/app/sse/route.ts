@@ -3,6 +3,7 @@ import { performance } from "node:perf_hooks"
 import { requireAuthenticatedProfile } from "@/lib/auth"
 import { fetchRecentSseEvents } from "@/lib/sse/persistence"
 import { registerSseClient } from "@/lib/sse/hub"
+import { sseViewerFor } from "@/lib/sse/audience"
 import { SSE_TOPICS, type SseTopic } from "@/lib/sse/types"
 import { withTelemetry } from "@/lib/telemetry"
 
@@ -37,7 +38,7 @@ export async function GET(request: Request) {
   return withTelemetry(
     { routeTag: "/sse/stream", functionName: "sseStream", params: { topics }, authEndTime: authEnd },
     async () =>
-      new Response(registerSseClient(topics, { initialEvents: history, signal: request.signal }), {
+      new Response(registerSseClient(topics, sseViewerFor(profile), { initialEvents: history, signal: request.signal }), {
         headers: {
           "Content-Type": "text/event-stream",
           Connection: "keep-alive",
