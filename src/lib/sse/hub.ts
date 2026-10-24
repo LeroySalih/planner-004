@@ -1,10 +1,13 @@
 import { persistSseEvent } from "@/lib/sse/persistence"
 
+import { viewerMayReceive, type SseViewer } from "./audience"
 import type { SseEmitInput, SseEventEnvelope, SseTopic } from "./types"
 
 type SseClient = {
   id: string
   topics: Set<SseTopic>
+  /** Who is listening: decides which events reach them (see ./audience). */
+  viewer: SseViewer
   controller: ReadableStreamDefaultController<Uint8Array>
 }
 
@@ -53,6 +56,7 @@ function broadcast(event: SseEventEnvelope) {
   const hub = getHub()
   for (const client of hub.clients) {
     if (!client.topics.has(event.topic)) continue
+    if (!viewerMayReceive(client.viewer, event)) continue
     try {
       client.controller.enqueue(toSseChunk(event))
     } catch (error) {
@@ -85,6 +89,7 @@ export async function emitSseEvent(input: SseEmitInput): Promise<SseEventEnvelop
 
 export function registerSseClient(
   topics: SseTopic[],
+  viewer: SseViewer,
   options?: {
     signal?: AbortSignal
     initialEvents?: SseEventEnvelope[]
@@ -100,13 +105,16 @@ export function registerSseClient(
       client = {
         id: crypto.randomUUID(),
         topics: new Set(topics),
+        viewer,
         controller,
       }
 
       hub.clients.add(client)
 
       if (options?.initialEvents) {
-        options.initialEvents.forEach((event) => controller.enqueue(toSseChunk(event)))
+        options.initialEvents
+          .filter((event) => viewerMayReceive(viewer, event))
+          .forEach((event) => controller.enqueue(toSseChunk(event)))
       }
 
       const keepAliveId =
