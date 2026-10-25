@@ -712,9 +712,20 @@ export async function duplicateUnitAction(unitId: string) {
     title: string
     order_by: number
     active: boolean
+    sub_unit_id: string | null
   }>(
-    `select lesson_id, title, order_by, active
+    `select lesson_id, title, order_by, active, sub_unit_id
      from lessons where unit_id = $1 and kind = 'standard'`,
+    [unitId],
+  )
+
+  const { rows: subUnits } = await query<{
+    sub_unit_id: string
+    title: string
+    description: string | null
+    active: boolean
+  }>(
+    `select sub_unit_id, title, description, active from sub_units where unit_id = $1 order by created_at`,
     [unitId],
   )
 
@@ -800,13 +811,31 @@ export async function duplicateUnitAction(unitId: string) {
           [newUnitId, newTitle, sourceUnit.subject, sourceUnit.description, sourceUnit.year, sourceUnit.curriculum_id],
         )
 
+        const subUnitIdMap = new Map<string, string>()
+        for (const subUnit of subUnits) {
+          const newSubUnitId = randomUUID()
+          subUnitIdMap.set(subUnit.sub_unit_id, newSubUnitId)
+          await client.query(
+            `insert into sub_units (sub_unit_id, unit_id, title, description, active)
+             values ($1, $2, $3, $4, $5)`,
+            [newSubUnitId, newUnitId, subUnit.title, subUnit.description, subUnit.active],
+          )
+        }
+
         for (const lesson of lessons) {
           const newLessonId = randomUUID()
           lessonIdMap.set(lesson.lesson_id, newLessonId)
           await client.query(
-            `insert into lessons (lesson_id, unit_id, title, order_by, active)
-             values ($1, $2, $3, $4, $5)`,
-            [newLessonId, newUnitId, lesson.title, lesson.order_by, lesson.active],
+            `insert into lessons (lesson_id, unit_id, title, order_by, active, sub_unit_id)
+             values ($1, $2, $3, $4, $5, $6)`,
+            [
+              newLessonId,
+              newUnitId,
+              lesson.title,
+              lesson.order_by,
+              lesson.active,
+              lesson.sub_unit_id ? (subUnitIdMap.get(lesson.sub_unit_id) ?? null) : null,
+            ],
           )
         }
 

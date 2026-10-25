@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { Calendar, Edit2, Lock, Sparkles, Target, Users } from "lucide-react"
 import { toast } from "sonner"
 
-import type { Assignment, Group, Groups, Subjects, Unit, UnitJobPayload } from "@/types"
+import type { Assignment, Group, Groups, SubUnit, Subjects, Unit, UnitJobPayload } from "@/types"
 import { UnitJobPayloadSchema } from "@/types"
 import type {
   LearningObjectiveWithCriteria,
@@ -49,6 +49,7 @@ interface UnitDetailViewProps {
   curricula: { curriculum_id: string; subject: string | null; title: string }[]
   curriculumState: UnitCurriculumState | null
   audit: UnitAudit | null
+  subUnits: SubUnit[]
 }
 
 export function UnitDetailView({
@@ -62,6 +63,7 @@ export function UnitDetailView({
   curricula,
   curriculumState,
   audit,
+  subUnits,
 }: UnitDetailViewProps) {
   const router = useRouter()
   const [isUnitSidebarOpen, setIsUnitSidebarOpen] = useState(false)
@@ -483,6 +485,7 @@ export function UnitDetailView({
         unitId={currentUnit.unit_id}
         unitTitle={currentUnit.title}
         initialLessons={lessons}
+        initialSubUnits={subUnits}
         learningObjectives={orderedObjectives}
       />
 

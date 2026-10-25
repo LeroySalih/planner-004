@@ -12,6 +12,9 @@ export type PupilUnitLesson = {
   locked: boolean;
   /** One sentence for pupils on what the lesson achieves (migration 124). */
   description: string | null;
+  /** The active sub unit it is grouped under, shown as a heading (migration 126). */
+  subUnitId: string | null;
+  subUnitTitle: string | null;
   revisionScore: number | null;
   revisionMaxScore: number | null;
   revisionDate: string | null;

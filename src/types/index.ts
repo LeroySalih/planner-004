@@ -479,7 +479,21 @@ export const LessonSchema = z.object({
     is_public: z.boolean().default(false),
     // 'intervention' = written for one pupil (migration 108).
     kind: z.enum(["standard", "intervention"]).optional(),
+    // The sub unit it is grouped under, or null (migration 126). Planning only.
+    sub_unit_id: z.string().nullable().optional(),
 });
+
+// A group of lessons within a unit (migration 126). Structure only: never
+// read by reports or progress.
+export const SubUnitSchema = z.object({
+    sub_unit_id: z.string(),
+    unit_id: z.string(),
+    title: z.string().min(1).max(255),
+    description: z.string().nullable(),
+    active: z.boolean(),
+});
+
+export type SubUnit = z.infer<typeof SubUnitSchema>;
 
 export const LessonsSchema = z.array(LessonSchema);
 

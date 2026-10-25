@@ -22,6 +22,7 @@ import {
 import { requireTeacherProfile } from "@/lib/auth"
 import { readCurriculaAction } from "@/lib/server-actions/curricula"
 import { readUnitCurriculumStateAction } from "@/lib/server-actions/unit-curriculum"
+import { readSubUnitsByUnitAction } from "@/lib/server-actions/sub-units"
 import { withTelemetry } from "@/lib/telemetry"
 
 export default async function UnitDetailPage({
@@ -45,6 +46,7 @@ export default async function UnitDetailPage({
     curriculaResult,
     curriculumStateResult,
     auditResult,
+    subUnitsResult,
   ] = await withTelemetry(
     {
       routeTag: "/units/[unitId]",
@@ -67,6 +69,7 @@ export default async function UnitDetailPage({
         readCurriculaAction({ routeTag: "/units/[unitId]", authEndTime: authEnd }),
         readUnitCurriculumStateAction(unitId),
         readUnitAuditAction(unitId),
+        readSubUnitsByUnitAction(unitId),
       ]),
   )
 
@@ -96,6 +99,10 @@ export default async function UnitDetailPage({
 
   if (unitFilesResult.error) {
     throw new Error(unitFilesResult.error)
+  }
+
+  if (subUnitsResult.error) {
+    throw new Error(subUnitsResult.error)
   }
 
   const unit = unitResult.data
@@ -129,6 +136,7 @@ export default async function UnitDetailPage({
           curricula={curriculaResult.data ?? []}
           curriculumState={curriculumStateResult.data ?? null}
           audit={auditResult.data}
+          subUnits={subUnitsResult.data ?? []}
         />
       </main>
     </Suspense>

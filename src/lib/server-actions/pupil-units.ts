@@ -20,6 +20,8 @@ const LessonAssignmentSchema = z.object({
   lesson_title: z.string(),
   lesson_description: z.string().nullable(),
   lesson_order: z.number().nullable(),
+  sub_unit_id: z.string().nullable(),
+  sub_unit_title: z.string().nullable(),
   unit_id: z.string(),
   unit_title: z.string(),
   group_id: z.string(),
@@ -59,6 +61,9 @@ const SubjectUnitsSchema = z.object({
               locked: z.boolean().default(false),
               /** One sentence for pupils on what the lesson achieves (migration 124). */
               description: z.string().nullable(),
+              /** The active sub unit it is grouped under, shown as a heading (migration 126). */
+              subUnitId: z.string().nullable().default(null),
+              subUnitTitle: z.string().nullable().default(null),
               revisionScore: z.number().nullable(),
               revisionMaxScore: z.number().nullable(),
               revisionDate: z.string().nullable(),
@@ -136,6 +141,8 @@ export async function readPupilUnitsBootstrapAction(
               lesson_title: string | null;
               lesson_description: string | null;
               lesson_order: number | null;
+              sub_unit_id: string | null;
+              sub_unit_title: string | null;
               unit_id: string | null;
               unit_title: string | null;
               group_id: string;
@@ -159,6 +166,8 @@ export async function readPupilUnitsBootstrapAction(
                 coalesce(l.title, 'Untitled lesson') as lesson_title,
                 nullif(trim(l.description), '') as lesson_description,
                 l.order_by as lesson_order,
+                su.sub_unit_id,
+                su.title as sub_unit_title,
                 l.unit_id,
                 u.title as unit_title,
                 la.group_id,
@@ -172,6 +181,7 @@ export async function readPupilUnitsBootstrapAction(
               join lesson_assignments la on la.group_id = tm.group_id
               join lessons l on l.lesson_id = la.lesson_id
               join units u on u.unit_id = l.unit_id
+              left join sub_units su on su.sub_unit_id = l.sub_unit_id and su.active
               where coalesce(l.active, true) = true
             `,
               [normalizedPupilId],
@@ -208,6 +218,8 @@ export async function readPupilUnitsBootstrapAction(
               lesson_order: typeof row.lesson_order === "number"
                 ? row.lesson_order
                 : null,
+              sub_unit_id: row.sub_unit_id ?? null,
+              sub_unit_title: row.sub_unit_title ?? null,
               unit_id: row.unit_id ?? "",
               unit_title: row.unit_title ?? row.unit_id ?? "Untitled unit",
               group_id: row.group_id,
@@ -460,6 +472,8 @@ export async function readPupilUnitsBootstrapAction(
               isEnrolled: true,
               locked: Boolean(assignment.locked),
               description: assignment.lesson_description,
+              subUnitId: assignment.sub_unit_id,
+              subUnitTitle: assignment.sub_unit_title,
               revisionScore: scoresByLesson.get(assignment.lesson_id)?.score ??
                 null,
               revisionMaxScore:

@@ -1468,6 +1468,7 @@ export async function reorderLessonsAction(
   unitId: string,
   ordering: { lessonId: string; orderBy: number }[],
 ) {
+  await requireTeacherProfile();
   console.log("[v0] Server action started for lesson reordering:", {
     unitId,
     count: ordering.length,

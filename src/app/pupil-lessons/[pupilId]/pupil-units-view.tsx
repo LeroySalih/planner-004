@@ -248,14 +248,25 @@ export function PupilUnitsView({
               <p className="mt-12 text-la-muted">No units have been set yet.</p>
             ) : (
               <ol className="mt-10 space-y-4" aria-label={`Lessons in ${selectedUnit.unitTitle}`}>
-                {lessonsByDueDate(selectedUnit.lessons).map((lesson, index) => (
-                  <LessonCard
-                    key={lesson.lessonId}
-                    lesson={lesson}
-                    number={selectedUnit.lessons.length - index}
-                    pupilId={detail.pupilId}
-                  />
-                ))}
+                {lessonRuns(lessonsByDueDate(selectedUnit.lessons)).map((run) => {
+                  const cards = run.lessons.map((lesson, index) => (
+                    <LessonCard
+                      key={lesson.lessonId}
+                      lesson={lesson}
+                      number={selectedUnit.lessons.length - (run.start + index)}
+                      pupilId={detail.pupilId}
+                    />
+                  ))
+                  if (!run.subUnitTitle) return cards
+                  return (
+                    <li key={`${run.subUnitId}-${run.start}`} className="pt-4 first:pt-0">
+                      <h2 className="mb-3 text-[13px] font-semibold uppercase tracking-[0.08em] text-la-green">
+                        {run.subUnitTitle}
+                      </h2>
+                      <ol className="space-y-4 border-l-2 border-la-green-pale pl-4">{cards}</ol>
+                    </li>
+                  )
+                })}
               </ol>
             )}
           </main>
@@ -277,6 +288,24 @@ function lessonsByDueDate(lessons: PupilUnitLesson[]): PupilUnitLesson[] {
     if (dueA !== dueB) return dueA < dueB ? 1 : -1
     return (b.lessonOrder ?? 0) - (a.lessonOrder ?? 0)
   })
+}
+
+/**
+ * Consecutive lessons in the same sub unit, so each sub unit gets a heading
+ * over its lessons. The list is in due-date order, so a sub unit whose
+ * lessons are taught apart appears once for each stretch.
+ */
+function lessonRuns(lessons: PupilUnitLesson[]) {
+  const runs: { subUnitId: string | null; subUnitTitle: string | null; start: number; lessons: PupilUnitLesson[] }[] = []
+  lessons.forEach((lesson, index) => {
+    const last = runs[runs.length - 1]
+    if (last && last.subUnitId === lesson.subUnitId) {
+      last.lessons.push(lesson)
+    } else {
+      runs.push({ subUnitId: lesson.subUnitId, subUnitTitle: lesson.subUnitTitle, start: index, lessons: [lesson] })
+    }
+  })
+  return runs
 }
 
 function UnitMeta({ unit }: { unit: PupilUnitEntry }) {
