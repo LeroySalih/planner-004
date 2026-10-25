@@ -1,5 +1,6 @@
 import { query, withDbClient } from '@/lib/db'
 import { assertUnitExists, assertLessonExists } from '@/lib/mcp/guards'
+import { normaliseLessonGrouping } from '@/lib/sub-units/store'
 import { assertScAllowedForLesson, assertLoAllowedForLesson } from '@/lib/curriculum/unit-curriculum-guard'
 import { createLocalStorageClient } from '@/lib/storage/local-storage'
 import { MCP_UPLOAD_MAX_BYTES } from '@/lib/mcp/file-input'
@@ -12,12 +13,14 @@ export type LessonSummary = {
   description: string | null
   is_active: boolean
   order_index: number
+  /** The sub unit it is grouped under, or null (migration 126). */
+  sub_unit_id: string | null
 }
 
 
 export async function listLessonsForUnit(unitId: string): Promise<LessonSummary[]> {
   const { rows } = await query(
-    `SELECT lesson_id, unit_id, title, description, active, order_by
+    `SELECT lesson_id, unit_id, title, description, active, order_by, sub_unit_id
      FROM lessons
      WHERE unit_id = $1 AND kind = 'standard'
      ORDER BY order_by ASC NULLS LAST, title ASC`,
@@ -40,6 +43,7 @@ export async function listLessonsForUnit(unitId: string): Promise<LessonSummary[
       description: typeof row.description === 'string' ? row.description : null,
       is_active: row.active !== false,
       order_index: Number.isFinite(numericOrder) ? (numericOrder as number) : index,
+      sub_unit_id: typeof row.sub_unit_id === 'string' ? row.sub_unit_id : null,
     }
   })
 }
@@ -175,6 +179,8 @@ export async function reorderLessons(unitId: string, lessonIds: string[]): Promi
          where l.lesson_id = o.lesson_id and l.unit_id = $1`,
         [unitId, [...lessonIds, ...inactiveIds]],
       )
+      // A sub unit's lessons stay together, wherever its first one now is.
+      await normaliseLessonGrouping(client, unitId)
       await client.query('commit')
     } catch (error) {
       await client.query('rollback')

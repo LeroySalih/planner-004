@@ -4,22 +4,18 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
 import { requireTeacherProfile } from "@/lib/auth"
-import { query, withDbClient } from "@/lib/db"
-import { LESSON_DESCRIPTION_MAX } from "@/lib/lesson-description"
-import { SubUnitSchema, type SubUnit } from "@/types"
+import { withDbClient } from "@/lib/db"
+import {
+  createSubUnit,
+  listSubUnits,
+  setSubUnitActive,
+  updateSubUnit,
+  type SubUnitLessonsChoice,
+} from "@/lib/sub-units/store"
+import type { SubUnit } from "@/types"
 
-// Sub units group a unit's lessons for planning (migration 126). They are
-// structure only: reports and progress never read them.
-
-const SubUnitInputSchema = z.object({
-  title: z.string().trim().min(1, "Give the sub unit a title.").max(255),
-  description: z
-    .string()
-    .trim()
-    .max(LESSON_DESCRIPTION_MAX, `Keep the description to ${LESSON_DESCRIPTION_MAX} characters.`)
-    .default("")
-    .transform((value) => value || null),
-})
+// Sub units group a unit's lessons for planning (migration 126). The rules
+// live in src/lib/sub-units/store.ts, shared with the MCP server.
 
 const ArrangementSchema = z.array(
   z.object({
@@ -29,11 +25,10 @@ const ArrangementSchema = z.array(
   }),
 )
 
-const SUB_UNIT_COLUMNS = "sub_unit_id, unit_id, title, description, active"
-
 function failure(error: unknown, fallback: string) {
   console.error(`[sub-units] ${fallback}`, error)
-  return { data: null, error: error instanceof Error ? error.message : fallback }
+  const message = error instanceof z.ZodError ? error.issues[0]?.message : error instanceof Error ? error.message : null
+  return { data: null, error: message ?? fallback }
 }
 
 export async function readSubUnitsByUnitAction(
@@ -41,11 +36,7 @@ export async function readSubUnitsByUnitAction(
 ): Promise<{ data: SubUnit[] | null; error: string | null }> {
   await requireTeacherProfile()
   try {
-    const { rows } = await query(
-      `select ${SUB_UNIT_COLUMNS} from sub_units where unit_id = $1 order by created_at, title`,
-      [unitId],
-    )
-    return { data: z.array(SubUnitSchema).parse(rows), error: null }
+    return { data: await listSubUnits(unitId), error: null }
   } catch (error) {
     return failure(error, "Unable to load sub units.")
   }
@@ -57,15 +48,9 @@ export async function createSubUnitAction(
 ): Promise<{ data: SubUnit | null; error: string | null }> {
   await requireTeacherProfile()
   try {
-    const { title, description } = SubUnitInputSchema.parse(input)
-    const { rows } = await query(
-      `insert into sub_units (unit_id, title, description)
-       values ($1, $2, $3)
-       returning ${SUB_UNIT_COLUMNS}`,
-      [unitId, title, description],
-    )
+    const subUnit = await createSubUnit(unitId, input.title, input.description)
     revalidatePath(`/units/${unitId}`)
-    return { data: SubUnitSchema.parse(rows[0]), error: null }
+    return { data: subUnit, error: null }
   } catch (error) {
     return failure(error, "Unable to create the sub unit.")
   }
@@ -77,15 +62,7 @@ export async function updateSubUnitAction(
 ): Promise<{ data: SubUnit | null; error: string | null }> {
   await requireTeacherProfile()
   try {
-    const { title, description } = SubUnitInputSchema.parse(input)
-    const { rows } = await query(
-      `update sub_units set title = $2, description = $3, updated_at = now()
-        where sub_unit_id = $1
-        returning ${SUB_UNIT_COLUMNS}`,
-      [subUnitId, title, description],
-    )
-    if (!rows[0]) return { data: null, error: "Sub unit not found." }
-    const subUnit = SubUnitSchema.parse(rows[0])
+    const subUnit = await updateSubUnit(subUnitId, { title: input.title, description: input.description ?? "" })
     revalidatePath(`/units/${subUnit.unit_id}`)
     return { data: subUnit, error: null }
   } catch (error) {
@@ -93,44 +70,14 @@ export async function updateSubUnitAction(
   }
 }
 
-/**
- * Switch a sub unit on or off. Switching off needs a decision about its
- * lessons: `deactivate` makes them inactive too and keeps them grouped, so
- * switching the sub unit back on finds them where they were; `ungroup`
- * returns them, still active, to the unit level.
- */
 export async function setSubUnitActiveAction(
   subUnitId: string,
   active: boolean,
-  lessons: "deactivate" | "ungroup" = "ungroup",
+  lessons: SubUnitLessonsChoice = "ungroup",
 ): Promise<{ data: SubUnit | null; error: string | null }> {
   await requireTeacherProfile()
   try {
-    const subUnit = await withDbClient(async (client) => {
-      await client.query("begin")
-      try {
-        const { rows } = await client.query(
-          `update sub_units set active = $2, updated_at = now()
-            where sub_unit_id = $1
-            returning ${SUB_UNIT_COLUMNS}`,
-          [subUnitId, active],
-        )
-        if (!rows[0]) throw new Error("Sub unit not found.")
-        if (!active) {
-          await client.query(
-            lessons === "deactivate"
-              ? "update lessons set active = false where sub_unit_id = $1"
-              : "update lessons set sub_unit_id = null where sub_unit_id = $1",
-            [subUnitId],
-          )
-        }
-        await client.query("commit")
-        return SubUnitSchema.parse(rows[0])
-      } catch (error) {
-        await client.query("rollback")
-        throw error
-      }
-    })
+    const subUnit = await setSubUnitActive(subUnitId, active, lessons)
     revalidatePath(`/units/${subUnit.unit_id}`)
     return { data: subUnit, error: null }
   } catch (error) {

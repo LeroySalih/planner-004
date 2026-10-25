@@ -27,6 +27,7 @@ import {
   deactivateSuccessCriterion,
 } from '@/lib/mcp/losc'
 import { listLessonAssignments } from '@/lib/mcp/assignments'
+import { createSubUnit, listSubUnitsWithLessons, setLessonSubUnit, setSubUnitActive, updateSubUnit } from '@/lib/sub-units/store'
 import { listUnits, findUnitsByTitle, createUnit, updateUnit, getUnit } from '@/lib/mcp/units'
 import { LESSON_DESCRIPTION_MAX } from '@/lib/lesson-description'
 import { listUnitAudits, readUnitAudit, recordUnitAudit, MAX_AUDIT_ACTIONS, type UnitAudit } from '@/lib/unit-audits/store'
@@ -429,7 +430,7 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
     'get_lessons_for_unit',
     {
       title: 'List lessons for a unit',
-      description: 'Return the lessons associated with a given unit.',
+      description: 'Return the lessons associated with a given unit. sub_unit_id is the sub unit a lesson is grouped under, or null (see list_sub_units).',
       inputSchema: {
         unit_id: z.string().min(1).describe('Unit identifier.'),
       },
@@ -442,6 +443,7 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
             description: z.string().nullable(),
             is_active: z.boolean(),
             order_index: z.number(),
+            sub_unit_id: z.string().nullable(),
           }),
         ),
       },
@@ -470,7 +472,8 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
     {
       title: 'Reorder lessons in a unit',
       description: 'Set the order of a unit\'s lessons. Pass every active lesson id (from get_lessons_for_unit) exactly once, first to last. '
-        + 'Inactive lessons stay after them; interventions are not part of the order.',
+        + 'Inactive lessons stay after them; interventions are not part of the order. '
+        + 'A sub unit\'s lessons are kept together, at the place of its first lesson.',
       inputSchema: z.object({
         unit_id: z.string().min(1).describe('Unit identifier.'),
         lesson_ids: z.preprocess(
@@ -485,6 +488,7 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
           title: z.string(),
           is_active: z.boolean(),
           order_index: z.number(),
+          sub_unit_id: z.string().nullable(),
         })).nullable(),
       }),
     },
@@ -896,6 +900,168 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
           content: [{ type: 'text' as const, text: `Error: ${message}` }],
           structuredContent: { lesson: null },
         }
+      }
+    },
+  )
+
+  // Sub units group a unit's lessons for planning (migration 126). Structure
+  // only: reports and progress never read them. The rules are in
+  // src/lib/sub-units/store.ts, shared with the unit page.
+  const subUnitShape = z.object({
+    sub_unit_id: z.string(),
+    unit_id: z.string(),
+    title: z.string(),
+    description: z.string().nullable(),
+    active: z.boolean(),
+  })
+  const subUnitError = (error: unknown, fallback: string) =>
+    error instanceof z.ZodError ? error.issues[0]?.message ?? fallback : error instanceof Error ? error.message : fallback
+
+  srv.registerTool(
+    'list_sub_units',
+    {
+      title: 'List sub units in a unit',
+      description: 'Return a unit\'s sub units, active and inactive, each with its lessons in the unit\'s order. '
+        + 'A sub unit groups lessons for planning and is a section heading for pupils on My Units; it does not affect reports or progress. '
+        + 'Lessons in no sub unit are not listed here; get_lessons_for_unit lists every lesson with its sub_unit_id.',
+      inputSchema: {
+        unit_id: z.string().min(1).describe('Unit identifier.'),
+      },
+      outputSchema: {
+        sub_units: z.array(subUnitShape.extend({
+          lessons: z.array(z.object({
+            lesson_id: z.string(),
+            title: z.string(),
+            is_active: z.boolean(),
+            order_index: z.number(),
+          })),
+        })).nullable(),
+      },
+    },
+    async ({ unit_id }) => {
+      try {
+        const subUnits = await listSubUnitsWithLessons(unit_id)
+        return {
+          content: [{
+            type: 'text' as const,
+            text: subUnits.length
+              ? subUnits.map((su) => `${su.sub_unit_id} • ${su.title}${su.active ? '' : ' (inactive)'} — ${su.lessons.length} lessons`).join('\n')
+              : `No sub units in unit ${unit_id}.`,
+          }],
+          structuredContent: { sub_units: subUnits },
+        }
+      } catch (error) {
+        const message = subUnitError(error, 'Failed to list sub units')
+        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { sub_units: null } }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'create_sub_unit',
+    {
+      title: 'Create a sub unit',
+      description: 'Add a sub unit to a unit. It starts empty and active; put lessons in it with set_lesson_sub_unit.',
+      inputSchema: {
+        unit_id: z.string().min(1).describe('Unit identifier.'),
+        title: z.string().min(1).max(255).describe('Sub unit title, e.g. "Polymers".'),
+        description: z.string().max(LESSON_DESCRIPTION_MAX).optional().describe('Optional. What this part of the unit covers.'),
+      },
+      outputSchema: { sub_unit: subUnitShape.nullable() },
+    },
+    async ({ unit_id, title, description }) => {
+      try {
+        const subUnit = await createSubUnit(unit_id, title, description)
+        return {
+          content: [{ type: 'text' as const, text: `Created sub unit ${subUnit.sub_unit_id} • ${subUnit.title}` }],
+          structuredContent: { sub_unit: subUnit },
+        }
+      } catch (error) {
+        const message = subUnitError(error, 'Failed to create sub unit')
+        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { sub_unit: null } }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'update_sub_unit',
+    {
+      title: 'Update a sub unit',
+      description: 'Change a sub unit\'s title or description, or switch it on or off. Omitted fields are left unchanged; an empty description clears it. '
+        + 'Switching it off (active: false) needs lessons: "ungroup" returns its lessons to the unit, still active; '
+        + '"deactivate" makes its lessons inactive too and keeps them in the sub unit. Switching it back on does not reactivate lessons.',
+      inputSchema: {
+        sub_unit_id: z.string().min(1).describe('Sub unit identifier (from list_sub_units).'),
+        title: z.string().min(1).max(255).optional(),
+        description: z.string().max(LESSON_DESCRIPTION_MAX).optional().describe('Pass "" to clear it.'),
+        active: z.boolean().optional(),
+        lessons: z.enum(['ungroup', 'deactivate']).optional()
+          .describe('Required when switching the sub unit off: what happens to its lessons.'),
+      },
+      outputSchema: { sub_unit: subUnitShape.nullable() },
+    },
+    async ({ sub_unit_id, title, description, active, lessons }) => {
+      try {
+        if (title === undefined && description === undefined && active === undefined) {
+          throw new Error('Nothing to change: pass title, description and/or active.')
+        }
+        let subUnit = title !== undefined || description !== undefined
+          ? await updateSubUnit(sub_unit_id, { title, description })
+          : null
+        if (active !== undefined) {
+          if (!active && !lessons) {
+            throw new Error('Switching a sub unit off needs lessons: "ungroup" (return them to the unit) or "deactivate" (make them inactive).')
+          }
+          subUnit = await setSubUnitActive(sub_unit_id, active, lessons ?? 'ungroup')
+        }
+        return {
+          content: [{ type: 'text' as const, text: `Updated sub unit ${subUnit!.sub_unit_id} • ${subUnit!.title}${subUnit!.active ? '' : ' (inactive)'}` }],
+          structuredContent: { sub_unit: subUnit },
+        }
+      } catch (error) {
+        const message = subUnitError(error, 'Failed to update sub unit')
+        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { sub_unit: null } }
+      }
+    },
+  )
+
+  srv.registerTool(
+    'set_lesson_sub_unit',
+    {
+      title: 'Put a lesson in a sub unit',
+      description: 'Put a lesson in a sub unit of its own unit, or take it out with sub_unit_id null. '
+        + 'It joins at the end of the sub unit; taken out, it sits just after the sub unit. Lessons do not have to be in a sub unit. '
+        + 'Returns the unit\'s lessons in their new order.',
+      inputSchema: {
+        lesson_id: z.string().min(1).describe('Lesson identifier.'),
+        sub_unit_id: z.string().min(1).nullable().describe('Sub unit identifier, or null to return the lesson to the unit.'),
+      },
+      outputSchema: {
+        lessons: z.array(z.object({
+          lesson_id: z.string(),
+          unit_id: z.string(),
+          title: z.string(),
+          description: z.string().nullable(),
+          is_active: z.boolean(),
+          order_index: z.number(),
+          sub_unit_id: z.string().nullable(),
+        })).nullable(),
+      },
+    },
+    async ({ lesson_id, sub_unit_id }) => {
+      try {
+        const { unit_id } = await setLessonSubUnit(lesson_id, sub_unit_id)
+        const lessons = await listLessonsForUnit(unit_id)
+        return {
+          content: [{
+            type: 'text' as const,
+            text: lessons.map((l, i) => `${i + 1}. ${l.title}${l.sub_unit_id ? ` [${l.sub_unit_id}]` : ''}${l.is_active ? '' : ' (inactive)'}`).join('\n'),
+          }],
+          structuredContent: { lessons },
+        }
+      } catch (error) {
+        const message = subUnitError(error, 'Failed to set the lesson\'s sub unit')
+        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { lessons: null } }
       }
     },
   )

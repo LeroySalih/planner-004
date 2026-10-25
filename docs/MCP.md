@@ -330,10 +330,10 @@ Records an audit. `passed` takes no actions; `failed` needs at least one (at mos
 ### Lessons
 
 #### `get_lessons_for_unit`
-Lists all lessons for a unit.
+Lists all lessons for a unit. `sub_unit_id` is the sub unit a lesson is grouped under, or null.
 
 **Input:** `{ unit_id: string }`  
-**Output:** `{ lessons: [{ lesson_id, unit_id, title, description, is_active, order_index }] }`
+**Output:** `{ lessons: [{ lesson_id, unit_id, title, description, is_active, order_index, sub_unit_id }] }`
 
 ---
 
@@ -366,10 +366,10 @@ The description (`lessons.description`, migration 124) is one short sentence tel
 ---
 
 #### `reorder_lessons`
-Sets the order of a unit's lessons. `lesson_ids` must list every active lesson in the unit exactly once, first to last. A partial list, a duplicate, an inactive lesson, or an id from another unit is rejected and nothing changes. Inactive lessons keep their relative order after the active ones. Interventions aren't part of the unit's order and are left alone. Returns the lessons in their new order.
+Sets the order of a unit's lessons. `lesson_ids` must list every active lesson in the unit exactly once, first to last. A partial list, a duplicate, an inactive lesson, or an id from another unit is rejected and nothing changes. Inactive lessons keep their relative order after the active ones. Interventions aren't part of the unit's order and are left alone. A sub unit's lessons are kept together: each sub unit sits where its first lesson lands, so the saved order can differ from `lesson_ids` when a sub unit's lessons were split. Returns the lessons in their new order.
 
 **Input:** `{ unit_id: string, lesson_ids: string[] }`  
-**Output:** `{ lessons: [{ lesson_id, unit_id, title, is_active, order_index }] | null }`
+**Output:** `{ lessons: [{ lesson_id, unit_id, title, is_active, order_index, sub_unit_id }] | null }`
 
 ---
 
@@ -396,6 +396,65 @@ Activity links are left alone: removing one changes what the activity is marked 
 
 **Input:** `{ lesson_id: string, learning_objective_id: string }`  
 **Output:** `{ result: { lesson_id, learning_objective_id, removed, success_criteria_unlinked: string[], activities_still_linked: [{ activity_id, title, success_criteria_id }] } | null }`
+
+---
+
+### Sub units
+
+A sub unit groups a unit's lessons for planning (migration 126). Teachers see
+it on the unit page; pupils see it as a section heading on My Units. It is
+structure only: reports and progress never read it, and lessons keep one
+order across the whole unit, so numbering and scores don't change.
+
+A lesson is in at most one sub unit of its own unit, or in none. A sub unit's
+lessons always sit together in the unit's order, at the place of its first
+lesson. The rules are in `src/lib/sub-units/store.ts`, shared with the unit page.
+
+**Workflow:** `list_sub_units` → `create_sub_unit` → `set_lesson_sub_unit` for
+each lesson → `get_lessons_for_unit` to check.
+
+#### `list_sub_units`
+A unit's sub units, active and inactive, each with its lessons in order.
+
+**Input:** `{ unit_id: string }`  
+**Output:** `{ sub_units: [{ sub_unit_id, unit_id, title, description, active, lessons: [{ lesson_id, title, is_active, order_index }] }] | null }`
+
+---
+
+#### `create_sub_unit`
+Adds an empty, active sub unit. Description is optional, at most 300 characters.
+
+**Input:** `{ unit_id: string, title: string, description?: string }`  
+**Output:** `{ sub_unit: { sub_unit_id, unit_id, title, description, active } | null }`
+
+---
+
+#### `update_sub_unit`
+Changes the title or description, or switches the sub unit on or off.
+Omitted fields are unchanged; `description: ""` clears it.
+
+Switching off (`active: false`) needs `lessons`:
+
+| `lessons` | Its lessons |
+|---|---|
+| `ungroup` | return to the unit, still active |
+| `deactivate` | become inactive and stay in the sub unit |
+
+Switching back on doesn't reactivate lessons.
+
+**Input:** `{ sub_unit_id: string, title?: string, description?: string, active?: boolean, lessons?: "ungroup" | "deactivate" }`  
+**Output:** `{ sub_unit: { sub_unit_id, unit_id, title, description, active } | null }`
+
+---
+
+#### `set_lesson_sub_unit`
+Puts a lesson in a sub unit of its own unit, or takes it out with
+`sub_unit_id: null`. It joins at the end of the sub unit; taken out, it sits
+just after it. A sub unit from another unit, or an intervention, is refused.
+Returns the unit's lessons in their new order.
+
+**Input:** `{ lesson_id: string, sub_unit_id: string | null }`  
+**Output:** `{ lessons: [{ lesson_id, unit_id, title, description, is_active, order_index, sub_unit_id }] | null }`
 
 ---
 
@@ -1013,6 +1072,7 @@ Health probe.
 | `src/lib/mcp/losc.ts` | AO / LO / SC read/write helpers |
 | `src/lib/mcp/activities.ts` | Activity read/write/upload helpers |
 | `src/lib/mcp/timetable.ts` | Teacher / group lookup and timetable slot CRUD |
+| `src/lib/sub-units/store.ts` | Sub unit reads/writes and the keep-together rule, shared with the unit page |
 | `src/lib/mcp/assignments.ts` | Read-only lesson assignments (class, lesson, dates) from the planner |
 | `src/lib/interventions/store.ts` | Intervention reads/writes, derived status and score, pupil gaps, and the pupil access rule |
 | `src/lib/assessments/store.ts` | Assessment paper reads/writes (shared with future server actions) |
