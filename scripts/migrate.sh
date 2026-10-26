@@ -28,6 +28,7 @@ MIGRATIONS=(
   "125-lesson-understanding.sql|select exists (select 1 from information_schema.tables where table_name = 'lesson_understanding')"
   "126-sub-units.sql|select exists (select 1 from information_schema.tables where table_name = 'sub_units')"
   "127-flag-latest-attempt-only.sql|select exists (select 1 from pg_trigger where tgname = 'submissions_clear_earlier_flags')"
+  "128-release-stalled-marking.sql|select not exists (select 1 from submissions s where s.mark_status in ('waiting', 'marking') and s.submitted_at < now() - interval '1 hour' and not exists (select 1 from external_jobs j where j.job_type = 'ai_mark' and j.payload->>'submissionId' = s.submission_id and j.status in ('pending', 'processing')))"
 )
 
 YES=false

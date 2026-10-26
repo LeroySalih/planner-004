@@ -41,27 +41,27 @@ export async function readAiMarkingQueueAction() {
       LEFT JOIN activities ra_act ON ra_act.activity_id = ra.activity_id
 
       WHERE q.job_type = 'ai_mark'
-      ORDER BY q.process_after ASC
+      -- Unfinished jobs first, so the rows the counters describe are always on
+      -- the page; finished ones follow, newest first.
+      ORDER BY
+        CASE q.status WHEN 'processing' THEN 0 WHEN 'pending' THEN 1 WHEN 'error' THEN 2 ELSE 3 END,
+        q.created_at DESC
       LIMIT 100
       `,
     );
 
+    // Counted from the job rows, the same rows the list shows. Counting
+    // submissions by mark_status instead also caught earlier attempts left at
+    // 'marking' after a resubmit, whose jobs had long finished, so the header
+    // reported work the list never showed.
     const statsResult = await query(
       `
       SELECT
-        (
-          select count(*) from external_jobs q
-          left join submissions s on s.submission_id = q.payload->>'submissionId'
-          left join revision_answers r on q.payload->>'assignmentId' = 'revision' and r.answer_id = (q.payload->>'submissionId')::uuid
-          where q.job_type = 'ai_mark' and (s.mark_status = 'waiting' or r.status = 'pending_marking')
-        ) as waiting,
-        (
-          select count(*) from external_jobs q
-          left join submissions s on s.submission_id = q.payload->>'submissionId'
-          left join revision_answers r on q.payload->>'assignmentId' = 'revision' and r.answer_id = (q.payload->>'submissionId')::uuid
-          where q.job_type = 'ai_mark' and (s.mark_status = 'marking' or r.status = 'marking')
-        ) as marking,
-        (select count(*) from external_jobs where job_type = 'ai_mark') as total
+        count(*) filter (where status = 'pending') as waiting,
+        count(*) filter (where status = 'processing') as marking,
+        count(*) as total
+      FROM external_jobs
+      WHERE job_type = 'ai_mark'
       `,
     );
 
