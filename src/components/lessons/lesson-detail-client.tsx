@@ -3,7 +3,7 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { LinkIcon, List, Play, Target, Upload } from "lucide-react"
+import { AlignLeft, LinkIcon, List, Play, Target, Upload } from "lucide-react"
 import { toast } from "sonner"
 
 import type {
@@ -462,6 +462,25 @@ export function LessonDetailClient({
             </div>
           </div>
         </header>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <CardTitle className="flex items-center gap-2 text-xl font-semibold">
+              <AlignLeft className="h-5 w-5 text-primary" />
+              Description
+            </CardTitle>
+            <Button variant="outline" size="sm" onClick={() => setIsHeaderSidebarOpen(true)}>
+              Edit description
+            </Button>
+          </CardHeader>
+          <CardContent>
+            {currentLesson.description ? (
+              <p className="leading-relaxed text-muted-foreground">{currentLesson.description}</p>
+            ) : (
+              <p className="text-sm text-muted-foreground">No description has been written for this lesson yet.</p>
+            )}
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>

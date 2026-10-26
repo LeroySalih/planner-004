@@ -909,6 +909,19 @@ export default async function PupilLessonFriendlyPage({
     ? kindRows[0]?.feedback_visible !== false
     : assignments.some((assignment) => assignment.feedbackVisible)
 
+  // The latest attempt at each activity, so any marked answer can be flagged
+  // for the teacher to check again, not only short-text ones.
+  const { rows: latestFlagRows } = await query<{ activity_id: string; submission_id: string; is_flagged: boolean | null }>(
+    `select distinct on (activity_id) activity_id, submission_id, is_flagged
+       from submissions
+      where user_id = $1 and activity_id = any($2::text[])
+      order by activity_id, attempt_number desc, submitted_at desc nulls last, submission_id desc`,
+    [pupilId, activities.map((activity) => activity.activity_id)],
+  )
+  const latestFlagMap = new Map(
+    latestFlagRows.map((row) => [row.activity_id, { submissionId: row.submission_id, isFlagged: row.is_flagged === true }]),
+  )
+
   const activityScoreMap = new Map<string, number | null | undefined>()
   const activityMarksMap = new Map<string, { marksAwarded: number | null; maxMarks: number } | undefined>()
   if (!lessonSubmissionSummaries.error) {
@@ -1066,7 +1079,7 @@ export default async function PupilLessonFriendlyPage({
         title={opts.title ?? activityTitle(activity)}
         question={opts.question}
         inputId={opts.inputId}
-        flag={opts.flag}
+        flag={opts.flag ?? (scorable ? latestFlagMap.get(activity.activity_id) : undefined)}
         scorable={scorable}
         maxMarks={activity.max_marks ?? 1}
         scoreLabel={formatScoreLabel(rawScore, activity.activity_id)}
@@ -1137,6 +1150,7 @@ export default async function PupilLessonFriendlyPage({
         const language = typeof body.language === "string" && body.language.trim() ? body.language : "python"
         return frame(
           <PupilUploadCodeActivity
+            lessonId={lesson.lesson_id}
             activityId={activity.activity_id}
             language={language}
             starterCode={typeof body.starterCode === "string" ? body.starterCode : ""}

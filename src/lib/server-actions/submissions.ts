@@ -16,6 +16,7 @@ import {
   ShortTextSubmissionBodySchema,
   type Submission,
   SubmissionSchema,
+  UploadCodeSubmissionBodySchema,
   UploadSpreadsheetSubmissionBodySchema,
   UploadWorksheetSubmissionBodySchema,
 } from "@/types";
@@ -511,11 +512,14 @@ export async function readLessonSubmissionSummariesAction(
         }
       } else if (
         activityType === "upload-spreadsheet" ||
+        activityType === "upload-code" ||
         activityType === "upload-worksheet" ||
         activityType === "mark-worksheet"
       ) {
         const submissionBodySchema = activityType === "upload-spreadsheet"
           ? UploadSpreadsheetSubmissionBodySchema
+          : activityType === "upload-code"
+          ? UploadCodeSubmissionBodySchema
           : UploadWorksheetSubmissionBodySchema;
         const scoreEntries = submissionList
           .map((submission) => {
@@ -543,8 +547,11 @@ export async function readLessonSubmissionSummariesAction(
               existingScores: parsedSubmission.data.success_criteria_scores,
               fillValue: effectiveScore ?? 0,
             });
-            const averagedScore =
-              computeAverageSuccessCriteriaScore(successCriteriaScores) ?? effectiveScore ?? null;
+            // Submitting fills every criterion with a placeholder 0, so a
+            // submission still being marked must read as unscored, not 0%.
+            const averagedScore = effectiveScore === null
+              ? null
+              : computeAverageSuccessCriteriaScore(successCriteriaScores) ?? effectiveScore;
 
             return {
               userId: submission.user_id,

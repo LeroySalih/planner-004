@@ -304,7 +304,7 @@ function EarlierAttempt({ attempt }: { attempt: ActivityAttempt }) {
         <span className="flex-1 font-medium text-la-ink">
           Attempt {attempt.attemptNumber}
           {attempt.submittedAt ? (
-            <span className="font-normal text-la-muted"> · {format(parseISO(attempt.submittedAt), "d MMM yyyy")}</span>
+            <span className="font-normal text-la-muted"> · {format(parseISO(attempt.submittedAt), "d MMM yyyy, HH:mm")}</span>
           ) : null}
         </span>
         <span className="rounded-full bg-la-border/60 px-2.5 py-0.5 text-xs font-semibold text-la-ink">

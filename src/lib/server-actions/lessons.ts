@@ -2203,6 +2203,7 @@ const LessonHeaderUpdateInputSchema = z.object({
   lessonId: z.string(),
   title: z.string().trim().min(1).max(255),
   active: z.boolean(),
+  description: z.string().optional(),
 });
 
 export async function updateLessonHeaderMutation(
@@ -2222,20 +2223,25 @@ export async function updateLessonHeaderMutation(
         lessonId: payload.lessonId,
         active: payload.active,
         hasTitle: payload.title.length > 0,
+        hasDescription: payload.description !== undefined,
       },
       authEndTime,
     },
     async () => {
       let client: Client | null = null;
       try {
+        const description = payload.description === undefined
+          ? undefined
+          : cleanLessonDescription(payload.description);
         client = createPgClient();
         await client.connect();
         const result = await client.query(
           `update lessons
-            set title = $1, active = $2
+            set title = $1, active = $2,
+                description = case when $4 then $5 else description end
             where lesson_id = $3
             returning lesson_id, unit_id, title, active, order_by`,
-          [payload.title, payload.active, payload.lessonId],
+          [payload.title, payload.active, payload.lessonId, description !== undefined, description ?? null],
         );
 
         if (result.rowCount === 0) {
@@ -2293,6 +2299,8 @@ export async function updateLessonHeaderAction(
   const activeValue = formData.get("active");
   const active = typeof activeValue === "string" &&
     ["true", "1", "on", "checked"].includes(activeValue.toLowerCase());
+  const descriptionValue = formData.get("description");
+  const description = typeof descriptionValue === "string" ? descriptionValue : undefined;
 
   if (!lessonId || !title) {
     return LessonHeaderUpdateStateSchema.parse({
@@ -2302,7 +2310,7 @@ export async function updateLessonHeaderAction(
     });
   }
 
-  const result = await updateLessonHeaderMutation({ lessonId, title, active });
+  const result = await updateLessonHeaderMutation({ lessonId, title, active, description });
 
   if (result.error || !result.data) {
     return LessonHeaderUpdateStateSchema.parse({

@@ -1670,6 +1670,8 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
 - matcher: body_data { "pairs": 2–8 × { "id", "term", "definition" } }.
 - sequence: body_data { "terms": 2–12 × { "id", "text" } }, in the correct order.
 - display-webpage: body_data { "url"?: "https://…" } for a link. To show an HTML page, create the activity, then upload one .html file to it; the upload sets body_data.htmlFile.
+- upload-code: body_data { "task": "<what to write>", "markingGuidance": "<what earns the marks>", "language"?: "python", "starterCode"?: "…" }. Required: the AI marker cannot mark without task and markingGuidance.
+- upload-spreadsheet: body_data { "task", "markingGuidance" }, both required.
 - All other types: use body_data for any extra JSON payload.
 max_marks sets the marks the activity is out of, e.g. 6 for a "(6 marks)" question. Omitted, a short-text-question is out of 3 and every other type out of 1. It is refused for non-scorable types and for matcher and group-items, which are worth one mark per pair or item. Linking success criteria later replaces it with the marks the criteria are worth.
 A body_data over a limit is refused with isError and error.code LIMIT_EXCEEDED (BELOW_MINIMUM or INVALID_BODY_DATA for other problems), naming the field, the limit and the count received. Split the content across several activities.`,

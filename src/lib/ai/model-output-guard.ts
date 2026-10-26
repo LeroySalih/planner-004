@@ -58,6 +58,8 @@ const STRAY_BACKSLASH = /\\/
 const LONE_LINEBREAK = /(?<!\n)\n(?!\n)/
 /** An isolated double-quote surrounded by whitespace, seen replacing an em dash. */
 const STRAY_QUOTE = /\s"\s/
+/** `code spans` and one-line "string literals", which code feedback quotes. */
+const QUOTED_CODE = /`[^`\n]*`|"[^"\n]*"/g
 
 function excerptAround(text: string, index: number): string {
   return text.slice(Math.max(0, index - 40), index + 40).replace(/[\r\n]/g, "⏎")
@@ -91,7 +93,7 @@ export type GuardMode = "strict" | "lenient"
 
 export function findTextCorruption(
   text: string | null | undefined,
-  options: { mode?: GuardMode } = {},
+  options: { mode?: GuardMode; quotesCode?: boolean } = {},
 ): Corruption | null {
   if (!text) return null
 
@@ -108,8 +110,13 @@ export function findTextCorruption(
       : []),
   ] as const
 
+  // Feedback on a pupil's code quotes it: sep=" " is a whole string literal,
+  // not a quote that replaced an em dash. Paired quotes are blanked (keeping
+  // offsets) so only an unpaired quote counts as stray.
+  const quoteChecked = options.quotesCode ? text.replace(QUOTED_CODE, (m) => " ".repeat(m.length)) : text
+
   for (const [kind, pattern] of signatures) {
-    const match = pattern.exec(text)
+    const match = pattern.exec(kind === "stray-quote" ? quoteChecked : text)
     if (match) {
       return { kind, excerpt: excerptAround(text, match.index) }
     }
@@ -127,9 +134,9 @@ export function findTextCorruption(
  */
 export function assertUncorruptedModelText(
   text: string | null | undefined,
-  context: { model: string; field: string; mode?: GuardMode },
+  context: { model: string; field: string; mode?: GuardMode; quotesCode?: boolean },
 ): void {
-  const corruption = findTextCorruption(text, { mode: context.mode })
+  const corruption = findTextCorruption(text, { mode: context.mode, quotesCode: context.quotesCode })
   if (!corruption) return
 
   throw new Error(

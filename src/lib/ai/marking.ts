@@ -334,7 +334,7 @@ export async function markWithModel(request: MarkingRequest): Promise<MarkingRes
   // Checked before stripSolutionCode, so the excerpt in the error is what the
   // model actually sent. Corrupted JSON escaping still parses cleanly, so
   // nothing upstream of here would have noticed.
-  assertUncorruptedModelText(rawFeedback, { model, field: "feedback" })
+  assertUncorruptedModelText(rawFeedback, { model, field: "feedback", quotesCode: Boolean(request.code) })
   // A prompt is not a guarantee. Strip anything that looks like a handed-back
   // solution before it can reach a pupil.
   const feedback = request.code ? stripSolutionCode(rawFeedback) : rawFeedback

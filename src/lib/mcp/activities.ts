@@ -7,7 +7,7 @@ import { MCP_UPLOAD_MAX_BYTES } from '@/lib/mcp/file-input'
 import { assertScAllowedForActivity } from '@/lib/curriculum/unit-curriculum-guard'
 import { recalculateActivityMaxMarks, recalculateGroupItemsMaxMarks, recalculateMatcherMaxMarks, rescaleStoredMarks } from '@/lib/scoring/derive-max-marks'
 import { createLocalStorageClient } from '@/lib/storage/local-storage'
-import { GroupItemsActivityBodySchema, MatcherActivityBodySchema, McqActivityBodySchema, SequenceActivityBodySchema, ShortTextActivityBodySchema } from '@/types'
+import { GroupItemsActivityBodySchema, MatcherActivityBodySchema, McqActivityBodySchema, SequenceActivityBodySchema, ShortTextActivityBodySchema, UploadCodeActivityBodySchema, UploadSpreadsheetActivityBodySchema } from '@/types'
 
 export const ACTIVITY_TYPES = [...SCORABLE_ACTIVITY_TYPES, ...NON_SCORABLE_ACTIVITY_TYPES] as const
 export type ActivityType = typeof ACTIVITY_TYPES[number]
@@ -121,7 +121,27 @@ function validateAgainstSchema(type: keyof typeof BODY_SCHEMAS, bodyData: unknow
   throw new ActivityBodyDataError('INVALID_BODY_DATA', field, `${field}: ${issue.message}`)
 }
 
+// AI-marked tasks the marker cannot mark without a task and guidance, so they
+// are required even when no body_data is passed. Without this an empty
+// upload-code activity was stored, and every pupil submission to it failed.
+const MARKED_TASK_BODY_SCHEMAS = {
+  'upload-code': UploadCodeActivityBodySchema,
+  'upload-spreadsheet': UploadSpreadsheetActivityBodySchema,
+} as const
+
 export function validateBodyDataForType(type: string, bodyData: unknown): void {
+  if (type in MARKED_TASK_BODY_SCHEMAS) {
+    const parsed = MARKED_TASK_BODY_SCHEMAS[type as keyof typeof MARKED_TASK_BODY_SCHEMAS].safeParse(bodyData ?? {})
+    if (!parsed.success) {
+      const field = fieldName(parsed.error.issues[0].path)
+      throw new ActivityBodyDataError(
+        'INVALID_BODY_DATA',
+        field,
+        `${field}: an ${type} activity needs body_data { "task": "…", "markingGuidance": "…"${type === 'upload-code' ? ', "language"?: "python", "starterCode"?: "…"' : ''} }, or the AI marker cannot mark pupils' work`,
+      )
+    }
+    return
+  }
   if (bodyData == null) return
 
   if (type in BODY_SCHEMAS) {

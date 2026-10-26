@@ -7,6 +7,7 @@ import { CheckCircle2, Loader2, Upload } from "lucide-react"
 import type { LessonActivity } from "@/types"
 import { Button } from "@/components/ui/button"
 import { getRichTextMarkup } from "@/components/lessons/activity-view/utils"
+import { triggerFeedbackRefresh } from "@/lib/feedback-events"
 
 const ALLOWED_EXTENSION = ".xlsx"
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
@@ -113,6 +114,7 @@ export function PupilUploadSpreadsheetActivity({
           }
 
           toast.success(`Uploaded ${file.name}`)
+          triggerFeedbackRefresh(lessonId, activity.activity_id)
           setUploadedFileName(file.name)
           setSelectedFileName(null)
         } finally {

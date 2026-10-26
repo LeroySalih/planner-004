@@ -28,16 +28,6 @@ const UNIT_UPDATE_EVENT = "unit:update"
 const UNIT_DEACTIVATE_EVENT = "unit:deactivate"
 const UNIT_SSE_URL = "/sse?topics=units"
 
-const levelStyleMap: Record<number, string> = {
-  1: "bg-emerald-100 text-emerald-900",
-  2: "bg-emerald-200 text-emerald-900",
-  3: "bg-emerald-300 text-emerald-900",
-  4: "bg-emerald-400 text-emerald-900",
-  5: "bg-emerald-500 text-emerald-50",
-  6: "bg-emerald-600 text-emerald-50",
-  7: "bg-emerald-700 text-emerald-50",
-}
-
 interface UnitDetailViewProps {
   unit: Unit
   assignments: Assignment[]
@@ -366,6 +356,14 @@ export function UnitDetailView({
         <UnitAuditActions audit={audit} />
       </div>
 
+      <LessonsPanel
+        unitId={currentUnit.unit_id}
+        unitTitle={currentUnit.title}
+        initialLessons={lessons}
+        initialSubUnits={subUnits}
+        learningObjectives={orderedObjectives}
+      />
+
       <Card>
         <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-1">
@@ -444,19 +442,11 @@ export function UnitDetailView({
                             <td className="border-b border-border px-4 py-3 align-top">
                               {criterion ? (
                                 <div className="space-y-2">
-                                  <div className="flex items-center gap-2">
-                                    <Badge
-                                      variant="secondary"
-                                      className={`border-none text-xs font-semibold text-foreground ${levelStyleMap[Math.min(Math.max(criterion.level, 1), 7)]}`}
-                                    >
-                                      Level {criterion.level}
+                                  {criterion.active === false && (
+                                    <Badge variant="destructive" className="text-xs">
+                                      Inactive
                                     </Badge>
-                                    {criterion.active === false && (
-                                      <Badge variant="destructive" className="text-xs">
-                                        Inactive
-                                      </Badge>
-                                    )}
-                                  </div>
+                                  )}
                                   <p className="text-sm text-foreground">{criterion.description}</p>
                                 </div>
                               ) : (
@@ -480,14 +470,6 @@ export function UnitDetailView({
           )}
         </CardContent>
       </Card>
-
-      <LessonsPanel
-        unitId={currentUnit.unit_id}
-        unitTitle={currentUnit.title}
-        initialLessons={lessons}
-        initialSubUnits={subUnits}
-        learningObjectives={orderedObjectives}
-      />
 
       <UnitFilesPanel unitId={currentUnit.unit_id} initialFiles={unitFiles} />
 

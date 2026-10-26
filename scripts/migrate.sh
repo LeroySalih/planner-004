@@ -27,6 +27,7 @@ MIGRATIONS=(
   "124-lesson-description.sql|select exists (select 1 from information_schema.columns where table_name = 'lessons' and column_name = 'description')"
   "125-lesson-understanding.sql|select exists (select 1 from information_schema.tables where table_name = 'lesson_understanding')"
   "126-sub-units.sql|select exists (select 1 from information_schema.tables where table_name = 'sub_units')"
+  "127-flag-latest-attempt-only.sql|select exists (select 1 from pg_trigger where tgname = 'submissions_clear_earlier_flags')"
 )
 
 YES=false

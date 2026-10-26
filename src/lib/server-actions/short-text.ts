@@ -12,6 +12,7 @@ import { fetchActivitySuccessCriteriaIds, normaliseSuccessCriteriaScores } from 
 import { getActivityLessonId, logActivitySubmissionEvent } from "@/lib/activity-logging"
 import { emitSubmissionEvent } from "@/lib/sse/topics"
 import { enqueueMarkingTasks, triggerQueueProcessor } from "@/lib/ai/marking-queue"
+import { hasRole, requireAuthenticatedProfile } from "@/lib/auth"
 import { query } from "@/lib/db"
 import { pupilWorkLockedMessage } from "@/lib/lesson-lock"
 import {
@@ -337,13 +338,33 @@ const ToggleSubmissionFlagInputSchema = z.object({
 
 export async function toggleSubmissionFlagAction(input: z.infer<typeof ToggleSubmissionFlagInputSchema>) {
   const payload = ToggleSubmissionFlagInputSchema.parse(input)
+  const profile = await requireAuthenticatedProfile()
 
   try {
     const { rows: owner } = await query<{ activity_id: string; user_id: string }>(
       "select activity_id, user_id from submissions where submission_id = $1",
       [payload.submissionId],
     )
-    if (owner[0]) {
+    if (!owner[0]) return { success: false, error: "Submission not found." }
+    // A pupil flags their own work; a teacher can clear or set any flag.
+    if (owner[0].user_id !== profile.userId && !hasRole(profile, "teacher")) {
+      return { success: false, error: "You can only flag your own work." }
+    }
+    if (owner[0].user_id === profile.userId) {
+      // Only the latest attempt's feedback can be flagged; a resubmission
+      // clears flags on earlier attempts (migration 127).
+      if (payload.isFlagged) {
+        const { rows: latest } = await query<{ submission_id: string }>(
+          `select submission_id from submissions
+            where activity_id = $1 and user_id = $2
+            order by attempt_number desc, submitted_at desc nulls last, submission_id desc
+            limit 1`,
+          [owner[0].activity_id, owner[0].user_id],
+        )
+        if (latest[0]?.submission_id !== payload.submissionId) {
+          return { success: false, error: "Only your latest answer can be flagged." }
+        }
+      }
       const lockedMessage = await pupilWorkLockedMessage(owner[0].user_id, owner[0].activity_id)
       if (lockedMessage) return { success: false, error: lockedMessage }
     }

@@ -4,9 +4,14 @@ import { useEffect, useRef, useState, useTransition } from "react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { triggerFeedbackRefresh } from "@/lib/feedback-events"
 import { readMyCodeSubmissionAction, submitCodeAction } from "@/lib/server-actions/upload-code"
 
+/** A lesson program is a few KB; anything this big is the wrong file. */
+const MAX_DROPPED_FILE_BYTES = 200 * 1024
+
 interface PupilUploadCodeActivityProps {
+  lessonId: string
   activityId: string
   language: string
   starterCode: string
@@ -30,6 +35,7 @@ interface PupilUploadCodeActivityProps {
  * teaching benefit.
  */
 export function PupilUploadCodeActivity({
+  lessonId,
   activityId,
   language,
   starterCode,
@@ -42,6 +48,7 @@ export function PupilUploadCodeActivity({
   const [loaded, setLoaded] = useState(false)
   const [submittedAt, setSubmittedAt] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
+  const [isDragging, setIsDragging] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   // Set as soon as the pupil types. The previous submission is fetched after
   // mount, so without this a slow response overwrites whatever they have
@@ -83,6 +90,41 @@ export function PupilUploadCodeActivity({
     })
   }
 
+  const hasFiles = (event: React.DragEvent) => Array.from(event.dataTransfer.types).includes("Files")
+
+  /**
+   * A dropped .py file replaces the code in the box. Nothing is saved: the
+   * pupil still presses Submit, so a wrong file costs nothing.
+   */
+  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    if (!hasFiles(event)) return
+    event.preventDefault()
+    setIsDragging(false)
+    if (isPending || !loaded) return
+    const files = Array.from(event.dataTransfer.files)
+    if (files.length !== 1) {
+      toast.error("Drop one .py file at a time.")
+      return
+    }
+    const file = files[0]
+    if (!file.name.toLowerCase().endsWith(".py")) {
+      toast.error("Only .py files can be dropped here.")
+      return
+    }
+    if (file.size > MAX_DROPPED_FILE_BYTES) {
+      toast.error("That file is too large to be a lesson program.")
+      return
+    }
+    void file
+      .text()
+      .then((text) => {
+        dirtyRef.current = true
+        setCode(text.replace(/\r\n?/g, "\n"))
+        toast.success(`Loaded ${file.name}. Press ${submittedAt ? "Resubmit" : "Submit solution"} to save it.`)
+      })
+      .catch(() => toast.error(`Unable to read ${file.name}.`))
+  }
+
   const submit = () => {
     if (code.trim().length === 0) {
       toast.error("Write some code before submitting.")
@@ -95,6 +137,8 @@ export function PupilUploadCodeActivity({
         return
       }
       setSubmittedAt(new Date().toISOString())
+      // Tells the activity header and lesson progress that this was answered.
+      triggerFeedbackRefresh(lessonId, activityId)
       toast.success("Submitted. Your work is being marked.")
     })
   }
@@ -124,31 +168,48 @@ export function PupilUploadCodeActivity({
   return (
     <div className="space-y-4">
       {task}
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Your {language} solution
-        </span>
-        {submittedAt ? (
-          <span className="text-xs text-muted-foreground">Submitted</span>
+      {/* No status here: the activity heading's chip shows saved, awaiting
+          marking and the mark, and a second label here went stale. */}
+      <span className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Your {language} solution
+      </span>
+
+      <div
+        className="relative"
+        onDragOver={(event) => {
+          if (!hasFiles(event)) return
+          event.preventDefault()
+          event.dataTransfer.dropEffect = "copy"
+          setIsDragging(true)
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setIsDragging(false)
+        }}
+        onDrop={handleDrop}
+      >
+        <textarea
+          ref={textareaRef}
+          value={code}
+          onChange={(event) => {
+            dirtyRef.current = true
+            setCode(event.target.value)
+          }}
+          onKeyDown={handleKeyDown}
+          disabled={isPending || !loaded}
+          spellCheck={false}
+          autoCapitalize="off"
+          autoCorrect="off"
+          rows={16}
+          placeholder={`Write or paste your ${language} here…`}
+          className="w-full rounded-md border border-border bg-background p-3 font-mono text-xs leading-relaxed text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+        />
+        {isDragging ? (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-md border-2 border-dashed border-primary bg-background/90 text-sm font-medium text-foreground">
+            Drop your .py file to replace the code
+          </div>
         ) : null}
       </div>
-
-      <textarea
-        ref={textareaRef}
-        value={code}
-        onChange={(event) => {
-          dirtyRef.current = true
-          setCode(event.target.value)
-        }}
-        onKeyDown={handleKeyDown}
-        disabled={isPending || !loaded}
-        spellCheck={false}
-        autoCapitalize="off"
-        autoCorrect="off"
-        rows={16}
-        placeholder={`Write or paste your ${language} here…`}
-        className="w-full rounded-md border border-border bg-background p-3 font-mono text-xs leading-relaxed text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
-      />
+      <p className="-mt-2 text-xs text-muted-foreground">You can also drag a .py file onto the box.</p>
 
       <div className="flex items-center gap-3">
         <Button type="button" onClick={submit} disabled={isPending || !loaded}>

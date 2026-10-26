@@ -1,3 +1,5 @@
+import type { z } from "zod";
+
 import { query, withDbClient } from "@/lib/db";
 import {
   MarkWorksheetActivityBodySchema,
@@ -303,6 +305,21 @@ export async function processNextQueueItem() {
   return { processed: processedCount, remaining: remainingCount };
 }
 
+/**
+ * A failure retrying cannot fix, such as an activity with no task or marking
+ * guidance. It fails the submission at once instead of after every retry.
+ */
+class PermanentMarkingError extends Error {}
+
+function parseActivityBody<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
+  const parsed = schema.safeParse(body ?? {});
+  if (parsed.success) return parsed.data;
+  const missing = [...new Set(parsed.error.issues.map((issue) => String(issue.path[0] ?? "body")))].join(", ");
+  throw new PermanentMarkingError(
+    `The activity is not set up for marking (missing or invalid: ${missing}). Complete it in the lesson editor, then resend the work for marking.`,
+  );
+}
+
 async function processSingleItem(
   item: {
     submission_id: string;
@@ -431,9 +448,7 @@ async function processSingleItem(
     let markingRequest: MarkingRequest;
 
     if (context.type === "short-text-question") {
-      const parsedActivity = ShortTextActivityBodySchema.parse(
-        context.activity_body,
-      );
+      const parsedActivity = parseActivityBody(ShortTextActivityBodySchema, context.activity_body);
       const parsedSubmission = ShortTextSubmissionBodySchema.parse(
         context.submission_body,
       );
@@ -448,9 +463,7 @@ async function processSingleItem(
         criterion: criterionContext,
       };
     } else if (context.type === "upload-spreadsheet") {
-      const parsedActivity = UploadSpreadsheetActivityBodySchema.parse(
-        context.activity_body,
-      );
+      const parsedActivity = parseActivityBody(UploadSpreadsheetActivityBodySchema, context.activity_body);
       const parsedSubmission = UploadSpreadsheetSubmissionBodySchema.parse(
         context.submission_body,
       );
@@ -483,9 +496,7 @@ async function processSingleItem(
         criterion: criterionContext,
       };
     } else if (context.type === "upload-code") {
-      const parsedActivity = UploadCodeActivityBodySchema.parse(
-        context.activity_body,
-      );
+      const parsedActivity = parseActivityBody(UploadCodeActivityBodySchema, context.activity_body);
       const parsedSubmission = UploadCodeSubmissionBodySchema.parse(
         context.submission_body ?? {},
       );
@@ -508,9 +519,7 @@ async function processSingleItem(
     } else if (context.type === "mark-worksheet") {
       // Mark Worksheet: no OCR step. The pupil's images go to the vision model
       // alongside the teacher's blank worksheet and answer sheet.
-      const parsedActivity = MarkWorksheetActivityBodySchema.parse(
-        context.activity_body,
-      );
+      const parsedActivity = parseActivityBody(MarkWorksheetActivityBodySchema, context.activity_body);
       const parsedSubmission = UploadWorksheetSubmissionBodySchema.parse(
         context.submission_body ?? {},
       );
@@ -557,9 +566,7 @@ async function processSingleItem(
         images: [...worksheetImages, ...answerImages, ...pupilImages],
       };
     } else {
-      const parsedActivity = UploadWorksheetActivityBodySchema.parse(
-        context.activity_body,
-      );
+      const parsedActivity = parseActivityBody(UploadWorksheetActivityBodySchema, context.activity_body);
       const parsedSubmissionBody = UploadWorksheetSubmissionBodySchema.parse(
         context.submission_body ?? {},
       );
@@ -695,7 +702,7 @@ async function processSingleItem(
     const attemptsNow = bumped[0]?.attempts ?? 3;
     const maxAttempts = bumped[0]?.max_attempts ?? 3;
     const isRevision = item.assignment_id === "revision";
-    if (attemptsNow >= maxAttempts) {
+    if (error instanceof PermanentMarkingError || attemptsNow >= maxAttempts) {
       // Final failure: leave the job as 'error' (retained for observability).
       await query(
         `update external_jobs set status='error', process_after=now() where job_id=$1`,

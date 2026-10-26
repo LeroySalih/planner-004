@@ -16,6 +16,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
+import { Textarea } from "@/components/ui/textarea"
+import { LESSON_DESCRIPTION_MAX } from "@/lib/lesson-description"
 
 interface LessonHeaderSidebarProps {
   lesson: LessonWithObjectives
@@ -26,6 +28,7 @@ interface LessonHeaderSidebarProps {
 
 export function LessonHeaderSidebar({ lesson, isOpen, onClose, onUpdated }: LessonHeaderSidebarProps) {
   const [title, setTitle] = useState(lesson.title ?? "")
+  const [description, setDescription] = useState(lesson.description ?? "")
   const [isActive, setIsActive] = useState(lesson.active !== false)
   const [isPublic, setIsPublic] = useState(lesson.is_public ?? false)
   const [isPublicPending, startPublicTransition] = useTransition()
@@ -42,6 +45,7 @@ export function LessonHeaderSidebar({ lesson, isOpen, onClose, onUpdated }: Less
   useEffect(() => {
     if (!isOpen) return
     setTitle(lesson.title ?? "")
+    setDescription(lesson.description ?? "")
     setIsActive(lesson.active !== false)
     setIsPublic(lesson.is_public ?? false)
   }, [isOpen, lesson])
@@ -91,6 +95,7 @@ export function LessonHeaderSidebar({ lesson, isOpen, onClose, onUpdated }: Less
     const formData = new FormData()
     formData.set("lessonId", lesson.lesson_id)
     formData.set("title", trimmedTitle)
+    formData.set("description", description)
     formData.set("active", isActive ? "true" : "false")
     startTransition(() => {
       formAction(formData)
@@ -105,7 +110,7 @@ export function LessonHeaderSidebar({ lesson, isOpen, onClose, onUpdated }: Less
           <CardHeader className="flex flex-row items-start justify-between space-y-0 border-b">
             <div className="space-y-1">
               <CardTitle>Edit lesson details</CardTitle>
-              <p className="text-sm text-muted-foreground">Update the lesson title and active status.</p>
+              <p className="text-sm text-muted-foreground">Update the lesson title, description and active status.</p>
             </div>
             <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close editor">
               <X className="h-5 w-5" />
@@ -122,6 +127,26 @@ export function LessonHeaderSidebar({ lesson, isOpen, onClose, onUpdated }: Less
                   placeholder="Enter lesson title"
                   disabled={pending}
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="lesson-description">Description</Label>
+                <Textarea
+                  id="lesson-description"
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  placeholder="One short sentence: what pupils will achieve in this lesson"
+                  maxLength={LESSON_DESCRIPTION_MAX}
+                  rows={3}
+                  disabled={pending}
+                  aria-describedby="lesson-description-help"
+                />
+                <p id="lesson-description-help" className="flex justify-between gap-3 text-xs text-muted-foreground">
+                  <span>Shown to pupils under the lesson title.</span>
+                  <span className="tabular-nums">
+                    {description.trim().length}/{LESSON_DESCRIPTION_MAX}
+                  </span>
+                </p>
               </div>
 
               <div className="flex items-center justify-between rounded-lg border p-3">
