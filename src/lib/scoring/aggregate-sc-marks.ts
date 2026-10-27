@@ -256,6 +256,11 @@ export async function propagateDeterministicScMarks(
 export async function recomputeSubmissionAggregate(
   submissionId: string,
   activityId: string,
+  options: {
+    /** A teacher marked a criterion: the criteria now set the total, so a
+     *  whole-activity override (which would otherwise win) is removed. */
+    replaceWholeOverride?: boolean
+  } = {},
 ): Promise<{ normalised: number; awarded: number; available: number } | null> {
   return withDbClient(async (client) => {
     await client.query("BEGIN")
@@ -308,8 +313,16 @@ export async function recomputeSubmissionAggregate(
       await client.query(
         `update submissions
          set body = (
-           coalesce(body::jsonb, '{}'::jsonb) || jsonb_build_object(
+           (coalesce(body::jsonb, '{}'::jsonb)
+             - case when $8::boolean
+                    then array['marks_override', 'teacher_override_score', 'override_score',
+                               'teacher_ai_marks', 'teacher_ai_score']
+                    else array[]::text[] end)
+           || jsonb_build_object(
              'ai_model_score', $2::numeric,
+             -- Read by the types compute_submission_base_score does not send
+             -- to ai_model_score, such as upload-file.
+             'score', $2::numeric,
              'ai_marks', $3::int,
              'marks', $3::int,
              'sc_marks_awarded', $3::int,
@@ -328,6 +341,7 @@ export async function recomputeSubmissionAggregate(
           aggregate.normalised >= SHORT_TEXT_CORRECTNESS_THRESHOLD,
           JSON.stringify(criterionScores),
           combinedFeedback.length > 0 ? combinedFeedback : null,
+          options.replaceWholeOverride === true,
         ],
       )
 

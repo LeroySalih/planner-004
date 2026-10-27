@@ -1,5 +1,6 @@
 import type { z } from "zod"
 
+import { DETERMINISTIC_ACTIVITY_TYPES } from "@/dino.config"
 import { query } from "@/lib/db"
 import { recomputeSubmissionAggregate } from "@/lib/scoring/aggregate-sc-marks"
 import { emitSubmissionEvent } from "@/lib/sse/topics"
@@ -130,6 +131,38 @@ export async function applyTeacherActivityOverride(
   const successCriteriaIds = await fetchActivitySuccessCriteriaIds(
     input.activityId,
   );
+
+  // An activity with criteria is marked criterion by criterion, and its total
+  // is their sum. A whole mark is still accepted when it says nothing new (the
+  // current total, sent along with a comment) or is 0 or full, which converts
+  // to the same on every criterion. A part mark cannot be split across the
+  // criteria without guessing which were met, so it is refused.
+  const markedByCriteria = successCriteriaIds.length > 0 &&
+    !(DETERMINISTIC_ACTIVITY_TYPES as readonly string[]).includes(type);
+  let criteriaTotal: number | null = null;
+  if (markedByCriteria && input.submissionId) {
+    const { rows: totalRows } = await query<{ awarded: number | null }>(
+      `select sum(m.awarded)::int as awarded
+       from submission_sc_marks m
+       join activity_success_criteria acs
+         on acs.success_criteria_id = m.success_criteria_id and acs.activity_id = $2
+       where m.submission_id = $1`,
+      [input.submissionId, input.activityId],
+    );
+    criteriaTotal = totalRows[0]?.awarded ?? null;
+  }
+  const keepsCriteriaMarks = criteriaTotal !== null && input.marksOverride === criteriaTotal;
+  if (
+    markedByCriteria &&
+    !keepsCriteriaMarks &&
+    input.marksOverride !== 0 &&
+    input.marksOverride !== maxMarks
+  ) {
+    return ({
+      success: false,
+      error: "This activity is marked per success criterion. Mark each criterion, or give 0 or full marks.",
+    });
+  }
 
   const buildOverrideScores = (
     existing?: Record<string, number | null>,
@@ -294,7 +327,96 @@ export async function applyTeacherActivityOverride(
     createdBy: teacherId,
   });
 
+  if (markedByCriteria && submissionId) {
+    if (keepsCriteriaMarks) {
+      await query("select refresh_submission_sc_total($1)", [submissionId]);
+    } else {
+      await query("select set_all_criteria_marks($1, $2, true)", [
+        submissionId,
+        input.marksOverride === maxMarks,
+      ]);
+    }
+  }
+
   return { success: true, error: null, submissionId }
+}
+
+/**
+ * Save the teacher's overall comment on a submission without touching its
+ * marks. An activity marked by criteria takes its total from them, so the
+ * comment cannot go through the whole-activity override, which saves a mark.
+ */
+export async function applyTeacherActivityFeedback(
+  input: { submissionId: string; feedback: string | null },
+  teacherId: string | null,
+) {
+  const feedback = input.feedback?.trim() || null
+  const { rows } = await query<{ activity_id: string; user_id: string; score: number | null }>(
+    `update submissions s
+        set body = (coalesce(s.body::jsonb, '{}'::jsonb)
+                    || jsonb_build_object('teacher_feedback', $2::text))::json
+       from activities a
+      where s.submission_id = $1 and a.activity_id = s.activity_id
+      returning s.activity_id, s.user_id,
+                compute_submission_marks(s.body::jsonb, a.type, coalesce(a.max_marks, 1))::numeric
+                  / greatest(coalesce(a.max_marks, 1), 1) as score`,
+    [input.submissionId, feedback],
+  )
+  const row = rows[0]
+  if (!row) return { success: false as const, error: "Submission not found." }
+
+  await insertPupilActivityFeedbackEntry({
+    activityId: row.activity_id,
+    pupilId: row.user_id,
+    submissionId: input.submissionId,
+    source: "teacher",
+    score: row.score === null ? null : Number(row.score),
+    feedbackText: feedback,
+    createdBy: teacherId,
+  })
+
+  return { success: true as const, error: null }
+}
+
+/**
+ * Give a submission a row for every criterion on its activity, so a teacher
+ * can mark it criterion by criterion. Only AI marking writes these rows, so an
+ * activity marked by hand (an Upload File task, say) has none until the
+ * teacher's first criterion mark. Missing criteria start at 0: missing work
+ * counts as 0, and the total stays out of the activity's full marks rather
+ * than out of the criteria marked so far. They are tagged 'legacy' (filled in,
+ * not assessed), so AI re-marking replaces them; the criterion the teacher
+ * marks becomes 'teacher' straight after.
+ *
+ * Returns the activity id when `successCriteriaId` is a criterion of the
+ * submission's activity, otherwise null.
+ */
+async function ensureScMarkRows(submissionId: string, successCriteriaId: string): Promise<string | null> {
+  const { rows } = await query<{ activity_id: string }>(
+    `with target as (
+       select s.submission_id, s.activity_id
+       from submissions s
+       join activities a on a.activity_id = s.activity_id
+       join activity_success_criteria acs
+         on acs.activity_id = s.activity_id and acs.success_criteria_id = $2
+       where s.submission_id = $1 and not (a.type = any($3::text[]))
+     ), inserted as (
+       insert into submission_sc_marks (submission_id, success_criteria_id, awarded, available, provenance)
+       select t.submission_id, sc.success_criteria_id, 0,
+              case when sc.sc_type = 'levelled'
+                   then greatest(1, (select count(*) from success_criteria_descriptors d
+                                     where d.success_criteria_id = sc.success_criteria_id))::int
+                   else 1 end,
+              'legacy'
+       from target t
+       join activity_success_criteria acs on acs.activity_id = t.activity_id
+       join success_criteria sc on sc.success_criteria_id = acs.success_criteria_id
+       on conflict (submission_id, success_criteria_id) do nothing
+     )
+     select activity_id from target`,
+    [submissionId, successCriteriaId, [...DETERMINISTIC_ACTIVITY_TYPES]],
+  )
+  return rows[0]?.activity_id ?? null
 }
 
 /**
@@ -314,6 +436,8 @@ export async function applyTeacherScMark(input: {
   }
 
   try {
+    await ensureScMarkRows(input.submissionId, input.successCriteriaId)
+
     const { rows: existing } = await query<{ available: number; activity_id: string }>(
       `select m.available, s.activity_id
        from submission_sc_marks m
@@ -358,7 +482,9 @@ export async function applyTeacherScMark(input: {
       ],
     )
 
-    const aggregate = await recomputeSubmissionAggregate(input.submissionId, row.activity_id)
+    const aggregate = await recomputeSubmissionAggregate(input.submissionId, row.activity_id, {
+      replaceWholeOverride: true,
+    })
 
     const { rows: pupilRows } = await query<{ user_id: string }>(
       `select user_id from submissions where submission_id = $1`,
@@ -397,6 +523,8 @@ export async function applyTeacherScFeedback(input: {
   feedback: string | null
 }) {
   try {
+    await ensureScMarkRows(input.submissionId, input.successCriteriaId)
+
     const { rows } = await query<{ activity_id: string }>(
       `select s.activity_id
        from submission_sc_marks m

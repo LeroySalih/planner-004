@@ -295,7 +295,9 @@ supplies the app's own origin for self-triggering the queue processor.
 ### Per-criterion marking
 
 An activity with success criteria is marked **once per criterion** — one
-`external_jobs` row each, one model call each, assessed independently.
+`external_jobs` row each, one model call each, assessed independently. An
+activity **without** criteria is not sent for marking at all (it does not count
+towards progress, migration 129); `enqueueMarkingTasks` clears its status.
 
 - `success_criteria.sc_type` is `binary` (0–1) or `levelled` (0–n over n
   ascending `success_criteria_descriptors`). **Not** the pre-existing
@@ -310,8 +312,12 @@ An activity with success criteria is marked **once per criterion** — one
   `body.ai_model_score` because that is what `compute_submission_base_score`
   reads, so existing reporting works unchanged.
 - `provenance` is `ai` | `teacher` | `legacy`. Teacher rows survive a re-mark.
-  `legacy` rows were migrated from the old uniform fill and are derived, not
-  real assessment.
+  `legacy` rows are derived, not real assessment: migrated from the old uniform
+  fill, or filled in by DINO (a pupil's other criteria at 0 when a teacher marks
+  one, marks carried over when criteria are linked later). A re-mark replaces
+  them. Changing a criterion's type or levels moves stored marks with
+  `refresh_criterion_marks` (migration 130): full stays full, anything else is
+  capped below the new full mark.
 - **Teacher marks and comments always override.** `effectiveCriterionFeedback`
   in `aggregate-sc-marks.ts` is the single rule: a teacher's comment wins; if
   the teacher changed the mark without commenting, the AI's comment is
@@ -439,7 +445,7 @@ row before deciding whether the set is complete.
 - Don't order by `submitted_at` alone. Some write paths rewrite it on existing rows.
 
 **Progress baseline: missing work counts as 0.** Every progress figure (lesson, unit, class, dashboard, report, LO) uses the same rule, defined once in migration 117:
-- **Scope:** every active scorable activity in a lesson set to the pupil's class whose `start_date` has arrived.
+- **Scope:** every active scorable activity **with success criteria** in a lesson set to the pupil's class whose `start_date` has arrived. An activity with no `activity_success_criteria` rows drops out entirely, marks and `max_marks` alike, including self-marking types (migration 129). Test it with `activity_counts_for_progress(activity_id, type)` in SQL and `countsForProgress(type, criteriaCount)` (`src/lib/scoring/counts-for-progress.ts`) in TypeScript, never `is_scorable_activity_type` alone.
 - **Score:** the latest attempt's marks. No submission, or not yet marked, is 0, and the activity still counts in the denominator.
 - **Average:** `sum(marks) / sum(max_marks)`, never a mean of per-activity percentages.
 - **Pupils only:** staff in a class never count.

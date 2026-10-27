@@ -30,6 +30,7 @@ import {
   normaliseSuccessCriteriaScores,
 } from "@/lib/scoring/success-criteria";
 import { isScorableActivityType } from "@/dino.config";
+import { countsForProgress } from "@/lib/scoring/counts-for-progress";
 import {
   extractScoreFromSubmission,
   TEACHER_OVERRIDE_PLACEHOLDER,
@@ -687,6 +688,10 @@ export async function readAssignmentResultsAction(
             maxMarks: typeof activity.max_marks === "number"
               ? activity.max_marks
               : Number(activity.max_marks) || 1,
+            countsForProgress: countsForProgress(
+              activity.type,
+              activitySuccessCriteriaMap.get(activity.activity_id)?.length ?? 0,
+            ),
           });
         });
 
@@ -1056,10 +1061,12 @@ export async function readAssignmentResultsAction(
           });
 
           // Progress baseline: total marks over total available, a missing or
-          // unmarked activity counting as 0 of its max marks.
+          // unmarked activity counting as 0 of its max marks. Activities
+          // without criteria are shown but do not count.
           let rowMarks = 0;
           let rowMaxMarks = 0;
           cells.forEach((cell, index) => {
+            if (!activities[index]?.countsForProgress) return;
             const maxMarks = activities[index]?.maxMarks || 1;
             rowMarks += (typeof cell.score === "number" ? cell.score : 0) * maxMarks;
             rowMaxMarks += maxMarks;
@@ -1084,7 +1091,9 @@ export async function readAssignmentResultsAction(
 
           // Weighted by max marks, so the overall figure is total marks over
           // total available rather than a mean of per-activity percentages.
-          if (entry) {
+          // An activity without criteria keeps its own average but stays out
+          // of the overall one.
+          if (entry && activity.countsForProgress) {
             const maxMarks = activity.maxMarks || 1;
             overallTotal += entry.total * maxMarks;
             overallCount += entry.count * maxMarks;

@@ -62,7 +62,8 @@ import {
 import { extractScoreFromSubmission, selectLatestSubmission } from "@/lib/scoring/activity-scores"
 import { SketchRenderFeedbackView } from "@/components/assignment-results/sketch-render-feedback-view"
 import { TeacherSubmissionDropzone } from "@/components/assignment-results/teacher-submission-dropzone"
-import type { MarkStatus } from "@/dino.config"
+import { DETERMINISTIC_ACTIVITY_TYPES, isAiMarkedActivityType, type MarkStatus } from "@/dino.config"
+import { refreshActivityCriteriaAction, updateActivityFeedbackAction } from "@/lib/server-actions/sc-marks"
 import { markStatusLabel } from "@/lib/mark-status"
 
 type CellStatus = AssignmentResultCell["status"]
@@ -348,6 +349,8 @@ function recalculateMatrix(
     let rowMarks = 0
     let rowMaxMarks = 0
     nextCells.forEach((cell, index) => {
+      // An activity without success criteria does not count (migration 129).
+      if (!activities[index]?.countsForProgress) return
       const maxMarks = activities[index]?.maxMarks || 1
       rowMarks += (typeof cell.score === "number" ? cell.score : 0) * maxMarks
       rowMaxMarks += maxMarks
@@ -366,7 +369,7 @@ function recalculateMatrix(
     const entry = totals.get(activity.activityId) ?? { total: 0, count: 0, submittedCount: 0 }
     // Weighted by max marks: overall figures are total marks over total
     // available, not a mean of per-activity percentages.
-    if (entry.count > 0) {
+    if (entry.count > 0 && activity.countsForProgress) {
       const maxMarks = activity.maxMarks || 1
       overallTotal += entry.total * maxMarks
       overallCount += entry.count * maxMarks
@@ -1019,6 +1022,11 @@ export function AssignmentResultsDashboard({
       return
     }
 
+    if (selection.activity.successCriteria.length === 0) {
+      toast.error("This activity has no success criteria, so it is not marked. Add criteria to mark it.")
+      return
+    }
+
     startAiMarkTransition(async () => {
       try {
         const result = await triggerManualAiMarkingAction({
@@ -1524,6 +1532,117 @@ export function AssignmentResultsDashboard({
       router.refresh()
     })
   }, [selectedActivity, matrixState.assignmentId, router, startClearAiTransition])
+
+  // How the selected activity is marked. With criteria, a teacher marks each
+  // criterion and the total is their sum; without them the activity is not
+  // marked and does not count towards progress. Self-marking types keep their
+  // whole mark. Before a pupil has submitted, only 0 or full can be given,
+  // which records the same on every criterion.
+  const overrideMarking: "criteria" | "criteria-new" | "whole" | "none" = !selection
+    ? "none"
+    : selection.activity.successCriteria.length === 0
+      ? "none"
+      : (DETERMINISTIC_ACTIVITY_TYPES as readonly string[]).includes(selection.activity.type)
+        ? "whole"
+        : selection.cell.submissionId
+          ? "criteria"
+          : "criteria-new"
+
+  // The criterion panel recorded a submission for a pupil who had none; point
+  // the selected cell at it so later saves (the overall comment) use it.
+  const handleCriteriaSubmissionCreated = (submissionId: string) => {
+    if (!selection) return
+    const { rowIndex, activityIndex } = selection
+    applyCellUpdate((cell) => ({ ...cell, submissionId }), { rowIndex, activityIndex })
+    setSelection((current) =>
+      current && current.rowIndex === rowIndex && current.activityIndex === activityIndex
+        ? { ...current, cell: { ...current.cell, submissionId } }
+        : current,
+    )
+  }
+
+  // Remounts the criterion panel after "Refresh criteria" so it reloads.
+  const [criteriaRefreshCount, setCriteriaRefreshCount] = useState(0)
+  const [criteriaRefreshPending, startCriteriaRefresh] = useTransition()
+  const handleRefreshCriteria = () => {
+    if (!selection) return
+    const activityId = selection.activity.activityId
+    startCriteriaRefresh(async () => {
+      const result = await refreshActivityCriteriaAction(activityId)
+      if (!result.data) {
+        toast.error(result.error ?? "Unable to refresh the criteria.")
+        return
+      }
+      toast.success(
+        result.data.changed > 0
+          ? `Criteria refreshed: ${result.data.changed} pupil${result.data.changed === 1 ? "'s" : "s'"} marks updated.`
+          : "Criteria are already up to date.",
+      )
+      setCriteriaRefreshCount((count) => count + 1)
+      router.refresh()
+    })
+  }
+
+  // A criterion mark changed the submission's total. Update the selected cell
+  // here: the grid and the sidebar header read this client copy, which a
+  // router refresh does not replace.
+  const handleCriteriaAggregateChange = (aggregate: { awarded: number; available: number } | null) => {
+    if (!selection || !aggregate || aggregate.available <= 0) return
+    const { rowIndex, activityIndex } = selection
+    const score = aggregate.awarded / aggregate.available
+    const marksAwarded = Math.round(score * selection.activity.maxMarks)
+    const update = (cell: AssignmentResultCell): AssignmentResultCell => ({
+      ...cell,
+      score,
+      autoScore: score,
+      overrideScore: null,
+      marksAwarded,
+      status: "auto",
+      needsMarking: false,
+    })
+    applyCellUpdate(update, { rowIndex, activityIndex })
+    setSelection((current) =>
+      current && current.rowIndex === rowIndex && current.activityIndex === activityIndex
+        ? { ...current, cell: update(current.cell) }
+        : current,
+    )
+    setMarksDraft(formatMarksInput(marksAwarded))
+  }
+
+  const handleFeedbackBlur = () => {
+    if (overrideMarking === "criteria") {
+      handleCriteriaFeedbackSubmit()
+    } else if (overrideMarking === "criteria-new") {
+      // A comment on work the pupil has not handed in records it as 0 on
+      // every criterion. Leaving the empty box records nothing.
+      if (feedbackDraft.trim().length > 0) handleOverrideSubmit("0")
+    } else {
+      handleOverrideSubmit()
+    }
+  }
+
+  const handleCriteriaFeedbackSubmit = () => {
+    if (!selection?.cell.submissionId) return
+    const feedback = feedbackDraft.trim()
+    if (feedback === (selection.cell.feedback ?? "").trim()) return
+    const submissionId = selection.cell.submissionId
+    startOverrideUITransition(async () => {
+      const result = await updateActivityFeedbackAction({ submissionId, feedback: feedback || null })
+      if (!result.success) {
+        toast.error(result.error ?? "Unable to save feedback.")
+        return
+      }
+      applyCellUpdate(
+        (cell) => ({
+          ...cell,
+          feedback: feedback.length > 0 ? feedback : null,
+          feedbackSource: feedback.length > 0 ? "teacher" : cell.feedbackSource ?? null,
+        }),
+        { rowIndex: selection.rowIndex, activityIndex: selection.activityIndex },
+      )
+      toast.success("Feedback saved.")
+    })
+  }
 
   const draftAverage = useMemo(() => {
     if (!selection) return null
@@ -3022,70 +3141,111 @@ export function AssignmentResultsDashboard({
                             Average: {draftAverage !== null ? formatPercent(draftAverage) : "—"}
                           </span>
                         </div>
-                        <div className="space-y-2">
-                          <p className="text-xs font-semibold text-muted-foreground">Marks awarded</p>
-                          <div className="flex flex-wrap items-center gap-2">
-                            {[
-                              { label: "0", marks: 0 },
-                              { label: "Full", marks: selection.activity.maxMarks },
-                            ].map((option) => {
-                              const numericDraft = Number.parseInt(marksDraft, 10)
-                              const isActive = !Number.isNaN(numericDraft) && numericDraft === option.marks
-                              return (
-                                <Button
-                                  key={option.label}
-                                  type="button"
-                                  size="sm"
-                                  variant={isActive ? "default" : "outline"}
-                                  aria-pressed={isActive}
-                                  className="h-8 px-2 text-xs"
-                                  onClick={() => {
-                                    const val = formatMarksInput(option.marks)
-                                    setMarksDraft(val)
-                                    handleOverrideSubmit(val)
-                                  }}
-                                >
-                                  {option.label}
-                                </Button>
-                              )
-                            })}
-                            <Input
-                              type="number"
-                              inputMode="numeric"
-                              min={0}
-                              max={selection.activity.maxMarks}
-                              step={1}
-                              value={marksDraft}
-                              onChange={(event) => setMarksDraft(event.target.value)}
-                              onBlur={() => {
-                                handleMarksInputBlur()
-                                handleOverrideSubmit()
-                              }}
-                              placeholder={`Marks (0-${selection.activity.maxMarks})`}
-                              aria-label="Marks awarded"
-                              className="h-8 w-24"
-                            />
-                            <span className="text-xs text-muted-foreground">
-                              out of {selection.activity.maxMarks}
-                            </span>
+                        {overrideMarking === "none" ? (
+                          <div className="rounded-md border border-dashed border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                            This activity has no success criteria, so it is not marked and does not count towards progress.
+                            Add success criteria to the activity in the lesson to mark it.
                           </div>
-                        </div>
-
-                        <div className="grid gap-2">
-                          <label className="text-sm font-medium text-foreground" htmlFor="override-feedback">
-                            Teacher feedback
-                          </label>
-                          <Textarea
-                            id="override-feedback"
-                            value={feedbackDraft}
-                            placeholder="Optional feedback for the pupil"
-                            onChange={(event) => setFeedbackDraft(event.target.value)}
-                            onBlur={() => handleOverrideSubmit()}
-                            rows={4}
-                          />
-                        </div>
-
-                        {!selection.cell.submissionId ? (
+                        ) : (
+                          <>
+                            {overrideMarking === "criteria" || overrideMarking === "criteria-new" ? (
+                              <div className="space-y-2">
+                                <div className="flex justify-end">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 gap-1 text-xs"
+                                    onClick={handleRefreshCriteria}
+                                    disabled={criteriaRefreshPending}
+                                    title="Bring the marks into line with the criteria as they are now set up"
+                                  >
+                                    <RefreshCw className={cn("h-3 w-3", criteriaRefreshPending && "animate-spin")} />
+                                    {criteriaRefreshPending ? "Refreshing…" : "Refresh criteria"}
+                                  </Button>
+                                </div>
+                                <CriterionMarksPanel
+                                  key={`${selection.activity.activityId}:${selection.row.pupil.userId}:${criteriaRefreshCount}`}
+                                  submissionId={selection.cell.submissionId ?? null}
+                                  newSubmission={{
+                                    activityId: selection.activity.activityId,
+                                    pupilId: selection.row.pupil.userId,
+                                    onCreated: handleCriteriaSubmissionCreated,
+                                  }}
+                                  aiMarked={isAiMarkedActivityType(selection.activity.type)}
+                                  onAggregateChange={handleCriteriaAggregateChange}
+                                />
+                              </div>
+                            ) : (
+                              <div className="space-y-2">
+                                <p className="text-xs font-semibold text-muted-foreground">Marks awarded</p>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {[
+                                    { label: "0", marks: 0 },
+                                    { label: "Full", marks: selection.activity.maxMarks },
+                                  ].map((option) => {
+                                    const numericDraft = Number.parseInt(marksDraft, 10)
+                                    const isActive = !Number.isNaN(numericDraft) && numericDraft === option.marks
+                                    return (
+                                      <Button
+                                        key={option.label}
+                                        type="button"
+                                        size="sm"
+                                        variant={isActive ? "default" : "outline"}
+                                        aria-pressed={isActive}
+                                        className="h-8 px-2 text-xs"
+                                        onClick={() => {
+                                          const val = formatMarksInput(option.marks)
+                                          setMarksDraft(val)
+                                          handleOverrideSubmit(val)
+                                        }}
+                                      >
+                                        {option.label}
+                                      </Button>
+                                    )
+                                  })}
+                                  {overrideMarking === "whole" ? (
+                                    <>
+                                      <Input
+                                        type="number"
+                                        inputMode="numeric"
+                                        min={0}
+                                        max={selection.activity.maxMarks}
+                                        step={1}
+                                        value={marksDraft}
+                                        onChange={(event) => setMarksDraft(event.target.value)}
+                                        onBlur={() => {
+                                          handleMarksInputBlur()
+                                          handleOverrideSubmit()
+                                        }}
+                                        placeholder={`Marks (0-${selection.activity.maxMarks})`}
+                                        aria-label="Marks awarded"
+                                        className="h-8 w-24"
+                                      />
+                                      <span className="text-xs text-muted-foreground">
+                                        out of {selection.activity.maxMarks}
+                                      </span>
+                                    </>
+                                  ) : null}
+                                </div>
+                              </div>
+                            )}
+                            <div className="grid gap-2">
+                              <label className="text-sm font-medium text-foreground" htmlFor="override-feedback">
+                                Teacher feedback
+                              </label>
+                              <Textarea
+                                id="override-feedback"
+                                value={feedbackDraft}
+                                placeholder="Optional feedback for the pupil"
+                                onChange={(event) => setFeedbackDraft(event.target.value)}
+                                onBlur={handleFeedbackBlur}
+                                rows={4}
+                              />
+                            </div>
+                          </>
+                        )}
+                        {!selection.cell.submissionId && overrideMarking !== "none" ? (
                           <div className="rounded-md border border-dashed border-amber-500/40 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                             No learner submission has been recorded yet. Saving an override will create a submission on behalf
                             of the pupil so you can capture scores and feedback.
@@ -4235,70 +4395,111 @@ export function AssignmentResultsDashboard({
                               Average: {draftAverage !== null ? formatPercent(draftAverage) : "—"}
                             </span>
                           </div>
-                          <div className="space-y-2">
-                            <p className="text-xs font-semibold text-muted-foreground">Marks awarded</p>
-                            <div className="flex flex-wrap items-center gap-2">
-                              {[
-                                { label: "0", marks: 0 },
-                                { label: "Full", marks: selection.activity.maxMarks },
-                              ].map((option) => {
-                                const numericDraft = Number.parseInt(marksDraft, 10)
-                                const isActive = !Number.isNaN(numericDraft) && numericDraft === option.marks
-                                return (
-                                  <Button
-                                    key={option.label}
-                                    type="button"
-                                    size="sm"
-                                    variant={isActive ? "default" : "outline"}
-                                    aria-pressed={isActive}
-                                    className="h-8 px-2 text-xs"
-                                    onClick={() => {
-                                      const val = formatMarksInput(option.marks)
-                                      setMarksDraft(val)
-                                      handleOverrideSubmit(val)
-                                    }}
-                                  >
-                                    {option.label}
-                                  </Button>
-                                )
-                              })}
-                              <Input
-                                type="number"
-                                inputMode="numeric"
-                                min={0}
-                                max={selection.activity.maxMarks}
-                                step={1}
-                                value={marksDraft}
-                                onChange={(event) => setMarksDraft(event.target.value)}
-                                onBlur={() => {
-                                  handleMarksInputBlur()
-                                  handleOverrideSubmit()
-                                }}
-                                placeholder={`Marks (0-${selection.activity.maxMarks})`}
-                                aria-label="Marks awarded"
-                                className="h-8 w-24"
-                              />
-                              <span className="text-xs text-muted-foreground">
-                                out of {selection.activity.maxMarks}
-                              </span>
+                          {overrideMarking === "none" ? (
+                            <div className="rounded-md border border-dashed border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                              This activity has no success criteria, so it is not marked and does not count towards progress.
+                              Add success criteria to the activity in the lesson to mark it.
                             </div>
-                          </div>
-
-                          <div className="grid gap-2">
-                            <label className="text-sm font-medium text-foreground" htmlFor="override-feedback">
-                              Teacher feedback
-                            </label>
-                            <Textarea
-                              id="override-feedback"
-                              value={feedbackDraft}
-                              placeholder="Optional feedback for the pupil"
-                              onChange={(event) => setFeedbackDraft(event.target.value)}
-                              onBlur={() => handleOverrideSubmit()}
-                              rows={4}
-                            />
-                          </div>
-
-                          {!selection.cell.submissionId ? (
+                          ) : (
+                            <>
+                              {overrideMarking === "criteria" || overrideMarking === "criteria-new" ? (
+                                <div className="space-y-2">
+                                  <div className="flex justify-end">
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-7 gap-1 text-xs"
+                                      onClick={handleRefreshCriteria}
+                                      disabled={criteriaRefreshPending}
+                                      title="Bring the marks into line with the criteria as they are now set up"
+                                    >
+                                      <RefreshCw className={cn("h-3 w-3", criteriaRefreshPending && "animate-spin")} />
+                                      {criteriaRefreshPending ? "Refreshing…" : "Refresh criteria"}
+                                    </Button>
+                                  </div>
+                                  <CriterionMarksPanel
+                                    key={`${selection.activity.activityId}:${selection.row.pupil.userId}:${criteriaRefreshCount}`}
+                                    submissionId={selection.cell.submissionId ?? null}
+                                    newSubmission={{
+                                      activityId: selection.activity.activityId,
+                                      pupilId: selection.row.pupil.userId,
+                                      onCreated: handleCriteriaSubmissionCreated,
+                                    }}
+                                    aiMarked={isAiMarkedActivityType(selection.activity.type)}
+                                    onAggregateChange={handleCriteriaAggregateChange}
+                                  />
+                                </div>
+                              ) : (
+                                <div className="space-y-2">
+                                  <p className="text-xs font-semibold text-muted-foreground">Marks awarded</p>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    {[
+                                      { label: "0", marks: 0 },
+                                      { label: "Full", marks: selection.activity.maxMarks },
+                                    ].map((option) => {
+                                      const numericDraft = Number.parseInt(marksDraft, 10)
+                                      const isActive = !Number.isNaN(numericDraft) && numericDraft === option.marks
+                                      return (
+                                        <Button
+                                          key={option.label}
+                                          type="button"
+                                          size="sm"
+                                          variant={isActive ? "default" : "outline"}
+                                          aria-pressed={isActive}
+                                          className="h-8 px-2 text-xs"
+                                          onClick={() => {
+                                            const val = formatMarksInput(option.marks)
+                                            setMarksDraft(val)
+                                            handleOverrideSubmit(val)
+                                          }}
+                                        >
+                                          {option.label}
+                                        </Button>
+                                      )
+                                    })}
+                                    {overrideMarking === "whole" ? (
+                                      <>
+                                        <Input
+                                          type="number"
+                                          inputMode="numeric"
+                                          min={0}
+                                          max={selection.activity.maxMarks}
+                                          step={1}
+                                          value={marksDraft}
+                                          onChange={(event) => setMarksDraft(event.target.value)}
+                                          onBlur={() => {
+                                            handleMarksInputBlur()
+                                            handleOverrideSubmit()
+                                          }}
+                                          placeholder={`Marks (0-${selection.activity.maxMarks})`}
+                                          aria-label="Marks awarded"
+                                          className="h-8 w-24"
+                                        />
+                                        <span className="text-xs text-muted-foreground">
+                                          out of {selection.activity.maxMarks}
+                                        </span>
+                                      </>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              )}
+                              <div className="grid gap-2">
+                                <label className="text-sm font-medium text-foreground" htmlFor="override-feedback">
+                                  Teacher feedback
+                                </label>
+                                <Textarea
+                                  id="override-feedback"
+                                  value={feedbackDraft}
+                                  placeholder="Optional feedback for the pupil"
+                                  onChange={(event) => setFeedbackDraft(event.target.value)}
+                                  onBlur={handleFeedbackBlur}
+                                  rows={4}
+                                />
+                              </div>
+                            </>
+                          )}
+                          {!selection.cell.submissionId && overrideMarking !== "none" ? (
                             <div className="rounded-md border border-dashed border-amber-500/40 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                               No learner submission has been recorded yet. Saving an override will create a submission on behalf
                               of the pupil so you can capture scores and feedback.
@@ -4649,6 +4850,7 @@ export function AssignmentResultsDashboard({
                     <div className="rounded-md border border-border/60 bg-muted/40 p-3">
                       <CriterionMarksPanel
                         submissionId={viewingAttempt.submission_id}
+                        aiMarked={isAiMarkedActivityType(selection?.activity.type)}
                         onLoaded={setAttemptCriterionCount}
                         // A criterion override changes the submission total, so
                         // pull the matrix again — otherwise the grid and the

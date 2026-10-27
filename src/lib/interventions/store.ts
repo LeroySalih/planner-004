@@ -82,7 +82,10 @@ export async function readInterventions(filter: InterventionFilter = {}): Promis
      ),
      acts as (
        select a.activity_id, a.lesson_id, a.type, a.max_marks,
-              a.type = any($5::text[]) as scorable
+              a.type = any($5::text[]) as scorable,
+              -- Only these count towards the score; completion still goes by
+              -- every scorable activity being handed in.
+              activity_counts_for_progress(a.activity_id, a.type) as counted
          from activities a
          join ia on ia.lesson_id = a.lesson_id
         where a.active is not false
@@ -120,10 +123,10 @@ export async function readInterventions(filter: InterventionFilter = {}): Promis
             (select count(*) from cur where cur.lesson_id = ia.lesson_id and cur.scorable)::int as submitted_activities,
             (select count(cur.score) from cur where cur.lesson_id = ia.lesson_id)::int as scored_activities,
             -- Progress baseline: total marks over total available across every
-            -- scorable activity, a missing or unmarked one scoring 0.
+            -- scorable activity with criteria, a missing or unmarked one scoring 0.
             (select sum(coalesce(cur.marks, 0))::float8 / nullif(sum(coalesce(acts.max_marks, 1)), 0)
                from acts left join cur on cur.activity_id = acts.activity_id
-              where acts.lesson_id = ia.lesson_id and acts.scorable) as score,
+              where acts.lesson_id = ia.lesson_id and acts.counted) as score,
             (select min(first_at) from firsts where firsts.lesson_id = ia.lesson_id) as started_at,
             (select max(first_at) from firsts where firsts.lesson_id = ia.lesson_id and firsts.scorable) as last_scorable_at,
             coalesce((

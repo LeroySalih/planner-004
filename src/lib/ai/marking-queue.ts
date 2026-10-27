@@ -97,14 +97,8 @@ export async function enqueueMarkingTasks(
   );
 
   for (const task of tasks) {
-    await query(
-      `update submissions set mark_status='waiting', mark_error=null where submission_id=$1`,
-      [task.submissionId],
-    );
-
     // Fan out: one job per success criterion, so each is marked, retried and
-    // resolved independently. Activities with no criteria keep the single
-    // whole-activity job (successCriteriaId null).
+    // resolved independently.
     const { rows: criteriaRows } = await query<{ success_criteria_id: string }>(
       `select acs.success_criteria_id
        from submissions s
@@ -116,10 +110,25 @@ export async function enqueueMarkingTasks(
 
     const criteriaIds = (criteriaRows ?? []).map((row) => row.success_criteria_id);
 
+    // An activity without criteria is not marked and does not count towards
+    // progress (migration 129), so no model call is spent on it. The status
+    // is cleared rather than left 'waiting', which nothing would move on.
     if (criteriaIds.length === 0) {
-      await enqueueAiMarkJob(task.submissionId, assignmentId, delaySecs);
+      await query(
+        `update submissions set mark_status=null, mark_error=null where submission_id=$1`,
+        [task.submissionId],
+      );
+      await logQueueEvent(
+        "info",
+        `Skipped submission ${task.submissionId}: its activity has no success criteria, so it is not marked`,
+      );
       continue;
     }
+
+    await query(
+      `update submissions set mark_status='waiting', mark_error=null where submission_id=$1`,
+      [task.submissionId],
+    );
 
     // Clear any prior per-criterion results so a re-mark starts clean. Teacher
     // overrides survive — they are authoritative and must not be re-marked.

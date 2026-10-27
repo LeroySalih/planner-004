@@ -3270,7 +3270,8 @@ The result is checked as create_activity checks it; a body over a limit is refus
         + 'their answer, score and status (override = a teacher set the mark), the overall teacher and automatic feedback, and per success criterion '
         + 'the mark, the AI\'s comment, the teacher\'s comment and provenance ("teacher" = set by a teacher, kept on re-mark). '
         + 'A missing answer counts as 0: it has status "missing" and marks_awarded 0 (submission_id null = not answered; set = answered, not yet marked). '
-        + 'totals gives the lesson score on the same baseline as every DINO report: marks over the full max of every marked activity. '
+        + 'totals gives the lesson score on the same baseline as every DINO report: marks over the full max of every marked activity with success criteria '
+        + '(counts_for_progress false = no criteria, listed but left out of totals). '
         + 'feedback_visibility says whether the pupil can see feedback yet; pupils see nothing until a teacher switches feedback on for that assignment. '
         + 'Get pupil ids from list_group_pupils.',
       inputSchema: {

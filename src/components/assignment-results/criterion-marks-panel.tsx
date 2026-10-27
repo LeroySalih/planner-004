@@ -1,23 +1,35 @@
 "use client"
 
-import { useCallback, useEffect, useState, useTransition } from "react"
+import { useCallback, useEffect, useRef, useState, useTransition } from "react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import {
+  readActivityCriteriaForMarkingAction,
   readSubmissionScMarksAction,
+  startCriteriaMarkingAction,
   updateScFeedbackAction,
   updateScMarkAction,
   type ScMarkRow,
 } from "@/lib/server-actions/sc-marks"
 
 interface CriterionMarksPanelProps {
-  submissionId: string
+  /** Null when the pupil has not submitted: the criteria are listed unmarked,
+   *  and the first mark records a submission on their behalf. */
+  submissionId: string | null
+  /** Needed only when there is no submission yet. */
+  newSubmission?: {
+    activityId: string
+    pupilId: string
+    onCreated: (submissionId: string) => void
+  }
   /** Called after an override so the caller can refresh its own totals. */
   onAggregateChange?: (aggregate: { awarded: number; available: number } | null) => void
   /** Reports how many criteria were found, so the caller can avoid repeating
    *  the concatenated feedback below this panel. Called with 0 when none. */
   onLoaded?: (count: number) => void
+  /** The activity is marked by AI, so a teacher's mark replaces the AI's. */
+  aiMarked?: boolean
 }
 
 /**
@@ -28,38 +40,91 @@ interface CriterionMarksPanelProps {
  * of its criteria (Q7), so there is no separate whole-activity override. An
  * edited criterion is stamped `teacher` and survives a re-mark.
  */
-export function CriterionMarksPanel({ submissionId, onAggregateChange, onLoaded }: CriterionMarksPanelProps) {
+export function CriterionMarksPanel({
+  submissionId: givenSubmissionId,
+  newSubmission,
+  onAggregateChange,
+  onLoaded,
+  aiMarked = true,
+}: CriterionMarksPanelProps) {
   const [marks, setMarks] = useState<ScMarkRow[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [isPending, startTransition] = useTransition()
   const [drafts, setDrafts] = useState<Record<string, string>>({})
+  // The submission created by this panel's first mark. Kept here so the
+  // criteria are not reloaded (and their drafts lost) when the caller learns
+  // the new id.
+  const createdIdRef = useRef<string | null>(null)
+  // Read through a ref so a caller passing a new function each render does
+  // not reload the criteria (and report again) in a loop.
+  const onAggregateChangeRef = useRef(onAggregateChange)
+  useEffect(() => {
+    onAggregateChangeRef.current = onAggregateChange
+  }, [onAggregateChange])
+  const activityId = newSubmission?.activityId ?? null
 
   const load = useCallback(async () => {
     setLoading(true)
-    const result = await readSubmissionScMarksAction(submissionId)
+    const id = givenSubmissionId ?? createdIdRef.current
+    const result = id
+      ? await readSubmissionScMarksAction(id)
+      : activityId
+        ? await readActivityCriteriaForMarkingAction(activityId)
+        : { data: [] }
     const next = result.data ?? []
     setMarks(next)
     setLoading(false)
     onLoaded?.(next.length)
-  }, [submissionId, onLoaded])
+    // Report the stored total, so a caller showing a stale one (after
+    // "Refresh criteria", say) catches up.
+    if (id && next.some((mark) => mark.marked)) {
+      onAggregateChangeRef.current?.({
+        awarded: next.reduce((sum, mark) => sum + mark.awarded, 0),
+        available: next.reduce((sum, mark) => sum + mark.available, 0),
+      })
+    }
+  }, [givenSubmissionId, activityId, onLoaded])
 
   useEffect(() => {
     void load()
   }, [load])
 
+  /** The submission to mark, recording one for the pupil if there is none. */
+  const resolveSubmissionId = async (): Promise<string | null> => {
+    const existing = givenSubmissionId ?? createdIdRef.current
+    if (existing) return existing
+    if (!newSubmission) return null
+    const created = await startCriteriaMarkingAction({
+      activityId: newSubmission.activityId,
+      pupilId: newSubmission.pupilId,
+    })
+    if (!created.data) {
+      toast.error(created.error ?? "Unable to record a submission.")
+      return null
+    }
+    createdIdRef.current = created.data.submissionId
+    newSubmission.onCreated(created.data.submissionId)
+    return created.data.submissionId
+  }
+
   const setAwarded = (successCriteriaId: string, awarded: number) => {
     startTransition(async () => {
+      const submissionId = await resolveSubmissionId()
+      if (!submissionId) return
       const result = await updateScMarkAction({ submissionId, successCriteriaId, awarded })
       if (result.error) {
         toast.error(result.error)
         return
       }
+      // The first mark on a submission records every criterion (the rest at
+      // 0), so none is left showing "Not marked".
       setMarks((prev) =>
         prev
           ? prev.map((mark) =>
               mark.success_criteria_id === successCriteriaId
                 ? {
                     ...mark,
+                    marked: true,
                     awarded,
                     provenance: "teacher" as const,
                     // The AI's comment explained the previous mark, so it stops
@@ -67,7 +132,7 @@ export function CriterionMarksPanel({ submissionId, onAggregateChange, onLoaded 
                     // effectiveCriterionFeedback on the server.
                     feedback: mark.teacher_feedback ?? null,
                   }
-                : mark,
+                : { ...mark, marked: true },
             )
           : prev,
       )
@@ -81,6 +146,8 @@ export function CriterionMarksPanel({ submissionId, onAggregateChange, onLoaded 
 
   const saveFeedback = (successCriteriaId: string, feedback: string) => {
     startTransition(async () => {
+      const submissionId = await resolveSubmissionId()
+      if (!submissionId) return
       const result = await updateScFeedbackAction({ submissionId, successCriteriaId, feedback })
       if (result.error) {
         toast.error(result.error)
@@ -130,12 +197,14 @@ export function CriterionMarksPanel({ submissionId, onAggregateChange, onLoaded 
             <div className="flex items-start justify-between gap-3">
               <p className="flex-1 text-sm text-foreground">{mark.description}</p>
               <div className="flex shrink-0 items-center gap-2">
-                {mark.provenance === "teacher" ? (
+                {!mark.marked ? (
+                  <Badge variant="outline" className="text-[10px]">Not marked</Badge>
+                ) : mark.provenance === "teacher" ? (
                   <Badge variant="secondary" className="text-[10px]">Teacher</Badge>
                 ) : null}
-                {mark.provenance === "legacy" ? (
-                  <Badge variant="outline" className="text-[10px]" title="Migrated from before per-criterion marking; derived, not a real assessment.">
-                    Legacy
+                {mark.marked && mark.provenance === "legacy" ? (
+                  <Badge variant="outline" className="text-[10px]" title="Filled in automatically, not assessed. AI re-marking replaces it; marking it yourself makes it yours.">
+                    Filled in
                   </Badge>
                 ) : null}
                 <span className="text-sm font-medium text-foreground">
@@ -146,7 +215,7 @@ export function CriterionMarksPanel({ submissionId, onAggregateChange, onLoaded 
 
             <div className="mt-2 flex flex-wrap gap-1">
               {Array.from({ length: mark.available + 1 }, (_, level) => {
-                const isSelected = mark.awarded === level
+                const isSelected = mark.marked && mark.awarded === level
                 const descriptor = level === 0
                   ? "No descriptor met"
                   : mark.descriptors[level - 1] ?? `Level ${level}`
@@ -163,7 +232,7 @@ export function CriterionMarksPanel({ submissionId, onAggregateChange, onLoaded 
                         : "border-border bg-background text-muted-foreground hover:bg-muted"
                     }`}
                   >
-                    {level}
+                    {mark.sc_type === "binary" ? (level === 0 ? "No" : "Yes") : level}
                   </button>
                 )
               })}
@@ -184,7 +253,7 @@ export function CriterionMarksPanel({ submissionId, onAggregateChange, onLoaded 
               </p>
             ) : null}
 
-            {mark.provenance === "teacher" && !mark.teacher_feedback ? (
+            {aiMarked && mark.provenance === "teacher" && !mark.teacher_feedback ? (
               <p className="mt-2 text-xs italic text-muted-foreground">
                 You changed this mark — the AI&apos;s comment no longer applies. Add your own below.
               </p>
@@ -193,7 +262,7 @@ export function CriterionMarksPanel({ submissionId, onAggregateChange, onLoaded 
             <textarea
               value={drafts[mark.success_criteria_id] ?? mark.teacher_feedback ?? ""}
               disabled={isPending}
-              placeholder="Your comment for this criterion (overrides the AI's)"
+              placeholder={aiMarked ? "Your comment for this criterion (overrides the AI's)" : "Your comment for this criterion (optional)"}
               rows={2}
               onChange={(event) =>
                 setDrafts((prev) => ({ ...prev, [mark.success_criteria_id]: event.target.value }))

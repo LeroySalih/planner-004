@@ -22,6 +22,7 @@ import {
 } from "@/types";
 import { query } from "@/lib/db";
 import { isScorableActivityType } from "@/dino.config";
+import { countsForProgress } from "@/lib/scoring/counts-for-progress";
 import { scoreSequence } from "@/lib/scoring/sequence";
 import {
   computeAverageSuccessCriteriaScore,
@@ -771,13 +772,21 @@ export async function readLessonSubmissionSummariesAction(
       summaries.push(summary);
     }
 
-    // Progress baseline: every scorable activity counts for every pupil, and a
-    // missing or unmarked one is 0 marks out of its max. For the viewer that is
-    // their own work; otherwise every pupil who took part in the lesson.
+    // Progress baseline: every scorable activity with criteria counts for every
+    // pupil, and a missing or unmarked one is 0 marks out of its max. For the
+    // viewer that is their own work; otherwise every pupil who took part in the
+    // lesson. Activities without criteria keep their summary row above but stay
+    // out of the averages.
     const participants = viewerUserId
       ? [viewerUserId]
       : Array.from(new Set(submissions.map((submission) => submission.user_id)));
-    for (const activity of scorableActivities) {
+    const countedActivities = scorableActivities.filter((activity) =>
+      countsForProgress(
+        activity.type,
+        activitySuccessCriteriaMap.get(activity.activity_id)?.length ?? 0,
+      )
+    );
+    for (const activity of countedActivities) {
       const maxMarks = activity.max_marks;
       const isSummative = activity.is_summative ?? false;
       const marksByUser = marksByActivity.get(activity.activity_id);

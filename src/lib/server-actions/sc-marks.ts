@@ -2,10 +2,16 @@
 
 import { z } from "zod"
 
-import { query } from "@/lib/db"
+import { query, withDbClient } from "@/lib/db"
+import { recalculateActivityMaxMarks } from "@/lib/scoring/derive-max-marks"
 import { requireAuthenticatedProfile, requireRole } from "@/lib/auth"
 import { effectiveCriterionFeedback } from "@/lib/scoring/aggregate-sc-marks"
-import { applyTeacherScFeedback, applyTeacherScMark } from "@/lib/feedback/teacher-feedback"
+import {
+  applyTeacherActivityFeedback,
+  applyTeacherActivityOverride,
+  applyTeacherScFeedback,
+  applyTeacherScMark,
+} from "@/lib/feedback/teacher-feedback"
 import { withTelemetry } from "@/lib/telemetry"
 
 const ScMarkRowSchema = z.object({
@@ -20,6 +26,8 @@ const ScMarkRowSchema = z.object({
   /** The teacher's own comment, for editing. Null when they have not written one. */
   teacher_feedback: z.string().nullable(),
   provenance: z.enum(["ai", "teacher", "legacy"]),
+  /** False for a criterion with no mark recorded yet; it counts as 0. */
+  marked: z.boolean(),
 })
 
 export type ScMarkRow = z.infer<typeof ScMarkRowSchema>
@@ -44,9 +52,21 @@ export async function readSubmissionScMarksAction(submissionId: string) {
         available: number
         feedback: string | null
         teacher_feedback: string | null
-        provenance: string
+        provenance: string | null
       }>(
-        `select m.success_criteria_id,
+        // Every criterion on the activity, marked or not: only AI marking
+        // writes these rows, so hand-marked work has none until the teacher
+        // marks a criterion. A row whose criterion has since been unlinked is
+        // still listed, as before.
+        `with ids as (
+           select acs.success_criteria_id
+           from submissions s
+           join activity_success_criteria acs on acs.activity_id = s.activity_id
+           where s.submission_id = $1
+           union
+           select success_criteria_id from submission_sc_marks where submission_id = $1
+         )
+         select ids.success_criteria_id,
                 sc.description,
                 sc.sc_type,
                 coalesce(
@@ -57,14 +77,15 @@ export async function readSubmissionScMarksAction(submissionId: string) {
                   ),
                   '{}'
                 ) as descriptors,
-                m.awarded,
-                m.available,
+                coalesce(m.awarded, 0) as awarded,
+                coalesce(m.available, sc_available_marks(sc.success_criteria_id)) as available,
                 m.feedback,
                 m.teacher_feedback,
                 m.provenance
-         from submission_sc_marks m
-         join success_criteria sc on sc.success_criteria_id = m.success_criteria_id
-         where m.submission_id = $1
+         from ids
+         join success_criteria sc on sc.success_criteria_id = ids.success_criteria_id
+         left join submission_sc_marks m
+           on m.submission_id = $1 and m.success_criteria_id = ids.success_criteria_id
          order by sc.order_index, sc.success_criteria_id`,
         [submissionId],
       )
@@ -77,9 +98,10 @@ export async function readSubmissionScMarksAction(submissionId: string) {
           descriptors: row.descriptors ?? [],
           awarded: Number(row.awarded),
           available: Number(row.available),
-          feedback: effectiveCriterionFeedback(row),
+          feedback: effectiveCriterionFeedback({ ...row, provenance: row.provenance ?? "ai" }),
           teacher_feedback: row.teacher_feedback,
-          provenance: ["ai", "teacher", "legacy"].includes(row.provenance) ? row.provenance : "ai",
+          provenance: row.provenance && ["ai", "teacher", "legacy"].includes(row.provenance) ? row.provenance : "ai",
+          marked: row.provenance !== null,
         })
       )
 
@@ -206,4 +228,126 @@ export async function updateScFeedbackAction(input: {
   await requireRole("teacher")
 
   return applyTeacherScFeedback(input)
+}
+
+/**
+ * The teacher's overall comment on an activity marked by criteria, saved
+ * without a mark: the total comes from the criteria.
+ */
+export async function updateActivityFeedbackAction(input: {
+  submissionId: string
+  feedback: string | null
+}) {
+  const teacher = await requireRole("teacher")
+  try {
+    return await applyTeacherActivityFeedback(input, teacher.userId)
+  } catch (error) {
+    console.error("[sc-marks] updateActivityFeedbackAction:error", error)
+    return { success: false as const, error: "Unable to save feedback." }
+  }
+}
+
+/**
+ * The criteria on an activity, unmarked, for a pupil who has not submitted it,
+ * so the teacher still sees the rubric and can mark against it.
+ */
+export async function readActivityCriteriaForMarkingAction(activityId: string) {
+  await requireRole("teacher")
+  try {
+    const { rows } = await query<{
+      success_criteria_id: string
+      description: string | null
+      sc_type: string | null
+      descriptors: string[] | null
+      available: number
+    }>(
+      `select sc.success_criteria_id,
+              sc.description,
+              sc.sc_type,
+              coalesce(
+                array(
+                  select d.descriptor from success_criteria_descriptors d
+                  where d.success_criteria_id = sc.success_criteria_id
+                  order by d.level_index
+                ),
+                '{}'
+              ) as descriptors,
+              sc_available_marks(sc.success_criteria_id) as available
+       from activity_success_criteria acs
+       join success_criteria sc on sc.success_criteria_id = acs.success_criteria_id
+       where acs.activity_id = $1
+       order by sc.order_index, sc.success_criteria_id`,
+      [activityId],
+    )
+    const data = rows.map((row) =>
+      ScMarkRowSchema.parse({
+        success_criteria_id: row.success_criteria_id,
+        description: row.description ?? "",
+        sc_type: row.sc_type === "levelled" ? "levelled" : "binary",
+        descriptors: row.descriptors ?? [],
+        awarded: 0,
+        available: Number(row.available),
+        feedback: null,
+        teacher_feedback: null,
+        provenance: "teacher",
+        marked: false,
+      })
+    )
+    return { data, error: null }
+  } catch (error) {
+    console.error("[sc-marks] readActivityCriteriaForMarkingAction:error", error)
+    return { data: null, error: "Unable to load the success criteria." }
+  }
+}
+
+/**
+ * Record a submission on the pupil's behalf, every criterion at 0, so the
+ * teacher can mark work the pupil handed in some other way.
+ */
+export async function startCriteriaMarkingAction(input: { activityId: string; pupilId: string }) {
+  const teacher = await requireRole("teacher")
+  try {
+    const outcome = await applyTeacherActivityOverride(
+      { activityId: input.activityId, pupilId: input.pupilId, submissionId: null, marksOverride: 0, feedback: null },
+      teacher.userId,
+    )
+    if (!outcome.success || !outcome.submissionId) {
+      return { data: null, error: outcome.success ? "Unable to record a submission." : outcome.error }
+    }
+    return { data: { submissionId: outcome.submissionId }, error: null }
+  } catch (error) {
+    console.error("[sc-marks] startCriteriaMarkingAction:error", error)
+    return { data: null, error: "Unable to record a submission." }
+  }
+}
+
+/**
+ * Bring an activity's criterion marks into line with its criteria as they are
+ * now: max marks re-derived, each pupil's marks moved to the criteria's current
+ * marks available, and totals rewritten. The curriculum builder does this on
+ * every change; this is for anything that changed some other way.
+ */
+export async function refreshActivityCriteriaAction(activityId: string) {
+  await requireRole("teacher")
+  try {
+    const changed = await withDbClient(async (client) => {
+      await client.query("BEGIN")
+      try {
+        await recalculateActivityMaxMarks(client, activityId)
+        const { rows } = await client.query<{ changed: number }>(
+          "select refresh_activity_criteria($1) as changed",
+          [activityId],
+        )
+        await client.query("COMMIT")
+        return Number(rows[0]?.changed ?? 0)
+      } catch (error) {
+        await client.query("ROLLBACK")
+        throw error
+      }
+    })
+    return { data: { changed }, error: null }
+  } catch (error) {
+    console.error("[sc-marks] refreshActivityCriteriaAction:error", error)
+    return { data: null, error: "Unable to refresh the criteria." }
+  }
 }

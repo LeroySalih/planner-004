@@ -969,15 +969,17 @@ Returns one pupil's work and feedback on a lesson's marked activities, or on one
 `feedback_visibility` lists the pupil's class assignments and interventions for the lesson, and says whether feedback is switched on for any of them.
 
 **Input:** `{ pupil_id: string, lesson_id: string, activity_id?: string }`  
-`totals` gives the lesson score on the same baseline as every report: `marks_awarded` out of the full `max_marks` of every marked activity, and `percent`. It also counts `unanswered` and `not_yet_marked` questions.
+`totals` gives the lesson score on the same baseline as every report: `marks_awarded` out of the full `max_marks` of every marked activity with success criteria, and `percent`. It also counts `unanswered` and `not_yet_marked` questions. An activity without criteria is still listed, with `counts_for_progress: false`, but is left out of `totals`.
 
 **Output:** `{ feedback: { pupil_id, lesson_id, lesson_title, feedback_visibility: { assigned, visible_to_pupil, assignments }, totals: { marks_awarded, max_marks, percent, unanswered, not_yet_marked }, activities: [...] } | null }`
 
 #### `set_pupil_feedback`
 Sets a mark and/or comment on one activity for one pupil.
 
-- **Overall** (leave out `success_criteria_id`): the whole-activity override from the results page. `marks` (0 to `max_marks`) and `feedback` are saved together, as on the page. Whichever one you leave out keeps its current value. If the pupil hasn't submitted, a submission is created, as on the page.
-- **Per criterion** (pass `success_criteria_id`): `marks` (0 to the criterion's `available`) makes the row a teacher mark. `feedback` sets the teacher's comment, which replaces the AI's. Either can be given alone. This needs a submission that has criterion marks.
+- **Overall** (leave out `success_criteria_id`): the whole-activity override from the results page. `marks` (0 to `max_marks`) and `feedback` are saved together, as on the page. Whichever one you leave out keeps its current value. If the pupil hasn't submitted, a submission is created, as on the page. On an activity with success criteria (other than the self-marking types), the total is the sum of the criteria, so `marks` must be 0 or full, which records the same on every criterion, or the current total, sent with a comment. A part mark is refused: mark each criterion instead.
+- **Per criterion** (pass `success_criteria_id`): `marks` (0 to the criterion's `available`) makes the row a teacher mark. `feedback` sets the teacher's comment, which replaces the AI's. Either can be given alone. This needs a submission. Criteria not marked yet are recorded at 0 the first time one is marked.
+
+An activity without success criteria is not marked and does not count towards progress (migration 129).
 
 `feedback: ""` clears a comment. The reply contains the activity's updated feedback and its visibility.
 

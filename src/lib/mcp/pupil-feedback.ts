@@ -2,6 +2,7 @@ import { revalidatePath } from 'next/cache'
 
 import { query } from '@/lib/db'
 import { SCORABLE_ACTIVITY_TYPES } from '@/dino.config'
+import { countsForProgress } from '@/lib/scoring/counts-for-progress'
 import { fetchPupilActivityFeedbackMap, selectLatestFeedbackEntry } from '@/lib/feedback/pupil-activity-feedback'
 import {
   applyTeacherActivityOverride,
@@ -61,6 +62,8 @@ export type ActivityFeedback = {
   teacher_feedback: string | null
   auto_feedback: string | null
   criteria: CriterionFeedback[]
+  /** False when the activity has no success criteria, so it is left out of totals. */
+  counts_for_progress: boolean
 }
 
 async function assertPupil(pupilId: string) {
@@ -175,7 +178,7 @@ async function readCriteria(submissionId: string): Promise<CriterionFeedback[]> 
 
 async function readActivityFeedback(
   pupilId: string,
-  activity: { activity_id: string; type: string; title: string | null; max_marks: number | null; body_data: unknown },
+  activity: { activity_id: string; type: string; title: string | null; max_marks: number | null; body_data: unknown; criteria_count: number },
   feedbackRows: Parameters<typeof selectLatestFeedbackEntry>[0],
 ): Promise<ActivityFeedback> {
   const maxMarks = Number(activity.max_marks) || 1
@@ -198,6 +201,7 @@ async function readActivityFeedback(
     teacher_feedback: null,
     auto_feedback: null,
     criteria: [],
+    counts_for_progress: countsForProgress(activity.type, activity.criteria_count),
   }
   if (!submission) return base
 
@@ -248,8 +252,11 @@ export async function getPupilLessonFeedback(pupilId: string, lessonId: string, 
     title: string | null
     max_marks: number | null
     body_data: unknown
+    criteria_count: number
   }>(
-    `select activity_id, type, title, max_marks, body_data
+    `select activity_id, type, title, max_marks, body_data,
+            (select count(*)::int from activity_success_criteria acs
+              where acs.activity_id = activities.activity_id) as criteria_count
        from activities
       where lesson_id = $1 and active is not false and type = any($2::text[])
         and ($3::text is null or activity_id = $3)
@@ -268,10 +275,11 @@ export async function getPupilLessonFeedback(pupilId: string, lessonId: string, 
     results.push(await readActivityFeedback(pupilId, activity, feedbackMap?.get(`${pupilId}::${activity.activity_id}`)))
   }
 
-  // Progress baseline: every marked activity counts, a missing answer is 0,
-  // and the percentage is total marks over total available.
-  const marksAwarded = results.reduce((sum, a) => sum + a.marks_awarded, 0)
-  const maxMarks = results.reduce((sum, a) => sum + a.max_marks, 0)
+  // Progress baseline: every marked activity with criteria counts, a missing
+  // answer is 0, and the percentage is total marks over total available.
+  const counted = results.filter((a) => a.counts_for_progress)
+  const marksAwarded = counted.reduce((sum, a) => sum + a.marks_awarded, 0)
+  const maxMarks = counted.reduce((sum, a) => sum + a.max_marks, 0)
   return {
     pupil_id: pupilId,
     lesson_id: lessonId,
@@ -281,8 +289,8 @@ export async function getPupilLessonFeedback(pupilId: string, lessonId: string, 
       marks_awarded: marksAwarded,
       max_marks: maxMarks,
       percent: maxMarks > 0 ? Math.round((marksAwarded / maxMarks) * 100) : null,
-      unanswered: results.filter((a) => !a.submission_id).length,
-      not_yet_marked: results.filter((a) => a.submission_id && a.status === 'missing').length,
+      unanswered: counted.filter((a) => !a.submission_id).length,
+      not_yet_marked: counted.filter((a) => a.submission_id && a.status === 'missing').length,
     },
     activities: results,
   }
@@ -320,6 +328,18 @@ export async function setPupilFeedback(teacherId: string | null, input: SetPupil
   if (!activity) throw new Error(`Activity ${input.activityId} not found`)
   if (!(SCORABLE_ACTIVITY_TYPES as readonly string[]).includes(activity.type)) {
     throw new Error(`Activity ${input.activityId} is a "${activity.type}" activity, which is not marked`)
+  }
+
+  if (input.marks !== undefined) {
+    const { rows: criteriaRows } = await query<{ linked: boolean }>(
+      'select exists (select 1 from activity_success_criteria where activity_id = $1) as linked',
+      [activity.activity_id],
+    )
+    if (!criteriaRows[0]?.linked) {
+      throw new Error(
+        `Activity ${input.activityId} has no success criteria, so it is not marked and does not count towards progress. Link criteria first`,
+      )
+    }
   }
 
   const { data: submission, error } = await getSubmissionRow(activity.activity_id, input.pupilId, null)

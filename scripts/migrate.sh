@@ -29,6 +29,9 @@ MIGRATIONS=(
   "126-sub-units.sql|select exists (select 1 from information_schema.tables where table_name = 'sub_units')"
   "127-flag-latest-attempt-only.sql|select exists (select 1 from pg_trigger where tgname = 'submissions_clear_earlier_flags')"
   "128-release-stalled-marking.sql|select not exists (select 1 from submissions s where s.mark_status in ('waiting', 'marking') and s.submitted_at < now() - interval '1 hour' and not exists (select 1 from external_jobs j where j.job_type = 'ai_mark' and j.payload->>'submissionId' = s.submission_id and j.status in ('pending', 'processing')))"
+  "129-criteria-marking.sql|select exists (select 1 from pg_trigger where tgname = 'activity_success_criteria_marks')"
+  "130-refresh-criterion-marks.sql|select exists (select 1 from pg_proc where proname = 'refresh_activity_criteria')"
+  "131-filled-in-criterion-marks.sql|select prosrc like '%''legacy''%' from pg_proc where proname = 'set_all_criteria_marks'"
 )
 
 YES=false

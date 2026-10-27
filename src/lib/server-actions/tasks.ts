@@ -105,7 +105,7 @@ export async function readPupilTasksAction(userId: string): Promise<{
         select a.activity_id, a.lesson_id, a.type as activity_type, a.max_marks
         from activities a
         where a.lesson_id in (select lesson_id from pupil_lessons)
-          and is_scorable_activity_type(a.type)
+          and activity_counts_for_progress(a.activity_id, a.type)
           and coalesce(a.active, true) = true
       ),
       latest_submissions as (
@@ -117,7 +117,7 @@ export async function readPupilTasksAction(userId: string): Promise<{
         where s.user_id = $1
         order by s.activity_id, s.attempt_number desc, s.submitted_at desc
       ),
-      -- Progress baseline: every scorable activity counts, missing = 0.
+      -- Progress baseline: every scorable activity with criteria counts, missing = 0.
       lesson_scores as (
         select
           sa.lesson_id,

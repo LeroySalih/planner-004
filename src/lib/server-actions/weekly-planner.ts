@@ -222,7 +222,7 @@ export async function readWeeklyPlannerPupilAction(
                FROM submissions s
                JOIN activities a ON a.activity_id = s.activity_id
                WHERE s.user_id = $1
-                 AND is_scorable_activity_type(a.type)
+                 AND activity_counts_for_progress(a.activity_id, a.type)
                ORDER BY s.activity_id, s.attempt_number DESC, s.submitted_at DESC NULLS LAST
              ),
              lesson_scores AS (
@@ -233,9 +233,9 @@ export async function readWeeklyPlannerPupilAction(
                  bool_or(ls.marks IS NOT NULL) AS has_score
                FROM activities a
                LEFT JOIN latest_submissions ls ON ls.activity_id = a.activity_id
-               -- Progress baseline: every scorable activity, missing = 0.
+               -- Progress baseline: every scorable activity with criteria, missing = 0.
                WHERE a.lesson_id = ANY($2::text[])
-                 AND is_scorable_activity_type(a.type)
+                 AND activity_counts_for_progress(a.activity_id, a.type)
                  AND (a.active IS NULL OR a.active = true)
                GROUP BY a.lesson_id
                HAVING count(a.activity_id) > 0

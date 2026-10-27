@@ -8,7 +8,6 @@ import {
   PlannerAssignmentWithUnitSchema,
   type PlannerAssignment,
 } from '@/types'
-import { SCORABLE_ACTIVITY_TYPES } from '@/dino.config'
 import { pupilMembershipSql } from "@/lib/roles/pupil-membership"
 
 const AssignmentResult = z.object({
@@ -252,13 +251,14 @@ export async function readGroupSowLessonsAction(
                 '{}'
               ) AS los,
               (
-                -- Every pupil in the class against every scorable activity, with
+                -- Every pupil in the class against every activity that counts
+                -- for progress (scorable, with criteria), with
                 -- an unattempted activity counting zero. Joining submissions
                 -- directly, as this did, silently dropped the pupils who had not
                 -- attempted anything: a lesson one pupil aced read 100% for a
                 -- class where most had done nothing.
                 --
-                -- Restricting to scorable types is what makes counting the
+                -- Restricting to counted activities is what makes counting the
                 -- non-submitters safe. Without it every display activity would
                 -- add its max_marks to the denominator and nothing could pass.
                 --
@@ -290,7 +290,7 @@ export async function readGroupSowLessonsAction(
                   AND gm.group_id = pa.group_id
                   AND ${pupilMembershipSql()}
                   AND (a.active IS NULL OR a.active = true)
-                  AND a.type = ANY($3::text[])
+                  AND activity_counts_for_progress(a.activity_id, a.type)
               ) AS score
        FROM planner_assignments pa
        JOIN lessons l ON l.lesson_id = pa.lesson_id
@@ -300,7 +300,7 @@ export async function readGroupSowLessonsAction(
        ) h ON pa.week_start_date BETWEEN h.start_date AND h.end_date
        WHERE pa.group_id = $1
        ORDER BY pa.week_start_date, pa.lesson_id`,
-      [groupId, year, [...SCORABLE_ACTIVITY_TYPES]],
+      [groupId, year],
     )
     const data = rows.map((r) => SowWeekLessonSchema.parse(r))
     return SowWeekLessonsResult.parse({ data, error: null })

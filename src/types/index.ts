@@ -1282,6 +1282,9 @@ export const AssignmentResultActivitySchema = z.object({
     subjectGuidance: z.string().nullable().optional(),
     markingGuidanceId: z.string().nullable().optional(),
     maxMarks: z.number().int().min(1).default(1),
+    // False for an activity without success criteria: it stays a column in the
+    // results grid but is left out of every average (see countsForProgress).
+    countsForProgress: z.boolean().default(true),
 });
 
 export const AssignmentResultCellSchema = z.object({

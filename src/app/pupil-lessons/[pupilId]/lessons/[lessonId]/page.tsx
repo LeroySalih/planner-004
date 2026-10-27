@@ -20,6 +20,7 @@ import {
   getActivityFileDownloadUrlAction,
 } from "@/lib/server-updates"
 import { isScorableActivityType } from "@/dino.config"
+import { countsForProgress } from "@/lib/scoring/counts-for-progress"
 import { cn } from "@/lib/utils"
 import { findLessonResources } from "@/lib/lesson-resources"
 import { loadCourseUnits, loadLessonPosition, loadSubmittedActivityIds } from "@/lib/pupil-lesson-article-data"
@@ -1011,9 +1012,13 @@ export default async function PupilLessonFriendlyPage({
     groupId ? loadCourseUnits(groupId, pupilId, unit?.unit_id ?? null) : Promise.resolve([]),
     withDbClient((client) => readLessonUnderstanding(client, pupilId, lesson.lesson_id)),
   ])
-  const totalMarks = countable.reduce((sum, activity) => sum + (activity.max_marks ?? 1), 0)
+  // Marks only from activities that count for progress: with criteria linked.
+  const marked = countable.filter((activity) =>
+    countsForProgress(activity.type, (activity.success_criteria_ids ?? []).length),
+  )
+  const totalMarks = marked.reduce((sum, activity) => sum + (activity.max_marks ?? 1), 0)
   const awarded = releasedToViewer
-    ? countable.reduce((sum, activity) => sum + (activityMarksMap.get(activity.activity_id)?.marksAwarded ?? 0), 0)
+    ? marked.reduce((sum, activity) => sum + (activityMarksMap.get(activity.activity_id)?.marksAwarded ?? 0), 0)
     : null
   const remainingWork = countableIds.filter((id) => !submittedIds.includes(id)).length
   const dueTone = dueDateTone(dueDate, remainingWork)

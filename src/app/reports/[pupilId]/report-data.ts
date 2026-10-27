@@ -27,6 +27,7 @@ import { query } from "@/lib/db"
 import { latestAttempts } from "@/lib/scoring/latest-attempt"
 import { computeSubmissionMarks } from "@/lib/scoring/submission-marks"
 import { isScorableActivityType } from "@/dino.config"
+import { countsForProgress } from "@/lib/scoring/counts-for-progress"
 
 export const ReportDatasetLessonSchema = LessonWithObjectivesSchema.extend({
   activities: LessonActivitiesSchema.default([]),
@@ -535,8 +536,11 @@ function buildLessonSubmissionSummaries(
   activities: LessonActivity[],
   submissions: Submission[],
 ): LessonSubmissionSummary[] {
+  // Only activities that count towards progress: scorable, with criteria.
   const scorableActivities = activities.filter(
-    (activity) => activity.active !== false && isScorableActivityType(activity.type),
+    (activity) =>
+      activity.active !== false &&
+      countsForProgress(activity.type, (activity.success_criteria_ids ?? []).length),
   )
 
   // The dataset carries every attempt; only each pupil's latest one scores.
@@ -808,7 +812,7 @@ export async function loadUnitLessonContextFromDataset(
       }
 
       // Progress baseline: total marks over total available, every scorable
-      // activity counting and a missing or unmarked one scoring 0.
+      // activity with criteria counting and a missing or unmarked one scoring 0.
       let unitMarks = 0
       let unitMaxMarks = 0
       const enrichedLessons: UnitLessonContext["lessons"] = []

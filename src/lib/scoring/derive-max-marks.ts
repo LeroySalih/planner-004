@@ -121,9 +121,9 @@ export async function recalculateActivityMaxMarks(
 }
 
 /**
- * Recalculate max_marks for every activity linked to a criterion. Call after
- * changing an SC's type or its descriptors — both change how many marks the
- * criterion contributes wherever it is used.
+ * Recalculate max_marks for every activity linked to a criterion, and the
+ * pupils' marks on it. Call after changing an SC's type or its descriptors —
+ * both change how many marks the criterion contributes wherever it is used.
  *
  * Returns the number of activities whose max_marks actually changed, so callers
  * can warn a teacher before a destructive edit.
@@ -139,6 +139,10 @@ export async function recalculateMaxMarksForCriterion(
        )`),
     [successCriteriaId],
   )
+
+  // Pupils' marks on the criterion were given out of its old marks available;
+  // bring them into line and rewrite their totals (migration 130).
+  await db.query("select refresh_criterion_marks($1)", [successCriteriaId])
 
   return rows.length
 }
