@@ -643,6 +643,15 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
   const selectedCellState = selectedSlot
     ? (plannerState.get(selectedSlot) ?? emptyCellState())
     : null
+  // The SoW panel reloads when this class's lessons change in the week shown.
+  const selectedGroupId = selectedCellState?.groupId ?? null
+  const sowRefreshKey = selectedGroupId
+    ? Array.from(plannerState.values())
+        .filter((cell) => cell.groupId === selectedGroupId)
+        .flatMap((cell) => cell.lessons.map((l) => l.lessonId))
+        .sort()
+        .join(',')
+    : ''
   const selectedTimetableSlot = selectedParsed
     ? TIMETABLE_SLOTS.find(
         (s) => s.day === selectedParsed.day && s.period === selectedParsed.period,
@@ -709,6 +718,8 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
         period={selectedParsed?.period ?? null}
         cellState={selectedCellState}
         slot={selectedTimetableSlot}
+        currentWeek={currentWeek}
+        sowRefreshKey={sowRefreshKey}
         units={units}
         lessonCache={lessonCache}
         groups={groups}

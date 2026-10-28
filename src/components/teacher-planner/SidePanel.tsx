@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import type { CellState, SlotLesson, Day, TimetableSlot } from './types'
+import { SowPanel } from './SowPanel'
 import type { Unit, Group, LessonWithObjectives } from '@/types'
 
 type SidePanelProps = {
@@ -10,6 +11,8 @@ type SidePanelProps = {
   period: number | null
   cellState: CellState | null
   slot: TimetableSlot | null
+  currentWeek: string
+  sowRefreshKey: string
   units: Unit[]
   lessonCache: Map<string, LessonWithObjectives[]>
   groups: Group[]
@@ -33,6 +36,8 @@ export function SidePanel({
   period,
   cellState,
   slot,
+  currentWeek,
+  sowRefreshKey,
   units,
   lessonCache,
   groups,
@@ -206,6 +211,10 @@ export function SidePanel({
             )}
           </div>
         </div>
+      )}
+
+      {hasGroup && (
+        <SowPanel key={groupId} groupId={groupId!} currentWeek={currentWeek} refreshKey={sowRefreshKey} />
       )}
     </div>
   )
