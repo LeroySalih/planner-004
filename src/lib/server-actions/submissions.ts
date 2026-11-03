@@ -21,7 +21,7 @@ import {
   UploadWorksheetSubmissionBodySchema,
 } from "@/types";
 import { query } from "@/lib/db";
-import { isScorableActivityType } from "@/dino.config";
+import { isQuestionMarkedActivityType, isScorableActivityType } from "@/dino.config";
 import { countsForProgress } from "@/lib/scoring/counts-for-progress";
 import { scoreSequence } from "@/lib/scoring/sequence";
 import {
@@ -726,8 +726,12 @@ export async function readLessonSubmissionSummariesAction(
           const averagedScore = computeAverageSuccessCriteriaScore(
             normalisedScores,
           );
-          const finalScore = averagedScore ?? overrideScore ?? baseScore ??
-            null;
+          // An assessment paper's score is its marks out of its questions'
+          // (body.score); the mean of its criteria is not, and an unmarked
+          // paper has none, so it reads as awaiting marking rather than 0.
+          const finalScore = isQuestionMarkedActivityType(activityType)
+            ? baseScore
+            : averagedScore ?? overrideScore ?? baseScore ?? null;
 
           return {
             userId: submission.user_id,

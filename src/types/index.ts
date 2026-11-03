@@ -793,6 +793,25 @@ export type MarkWorksheetActivityBody = z.infer<
     typeof MarkWorksheetActivityBodySchema
 >;
 
+// Assessment paper — marked question by question. The questions and their
+// criteria live in activity_questions / activity_question_criteria, not here.
+// The question paper's page 1 is the blank front sheet, the only place a
+// pupil writes their name; a script's page 1 is checked against it and never
+// sent to a model (src/lib/assessment-paper/front-sheet.ts).
+export const AssessmentPaperActivityBodySchema = z
+    .object({
+        questionPaperPath: z.string().min(1).optional(),
+        markSchemePath: z.string().min(1).optional(),
+        instructions: z.string().optional(),
+        /** Whether the pupil's feedback PDF includes each question's mark scheme. Absent means yes. */
+        showMarkSchemeToPupils: z.boolean().optional(),
+    })
+    .passthrough();
+
+export type AssessmentPaperActivityBody = z.infer<
+    typeof AssessmentPaperActivityBodySchema
+>;
+
 export const LongTextActivityBodySchema = z
     .object({
         question: z.string().min(1),

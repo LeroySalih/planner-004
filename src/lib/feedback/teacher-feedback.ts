@@ -1,7 +1,8 @@
 import type { z } from "zod"
 
-import { DETERMINISTIC_ACTIVITY_TYPES } from "@/dino.config"
+import { DETERMINISTIC_ACTIVITY_TYPES, isQuestionMarkedActivityType } from "@/dino.config"
 import { query } from "@/lib/db"
+import { submissionIsQuestionMarked } from "@/lib/assessment-paper/store"
 import { recomputeSubmissionAggregate } from "@/lib/scoring/aggregate-sc-marks"
 import { emitSubmissionEvent } from "@/lib/sse/topics"
 import { insertPupilActivityFeedbackEntry } from "@/lib/feedback/pupil-activity-feedback"
@@ -25,6 +26,11 @@ export type TeacherActivityOverrideInput = {
   feedback: string | null
   criterionScores?: z.infer<typeof AssignmentResultCriterionScoresSchema>
 }
+
+// An assessment paper is marked per criterion within each question; its
+// totals and criterion marks are derived from those (assessment-paper store).
+const QUESTION_MARKED_ERROR =
+  "This activity is marked question by question. Mark each criterion within its question."
 
 export type TeacherActivityOverrideResult =
   | { success: true; error: null; submissionId: string | null }
@@ -112,6 +118,13 @@ export async function applyTeacherActivityOverride(
   const type = typeof activityRow.type === "string"
     ? activityRow.type.trim()
     : "";
+
+  if (isQuestionMarkedActivityType(type)) {
+    return ({
+      success: false,
+      error: QUESTION_MARKED_ERROR,
+    });
+  }
 
   const maxMarks = typeof activityRow.max_marks === "number"
     ? activityRow.max_marks
@@ -436,6 +449,9 @@ export async function applyTeacherScMark(input: {
   }
 
   try {
+    if (await submissionIsQuestionMarked(input.submissionId)) {
+      return { data: null, error: QUESTION_MARKED_ERROR }
+    }
     await ensureScMarkRows(input.submissionId, input.successCriteriaId)
 
     const { rows: existing } = await query<{ available: number; activity_id: string }>(
@@ -523,6 +539,9 @@ export async function applyTeacherScFeedback(input: {
   feedback: string | null
 }) {
   try {
+    if (await submissionIsQuestionMarked(input.submissionId)) {
+      return { data: null, error: QUESTION_MARKED_ERROR }
+    }
     await ensureScMarkRows(input.submissionId, input.successCriteriaId)
 
     const { rows } = await query<{ activity_id: string }>(

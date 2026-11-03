@@ -32,6 +32,12 @@ MIGRATIONS=(
   "129-criteria-marking.sql|select exists (select 1 from pg_trigger where tgname = 'activity_success_criteria_marks')"
   "130-refresh-criterion-marks.sql|select exists (select 1 from pg_proc where proname = 'refresh_activity_criteria')"
   "131-filled-in-criterion-marks.sql|select prosrc like '%''legacy''%' from pg_proc where proname = 'set_all_criteria_marks'"
+  "132-assessment-paper-activity.sql|select exists (select 1 from pg_proc where proname = 'is_question_marked_activity_type')"
+  "133-assessment-activity-upload-links.sql|select exists (select 1 from information_schema.columns where table_name = 'mcp_upload_links' and column_name = 'upload_kind')"
+  "134-assessment-paper-v2.sql|select exists (select 1 from information_schema.tables where table_name = 'submission_question_answers')"
+  "135-assessment-read-route.sql|select exists (select 1 from ai_model_routes where activity_type = 'surface:assessment-read')"
+  "136-assessment-mark-scheme-route.sql|select exists (select 1 from ai_model_routes where activity_type = 'surface:assessment-mark-scheme')"
+  "137-mcp-class-feedback-links.sql|select exists (select 1 from information_schema.columns where table_name = 'mcp_download_links' and column_name = 'kind')"
 )
 
 YES=false

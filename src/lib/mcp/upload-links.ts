@@ -4,16 +4,24 @@ import { query } from '@/lib/db'
 import { listAssessmentPupils } from '@/lib/assessments/store'
 import { assertActivityAcceptsFile } from '@/lib/mcp/activities'
 import type { McpCaller } from '@/lib/mcp/auth'
+import { assertPupilSitsAssessment } from '@/lib/assessment-paper/files'
+import { isQuestionMarkedActivityType } from '@/dino.config'
+import { AssessmentPaperActivityBodySchema } from '@/types'
 
 const LINK_LIFETIME_MINUTES = 15
 
+export type AssessmentActivityUploadKind = 'question_paper' | 'mark_scheme' | 'script'
+
+type UploadTarget = 'activity' | 'lesson' | 'assessment' | 'assessment-activity'
+
 export type UploadLink = {
   link_id: string
-  target: 'activity' | 'lesson' | 'assessment'
+  target: UploadTarget
   lesson_id: string | null
   activity_id: string | null
   assessment_id: string | null
   pupil_id: string | null
+  upload_kind: AssessmentActivityUploadKind | null
   file_name: string | null
   caller: McpCaller
 }
@@ -23,10 +31,34 @@ const hashToken = (token: string) => createHash('sha256').update(token).digest('
 export async function createUploadLink(
   caller: McpCaller,
   target:
-    | { lessonId: string; activityId: string | null; assessmentId?: undefined; fileName: string | null }
-    | { assessmentId: string; pupilId?: string | null; lessonId?: undefined; activityId?: undefined; fileName: string | null },
+    | { lessonId: string; activityId: string | null; assessmentId?: undefined; uploadKind?: undefined; fileName: string | null }
+    | { assessmentId: string; pupilId?: string | null; lessonId?: undefined; activityId?: undefined; uploadKind?: undefined; fileName: string | null }
+    | { assessmentActivityId: string; uploadKind: AssessmentActivityUploadKind; pupilId?: string | null; assessmentId?: undefined; lessonId?: undefined; activityId?: undefined; fileName: string | null },
 ): Promise<{ token: string; expiresAt: string }> {
-  if (target.assessmentId) {
+  let lessonId = target.lessonId ?? null
+  let activityId = target.activityId ?? null
+  if ('assessmentActivityId' in target) {
+    // Checked now as well as on upload, so a link that can only fail is never
+    // handed out.
+    const { rows } = await query<{ lesson_id: string; type: string | null; body_data: unknown }>(
+      'select lesson_id, type, body_data from activities where activity_id = $1 limit 1',
+      [target.assessmentActivityId],
+    )
+    if (!rows[0]) throw new Error(`Activity ${target.assessmentActivityId} not found`)
+    if (!isQuestionMarkedActivityType(rows[0].type)) throw new Error(`Activity ${target.assessmentActivityId} is not an assessment paper`)
+    if (target.uploadKind === 'script') {
+      if (!target.pupilId) throw new Error('pupil_id is required for a script')
+      const body = AssessmentPaperActivityBodySchema.safeParse(rows[0].body_data ?? {})
+      if (!body.success || !body.data.questionPaperPath) {
+        throw new Error('Upload the question paper with its front sheet first: each script\'s page 1 is checked against it')
+      }
+      await assertPupilSitsAssessment(target.assessmentActivityId, target.pupilId)
+    } else if (target.pupilId) {
+      throw new Error('pupil_id is only for a script; the question paper and mark scheme belong to the whole activity')
+    }
+    lessonId = rows[0].lesson_id
+    activityId = target.assessmentActivityId
+  } else if (target.assessmentId) {
     const { rows } = await query(
       "select 1 from assessments where assessment_id::text = $1 and active limit 1",
       [target.assessmentId],
@@ -51,18 +83,22 @@ export async function createUploadLink(
   await query("delete from mcp_upload_links where expires_at < now() - interval '1 day'")
 
   const token = randomBytes(32).toString('base64url')
+  const kind: UploadTarget = 'assessmentActivityId' in target
+    ? 'assessment-activity'
+    : target.assessmentId ? 'assessment' : target.activityId ? 'activity' : 'lesson'
   const { rows } = await query<{ expires_at: Date }>(
     `insert into mcp_upload_links
-       (token_hash, target, lesson_id, activity_id, assessment_id, pupil_id, file_name, auth_method, user_id, oauth_client_id, expires_at)
-     values ($1, $2, $3, $4, $5::uuid, $6, $7, $8, $9, $10, now() + make_interval(mins => $11))
+       (token_hash, target, lesson_id, activity_id, assessment_id, pupil_id, upload_kind, file_name, auth_method, user_id, oauth_client_id, expires_at)
+     values ($1, $2, $3, $4, $5::uuid, $6, $7, $8, $9, $10, $11, now() + make_interval(mins => $12))
      returning expires_at`,
     [
       hashToken(token),
-      target.assessmentId ? 'assessment' : target.activityId ? 'activity' : 'lesson',
-      target.lessonId ?? null,
-      target.activityId ?? null,
+      kind,
+      lessonId,
+      activityId,
       target.assessmentId ?? null,
-      target.assessmentId ? target.pupilId ?? null : null,
+      'pupilId' in target && (kind === 'assessment' || target.uploadKind === 'script') ? target.pupilId ?? null : null,
+      target.uploadKind ?? null,
       target.fileName,
       caller.method,
       caller.userId,
@@ -81,11 +117,12 @@ export async function createUploadLink(
 export async function claimUploadLink(token: string): Promise<UploadLink | null> {
   const { rows } = await query<{
     link_id: string
-    target: 'activity' | 'lesson' | 'assessment'
+    target: UploadTarget
     lesson_id: string | null
     activity_id: string | null
     assessment_id: string | null
     pupil_id: string | null
+    upload_kind: AssessmentActivityUploadKind | null
     file_name: string | null
     auth_method: 'oauth' | 'service_key'
     user_id: string | null
@@ -93,7 +130,7 @@ export async function claimUploadLink(token: string): Promise<UploadLink | null>
   }>(
     `update mcp_upload_links set used_at = now()
       where token_hash = $1 and used_at is null and expires_at > now()
-      returning link_id, target, lesson_id, activity_id, assessment_id::text, pupil_id, file_name, auth_method, user_id, oauth_client_id`,
+      returning link_id, target, lesson_id, activity_id, assessment_id::text, pupil_id, upload_kind, file_name, auth_method, user_id, oauth_client_id`,
     [hashToken(token)],
   )
   const row = rows[0]
@@ -108,6 +145,7 @@ export async function claimUploadLink(token: string): Promise<UploadLink | null>
     activity_id: row.activity_id,
     assessment_id: row.assessment_id,
     pupil_id: row.pupil_id,
+    upload_kind: row.upload_kind,
     file_name: row.file_name,
     caller,
   }

@@ -1,0 +1,229 @@
+import React from "react"
+import { Document, Image, Page, StyleSheet, Text, View } from "@react-pdf/renderer"
+
+import type { ClassFeedbackPdfData, ClassFeedbackStatus } from "@/lib/assessment-paper/class-feedback-pdf"
+import type { FeedbackPdfCriterion, FeedbackPdfData, FeedbackPdfQuestion } from "@/lib/assessment-paper/feedback-pdf"
+
+/**
+ * One pupil's feedback on an assessment paper: A4 landscape, the overall marks
+ * first, then a table with a row per question in paper order: the question,
+ * the pupil's answer, the mark scheme when the paper allows it, the marks and
+ * how to improve. The class document puts a cover in front of several pupils'
+ * pages.
+ */
+
+const BORDER = "#d4d4d8"
+const MUTED = "#52525b"
+const RED = "#dc2626"
+const NO_ANSWER = "No answer submitted"
+
+const styles = StyleSheet.create({
+  page: { paddingTop: 28, paddingBottom: 40, paddingHorizontal: 36, fontSize: 10, fontFamily: "Helvetica", color: "#18181b" },
+  header: { flexDirection: "row", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: BORDER, paddingBottom: 6, marginBottom: 12 },
+  headerText: { fontSize: 8, color: MUTED },
+  titleRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 8 },
+  pupilName: { fontSize: 18, fontFamily: "Helvetica-Bold" },
+  subtitle: { fontSize: 10, color: MUTED, marginTop: 2 },
+  totalMarks: { fontSize: 16, fontFamily: "Helvetica-Bold" },
+  overall: { marginBottom: 10, padding: 8, backgroundColor: "#f4f4f5", borderRadius: 3 },
+  label: { fontSize: 8, fontFamily: "Helvetica-Bold", color: MUTED, textTransform: "uppercase", marginBottom: 2 },
+  questionLabel: { fontSize: 11, fontFamily: "Helvetica-Bold" },
+  questionMarks: { fontSize: 11, fontFamily: "Helvetica-Bold" },
+  block: { marginTop: 5 },
+  muted: { color: MUTED },
+  small: { fontSize: 8, marginTop: 2 },
+  answerImage: { marginTop: 4, maxHeight: 300, objectFit: "contain", borderWidth: 1, borderColor: BORDER },
+  table: { borderTopWidth: 1, borderTopColor: BORDER },
+  row: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: BORDER },
+  headRow: { backgroundColor: "#f4f4f5" },
+  cell: { paddingVertical: 5, paddingHorizontal: 5 },
+  colQuestion: { flex: 3 },
+  colAnswer: { flex: 4 },
+  colMarkScheme: { flex: 4 },
+  colMarks: { flex: 1.1 },
+  colImprove: { flex: 4 },
+  coverTable: { marginTop: 14 },
+  coverRow: { flexDirection: "row", gap: 8, paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: BORDER },
+  coverHeadRow: { borderBottomColor: MUTED },
+  coverName: { flex: 3 },
+  coverMarks: { flex: 1, textAlign: "right" },
+  coverStatus: { flex: 2 },
+  footer: { position: "absolute", bottom: 16, left: 36, right: 36, flexDirection: "row", justifyContent: "space-between", fontSize: 7, color: MUTED },
+})
+
+function marks(awarded: number | null, available: number) {
+  return `${awarded === null ? "—" : awarded} / ${available}`
+}
+
+/** What the pupil should do next: the teacher's comment, else the marker's advice. */
+function improvementText(feedback: FeedbackPdfCriterion["feedback"]): string | null {
+  if (!feedback) return null
+  return (feedback.source === "teacher" ? feedback.text : feedback.howToImprove)?.trim() || null
+}
+
+function questionImprovements(question: FeedbackPdfQuestion): string[] {
+  const texts = question.legacy
+    ? [improvementText(question.legacy.feedback)]
+    : question.criteria.map((criterion) => improvementText(criterion.feedback))
+  return [...new Set(texts.filter((text): text is string => Boolean(text)))]
+}
+
+function AnswerCell({ answer }: { answer: FeedbackPdfQuestion["answer"] }) {
+  if (!answer) return <Text style={styles.muted}>—</Text>
+  if (answer.status === "blank") return <Text style={{ color: RED }}>{NO_ANSWER}</Text>
+  return (
+    <>
+      {answer.status === "unreadable" ? (
+        <Text style={styles.muted}>This answer was hard to read, so it is shown as you wrote it.</Text>
+      ) : null}
+      {answer.transcription?.trim() ? <Text>{answer.transcription.trim()}</Text> : null}
+      {answer.images.map((image) => (
+        // eslint-disable-next-line jsx-a11y/alt-text -- react-pdf Image has no alt
+        <Image key={image.pageNumber} src={image.src} style={styles.answerImage} />
+      ))}
+    </>
+  )
+}
+
+function QuestionTable({ questions }: { questions: FeedbackPdfQuestion[] }) {
+  const showMarkScheme = questions.some((question) => question.markScheme)
+  return (
+    <View style={styles.table}>
+      <View style={[styles.row, styles.headRow]} wrap={false}>
+        <Text style={[styles.cell, styles.colQuestion, styles.label]}>Question</Text>
+        <Text style={[styles.cell, styles.colAnswer, styles.label]}>Your answer</Text>
+        {showMarkScheme ? <Text style={[styles.cell, styles.colMarkScheme, styles.label]}>Mark scheme</Text> : null}
+        <Text style={[styles.cell, styles.colMarks, styles.label]}>Marks</Text>
+        <Text style={[styles.cell, styles.colImprove, styles.label]}>How to improve</Text>
+      </View>
+      {questions.map((question) => (
+        <View key={question.label} style={styles.row} wrap={Boolean(question.answer?.images.length)}>
+          <View style={[styles.cell, styles.colQuestion]}>
+            <Text style={styles.questionLabel}>{question.label}</Text>
+            {question.questionText?.trim() ? <Text style={styles.small}>{question.questionText.trim()}</Text> : null}
+          </View>
+          <View style={[styles.cell, styles.colAnswer]}>
+            <AnswerCell answer={question.answer} />
+          </View>
+          {showMarkScheme ? (
+            <View style={[styles.cell, styles.colMarkScheme]}>
+              <Text style={styles.small}>{question.markScheme ?? ""}</Text>
+            </View>
+          ) : null}
+          <View style={[styles.cell, styles.colMarks]}>
+            <Text style={[styles.questionMarks, (question.awarded ?? 0) === 0 ? { color: RED } : {}]}>
+              {marks(question.awarded, question.maxMarks)}
+            </Text>
+          </View>
+          <View style={[styles.cell, styles.colImprove]}>
+            {questionImprovements(question).map((text, index) => (
+              <Text key={index} style={index > 0 ? styles.block : undefined}>{text}</Text>
+            ))}
+          </View>
+        </View>
+      ))}
+    </View>
+  )
+}
+
+/** One pupil's pages: also a section of the class document. */
+function PupilFeedbackPage({ data }: { data: FeedbackPdfData }) {
+  return (
+    <Page size="A4" orientation="landscape" style={styles.page}>
+      <View style={styles.header} fixed>
+        <Text style={styles.headerText}>{data.paperTitle}</Text>
+        <Text style={styles.headerText}>{[data.pupilName, data.className].filter(Boolean).join("  ·  ")}</Text>
+      </View>
+
+      <View style={styles.titleRow}>
+        <View>
+          <Text style={styles.pupilName}>{data.pupilName}</Text>
+          <Text style={styles.subtitle}>{[data.className, data.paperTitle].filter(Boolean).join("  ·  ")}</Text>
+        </View>
+        <Text style={styles.totalMarks}>
+          {data.marksAwarded === null ? "Not marked yet" : `${data.marksAwarded} / ${data.maxMarks} marks`}
+        </Text>
+      </View>
+
+      {data.overallFeedback ? (
+        <View style={styles.overall}>
+          <Text style={styles.label}>Your teacher&apos;s comment</Text>
+          <Text>{data.overallFeedback}</Text>
+        </View>
+      ) : null}
+
+      {data.questions.length === 0 ? <Text style={styles.muted}>This paper has no questions yet.</Text> : null}
+      {data.questions.length > 0 ? <QuestionTable questions={data.questions} /> : null}
+
+      <Footer paperTitle={data.paperTitle} />
+    </Page>
+  )
+}
+
+function Footer({ paperTitle }: { paperTitle: string }) {
+  return (
+    <View style={styles.footer} fixed>
+      <Text>{paperTitle}</Text>
+      <Text render={({ pageNumber, totalPages }) => `Page ${pageNumber} of ${totalPages}`} />
+    </View>
+  )
+}
+
+export function AssessmentPaperFeedbackDocument({ data }: { data: FeedbackPdfData }) {
+  return (
+    <Document title={`${data.paperTitle} - feedback`}>
+      <PupilFeedbackPage data={data} />
+    </Document>
+  )
+}
+
+const STATUS_LABEL: Record<ClassFeedbackStatus, string> = {
+  marked: "Marked",
+  "not yet marked": "Not yet marked",
+  held: "Held (front sheet check failed)",
+  "not sat": "Not sat",
+}
+
+/**
+ * A class's feedback on one paper: a cover with every pupil's marks and
+ * status, then each pupil who sat it on their own pages, as in their own PDF.
+ */
+export function AssessmentPaperClassFeedbackDocument({ data }: { data: ClassFeedbackPdfData }) {
+  return (
+    <Document title={`${data.paperTitle} - ${data.className} feedback`}>
+      <Page size="A4" orientation="landscape" style={styles.page}>
+        <View style={styles.header} fixed>
+          <Text style={styles.headerText}>{data.paperTitle}</Text>
+          <Text style={styles.headerText}>{data.className}</Text>
+        </View>
+
+        <Text style={styles.pupilName}>{data.paperTitle}</Text>
+        <Text style={styles.subtitle}>
+          {[`Class ${data.className}`, `Unit ${data.unitTitle}`, `Generated ${data.generatedOn}`].join("  ·  ")}
+        </Text>
+
+        <View style={styles.coverTable}>
+          <View style={[styles.coverRow, styles.coverHeadRow]} fixed>
+            <Text style={[styles.coverName, styles.label]}>Pupil</Text>
+            <Text style={[styles.coverMarks, styles.label]}>Marks</Text>
+            <Text style={[styles.coverStatus, styles.label]}>Status</Text>
+          </View>
+          {data.roster.length === 0 ? <Text style={[styles.block, styles.muted]}>This class has no pupils.</Text> : null}
+          {data.roster.map((row, index) => (
+            <View key={index} style={styles.coverRow} wrap={false}>
+              <Text style={styles.coverName}>{row.pupilName}</Text>
+              <Text style={styles.coverMarks}>{row.status === "not sat" ? "—" : marks(row.marksAwarded, data.maxMarks)}</Text>
+              <Text style={[styles.coverStatus, row.status === "marked" ? {} : styles.muted]}>{STATUS_LABEL[row.status]}</Text>
+            </View>
+          ))}
+        </View>
+
+        <Footer paperTitle={data.paperTitle} />
+      </Page>
+
+      {data.pupils.map((pupil, index) => (
+        <PupilFeedbackPage key={index} data={pupil} />
+      ))}
+    </Document>
+  )
+}

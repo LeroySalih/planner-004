@@ -45,6 +45,9 @@ export interface ArticleActivityProps {
   modelAnswer?: string | null
   /** Teachers see marking before it is released to pupils. */
   viewerIsTeacher?: boolean
+  /** The activity shows its own feedback (an assessment paper, question by
+   *  question), so the generic feedback panel is left out. */
+  ownFeedback?: boolean
   children: ReactNode
 }
 
@@ -78,6 +81,7 @@ export function ArticleActivity({
   feedbackText,
   modelAnswer,
   viewerIsTeacher = false,
+  ownFeedback = false,
   children,
 }: ArticleActivityProps) {
   const { currentVisible, markingResults } = useFeedbackVisibility()
@@ -181,7 +185,7 @@ export function ArticleActivity({
 
       {children}
 
-      {released ? (
+      {released && !ownFeedback ? (
         <div className="mt-3">
           <button
             type="button"

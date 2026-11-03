@@ -257,6 +257,8 @@ than a second mechanism that drifts:
 | `surface:handwriting-ocr` | the standalone `/ocr` tool |
 | `surface:sketch-guardrail` | prompt check before a sketch render |
 | `surface:image-generation` | sketch render + AI-proposed lesson images |
+| `surface:assessment-read` | the read of each assessment paper script before it is marked |
+| `surface:assessment-mark-scheme` | splitting an assessment paper's mark scheme PDF by question |
 
 Catalogue entries carry `kind: "text" | "image"`, and the admin screen only
 offers models that can do the job — image generation cannot run on a text model
@@ -324,6 +326,94 @@ towards progress, migration 129); `enqueueMarkingTasks` clears its status.
   suppressed rather than left contradicting the new mark.
 - The prompt must state that **0 is a valid score**. Without it the model
   anchors to the lowest descriptor and silently inflates every mark.
+
+### Assessment paper marking
+
+An `assessment-paper` is **read once, then marked per question** (Marking v2).
+Sending a script queues one `ai_read` job `{submissionId, assignmentId}`
+(`enqueueMarkingTasks`, from `storeScript` or *Send N unmarked scripts*). The
+read (`src/lib/assessment-paper/reading.ts`, route `surface:assessment-read`,
+migration 135) sends the question list and the markable pages, each labelled
+with its page number, and gets back per label `{kind: text|sketch|mixed,
+transcription, pages, status: answered|blank|unreadable|continued}`; sketches
+are described. `completeAssessmentRead` (store.ts) stores these in
+`submission_question_answers` (a teacher-edited answer is never overwritten),
+then under the submission's row lock: a blank answer scores 0 on every
+criterion with "No answer submitted"; `activity_questions.marking = 'teacher'`
+is left for the teacher; a question with no `mark_scheme` text is held and
+named in `mark_error`; a question every criterion of which a teacher has marked
+is not re-sent; every other question gets one `ai_mark` job `{submissionId,
+assignmentId, questionId}`. The mark (`src/lib/assessment-paper/marking.ts`,
+route `(assessment-paper, NULL)`) sends that question, its mark scheme, its
+criteria with allocations, the transcription and the answer's pages (all pages
+when unreadable), plus the earlier answer when `depends_on_question_id` is set;
+the reply has every criterion exactly once, 0..allocation, or it throws and
+retries. `completeAssessmentQuestionMark` writes the rows (never over a
+teacher's), closes the job and, when no sibling `ai_read`/`ai_mark` job is
+open, sets `mark_status = 'marked'`. The worker claims both job types; the
+generic `external_jobs` worker must exclude both. `recordCriterionMark` throws
+for this type.
+
+The model sees the script's **markable pages only** (pages 2..n), loaded by
+`readMarkablePages` (`src/lib/assessment-paper/files.ts`), the sole loader a
+model call may use — never read `original_path` or page 1 for a model.
+
+On the results page a teacher can edit any transcription (stamped `teacher`),
+any criterion mark and comment; a question is flagged **Check** when the model
+marked it and it is `ai_check`, read as a sketch, or unreadable (and not
+teacher-only); *Confirm* stamps its rows `teacher` without changing them
+(`confirmAssessmentQuestionMarks`). A teacher's change of mark drops the
+marker's comment on that row; an unchanged or confirmed mark keeps it
+(`effectiveQuestionCriterionFeedback`).
+
+**Page 1 is the front sheet and never reaches a model** (Marking v2, migration
+134). Every paper starts with a front sheet, the only place a pupil writes
+their name; the question paper's page 1 is the blank one. On upload
+(`storeScript`) a script (PDF only) is rasterised, and its page 1 is compared
+with the question paper's page 1 on the server, with no model
+(`src/lib/assessment-paper/front-sheet.ts`: small greyscale thumbnails, mean
+absolute difference under a calibrated threshold), along with the page counts.
+Passed: pages 2..n are stored as `assessment_scripts.page_paths` and
+`front_sheet_check = 'passed'`. Failed, or no question paper: no pages are
+stored, `front_sheet_check` holds the reason and the submission is held
+(`mark_status = null`, the reason in `mark_error`), nothing queued.
+`readMarkablePages` refuses anything but a passed script and any path that is
+not `page-N.png` with N ≥ 2. *Send N unmarked scripts* queues only passed scripts
+with no question, criterion or answer rows of any provenance and no open job,
+and never a folded paper (`body_data.foldedFromAssessmentIds`); the queue
+refuses folded papers too.
+
+**Per-question mark schemes** (Marking v2 §5, migration 136). *Split the mark
+scheme by question* in the lesson editor, or MCP
+`split_assessment_activity_mark_scheme`, sends the paper's mark scheme PDF (a
+paper file, no pupil data, read only via `readMarkSchemePdf`) and the question
+list to route `surface:assessment-mark-scheme`, and returns a proposal per
+question beside its current text (`src/lib/assessment-paper/mark-scheme-split.ts`;
+the reply must name every label once and no others). **It saves nothing**: the
+teacher accepts per question or all, then saves through
+`setAssessmentQuestions`. A question held for want of a mark scheme stays held
+until *Send held questions* (`sendHeldAssessmentQuestionsAction`), which queues
+one `ai_mark` job per question that now has mark scheme text, on latest
+submissions whose read is complete and whose newest script passed, where the
+question is not teacher-only, not blank, has no AI or teacher rows and no open
+job (`listHeldQuestionsToSend` / `queueHeldAssessmentQuestions`, store.ts),
+never on a folded paper. *Send N unmarked scripts* does not do this: it only
+picks scripts with no rows at all.
+
+Over MCP, `set_assessment_activity_questions` takes `marking` and `depends_on`
+(an earlier label) per question, both kept when omitted; its input schema is
+`AssessmentActivityQuestionsInput` in `src/lib/mcp/assessment-activities.ts`.
+`get_assessment_activity` reports each pupil's read/mark progress and
+`get_assessment_activity_result` each question's answer as read. Tests:
+`tests/assessment-paper/mark-scheme-split.check.ts`.
+
+MCP `create_assessment_activity_class_feedback_link` (class, unit, activity by
+id or exact name) returns a one-time `mcp_download_links` link
+(`kind = 'assessment_class_feedback'`, migration 137) to one PDF of a class's
+feedback: a cover with every pupil's latest marks and status, then each sat
+pupil's own feedback pages, built on download
+(`src/lib/assessment-paper/class-feedback-pdf.ts`). Teacher copy: feedback
+visibility does not apply. Tests: `tests/assessment-paper/class-feedback.check.ts`.
 
 ### Choosing the model per activity
 

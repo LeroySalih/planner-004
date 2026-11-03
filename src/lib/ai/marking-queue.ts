@@ -21,6 +21,11 @@ import { createLocalStorageClient } from "@/lib/storage/local-storage";
 import { emitSubmissionEvent } from "@/lib/sse/topics";
 import { logQueueEvent } from "@/lib/ai/marking-log";
 import { fetchCriterionForMarking } from "@/lib/scoring/success-criteria";
+import { isQuestionMarkedActivityType } from "@/dino.config";
+import { insertPupilActivityFeedbackEntry } from "@/lib/feedback/pupil-activity-feedback";
+
+/** Job types the marking worker claims for submissions: an assessment paper's read, and every mark. */
+const SUBMISSION_JOB_TYPES = ["ai_mark", "ai_read"];
 
 /** Infer an image MIME type from a filename, for building data URIs. */
 function inferImageMime(fileName: string): string {
@@ -97,6 +102,16 @@ export async function enqueueMarkingTasks(
   );
 
   for (const task of tasks) {
+    const { rows: typeRows } = await query<{ type: string | null }>(
+      `select a.type from submissions s join activities a on a.activity_id = s.activity_id
+       where s.submission_id = $1`,
+      [task.submissionId],
+    );
+    if (isQuestionMarkedActivityType(typeRows[0]?.type)) {
+      await enqueueAssessmentPaperSubmission(task.submissionId, assignmentId, delaySecs);
+      continue;
+    }
+
     // Fan out: one job per success criterion, so each is marked, retried and
     // resolved independently.
     const { rows: criteriaRows } = await query<{ success_criteria_id: string }>(
@@ -147,6 +162,97 @@ export async function enqueueMarkingTasks(
       `Fanned out ${criteriaIds.length} criterion jobs for submission ${task.submissionId}`,
     );
   }
+}
+
+/**
+ * An assessment paper is sent only when its script passed the front sheet
+ * check, and never when it was folded in from the old assessments module.
+ * Sending it queues one `ai_read` job for the script; the read, when it
+ * completes, queues one `ai_mark` job per question to mark
+ * (completeAssessmentRead). Any open job for the submission is replaced.
+ */
+async function enqueueAssessmentPaperSubmission(submissionId: string, assignmentId: string, delaySecs: number) {
+  const { rows } = await query<{ folded: boolean; front_sheet_check: string | null; has_script: boolean }>(
+    `select a.body_data ? 'foldedFromAssessmentIds' as folded,
+            sc.front_sheet_check,
+            sc.script_id is not null as has_script
+       from submissions s
+       join activities a on a.activity_id = s.activity_id
+       left join lateral (
+         select script_id, front_sheet_check from assessment_scripts
+          where submission_id = s.submission_id
+          order by uploaded_at desc, script_id desc
+          limit 1
+       ) sc on true
+      where s.submission_id = $1`,
+    [submissionId],
+  );
+  const row = rows[0];
+  if (!row?.has_script) {
+    await holdAssessmentSubmission(submissionId, null);
+    await logQueueEvent(
+      "info",
+      `Skipped submission ${submissionId}: no script has been uploaded for this assessment paper`,
+    );
+    return;
+  }
+
+  const reason = row.folded
+    ? "Not marked: this paper was folded in from the old assessments module and keeps its marks."
+    : row.front_sheet_check !== "passed"
+      ? row.front_sheet_check ?? "Not marked: the script's front sheet has not been checked. Upload it again."
+      : null;
+  if (reason) {
+    await holdAssessmentSubmission(submissionId, reason);
+    await logQueueEvent("warn", `Not enqueued: assessment paper submission ${submissionId}`, { reason });
+    return;
+  }
+
+  await withDbClient(async (client) => {
+    await client.query("BEGIN");
+    try {
+      await client.query("select 1 from submissions where submission_id = $1 for update", [submissionId]);
+      await client.query(
+        `delete from external_jobs
+          where job_type = any($2::text[]) and status in ('pending','processing')
+            and payload->>'submissionId' = $1`,
+        [submissionId, SUBMISSION_JOB_TYPES],
+      );
+      await client.query(
+        `insert into external_jobs (job_type, payload, process_after)
+         values ('ai_read', jsonb_build_object('submissionId', $1::text, 'assignmentId', $2::text),
+                 now() + make_interval(secs => $3))`,
+        [submissionId, assignmentId, delaySecs],
+      );
+      await client.query(
+        `update submissions set mark_status='waiting', mark_error=null where submission_id=$1`,
+        [submissionId],
+      );
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    }
+  });
+  await logQueueEvent("info", `Queued the read of assessment paper submission ${submissionId}`);
+}
+
+/**
+ * Leave an assessment paper submission unsent: any open job is closed and
+ * mark_status is null with the reason in mark_error, so the results page says
+ * why it is not being marked.
+ */
+async function holdAssessmentSubmission(submissionId: string, reason: string | null) {
+  await query(
+    `update external_jobs set status='error', last_error=$2, updated_at=now()
+     where job_type in ('ai_mark','ai_read') and status in ('pending','processing')
+       and payload->>'submissionId' = $1`,
+    [submissionId, reason ?? "No script uploaded"],
+  );
+  await query(
+    `update submissions set mark_status=null, mark_error=$2 where submission_id=$1`,
+    [submissionId, reason],
+  );
 }
 
 /**
@@ -207,6 +313,8 @@ export async function processNextQueueItem() {
     submission_id: string;
     assignment_id: string;
     success_criteria_id: string | null;
+    question_id: string | null;
+    job_type: string;
     attempts: number;
     job_id: string;
   }>(
@@ -215,7 +323,7 @@ export async function processNextQueueItem() {
       select j.job_id
       from external_jobs j
       join submissions sub on sub.submission_id = j.payload->>'submissionId'
-      where j.job_type = 'ai_mark' and j.status = 'pending'
+      where j.job_type = any($2::text[]) and j.status = 'pending'
         and sub.mark_status in ('waiting', 'marking')
         and j.process_after <= now() and j.attempts < j.max_attempts
       order by j.process_after asc
@@ -230,9 +338,11 @@ export async function processNextQueueItem() {
               (j.payload->>'submissionId') as submission_id,
               (j.payload->>'assignmentId') as assignment_id,
               (j.payload->>'successCriteriaId') as success_criteria_id,
+              (j.payload->>'questionId') as question_id,
+              j.job_type as job_type,
               j.attempts as attempts
     `,
-    [BATCH_SIZE],
+    [BATCH_SIZE, SUBMISSION_JOB_TYPES],
   );
 
   if (rows.length > 0) {
@@ -295,8 +405,8 @@ export async function processNextQueueItem() {
   // 3. Check remaining
   const { rows: countRows } = await query(
     `select
-       (select count(*) from external_jobs j join submissions s on s.submission_id=j.payload->>'submissionId' where j.job_type='ai_mark' and s.mark_status='waiting' and j.process_after<=now() and j.attempts<j.max_attempts)
-     + (select count(*) from external_jobs j join revision_answers r on r.answer_id=(j.payload->>'submissionId')::uuid where j.job_type='ai_mark' and j.payload->>'assignmentId'='revision' and r.status='pending_marking' and j.process_after<=now() and j.attempts<j.max_attempts)
+       (select count(*) from external_jobs j join submissions s on s.submission_id=j.payload->>'submissionId' where j.job_type in ('ai_mark','ai_read') and j.status='pending' and s.mark_status in ('waiting','marking') and j.process_after<=now() and j.attempts<j.max_attempts)
+     + (select count(*) from external_jobs j join revision_answers r on r.answer_id=(j.payload->>'submissionId')::uuid where j.job_type='ai_mark' and j.status='pending' and j.payload->>'assignmentId'='revision' and r.status='pending_marking' and j.process_after<=now() and j.attempts<j.max_attempts)
        as count`,
   );
   const remainingCount = parseInt((countRows[0] as any).count, 10);
@@ -320,6 +430,11 @@ export async function processNextQueueItem() {
  */
 class PermanentMarkingError extends Error {}
 
+function isPermanentMarkingError(error: unknown): boolean {
+  return error instanceof PermanentMarkingError ||
+    (error instanceof Error && (error as { permanent?: unknown }).permanent === true);
+}
+
 function parseActivityBody<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
   const parsed = schema.safeParse(body ?? {});
   if (parsed.success) return parsed.data;
@@ -334,11 +449,14 @@ async function processSingleItem(
     submission_id: string;
     assignment_id: string;
     success_criteria_id?: string | null;
+    question_id?: string | null;
+    job_type?: string;
     attempts: number;
     job_id: string;
   },
 ) {
   const criterionId = item.success_criteria_id ?? null;
+  const isAssessmentJob = item.job_type === "ai_read" || Boolean(item.question_id);
 
   try {
     await logQueueEvent(
@@ -392,6 +510,14 @@ async function processSingleItem(
     }
     if (!context) {
       throw new Error("Submission or activity context missing");
+    }
+
+    if (isQuestionMarkedActivityType(context.type as string)) {
+      await processAssessmentPaperItem(item, {
+        activityId: context.activity_id as string,
+        pupilId: context.pupil_id as string,
+      });
+      return;
     }
 
     const SUPPORTED_TYPES = new Set(["short-text-question", "upload-spreadsheet", "upload-code", "upload-worksheet", "mark-worksheet"]);
@@ -711,7 +837,7 @@ async function processSingleItem(
     const attemptsNow = bumped[0]?.attempts ?? 3;
     const maxAttempts = bumped[0]?.max_attempts ?? 3;
     const isRevision = item.assignment_id === "revision";
-    if (error instanceof PermanentMarkingError || attemptsNow >= maxAttempts) {
+    if (isPermanentMarkingError(error) || attemptsNow >= maxAttempts) {
       // Final failure: leave the job as 'error' (retained for observability).
       await query(
         `update external_jobs set status='error', process_after=now() where job_id=$1`,
@@ -723,9 +849,13 @@ async function processSingleItem(
           [item.submission_id],
         );
       } else {
-        const failureNote = criterionId
-          ? `Criterion ${criterionId}: ${errorMessage}`
-          : errorMessage;
+        const failureNote = item.job_type === "ai_read"
+          ? `Reading the script: ${errorMessage}`
+          : item.question_id
+            ? `${await questionLabel(item.question_id)}: ${errorMessage}`
+            : criterionId
+              ? `Criterion ${criterionId}: ${errorMessage}`
+              : errorMessage;
         await query(
           `update submissions set mark_status='marking-error', mark_error=$1 where submission_id=$2`,
           [failureNote, item.submission_id],
@@ -734,10 +864,12 @@ async function processSingleItem(
         // so they do not sit pending forever behind a submission that will
         // never aggregate. Their completed results stay in submission_sc_marks,
         // so a retrigger only re-runs what actually failed.
-        if (criterionId) {
+        if (criterionId || isAssessmentJob) {
           await abandonSiblingCriterionJobs(
             item.submission_id,
-            `Abandoned: criterion ${criterionId} failed permanently`,
+            criterionId
+              ? `Abandoned: criterion ${criterionId} failed permanently`
+              : `Abandoned: ${failureNote}`,
           );
         }
         const { rows: idRows } = await query<{ activity_id: string; user_id: string }>(
@@ -776,6 +908,73 @@ async function processSingleItem(
   }
 }
 
+/** "Question 3", for a failure note; the id when the question has gone. */
+async function questionLabel(questionId: string): Promise<string> {
+  const { rows } = await query<{ label: string }>(
+    "select label from activity_questions where question_id::text = $1",
+    [questionId],
+  );
+  return rows[0] ? `Question ${rows[0].label}` : `Question ${questionId}`;
+}
+
+/**
+ * Run one assessment paper job: the script's read (`ai_read`) or one
+ * question's mark (`ai_mark` with a questionId). The store closes the job in
+ * the same transaction as its result (see completeAssessmentRead), so
+ * resolveQueueItem is not called. Errors propagate to processSingleItem's
+ * retry and failure handling.
+ */
+async function processAssessmentPaperItem(
+  item: { submission_id: string; assignment_id: string; question_id?: string | null; job_type?: string; job_id: string },
+  context: { activityId: string; pupilId: string },
+) {
+  // Loaded on demand: the jobs pull in the script file store (sharp,
+  // pdftoppm), which every other importer of this queue can do without.
+  const { runAssessmentMarkJob, runAssessmentReadJob } = await import("@/lib/assessment-paper/jobs");
+
+  void emitSubmissionEvent("submission.updated", {
+    submissionId: item.submission_id,
+    activityId: context.activityId,
+    pupilId: context.pupilId,
+    markStatus: "marking",
+  });
+
+  const job = { jobId: item.job_id, submissionId: item.submission_id, assignmentId: item.assignment_id };
+  let outcome: { totals: { awarded: number; available: number; score: number } | null; complete: boolean };
+  if (item.job_type === "ai_read") {
+    outcome = await runAssessmentReadJob(job);
+  } else if (item.question_id) {
+    outcome = await runAssessmentMarkJob({ ...job, questionId: item.question_id });
+  } else {
+    throw new PermanentMarkingError(
+      "An assessment paper is read, then marked per question; this job names no question. Send the script again.",
+    );
+  }
+
+  if (outcome.complete) {
+    void emitSubmissionEvent("submission.updated", {
+      submissionId: item.submission_id,
+      activityId: context.activityId,
+      pupilId: context.pupilId,
+      markStatus: "marked",
+      markedAt: new Date().toISOString(),
+    });
+    await insertPupilActivityFeedbackEntry({
+      activityId: context.activityId,
+      pupilId: context.pupilId,
+      submissionId: item.submission_id,
+      source: "ai",
+      score: outcome.totals?.score ?? null,
+      feedbackText: null,
+      createdBy: null,
+    });
+    await logQueueEvent("info", `Assessment paper submission ${item.submission_id} fully marked`, {
+      awarded: outcome.totals?.awarded ?? null,
+      available: outcome.totals?.available ?? null,
+    });
+  }
+}
+
 /**
  * Resolve a finished job. When a criterion id is supplied only that criterion's
  * job is closed — resolving by submission alone would close sibling criteria
@@ -804,9 +1003,10 @@ export async function resolveQueueItem(
 }
 
 /**
- * Close every outstanding criterion job for a submission. Used when one
- * criterion fails permanently: the submission is failed as a whole (no partial
- * scores), so the siblings have nothing left to contribute.
+ * Close every outstanding criterion (or assessment paper read or question)
+ * job for a submission. Used when one fails permanently: the submission is
+ * failed as a whole (no partial scores), so the siblings have nothing left to
+ * contribute. Marks already recorded stay.
  */
 export async function abandonSiblingCriterionJobs(
   submissionId: string,
@@ -815,9 +1015,9 @@ export async function abandonSiblingCriterionJobs(
   await query(
     `update external_jobs
      set status='error', last_error=$2, updated_at=now()
-     where job_type='ai_mark' and status in ('pending','processing')
+     where job_type = any($3::text[]) and status in ('pending','processing')
        and payload->>'submissionId'=$1`,
-    [submissionId, reason],
+    [submissionId, reason, SUBMISSION_JOB_TYPES],
   );
 }
 
@@ -876,11 +1076,11 @@ export async function recoverStuckItems() {
      where mark_status='marking'
        and submission_id in (
          select payload->>'submissionId' from external_jobs
-         where job_type='ai_mark' and status='processing' and updated_at < now() - interval '10 minutes'
+         where job_type in ('ai_mark','ai_read') and status='processing' and updated_at < now() - interval '10 minutes'
        )
        and submission_id not in (
          select payload->>'submissionId' from external_jobs
-         where job_type='ai_mark'
+         where job_type in ('ai_mark','ai_read')
            and (
              status='pending'
              or (status='processing' and updated_at >= now() - interval '10 minutes')
@@ -897,6 +1097,6 @@ export async function recoverStuckItems() {
   );
   await query(
     `update external_jobs set status='pending', updated_at=now()
-     where job_type='ai_mark' and status='processing' and updated_at < now() - interval '10 minutes'`,
+     where job_type in ('ai_mark','ai_read') and status='processing' and updated_at < now() - interval '10 minutes'`,
   );
 }

@@ -1,5 +1,6 @@
 import "server-only"
 
+import { isQuestionMarkedActivityType } from "@/dino.config"
 import { query, withDbClient } from "@/lib/db"
 import { computeScAggregate } from "@/lib/scoring/client-success-criteria"
 
@@ -23,6 +24,21 @@ export function effectiveCriterionFeedback(row: {
   if (row.provenance === "teacher") return null
   const ai = row.feedback?.trim()
   return ai && ai.length > 0 ? ai : null
+}
+
+/**
+ * An assessment paper's totals are the sum of its questions, written by
+ * src/lib/assessment-paper/store.ts. Writing them from the criteria here would
+ * silently replace them, so a call for one fails loudly instead.
+ */
+async function assertNotQuestionMarked(activityId: string): Promise<void> {
+  const { rows } = await query<{ type: string | null }>(
+    "select type from activities where activity_id = $1",
+    [activityId],
+  )
+  if (isQuestionMarkedActivityType(rows[0]?.type)) {
+    throw new Error(`Activity ${activityId} is marked by question; record its marks through the assessment-paper store.`)
+  }
 }
 
 export interface CriterionMarkInput {
@@ -58,6 +74,7 @@ export interface CriterionMarkOutcome {
 export async function recordCriterionMark(
   input: CriterionMarkInput,
 ): Promise<CriterionMarkOutcome> {
+  await assertNotQuestionMarked(input.activityId)
   return withDbClient(async (client) => {
     await client.query("BEGIN")
     try {
@@ -262,6 +279,7 @@ export async function recomputeSubmissionAggregate(
     replaceWholeOverride?: boolean
   } = {},
 ): Promise<{ normalised: number; awarded: number; available: number } | null> {
+  await assertNotQuestionMarked(activityId)
   return withDbClient(async (client) => {
     await client.query("BEGIN")
     try {

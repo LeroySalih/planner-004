@@ -481,7 +481,7 @@ To change part of `body_data`, pass only the changed fields to `update_activity`
 #### `create_activity`
 Creates an activity under a lesson.
 
-Scorable types: `multiple-choice-question`, `short-text-question`, `text-question`, `long-text-question`, `upload-file`, `upload-url`, `feedback`, `sketch-render`, `group-items`, `matcher`, `sequence`  
+Scorable types: `multiple-choice-question`, `short-text-question`, `text-question`, `long-text-question`, `upload-file`, `upload-url`, `feedback`, `sketch-render`, `group-items`, `matcher`, `sequence`, `assessment-paper` (see *Assessment paper activities*)  
 Non-scorable types: `text`, `display-image`, `display-webpage`, `display-flashcards`, `file-download`, `show-video`, `voice`, `share-my-work`, `review-others-work`, `display-section`
 
 `do-flashcards` is a legacy type. Asking for one returns an error and nothing is written. Existing do-flashcards activities still work. The list of legacy types is `LEGACY_ACTIVITY_TYPES` in `src/dino.config.ts`.
@@ -734,7 +734,7 @@ This is the second deliberate exception to "no credentials in tool output", alon
 **Input:** `{ lesson_id: string, activity_id?: string, file_name: string }`  
 **Output:** `{ link: { download_url, expires_at, file, instructions } | null }`
 
-Endpoint: `GET /api/MCP/download/<token>`.
+Endpoint: `GET /api/MCP/download/<token>`. The same endpoint serves `create_assessment_activity_class_feedback_link`'s class feedback PDF.
 
 ---
 
@@ -955,6 +955,98 @@ Records whose script a file is. Once the paper's feedback is released, the linke
 
 ---
 
+### Assessment paper activities
+
+A written paper set **inside a lesson** as an `assessment-paper` activity
+(migration 132). Unlike the stand-alone assessment papers above, its marks are
+ordinary activity marks: they count towards lesson, unit and class progress
+like any other activity. Each question splits its marks across the success
+criteria it tests, and the paper is marked criterion by criterion within each
+question.
+
+**Workflow**
+
+1. `create_activity` with `type: "assessment-paper"` in the lesson. `body_data` is optional: `{ "instructions"?: "…" }`.
+2. `set_assessment_activity_questions`: every question, with the criteria it tests and how many of its marks each one carries.
+3. `create_assessment_activity_file_upload_link` with `kind: "question_paper"`, then again with `kind: "mark_scheme"`. Both must be PDFs. The question paper's page 1 must be its blank front sheet, the only place pupils write their name.
+4. `get_assessment_activity`: real pupil ids. Never guess an id from a name.
+5. `create_assessment_activity_file_upload_link` with `kind: "script"` and `pupil_id`, once per pupil.
+6. `get_assessment_activity` / `get_assessment_activity_result`: check what was stored, each script's `front_sheet_check`, and each pupil's read and mark progress.
+
+If the questions have no mark scheme text (most folded papers), `split_assessment_activity_mark_scheme` proposes each question's text from the uploaded mark scheme PDF. It saves nothing: save the text you accept with `set_assessment_activity_questions`. Questions already held for want of a mark scheme are then sent from the lesson editor (*Send held questions*).
+
+**Rules**
+
+- **Allocations add up.** A question's criteria allocations must sum to its `max_marks` (Q3 = 4 → SC-A 2 + SC-B 2). The activity's success criteria are the union of its questions' criteria, and its `max_marks` is the sum of the questions. Raw marks are used, with no scaling. `add_success_criterion_to_activity`, `remove_success_criterion_from_activity` and `set_activity_max_marks` are refused for this type.
+- **Criteria from the unit's curriculum.** This is the same guard as every other criterion link.
+- **The front sheet check.** A script must be a PDF (up to 30 pages), rendered at 150 dpi. Its page 1 is compared on the server, with no model, with the question paper's page 1, and its page count with the paper's. If both match, pages 2 onwards are kept as the pages a model may see (plain PNGs, no text layer or metadata) and `front_sheet_check` is `"passed"`. If not (pages out of order, a double-sided scan that flipped pages, a missing or extra sheet, or no question paper uploaded) no pages are kept, `front_sheet_check` holds the reason, and the submission is held: `mark_status: null` with the reason in `mark_error`. Fix the scan and upload it again. Page 1 is never sent to a model.
+- **Read, then marked per question.** A passed script is read once (per question: `status`, `kind`, `transcription`, `pages`), then each question is marked on its own. A blank answer scores 0 with "No answer submitted". A question set to `marking: "teacher"` is never sent. A question with no `mark_scheme` text is **held**: not sent, and named in the submission's `mark_error`. `ai_check` questions, sketches and unreadable answers are listed for the teacher to confirm.
+- **Folded papers are never marked.** Papers folded in from the old assessments module keep their marks; their scripts have no front sheet check (`front_sheet_check: null`).
+- **Who can be uploaded.** A script can only be uploaded for a pupil in a class the lesson is set to, or for an intervention lesson's pupil. The roster rule in `src/lib/roles/pupil-membership.ts` applies, so staff are refused.
+- **A re-upload replaces the script.** The script is attached to the pupil's latest submission. A new submission is created only if the pupil has none. The earlier script and its files are deleted. AI and legacy marks are cleared and teacher marks are kept. The submission is then queued for marking, or held if the front sheet check failed.
+- **Files.** All files go in the `assessment-scripts` bucket. The question paper, the mark scheme and the markable pages are teacher-only. A pupil may open only the original of their own script, and only once the lesson's feedback is visible to them.
+- **Arrays as JSON.** Every array input also accepts a JSON-encoded string.
+
+#### `get_assessment_activity`
+**Input:** `{ activity_id }`
+**Output:** `{ assessment_activity: { activity: { activity_id, lesson_id, title, max_marks }, body: { has_question_paper, has_mark_scheme, instructions }, questions: [{ question_id, label, max_marks, question_text, mark_scheme, has_mark_scheme, marking, depends_on, criteria: [{ success_criteria_id, description, max_marks }] }], scripts_count, front_sheet_checks: { passed, failed, unchecked }, pupils: [{ pupil_id, first_name, last_name, submission_id, script_uploaded, script_uploaded_at, front_sheet_check | null, marks_awarded | null, max_marks, mark_status, mark_error, progress | null }] } }`. `marking` is `"ai"`, `"ai_check"` or `"teacher"`; `depends_on` is the label of the earlier question the marker also sees, or null. `front_sheet_check` is `"passed"`, the reason the script was held, or null (no script, or a folded paper's). `pupils` lists the roster pupils of the classes the lesson is set to, plus anyone who already has a submission. Each pupil's figures come from their latest attempt. `marks_awarded` is null until the paper is marked, but an unmarked paper still counts as 0 towards progress.
+
+`progress` (null with no submission) is `{ read_done, questions_marked, questions_to_mark, questions_held, questions_awaiting_check }`:
+- `read_done`: the script has been read and no read is queued or running.
+- `questions_marked`: questions with marks from anyone (AI, teacher or legacy).
+- `questions_to_mark`: questions with a mark job queued or running.
+- `questions_held`: questions that were read but not sent: not blank, not teacher-only, unmarked, no job. Usually they have no mark scheme yet.
+- `questions_awaiting_check`: AI-marked questions waiting for the teacher to confirm.
+
+#### `set_assessment_activity_questions`
+**Input:** `{ activity_id, questions: [{ label, max_marks, question_text?, mark_scheme?, marking?, depends_on?, criteria: [{ success_criteria_id, max_marks }] }] }`
+Send the full list every time. Questions are matched by label, and list order sets their position. A label left out is deleted, unless pupils already have marks on it, which is an error. Marks already given follow a change of allocation: a full mark stays full, and any other mark is capped one below the new full mark.
+- `marking`: `"ai"` (marked by the model; the default for a new question), `"ai_check"` (marked by the model, then listed for the teacher to confirm) or `"teacher"` (never sent). If you leave it out, the current setting is kept.
+- `depends_on`: error carried forward. Give the label of an **earlier** question on the paper, and the marker also sees that question's answer. Use `null` or `""` for none. If you leave it out, the current value is kept. A later question, the question itself or an unknown label is refused.
+- `questions` and each `criteria` may be sent as JSON strings.
+**Output:** `{ assessment_activity }`, the same shape as `get_assessment_activity`.
+
+#### `create_assessment_activity_file_upload_link`
+This works like the other one-time upload links: the link can be used once, lasts 15 minutes and takes one file of up to 25 MB, with no credentials. Migration 133 adds target `assessment-activity` with `upload_kind`.
+**Input:** `{ activity_id, kind: "question_paper" | "mark_scheme" | "script", pupil_id? }`. `pupil_id` is required for `script` and refused for the other two kinds. For a script, the pupil and the question paper (which must be uploaded first) are checked when the link is made; on upload the pupil is checked again, and a script for a paper with no question paper is stored but held.
+`question_paper` / `mark_scheme`: a PDF, which replaces any earlier one and sets `body_data.questionPaperPath` / `markSchemePath`. Those keys cannot be set or removed through `create_activity` or `update_activity`.
+`script`: a PDF. The upload replies `{ success, file: { script_id, submission_id, page_count, replaced_scripts, front_sheet_check, marking: "queued" | "held", message } }`. With `held` the message says why: the front sheet check, or the reason the queue gave.
+**Output:** `{ link: { upload_url, expires_at, max_bytes, instructions } }`
+
+#### `split_assessment_activity_mark_scheme`
+**Input:** `{ activity_id }`
+This is a dry run and **saves nothing**. It sends the activity's uploaded mark scheme PDF and its question list to the model. The mark scheme holds no pupil data, and no script page is sent. The model returns each question's part of the mark scheme. The route is `surface:assessment-mark-scheme` (migration 136), set at `/admin/ai-models`. The reply must name every question exactly once and no others; any other reply is an error. The mark scheme and questions must be set first. It makes one model call, which can take a minute.
+**Output:** `{ split: { activity_id, provider, model, duration_ms, proposals: [{ question_id, label, max_marks, current, proposed }] } }`. `current` is the saved text. `proposed` is the model's text, or null when it found nothing for that question. Save the proposals you accept with `set_assessment_activity_questions`, sending the full list as always.
+
+#### `get_assessment_activity_result`
+**Input:** `{ activity_id, pupil_id }`
+**Output:** `{ result: { activity_id, pupil_id, first_name, last_name, submission_id, mark_status, mark_error, marks_awarded | null, max_marks, script: { script_id, page_count, uploaded_at, front_sheet_check } | null, overall_feedback: { teacher, ai }, questions: [{ question_id, label, marking, depends_on, has_mark_scheme, awarded | null, available, provenance, answer: { status, kind, transcription, pages, provenance } | null, criteria: [{ success_criteria_id, description, awarded | null, available, why_not_awarded, how_to_improve, teacher_feedback, provenance }] }] } }`. All figures come from the pupil's latest attempt. `answer` is what the reader found, and is null until the script is read:
+- `status`: `answered`, `blank`, `unreadable` or `continued`.
+- `kind`: `text`, `sketch` or `mixed`. A sketch is described, not transcribed.
+- `pages`: the script pages (2 onwards) the answer is on.
+- `provenance`: `teacher` when a teacher corrected the answer. A corrected answer is kept on a re-read.
+
+The marks' `provenance` is one of:
+- `teacher`: set by a teacher, and never overwritten by the marker.
+- `ai`: set by the marker.
+- `legacy`: carried over from an old paper.
+
+#### `create_assessment_activity_class_feedback_link`
+Returns a one-time link to **one PDF of a whole class's feedback** on an assessment-paper activity, downloaded with a plain `curl` GET and no credentials, like `get_lesson_file_download_link` (single use, 15 minutes, only a SHA-256 hash stored in `mcp_download_links` with `kind: "assessment_class_feedback"`, migration 137). The PDF is built when the link is used, so it always has the latest marks. The download is logged in `mcp_audit_log` as `class_feedback_download:link`, attributed to the teacher who asked for the link. A failed build gives the link back for a retry.
+
+Give `class` (group id), `unit` (id or title) and `activity` (id or title). Each is matched by exact id first, then by case-insensitive exact name. A name that matches more than one is an error listing the candidates with their ids: retry with the id. The activity must be an `assessment-paper` in one of the unit's standard lessons, and the class must be set that lesson.
+
+The PDF (A4) has:
+- a cover: paper title, class, unit, date generated (DD-MM-YYYY), and every pupil of the class (staff never), by last name then first name, with marks awarded / max and a status: `Marked`, `Not yet marked`, `Held` (front sheet check failed) or `Not sat` (no submission). From each pupil's latest attempt;
+- then each pupil who has a submission on their own pages, with exactly their own feedback PDF's content: overall marks, the teacher's comment, and every question with the answer, the mark scheme (if the paper shows it to pupils) and each criterion's marks and feedback. Answer images are markable pages only, never page 1. The page header names the pupil and class.
+
+This is a teacher's copy: the pupils' feedback visibility does not apply. The file is `<paper-title>-<class>-feedback.pdf`, slugified.
+
+**Input:** `{ class: string, unit: string, activity: string }`  
+**Output:** `{ link: { download_url, expires_at, group_id, unit_id, activity_id, activity_title, file_name, instructions } | null }`
+
+---
+
 ### Pupil feedback
 
 These two tools follow the same flow as the assignment results page. Writes go through the same shared functions as the page (`src/lib/feedback/teacher-feedback.ts`), so the rules match: a criterion edit becomes a teacher mark that survives a re-mark, the activity total is recalculated, and an overall edit is recorded in the pupil's feedback history. Neither tool changes whether the pupil can see feedback. That is still controlled by the assignment's feedback switch. With feedback switched on, the pupil sees an edit straight away.
@@ -964,7 +1056,8 @@ Returns one pupil's work and feedback on a lesson's marked activities, or on one
 - the pupil's answer, with pasted images left out, and any uploaded file names;
 - `status` (`override` means a teacher set the mark), plus `score` and `marks_awarded` out of `max_marks`. A missing answer has `status: "missing"` and `marks_awarded: 0`, because missing work counts as 0 everywhere in DINO. When `submission_id` is null the pupil didn't answer; when it's set, the answer hasn't been marked yet;
 - the overall `teacher_feedback` and `auto_feedback`;
-- per success criterion: the mark, the comment the pupil is shown, the AI's comment, the teacher's comment and `provenance`.
+- per success criterion: the mark, the comment the pupil is shown, the AI's comment, the teacher's comment and `provenance`;
+- for an `assessment-paper` activity, `assessment_paper` as well: `script_uploaded`, `mark_status`, and `questions`, each with its `label`, `awarded` (null until marked) out of `available`, `provenance`, and its `criteria`. Each criterion row has its `allocation` (its share of the question's marks), `awarded` out of `available`, `feedback` (what the pupil is shown: the teacher's comment if set; nothing if a teacher changed the mark without commenting; otherwise the AI's), `why_not_awarded`, `how_to_improve`, `teacher_feedback` and `provenance`. On a paper the activity-level `criteria` are the roll-up of these rows across questions.
 
 `feedback_visibility` lists the pupil's class assignments and interventions for the lesson, and says whether feedback is switched on for any of them.
 

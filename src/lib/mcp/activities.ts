@@ -1,13 +1,13 @@
 import { createHash } from 'node:crypto'
 
 import { query, withDbClient } from '@/lib/db'
-import { SCORABLE_ACTIVITY_TYPES, NON_SCORABLE_ACTIVITY_TYPES, isLegacyActivityType, isMothballedActivityType, legacyActivityTypeMessage } from '@/dino.config'
+import { SCORABLE_ACTIVITY_TYPES, NON_SCORABLE_ACTIVITY_TYPES, isLegacyActivityType, isMothballedActivityType, isQuestionMarkedActivityType, legacyActivityTypeMessage } from '@/dino.config'
 import { assertLessonExists } from '@/lib/mcp/guards'
 import { MCP_UPLOAD_MAX_BYTES } from '@/lib/mcp/file-input'
 import { assertScAllowedForActivity } from '@/lib/curriculum/unit-curriculum-guard'
 import { recalculateActivityMaxMarks, recalculateGroupItemsMaxMarks, recalculateMatcherMaxMarks, rescaleStoredMarks } from '@/lib/scoring/derive-max-marks'
 import { createLocalStorageClient } from '@/lib/storage/local-storage'
-import { GroupItemsActivityBodySchema, MatcherActivityBodySchema, McqActivityBodySchema, SequenceActivityBodySchema, ShortTextActivityBodySchema, UploadCodeActivityBodySchema, UploadSpreadsheetActivityBodySchema } from '@/types'
+import { AssessmentPaperActivityBodySchema, GroupItemsActivityBodySchema, MatcherActivityBodySchema, McqActivityBodySchema, SequenceActivityBodySchema, ShortTextActivityBodySchema, UploadCodeActivityBodySchema, UploadSpreadsheetActivityBodySchema } from '@/types'
 
 export const ACTIVITY_TYPES = [...SCORABLE_ACTIVITY_TYPES, ...NON_SCORABLE_ACTIVITY_TYPES] as const
 export type ActivityType = typeof ACTIVITY_TYPES[number]
@@ -144,6 +144,20 @@ export function validateBodyDataForType(type: string, bodyData: unknown): void {
   }
   if (bodyData == null) return
 
+  if (isQuestionMarkedActivityType(type)) {
+    const parsed = AssessmentPaperActivityBodySchema.safeParse(bodyData)
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0]
+      const field = fieldName(issue.path)
+      throw new ActivityBodyDataError(
+        'INVALID_BODY_DATA',
+        field,
+        `${field}: ${issue.message} (an ${type} takes body_data { "instructions"?: "…" })`,
+      )
+    }
+    return
+  }
+
   if (type in BODY_SCHEMAS) {
     validateAgainstSchema(type as keyof typeof BODY_SCHEMAS, bodyData)
     return
@@ -271,6 +285,12 @@ export async function createActivity(
   const effectiveIsSummative = isScorableType ? (isSummative ?? false) : false
 
   validateBodyDataForType(type, bodyData)
+  if (isQuestionMarkedActivityType(type) && bodyData && typeof bodyData === 'object') {
+    const paths = PAPER_FILE_BODY_KEYS.filter((key) => key in (bodyData as Record<string, unknown>))
+    if (paths.length > 0) {
+      throw new ActivityBodyDataError('INVALID_BODY_DATA', `body_data.${paths[0]}`, `body_data.${paths[0]} is set by uploading the file with create_assessment_activity_file_upload_link, not by hand`)
+    }
+  }
 
   let result: ActivitySummary | null = null
 
@@ -632,6 +652,9 @@ function patchBody(existing: unknown, patch: Record<string, unknown>): Record<st
   return base
 }
 
+/** Set by the assessment-paper upload (src/lib/assessment-paper/files.ts). */
+const PAPER_FILE_BODY_KEYS = ['questionPaperPath', 'markSchemePath'] as const
+
 export type ActivityUpdate = {
   title?: string | null
   /** Replaces body_data as a whole. */
@@ -669,7 +692,18 @@ export async function updateActivity(activityId: string, fields: ActivityUpdate)
       }
 
       const bodyChanged = 'bodyData' in fields || Boolean(fields.bodyPatch)
-      const body = 'bodyData' in fields ? fields.bodyData ?? null : fields.bodyPatch ? patchBody(current.body_data, fields.bodyPatch) : current.body_data
+      let body = 'bodyData' in fields ? fields.bodyData ?? null : fields.bodyPatch ? patchBody(current.body_data, fields.bodyPatch) : current.body_data
+      // An assessment paper's file paths are owned by the upload: whatever
+      // body is sent, they stay as stored.
+      if (bodyChanged && isQuestionMarkedActivityType(type) && body && typeof body === 'object' && !Array.isArray(body)) {
+        const stored = (current.body_data ?? {}) as Record<string, unknown>
+        const next = { ...(body as Record<string, unknown>) }
+        for (const key of PAPER_FILE_BODY_KEYS) {
+          if (typeof stored[key] === 'string') next[key] = stored[key]
+          else delete next[key]
+        }
+        body = next
+      }
       if (bodyChanged || typeChanged) validateActivityBody(type, body)
 
       if (fields.isSummative === true && !scorable) {
@@ -736,6 +770,9 @@ function assertMaxMarksSettable(type: string, maxMarks: number) {
   }
   if (!(SCORABLE_ACTIVITY_TYPES as readonly string[]).includes(type)) {
     throw new Error(`"${type}" is not scorable, so it has no max_marks`)
+  }
+  if (isQuestionMarkedActivityType(type)) {
+    throw new Error(`A ${type} is out of the sum of its questions' marks; set its questions instead`)
   }
   if (MAX_MARKS_FROM_BODY_TYPES.includes(type)) {
     throw new Error(`A ${type} is worth one mark per ${type === 'matcher' ? 'pair' : 'item'}; its max_marks is set from body_data, not by hand`)
@@ -806,6 +843,10 @@ export type ActivityScLinkResult = {
   already_linked: boolean
 }
 
+/** An assessment paper's criteria are the union of its questions' criteria. */
+const QUESTION_MARKED_CRITERIA_ERROR =
+  "An assessment paper's success criteria come from its questions; set the questions' criteria instead"
+
 export async function addSuccessCriterionToActivity(
   activityId: string,
   successCriteriaId: string,
@@ -813,11 +854,12 @@ export async function addSuccessCriterionToActivity(
   let result: ActivityScLinkResult | null = null
 
   await withDbClient(async (client) => {
-    const { rows: actRows } = await client.query<{ activity_id: string }>(
-      'select activity_id from activities where activity_id = $1 limit 1',
+    const { rows: actRows } = await client.query<{ activity_id: string; type: string | null }>(
+      'select activity_id, type from activities where activity_id = $1 limit 1',
       [activityId],
     )
     if (!actRows[0]) throw new Error(`Activity ${activityId} not found`)
+    if (isQuestionMarkedActivityType(actRows[0].type)) throw new Error(QUESTION_MARKED_CRITERIA_ERROR)
     await assertScAllowedForActivity(client, activityId, successCriteriaId)
 
     // Validate SC exists
@@ -932,6 +974,11 @@ export async function removeSuccessCriterionFromActivity(
 ): Promise<{ activity_id: string; success_criteria_id: string; removed: boolean }> {
   let removed = false
   await withDbClient(async (client) => {
+    const { rows: actRows } = await client.query<{ type: string | null }>(
+      'select type from activities where activity_id = $1',
+      [activityId],
+    )
+    if (isQuestionMarkedActivityType(actRows[0]?.type)) throw new Error(QUESTION_MARKED_CRITERIA_ERROR)
     const { rowCount } = await client.query(
       'delete from activity_success_criteria where activity_id = $1 and success_criteria_id = $2',
       [activityId, successCriteriaId],

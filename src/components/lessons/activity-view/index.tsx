@@ -3,6 +3,10 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react"
 import type { LessonActivity } from "@/types"
 import { ActivityImagePreview } from "@/components/lessons/activity-image-preview"
+import {
+  AssessmentPaperPresentView,
+  AssessmentPaperShortView,
+} from "@/components/lessons/activity-view/assessment-paper-summary"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
@@ -390,6 +394,8 @@ function ActivityShortView({
     ) : (
       <p className="text-sm text-muted-foreground">Upload Exam Question task awaiting setup.</p>
     )
+  } else if (activity.type === "assessment-paper") {
+    content = <AssessmentPaperShortView activity={activity} />
   } else if (activity.type === "mark-worksheet") {
     const markWorksheet = getMarkWorksheetBody(activity)
     content = (
@@ -1391,6 +1397,10 @@ function ActivityPresentView({
         </p>
       </div>
     )
+  }
+
+  if (activity.type === "assessment-paper") {
+    return wrap(<AssessmentPaperPresentView activity={activity} />)
   }
 
   if (activity.type === "mark-worksheet") {

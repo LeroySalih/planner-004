@@ -56,7 +56,9 @@ const AVAILABLE_MARKS_SUBQUERY = `
     -- item count, not from their criteria, and their stored marks are
     -- recomputed from the pupil's answers rather than rescaled.
     -- recalculateMatcherMaxMarks and recalculateGroupItemsMaxMarks own them.
-    and act.type not in ('matcher', 'group-items')
+    -- An assessment paper's marks are the sum of its questions, whatever its
+    -- criteria are worth elsewhere: recalculateAssessmentPaperMaxMarks.
+    and act.type not in ('matcher', 'group-items', 'assessment-paper')
 `
 
 /**
@@ -107,8 +109,9 @@ function recalculateStatement(filter: string): string {
 }
 
 /**
- * Recalculate max_marks for a single activity from its linked criteria.
- * No-op for activities with no criteria.
+ * Recalculate max_marks for a single activity from its linked criteria, or,
+ * for an assessment paper, from its questions. No-op for activities with no
+ * criteria.
  */
 export async function recalculateActivityMaxMarks(
   db: Queryable,
@@ -116,6 +119,35 @@ export async function recalculateActivityMaxMarks(
 ): Promise<void> {
   await db.query(
     recalculateStatement("and acs.activity_id = $1"),
+    [activityId],
+  )
+  await recalculateAssessmentPaperMaxMarks(db, activityId)
+}
+
+/**
+ * An assessment paper is out of the sum of its questions' marks (raw marks, no
+ * scaling). No-op for any other type, and for a paper with no questions yet.
+ *
+ * Stored marks are not rescaled: a question's marks are absolute, so the
+ * pupils' totals do not move, only the denominator. setAssessmentQuestions
+ * recomputes each submission's cached score after calling this.
+ */
+export async function recalculateAssessmentPaperMaxMarks(
+  db: Queryable,
+  activityId: string,
+): Promise<void> {
+  await db.query(
+    `update activities a
+     set max_marks = totals.max_marks
+     from (
+       select q.activity_id, sum(q.max_marks)::int as max_marks
+       from activity_questions q
+       where q.activity_id = $1
+       group by q.activity_id
+     ) totals
+     where a.activity_id = totals.activity_id
+       and a.type = 'assessment-paper'
+       and a.max_marks is distinct from totals.max_marks`,
     [activityId],
   )
 }

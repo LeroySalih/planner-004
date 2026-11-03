@@ -78,6 +78,7 @@ import {
   type VoiceBody,
 } from "@/components/lessons/activity-view/utils"
 import { LessonActivityView } from "@/components/lessons/activity-view"
+import { AssessmentPaperEditor } from "@/components/lessons/assessment-paper-editor"
 import { MediaImage } from "@/components/ui/media-image"
 import {
   isExperimentalActivityType,
@@ -121,6 +122,7 @@ const ACTIVITY_TYPES = [
   { value: "upload-code", label: "Upload Code", group: "interactive" },
   { value: "upload-worksheet", label: "Upload Exam", group: "interactive" },
   { value: "mark-worksheet", label: "Upload Worksheet", group: "interactive" },
+  { value: "assessment-paper", label: "Assessment Paper", group: "interactive" },
   { value: "multiple-choice-question", label: "Multiple Choice Question", group: "interactive" },
   { value: "matcher", label: "Matcher", group: "interactive" },
   { value: "group-items", label: "Group Items", group: "interactive" },
@@ -706,8 +708,8 @@ useEffect(() => {
     bodyData: unknown
     imageSubmission?: ImageSubmissionPayload
     markWorksheetSubmission?: MarkWorksheetSubmissionPayload
-    successCriteriaIds: string[]
-    maxMarks: number
+    successCriteriaIds?: string[]
+    maxMarks?: number
     pendingUploadFiles?: File[]
   }) => {
     startTransition(async () => {
@@ -888,6 +890,14 @@ useEffect(() => {
             })
             return
           }
+        }
+        if (type === "assessment-paper" && result.data?.activity_id) {
+          // The questions, files and name area need the activity to exist, so
+          // the sheet reopens on it to carry on.
+          toast.success("Activity created", { description: "Now add the question paper and questions." })
+          openEditor(result.data.activity_id)
+          router.refresh()
+          return
         }
         toast.success("Activity created")
         closeEditor()
@@ -2281,8 +2291,9 @@ interface LessonActivityEditorSheetProps {
     bodyData: unknown
     imageSubmission?: ImageSubmissionPayload
     markWorksheetSubmission?: MarkWorksheetSubmissionPayload
-    successCriteriaIds: string[]
-    maxMarks: number
+    // Left out for an assessment paper: its criteria and marks follow its questions.
+    successCriteriaIds?: string[]
+    maxMarks?: number
   }) => void
   unitId: string
   lessonId: string
@@ -2391,6 +2402,13 @@ function LessonActivityEditorSheet({
   const [reviewShareActivityId, setReviewShareActivityId] = useState("")
   const [doFlashcardsActivityId, setDoFlashcardsActivityId] = useState("")
   const [displayType, setDisplayType] = useState("")
+  // assessment-paper: the sheet is keyed by activity, so this initialises once
+  // per open. The questions, files and name area save from their own editor.
+  const [assessmentInstructions, setAssessmentInstructions] = useState(() =>
+    activity?.type === "assessment-paper" ? getAssessmentInstructions(activity) : "",
+  )
+  const assessmentChangedRef = useRef(false)
+  const router = useRouter()
 
   const normalizedShortTextBody = useMemo(() => normalizeShortTextBody(shortTextBody), [shortTextBody])
   const shortTextValidationMessage = useMemo(
@@ -2971,9 +2989,17 @@ function LessonActivityEditorSheet({
     [loadImagePreviewForFile, resetImageState],
   )
 
+  // The assessment-paper editor saves on its own, so the lesson is refreshed
+  // when the sheet closes rather than mid-edit (a refresh re-initialises the
+  // sheet from the server).
+  const closeSheet = () => {
+    if (assessmentChangedRef.current) router.refresh()
+    onClose()
+  }
+
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen) {
-      onClose()
+      closeSheet()
     }
   }
 
@@ -4344,6 +4370,9 @@ function LessonActivityEditorSheet({
       }
     } else if (type === "feedback") {
       bodyData = syncFeedbackBodyWithGroups(normalizeFeedbackBody(feedbackBody), assignedGroups)
+    } else if (type === "assessment-paper") {
+      // The server keeps the paper files and name area already on the body.
+      bodyData = { instructions: assessmentInstructions.trim() }
     } else if (type === "share-my-work") {
       if (!shareMyWorkName.trim()) {
         toast.error("Please provide a name for this shared work collection")
@@ -4415,8 +4444,8 @@ function LessonActivityEditorSheet({
       bodyData,
       imageSubmission,
       markWorksheetSubmission,
-      successCriteriaIds: sanitizedSuccessCriteriaIds,
-      maxMarks,
+      successCriteriaIds: type === "assessment-paper" ? undefined : sanitizedSuccessCriteriaIds,
+      maxMarks: type === "assessment-paper" ? undefined : maxMarks,
       ...submissionPayload,
     })
   }
@@ -4437,7 +4466,10 @@ function LessonActivityEditorSheet({
 
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>
-      <SheetContent side="right" className="sm:max-w-md gap-0">
+      <SheetContent
+        side="right"
+        className={type === "assessment-paper" ? "sm:max-w-3xl gap-0" : "sm:max-w-md gap-0"}
+      >
         <SheetHeader>
           <SheetTitle>{isCreateMode ? "New activity" : "Edit activity"}</SheetTitle>
           <SheetDescription>
@@ -4457,7 +4489,9 @@ function LessonActivityEditorSheet({
                   setMaxMarks(value === "short-text-question" ? 3 : 1)
                 }
               }}
-              disabled={isPending}
+              // An assessment paper's questions and scripts cannot move to
+              // another type (the server refuses it too).
+              disabled={isPending || (!isCreateMode && activity?.type === "assessment-paper")}
             >
               <SelectTrigger id="activity-type">
                 <SelectValue />
@@ -4508,6 +4542,7 @@ function LessonActivityEditorSheet({
             />
           </div>
 
+          {type === "assessment-paper" ? null : (
           <div className="space-y-2">
             <Label htmlFor="activity-max-marks">Marks available</Label>
             <Input
@@ -4523,7 +4558,40 @@ function LessonActivityEditorSheet({
               disabled={isPending}
             />
           </div>
+          )}
 
+          {type === "assessment-paper" ? (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="assessment-paper-instructions">Instructions</Label>
+                <Textarea
+                  id="assessment-paper-instructions"
+                  value={assessmentInstructions}
+                  onChange={(event) => setAssessmentInstructions(event.target.value)}
+                  placeholder="What pupils need to know about this paper"
+                  rows={3}
+                  disabled={isPending}
+                />
+                <p className="text-xs text-muted-foreground">
+                  The marks and success criteria come from the questions below. Questions, files and the
+                  name area save with their own buttons; Save changes saves the title and instructions.
+                </p>
+              </div>
+              {activity ? (
+                <AssessmentPaperEditor
+                  activityId={activity.activity_id}
+                  lessonCriteria={successCriteriaOptions}
+                  onSaved={() => {
+                    assessmentChangedRef.current = true
+                  }}
+                />
+              ) : (
+                <p className="rounded-md border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+                  Create the activity first, then add the question paper, questions and name area.
+                </p>
+              )}
+            </div>
+          ) : (
           <div className="space-y-2">
             <Label>Success criteria</Label>
             {successCriteriaOptions.length === 0 ? (
@@ -4557,6 +4625,7 @@ function LessonActivityEditorSheet({
               </div>
             )}
           </div>
+          )}
 
           {type === "text" ? (
             <div className="space-y-2">
@@ -5892,6 +5961,7 @@ function LessonActivityEditorSheet({
           type !== "upload-code" &&
           type !== "upload-worksheet" &&
           type !== "feedback" &&
+          type !== "assessment-paper" &&
           type !== "sketch-render" ? (
             <div className="space-y-2">
               <Label htmlFor="activity-json">Activity details</Label>
@@ -5915,7 +5985,7 @@ function LessonActivityEditorSheet({
         </div>
         <SheetFooter className="border-t border-border bg-muted/20">
           <div className="flex w-full justify-end gap-2">
-            <Button variant="outline" onClick={onClose} disabled={isPending}>
+            <Button variant="outline" onClick={closeSheet} disabled={isPending}>
               Cancel
             </Button>
             <Button onClick={handleSave} disabled={disableSave}>
@@ -5926,6 +5996,11 @@ function LessonActivityEditorSheet({
       </SheetContent>
     </Sheet>
   )
+}
+
+function getAssessmentInstructions(activity: LessonActivity): string {
+  const body = (activity.body_data ?? {}) as Record<string, unknown>
+  return typeof body.instructions === "string" ? body.instructions : ""
 }
 
 function ensureActivityType(value: string | null | undefined): ActivityTypeValue {

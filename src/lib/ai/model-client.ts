@@ -33,6 +33,8 @@ export interface ModelRequest {
   temperature?: number
   /** Per-request ceiling. Vision calls need longer than text ones. */
   timeoutMs?: number
+  /** Output token ceiling (Anthropic). A reply covering many questions needs more than one mark. */
+  maxTokens?: number
 }
 
 /**
@@ -89,7 +91,7 @@ export async function callModel(request: ModelRequest): Promise<ModelResult> {
       schema: request.responseSchema,
       // Marking feedback is a couple of sentences plus an integer; the chat
       // default would be an order of magnitude more headroom than needed.
-      maxTokens: 2000,
+      maxTokens: request.maxTokens ?? 2000,
       timeoutMs: request.timeoutMs,
     })
     // The SDK retries internally and does not report the count, so this is the

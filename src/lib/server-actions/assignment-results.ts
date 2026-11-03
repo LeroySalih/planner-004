@@ -2294,7 +2294,7 @@ export async function clearAssignmentSubmissionsAction(
     // Queued marking for work that no longer exists would fail and retry.
     await query(
       `DELETE FROM external_jobs
-        WHERE job_type = 'ai_mark'
+        WHERE job_type IN ('ai_mark', 'ai_read')
           AND payload->>'submissionId' = ANY($1::text[])`,
       [submissionIds],
     )

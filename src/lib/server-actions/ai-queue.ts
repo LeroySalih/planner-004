@@ -40,7 +40,7 @@ export async function readAiMarkingQueueAction() {
       LEFT JOIN profiles rp ON rp.user_id = r.pupil_id
       LEFT JOIN activities ra_act ON ra_act.activity_id = ra.activity_id
 
-      WHERE q.job_type = 'ai_mark'
+      WHERE q.job_type IN ('ai_mark', 'ai_read')
       -- Unfinished jobs first, so the rows the counters describe are always on
       -- the page; finished ones follow, newest first.
       ORDER BY
@@ -61,7 +61,7 @@ export async function readAiMarkingQueueAction() {
         count(*) filter (where status = 'processing') as marking,
         count(*) as total
       FROM external_jobs
-      WHERE job_type = 'ai_mark'
+      WHERE job_type IN ('ai_mark', 'ai_read')
       `,
     );
 
@@ -200,7 +200,7 @@ export async function clearChatCallsAction() {
 
 export async function clearAiMarkingQueueAction() {
   try {
-    await query(`DELETE FROM external_jobs WHERE job_type = 'ai_mark'`);
+    await query(`DELETE FROM external_jobs WHERE job_type IN ('ai_mark', 'ai_read')`);
     await logQueueEvent("info", "Queue manually cleared");
     revalidatePath("/ai-queue");
     return { success: true };

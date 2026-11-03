@@ -28,7 +28,7 @@ import {
   rescaleStoredMarks,
 } from "@/lib/scoring/derive-max-marks";
 import { withTelemetry } from "@/lib/telemetry";
-import { isLegacyActivityType, isScorableActivityType, legacyActivityTypeMessage } from "@/dino.config";
+import { isLegacyActivityType, isQuestionMarkedActivityType, isScorableActivityType, legacyActivityTypeMessage } from "@/dino.config";
 import { enqueueLessonMutationJob } from "@/lib/lesson-job-runner";
 import { requireRole } from "@/lib/auth";
 
@@ -223,6 +223,17 @@ export async function createLessonActivityAction(
   const successCriteriaIds = normalizeSuccessCriteriaIds(
     payload.successCriteriaIds,
   );
+
+  // An assessment paper starts empty: its criteria and max_marks follow the
+  // questions, which are added once the activity exists.
+  if (isQuestionMarkedActivityType(payload.type) && successCriteriaIds.length > 0) {
+    return {
+      success: false,
+      error: "An assessment paper's success criteria come from its questions. Create it first, then add questions.",
+      data: null,
+    };
+  }
+
   const isSummativeAllowed = isScorableActivityType(payload.type);
   const isSummativeRequested = payload.isSummative ?? isSummativeAllowed;
 
@@ -281,7 +292,9 @@ export async function createLessonActivityAction(
       }
 
       const defaultMaxMarks = payload.type === "short-text-question" ? 3 : 1;
-      const maxMarks = payload.maxMarks ?? defaultMaxMarks;
+      const maxMarks = isQuestionMarkedActivityType(payload.type)
+        ? 1
+        : payload.maxMarks ?? defaultMaxMarks;
 
       const { rows } = await client.query(
         `
@@ -455,6 +468,43 @@ export async function updateLessonActivityAction(
     return { success: false, error: normalizedBody.error, data: null };
   }
 
+  // Questions, scripts and question marks belong to the paper; neither side of
+  // a type change could keep them coherent.
+  if (isQuestionMarkedActivityType(finalType) !== isQuestionMarkedActivityType(existing.type)) {
+    return {
+      success: false,
+      error: "An activity cannot be changed to or from an assessment paper. Create a new activity instead.",
+      data: null,
+    };
+  }
+
+  if (isQuestionMarkedActivityType(finalType)) {
+    // An assessment paper is out of the sum of its questions.
+    if (payload.maxMarks !== undefined && payload.maxMarks !== existing.max_marks) {
+      return {
+        success: false,
+        error: "An assessment paper's marks are the sum of its questions. Change the questions instead.",
+        data: null,
+      };
+    }
+    // The sheet saves only what it sends (the instructions); the paper's other
+    // settings are saved from the editor and kept. The paper files and the
+    // fold marker are saved by their own paths. A body saved from the editor,
+    // possibly opened before an upload, neither drops nor sets them: the
+    // stored values always win.
+    if (normalizedBody.bodyData && typeof normalizedBody.bodyData === "object") {
+      const stored = (existing.body_data && typeof existing.body_data === "object"
+        ? existing.body_data
+        : {}) as Record<string, unknown>;
+      const next = { ...stored, ...(normalizedBody.bodyData as Record<string, unknown>) };
+      for (const key of ["questionPaperPath", "markSchemePath", "foldedFromAssessmentIds"]) {
+        if (stored[key] !== undefined) next[key] = stored[key];
+        else delete next[key];
+      }
+      normalizedBody.bodyData = next;
+    }
+  }
+
   if (payload.title !== undefined) {
     updates.title = payload.title;
   }
@@ -570,6 +620,19 @@ export async function updateLessonActivityAction(
       const toDelete = existingIds.filter((id) =>
         !nextSuccessCriteriaIds.includes(id)
       );
+
+      // An assessment paper's criteria follow its questions
+      // (setAssessmentQuestions); sending back the same set is harmless.
+      if (
+        isQuestionMarkedActivityType(updatedActivityRow.type) &&
+        (toInsert.length > 0 || toDelete.length > 0)
+      ) {
+        return {
+          success: false,
+          error: "An assessment paper's success criteria come from its questions. Change the questions' criteria instead.",
+          data: null,
+        };
+      }
 
       if (toDelete.length > 0) {
         await query(

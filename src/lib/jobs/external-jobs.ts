@@ -102,7 +102,7 @@ export async function processNextJobs(): Promise<{ processed: number; remaining:
         select job_id
         from external_jobs
         where status='pending' and process_after <= now() and attempts < max_attempts
-          and job_type <> 'ai_mark'
+          and job_type not in ('ai_mark', 'ai_read')
         order by process_after asc
         limit $1
         for update skip locked
@@ -133,7 +133,7 @@ export async function processNextJobs(): Promise<{ processed: number; remaining:
   const processed = results.filter((r) => r.status === "fulfilled").length;
 
   const { rows: countRows } = await query<{ count: string }>(
-    `select count(*)::text as count from external_jobs where status='pending' and process_after <= now() and attempts < max_attempts and job_type <> 'ai_mark'`,
+    `select count(*)::text as count from external_jobs where status='pending' and process_after <= now() and attempts < max_attempts and job_type not in ('ai_mark', 'ai_read')`,
   );
   const remaining = parseInt(countRows[0]?.count ?? "0", 10);
 
@@ -146,7 +146,7 @@ export async function recoverStuckJobs(): Promise<void> {
     `update external_jobs
        set status='pending', updated_at=now()
      where status='processing' and updated_at < now() - make_interval(mins => $1)
-       and job_type <> 'ai_mark'`,
+       and job_type not in ('ai_mark', 'ai_read')`,
     [STUCK_JOB_MINUTES],
   );
 }

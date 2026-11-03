@@ -69,8 +69,18 @@ import {
   type AssessmentPaper,
 } from '@/types'
 import { MCP_UPLOAD_MAX_BYTES, decodeBase64File, fetchFileFromUrl } from '@/lib/mcp/file-input'
-import { createUploadLink } from '@/lib/mcp/upload-links'
-import { createDownloadLink, listLessonFiles } from '@/lib/mcp/download-links'
+import { createUploadLink, type AssessmentActivityUploadKind } from '@/lib/mcp/upload-links'
+import { ASSESSMENT_PAPER_UPLOAD_MAX_BYTES, MAX_SCRIPT_PAGES } from '@/lib/assessment-paper/files'
+import { setAssessmentQuestions as setAssessmentActivityQuestions } from '@/lib/assessment-paper/store'
+import {
+  AssessmentActivityQuestionsInput,
+  getAssessmentActivity,
+  getAssessmentActivityResult,
+  toAssessmentQuestionInputs,
+} from '@/lib/mcp/assessment-activities'
+import { proposeMarkSchemeSplit } from '@/lib/assessment-paper/mark-scheme-split'
+import { classFeedbackFileName } from '@/lib/assessment-paper/class-feedback-pdf'
+import { createClassFeedbackDownloadLink, createDownloadLink, listLessonFiles } from '@/lib/mcp/download-links'
 import { getPupilLessonFeedback, setPupilFeedback } from '@/lib/mcp/pupil-feedback'
 import {
   INTERVENTION_STATUSES,
@@ -1672,13 +1682,14 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
 - display-webpage: body_data { "url"?: "https://…" } for a link. To show an HTML page, create the activity, then upload one .html file to it; the upload sets body_data.htmlFile.
 - upload-code: body_data { "task": "<what to write>", "markingGuidance": "<what earns the marks>", "language"?: "python", "starterCode"?: "…" }. Required: the AI marker cannot mark without task and markingGuidance.
 - upload-spreadsheet: body_data { "task", "markingGuidance" }, both required.
+- assessment-paper: a written paper marked per question. body_data { "instructions"?: "…" } or none; then set_assessment_activity_questions and the files, question paper first, its page 1 the front sheet (see get_assessment_activity). Its max_marks is the sum of its questions, never set by hand.
 - All other types: use body_data for any extra JSON payload.
 max_marks sets the marks the activity is out of, e.g. 6 for a "(6 marks)" question. Omitted, a short-text-question is out of 3 and every other type out of 1. It is refused for non-scorable types and for matcher and group-items, which are worth one mark per pair or item. Linking success criteria later replaces it with the marks the criteria are worth.
 A body_data over a limit is refused with isError and error.code LIMIT_EXCEEDED (BELOW_MINIMUM or INVALID_BODY_DATA for other problems), naming the field, the limit and the count received. Split the content across several activities.`,
       inputSchema: z.object({
         lesson_id: z.string().min(1).describe('Lesson identifier.'),
         type: z.enum(ACTIVITY_TYPES).describe(
-          'Activity type. Scorable: multiple-choice-question, short-text-question, text-question, long-text-question, upload-file, upload-url, feedback, sketch-render, group-items, matcher, sequence. Non-scorable: text, display-image, display-webpage, display-flashcards, file-download, show-video, voice, share-my-work, review-others-work, display-section. do-flashcards is legacy and cannot be created.',
+          'Activity type. Scorable: multiple-choice-question, short-text-question, text-question, long-text-question, upload-file, upload-url, feedback, sketch-render, group-items, matcher, sequence, assessment-paper. Non-scorable: text, display-image, display-webpage, display-flashcards, file-download, show-video, voice, share-my-work, review-others-work, display-section. do-flashcards is legacy and cannot be created.',
         ),
         title: z.string().optional().describe('Optional activity title.'),
         question: z.string().optional().describe('Question text — required for short-text-question and multiple-choice-question.'),
@@ -2034,10 +2045,15 @@ The result is checked as create_activity checks it; a body over a limit is refus
     instructions: z.string(),
   }).nullable()
   const uploadLinkTool = async (
-    target: { lessonId: string; activityId: string | null } | { assessmentId: string; pupilId: string | null },
+    target:
+      | { lessonId: string; activityId: string | null }
+      | { assessmentId: string; pupilId: string | null }
+      | { assessmentActivityId: string; uploadKind: AssessmentActivityUploadKind; pupilId: string | null },
     fileName: string | undefined,
   ) => {
-    const maxBytes = 'assessmentId' in target ? ASSESSMENT_UPLOAD_MAX_BYTES : MCP_UPLOAD_MAX_BYTES
+    const maxBytes = 'assessmentId' in target
+      ? ASSESSMENT_UPLOAD_MAX_BYTES
+      : 'assessmentActivityId' in target ? ASSESSMENT_PAPER_UPLOAD_MAX_BYTES : MCP_UPLOAD_MAX_BYTES
     const maxLabel = `${maxBytes / (1024 * 1024)} MB`
     try {
       const { token, expiresAt } = await createUploadLink(caller, { ...target, fileName: fileName ?? null })
@@ -3189,6 +3205,225 @@ The result is checked as create_activity checks it; a body over a limit is refus
   )
 
   // ---------------------------------------------------------------------------
+  // Assessment-paper activities: a paper sat inside a lesson (migration 132),
+  // marked question by question and criterion by criterion. Not the
+  // stand-alone assessment papers above.
+  // ---------------------------------------------------------------------------
+
+  const ASSESSMENT_ACTIVITY_WORKFLOW =
+    'An assessment-paper activity is a written paper inside a lesson, marked per question and per success criterion; it is not a stand-alone assessment paper (list_assessment_papers). '
+    + 'Workflow: (1) create_activity type "assessment-paper" in the lesson; (2) set_assessment_activity_questions with each question\'s criteria and their share of its marks; '
+    + '(3) create_assessment_activity_file_upload_link kind question_paper / mark_scheme (PDF); the question paper\'s page 1 must be its blank front sheet, the only place pupils write their name; '
+    + '(4) one create_assessment_activity_file_upload_link kind script per pupil, with pupil_id from get_assessment_activity — never guess an id from a name; '
+    + 'each script\'s page 1 is checked against the front sheet and its page count against the paper\'s, and a script that fails is held, not marked; '
+    + 'each passed script is read once (answers per question), then each question is marked on its own; a question with no mark scheme text is held, and split_assessment_activity_mark_scheme proposes per-question text from the mark scheme PDF; '
+    + '(5) get_assessment_activity / get_assessment_activity_result to check. Totals are always computed — never send them.'
+
+  const assessmentActivityTool = async <T,>(key: string, action: () => Promise<T>, describe: (value: T) => string) => {
+    try {
+      const value = await action()
+      return { content: [{ type: 'text' as const, text: describe(value) }], structuredContent: { [key]: value } }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Assessment activity request failed'
+      return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { [key]: null } }
+    }
+  }
+
+  srv.registerTool(
+    'get_assessment_activity',
+    {
+      title: 'Get an assessment-paper activity',
+      description:
+        'Return an assessment-paper activity: whether the question paper and mark scheme are attached, '
+        + 'its questions with each criterion\'s share of the marks, marking ("ai" | "ai_check" | "teacher"), depends_on (label of an earlier question, or null) and has_mark_scheme, '
+        + 'how many scripts passed or failed the front sheet check, and every pupil who sits it '
+        + '(roster pupils of the classes the lesson is set to, plus anyone with a submission) with script uploaded, front_sheet_check '
+        + '("passed", the reason it was held, or null), marks / max, mark_status, mark_error and progress on their latest submission '
+        + '(read_done, questions_marked, questions_to_mark = mark jobs queued or running, questions_held = read but not sent, usually for want of a mark scheme, '
+        + `questions_awaiting_check = AI marks for the teacher to confirm). ${ASSESSMENT_ACTIVITY_WORKFLOW}`,
+      inputSchema: { activity_id: z.string().min(1).describe('The assessment-paper activity id.') },
+      outputSchema: { assessment_activity: z.record(z.string(), z.unknown()).nullable() },
+    },
+    async ({ activity_id }) =>
+      assessmentActivityTool('assessment_activity', () => getAssessmentActivity(activity_id), (a) =>
+        `${a.activity.title ?? a.activity.activity_id}: ${a.questions.length} questions, ${a.activity.max_marks} marks, `
+        + `question paper ${a.body.has_question_paper ? 'attached' : 'missing'}, `
+        + `mark scheme ${a.body.has_mark_scheme ? 'attached' : 'missing'}, ${a.scripts_count}/${a.pupils.length} scripts uploaded `
+        + `(front sheet check: ${a.front_sheet_checks.passed} passed, ${a.front_sheet_checks.failed} held, ${a.front_sheet_checks.unchecked} not checked).`),
+  )
+
+  srv.registerTool(
+    'set_assessment_activity_questions',
+    {
+      title: 'Set an assessment-paper activity\'s questions',
+      description:
+        'Replace the questions of an assessment-paper activity, matched by label; list order becomes position. Send the FULL list every time: '
+        + 'a label left out is deleted, unless pupils already have marks on it (error). Each question lists the success criteria it tests and how many of its '
+        + 'marks each one carries; those must add up to the question\'s max_marks (Q3 = 4 -> SC-A 2 + SC-B 2). The activity\'s criteria and max_marks follow the questions. '
+        + 'Criteria must come from the unit\'s curriculum. Marks already given move with a change of allocation. '
+        + 'Per question, marking ("ai" | "ai_check" | "teacher") and depends_on (an earlier question\'s label, for error carried forward) are kept when omitted. '
+        + 'Arrays may be sent as JSON strings.',
+      inputSchema: {
+        activity_id: z.string().min(1).describe('The assessment-paper activity id.'),
+        questions: AssessmentActivityQuestionsInput.describe('Every question, in paper order.'),
+      },
+      outputSchema: { assessment_activity: z.record(z.string(), z.unknown()).nullable() },
+    },
+    async ({ activity_id, questions }) =>
+      assessmentActivityTool(
+        'assessment_activity',
+        async () => {
+          await setAssessmentActivityQuestions(activity_id, toAssessmentQuestionInputs(questions))
+          return getAssessmentActivity(activity_id)
+        },
+        (a) => `Updated ${a.activity.title ?? a.activity.activity_id}: ${a.questions.length} questions, ${a.activity.max_marks} marks.`,
+      ),
+  )
+
+  srv.registerTool(
+    'split_assessment_activity_mark_scheme',
+    {
+      title: 'Propose per-question mark schemes from an assessment-paper activity\'s mark scheme PDF',
+      description:
+        'Dry run: sends the activity\'s uploaded mark scheme PDF (no pupil data) and its question list to the model and returns, per question, '
+        + 'the current mark_scheme text beside the proposed one (null = nothing found for it). SAVES NOTHING. Review the proposals, then save the ones '
+        + 'you accept with set_assessment_activity_questions (the full list, as always). A question with no mark scheme text is not sent to the AI marker. '
+        + 'Needs the mark scheme uploaded and the questions set. One model call; can take a minute.',
+      inputSchema: { activity_id: z.string().min(1).describe('The assessment-paper activity id.') },
+      outputSchema: { split: z.record(z.string(), z.unknown()).nullable() },
+    },
+    async ({ activity_id }) =>
+      assessmentActivityTool('split', async () => {
+        const split = await proposeMarkSchemeSplit(activity_id)
+        return {
+          activity_id: split.activityId,
+          provider: split.provider,
+          model: split.model,
+          duration_ms: split.durationMs,
+          proposals: split.proposals.map((p) => ({
+            question_id: p.questionId,
+            label: p.label,
+            max_marks: p.maxMarks,
+            current: p.current,
+            proposed: p.proposed,
+          })),
+        }
+      }, (split) => {
+        const found = split.proposals.filter((p) => p.proposed).length
+        const changed = split.proposals.filter((p) => p.proposed && p.proposed !== (p.current ?? '').trim()).length
+        return `Proposed mark scheme text for ${found} of ${split.proposals.length} questions (${changed} differ from the saved text). Nothing was saved.`
+      }),
+  )
+
+  srv.registerTool(
+    'create_assessment_activity_file_upload_link',
+    {
+      title: 'Create a one-time upload link for an assessment-paper activity',
+      description:
+        'Upload the question paper, the mark scheme or one pupil\'s script to an assessment-paper activity. Returns a single-use link, valid 15 minutes, '
+        + 'that accepts one file (max 25 MB) with a plain curl POST — no credentials, no base64. '
+        + 'kind "question_paper" / "mark_scheme": a PDF, teacher-only; a new upload replaces the old one. The question paper\'s page 1 must be its blank front sheet. '
+        + `kind "script": one pupil's paper as a PDF (up to ${MAX_SCRIPT_PAGES} pages), with that pupil's pupil_id from get_assessment_activity; the question paper must be uploaded first. `
+        + 'On arrival the script\'s page 1 is compared with the front sheet and its page count with the paper\'s. If both pass, pages 2 onwards are kept for marking (page 1 is never sent to a model); '
+        + 'if not, the script is stored but held, with the reason in front_sheet_check (get_assessment_activity) — fix the page order and upload it again. '
+        + 'Uploading another script for the same pupil replaces theirs: the AI marks are cleared, a teacher\'s marks are kept. '
+        + 'The pupil can open their original script once the lesson\'s feedback is visible to them. Call once per file.',
+      inputSchema: z.object({
+        activity_id: z.string().min(1).describe('The assessment-paper activity id.'),
+        kind: z.enum(['question_paper', 'mark_scheme', 'script']).describe('What the file is.'),
+        pupil_id: z.string().optional().describe('Required for kind "script": the pupil whose script it is. Omit for the question paper and mark scheme.'),
+      }),
+      outputSchema: z.object({ link: uploadLinkOutput }),
+    },
+    async ({ activity_id, kind, pupil_id }) =>
+      uploadLinkTool({ assessmentActivityId: activity_id, uploadKind: kind, pupilId: pupil_id ?? null }, undefined),
+  )
+
+  srv.registerTool(
+    'get_assessment_activity_result',
+    {
+      title: 'Get a pupil\'s assessment-paper activity result',
+      description:
+        'Return one pupil\'s result on an assessment-paper activity, from their latest attempt: total marks, mark_status, their script, the overall feedback, '
+        + 'and every question with marking, depends_on, has_mark_scheme, awarded / available (null = not marked; it still counts 0), '
+        + 'the answer the reader found (status answered | blank | unreadable | continued, kind text | sketch | mixed, transcription — a sketch is described — '
+        + 'pages, and provenance "teacher" when a teacher corrected it; null until read) and each criterion within it with why_not_awarded, '
+        + 'how_to_improve, teacher_feedback and provenance ("teacher" = set by a teacher, never overwritten by the marker; "legacy" = carried over from an old paper).',
+      inputSchema: {
+        activity_id: z.string().min(1).describe('The assessment-paper activity id.'),
+        pupil_id: z.string().min(1).describe('Pupil user id from get_assessment_activity.'),
+      },
+      outputSchema: { result: z.record(z.string(), z.unknown()).nullable() },
+    },
+    async ({ activity_id, pupil_id }) =>
+      assessmentActivityTool('result', () => getAssessmentActivityResult(activity_id, pupil_id), (r) => {
+        const name = `${r.first_name ?? ''} ${r.last_name ?? ''}`.trim() || pupil_id
+        const marked = r.questions.filter((q) => q.awarded !== null).length
+        return `${name}: ${r.marks_awarded ?? 0}/${r.max_marks}, ${marked}/${r.questions.length} questions marked, `
+          + `script ${r.script ? 'uploaded' : 'not uploaded'}${r.mark_status ? `, ${r.mark_status}` : ''}.`
+      }),
+  )
+
+  srv.registerTool(
+    'create_assessment_activity_class_feedback_link',
+    {
+      title: 'Get a one-time download link for a class\'s assessment-paper feedback PDF',
+      description: 'One PDF of a class\'s feedback on an assessment-paper activity: a cover listing every pupil with marks and status '
+        + '(marked, not yet marked, held, not sat), then each pupil who sat it on their own pages with their full feedback. '
+        + 'Give the class, unit and activity by id or exact name (case-insensitive); a name that matches more than one is an error listing the ids. '
+        + 'Returns a single-use link, valid 15 minutes, that downloads the PDF with a plain curl GET — no credentials. '
+        + 'The PDF is built when the link is used, so it has the latest marks.',
+      inputSchema: z.object({
+        class: z.string().min(1).describe('Class (group) id, e.g. 26-10-DT. See list_groups.'),
+        unit: z.string().min(1).describe('Unit id or exact title.'),
+        activity: z.string().min(1).describe('Assessment-paper activity id or exact title, in a lesson of the unit.'),
+      }),
+      outputSchema: z.object({
+        link: z.object({
+          download_url: z.string(),
+          expires_at: z.string(),
+          group_id: z.string(),
+          unit_id: z.string(),
+          activity_id: z.string(),
+          activity_title: z.string().nullable(),
+          file_name: z.string(),
+          instructions: z.string(),
+        }).nullable(),
+      }),
+    },
+    async (input) => {
+      try {
+        const { token, expiresAt, target } = await createClassFeedbackDownloadLink(caller, input)
+        const downloadUrl = `${baseUrl}/api/MCP/download/${token}`
+        const fileName = classFeedbackFileName(target.activityTitle, target.groupId)
+        const instructions =
+          `From your code sandbox, fetch the PDF with e.g. curl -sSf -o "${fileName}" "${downloadUrl}". `
+          + `No Authorization header is needed. The link works once and expires at ${expiresAt}. `
+          + 'If the request cannot connect, the sandbox\'s network settings '
+          + `are blocking ${new URL(downloadUrl).host}: ask the user to allow that domain in Claude's settings (Capabilities → code execution network access).`
+        return {
+          content: [{ type: 'text' as const, text: `Class feedback PDF for ${target.groupId} (single use, expires ${expiresAt}):\n${downloadUrl}\n${instructions}` }],
+          structuredContent: {
+            link: {
+              download_url: downloadUrl,
+              expires_at: expiresAt,
+              group_id: target.groupId,
+              unit_id: target.unitId,
+              activity_id: target.activityId,
+              activity_title: target.activityTitle,
+              file_name: fileName,
+              instructions,
+            },
+          },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to create download link'
+        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { link: null } }
+      }
+    },
+  )
+
+  // ---------------------------------------------------------------------------
   // Interventions: a lesson written for one pupil (migration 108).
   // ---------------------------------------------------------------------------
 
@@ -3269,6 +3504,8 @@ The result is checked as create_activity checks it; a body over a limit is refus
       description: 'Return one pupil\'s work and feedback on a lesson\'s marked activities, as the assignment results page shows it: '
         + 'their answer, score and status (override = a teacher set the mark), the overall teacher and automatic feedback, and per success criterion '
         + 'the mark, the AI\'s comment, the teacher\'s comment and provenance ("teacher" = set by a teacher, kept on re-mark). '
+        + 'An assessment-paper activity also has assessment_paper: script_uploaded, mark_status and its questions (label, awarded/available, '
+        + 'and each criterion within the question with its allocation, mark, the comment the pupil is shown, the AI\'s and the teacher\'s comments). '
         + 'A missing answer counts as 0: it has status "missing" and marks_awarded 0 (submission_id null = not answered; set = answered, not yet marked). '
         + 'totals gives the lesson score on the same baseline as every DINO report: marks over the full max of every marked activity with success criteria '
         + '(counts_for_progress false = no criteria, listed but left out of totals). '

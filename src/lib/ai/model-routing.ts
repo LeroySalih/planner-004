@@ -182,6 +182,18 @@ export const MODEL_SURFACES: readonly ModelSurface[] = Object.freeze([
     kind: "text",
   },
   {
+    key: "surface:assessment-read",
+    label: "Assessment paper read",
+    description: "Reads each pupil's assessment paper script, question by question, before it is marked",
+    kind: "text",
+  },
+  {
+    key: "surface:assessment-mark-scheme",
+    label: "Assessment mark scheme split",
+    description: "Splits an assessment paper's mark scheme PDF into per-question text for the teacher to review",
+    kind: "text",
+  },
+  {
     key: "surface:handwriting-ocr",
     label: "Handwriting extraction",
     description: "The standalone /ocr tool",

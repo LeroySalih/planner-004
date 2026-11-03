@@ -16,7 +16,21 @@ export const SCORABLE_ACTIVITY_TYPES = Object.freeze([
   "group-items",
   "voice",
   "sequence",
+  "assessment-paper",
 ]);
+
+// Activity types marked question by question, each question splitting its
+// marks across its success criteria. Their totals, max_marks and
+// submission_sc_marks rows are derived from the question marks by
+// src/lib/assessment-paper/store.ts, so the per-criterion machinery
+// (refresh_criterion_marks, the activity_success_criteria trigger, teacher
+// criterion marks, whole-activity overrides) must leave them alone.
+// Mirrored in SQL by is_question_marked_activity_type (migration 132).
+export const QUESTION_MARKED_ACTIVITY_TYPES = Object.freeze(["assessment-paper"]);
+
+export function isQuestionMarkedActivityType(type: string | null | undefined): boolean {
+  return QUESTION_MARKED_ACTIVITY_TYPES.includes(normalizeActivityType(type));
+}
 
 // Activity types scored deterministically in-app from a single right/wrong
 // outcome — no model call is involved. Their max_marks is capped at 1 however
@@ -83,12 +97,17 @@ export function isMothballedActivityType(type: string | null | undefined): boole
 // compute_submission_base_score (see 086-upload-code-activity-score.sql) — keep
 // the two in step, or a type will be marked but read back as unscored.
 // Used by /admin/ai-models to decide which types can be routed to a model.
+//
+// assessment-paper is the exception: it is not in that SQL branch, and need
+// not be, because recomputeAssessmentSubmission writes `score` and
+// `ai_model_score` with the same value.
 export const AI_MARKED_ACTIVITY_TYPES = Object.freeze([
   "short-text-question",
   "upload-code",
   "upload-worksheet",
   "mark-worksheet",
   "upload-spreadsheet",
+  "assessment-paper",
 ]);
 
 export function isAiMarkedActivityType(type: string | null | undefined): boolean {

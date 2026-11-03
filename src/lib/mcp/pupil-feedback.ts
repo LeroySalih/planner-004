@@ -1,7 +1,9 @@
 import { revalidatePath } from 'next/cache'
 
 import { query } from '@/lib/db'
-import { SCORABLE_ACTIVITY_TYPES } from '@/dino.config'
+import { SCORABLE_ACTIVITY_TYPES, isQuestionMarkedActivityType } from '@/dino.config'
+import { readAssessmentPaperResult } from '@/lib/assessment-paper/results'
+import { effectiveQuestionCriterionFeedback } from '@/lib/assessment-paper/store'
 import { countsForProgress } from '@/lib/scoring/counts-for-progress'
 import { fetchPupilActivityFeedbackMap, selectLatestFeedbackEntry } from '@/lib/feedback/pupil-activity-feedback'
 import {
@@ -64,6 +66,69 @@ export type ActivityFeedback = {
   criteria: CriterionFeedback[]
   /** False when the activity has no success criteria, so it is left out of totals. */
   counts_for_progress: boolean
+  /** Assessment papers only: the marks question by question. */
+  assessment_paper?: AssessmentPaperFeedback
+}
+
+export type AssessmentPaperFeedback = {
+  script_uploaded: boolean
+  mark_status: string | null
+  questions: Array<{
+    question_id: string
+    label: string
+    /** Null until marked; an unmarked question counts 0. */
+    awarded: number | null
+    available: number
+    provenance: string | null
+    criteria: Array<{
+      success_criteria_id: string
+      description: string
+      /** The criterion's share of the question's marks. */
+      allocation: number
+      awarded: number | null
+      available: number
+      /** What the pupil is shown (teacher's comment wins). */
+      feedback: string | null
+      why_not_awarded: string | null
+      how_to_improve: string | null
+      teacher_feedback: string | null
+      provenance: string | null
+    }>
+  }>
+}
+
+async function readAssessmentPaperFeedback(activityId: string, pupilId: string): Promise<AssessmentPaperFeedback> {
+  const result = await readAssessmentPaperResult(activityId, pupilId)
+  return {
+    script_uploaded: Boolean(result.script),
+    mark_status: result.markStatus,
+    questions: result.questions.map((q) => ({
+      question_id: q.questionId,
+      label: q.label,
+      awarded: q.awarded,
+      available: q.available,
+      provenance: q.provenance,
+      criteria: q.criteria.map((c) => {
+        const shown = effectiveQuestionCriterionFeedback(c)
+        return {
+          success_criteria_id: c.successCriteriaId,
+          description: c.description,
+          allocation: c.allocation,
+          awarded: c.awarded,
+          available: c.available,
+          feedback: !shown
+            ? null
+            : shown.source === 'teacher'
+              ? shown.text
+              : [shown.whyNotAwarded, shown.howToImprove].filter(Boolean).join(' ') || null,
+          why_not_awarded: c.whyNotAwarded,
+          how_to_improve: c.howToImprove,
+          teacher_feedback: c.teacherFeedback,
+          provenance: c.provenance,
+        }
+      }),
+    })),
+  }
 }
 
 async function assertPupil(pupilId: string) {
@@ -202,6 +267,9 @@ async function readActivityFeedback(
     auto_feedback: null,
     criteria: [],
     counts_for_progress: countsForProgress(activity.type, activity.criteria_count),
+    ...(isQuestionMarkedActivityType(activity.type)
+      ? { assessment_paper: await readAssessmentPaperFeedback(activity.activity_id, pupilId) }
+      : {}),
   }
   if (!submission) return base
 

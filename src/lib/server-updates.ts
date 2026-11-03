@@ -485,6 +485,18 @@ export {
 } from './server-actions/assessments'
 
 export {
+  readAssessmentPaperSetupAction,
+  saveAssessmentQuestionsAction,
+  sendHeldAssessmentQuestionsAction,
+  sendUnmarkedAssessmentScriptsAction,
+  splitAssessmentMarkSchemeAction,
+  uploadAssessmentPaperFileAction,
+} from './server-actions/assessment-paper-activity'
+
+export type { AssessmentPaperSetup, AssessmentPaperSetupQuestion } from './assessment-paper/setup'
+export type { MarkSchemeProposal, MarkSchemeSplit } from './assessment-paper/mark-scheme-split'
+
+export {
   readOAuthAdminStateAction,
   createApiKeyAction,
   rotateApiKeyAction,

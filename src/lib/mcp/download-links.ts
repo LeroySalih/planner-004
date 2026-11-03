@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto'
 
 import { query } from '@/lib/db'
 import type { McpCaller } from '@/lib/mcp/auth'
+import { resolveClassFeedbackTarget, type ClassFeedbackTarget } from '@/lib/mcp/assessment-activities'
 
 const LINK_LIFETIME_MINUTES = 15
 
@@ -16,13 +17,11 @@ export type LessonFile = {
   updated_at: string | null
 }
 
-export type DownloadLink = {
-  link_id: string
-  lesson_id: string
-  activity_id: string | null
-  file_name: string
-  caller: McpCaller
-}
+export type DownloadLink = { link_id: string; caller: McpCaller } & (
+  | { kind: 'lesson_file'; lesson_id: string; activity_id: string | null; file_name: string }
+  /** A class's feedback PDF on an assessment paper, built when the link is claimed. */
+  | { kind: 'assessment_class_feedback'; lesson_id: string; activity_id: string; group_id: string }
+)
 
 const hashToken = (token: string) => createHash('sha256').update(token).digest('base64url')
 
@@ -81,26 +80,67 @@ export async function createDownloadLink(
     throw new Error(`No file "${target.fileName}" in ${where}. Call list_lesson_files for the exact names.`)
   }
 
+  const { token, expiresAt } = await insertDownloadLink(caller, {
+    kind: 'lesson_file',
+    lessonId: target.lessonId,
+    activityId: target.activityId,
+    fileName: target.fileName,
+    groupId: null,
+  })
+  return { token, expiresAt, file }
+}
+
+/**
+ * A link to one class's consolidated feedback PDF on an assessment paper,
+ * with the class, unit and activity each given by id or name.
+ */
+export async function createClassFeedbackDownloadLink(
+  caller: McpCaller,
+  input: { class: string; unit: string; activity: string },
+): Promise<{ token: string; expiresAt: string; target: ClassFeedbackTarget }> {
+  const target = await resolveClassFeedbackTarget(input)
+  const { token, expiresAt } = await insertDownloadLink(caller, {
+    kind: 'assessment_class_feedback',
+    lessonId: target.lessonId,
+    activityId: target.activityId,
+    fileName: null,
+    groupId: target.groupId,
+  })
+  return { token, expiresAt, target }
+}
+
+async function insertDownloadLink(
+  caller: McpCaller,
+  link: {
+    kind: DownloadLink['kind']
+    lessonId: string
+    activityId: string | null
+    fileName: string | null
+    groupId: string | null
+  },
+): Promise<{ token: string; expiresAt: string }> {
   await query("delete from mcp_download_links where expires_at < now() - interval '1 day'")
 
   const token = randomBytes(32).toString('base64url')
   const { rows } = await query<{ expires_at: Date }>(
     `insert into mcp_download_links
-       (token_hash, lesson_id, activity_id, file_name, auth_method, user_id, oauth_client_id, expires_at)
-     values ($1, $2, $3, $4, $5, $6, $7, now() + make_interval(mins => $8))
+       (token_hash, kind, lesson_id, activity_id, file_name, group_id, auth_method, user_id, oauth_client_id, expires_at)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, now() + make_interval(mins => $10))
      returning expires_at`,
     [
       hashToken(token),
-      target.lessonId,
-      target.activityId,
-      target.fileName,
+      link.kind,
+      link.lessonId,
+      link.activityId,
+      link.fileName,
+      link.groupId,
       caller.method,
       caller.userId,
       caller.clientId,
       LINK_LIFETIME_MINUTES,
     ],
   )
-  return { token, expiresAt: rows[0].expires_at.toISOString(), file }
+  return { token, expiresAt: rows[0].expires_at.toISOString() }
 }
 
 /**
@@ -110,16 +150,18 @@ export async function createDownloadLink(
 export async function claimDownloadLink(token: string): Promise<DownloadLink | null> {
   const { rows } = await query<{
     link_id: string
+    kind: DownloadLink['kind']
     lesson_id: string
     activity_id: string | null
-    file_name: string
+    file_name: string | null
+    group_id: string | null
     auth_method: 'oauth' | 'service_key'
     user_id: string | null
     oauth_client_id: string | null
   }>(
     `update mcp_download_links set used_at = now()
       where token_hash = $1 and used_at is null and expires_at > now()
-      returning link_id, lesson_id, activity_id, file_name, auth_method, user_id, oauth_client_id`,
+      returning link_id, kind, lesson_id, activity_id, file_name, group_id, auth_method, user_id, oauth_client_id`,
     [hashToken(token)],
   )
   const row = rows[0]
@@ -127,11 +169,23 @@ export async function claimDownloadLink(token: string): Promise<DownloadLink | n
   const caller: McpCaller = row.auth_method === 'oauth' && row.user_id && row.oauth_client_id
     ? { method: 'oauth', userId: row.user_id, clientId: row.oauth_client_id }
     : { method: 'service_key', userId: null, clientId: null }
+  // The table's kind_shape constraint guarantees each kind's columns.
+  if (row.kind === 'assessment_class_feedback') {
+    return {
+      link_id: row.link_id,
+      kind: row.kind,
+      lesson_id: row.lesson_id,
+      activity_id: row.activity_id as string,
+      group_id: row.group_id as string,
+      caller,
+    }
+  }
   return {
     link_id: row.link_id,
+    kind: 'lesson_file',
     lesson_id: row.lesson_id,
     activity_id: row.activity_id,
-    file_name: row.file_name,
+    file_name: row.file_name as string,
     caller,
   }
 }

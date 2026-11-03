@@ -19,12 +19,14 @@ import {
   readLessonSubmissionSummariesAction,
   getActivityFileDownloadUrlAction,
 } from "@/lib/server-updates"
-import { isScorableActivityType } from "@/dino.config"
+import { isQuestionMarkedActivityType, isScorableActivityType } from "@/dino.config"
+import { readPupilAssessmentPaperView, type PupilAssessmentPaperView } from "@/lib/assessment-paper/results"
 import { countsForProgress } from "@/lib/scoring/counts-for-progress"
 import { cn } from "@/lib/utils"
 import { findLessonResources } from "@/lib/lesson-resources"
 import { loadCourseUnits, loadLessonPosition, loadSubmittedActivityIds } from "@/lib/pupil-lesson-article-data"
 import { PupilUploadActivity } from "@/components/pupil/pupil-upload-activity"
+import { PupilAssessmentPaperActivity } from "@/components/pupil/pupil-assessment-paper-activity"
 import { PupilUploadCodeActivity } from "@/components/pupil/pupil-upload-code-activity"
 import { highlightCode, renderTaskMarkup } from "@/lib/code-highlight"
 import { PupilUploadSpreadsheetActivity } from "@/components/pupil/pupil-upload-spreadsheet-activity"
@@ -975,6 +977,23 @@ export default async function PupilLessonFriendlyPage({
   const dueDate = isIntervention ? toIsoDate(kindRows[0]?.due_date ?? null) : lessonDueDate(toIsoDate(assignments[0]?.date ?? null))
   const releasedToViewer = initialFeedbackVisible || isTeacher
 
+  // Assessment papers: the question paper once the pupil has sat it, the
+  // marks and links once feedback is released (the loader checks the pupil's
+  // visibility again).
+  const assessmentPaperViewMap = new Map<string, PupilAssessmentPaperView>(
+    await Promise.all(
+      activities
+        .filter((activity) => isQuestionMarkedActivityType(activity.type))
+        .map(async (activity) => {
+          const view = await readPupilAssessmentPaperView(activity.activity_id, pupilId, isTeacher).catch((error) => {
+            console.error("[pupil-lessons] failed to load assessment paper", error)
+            return { sat: false, questionPaperUrl: null, feedback: null } satisfies PupilAssessmentPaperView
+          })
+          return [activity.activity_id, view] as const
+        }),
+    ),
+  )
+
   const lessonLinks = lesson.lesson_links ?? []
   const resources = findLessonResources({
     lessonId: lesson.lesson_id,
@@ -1072,6 +1091,7 @@ export default async function PupilLessonFriendlyPage({
         question?: string
         inputId?: string
         flag?: { submissionId: string; isFlagged: boolean }
+        ownFeedback?: boolean
       },
     ) => (
       <ArticleActivity
@@ -1093,12 +1113,26 @@ export default async function PupilLessonFriendlyPage({
         feedbackText={feedbackText}
         modelAnswer={activityModelAnswerMap.get(activity.activity_id)}
         viewerIsTeacher={isTeacher}
+        ownFeedback={opts.ownFeedback}
       >
         {body}
       </ArticleActivity>
     )
 
     switch (activity.type) {
+      case "assessment-paper": {
+        return frame(
+          <PupilAssessmentPaperActivity
+            activityId={activity.activity_id}
+            pupilId={pupilId}
+            viewerIsTeacher={isTeacher}
+            initialView={
+              assessmentPaperViewMap.get(activity.activity_id) ?? { sat: false, questionPaperUrl: null, feedback: null }
+            }
+          />,
+          { variant: "task", title: activity.title || "Assessment paper", ownFeedback: true },
+        )
+      }
       case "short-text-question": {
         const data = shortTextDataMap.get(activity.activity_id)
         const inputId = `answer-${activity.activity_id}`

@@ -6,11 +6,13 @@ import { MCP_UPLOAD_MAX_BYTES, cleanFileName } from '@/lib/mcp/file-input'
 import { uploadActivityFile } from '@/lib/mcp/activities'
 import { uploadLessonFile } from '@/lib/mcp/lessons'
 import { ASSESSMENT_UPLOAD_MAX_BYTES, storeAssessmentFile } from '@/lib/assessments/store'
-import { claimUploadLink, releaseUploadLink } from '@/lib/mcp/upload-links'
+import { claimUploadLink, releaseUploadLink, type UploadLink } from '@/lib/mcp/upload-links'
+import { ASSESSMENT_PAPER_UPLOAD_MAX_BYTES, storePaperFile, storeScript } from '@/lib/assessment-paper/files'
 
 // The token in the path is the whole credential: a one-time link from
 // create_activity_file_upload_link / create_lesson_file_upload_link /
-// create_assessment_paper_file_upload_link. There is
+// create_assessment_paper_file_upload_link /
+// create_assessment_activity_file_upload_link. There is
 // deliberately no Authorization header, because the code sandbox Claude
 // uploads from has no copy of the connector's credentials.
 
@@ -47,6 +49,18 @@ async function readFile(request: NextRequest, maxBytes: number): Promise<{ buffe
   }
 }
 
+/** An assessment-paper activity's question paper, mark scheme or one pupil's script. */
+async function storeAssessmentActivityFile(link: UploadLink, buffer: Buffer) {
+  const activityId = link.activity_id!
+  if (link.upload_kind === 'script') {
+    return storeScript({ activityId, pupilId: link.pupil_id!, bytes: buffer, uploadedBy: link.caller.userId })
+  }
+  if (link.upload_kind === 'question_paper' || link.upload_kind === 'mark_scheme') {
+    return storePaperFile(activityId, link.upload_kind, buffer, link.caller.userId)
+  }
+  throw new UploadError(400, 'This upload link does not say what the file is')
+}
+
 class UploadError extends Error {
   constructor(readonly status: number, message: string) {
     super(message)
@@ -70,8 +84,12 @@ async function handle(request: NextRequest, { params }: Params): Promise<Respons
     lesson_id: link.lesson_id,
     activity_id: link.activity_id,
     assessment_id: link.assessment_id,
+    upload_kind: link.upload_kind,
+    pupil_id: link.pupil_id,
   }
-  const maxBytes = link.assessment_id ? ASSESSMENT_UPLOAD_MAX_BYTES : MCP_UPLOAD_MAX_BYTES
+  const maxBytes = link.assessment_id
+    ? ASSESSMENT_UPLOAD_MAX_BYTES
+    : link.target === 'assessment-activity' ? ASSESSMENT_PAPER_UPLOAD_MAX_BYTES : MCP_UPLOAD_MAX_BYTES
   try {
     const { buffer, name, type } = await readFile(request, maxBytes)
     if (buffer.byteLength === 0) throw new UploadError(400, 'The upload was empty')
@@ -88,7 +106,9 @@ async function handle(request: NextRequest, { params }: Params): Promise<Respons
       throw new UploadError(415, 'HTML and SVG files cannot be uploaded, except an .html page to a display-webpage activity. Convert an image to PNG first.')
     }
 
-    const file = link.assessment_id
+    const file = link.target === 'assessment-activity'
+      ? await storeAssessmentActivityFile(link, buffer)
+      : link.assessment_id
       ? await storeAssessmentFile(link.assessment_id, fileName, buffer, { contentType: type, uploadedBy: link.caller.userId, pupilId: link.pupil_id })
       : link.activity_id
         ? await uploadActivityFile(link.lesson_id!, link.activity_id, fileName, buffer, type)

@@ -23,6 +23,7 @@ import { Switch } from "@/components/ui/switch"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { CriterionMarksPanel } from "@/components/assignment-results/criterion-marks-panel"
+import { AssessmentPaperMarksPanel } from "@/components/assignment-results/assessment-paper-marks-panel"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { RichTextEditor } from "@/components/ui/rich-text-editor"
@@ -62,7 +63,7 @@ import {
 import { extractScoreFromSubmission, selectLatestSubmission } from "@/lib/scoring/activity-scores"
 import { SketchRenderFeedbackView } from "@/components/assignment-results/sketch-render-feedback-view"
 import { TeacherSubmissionDropzone } from "@/components/assignment-results/teacher-submission-dropzone"
-import { DETERMINISTIC_ACTIVITY_TYPES, isAiMarkedActivityType, type MarkStatus } from "@/dino.config"
+import { DETERMINISTIC_ACTIVITY_TYPES, isAiMarkedActivityType, isQuestionMarkedActivityType, type MarkStatus } from "@/dino.config"
 import { refreshActivityCriteriaAction, updateActivityFeedbackAction } from "@/lib/server-actions/sc-marks"
 import { markStatusLabel } from "@/lib/mark-status"
 
@@ -1011,6 +1012,18 @@ export function AssignmentResultsDashboard({
     })
   }, [selectedActivity, activities, groupedRows, matrixState.assignmentId, startAiMarkTransition])
 
+  // Whether the selected pupil has a script on the selected assessment paper,
+  // as its marks panel last reported. Keyed so a stale answer for another
+  // cell is never used.
+  const [paperScript, setPaperScript] = useState<{ key: string; hasScript: boolean } | null>(null)
+  const selectionKey = selection ? `${selection.activity.activityId}:${selection.row.pupil.userId}` : null
+  const handlePaperLoaded = useCallback(
+    ({ hasScript }: { hasScript: boolean }) => {
+      if (selectionKey) setPaperScript({ key: selectionKey, hasScript })
+    },
+    [selectionKey],
+  )
+
   const handleManualAiMark = useCallback(() => {
     if (!selection) {
       toast.error("No selection to mark.")
@@ -1018,7 +1031,21 @@ export function AssignmentResultsDashboard({
     }
 
     if (!selection.cell.submissionId) {
-      toast.error("No submission available to mark.")
+      toast.error(
+        isQuestionMarkedActivityType(selection.activity.type)
+          ? "No script uploaded."
+          : "No submission available to mark.",
+      )
+      return
+    }
+
+    // A paper is marked from its script; without one there is nothing to read.
+    if (
+      isQuestionMarkedActivityType(selection.activity.type) &&
+      paperScript?.key === `${selection.activity.activityId}:${selection.row.pupil.userId}` &&
+      !paperScript.hasScript
+    ) {
+      toast.error("No script uploaded, so there is nothing to mark.")
       return
     }
 
@@ -1046,7 +1073,7 @@ export function AssignmentResultsDashboard({
         toast.error("An error occurred while requesting AI marking.")
       }
     })
-  }, [selection, matrixState.assignmentId, startAiMarkTransition])
+  }, [selection, matrixState.assignmentId, startAiMarkTransition, paperScript])
 
   const handleCopyToLlm = useCallback(() => {
     if (!selection) {
@@ -1537,10 +1564,13 @@ export function AssignmentResultsDashboard({
   // criterion and the total is their sum; without them the activity is not
   // marked and does not count towards progress. Self-marking types keep their
   // whole mark. Before a pupil has submitted, only 0 or full can be given,
-  // which records the same on every criterion.
-  const overrideMarking: "criteria" | "criteria-new" | "whole" | "none" = !selection
+  // which records the same on every criterion. An assessment paper is marked
+  // per criterion within each question, by its own panel.
+  const overrideMarking: "paper" | "criteria" | "criteria-new" | "whole" | "none" = !selection
     ? "none"
-    : selection.activity.successCriteria.length === 0
+    : isQuestionMarkedActivityType(selection.activity.type)
+      ? "paper"
+      : selection.activity.successCriteria.length === 0
       ? "none"
       : (DETERMINISTIC_ACTIVITY_TYPES as readonly string[]).includes(selection.activity.type)
         ? "whole"
@@ -1610,7 +1640,11 @@ export function AssignmentResultsDashboard({
   }
 
   const handleFeedbackBlur = () => {
-    if (overrideMarking === "criteria") {
+    if (overrideMarking === "paper") {
+      // The overall comment only: the marks are the questions'. A pupil with
+      // no script has no submission to comment on.
+      handleCriteriaFeedbackSubmit()
+    } else if (overrideMarking === "criteria") {
       handleCriteriaFeedbackSubmit()
     } else if (overrideMarking === "criteria-new") {
       // A comment on work the pupil has not handed in records it as 0 on
@@ -2993,7 +3027,13 @@ export function AssignmentResultsDashboard({
                   >
                   <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
                     <p className="text-xs font-semibold uppercase tracking-wide text-primary">Pupil response</p>
-                    {isUploadListingActivityType(selection.activity.type) ? (
+                    {isQuestionMarkedActivityType(selection.activity.type) ? (
+                      <p className="text-sm text-foreground">
+                        {selection.cell.submissionId
+                          ? "The pupil's script and marks are under Marking below."
+                          : "No script uploaded."}
+                      </p>
+                    ) : isUploadListingActivityType(selection.activity.type) ? (
                       <p className="text-sm text-foreground">
                         {selectedUploadState?.files.length
                           ? "Learner submitted file uploads listed below."
@@ -3148,7 +3188,15 @@ export function AssignmentResultsDashboard({
                           </div>
                         ) : (
                           <>
-                            {overrideMarking === "criteria" || overrideMarking === "criteria-new" ? (
+                            {overrideMarking === "paper" ? (
+                              <AssessmentPaperMarksPanel
+                                key={`${selection.activity.activityId}:${selection.row.pupil.userId}:${selection.cell.submissionId ?? "none"}`}
+                                activityId={selection.activity.activityId}
+                                pupilId={selection.row.pupil.userId}
+                                onAggregateChange={handleCriteriaAggregateChange}
+                                onLoaded={handlePaperLoaded}
+                              />
+                            ) : overrideMarking === "criteria" || overrideMarking === "criteria-new" ? (
                               <div className="space-y-2">
                                 <div className="flex justify-end">
                                   <Button
@@ -3245,7 +3293,7 @@ export function AssignmentResultsDashboard({
                             </div>
                           </>
                         )}
-                        {!selection.cell.submissionId && overrideMarking !== "none" ? (
+                        {!selection.cell.submissionId && overrideMarking !== "none" && overrideMarking !== "paper" ? (
                           <div className="rounded-md border border-dashed border-amber-500/40 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                             No learner submission has been recorded yet. Saving an override will create a submission on behalf
                             of the pupil so you can capture scores and feedback.
@@ -4226,7 +4274,13 @@ export function AssignmentResultsDashboard({
                         >
                         <div className="rounded-md border border-primary/40 bg-primary/5 p-3">
                       <p className="text-xs font-semibold uppercase tracking-wide text-primary">Pupil response</p>
-                      {isUploadListingActivityType(selection.activity.type) ? (
+                      {isQuestionMarkedActivityType(selection.activity.type) ? (
+                        <p className="text-sm text-foreground">
+                          {selection.cell.submissionId
+                            ? "The pupil's script and marks are under Marking below."
+                            : "No script uploaded."}
+                        </p>
+                      ) : isUploadListingActivityType(selection.activity.type) ? (
                         <p className="text-sm text-foreground">
                           {selectedUploadState?.files.length
                             ? "Learner submitted file uploads listed below."
@@ -4402,7 +4456,15 @@ export function AssignmentResultsDashboard({
                             </div>
                           ) : (
                             <>
-                              {overrideMarking === "criteria" || overrideMarking === "criteria-new" ? (
+                              {overrideMarking === "paper" ? (
+                                <AssessmentPaperMarksPanel
+                                  key={`${selection.activity.activityId}:${selection.row.pupil.userId}:${selection.cell.submissionId ?? "none"}`}
+                                  activityId={selection.activity.activityId}
+                                  pupilId={selection.row.pupil.userId}
+                                  onAggregateChange={handleCriteriaAggregateChange}
+                                  onLoaded={handlePaperLoaded}
+                                />
+                              ) : overrideMarking === "criteria" || overrideMarking === "criteria-new" ? (
                                 <div className="space-y-2">
                                   <div className="flex justify-end">
                                     <Button
@@ -4499,7 +4561,7 @@ export function AssignmentResultsDashboard({
                               </div>
                             </>
                           )}
-                          {!selection.cell.submissionId && overrideMarking !== "none" ? (
+                          {!selection.cell.submissionId && overrideMarking !== "none" && overrideMarking !== "paper" ? (
                             <div className="rounded-md border border-dashed border-amber-500/40 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                               No learner submission has been recorded yet. Saving an override will create a submission on behalf
                               of the pupil so you can capture scores and feedback.
@@ -4848,6 +4910,15 @@ export function AssignmentResultsDashboard({
                     ) : null}
 
                     <div className="rounded-md border border-border/60 bg-muted/40 p-3">
+                      {isQuestionMarkedActivityType(selection.activity.type) ? (
+                        <AssessmentPaperMarksPanel
+                          activityId={selection.activity.activityId}
+                          pupilId={selection.row.pupil.userId}
+                          submissionId={viewingAttempt.submission_id}
+                          onLoaded={() => setAttemptCriterionCount(1)}
+                          onAggregateChange={() => router.refresh()}
+                        />
+                      ) : (
                       <CriterionMarksPanel
                         submissionId={viewingAttempt.submission_id}
                         aiMarked={isAiMarkedActivityType(selection?.activity.type)}
@@ -4857,6 +4928,7 @@ export function AssignmentResultsDashboard({
                         // side panel keep showing the pre-override score.
                         onAggregateChange={() => router.refresh()}
                       />
+                      )}
                     </div>
 
                     {isWorksheet ? (
