@@ -168,6 +168,7 @@ Files placed in `public/` are served at the root URL with no auth — e.g. `publ
 - Teacher summary: `pupil_lessons_summary_bootstrap(p_target_user_id)` via `readPupilLessonsSummaryBootstrapAction`
 - Pupil detail: `pupil_lessons_detail_bootstrap(p_target_user_id)` via `readPupilLessonsDetailBootstrapAction`
 - Always shape JSON on Next.js server, never expose raw RPC payloads to clients
+- **Page or Slides.** Each user picks how `/pupil-lessons/[pupilId]/lessons/[lessonId]` is laid out with the switch at the top of the lesson (or on their profile): `profiles.lesson_view_mode` `'page' | 'slides'` (migration 138), loaded as `profile.lessonViewMode` and set by `setLessonViewModeAction` (own profile only). The viewer's choice is used, so a teacher previewing sees their own. Page is the article; Slides puts each activity on its own full screen that fades in on scroll (`ActivityMotion`, `LessonHero`, `StickySectionHeading`, `LessonScrollProgress` in `lesson-scroll-layout.tsx`) with `ActivitySidebar`. Both render the same `renderActivity` output, so a new activity type only needs adding there.
 
 **Public Lessons**:
 - `lessons.is_public boolean DEFAULT false NOT NULL` — controls unauthenticated visibility

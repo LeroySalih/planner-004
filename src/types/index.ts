@@ -144,12 +144,16 @@ export const ProfileSchema = z.object({
 
 export const ProfilesSchema = z.array(ProfileSchema);
 
+/** How a pupil lesson is laid out: the article ("page") or one activity per screen ("slides"). */
+export const LessonViewModeSchema = z.enum(["page", "slides"]);
+
 export const CurrentProfileSchema = ProfileSchema.extend({
     email: z.string().email().nullable(),
 });
 
 export type Profile = z.infer<typeof ProfileSchema>;
 export type Profiles = z.infer<typeof ProfilesSchema>;
+export type LessonViewMode = z.infer<typeof LessonViewModeSchema>;
 export type CurrentProfile = z.infer<typeof CurrentProfileSchema>;
 
 export const PupilSignInHistorySchema = z.object({

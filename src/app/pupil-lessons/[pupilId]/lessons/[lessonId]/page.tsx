@@ -50,7 +50,15 @@ import { LessonContents, type ContentsSection } from "@/components/lesson-articl
 import { LessonFooter } from "@/components/lesson-article/lesson-footer"
 import { LessonObjectives } from "@/components/lesson-article/lesson-objectives"
 import { LessonProgressProvider } from "@/components/lesson-article/lesson-progress"
+import { LessonViewSwitch } from "@/components/lesson-article/lesson-view-switch"
 import { ResourceCards } from "@/components/lesson-article/resource-cards"
+import { ActivitySidebar, type ActivitySidebarItem } from "@/components/lessons/activity-sidebar"
+import {
+  ActivityMotion,
+  LessonHero,
+  LessonScrollProgress,
+  StickySectionHeading,
+} from "@/components/lessons/lesson-scroll-layout"
 import { lessonArticleFontClass } from "@/components/lesson-article/fonts"
 import {
   GroupItemsActivityBodySchema,
@@ -1547,6 +1555,224 @@ export default async function PupilLessonFriendlyPage({
     </span>,
   ].filter(Boolean)
 
+  const viewSwitch = <LessonViewSwitch mode={profile.lessonViewMode} />
+
+  const lockedNotice = isLocked ? (
+    <p
+      role="status"
+      className="flex items-start gap-2 rounded-xl border border-la-amber/30 bg-la-amber-bg px-4 py-3 text-[15px] text-la-amber"
+    >
+      <LockIcon className="mt-0.5 h-4 w-4 flex-none" />
+      <span>
+        <strong className="font-semibold">This lesson is locked.</strong>{" "}
+        {isPupilViewer
+          ? "You can read it, but you can't change answers, upload or download files."
+          : "This pupil can read it but cannot change answers, upload or download files."}
+      </span>
+    </p>
+  ) : null
+
+  const noActivities = <p className="mt-12 text-la-muted">There aren&apos;t any activities in this lesson yet.</p>
+
+  const lessonEnd = (
+    <>
+      {lessonFiles.length > 0 ? (
+        <p className="mt-16 border-t border-la-border pt-8 text-[15px] text-la-muted">
+          Your teacher also has {lessonFiles.length === 1 ? "a file" : "files"} for this lesson (
+          {lessonFiles.map((file) => file.name).join(", ")}). Ask them for a copy.
+        </p>
+      ) : null}
+
+      <LessonFooter
+        lessonId={lesson.lesson_id}
+        pupilId={pupilId}
+        initialUnderstanding={understanding}
+        canAnswer={isPupilViewer && !isTeacher}
+        nextLesson={
+          position?.next
+            ? {
+                href: `/pupil-lessons/${encodeURIComponent(pupilId)}/lessons/${encodeURIComponent(position.next.lessonId)}`,
+                title: position.next.title,
+              }
+            : null
+        }
+      />
+    </>
+  )
+
+  // Slides: the lesson as a sequence of full screens, one activity each, that
+  // fade in as the pupil scrolls, with a rail of links between them. The
+  // activities are the same renderActivity output as the page layout.
+  const renderSlides = () => {
+    const toHeroCriterion = (criterion: { id: string; text: string; level: number | null }) => ({
+      id: criterion.id,
+      title: criterion.text,
+      description: null,
+      level: criterion.level,
+    })
+    const sidebarItems: ActivitySidebarItem[] = ordered.map((activity) => {
+      const rawScore = activityScoreMap.get(activity.activity_id)
+      return {
+        activityId: activity.activity_id,
+        anchorId: `activity-${activity.activity_id}`,
+        number: activityNumbers.get(activity.activity_id) ?? 0,
+        title: activityTitle(activity),
+        scoreLabel:
+          releasedToViewer && typeof rawScore === "number" ? formatScoreLabel(rawScore, activity.activity_id) : undefined,
+        marking: rawScore === null,
+      }
+    })
+
+    return (
+      <div
+        className={cn(
+          "lesson-article relative min-h-screen bg-gradient-to-b from-background via-background to-muted/40 font-[family-name:var(--font-inter)] text-[16px] text-la-ink md:pl-56",
+          lessonArticleFontClass,
+        )}
+      >
+        <LessonScrollProgress />
+        <ActivitySidebar items={sidebarItems} />
+
+        <LessonHero
+          id="lesson-top"
+          lessonTitle={lesson.title}
+          unitTitle={unit?.title ?? ""}
+          description={kindRows[0]?.description ?? null}
+          objectives={objectives
+            .filter((objective) => objective.id !== "__ungrouped__")
+            .map((objective) => ({ ...objective, criteria: objective.criteria.map(toHeroCriterion) }))}
+          ungroupedCriteria={ungroupedCriteria.map(toHeroCriterion)}
+          backHref={backHref}
+          backLabel="My lessons"
+          actions={viewSwitch}
+        />
+
+        <div className="mx-auto w-full max-w-3xl px-6 pb-24">
+          {lockedNotice ? <div className="pt-8">{lockedNotice}</div> : null}
+
+          {sections.length === 0
+            ? noActivities
+            : sections.map((section, index) => (
+                <section key={section.key} id={`section-${section.key}`}>
+                  <StickySectionHeading title={section.title} />
+                  {section.introHtml ? (
+                    <div
+                      className="font-[family-name:var(--font-source-serif)] text-[20px] leading-relaxed text-la-muted [&_p]:m-0"
+                      dangerouslySetInnerHTML={{ __html: section.introHtml }}
+                    />
+                  ) : null}
+                  {index === 0 && resources.length > 0 ? (
+                    <ActivityMotion className="max-w-[720px]">
+                      <ResourceCards resources={resources} canDownload={canDownload} />
+                    </ActivityMotion>
+                  ) : null}
+                  {section.items.map((activity) => (
+                    <ActivityMotion key={activity.activity_id} className="max-w-[720px]">
+                      {renderActivity(activity)}
+                    </ActivityMotion>
+                  ))}
+                </section>
+              ))}
+
+          {lessonEnd}
+        </div>
+      </div>
+    )
+  }
+
+  const renderPage = () => (
+    <div
+      className={cn(
+        "lesson-article min-h-screen bg-la-bg font-[family-name:var(--font-inter)] text-[16px] text-la-ink",
+        lessonArticleFontClass,
+      )}
+    >
+      <div className="mx-auto flex w-full max-w-[1040px] flex-col px-4 pb-24 sm:px-6 min-[900px]:flex-row min-[900px]:gap-12 min-[900px]:pt-10">
+        <LessonContents
+          sections={contentsSections}
+          awarded={awarded}
+          totalMarks={totalMarks}
+          course={groupId ? { units: courseUnits, pupilId } : null}
+          fontClass={lessonArticleFontClass}
+        />
+
+        <main id="lesson-top" className="min-w-0 max-w-[720px] flex-1 pt-8 min-[900px]:pt-0">
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+            <Link
+              href={backHref}
+              className="inline-flex min-h-11 items-center gap-1.5 text-sm text-la-muted hover:text-la-ink"
+            >
+              <ArrowLeftIcon className="h-4 w-4" />
+              My lessons
+            </Link>
+            {viewSwitch}
+          </div>
+
+          <header>
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-la-green">
+              {[unit?.title, position?.number ? `Lesson ${position.number} of ${position.total}` : null]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+            <h1 className="mt-3 text-balance font-[family-name:var(--font-source-serif)] text-[38px] font-semibold leading-[1.1] tracking-tight sm:text-[56px]">
+              {lesson.title}
+            </h1>
+            {kindRows[0]?.description ? (
+              <p className="mt-4 max-w-[640px] font-[family-name:var(--font-source-serif)] text-[20px] leading-relaxed text-la-muted">
+                {kindRows[0].description}
+              </p>
+            ) : null}
+            <p className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-[15px] text-la-muted">
+              {metaParts.map((part, index) => (
+                // The separator ends the item before it, so a wrapped line never starts with one.
+                <span key={index} className="inline-flex items-center gap-3">
+                  {part}
+                  {index < metaParts.length - 1 ? <span aria-hidden="true">·</span> : null}
+                </span>
+              ))}
+            </p>
+          </header>
+
+          {lockedNotice ? <div className="mt-6">{lockedNotice}</div> : null}
+
+          {objectives.length > 0 ? (
+            <LessonObjectives storageKey={`${pupilId}:${lesson.lesson_id}`} objectives={objectives} />
+          ) : null}
+
+          {sections.length === 0
+            ? noActivities
+            : sections.map((section, index) => (
+                <section
+                  key={section.key}
+                  id={`section-${section.key}`}
+                  aria-labelledby={`section-${section.key}-title`}
+                  className="mt-16 scroll-mt-28"
+                >
+                  <h2
+                    id={`section-${section.key}-title`}
+                    className="font-[family-name:var(--font-source-serif)] text-[28px] font-semibold leading-tight sm:text-[34px]"
+                  >
+                    <span className="text-la-green">{index + 1}.</span> {section.title}
+                  </h2>
+                  {section.introHtml ? (
+                    <div
+                      className="mt-3 font-[family-name:var(--font-source-serif)] text-[20px] leading-relaxed text-la-muted [&_p]:m-0"
+                      dangerouslySetInnerHTML={{ __html: section.introHtml }}
+                    />
+                  ) : null}
+                  <div className="mt-8 flex flex-col gap-12">
+                    {index === 0 ? <ResourceCards resources={resources} canDownload={canDownload} /> : null}
+                    {renderSectionItems(section.items)}
+                  </div>
+                </section>
+              ))}
+
+          {lessonEnd}
+        </main>
+      </div>
+    </div>
+  )
+
   return (
     <FeedbackVisibilityProvider
       assignmentIds={assignmentIds}
@@ -1555,128 +1781,7 @@ export default async function PupilLessonFriendlyPage({
       initialVisible={initialFeedbackVisible}
     >
       <LessonProgressProvider lessonId={lesson.lesson_id} countableIds={countableIds} initialDoneIds={submittedIds}>
-        <div
-          className={cn(
-            "lesson-article min-h-screen bg-la-bg font-[family-name:var(--font-inter)] text-[16px] text-la-ink",
-            lessonArticleFontClass,
-          )}
-        >
-          <div className="mx-auto flex w-full max-w-[1040px] flex-col px-4 pb-24 sm:px-6 min-[900px]:flex-row min-[900px]:gap-12 min-[900px]:pt-10">
-            <LessonContents
-              sections={contentsSections}
-              awarded={awarded}
-              totalMarks={totalMarks}
-              course={groupId ? { units: courseUnits, pupilId } : null}
-              fontClass={lessonArticleFontClass}
-            />
-
-            <main id="lesson-top" className="min-w-0 max-w-[720px] flex-1 pt-8 min-[900px]:pt-0">
-              <Link
-                href={backHref}
-                className="mb-6 inline-flex min-h-11 items-center gap-1.5 text-sm text-la-muted hover:text-la-ink"
-              >
-                <ArrowLeftIcon className="h-4 w-4" />
-                My lessons
-              </Link>
-
-              <header>
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-la-green">
-                  {[unit?.title, position?.number ? `Lesson ${position.number} of ${position.total}` : null]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
-                <h1 className="mt-3 text-balance font-[family-name:var(--font-source-serif)] text-[38px] font-semibold leading-[1.1] tracking-tight sm:text-[56px]">
-                  {lesson.title}
-                </h1>
-                {kindRows[0]?.description ? (
-                  <p className="mt-4 max-w-[640px] font-[family-name:var(--font-source-serif)] text-[20px] leading-relaxed text-la-muted">
-                    {kindRows[0].description}
-                  </p>
-                ) : null}
-                <p className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-[15px] text-la-muted">
-                  {metaParts.map((part, index) => (
-                    // The separator ends the item before it, so a wrapped line never starts with one.
-                    <span key={index} className="inline-flex items-center gap-3">
-                      {part}
-                      {index < metaParts.length - 1 ? <span aria-hidden="true">·</span> : null}
-                    </span>
-                  ))}
-                </p>
-              </header>
-
-              {isLocked ? (
-                <p
-                  role="status"
-                  className="mt-6 flex items-start gap-2 rounded-xl border border-la-amber/30 bg-la-amber-bg px-4 py-3 text-[15px] text-la-amber"
-                >
-                  <LockIcon className="mt-0.5 h-4 w-4 flex-none" />
-                  <span>
-                    <strong className="font-semibold">This lesson is locked.</strong>{" "}
-                    {isPupilViewer
-                      ? "You can read it, but you can't change answers, upload or download files."
-                      : "This pupil can read it but cannot change answers, upload or download files."}
-                  </span>
-                </p>
-              ) : null}
-
-              {objectives.length > 0 ? (
-                <LessonObjectives storageKey={`${pupilId}:${lesson.lesson_id}`} objectives={objectives} />
-              ) : null}
-
-              {sections.length === 0 ? (
-                <p className="mt-12 text-la-muted">There aren&apos;t any activities in this lesson yet.</p>
-              ) : (
-                sections.map((section, index) => (
-                  <section
-                    key={section.key}
-                    id={`section-${section.key}`}
-                    aria-labelledby={`section-${section.key}-title`}
-                    className="mt-16 scroll-mt-28"
-                  >
-                    <h2
-                      id={`section-${section.key}-title`}
-                      className="font-[family-name:var(--font-source-serif)] text-[28px] font-semibold leading-tight sm:text-[34px]"
-                    >
-                      <span className="text-la-green">{index + 1}.</span> {section.title}
-                    </h2>
-                    {section.introHtml ? (
-                      <div
-                        className="mt-3 font-[family-name:var(--font-source-serif)] text-[20px] leading-relaxed text-la-muted [&_p]:m-0"
-                        dangerouslySetInnerHTML={{ __html: section.introHtml }}
-                      />
-                    ) : null}
-                    <div className="mt-8 flex flex-col gap-12">
-                      {index === 0 ? <ResourceCards resources={resources} canDownload={canDownload} /> : null}
-                      {renderSectionItems(section.items)}
-                    </div>
-                  </section>
-                ))
-              )}
-
-              {lessonFiles.length > 0 ? (
-                <p className="mt-16 border-t border-la-border pt-8 text-[15px] text-la-muted">
-                  Your teacher also has {lessonFiles.length === 1 ? "a file" : "files"} for this lesson (
-                  {lessonFiles.map((file) => file.name).join(", ")}). Ask them for a copy.
-                </p>
-              ) : null}
-
-              <LessonFooter
-                lessonId={lesson.lesson_id}
-                pupilId={pupilId}
-                initialUnderstanding={understanding}
-                canAnswer={isPupilViewer && !isTeacher}
-                nextLesson={
-                  position?.next
-                    ? {
-                        href: `/pupil-lessons/${encodeURIComponent(pupilId)}/lessons/${encodeURIComponent(position.next.lessonId)}`,
-                        title: position.next.title,
-                      }
-                    : null
-                }
-              />
-            </main>
-          </div>
-        </div>
+        {profile.lessonViewMode === "slides" ? renderSlides() : renderPage()}
       </LessonProgressProvider>
     </FeedbackVisibilityProvider>
   )
@@ -1702,11 +1807,11 @@ type LessonActivityRow = { activity_id: string; type: string | null; title: stri
  * grouped by type (learn, practise, check, explain), keeping their order.
  * Resource activities shown as cards are left out of both.
  */
-function buildSections<T extends LessonActivityRow>(activities: T[], resourceIds: Set<string | null>): Array<ArticleSection & { items: T[] }> {
+function buildSections<T extends LessonActivityRow>(activities: T[], resourceIds: Set<string | null>): Array<Omit<ArticleSection, "items"> & { items: T[] }> {
   const shown = (activity: T) => !resourceIds.has(activity.activity_id)
 
   if (activities.some((activity) => activity.type === "display-section")) {
-    const sections: Array<ArticleSection & { items: T[] }> = []
+    const sections: Array<Omit<ArticleSection, "items"> & { items: T[] }> = []
     for (const activity of activities) {
       if (activity.type === "display-section") {
         sections.push({

@@ -311,6 +311,8 @@ export {
   type ReadCurrentProfileResult,
   readProfileDetailAction,
   type ReadProfileDetailResult,
+  setLessonViewModeAction,
+  type SetLessonViewModeResult,
   toggleUserTeacherStatusAction,
   updateCurrentProfileAction,
   type UpdateCurrentProfileInput,

@@ -4,7 +4,8 @@ import { useActionState, useEffect, useMemo, useState } from "react"
 import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
 
-import type { CurrentProfile } from "@/types"
+import type { CurrentProfile, LessonViewMode } from "@/types"
+import { LessonViewSwitch } from "@/components/lesson-article/lesson-view-switch"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -24,11 +25,13 @@ export const INITIAL_PROFILE_FORM_STATE: ProfileFormActionState = {
 
 type ProfileFormClientProps = {
   profile: CurrentProfile
+  /** Only on the viewer's own profile; it saves as soon as it is changed. */
+  lessonViewMode?: LessonViewMode | null
   initialState: ProfileFormActionState
   action: (state: ProfileFormActionState, formData: FormData) => Promise<ProfileFormActionState>
 }
 
-export function ProfileFormClient({ profile, action, initialState }: ProfileFormClientProps) {
+export function ProfileFormClient({ profile, lessonViewMode, action, initialState }: ProfileFormClientProps) {
   const [formState, formAction, pending] = useActionState(action, initialState)
   const [firstName, setFirstName] = useState(profile.first_name ?? "")
   const [lastName, setLastName] = useState(profile.last_name ?? "")
@@ -123,6 +126,18 @@ export function ProfileFormClient({ profile, action, initialState }: ProfileForm
             disabled={pending}
             data-testid="show_experimental_activities_switch"
           />
+        </div>
+      ) : null}
+
+      {lessonViewMode ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border px-4 py-3">
+          <div>
+            <p className="text-sm font-medium text-foreground">Lesson layout</p>
+            <p className="text-xs text-muted-foreground">
+              Show lessons as one page, or as slides with one activity per screen. Saved straight away.
+            </p>
+          </div>
+          <LessonViewSwitch mode={lessonViewMode} />
         </div>
       ) : null}
 

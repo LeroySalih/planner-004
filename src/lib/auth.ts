@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs"
 
 import { query } from "@/lib/db"
 import { effectiveRoles } from "@/lib/roles"
+import type { LessonViewMode } from "@/types"
 
 const SESSION_COOKIE = "planner_session"
 const SESSION_TTL_MS = 60 * 60 * 1000 // 1 hour rolling
@@ -18,6 +19,7 @@ export type AuthenticatedProfile = {
   firstName?: string | null
   lastName?: string | null
   showExperimentalActivities: boolean
+  lessonViewMode: LessonViewMode
   // Signed in with the shared default password: must set their own first.
   mustChangePassword: boolean
 }
@@ -166,12 +168,13 @@ async function readProfile(userId: string): Promise<AuthenticatedProfile | null>
     first_name: string | null
     last_name: string | null
     show_experimental_activities: boolean | null
+    lesson_view_mode: LessonViewMode
     must_change_password: boolean | null
     roles: string[] | null
   }>(
     `
       select p.user_id, p.email, p.is_teacher, p.first_name, p.last_name,
-             p.show_experimental_activities, p.must_change_password,
+             p.show_experimental_activities, p.lesson_view_mode, p.must_change_password,
              array_agg(ur.role_id) filter (where ur.role_id is not null) as roles
       from profiles p
       left join user_roles ur on ur.user_id = p.user_id
@@ -198,6 +201,7 @@ async function readProfile(userId: string): Promise<AuthenticatedProfile | null>
     firstName: row.first_name ?? null,
     lastName: row.last_name ?? null,
     showExperimentalActivities: Boolean(row.show_experimental_activities),
+    lessonViewMode: row.lesson_view_mode,
     mustChangePassword: Boolean(row.must_change_password),
   }
 }

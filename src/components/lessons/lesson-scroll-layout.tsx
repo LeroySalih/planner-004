@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
 import { ArrowLeft, ChevronDown } from "lucide-react"
@@ -47,6 +47,8 @@ export function LessonHero({
   backHref,
   backLabel = "Back",
   greetingName,
+  description,
+  actions,
 }: {
   id?: string
   lessonTitle: string
@@ -56,6 +58,9 @@ export function LessonHero({
   backHref?: string
   backLabel?: string
   greetingName?: string | null
+  description?: string | null
+  /** Controls pinned to the top right, opposite the back link. */
+  actions?: ReactNode
 }) {
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
@@ -81,6 +86,8 @@ export function LessonHero({
         </Link>
       ) : null}
 
+      {actions ? <div className="absolute right-6 top-6">{actions}</div> : null}
+
       <div
         className={cn(
           "relative w-full max-w-3xl transition-all duration-1000 ease-out",
@@ -96,6 +103,10 @@ export function LessonHero({
         <h1 className="text-balance text-4xl font-bold leading-tight tracking-tight sm:text-6xl">
           {lessonTitle}
         </h1>
+
+        {description ? (
+          <p className="mx-auto mt-4 max-w-2xl text-lg leading-relaxed text-muted-foreground">{description}</p>
+        ) : null}
 
         {greetingName ? (
           <p className="mt-4 text-sm text-muted-foreground">
@@ -244,10 +255,13 @@ export function ActivityReveal({
  */
 export function ActivityMotion({
   id,
+  className,
   children,
 }: {
   /** Anchor id for scroll-to (e.g. from the activity sidebar). */
   id?: string
+  /** Extra classes for the revealed column, e.g. a wider max width. */
+  className?: string
   children: React.ReactNode
 }) {
   const { ref, inView } = useInView<HTMLDivElement>()
@@ -259,6 +273,7 @@ export function ActivityMotion({
         className={cn(
           "w-full max-w-[540px] scroll-mt-24 transition-opacity duration-700 ease-out",
           inView ? "opacity-100" : "opacity-0",
+          className,
         )}
       >
         {children}

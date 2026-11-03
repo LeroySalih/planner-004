@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
-import { CurrentProfileSchema } from "@/types";
+import { CurrentProfileSchema, LessonViewModeSchema, type LessonViewMode } from "@/types";
 import { query } from "@/lib/db";
 import { isDefaultPassword } from "@/lib/default-password";
 import { hashPassword, requireAuthenticatedProfile, requireTeacherProfile } from "@/lib/auth";
@@ -347,6 +347,47 @@ export async function updateProfileDetailAction(
     success: true,
     error: null,
     data: profile,
+  });
+}
+
+const SetLessonViewModeResultSchema = z.object({
+  data: z.object({ lessonViewMode: LessonViewModeSchema }).nullable(),
+  error: z.string().nullable(),
+});
+
+export type SetLessonViewModeResult = z.infer<typeof SetLessonViewModeResultSchema>;
+
+/** Sets how the signed-in user's pupil lessons are laid out. Only ever their own. */
+export async function setLessonViewModeAction(mode: LessonViewMode): Promise<SetLessonViewModeResult> {
+  const parsed = LessonViewModeSchema.safeParse(mode);
+  if (!parsed.success) {
+    return SetLessonViewModeResultSchema.parse({ data: null, error: "Choose page or slides." });
+  }
+
+  const authProfile = await requireAuthenticatedProfile();
+
+  try {
+    const { rowCount } = await query(
+      "update profiles set lesson_view_mode = $1 where user_id = $2",
+      [parsed.data, authProfile.userId],
+    );
+    if (rowCount === 0) {
+      return SetLessonViewModeResultSchema.parse({ data: null, error: "Profile not found." });
+    }
+  } catch (error) {
+    console.error("[profile] Failed to set lesson view mode", error);
+    return SetLessonViewModeResultSchema.parse({
+      data: null,
+      error: "We couldn't change your lesson layout just now. Please try again.",
+    });
+  }
+
+  revalidatePath("/pupil-lessons/[pupilId]/lessons/[lessonId]", "page");
+  revalidatePath(`/profiles/${authProfile.userId}`);
+
+  return SetLessonViewModeResultSchema.parse({
+    data: { lessonViewMode: parsed.data },
+    error: null,
   });
 }
 

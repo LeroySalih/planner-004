@@ -97,7 +97,10 @@ export default async function ProfileDetailPage({
       </header>
 
       <section className="rounded-lg border border-border bg-card p-6 shadow-sm">
-        <ProfileDetailForm profileId={profileId} />
+        <ProfileDetailForm
+          profileId={profileId}
+          lessonViewMode={viewer && viewer.userId === profileId ? viewer.lessonViewMode : null}
+        />
       </section>
 
       <section className="rounded-lg border border-border bg-card p-6 shadow-sm">

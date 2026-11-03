@@ -1,3 +1,4 @@
+import type { LessonViewMode } from "@/types"
 import {
   readProfileDetailAction,
   updateProfileDetailAction,
@@ -10,9 +11,11 @@ import {
 
 type ProfileDetailFormProps = {
   profileId: string
+  /** The viewer's own lesson layout, or null on someone else's profile. */
+  lessonViewMode: LessonViewMode | null
 }
 
-export async function ProfileDetailForm({ profileId }: ProfileDetailFormProps) {
+export async function ProfileDetailForm({ profileId, lessonViewMode }: ProfileDetailFormProps) {
   const result = await readProfileDetailAction(profileId)
 
   if (!result.data) {
@@ -58,6 +61,7 @@ export async function ProfileDetailForm({ profileId }: ProfileDetailFormProps) {
   return (
     <ProfileFormClient
       profile={result.data}
+      lessonViewMode={lessonViewMode}
       action={handleProfileUpdate}
       initialState={INITIAL_PROFILE_FORM_STATE}
     />
