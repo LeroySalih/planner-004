@@ -70,6 +70,7 @@ type SigninAttemptReason =
   | "lookup-error"
   | "profile-not-found"
   | "invalid-password"
+  | "inactive"
   | "throttled"
   | "csrf-mismatch"
   | "forbidden-origin"
@@ -198,12 +199,13 @@ async function findProfileByEmail(email: string) {
       email: string | null
       password_hash: string | null
       must_change_password: boolean | null
+      active: boolean
       is_teacher: boolean | null
       first_name: string | null
       last_name: string | null
     }>(
       `
-        select user_id, email, password_hash, must_change_password, is_teacher, first_name, last_name
+        select user_id, email, password_hash, must_change_password, active, is_teacher, first_name, last_name
         from profiles
         where lower(email) = lower($1)
         limit 1
@@ -479,6 +481,18 @@ export async function signinAction(input: unknown): Promise<AuthResult> {
         return AuthResultSchema.parse({
           success: false,
           error: "Invalid email or password.",
+          userId: null,
+          isTeacher: null,
+        })
+      }
+
+      // An inactive account (e.g. a pupil who has left) keeps its work but cannot sign in.
+      if (!profile.active) {
+        logSigninFailure({ email, reason: "inactive" })
+        await recordSigninAttempt({ email, ip, userId: profile.user_id, success: false, reason: "inactive" })
+        return AuthResultSchema.parse({
+          success: false,
+          error: "This account is no longer active. Please speak to your teacher.",
           userId: null,
           isTeacher: null,
         })

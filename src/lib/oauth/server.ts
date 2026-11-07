@@ -395,8 +395,8 @@ async function issueTokens(
 
 /** What a token says about its user: role rows, the legacy flag, active classes. */
 async function readTokenSubject(db: Queryable, userId: string, withGroups: boolean) {
-  const { rows } = await db.query<{ is_teacher: boolean | null; roles: string[] | null; group_ids: string[] | null }>(
-    `select p.is_teacher,
+  const { rows } = await db.query<{ active: boolean; is_teacher: boolean | null; roles: string[] | null; group_ids: string[] | null }>(
+    `select p.active, p.is_teacher,
             (select array_agg(ur.role_id) from user_roles ur where ur.user_id = p.user_id) as roles,
             case when $2 then (
               select array_agg(gm.group_id order by gm.group_id)
@@ -409,6 +409,7 @@ async function readTokenSubject(db: Queryable, userId: string, withGroups: boole
   )
   const row = rows[0]
   if (!row) throw new OAuthError("invalid_grant", "This account no longer exists.")
+  if (!row.active) throw new OAuthError("invalid_grant", "This account is no longer active.")
   return {
     userId,
     roleRows: row.roles ?? [],

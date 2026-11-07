@@ -178,7 +178,7 @@ async function readProfile(userId: string): Promise<AuthenticatedProfile | null>
              array_agg(ur.role_id) filter (where ur.role_id is not null) as roles
       from profiles p
       left join user_roles ur on ur.user_id = p.user_id
-      where p.user_id = $1
+      where p.user_id = $1 and p.active
       group by p.user_id
       limit 1
     `,

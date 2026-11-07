@@ -39,6 +39,7 @@ MIGRATIONS=(
   "136-assessment-mark-scheme-route.sql|select exists (select 1 from ai_model_routes where activity_type = 'surface:assessment-mark-scheme')"
   "137-mcp-class-feedback-links.sql|select exists (select 1 from information_schema.columns where table_name = 'mcp_download_links' and column_name = 'kind')"
   "138-lesson-view-mode.sql|select exists (select 1 from information_schema.columns where table_name = 'profiles' and column_name = 'lesson_view_mode')"
+  "139-profile-active.sql|select exists (select 1 from information_schema.columns where table_name = 'profiles' and column_name = 'active')"
 )
 
 YES=false
