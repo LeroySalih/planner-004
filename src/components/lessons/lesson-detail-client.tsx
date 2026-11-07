@@ -68,6 +68,7 @@ interface LessonDetailClientProps {
     updated_at?: string | null
     last_accessed_at?: string | null
     size?: number | null
+    past_version?: boolean
   }[]
   lessonActivities: LessonActivity[]
   unitLessons: LessonPickerOption[]

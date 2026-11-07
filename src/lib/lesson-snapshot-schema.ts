@@ -1,5 +1,6 @@
 import { z } from "zod"
 
+import { pastVersionNames } from "@/lib/storage/file-versions"
 import {
   LessonActivitiesSchema,
   LessonWithObjectivesSchema,
@@ -21,7 +22,14 @@ export const LessonDetailPayloadSchema = z.object({
   unit: UnitSchema.nullable().optional(),
   unitLessons: LessonsSchema.default([]),
   lessonActivities: LessonActivitiesSchema.default([]),
-  lessonFiles: z.array(LessonFileMetadataSchema).default([]),
+  // All from the lesson's own folder, so versions are judged across the list.
+  lessonFiles: z
+    .array(LessonFileMetadataSchema)
+    .default([])
+    .transform((files) => {
+      const pastVersions = pastVersionNames(files.map((file) => file.name))
+      return files.map((file) => ({ ...file, past_version: pastVersions.has(file.name) }))
+    }),
 })
 
 export type LessonDetailPayload = z.infer<typeof LessonDetailPayloadSchema>

@@ -32,6 +32,7 @@ import {
 } from "@/lib/server-updates"
 import { parseActivitiesMarkdown } from "@/lib/parse-activities-markdown"
 import { Badge } from "@/components/ui/badge"
+import { PastVersionBadge, PastVersionsSwitch } from "@/components/lessons/past-versions-switch"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -91,6 +92,7 @@ interface ActivityFileInfo {
   name: string
   path: string
   size?: number | null
+  past_version?: boolean
 }
 
 interface AssignedGroupInfo {
@@ -1163,7 +1165,7 @@ useEffect(() => {
         return
       }
 
-      const files = filesResult.data ?? []
+      const files = (filesResult.data ?? []).filter((file) => !file.past_version)
       if (files.length === 0) {
         setFileDownloadState((prev) => ({
           ...prev,
@@ -2345,6 +2347,7 @@ function LessonActivityEditorSheet({
   const [isProcessing, setIsProcessing] = useState(false)
   const [pendingUploadFiles, setPendingUploadFiles] = useState<File[]>([])
   const [activityFiles, setActivityFiles] = useState<ActivityFileInfo[]>([])
+  const [showPastVersions, setShowPastVersions] = useState(false)
   const [isFilesLoading, setIsFilesLoading] = useState(false)
   const [isUploadingFiles, setIsUploadingFiles] = useState(false)
   const [isFileDragActive, setIsFileDragActive] = useState(false)
@@ -5900,21 +5903,31 @@ function LessonActivityEditorSheet({
                 </div>
               ) : null}
 
+              <PastVersionsSwitch
+                count={activityFiles.filter((file) => file.past_version).length}
+                checked={showPastVersions}
+                onCheckedChange={setShowPastVersions}
+              />
               {isFilesLoading ? (
                 <p className="text-sm text-muted-foreground">Loading files…</p>
               ) : activityFiles.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No files uploaded yet.</p>
               ) : (
                 <ul className="space-y-2">
-                  {activityFiles.map((file) => {
+                  {(showPastVersions ? activityFiles : activityFiles.filter((file) => !file.past_version)).map((file) => {
                     const sizeLabel = formatFileSize(file.size)
                     return (
                       <li
                         key={file.path}
-                        className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm"
+                        className={`flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm ${
+                          file.past_version ? "bg-muted/40 text-muted-foreground" : ""
+                        }`}
                       >
                         <div className="flex flex-col">
-                          <span className="font-medium">{file.name}</span>
+                          <span className="flex flex-wrap items-center gap-2 font-medium">
+                            {file.name}
+                            {file.past_version && <PastVersionBadge />}
+                          </span>
                           {sizeLabel ? <span className="text-xs text-muted-foreground">{sizeLabel}</span> : null}
                         </div>
                         <div className="flex items-center gap-1">

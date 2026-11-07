@@ -157,6 +157,10 @@ src/
 
 Files placed in `public/` are served at the root URL with no auth — e.g. `public/pages/foo.html` → `https://dino.mr-salih.org/pages/foo.html`.
 
+### Past versions of lesson and activity files
+
+Uploading a file over one of the same name renames the old copy to `<base>_<DD-MM-YYYY_HH-MM-SS><.ext>` (`uploadFile` in `src/lib/storage/local-storage.ts`). A stamped file is a **past version** only when its un-stamped name is in the same folder; one whose current copy has gone is an ordinary file and always shows. The rule lives once in `src/lib/storage/file-versions.ts` (`currentFileName`, `pastVersionNames`). `listLessonFilesAction`, `listActivityFilesAction` and the lesson detail snapshot's `lessonFiles` carry `past_version`. Teacher file lists hide past versions behind a *Show past versions (n)* switch (`PastVersionsSwitch`, shown only when there are any); pupil pages, presentations and the activity zip show current versions only. Pupil submission listings do not use the rule. MCP `list_lesson_files` lists everything. Tests: `tests/storage/file-versions.check.ts`.
+
 ## Key Data Contracts
 
 **Assignment Data Flow**:

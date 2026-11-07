@@ -6,6 +6,7 @@ import { ChevronDown, ChevronRight, FileDown, LinkIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { PastVersionBadge, PastVersionsSwitch } from "@/components/lessons/past-versions-switch"
 import { getLessonFileDownloadUrlAction } from "@/lib/server-updates"
 
 type LessonResourceLink = {
@@ -18,6 +19,7 @@ type LessonResourceFile = {
   name: string
   path: string
   size?: number
+  past_version: boolean
 }
 
 type LessonResourcesPanelProps = {
@@ -29,6 +31,7 @@ type LessonResourcesPanelProps = {
 export function LessonResourcesPanel({ lessonId, links, files }: LessonResourcesPanelProps) {
   const [open, setOpen] = useState(true)
   const [pendingDownload, setPendingDownload] = useState<string | null>(null)
+  const [showPastVersions, setShowPastVersions] = useState(false)
   const [isPending, startTransition] = useTransition()
   const panelId = `lesson-resources-${lessonId}`
 
@@ -55,8 +58,10 @@ export function LessonResourcesPanel({ lessonId, links, files }: LessonResources
     })
   }
 
+  const pastVersionCount = files.filter((file) => file.past_version).length
+  const visibleFiles = showPastVersions ? files : files.filter((file) => !file.past_version)
   const hasLinks = links.length > 0
-  const hasFiles = files.length > 0
+  const hasFiles = visibleFiles.length > 0
 
   return (
     <div className="rounded-lg border border-border bg-card shadow-sm">
@@ -74,7 +79,7 @@ export function LessonResourcesPanel({ lessonId, links, files }: LessonResources
         <span className="text-xs text-muted-foreground">
           {hasLinks ? `${links.length} link${links.length === 1 ? "" : "s"}` : "No links"}
           {" · "}
-          {hasFiles ? `${files.length} file${files.length === 1 ? "" : "s"}` : "No files"}
+          {hasFiles ? `${visibleFiles.length} file${visibleFiles.length === 1 ? "" : "s"}` : "No files"}
         </span>
       </button>
 
@@ -107,18 +112,36 @@ export function LessonResourcesPanel({ lessonId, links, files }: LessonResources
           </section>
 
           <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Files</h3>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Files</h3>
+              <PastVersionsSwitch
+                count={pastVersionCount}
+                checked={showPastVersions}
+                onCheckedChange={setShowPastVersions}
+              />
+            </div>
             {hasFiles ? (
               <ul className="mt-3 space-y-2">
-                {files.map((file) => {
+                {visibleFiles.map((file) => {
                   const loading = isPending && pendingDownload === file.name
                   return (
                     <li
                       key={file.path}
-                      className="flex items-center justify-between gap-2 rounded-md border border-border/60 bg-background px-3 py-2"
+                      className={`flex items-center justify-between gap-2 rounded-md border border-border/60 px-3 py-2 ${
+                        file.past_version ? "bg-muted/40" : "bg-background"
+                      }`}
                     >
                       <div className="flex min-w-0 flex-col">
-                        <span className="truncate text-sm font-medium text-foreground">{file.name}</span>
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span
+                            className={`truncate text-sm font-medium ${
+                              file.past_version ? "text-muted-foreground" : "text-foreground"
+                            }`}
+                          >
+                            {file.name}
+                          </span>
+                          {file.past_version && <PastVersionBadge />}
+                        </span>
                         {typeof file.size === "number" ? (
                           <span className="text-xs text-muted-foreground">{formatFileSize(file.size)}</span>
                         ) : null}

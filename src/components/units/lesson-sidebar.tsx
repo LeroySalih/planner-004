@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/select"
 import { Download, ExternalLink, GripVertical, Trash2, X } from "lucide-react"
 import { LessonActivityView } from "@/components/lessons/activity-view"
+import { PastVersionBadge, PastVersionsSwitch } from "@/components/lessons/past-versions-switch"
 import { isMothballedActivityType } from "@/dino.config"
 import {
   computeSectionIndexMap,
@@ -95,6 +96,7 @@ export interface LessonFileInfo {
   created_at?: string
   updated_at?: string
   size?: number
+  past_version?: boolean
 }
 
 export interface LessonLinkInfo {
@@ -265,7 +267,9 @@ export function LessonSidebar({
   const [activityFilesLoading, setActivityFilesLoading] = useState<Record<string, boolean>>({})
   const [activityUploading, setActivityUploading] = useState<Record<string, boolean>>({})
   const [activeDropTargets, setActiveDropTargets] = useState<Record<string, boolean>>({})
+  const [showPastActivityFiles, setShowPastActivityFiles] = useState<Record<string, boolean>>({})
   const [files, setFiles] = useState<LessonFileInfo[]>([])
+  const [showPastLessonFiles, setShowPastLessonFiles] = useState(false)
   const [isFilesLoading, setIsFilesLoading] = useState(false)
   const [lessonFileUploads, setLessonFileUploads] = useState<LessonFileUpload[]>([])
   const [isLessonFileDragActive, setIsLessonFileDragActive] = useState(false)
@@ -1708,6 +1712,10 @@ export function LessonSidebar({
                           const activityType =
                             ACTIVITY_TYPES.find((option) => option.value === activity.type)?.value ?? ACTIVITY_TYPES[0].value
                           const activityFiles = activityFilesMap[activity.activity_id] ?? []
+                          const pastActivityFileCount = activityFiles.filter((file) => file.past_version).length
+                          const visibleActivityFiles = showPastActivityFiles[activity.activity_id]
+                            ? activityFiles
+                            : activityFiles.filter((file) => !file.past_version)
 
                           return (
                             <div
@@ -1890,19 +1898,32 @@ export function LessonSidebar({
                               {activityUploading[activity.activity_id] ? (
                                 <p className="text-xs text-muted-foreground">Uploading files…</p>
                               ) : null}
+                              <PastVersionsSwitch
+                                count={pastActivityFileCount}
+                                checked={showPastActivityFiles[activity.activity_id] ?? false}
+                                onCheckedChange={(checked) =>
+                                  setShowPastActivityFiles((prev) => ({ ...prev, [activity.activity_id]: checked }))
+                                }
+                              />
                               {activityFilesLoading[activity.activity_id] ? (
                                 <p className="text-sm text-muted-foreground">Loading files...</p>
                               ) : activityFiles.length === 0 ? (
                                 <p className="text-sm text-muted-foreground">No files uploaded yet.</p>
                               ) : (
                                 <ul className="space-y-2">
-                                  {activityFiles.map((file) => (
+                                  {visibleActivityFiles.map((file) => (
                                     <li
                                       key={file.path}
-                                      className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm"
+                                      className={cn(
+                                        "flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm",
+                                        file.past_version && "bg-muted/40 text-muted-foreground",
+                                      )}
                                     >
                                       <div className="flex flex-col">
-                                        <span className="font-medium">{file.name}</span>
+                                        <span className="flex flex-wrap items-center gap-2 font-medium">
+                                          {file.name}
+                                          {file.past_version && <PastVersionBadge />}
+                                        </span>
                                         {file.size ? (
                                           <span className="text-xs text-muted-foreground">
                                             {formatFileSize(file.size)}
@@ -2137,19 +2158,30 @@ export function LessonSidebar({
                         ))}
                       </div>
                     ) : null}
+                    <PastVersionsSwitch
+                      count={files.filter((file) => file.past_version).length}
+                      checked={showPastLessonFiles}
+                      onCheckedChange={setShowPastLessonFiles}
+                    />
                     {isFilesLoading ? (
                       <p className="text-sm text-muted-foreground">Loading files...</p>
                     ) : files.length === 0 ? (
                       <p className="text-sm text-muted-foreground">No files uploaded yet.</p>
                     ) : (
                       <ul className="space-y-2">
-                        {files.map((file) => (
+                        {(showPastLessonFiles ? files : files.filter((file) => !file.past_version)).map((file) => (
                           <li
                             key={file.path}
-                            className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm"
+                            className={cn(
+                              "flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm",
+                              file.past_version && "bg-muted/40 text-muted-foreground",
+                            )}
                           >
                             <div className="flex flex-col">
-                              <span className="font-medium">{file.name}</span>
+                              <span className="flex flex-wrap items-center gap-2 font-medium">
+                                {file.name}
+                                {file.past_version && <PastVersionBadge />}
+                              </span>
                               {file.size ? (
                                 <span className="text-xs text-muted-foreground">
                                   {formatFileSize(file.size)}
@@ -2486,7 +2518,11 @@ export function LessonPresentation({
 }: LessonPresentationProps) {
   const isOverview = currentIndex < 0
   const activity = !isOverview && currentIndex >= 0 ? activities[currentIndex] : null
-  const activityFiles = activity ? activityFilesMap[activity.activity_id] ?? [] : []
+  // Projected to the class, so current versions only.
+  const currentLessonFiles = lessonFiles.filter((file) => !file.past_version)
+  const activityFiles = (activity ? activityFilesMap[activity.activity_id] ?? [] : []).filter(
+    (file) => !file.past_version,
+  )
   const isFullScreenImage = !isOverview && activity?.type === "display-image"
   const [voicePlayback, setVoicePlayback] = useState<{ url: string | null; loading: boolean }>(
     { url: null, loading: false },
@@ -2663,11 +2699,11 @@ export function LessonPresentation({
                   </div>
                   <div className="space-y-2">
                     <p className="text-sm font-semibold text-muted-foreground">Lesson Files</p>
-                    {lessonFiles.length === 0 ? (
+                    {currentLessonFiles.length === 0 ? (
                       <p className="text-sm text-muted-foreground">No files uploaded yet.</p>
                     ) : (
                       <ul className="space-y-2 text-sm">
-                        {lessonFiles.map((file) => (
+                        {currentLessonFiles.map((file) => (
                           <li key={file.path} className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
                             <div className="space-y-1">
                               <p className="font-medium">{file.name}</p>
@@ -2991,11 +3027,13 @@ function McqActivityEditor({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="none">No image</SelectItem>
-            {files.map((file) => (
-              <SelectItem key={file.path} value={file.name}>
-                {file.name}
-              </SelectItem>
-            ))}
+            {files
+              .filter((file) => !file.past_version || file.name === mcqBody.imageFile)
+              .map((file) => (
+                <SelectItem key={file.path} value={file.name}>
+                  {file.name}
+                </SelectItem>
+              ))}
           </SelectContent>
         </Select>
         <p className="text-xs text-muted-foreground">

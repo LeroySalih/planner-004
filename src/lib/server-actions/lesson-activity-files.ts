@@ -12,6 +12,7 @@ import { requireAuthenticatedProfile } from "@/lib/auth";
 import { pupilWorkLockedMessage } from "@/lib/lesson-lock";
 import { emitSubmissionEvent, emitUploadEvent } from "@/lib/sse/topics";
 import { logActivitySubmissionEvent } from "@/lib/activity-logging";
+import { pastVersionNames } from "@/lib/storage/file-versions";
 import { createLocalStorageClient } from "@/lib/storage/local-storage";
 import { withTelemetry } from "@/lib/telemetry";
 import {
@@ -33,6 +34,7 @@ const ActivityFileSchema = z.object({
   submitted_at: z.string().nullable().optional(),
   instructions: z.string().nullable().optional(),
   uploaded_at: z.string().optional(),
+  past_version: z.boolean().default(false),
 });
 
 const UploadedFileSchema = z.object({
@@ -188,6 +190,7 @@ export async function listActivityFilesAction(
     return ActivityFilesReturnValue.parse({ data: null, error: error.message });
   }
 
+  const pastVersions = pastVersionNames((data ?? []).map((file) => file.name));
   const normalized = (data ?? [])
     .map((file) =>
       ActivityFileSchema.parse({
@@ -197,6 +200,7 @@ export async function listActivityFilesAction(
         updated_at: normaliseTimestamp(file.updated_at),
         last_accessed_at: normaliseTimestamp(file.last_accessed_at),
         size: file.metadata?.size ?? undefined,
+        past_version: pastVersions.has(file.name),
       })
     )
     .sort((a, b) => {

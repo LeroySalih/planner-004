@@ -11,6 +11,7 @@ import {
 } from "@/lib/server-updates"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
+import { PastVersionBadge, PastVersionsSwitch } from "@/components/lessons/past-versions-switch"
 
 interface LessonFileInfo {
   name: string
@@ -22,6 +23,7 @@ interface LessonFileInfo {
   deletable?: boolean
   file_url?: string
   activity_title?: string
+  past_version?: boolean
 }
 
 interface LessonFilesManagerProps {
@@ -55,6 +57,7 @@ export function LessonFilesManager({ unitId, lessonId, initialFiles }: LessonFil
   const [isLoading, setIsLoading] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [isDragging, setIsDragging] = useState(false)
+  const [showPastVersions, setShowPastVersions] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<{ total: number; completed: number }>({
     total: 0,
     completed: 0,
@@ -69,6 +72,9 @@ export function LessonFilesManager({ unitId, lessonId, initialFiles }: LessonFil
   useEffect(() => {
     setFiles(initialFiles)
   }, [initialFiles])
+
+  const pastVersionCount = files.filter((file) => file.past_version).length
+  const visibleFiles = showPastVersions ? files : files.filter((file) => !file.past_version)
 
   const refreshFiles = useCallback(async () => {
     setIsLoading(true)
@@ -227,7 +233,12 @@ export function LessonFilesManager({ unitId, lessonId, initialFiles }: LessonFil
             </div>
           ) : null}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <PastVersionsSwitch
+            count={pastVersionCount}
+            checked={showPastVersions}
+            onCheckedChange={setShowPastVersions}
+          />
           <input
             ref={fileInputRef}
             type="file"
@@ -262,13 +273,18 @@ export function LessonFilesManager({ unitId, lessonId, initialFiles }: LessonFil
           <p className="text-sm text-muted-foreground">No files have been uploaded yet.</p>
         ) : (
           <ul className="space-y-2">
-            {files.map((file) => (
+            {visibleFiles.map((file) => (
               <li
                 key={file.path}
-                className="flex flex-col gap-2 rounded-md border border-border p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+                className={`flex flex-col gap-2 rounded-md border border-border p-3 text-sm sm:flex-row sm:items-center sm:justify-between ${
+                  file.past_version ? "bg-muted/40 text-muted-foreground" : ""
+                }`}
               >
                 <div>
-                  <p className="font-medium break-all">{file.name}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-medium break-all">{file.name}</p>
+                    {file.past_version && <PastVersionBadge />}
+                  </div>
                   {file.activity_title && (
                     <p className="text-xs text-muted-foreground">From activity: {file.activity_title}</p>
                   )}

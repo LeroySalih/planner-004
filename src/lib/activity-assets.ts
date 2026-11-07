@@ -87,7 +87,7 @@ async function fetchFirstActivityFileName(lessonId: string, activityId: string):
       console.error("[activities] Failed to list activity files:", filesResult.error)
       return null
     }
-    const firstFile = filesResult.data?.[0]
+    const firstFile = filesResult.data?.find((file) => !file.past_version)
     return firstFile?.name ?? null
   } catch (error) {
     console.error("[activities] Unexpected error listing activity files", error)

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { getAuthenticatedProfile } from "@/lib/auth"
+import { pastVersionNames } from "@/lib/storage/file-versions"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 
 const LESSON_FILES_BUCKET = "lessons"
@@ -86,6 +87,7 @@ export async function POST(request: Request) {
   try {
     const { data: freshList, error: listError } = await storage.list(lessonId, { limit: 100 })
     if (!listError) {
+      const pastVersions = pastVersionNames((freshList ?? []).map((item) => item.name))
       files = freshList?.map((item) => ({
         name: item.name,
         path: buildFilePath(lessonId, item.name),
@@ -93,6 +95,7 @@ export async function POST(request: Request) {
         updated_at: toIsoOrUndefined(item.updated_at),
         last_accessed_at: toIsoOrUndefined(item.last_accessed_at),
         size: item.metadata?.size ?? undefined,
+        past_version: pastVersions.has(item.name),
       })) ?? null
     }
   } catch (listErr) {

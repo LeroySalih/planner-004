@@ -346,7 +346,7 @@ export default async function PupilLessonFriendlyPage({
 
   const unit = lessonPayload?.unit ?? null
   const activities = (lessonPayload?.lessonActivities ?? []).filter((activity) => activity.active !== false)
-  const lessonFiles = lessonPayload?.lessonFiles ?? []
+  const lessonFiles = (lessonPayload?.lessonFiles ?? []).filter((file) => !file.past_version)
 
   const activityIds = activities.map((activity) => activity.activity_id)
   const latestFeedbackByActivity = new Map<string, string | null>()
@@ -394,7 +394,7 @@ export default async function PupilLessonFriendlyPage({
       }
       
       const filesWithUrls = await Promise.all(
-        filesResult.data.map(async (file) => {
+        filesResult.data.filter((file) => !file.past_version).map(async (file) => {
           const urlResult = await getActivityFileDownloadUrlAction(lesson.lesson_id, activity.activity_id, file.name)
           return { name: file.name, url: urlResult.success ? urlResult.url : null }
         })

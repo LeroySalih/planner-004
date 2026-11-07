@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
+import { pastVersionNames } from "@/lib/storage/file-versions"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 import { withTelemetry } from "@/lib/telemetry"
 import { query } from "@/lib/db"
@@ -19,6 +20,7 @@ const LessonFileSchema = z.object({
   deletable: z.boolean().default(true),
   file_url: z.string().optional(),
   activity_title: z.string().optional(),
+  past_version: z.boolean(),
 })
 
 const LessonFilesReturnValue = z.object({
@@ -65,6 +67,7 @@ export async function listLessonFilesAction(
       }
 
       // Teacher-uploaded lesson files (deletable)
+      const lessonPastVersions = pastVersionNames((data ?? []).map((file) => file.name))
       const lessonFiles = (data ?? []).map((file) =>
         LessonFileSchema.parse({
           name: file.name,
@@ -75,6 +78,7 @@ export async function listLessonFilesAction(
           size: file.metadata?.size ?? undefined,
           deletable: true,
           file_url: `/api/files/${[LESSON_FILES_BUCKET, lessonId, file.name].map(encodeURIComponent).join("/")}`,
+          past_version: lessonPastVersions.has(file.name),
         }),
       )
 
@@ -110,6 +114,15 @@ export async function listLessonFilesAction(
           [lessonId, LESSON_FILES_BUCKET],
         )
 
+        // Versions are per folder, and each activity has its own.
+        const namesByFolder = new Map<string, string[]>()
+        for (const row of rows) {
+          namesByFolder.set(row.scope_path, [...(namesByFolder.get(row.scope_path) ?? []), row.file_name])
+        }
+        const pastVersionsByFolder = new Map(
+          [...namesByFolder].map(([folder, names]) => [folder, pastVersionNames(names)]),
+        )
+
         activityFiles = rows.map((row) =>
           LessonFileSchema.parse({
             name: row.file_name,
@@ -120,6 +133,7 @@ export async function listLessonFilesAction(
             deletable: false,
             activity_title: row.activity_title ?? undefined,
             file_url: `/api/files/${[LESSON_FILES_BUCKET, lessonId, "activities", row.activity_id, row.file_name].map(encodeURIComponent).join("/")}`,
+            past_version: pastVersionsByFolder.get(row.scope_path)?.has(row.file_name) ?? false,
           }),
         )
       } catch (err) {
@@ -181,6 +195,7 @@ export async function uploadLessonFileAction(formData: FormData) {
         if (value instanceof Date) return value.toISOString()
         return undefined
       }
+      const pastVersions = pastVersionNames((freshList ?? []).map((item) => item.name))
       latestFiles =
         freshList?.map((item) =>
           LessonFileSchema.parse({
@@ -190,6 +205,7 @@ export async function uploadLessonFileAction(formData: FormData) {
             updated_at: toIsoOrUndefined(item.updated_at),
             last_accessed_at: toIsoOrUndefined(item.last_accessed_at),
             size: item.metadata?.size ?? undefined,
+            past_version: pastVersions.has(item.name),
           }),
         ) ?? null
     }
@@ -218,6 +234,7 @@ export async function deleteLessonFileAction(unitId: string, lessonId: string, f
         if (value instanceof Date) return value.toISOString()
         return undefined
       }
+      const pastVersions = pastVersionNames((freshList ?? []).map((item) => item.name))
       latestFiles =
         freshList?.map((item) =>
           LessonFileSchema.parse({
@@ -227,6 +244,7 @@ export async function deleteLessonFileAction(unitId: string, lessonId: string, f
             updated_at: toIsoOrUndefined(item.updated_at),
             last_accessed_at: toIsoOrUndefined(item.last_accessed_at),
             size: item.metadata?.size ?? undefined,
+            past_version: pastVersions.has(item.name),
           }),
         ) ?? null
     }

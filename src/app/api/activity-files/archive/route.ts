@@ -3,6 +3,7 @@ import archiver from "archiver"
 import { PassThrough, Readable, Readable as NodeReadable } from "node:stream"
 
 import { requireTeacherProfile } from "@/lib/auth"
+import { pastVersionNames } from "@/lib/storage/file-versions"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 
 const LESSON_FILES_BUCKET = "lessons"
@@ -43,7 +44,10 @@ export async function GET(request: Request) {
       }
       return NextResponse.json({ error: "Unable to list files for activity." }, { status: 400 })
     }
+    // The zip holds current versions only.
+    const pastVersions = pastVersionNames((data ?? []).map((item) => item.name))
     for (const item of data ?? []) {
+      if (pastVersions.has(item.name)) continue
       const safeName = sanitizeFileName(item.name)
       const exists = files.find((entry) => entry.name === safeName)
       if (!exists) {
