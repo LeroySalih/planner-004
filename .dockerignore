@@ -10,6 +10,8 @@ files/
 backups/
 downloads/
 logs/
+purged/
+.purge-test-files/
 
 # Backup / dump artifacts that can sit in the project dir
 *.tar.gz

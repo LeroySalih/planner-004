@@ -142,7 +142,14 @@ export function ArticleActivity({
   )
 
   return (
-    <article id={anchorId} aria-labelledby={`${anchorId}-heading`} className="scroll-mt-28">
+    <article
+      id={anchorId}
+      aria-labelledby={`${anchorId}-heading`}
+      // Found by ActivityKeyboardNav; tabIndex -1 lets an activity with no text box take focus.
+      data-activity-nav=""
+      tabIndex={-1}
+      className="scroll-mt-28 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-la-green/40"
+    >
       {variant === "task" ? (
         <header className="mb-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
           <h3 id={`${anchorId}-heading`} className="text-[20px] font-semibold leading-snug text-la-ink">

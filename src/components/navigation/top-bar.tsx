@@ -46,6 +46,7 @@ export function TopBar({ isCoding = false }: { isCoding?: boolean }) {
 
   return (
     <header
+      data-sticky-header=""
       className={cn(
         "sticky top-0 z-50 border-b",
         // Pale red on the coding site so it can't be mistaken for the live one.

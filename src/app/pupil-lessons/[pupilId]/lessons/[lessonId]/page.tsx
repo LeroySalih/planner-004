@@ -53,6 +53,7 @@ import { LessonProgressProvider } from "@/components/lesson-article/lesson-progr
 import { LessonViewSwitch } from "@/components/lesson-article/lesson-view-switch"
 import { ResourceCards } from "@/components/lesson-article/resource-cards"
 import { ActivitySidebar, type ActivitySidebarItem } from "@/components/lessons/activity-sidebar"
+import { ActivityKeyboardNav } from "@/components/lessons/activity-keyboard-nav"
 import {
   ActivityMotion,
   LessonHero,
@@ -1362,7 +1363,7 @@ export default async function PupilLessonFriendlyPage({
         const url = displayImageUrlMap.get(activity.activity_id) ?? (looksLikeImageUrl(extractActivityLink(activity)) ? extractActivityLink(activity) : null)
         const caption = `Figure ${figureNumber}.${activity.title ? ` ${activity.title}` : ""}`
         return (
-          <figure key={activity.activity_id} id={anchorId} className="scroll-mt-28">
+          <figure key={activity.activity_id} id={anchorId} {...ACTIVITY_NAV} className={cn("scroll-mt-28", ACTIVITY_NAV_FOCUS)}>
             {url ? (
               <ImageLightbox
                 src={url}
@@ -1386,7 +1387,7 @@ export default async function PupilLessonFriendlyPage({
         const link = extractActivityLink(activity)
         const embed = link ? videoEmbedUrl(link) : null
         return (
-          <figure key={activity.activity_id} id={anchorId} className="scroll-mt-28">
+          <figure key={activity.activity_id} id={anchorId} {...ACTIVITY_NAV} className={cn("scroll-mt-28", ACTIVITY_NAV_FOCUS)}>
             {embed ? (
               <div className="aspect-video w-full overflow-hidden rounded-xl border border-la-border bg-black">
                 <iframe
@@ -1436,7 +1437,7 @@ export default async function PupilLessonFriendlyPage({
         const files = fileDownloadUrlMap.get(activity.activity_id) ?? []
         const link = extractActivityLink(activity)
         return (
-          <div key={activity.activity_id} id={anchorId} className="scroll-mt-28 rounded-xl border border-la-border bg-la-card p-4">
+          <div key={activity.activity_id} id={anchorId} {...ACTIVITY_NAV} className={cn("scroll-mt-28 rounded-xl border border-la-border bg-la-card p-4", ACTIVITY_NAV_FOCUS)}>
             <h3 className="font-semibold text-la-ink">{activity.title || "Download"}</h3>
             {extractUploadInstructions(activity) ? (
               <p className="mt-1 text-[15px] text-la-muted">{extractUploadInstructions(activity)}</p>
@@ -1468,7 +1469,7 @@ export default async function PupilLessonFriendlyPage({
         const body = (activity.body_data ?? {}) as Record<string, unknown>
         const markup = getRichTextMarkup(typeof body.markdown === "string" ? body.markdown : "")
         return (
-          <div key={activity.activity_id} id={anchorId} className="scroll-mt-28 rounded-xl border border-la-border bg-la-card p-5">
+          <div key={activity.activity_id} id={anchorId} {...ACTIVITY_NAV} className={cn("scroll-mt-28 rounded-xl border border-la-border bg-la-card p-5", ACTIVITY_NAV_FOCUS)}>
             <h3 className="mb-2 font-semibold text-la-ink">{activity.title || "Key terms"}</h3>
             {markup ? <div className={PROSE} dangerouslySetInnerHTML={{ __html: markup }} /> : null}
           </div>
@@ -1477,7 +1478,7 @@ export default async function PupilLessonFriendlyPage({
       case "voice": {
         const audioUrl = extractAudioUrl(activity)
         return (
-          <div key={activity.activity_id} id={anchorId} className="scroll-mt-28">
+          <div key={activity.activity_id} id={anchorId} {...ACTIVITY_NAV} className={cn("scroll-mt-28", ACTIVITY_NAV_FOCUS)}>
             {activity.title ? <h3 className="mb-2 text-[20px] font-semibold text-la-ink">{activity.title}</h3> : null}
             {audioUrl ? (
               <audio className="w-full" controls preload="none" src={audioUrl}>
@@ -1499,7 +1500,12 @@ export default async function PupilLessonFriendlyPage({
           <div
             key={activity.activity_id}
             id={anchorId}
-            className={cn("scroll-mt-28", isExamTip && "rounded-xl border-l-4 border-la-green bg-la-green-pale p-5")}
+            {...ACTIVITY_NAV}
+            className={cn(
+              "scroll-mt-28",
+              isExamTip && "rounded-xl border-l-4 border-la-green bg-la-green-pale p-5",
+              ACTIVITY_NAV_FOCUS,
+            )}
           >
             {activity.title ? (
               <h3 className="mb-2 text-[20px] font-semibold text-la-ink">
@@ -1781,11 +1787,17 @@ export default async function PupilLessonFriendlyPage({
       initialVisible={initialFeedbackVisible}
     >
       <LessonProgressProvider lessonId={lesson.lesson_id} countableIds={countableIds} initialDoneIds={submittedIds}>
+        <ActivityKeyboardNav />
         {profile.lessonViewMode === "slides" ? renderSlides() : renderPage()}
       </LessonProgressProvider>
     </FeedbackVisibilityProvider>
   )
 }
+
+// Marks the element wrapping one activity for ActivityKeyboardNav. tabIndex -1
+// lets an activity without a text box take focus when the arrows reach it.
+const ACTIVITY_NAV = { "data-activity-nav": "", tabIndex: -1 }
+const ACTIVITY_NAV_FOCUS = "focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-la-green/40"
 
 const PROSE =
   "prose max-w-none text-[17px] leading-relaxed text-la-ink prose-headings:text-la-ink prose-a:text-la-green prose-strong:text-la-ink prose-img:rounded-xl dark:prose-invert"
@@ -1935,6 +1947,7 @@ function LinkCard({ id, title, detail, href }: { id: string; title: string; deta
   return href ? (
     <a
       id={id}
+      data-activity-nav=""
       href={href}
       target="_blank"
       rel="noopener noreferrer"
@@ -1943,7 +1956,11 @@ function LinkCard({ id, title, detail, href }: { id: string; title: string; deta
       {body}
     </a>
   ) : (
-    <div id={id} className="min-h-[72px] scroll-mt-28 rounded-xl border border-dashed border-la-input p-4">
+    <div
+      id={id}
+      {...ACTIVITY_NAV}
+      className={cn("min-h-[72px] scroll-mt-28 rounded-xl border border-dashed border-la-input p-4", ACTIVITY_NAV_FOCUS)}
+    >
       {body}
     </div>
   )

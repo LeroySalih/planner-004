@@ -189,6 +189,8 @@ export function PupilUploadCodeActivity({
       >
         <textarea
           ref={textareaRef}
+          // A code box: the arrow keys always move the caret, never between activities.
+          data-activity-nav-skip=""
           value={code}
           onChange={(event) => {
             dirtyRef.current = true

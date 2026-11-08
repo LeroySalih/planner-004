@@ -185,6 +185,7 @@ function CriterionRow({ criterion }: { criterion: ScrollObjectiveCriterion }) {
 export function StickySectionHeading({ title }: { title: string }) {
   return (
     <div
+      data-sticky-header=""
       style={{ position: "sticky", top: TOP_BAR_HEIGHT, zIndex: 30 }}
       className="-mx-6 mb-4 border-b border-border/60 bg-background/90 px-6 py-4 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/75"
     >

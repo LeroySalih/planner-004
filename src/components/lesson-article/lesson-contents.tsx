@@ -88,7 +88,7 @@ export function LessonContents(props: LessonContentsProps) {
         {panel}
       </aside>
 
-      <div className="sticky top-20 z-30 -mx-4 border-b border-la-border bg-la-bg/95 px-4 backdrop-blur min-[900px]:hidden">
+      <div data-sticky-header="" className="sticky top-20 z-30 -mx-4 border-b border-la-border bg-la-bg/95 px-4 backdrop-blur min-[900px]:hidden">
         <div className="flex items-center justify-between gap-3 py-1.5">
           <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
             <SheetTrigger asChild>
