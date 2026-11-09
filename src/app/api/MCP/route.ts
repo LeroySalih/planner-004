@@ -31,6 +31,7 @@ import { createSubUnit, listSubUnitsWithLessons, setLessonSubUnit, setSubUnitAct
 import { listUnits, findUnitsByTitle, createUnit, updateUnit, getUnit } from '@/lib/mcp/units'
 import { LESSON_DESCRIPTION_MAX } from '@/lib/lesson-description'
 import { listUnitAudits, readUnitAudit, recordUnitAudit, MAX_AUDIT_ACTIONS, type UnitAudit } from '@/lib/unit-audits/store'
+import { ASSESSMENT_PAPERS_ENABLED } from '@/dino.config'
 import { withDbClient } from '@/lib/db'
 import { listLessonsForUnit, getLessonObjectives, createLesson, updateLesson, reorderLessons, addSuccessCriterionToLesson, removeSuccessCriterionFromLesson, removeLearningObjectiveFromLesson, uploadLessonFile, removeLessonFile } from '@/lib/mcp/lessons'
 import {
@@ -2782,195 +2783,11 @@ The result is checked as create_activity checks it; a body over a limit is refus
     + 'Totals and per-objective subtotals are always computed — never send them.'
 
   srv.registerTool(
-    'list_assessment_papers',
-    {
-      title: 'List assessment papers',
-      description: `List active assessment papers, newest first, with question/mark/pupil counts. ${PAPER_WORKFLOW}`,
-      inputSchema: {
-        group_id: z.string().optional().describe('Only papers set to this group, e.g. "26-10-DT".'),
-      },
-      outputSchema: {
-        assessments: z.array(AssessmentPaperSummarySchema).nullable(),
-      },
-    },
-    async ({ group_id }) => {
-      try {
-        const assessments = await listAssessments(group_id ?? null)
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: assessments.length > 0
-                ? assessments
-                  .map((a) => `${a.assessment_id} • ${a.assessed_on} • ${a.title} • ${a.question_count} questions, ${a.total_marks} marks, ${a.pupils_with_results} pupils`)
-                  .join('\n')
-                : 'No assessment papers found.',
-            },
-          ],
-          structuredContent: { assessments },
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to list assessment papers'
-        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { assessments: null } }
-      }
-    },
-  )
-
-  srv.registerTool(
-    'get_assessment_paper',
-    {
-      title: 'Get assessment paper',
-      description:
-        'Return a paper with its objectives, questions (label, max_marks, objective_code), total marks, and every pupil with at least one mark '
-        + '(total, percent, per-objective subtotals). Use it to verify after recording results.',
-      inputSchema: { assessment_id: z.string().min(1).describe('Assessment paper id.') },
-      outputSchema: { assessment: AssessmentPaperSchema.nullable() },
-    },
-    async ({ assessment_id }) => paperTool(() => getAssessment(assessment_id)),
-  )
-
-  srv.registerTool(
-    'get_assessment_paper_result',
-    {
-      title: 'Get a pupil\'s assessment paper result',
-      description:
-        'Return one pupil\'s result on a paper: totals, per-objective subtotals, every question with the mark (null if not marked), '
-        + 'feedback and provenance ("teacher" = edited by a teacher, never overwritten), plus went_well and targets.',
-      inputSchema: {
-        assessment_id: z.string().min(1).describe('Assessment paper id.'),
-        pupil_id: z.string().min(1).describe('Pupil user id from list_group_pupils.'),
-      },
-      outputSchema: { result: AssessmentPupilResultSchema.nullable() },
-    },
-    async ({ assessment_id, pupil_id }) => {
-      try {
-        const result = await getPupilResult(assessment_id, pupil_id)
-        const name = `${result.first_name ?? ''} ${result.last_name ?? ''}`.trim() || pupil_id
-        const marked = result.questions.filter((q) => q.awarded !== null).length
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: `${name} on ${result.assessment.title}: ${result.total_awarded}/${result.total_available} (${result.percent}%), ${marked}/${result.questions.length} questions marked.`,
-            },
-          ],
-          structuredContent: { result },
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to read result'
-        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { result: null } }
-      }
-    },
-  )
-
-  srv.registerTool(
-    'create_assessment_paper',
-    {
-      title: 'Create assessment paper',
-      description:
-        `Create a paper with its objectives. Call list_assessment_papers first so you do not create a duplicate. ${PAPER_WORKFLOW} `
-        + 'Each objective may link to one curriculum learning objective from the paper\'s curriculum, and each learning objective at most once per paper. '
-        + 'Arrays may be sent as JSON strings.',
-      inputSchema: {
-        title: z.string().min(1).describe('Paper title, e.g. "Practice B".'),
-        assessed_on: z.string().min(1).describe('Date sat, YYYY-MM-DD.'),
-        curriculum_id: z.string().min(1).describe('Curriculum whose learning objectives the paper links to.'),
-        group_ids: jsonArray(z.string()).describe('Groups that sat the paper, e.g. ["26-10-DT"].'),
-        objectives: jsonArray(objectiveInput).describe('The paper\'s objectives in printed order: [{code, title, learning_objective_id}].'),
-      },
-      outputSchema: { assessment: AssessmentPaperSchema.nullable() },
-    },
-    async ({ title, assessed_on, curriculum_id, group_ids, objectives }) =>
-      paperTool(
-        () => createAssessment({
-          title,
-          assessedOn: assessed_on,
-          curriculumId: curriculum_id,
-          groupIds: group_ids,
-          objectives: objectives.map(toObjectiveInput),
-        }),
-        'Created ',
-      ),
-  )
-
-  srv.registerTool(
-    'set_assessment_paper_objectives',
-    {
-      title: 'Set assessment paper objectives',
-      description:
-        'Replace a paper\'s objective list, matched by code; list order becomes position. Omitted title or learning_objective_id keep their current values. '
-        + 'A code missing from the list is deleted, unless questions still use it (that is an error naming them). Safe to re-run.',
-      inputSchema: {
-        assessment_id: z.string().min(1).describe('Assessment paper id.'),
-        objectives: jsonArray(objectiveInput.extend({ code: z.string().min(1).describe('Code printed on the paper, e.g. "LO1".') }))
-          .describe('Full objective list: [{code, title?, learning_objective_id?}].'),
-      },
-      outputSchema: { assessment: AssessmentPaperSchema.nullable() },
-    },
-    async ({ assessment_id, objectives }) =>
-      paperTool(() => setAssessmentObjectives(assessment_id, objectives.map(toObjectiveInput)), 'Updated '),
-  )
-
-  srv.registerTool(
-    'map_assessment_paper_objective',
-    {
-      title: 'Link a paper objective to the curriculum',
-      description:
-        'Link one paper objective (by code, e.g. "LO2") to a curriculum learning objective from the paper\'s curriculum, or clear the link with null or "". '
-        + 'Links are one-to-one per paper. Questions and marks are unaffected.',
-      inputSchema: {
-        assessment_id: z.string().min(1).describe('Assessment paper id.'),
-        code: z.string().min(1).describe('Paper objective code, e.g. "LO1".'),
-        learning_objective_id: z.string().nullable().describe('Curriculum learning objective id, or null / "" to unlink.'),
-      },
-      outputSchema: { assessment: AssessmentPaperSchema.nullable() },
-    },
-    async ({ assessment_id, code, learning_objective_id }) =>
-      paperTool(() => mapAssessmentObjective(assessment_id, code, learning_objective_id || null), 'Updated '),
-  )
-
-  srv.registerTool(
-    'set_assessment_paper_questions',
-    {
-      title: 'Set assessment paper questions',
-      description:
-        'Replace a paper\'s marked parts, matched by label (e.g. "Q1(iii)"); list order becomes position. Send the FULL list every time: '
-        + 'a label left out is deleted, unless pupils already have marks for it (error). max_marks cannot drop below a mark already awarded. '
-        + 'objective_code must be one of the paper\'s codes. Omitting correct_answer keeps the stored one. Safe to re-run. Arrays may be sent as JSON strings.',
-      inputSchema: {
-        assessment_id: z.string().min(1).describe('Assessment paper id.'),
-        questions: jsonArray(
-          z.object({
-            label: z.string().min(1).describe('Label as printed, e.g. "Q1(iii)".'),
-            max_marks: z.number().int().min(1).describe('Marks available for this part.'),
-            objective_code: z.string().min(1).describe('Paper objective code, e.g. "LO1".'),
-            correct_answer: z.string().nullable().optional().describe('Mark-scheme answer (optional).'),
-          }),
-        ).describe('Every marked part in paper order.'),
-      },
-      outputSchema: { assessment: AssessmentPaperSchema.nullable() },
-    },
-    async ({ assessment_id, questions }) =>
-      paperTool(
-        () => setAssessmentQuestions(
-          assessment_id,
-          questions.map((q) => ({
-            label: q.label,
-            maxMarks: q.max_marks,
-            objectiveCode: q.objective_code,
-            correctAnswer: q.correct_answer,
-          })),
-        ),
-        'Updated ',
-      ),
-  )
-
-  srv.registerTool(
     'list_group_pupils',
     {
       title: 'List pupils in a group',
       description:
-        'Return the pupils (not teachers) in a group with their user ids, sorted by surname. Use these ids for record_assessment_paper_result; '
+        'Return the pupils (not teachers) in a group with their user ids, sorted by surname. Use these ids wherever a tool takes a pupil id; '
         + 'never guess an id from a name, and report any pupil on the paper you cannot match to the user.',
       inputSchema: { group_id: z.string().min(1).describe('Group id, e.g. "26-10-DT".') },
       outputSchema: {
@@ -2998,211 +2815,400 @@ The result is checked as create_activity checks it; a body over a limit is refus
     },
   )
 
-  srv.registerTool(
-    'record_assessment_paper_result',
-    {
-      title: 'Record a pupil\'s assessment paper result',
-      description:
-        'Write ONE pupil\'s marks for a paper. Every label must exist on the paper and awarded must be a whole number from 0 to that question\'s max_marks; '
-        + 'any problem rejects the whole call and nothing is saved. Do not send totals — they are computed. '
-        + 'Re-running is safe: marks are replaced, except marks a teacher has edited, which are kept and listed in skipped_teacher_edited. '
-        + 'went_well/targets replace the pupil\'s whole-paper feedback when sent. missing_labels lists questions still unmarked for this pupil. '
-        + 'Arrays may be sent as JSON strings.',
-      inputSchema: {
-        assessment_id: z.string().min(1).describe('Assessment paper id.'),
-        pupil_id: z.string().min(1).describe('Pupil user id from list_group_pupils.'),
-        marks: jsonArray(
-          z.object({
-            label: z.string().min(1).describe('Question label, e.g. "Q1(iii)".'),
-            awarded: z.number().int().min(0).describe('Marks awarded, 0..max_marks.'),
-            why_not_awarded: z.string().nullable().optional().describe('Why marks were lost (omit when full marks).'),
-            how_to_improve: z.string().nullable().optional().describe('What the pupil should do to gain them.'),
+  // Stand-alone assessment papers are retired in favour of the assessment-paper
+  // lesson activity. The tools stay in the code, unregistered, in case they are
+  // needed again: flip ASSESSMENT_PAPERS_ENABLED in dino.config.ts.
+  if (ASSESSMENT_PAPERS_ENABLED) {
+    srv.registerTool(
+      'list_assessment_papers',
+      {
+        title: 'List assessment papers',
+        description: `List active assessment papers, newest first, with question/mark/pupil counts. ${PAPER_WORKFLOW}`,
+        inputSchema: {
+          group_id: z.string().optional().describe('Only papers set to this group, e.g. "26-10-DT".'),
+        },
+        outputSchema: {
+          assessments: z.array(AssessmentPaperSummarySchema).nullable(),
+        },
+      },
+      async ({ group_id }) => {
+        try {
+          const assessments = await listAssessments(group_id ?? null)
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: assessments.length > 0
+                  ? assessments
+                    .map((a) => `${a.assessment_id} • ${a.assessed_on} • ${a.title} • ${a.question_count} questions, ${a.total_marks} marks, ${a.pupils_with_results} pupils`)
+                    .join('\n')
+                  : 'No assessment papers found.',
+              },
+            ],
+            structuredContent: { assessments },
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Failed to list assessment papers'
+          return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { assessments: null } }
+        }
+      },
+    )
+
+    srv.registerTool(
+      'get_assessment_paper',
+      {
+        title: 'Get assessment paper',
+        description:
+          'Return a paper with its objectives, questions (label, max_marks, objective_code), total marks, and every pupil with at least one mark '
+          + '(total, percent, per-objective subtotals). Use it to verify after recording results.',
+        inputSchema: { assessment_id: z.string().min(1).describe('Assessment paper id.') },
+        outputSchema: { assessment: AssessmentPaperSchema.nullable() },
+      },
+      async ({ assessment_id }) => paperTool(() => getAssessment(assessment_id)),
+    )
+
+    srv.registerTool(
+      'get_assessment_paper_result',
+      {
+        title: 'Get a pupil\'s assessment paper result',
+        description:
+          'Return one pupil\'s result on a paper: totals, per-objective subtotals, every question with the mark (null if not marked), '
+          + 'feedback and provenance ("teacher" = edited by a teacher, never overwritten), plus went_well and targets.',
+        inputSchema: {
+          assessment_id: z.string().min(1).describe('Assessment paper id.'),
+          pupil_id: z.string().min(1).describe('Pupil user id from list_group_pupils.'),
+        },
+        outputSchema: { result: AssessmentPupilResultSchema.nullable() },
+      },
+      async ({ assessment_id, pupil_id }) => {
+        try {
+          const result = await getPupilResult(assessment_id, pupil_id)
+          const name = `${result.first_name ?? ''} ${result.last_name ?? ''}`.trim() || pupil_id
+          const marked = result.questions.filter((q) => q.awarded !== null).length
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: `${name} on ${result.assessment.title}: ${result.total_awarded}/${result.total_available} (${result.percent}%), ${marked}/${result.questions.length} questions marked.`,
+              },
+            ],
+            structuredContent: { result },
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Failed to read result'
+          return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { result: null } }
+        }
+      },
+    )
+
+    srv.registerTool(
+      'create_assessment_paper',
+      {
+        title: 'Create assessment paper',
+        description:
+          `Create a paper with its objectives. Call list_assessment_papers first so you do not create a duplicate. ${PAPER_WORKFLOW} `
+          + 'Each objective may link to one curriculum learning objective from the paper\'s curriculum, and each learning objective at most once per paper. '
+          + 'Arrays may be sent as JSON strings.',
+        inputSchema: {
+          title: z.string().min(1).describe('Paper title, e.g. "Practice B".'),
+          assessed_on: z.string().min(1).describe('Date sat, YYYY-MM-DD.'),
+          curriculum_id: z.string().min(1).describe('Curriculum whose learning objectives the paper links to.'),
+          group_ids: jsonArray(z.string()).describe('Groups that sat the paper, e.g. ["26-10-DT"].'),
+          objectives: jsonArray(objectiveInput).describe('The paper\'s objectives in printed order: [{code, title, learning_objective_id}].'),
+        },
+        outputSchema: { assessment: AssessmentPaperSchema.nullable() },
+      },
+      async ({ title, assessed_on, curriculum_id, group_ids, objectives }) =>
+        paperTool(
+          () => createAssessment({
+            title,
+            assessedOn: assessed_on,
+            curriculumId: curriculum_id,
+            groupIds: group_ids,
+            objectives: objectives.map(toObjectiveInput),
           }),
-        ).describe('One entry per marked question.'),
-        went_well: jsonArray(z.string()).optional().describe('Whole-paper strengths.'),
-        targets: jsonArray(z.string()).optional().describe('Whole-paper targets.'),
+          'Created ',
+        ),
+    )
+
+    srv.registerTool(
+      'set_assessment_paper_objectives',
+      {
+        title: 'Set assessment paper objectives',
+        description:
+          'Replace a paper\'s objective list, matched by code; list order becomes position. Omitted title or learning_objective_id keep their current values. '
+          + 'A code missing from the list is deleted, unless questions still use it (that is an error naming them). Safe to re-run.',
+        inputSchema: {
+          assessment_id: z.string().min(1).describe('Assessment paper id.'),
+          objectives: jsonArray(objectiveInput.extend({ code: z.string().min(1).describe('Code printed on the paper, e.g. "LO1".') }))
+            .describe('Full objective list: [{code, title?, learning_objective_id?}].'),
+        },
+        outputSchema: { assessment: AssessmentPaperSchema.nullable() },
       },
-      outputSchema: {
-        written: RecordAssessmentResultSchema.shape.written.nullable(),
-        skipped_teacher_edited: RecordAssessmentResultSchema.shape.skipped_teacher_edited.nullable(),
-        feedback_skipped_teacher_edited: RecordAssessmentResultSchema.shape.feedback_skipped_teacher_edited.nullable(),
-        missing_labels: RecordAssessmentResultSchema.shape.missing_labels.nullable(),
-        result: AssessmentPupilResultSchema.nullable(),
+      async ({ assessment_id, objectives }) =>
+        paperTool(() => setAssessmentObjectives(assessment_id, objectives.map(toObjectiveInput)), 'Updated '),
+    )
+
+    srv.registerTool(
+      'map_assessment_paper_objective',
+      {
+        title: 'Link a paper objective to the curriculum',
+        description:
+          'Link one paper objective (by code, e.g. "LO2") to a curriculum learning objective from the paper\'s curriculum, or clear the link with null or "". '
+          + 'Links are one-to-one per paper. Questions and marks are unaffected.',
+        inputSchema: {
+          assessment_id: z.string().min(1).describe('Assessment paper id.'),
+          code: z.string().min(1).describe('Paper objective code, e.g. "LO1".'),
+          learning_objective_id: z.string().nullable().describe('Curriculum learning objective id, or null / "" to unlink.'),
+        },
+        outputSchema: { assessment: AssessmentPaperSchema.nullable() },
       },
-    },
-    async ({ assessment_id, pupil_id, marks, went_well, targets }) => {
-      try {
-        const outcome = await recordPupilResult({
-          assessmentId: assessment_id,
-          pupilId: pupil_id,
-          marks: marks.map((m) => ({
-            label: m.label,
-            awarded: m.awarded,
-            whyNotAwarded: m.why_not_awarded,
-            howToImprove: m.how_to_improve,
-          })),
-          wentWell: went_well,
-          targets,
-        })
-        const r = outcome.result
-        const name = `${r.first_name ?? ''} ${r.last_name ?? ''}`.trim() || pupil_id
-        const notes = [
-          outcome.skipped_teacher_edited.length > 0 ? `kept teacher-edited: ${outcome.skipped_teacher_edited.join(', ')}` : '',
-          outcome.feedback_skipped_teacher_edited ? 'kept teacher-edited feedback' : '',
-          outcome.missing_labels.length > 0 ? `unmarked: ${outcome.missing_labels.join(', ')}` : '',
-        ].filter(Boolean)
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: `${name}: ${outcome.written} marks written, ${r.total_awarded}/${r.total_available} (${r.percent}%).${notes.length > 0 ? ` ${notes.join('; ')}.` : ''}`,
+      async ({ assessment_id, code, learning_objective_id }) =>
+        paperTool(() => mapAssessmentObjective(assessment_id, code, learning_objective_id || null), 'Updated '),
+    )
+
+    srv.registerTool(
+      'set_assessment_paper_questions',
+      {
+        title: 'Set assessment paper questions',
+        description:
+          'Replace a paper\'s marked parts, matched by label (e.g. "Q1(iii)"); list order becomes position. Send the FULL list every time: '
+          + 'a label left out is deleted, unless pupils already have marks for it (error). max_marks cannot drop below a mark already awarded. '
+          + 'objective_code must be one of the paper\'s codes. Omitting correct_answer keeps the stored one. Safe to re-run. Arrays may be sent as JSON strings.',
+        inputSchema: {
+          assessment_id: z.string().min(1).describe('Assessment paper id.'),
+          questions: jsonArray(
+            z.object({
+              label: z.string().min(1).describe('Label as printed, e.g. "Q1(iii)".'),
+              max_marks: z.number().int().min(1).describe('Marks available for this part.'),
+              objective_code: z.string().min(1).describe('Paper objective code, e.g. "LO1".'),
+              correct_answer: z.string().nullable().optional().describe('Mark-scheme answer (optional).'),
+            }),
+          ).describe('Every marked part in paper order.'),
+        },
+        outputSchema: { assessment: AssessmentPaperSchema.nullable() },
+      },
+      async ({ assessment_id, questions }) =>
+        paperTool(
+          () => setAssessmentQuestions(
+            assessment_id,
+            questions.map((q) => ({
+              label: q.label,
+              maxMarks: q.max_marks,
+              objectiveCode: q.objective_code,
+              correctAnswer: q.correct_answer,
+            })),
+          ),
+          'Updated ',
+        ),
+    )
+
+    srv.registerTool(
+      'record_assessment_paper_result',
+      {
+        title: 'Record a pupil\'s assessment paper result',
+        description:
+          'Write ONE pupil\'s marks for a paper. Every label must exist on the paper and awarded must be a whole number from 0 to that question\'s max_marks; '
+          + 'any problem rejects the whole call and nothing is saved. Do not send totals — they are computed. '
+          + 'Re-running is safe: marks are replaced, except marks a teacher has edited, which are kept and listed in skipped_teacher_edited. '
+          + 'went_well/targets replace the pupil\'s whole-paper feedback when sent. missing_labels lists questions still unmarked for this pupil. '
+          + 'Arrays may be sent as JSON strings.',
+        inputSchema: {
+          assessment_id: z.string().min(1).describe('Assessment paper id.'),
+          pupil_id: z.string().min(1).describe('Pupil user id from list_group_pupils.'),
+          marks: jsonArray(
+            z.object({
+              label: z.string().min(1).describe('Question label, e.g. "Q1(iii)".'),
+              awarded: z.number().int().min(0).describe('Marks awarded, 0..max_marks.'),
+              why_not_awarded: z.string().nullable().optional().describe('Why marks were lost (omit when full marks).'),
+              how_to_improve: z.string().nullable().optional().describe('What the pupil should do to gain them.'),
+            }),
+          ).describe('One entry per marked question.'),
+          went_well: jsonArray(z.string()).optional().describe('Whole-paper strengths.'),
+          targets: jsonArray(z.string()).optional().describe('Whole-paper targets.'),
+        },
+        outputSchema: {
+          written: RecordAssessmentResultSchema.shape.written.nullable(),
+          skipped_teacher_edited: RecordAssessmentResultSchema.shape.skipped_teacher_edited.nullable(),
+          feedback_skipped_teacher_edited: RecordAssessmentResultSchema.shape.feedback_skipped_teacher_edited.nullable(),
+          missing_labels: RecordAssessmentResultSchema.shape.missing_labels.nullable(),
+          result: AssessmentPupilResultSchema.nullable(),
+        },
+      },
+      async ({ assessment_id, pupil_id, marks, went_well, targets }) => {
+        try {
+          const outcome = await recordPupilResult({
+            assessmentId: assessment_id,
+            pupilId: pupil_id,
+            marks: marks.map((m) => ({
+              label: m.label,
+              awarded: m.awarded,
+              whyNotAwarded: m.why_not_awarded,
+              howToImprove: m.how_to_improve,
+            })),
+            wentWell: went_well,
+            targets,
+          })
+          const r = outcome.result
+          const name = `${r.first_name ?? ''} ${r.last_name ?? ''}`.trim() || pupil_id
+          const notes = [
+            outcome.skipped_teacher_edited.length > 0 ? `kept teacher-edited: ${outcome.skipped_teacher_edited.join(', ')}` : '',
+            outcome.feedback_skipped_teacher_edited ? 'kept teacher-edited feedback' : '',
+            outcome.missing_labels.length > 0 ? `unmarked: ${outcome.missing_labels.join(', ')}` : '',
+          ].filter(Boolean)
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: `${name}: ${outcome.written} marks written, ${r.total_awarded}/${r.total_available} (${r.percent}%).${notes.length > 0 ? ` ${notes.join('; ')}.` : ''}`,
+              },
+            ],
+            structuredContent: outcome,
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Failed to record result'
+          return {
+            content: [{ type: 'text' as const, text: `Error: ${message}` }],
+            structuredContent: {
+              written: null,
+              skipped_teacher_edited: null,
+              feedback_skipped_teacher_edited: null,
+              missing_labels: null,
+              result: null,
             },
-          ],
-          structuredContent: outcome,
+          }
         }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to record result'
-        return {
-          content: [{ type: 'text' as const, text: `Error: ${message}` }],
-          structuredContent: {
-            written: null,
-            skipped_teacher_edited: null,
-            feedback_skipped_teacher_edited: null,
-            missing_labels: null,
-            result: null,
-          },
-        }
-      }
-    },
-  )
-
-  srv.registerTool(
-    'attach_assessment_paper_file',
-    {
-      title: 'Attach a file to an assessment paper',
-      description:
-        'Store a small file (question paper, mark scheme) against a paper. Content is base64, max 5 MB; uploading the same file_name again replaces it. '
-        + 'For scans of pupils\' papers, or any file in your code sandbox, use create_assessment_paper_file_upload_link instead. Downloads are teacher-only.',
-      inputSchema: {
-        assessment_id: z.string().min(1).describe('Assessment paper id.'),
-        file_name: z.string().min(1).describe('File name with extension, no slashes.'),
-        base64_content: z.string().min(1).describe('File content, base64-encoded.'),
-        content_type: z.string().optional().describe('MIME type, e.g. "application/pdf".'),
       },
-      outputSchema: {
-        file: AssessmentFileSchema.nullable(),
+    )
+
+    srv.registerTool(
+      'attach_assessment_paper_file',
+      {
+        title: 'Attach a file to an assessment paper',
+        description:
+          'Store a small file (question paper, mark scheme) against a paper. Content is base64, max 5 MB; uploading the same file_name again replaces it. '
+          + 'For scans of pupils\' papers, or any file in your code sandbox, use create_assessment_paper_file_upload_link instead. Downloads are teacher-only.',
+        inputSchema: {
+          assessment_id: z.string().min(1).describe('Assessment paper id.'),
+          file_name: z.string().min(1).describe('File name with extension, no slashes.'),
+          base64_content: z.string().min(1).describe('File content, base64-encoded.'),
+          content_type: z.string().optional().describe('MIME type, e.g. "application/pdf".'),
+        },
+        outputSchema: {
+          file: AssessmentFileSchema.nullable(),
+        },
       },
-    },
-    async ({ assessment_id, file_name, base64_content, content_type }) => {
-      try {
-        const file = await attachAssessmentFile(assessment_id, file_name, base64_content, content_type ?? null)
-        return {
-          content: [{ type: 'text' as const, text: `Attached ${file.file_name} (${file.size_bytes} bytes) at ${file.path}` }],
-          structuredContent: { file },
+      async ({ assessment_id, file_name, base64_content, content_type }) => {
+        try {
+          const file = await attachAssessmentFile(assessment_id, file_name, base64_content, content_type ?? null)
+          return {
+            content: [{ type: 'text' as const, text: `Attached ${file.file_name} (${file.size_bytes} bytes) at ${file.path}` }],
+            structuredContent: { file },
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Failed to attach file'
+          return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { file: null } }
         }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to attach file'
-        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { file: null } }
-      }
-    },
-  )
-
-  srv.registerTool(
-    'create_assessment_paper_file_upload_link',
-    {
-      title: 'Create a one-time upload link for an assessment paper file',
-      description: 'Best way to attach scans of pupils\' marked papers (or any PDF/image in your code sandbox) to an assessment paper. '
-        + 'Returns a single-use link, valid 15 minutes, that accepts one file (max 25 MB) with a plain curl POST — no credentials, no base64. '
-        + 'Call once per file. For one pupil\'s script, pass that pupil\'s pupil_id (get_assessment_paper / list_group_pupils): '
-        + 'the pupil can then open it once feedback is released. Omit pupil_id for whole-paper files such as the question paper '
-        + 'or mark scheme, which stay teacher-only. Files are listed by list_assessment_paper_files.',
-      inputSchema: z.object({
-        assessment_id: z.string().min(1).describe('Assessment paper id.'),
-        pupil_id: z.string().optional().describe('The pupil whose script this is. Omit for the question paper, mark scheme or other whole-paper files.'),
-        file_name: z.string().optional().describe('Name to store the file under, including extension, e.g. "10A scans.pdf". Defaults to the uploaded file\'s name.'),
-      }),
-      outputSchema: z.object({ link: uploadLinkOutput }),
-    },
-    async ({ assessment_id, pupil_id, file_name }) => uploadLinkTool({ assessmentId: assessment_id, pupilId: pupil_id ?? null }, file_name),
-  )
-
-  srv.registerTool(
-    'list_assessment_paper_files',
-    {
-      title: 'List an assessment paper\'s files',
-      description: 'List the files attached to an assessment paper: scans, question papers and mark schemes. Teacher-only.',
-      inputSchema: { assessment_id: z.string().min(1).describe('Assessment paper id.') },
-      outputSchema: { files: z.array(AssessmentFileSchema).nullable() },
-    },
-    async ({ assessment_id }) => {
-      try {
-        const files = await listAssessmentFiles(assessment_id)
-        return {
-          content: [{
-            type: 'text' as const,
-            text: files.length > 0
-              ? files.map((f) => `${f.file_name} (${f.size_bytes} bytes)${f.pupil_id ? ` — pupil ${f.pupil_id}` : ' — not linked to a pupil'}`).join('\n')
-              : 'No files are attached to this paper.',
-          }],
-          structuredContent: { files },
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to list files'
-        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { files: null } }
-      }
-    },
-  )
-
-  srv.registerTool(
-    'remove_assessment_paper_file',
-    {
-      title: 'Remove a file from an assessment paper',
-      description: 'Delete a file attached to an assessment paper, and its link to a pupil. This cannot be undone.',
-      inputSchema: {
-        assessment_id: z.string().min(1).describe('Assessment paper id.'),
-        file_name: z.string().min(1).describe('File name exactly as list_assessment_paper_files gives it.'),
       },
-      outputSchema: { removed: z.boolean() },
-    },
-    async ({ assessment_id, file_name }) => {
-      try {
-        const file = (await listAssessmentFiles(assessment_id)).find((f) => f.file_name === file_name)
-        if (!file) throw new Error(`File "${file_name}" is not attached to this paper`)
-        await removeAssessmentFile(assessment_id, file_name)
-        return { content: [{ type: 'text' as const, text: `Removed ${file_name}` }], structuredContent: { removed: true } }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to remove file'
-        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { removed: false } }
-      }
-    },
-  )
+    )
 
-  srv.registerTool(
-    'link_assessment_paper_file_to_pupil',
-    {
-      title: 'Link an assessment paper file to a pupil',
-      description: 'Say whose script a file attached to a paper is. The pupil can open it once the paper\'s feedback is released; '
-        + 'unlinked files stay teacher-only. Pass pupil_id null to unlink.',
-      inputSchema: {
-        assessment_id: z.string().min(1).describe('Assessment paper id.'),
-        file_name: z.string().min(1).describe('File name exactly as list_assessment_paper_files gives it.'),
-        pupil_id: z.string().min(1).nullable().describe('The pupil whose script it is, or null to unlink.'),
+    srv.registerTool(
+      'create_assessment_paper_file_upload_link',
+      {
+        title: 'Create a one-time upload link for an assessment paper file',
+        description: 'Best way to attach scans of pupils\' marked papers (or any PDF/image in your code sandbox) to an assessment paper. '
+          + 'Returns a single-use link, valid 15 minutes, that accepts one file (max 25 MB) with a plain curl POST — no credentials, no base64. '
+          + 'Call once per file. For one pupil\'s script, pass that pupil\'s pupil_id (get_assessment_paper / list_group_pupils): '
+          + 'the pupil can then open it once feedback is released. Omit pupil_id for whole-paper files such as the question paper '
+          + 'or mark scheme, which stay teacher-only. Files are listed by list_assessment_paper_files.',
+        inputSchema: z.object({
+          assessment_id: z.string().min(1).describe('Assessment paper id.'),
+          pupil_id: z.string().optional().describe('The pupil whose script this is. Omit for the question paper, mark scheme or other whole-paper files.'),
+          file_name: z.string().optional().describe('Name to store the file under, including extension, e.g. "10A scans.pdf". Defaults to the uploaded file\'s name.'),
+        }),
+        outputSchema: z.object({ link: uploadLinkOutput }),
       },
-      outputSchema: { file: AssessmentFileSchema.nullable() },
-    },
-    async ({ assessment_id, file_name, pupil_id }) => {
-      try {
-        const file = await linkAssessmentFileToPupil(assessment_id, file_name, pupil_id)
-        return {
-          content: [{ type: 'text' as const, text: pupil_id ? `Linked ${file.file_name} to pupil ${pupil_id}` : `Unlinked ${file.file_name}` }],
-          structuredContent: { file },
+      async ({ assessment_id, pupil_id, file_name }) => uploadLinkTool({ assessmentId: assessment_id, pupilId: pupil_id ?? null }, file_name),
+    )
+
+    srv.registerTool(
+      'list_assessment_paper_files',
+      {
+        title: 'List an assessment paper\'s files',
+        description: 'List the files attached to an assessment paper: scans, question papers and mark schemes. Teacher-only.',
+        inputSchema: { assessment_id: z.string().min(1).describe('Assessment paper id.') },
+        outputSchema: { files: z.array(AssessmentFileSchema).nullable() },
+      },
+      async ({ assessment_id }) => {
+        try {
+          const files = await listAssessmentFiles(assessment_id)
+          return {
+            content: [{
+              type: 'text' as const,
+              text: files.length > 0
+                ? files.map((f) => `${f.file_name} (${f.size_bytes} bytes)${f.pupil_id ? ` — pupil ${f.pupil_id}` : ' — not linked to a pupil'}`).join('\n')
+                : 'No files are attached to this paper.',
+            }],
+            structuredContent: { files },
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Failed to list files'
+          return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { files: null } }
         }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to link file'
-        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { file: null } }
-      }
-    },
-  )
+      },
+    )
+
+    srv.registerTool(
+      'remove_assessment_paper_file',
+      {
+        title: 'Remove a file from an assessment paper',
+        description: 'Delete a file attached to an assessment paper, and its link to a pupil. This cannot be undone.',
+        inputSchema: {
+          assessment_id: z.string().min(1).describe('Assessment paper id.'),
+          file_name: z.string().min(1).describe('File name exactly as list_assessment_paper_files gives it.'),
+        },
+        outputSchema: { removed: z.boolean() },
+      },
+      async ({ assessment_id, file_name }) => {
+        try {
+          const file = (await listAssessmentFiles(assessment_id)).find((f) => f.file_name === file_name)
+          if (!file) throw new Error(`File "${file_name}" is not attached to this paper`)
+          await removeAssessmentFile(assessment_id, file_name)
+          return { content: [{ type: 'text' as const, text: `Removed ${file_name}` }], structuredContent: { removed: true } }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Failed to remove file'
+          return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { removed: false } }
+        }
+      },
+    )
+
+    srv.registerTool(
+      'link_assessment_paper_file_to_pupil',
+      {
+        title: 'Link an assessment paper file to a pupil',
+        description: 'Say whose script a file attached to a paper is. The pupil can open it once the paper\'s feedback is released; '
+          + 'unlinked files stay teacher-only. Pass pupil_id null to unlink.',
+        inputSchema: {
+          assessment_id: z.string().min(1).describe('Assessment paper id.'),
+          file_name: z.string().min(1).describe('File name exactly as list_assessment_paper_files gives it.'),
+          pupil_id: z.string().min(1).nullable().describe('The pupil whose script it is, or null to unlink.'),
+        },
+        outputSchema: { file: AssessmentFileSchema.nullable() },
+      },
+      async ({ assessment_id, file_name, pupil_id }) => {
+        try {
+          const file = await linkAssessmentFileToPupil(assessment_id, file_name, pupil_id)
+          return {
+            content: [{ type: 'text' as const, text: pupil_id ? `Linked ${file.file_name} to pupil ${pupil_id}` : `Unlinked ${file.file_name}` }],
+            structuredContent: { file },
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Failed to link file'
+          return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { file: null } }
+        }
+      },
+    )
+  }
 
   // ---------------------------------------------------------------------------
   // Assessment-paper activities: a paper sat inside a lesson (migration 132),
@@ -3211,7 +3217,7 @@ The result is checked as create_activity checks it; a body over a limit is refus
   // ---------------------------------------------------------------------------
 
   const ASSESSMENT_ACTIVITY_WORKFLOW =
-    'An assessment-paper activity is a written paper inside a lesson, marked per question and per success criterion; it is not a stand-alone assessment paper (list_assessment_papers). '
+    'An assessment-paper activity is a written paper inside a lesson, marked per question and per success criterion; it is not a stand-alone assessment paper. '
     + 'Workflow: (1) create_activity type "assessment-paper" in the lesson; (2) set_assessment_activity_questions with each question\'s criteria and their share of its marks; '
     + '(3) create_assessment_activity_file_upload_link kind question_paper / mark_scheme (PDF); the question paper\'s page 1 must be its blank front sheet, the only place pupils write their name; '
     + '(4) one create_assessment_activity_file_upload_link kind script per pupil, with pupil_id from get_assessment_activity — never guess an id from a name; '

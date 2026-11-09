@@ -82,3 +82,4 @@ dino_schema_*.sql
 # database dumps
 backups/
 recovery/
+/fold-results

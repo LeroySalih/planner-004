@@ -18,3 +18,4 @@ purged/
 *.dump
 *.dump.gz
 *.dump.gz.gpg
+fold-results/

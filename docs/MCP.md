@@ -866,6 +866,11 @@ are left out. Retired classes are left out unless `include_inactive` is true or
 
 ### Assessment papers
 
+> **Disabled.** Stand-alone assessment papers are retired in favour of the
+> assessment-paper lesson activity below. While `ASSESSMENT_PAPERS_ENABLED` in
+> `src/dino.config.ts` is `false`, none of the tools in this section is
+> registered (`list_group_pupils` still is). The code and tables are kept.
+
 Written papers marked outside a lesson (e.g. "Practice B"). Results live in
 their own tables (`104-assessments.sql`) and never touch submissions or
 reports. **Not** the curriculum's assessment objectives — hence the

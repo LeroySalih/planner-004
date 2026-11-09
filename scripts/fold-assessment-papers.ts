@@ -3,12 +3,16 @@
 //
 //   npx tsx scripts/fold-assessment-papers.ts --mapping <fold-mapping.json> [--apply] [--out <result.json>]
 //
+// Only the papers in the mapping are folded, so a mapping with one paper
+// (e.g. scripts/fold-mappings/systems-assessment-1.json) folds just that one.
+//
 // Dry run by default: reads everything, writes nothing, prints the plan. With
 // --apply it creates (or, on a re-run, brings up to date) one activity per
 // paper — the three Isometric papers share one — keyed by
 // body_data.foldedFromAssessmentIds, so running it again never duplicates.
 //
-// The old assessment tables are only read. Old marks become legacy question
+// The old assessment tables are only read, except that each folded paper is
+// set inactive once all its pupils are across. Old marks become legacy question
 // rows (every criterion on a question records the question's mark), old
 // went-well/targets become the overall teacher feedback, and old pupil scripts
 // are attached without marking. Nothing is sent to a model.
@@ -240,10 +244,11 @@ async function main() {
     })
   }
 
-  // 1. New success criteria.
+  // 1. New success criteria, for the papers in this mapping only.
+  const mappedIds = new Set(mapping.papers.map((p) => p.assessment_id))
   const createdCriteria: Array<{ success_criteria_id: string | null; learning_objective_id: string; description: string; for: string[]; status: string }> = []
   const newCriterionFor = new Map<string, string | null>() // `${assessmentId}::${label}` -> sc id
-  for (const spec of NEW_CRITERIA) {
+  for (const spec of NEW_CRITERIA.filter((c) => mappedIds.has(c.assessmentId))) {
     const { rows: lo } = await query<{ learning_objective_id: string }>(
       "select learning_objective_id from learning_objectives where learning_objective_id = $1",
       [spec.lo],
@@ -644,6 +649,26 @@ async function main() {
       }
     }
 
+    // The old papers are retired once every pupil is across: set inactive, so
+    // they leave Group Progress, but kept (re-activate to undo). Re-runs still
+    // read them, as nothing above filters on active.
+    const { rows: stillActive } = await query(
+      "select 1 from assessments where assessment_id = any($1::uuid[]) and active",
+      [group.assessmentIds],
+    )
+    let oldPapersStatus = stillActive.length > 0 ? "to set inactive" : "already inactive"
+    if (args.apply && activityId) {
+      if (counts.scripts_failed.length > 0) {
+        oldPapersStatus = "left active: a script failed to attach"
+      } else {
+        const { rowCount } = await query(
+          "update assessments set active = false, updated_at = now() where assessment_id = any($1::uuid[]) and active",
+          [group.assessmentIds],
+        )
+        oldPapersStatus = rowCount ? "set inactive" : "already inactive"
+      }
+    }
+
     // Visibility: the old switch per paper, and the host lesson's per class.
     const { rows: visibility } = await query<{ group_id: string; feedback_visible: boolean | null; start_date: Date | null }>(
       "select group_id, feedback_visible, start_date from lesson_assignments where lesson_id = $1 order by group_id",
@@ -665,6 +690,7 @@ async function main() {
     papersReport.push({
       title: group.title,
       folded_from: oldPapers.map((p) => ({ assessment_id: p.assessment_id, assessed_on: ddmmyyyy(p.assessed_on), groups: p.group_ids, old_feedback_visible: p.feedback_visible })),
+      old_papers: oldPapersStatus,
       host_lesson: { lesson_id: group.hostLessonId, title: lessonRows[0].title },
       activity_id: activityId,
       activity_status: activityStatus,

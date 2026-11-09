@@ -64,6 +64,13 @@ export function isDeterministicActivityType(type: string | null | undefined): bo
 // revive, and nothing else needs changing.
 export const IMAGE_GENERATION_ENABLED = false;
 
+// Stand-alone assessment papers (/assessments, /my-assessments and the
+// *_assessment_paper* MCP tools) are retired in favour of the assessment-paper
+// lesson activity. Off hides the menu links and unregisters the MCP tools; the
+// pages, code and tables are kept so it can be turned back on. Unrelated to the
+// assessment-paper activity, which this flag does not touch.
+export const ASSESSMENT_PAPERS_ENABLED = false;
+
 /** Activity types that cannot function without image generation. */
 export const IMAGE_GENERATION_ACTIVITY_TYPES = Object.freeze(["sketch-render"]);
 

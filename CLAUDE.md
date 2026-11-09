@@ -334,6 +334,9 @@ towards progress, migration 129); `enqueueMarkingTasks` clears its status.
 
 ### Assessment paper marking
 
+**Stand-alone assessment papers are retired.** `ASSESSMENT_PAPERS_ENABLED` in `src/dino.config.ts` is `false`: the *Assessments* and *My Assessments* menu links are hidden and the stand-alone paper MCP tools (`list_assessment_papers`, `create_assessment_paper`, `record_assessment_paper_result`, `*_assessment_paper_file*` …) are not registered. The pages, code and tables are kept. Everything below is the assessment-paper **activity**, which the flag does not touch.
+
+
 An `assessment-paper` is **read once, then marked per question** (Marking v2).
 Sending a script queues one `ai_read` job `{submissionId, assignmentId}`
 (`enqueueMarkingTasks`, from `storeScript` or *Send N unmarked scripts*). The
