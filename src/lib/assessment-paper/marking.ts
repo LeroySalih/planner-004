@@ -18,9 +18,10 @@ import type { AiProvider } from "@/types"
 // script, every criterion the question tests at once, after the read.
 //
 // The model sees the question (label, text, max marks), its mark scheme text,
-// its criteria with each one's allocation, the reader's transcription and the
-// pages the answer is on (all markable pages when the reader could not read
-// it). With depends_on_question_id set, the earlier question's transcription
+// its criteria with each one's allocation (as places to record the marks, never
+// as standards: marks and comments come from the mark scheme alone), the
+// reader's transcription and the pages the answer is on (all markable pages
+// when the reader could not read it). With depends_on_question_id set, the earlier question's transcription
 // and pages are added, labelled as the earlier answer. Not the whole paper.
 // Pages come from readMarkablePages, which never reads the original or page 1.
 
@@ -94,7 +95,9 @@ export const MARK_SYSTEM = `You are an experienced secondary school teacher mark
 
 The script is anonymous. Never guess, mention or ask about who the pupil is.
 
-Mark strictly against the evidence in the pupil's answer and the mark scheme. Do not award marks for what the pupil might have meant, or for knowledge they did not show. Do not penalise spelling, punctuation or grammar unless the mark scheme says they are being assessed.
+The mark scheme is the only standard. Mark strictly against the evidence in the pupil's answer and the mark scheme. Do not award marks for what the pupil might have meant, or for knowledge they did not show. Do not penalise spelling, punctuation or grammar unless the mark scheme says they are being assessed.
+
+The question's marks are recorded under success criteria. These are labels for filing marks, not standards to mark against: never award or withhold a mark, or comment, because of what a criterion says.
 
 Write every comment to the pupil as "you", in plain English a secondary pupil understands. Each comment is one or two short sentences on a single line: no line breaks, no lists, no quotation marks.`
 
@@ -108,7 +111,7 @@ export function buildMarkPrompt(input: {
 }): string {
   const { question, answer } = input
   const criteria = input.criteria
-    .map((c) => `- success_criteria_id "${c.successCriteriaId}": ${c.description.trim() || "(no description)"}. Award 0 to ${c.allocation}.`)
+    .map((c) => `- success_criteria_id "${c.successCriteriaId}" (topic: ${c.description.trim() || "none given"}): holds 0 to ${c.allocation}.`)
     .join("\n")
   const answerNote = answer.status === "unreadable"
     ? "The reader could not read this answer. Every page of the script is attached: find the answer to this question yourself."
@@ -126,7 +129,7 @@ ${input.dependsOn.pageNumbers.length > 0 ? `It is on page${input.dependsOn.pageN
 MARK SCHEME:
 ${question.markScheme?.trim() ?? ""}
 
-SUCCESS CRITERIA this question's marks are split across:
+WHERE TO RECORD THE MARKS (filing only; the topics are not marking standards):
 ${criteria}
 ${input.instructions?.trim() ? `\nTEACHER'S INSTRUCTIONS:\n${input.instructions.trim()}\n` : ""}
 THE PUPIL'S ANSWER (${answer.kind}${answer.status === "continued" ? ", continued elsewhere on the script" : ""}):
@@ -134,11 +137,13 @@ ${answer.transcription?.trim() || "(no transcription)"}
 ${answerNote}
 Attached: page${input.pageNumbers.length === 1 ? "" : "s"} ${input.pageNumbers.join(", ")} of the script.
 ${earlier}
-Mark each success criterion above out of its own figure. 0 is a valid and expected score for an answer that is wrong, missing or does not meet the criterion. Each marking point in the mark scheme may be credited to ONE criterion only: never award the same point under two criteria.
+First mark the answer against the mark scheme alone: decide which marking points the pupil earned. 0 is a valid and expected score for an answer that is wrong or missing.
+Then record those marks: put each earned point under the entry whose topic it fits best, never more than an entry holds and never one point under two entries. If a point fits no topic, put it under any entry with room. The entries' marks must add up to the marks the mark scheme gives.
 
-Reply with exactly one entry per success criterion, using its success_criteria_id exactly as written.
-- why_not_awarded: what was missing or wrong, so marks were not given. Empty when you award full marks.
-- how_to_improve: what to do to earn the marks next time. Empty when you award full marks.`
+Reply with exactly one entry per success_criteria_id above, using it exactly as written.
+- why_not_awarded: which mark scheme points the pupil missed or got wrong for the marks not given here. Empty when the entry is full.
+- how_to_improve: what to write next time to earn those mark scheme points. Empty when the entry is full.
+Base both comments on the mark scheme and the pupil's answer only; never mention or quote the success criteria.`
 }
 
 /**

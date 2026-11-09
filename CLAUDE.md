@@ -353,7 +353,9 @@ route `(assessment-paper, NULL)`) sends that question, its mark scheme, its
 criteria with allocations, the transcription and the answer's pages (all pages
 when unreadable), plus the earlier answer when `depends_on_question_id` is set;
 the reply has every criterion exactly once, 0..allocation, or it throws and
-retries. `completeAssessmentQuestionMark` writes the rows (never over a
+retries. **The mark scheme is the only standard**: the prompt gives the
+criteria as places to file the marks (topic + allocation), never as things to
+mark against, and the comments must name mark scheme points, not criteria. `completeAssessmentQuestionMark` writes the rows (never over a
 teacher's), closes the job and, when no sibling `ai_read`/`ai_mark` job is
 open, sets `mark_status = 'marked'`. The worker claims both job types; the
 generic `external_jobs` worker must exclude both. `recordCriterionMark` throws
