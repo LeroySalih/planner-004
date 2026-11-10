@@ -1,8 +1,8 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState, useTransition, type ChangeEvent } from "react"
+import { useCallback, useEffect, useRef, useState, useTransition, type ChangeEvent, type ClipboardEvent } from "react"
 import { toast } from "sonner"
-import { Download, Loader2, Trash2, Upload } from "lucide-react"
+import { ClipboardPaste, Download, Loader2, Trash2, Upload } from "lucide-react"
 
 import type { LessonActivity, SubmissionStatus } from "@/types"
 import {
@@ -21,6 +21,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+
+/** A pasted image has no useful name ("image.png"), so it is named for when it was pasted. */
+function screenshotFile(blob: Blob): File {
+  const now = new Date()
+  const pad = (n: number) => String(n).padStart(2, "0")
+  const stamp = `${pad(now.getDate())}-${pad(now.getMonth() + 1)}-${now.getFullYear()} ${pad(now.getHours())}.${pad(now.getMinutes())}.${pad(now.getSeconds())}`
+  const ext = blob.type.split("/")[1]?.replace("jpeg", "jpg") || "png"
+  return new File([blob], `Screenshot ${stamp}.${ext}`, { type: blob.type })
+}
 
 type ActivityFileInfo = {
   name: string
@@ -216,6 +225,49 @@ export function PupilUploadActivity({
     [beginUpload, isPending],
   )
 
+  // Ctrl+V / Cmd+V while the upload box has focus: an image becomes a
+  // screenshot file; a copied file uploads as itself.
+  const handlePaste = useCallback(
+    (event: ClipboardEvent<HTMLDivElement>) => {
+      if (uploadDisabled) return
+      const items = Array.from(event.clipboardData?.items ?? [])
+      const image = items.find((item) => item.kind === "file" && item.type.startsWith("image/"))?.getAsFile()
+      const file = items.find((item) => item.kind === "file")?.getAsFile()
+      if (!file) return
+      event.preventDefault()
+      beginUpload([image && image.name === "image.png" ? screenshotFile(image) : file])
+    },
+    [beginUpload, uploadDisabled],
+  )
+
+  // The button reads the clipboard directly; the browser may ask the pupil to allow it.
+  const handlePasteButton = useCallback(async () => {
+    if (uploadDisabled) return
+    if (!navigator.clipboard?.read) {
+      toast.error("This browser cannot paste with the button", {
+        description: "Click the upload box and press Ctrl+V (Cmd+V on a Mac) instead.",
+      })
+      return
+    }
+    try {
+      for (const item of await navigator.clipboard.read()) {
+        const type = item.types.find((t) => t.startsWith("image/"))
+        if (type) {
+          beginUpload([screenshotFile(await item.getType(type))])
+          return
+        }
+      }
+      toast.error("There is no picture to paste", {
+        description: "Take a screenshot first (Windows + Shift + S, or Cmd + Ctrl + Shift + 4 on a Mac), then paste.",
+      })
+    } catch (error) {
+      console.error("[pupil-upload] Clipboard read failed", error)
+      toast.error("Could not read the clipboard", {
+        description: "Allow clipboard access, or click the upload box and press Ctrl+V (Cmd+V on a Mac).",
+      })
+    }
+  }, [beginUpload, uploadDisabled])
+
   const handleDownloadSubmission = useCallback(
     async (fileName: string) => {
       startTransition(async () => {
@@ -377,6 +429,7 @@ export function PupilUploadActivity({
             onDragEnter={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
+            onPaste={handlePaste}
             className={[
               "flex flex-col items-center justify-center gap-2 rounded-pa-box border-2 border-dashed p-6 text-center transition-colors",
               canUpload && !uploadDisabled ? "cursor-pointer" : "cursor-not-allowed opacity-60",
@@ -400,20 +453,35 @@ export function PupilUploadActivity({
           >
             <Upload className="h-6 w-6 text-pa-muted-3" />
             <p className="text-sm font-semibold text-pa-ink">Drag &amp; drop your file here</p>
-            <p className="text-xs text-pa-muted-3">or click to browse your device</p>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={(event) => {
-                event.stopPropagation()
-                if (uploadDisabled) return
-                fileInputRef.current?.click()
-              }}
-              disabled={uploadDisabled}
-            >
-              Choose file
-            </Button>
+            <p className="text-xs text-pa-muted-3">or click to browse your device, or paste a screenshot</p>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  if (uploadDisabled) return
+                  fileInputRef.current?.click()
+                }}
+                disabled={uploadDisabled}
+              >
+                Choose file
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  void handlePasteButton()
+                }}
+                disabled={uploadDisabled}
+              >
+                <ClipboardPaste className="h-4 w-4" />
+                Paste screenshot
+              </Button>
+            </div>
             <input
               ref={fileInputRef}
               id={`upload-${activity.activity_id}`}
