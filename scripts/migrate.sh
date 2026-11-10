@@ -40,6 +40,7 @@ MIGRATIONS=(
   "137-mcp-class-feedback-links.sql|select exists (select 1 from information_schema.columns where table_name = 'mcp_download_links' and column_name = 'kind')"
   "138-lesson-view-mode.sql|select exists (select 1 from information_schema.columns where table_name = 'profiles' and column_name = 'lesson_view_mode')"
   "139-profile-active.sql|select exists (select 1 from information_schema.columns where table_name = 'profiles' and column_name = 'active')"
+  "140-mcp-script-download-links.sql|select exists (select 1 from information_schema.columns where table_name = 'mcp_download_links' and column_name = 'script_id')"
 )
 
 YES=false

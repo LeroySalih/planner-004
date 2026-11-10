@@ -75,13 +75,15 @@ import { ASSESSMENT_PAPER_UPLOAD_MAX_BYTES, MAX_SCRIPT_PAGES } from '@/lib/asses
 import { setAssessmentQuestions as setAssessmentActivityQuestions } from '@/lib/assessment-paper/store'
 import {
   AssessmentActivityQuestionsInput,
+  AssessmentQuestionMarksCriteriaInput,
   getAssessmentActivity,
   getAssessmentActivityResult,
+  setAssessmentActivityQuestionMarks,
   toAssessmentQuestionInputs,
 } from '@/lib/mcp/assessment-activities'
 import { proposeMarkSchemeSplit } from '@/lib/assessment-paper/mark-scheme-split'
 import { classFeedbackFileName } from '@/lib/assessment-paper/class-feedback-pdf'
-import { createClassFeedbackDownloadLink, createDownloadLink, listLessonFiles } from '@/lib/mcp/download-links'
+import { createClassFeedbackDownloadLink, createDownloadLink, createScriptDownloadLink, listLessonFiles } from '@/lib/mcp/download-links'
 import { getPupilLessonFeedback, setPupilFeedback } from '@/lib/mcp/pupil-feedback'
 import {
   INTERVENTION_STATUSES,
@@ -3223,7 +3225,8 @@ The result is checked as create_activity checks it; a body over a limit is refus
     + '(4) one create_assessment_activity_file_upload_link kind script per pupil, with pupil_id from get_assessment_activity — never guess an id from a name; '
     + 'each script\'s page 1 is checked against the front sheet and its page count against the paper\'s, and a script that fails is held, not marked; '
     + 'each passed script is read once (answers per question), then each question is marked on its own; a question with no mark scheme text is held, and split_assessment_activity_mark_scheme proposes per-question text from the mark scheme PDF; '
-    + '(5) get_assessment_activity / get_assessment_activity_result to check. Totals are always computed — never send them.'
+    + '(5) get_assessment_activity / get_assessment_activity_result to check; set_assessment_activity_question_marks to correct or confirm a question as the teacher, '
+    + 'and create_assessment_activity_script_download_link to read a pupil\'s original script. Totals are always computed — never send them.'
 
   const assessmentActivityTool = async <T,>(key: string, action: () => Promise<T>, describe: (value: T) => string) => {
     try {
@@ -3368,6 +3371,102 @@ The result is checked as create_activity checks it; a body over a limit is refus
         return `${name}: ${r.marks_awarded ?? 0}/${r.max_marks}, ${marked}/${r.questions.length} questions marked, `
           + `script ${r.script ? 'uploaded' : 'not uploaded'}${r.mark_status ? `, ${r.mark_status}` : ''}.`
       }),
+  )
+
+  srv.registerTool(
+    'set_assessment_activity_question_marks',
+    {
+      title: 'Mark one question of a pupil\'s assessment-paper activity as the teacher',
+      description:
+        'A teacher\'s marking of one question on a pupil\'s latest submission of an assessment-paper activity, as on the results page. '
+        + 'Give the question by label (case-insensitive, e.g. "q3") or question_id, and any of: '
+        + 'criteria — per success criterion of that question, marks (0 to its share of the question) and/or feedback (the teacher\'s comment; "" clears it, omitted keeps it; '
+        + 'feedback alone needs the criterion to be marked already); transcription — replaces what the reader found for the question ("" clears it); '
+        + 'confirm — stamps the question\'s remaining AI marks as the teacher\'s without changing them (the results page\'s Confirm), so it no longer awaits a check. '
+        + 'Applied in that order: transcription, criteria, confirm. Everything is checked first; one invalid criterion, an over-allocation or a duplicate refuses the whole call and nothing is written. '
+        + 'Marks set here are provenance "teacher" and are never overwritten by a re-mark. A changed mark sent without feedback drops the marker\'s comment on that criterion, '
+        + 'since it explained a mark that no longer stands; an unchanged or confirmed mark keeps it. The paper\'s total is recomputed. '
+        + 'If the lesson\'s feedback is visible to the pupil, they see the change at once. '
+        + 'Returns the question in get_assessment_activity_result\'s shape and the paper\'s marks_awarded / max_marks. Arrays may be sent as JSON strings.',
+      inputSchema: {
+        activity_id: z.string().min(1).describe('The assessment-paper activity id.'),
+        pupil_id: z.string().min(1).describe('Pupil user id from get_assessment_activity.'),
+        question: z.string().min(1).describe('The question\'s label (e.g. "Q3", case-insensitive) or its question_id.'),
+        criteria: AssessmentQuestionMarksCriteriaInput.optional().describe('Per criterion: success_criteria_id with marks and/or feedback.'),
+        transcription: z.string().optional().describe('The corrected transcription of the pupil\'s answer; "" clears it.'),
+        confirm: z.boolean().optional().describe('true: stamp the question\'s remaining AI marks as the teacher\'s, unchanged.'),
+      },
+      outputSchema: { marks: z.record(z.string(), z.unknown()).nullable() },
+    },
+    async ({ activity_id, pupil_id, question, criteria, transcription, confirm }) =>
+      assessmentActivityTool(
+        'marks',
+        () => setAssessmentActivityQuestionMarks({ activityId: activity_id, pupilId: pupil_id, question, criteria, transcription, confirm }),
+        (r) => `${r.question.label}: ${r.question.awarded ?? '-'}/${r.question.available}; paper ${r.marks_awarded ?? 0}/${r.max_marks}.`,
+      ),
+  )
+
+  srv.registerTool(
+    'create_assessment_activity_script_download_link',
+    {
+      title: 'Get a one-time download link for a pupil\'s assessment-paper script',
+      description: 'The pupil\'s original uploaded PDF of an assessment-paper activity, exactly as uploaded, including the front sheet (page 1, with their name): '
+        + 'a teacher copy, never sent to a model (a script folded in from the old assessments module may be a JPEG or PNG; file_name has its extension). The newest script on the pupil\'s latest submission; works for held scripts too (front_sheet_check not "passed"). '
+        + 'Refused if the activity is not an assessment paper, or the pupil has no submission or no script. '
+        + 'Returns a single-use link, valid 15 minutes, that downloads the file with a plain curl GET — no credentials. '
+        + 'Uploading a replacement script cancels the link.',
+      inputSchema: z.object({
+        activity_id: z.string().min(1).describe('The assessment-paper activity id.'),
+        pupil_id: z.string().min(1).describe('Pupil user id from get_assessment_activity.'),
+      }),
+      outputSchema: z.object({
+        link: z.object({
+          download_url: z.string(),
+          expires_at: z.string(),
+          activity_id: z.string(),
+          activity_title: z.string().nullable(),
+          pupil_id: z.string(),
+          script_id: z.string(),
+          front_sheet_check: z.string().nullable(),
+          page_count: z.number(),
+          file_name: z.string(),
+          instructions: z.string(),
+        }).nullable(),
+      }),
+    },
+    async ({ activity_id, pupil_id }) => {
+      try {
+        const { token, expiresAt, script } = await createScriptDownloadLink(caller, { activityId: activity_id, pupilId: pupil_id })
+        const downloadUrl = `${baseUrl}/api/MCP/download/${token}`
+        // The name goes inside double quotes in a shell command.
+        const shellSafeName = script.fileName.replace(/[$`\\]/g, '_')
+        const instructions =
+          `From your code sandbox, fetch the script with e.g. curl -sSf -o "${shellSafeName}" "${downloadUrl}". `
+          + `No Authorization header is needed. The link works once and expires at ${expiresAt}. `
+          + 'If the request cannot connect, the sandbox\'s network settings '
+          + `are blocking ${new URL(downloadUrl).host}: ask the user to allow that domain in Claude's settings (Capabilities → code execution network access).`
+        return {
+          content: [{ type: 'text' as const, text: `Script for pupil ${script.pupilId} (single use, expires ${expiresAt}):\n${downloadUrl}\n${instructions}` }],
+          structuredContent: {
+            link: {
+              download_url: downloadUrl,
+              expires_at: expiresAt,
+              activity_id: script.activityId,
+              activity_title: script.activityTitle,
+              pupil_id: script.pupilId,
+              script_id: script.scriptId,
+              front_sheet_check: script.frontSheetCheck,
+              page_count: script.pageCount,
+              file_name: script.fileName,
+              instructions,
+            },
+          },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to create download link'
+        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { link: null } }
+      }
+    },
   )
 
   srv.registerTool(

@@ -2,7 +2,12 @@ import { createHash, randomBytes } from 'node:crypto'
 
 import { query } from '@/lib/db'
 import type { McpCaller } from '@/lib/mcp/auth'
-import { resolveClassFeedbackTarget, type ClassFeedbackTarget } from '@/lib/mcp/assessment-activities'
+import {
+  resolveClassFeedbackTarget,
+  resolveLatestScript,
+  type ClassFeedbackTarget,
+  type LatestScript,
+} from '@/lib/mcp/assessment-activities'
 
 const LINK_LIFETIME_MINUTES = 15
 
@@ -21,6 +26,8 @@ export type DownloadLink = { link_id: string; caller: McpCaller } & (
   | { kind: 'lesson_file'; lesson_id: string; activity_id: string | null; file_name: string }
   /** A class's feedback PDF on an assessment paper, built when the link is claimed. */
   | { kind: 'assessment_class_feedback'; lesson_id: string; activity_id: string; group_id: string }
+  /** One pupil's original uploaded script, front sheet included: a teacher copy. */
+  | { kind: 'assessment_script'; lesson_id: string; activity_id: string; script_id: string }
 )
 
 const hashToken = (token: string) => createHash('sha256').update(token).digest('base64url')
@@ -86,6 +93,7 @@ export async function createDownloadLink(
     activityId: target.activityId,
     fileName: target.fileName,
     groupId: null,
+    scriptId: null,
   })
   return { token, expiresAt, file }
 }
@@ -105,8 +113,30 @@ export async function createClassFeedbackDownloadLink(
     activityId: target.activityId,
     fileName: null,
     groupId: target.groupId,
+    scriptId: null,
   })
   return { token, expiresAt, target }
+}
+
+/**
+ * A link to the newest script on a pupil's latest submission of an
+ * assessment-paper activity: the PDF as uploaded, front sheet and all, held
+ * or not. Uploading a replacement deletes the script row and the link with it.
+ */
+export async function createScriptDownloadLink(
+  caller: McpCaller,
+  input: { activityId: string; pupilId: string },
+): Promise<{ token: string; expiresAt: string; script: LatestScript }> {
+  const script = await resolveLatestScript(input.activityId, input.pupilId)
+  const { token, expiresAt } = await insertDownloadLink(caller, {
+    kind: 'assessment_script',
+    lessonId: script.lessonId,
+    activityId: script.activityId,
+    fileName: null,
+    groupId: null,
+    scriptId: script.scriptId,
+  })
+  return { token, expiresAt, script }
 }
 
 async function insertDownloadLink(
@@ -117,6 +147,7 @@ async function insertDownloadLink(
     activityId: string | null
     fileName: string | null
     groupId: string | null
+    scriptId: string | null
   },
 ): Promise<{ token: string; expiresAt: string }> {
   await query("delete from mcp_download_links where expires_at < now() - interval '1 day'")
@@ -124,8 +155,8 @@ async function insertDownloadLink(
   const token = randomBytes(32).toString('base64url')
   const { rows } = await query<{ expires_at: Date }>(
     `insert into mcp_download_links
-       (token_hash, kind, lesson_id, activity_id, file_name, group_id, auth_method, user_id, oauth_client_id, expires_at)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, now() + make_interval(mins => $10))
+       (token_hash, kind, lesson_id, activity_id, file_name, group_id, script_id, auth_method, user_id, oauth_client_id, expires_at)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now() + make_interval(mins => $11))
      returning expires_at`,
     [
       hashToken(token),
@@ -134,6 +165,7 @@ async function insertDownloadLink(
       link.activityId,
       link.fileName,
       link.groupId,
+      link.scriptId,
       caller.method,
       caller.userId,
       caller.clientId,
@@ -155,13 +187,14 @@ export async function claimDownloadLink(token: string): Promise<DownloadLink | n
     activity_id: string | null
     file_name: string | null
     group_id: string | null
+    script_id: string | null
     auth_method: 'oauth' | 'service_key'
     user_id: string | null
     oauth_client_id: string | null
   }>(
     `update mcp_download_links set used_at = now()
       where token_hash = $1 and used_at is null and expires_at > now()
-      returning link_id, kind, lesson_id, activity_id, file_name, group_id, auth_method, user_id, oauth_client_id`,
+      returning link_id, kind, lesson_id, activity_id, file_name, group_id, script_id::text, auth_method, user_id, oauth_client_id`,
     [hashToken(token)],
   )
   const row = rows[0]
@@ -177,6 +210,16 @@ export async function claimDownloadLink(token: string): Promise<DownloadLink | n
       lesson_id: row.lesson_id,
       activity_id: row.activity_id as string,
       group_id: row.group_id as string,
+      caller,
+    }
+  }
+  if (row.kind === 'assessment_script') {
+    return {
+      link_id: row.link_id,
+      kind: row.kind,
+      lesson_id: row.lesson_id,
+      activity_id: row.activity_id as string,
+      script_id: row.script_id as string,
       caller,
     }
   }

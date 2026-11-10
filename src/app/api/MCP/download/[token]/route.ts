@@ -2,13 +2,17 @@ import { NextResponse } from 'next/server'
 
 import { recordMcpCall } from '@/lib/mcp/audit'
 import { renderClassFeedbackPdf } from '@/lib/assessment-paper/class-feedback-pdf'
+import { ASSESSMENT_SCRIPTS_BUCKET } from '@/lib/assessment-paper/files'
+import { readScriptForDownload } from '@/lib/mcp/assessment-activities'
 import { claimDownloadLink, lessonFileStoragePath, releaseDownloadLink } from '@/lib/mcp/download-links'
 import { createLocalStorageClient } from '@/lib/storage/local-storage'
 
 // The token in the path is the whole credential: a one-time link from
 // get_lesson_file_download_link, or from
 // create_assessment_activity_class_feedback_link for a class's feedback PDF,
-// which is built now so it has the latest marks. There is deliberately no
+// which is built now so it has the latest marks, or from
+// create_assessment_activity_script_download_link for one pupil's original
+// script, front sheet included. There is deliberately no
 // Authorization header, because the code sandbox Claude downloads into has no
 // copy of the connector's credentials.
 
@@ -16,7 +20,8 @@ type Params = { params: Promise<{ token: string }> }
 
 // Always an attachment, so nothing a teacher uploaded can render or run on
 // DINO's origin when the link is opened in a browser. A lesson file is sent
-// as opaque bytes; the feedback PDF is DINO's own.
+// as opaque bytes; the feedback PDF is DINO's own, and a script is a PDF, or
+// a JPEG or PNG folded in from the old assessments module, checked on upload.
 function contentDisposition(fileName: string): string {
   const asciiFallback = fileName.replace(/[^\x20-\x7e]|["\\]/g, '_') || 'download'
   return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(fileName)}`
@@ -49,6 +54,35 @@ export async function GET(_request: Request, { params }: Params): Promise<Respon
       headers: {
         'Content-Type': 'application/pdf',
         'Content-Disposition': contentDisposition(pdf.fileName),
+        'X-Content-Type-Options': 'nosniff',
+        'Cache-Control': 'no-store',
+      },
+    })
+  }
+
+  if (link.kind === 'assessment_script') {
+    const args = { link_id: link.link_id, activity_id: link.activity_id, script_id: link.script_id }
+    // Re-read now: the script may have been replaced since the link was made.
+    const script = await readScriptForDownload(link.script_id, link.activity_id)
+    const { stream, error } = script
+      ? await createLocalStorageClient(ASSESSMENT_SCRIPTS_BUCKET).getFileStream(script.originalPath)
+      : { stream: null, error: new Error('This script has been replaced or removed. Ask DINO for a new link.') }
+    if (!script || !stream || error) {
+      await releaseDownloadLink(link.link_id)
+      const message = error?.message ?? 'Script file not found'
+      await recordMcpCall(link.caller, { tool: 'script_download:link', args, error: message, durationMs: performance.now() - started })
+      return NextResponse.json({ success: false, error: message }, { status: 404 })
+    }
+    await recordMcpCall(link.caller, {
+      tool: 'script_download:link',
+      args: { ...args, pupil_id: script.pupilId },
+      error: null,
+      durationMs: performance.now() - started,
+    })
+    return new Response(stream as unknown as ReadableStream, {
+      headers: {
+        'Content-Type': script.contentType,
+        'Content-Disposition': contentDisposition(script.fileName),
         'X-Content-Type-Options': 'nosniff',
         'Cache-Control': 'no-store',
       },

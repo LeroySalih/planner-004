@@ -1036,6 +1036,23 @@ The marks' `provenance` is one of:
 - `ai`: set by the marker.
 - `legacy`: carried over from an old paper.
 
+#### `set_assessment_activity_question_marks`
+A teacher's marking of **one question** on a pupil's latest submission, the same as on the results page and through the same store functions, so the rules match. Give the question by `label` (case-insensitive, e.g. `"q3"`) or `question_id`, and at least one of:
+- `criteria`: per success criterion of that question, `marks` (0 to its share of the question) and/or `feedback` (the teacher's comment). `feedback: ""` clears the comment; omitted, the comment is kept. Feedback alone needs the criterion to be marked already.
+- `transcription`: replaces what the reader found for the question, stamped `teacher` so a re-read keeps it. `""` clears it.
+- `confirm: true`: stamps the question's remaining AI marks `teacher` without changing them (the results page's *Confirm*), so it no longer awaits a check.
+
+They are applied in that order: transcription, criteria, confirm. Everything is checked first: an unknown question, a criterion the question does not test, marks over its allocation, a duplicate criterion, feedback over 2 000 characters or a transcription over 20 000 refuses the whole call, and nothing is written. Marks set here have provenance `teacher` and are never overwritten by a re-mark. A changed mark sent without feedback drops the marker's comment on that criterion, since it explained a mark that no longer stands; an unchanged or confirmed mark keeps it. The question, the paper's total and the criterion roll-up are recomputed. If the lesson's feedback is visible to the pupil, they see the change straight away.
+
+**Input:** `{ activity_id, pupil_id, question, criteria?: [{ success_criteria_id, marks?, feedback? }], transcription?, confirm? }`  
+**Output:** `{ marks: { activity_id, pupil_id, submission_id, marks_awarded, max_marks, mark_status, question } | null }`. `question` has the same shape as one entry of `get_assessment_activity_result`'s `questions`.
+
+#### `create_assessment_activity_script_download_link`
+Returns a one-time link to **one pupil's original uploaded script**, the PDF exactly as uploaded, including the front sheet (page 1, with the pupil's name). This is a teacher's copy; it is never sent to a model. The script is the newest on the pupil's latest submission, and held scripts (front sheet check failed) are included. It is refused if the activity is not an assessment paper, or the pupil has no submission or no script. Like the other download links it is single use, lasts 15 minutes, and only a SHA-256 hash is stored in `mcp_download_links`, here with `kind: "assessment_script"` and the `script_id` (migration 140). Uploading a replacement script deletes the script row and the link with it. The download is sent as an `application/pdf` attachment (a script folded in from the old assessments module may be a JPEG or PNG, sent as `image/jpeg` or `image/png`) and logged in `mcp_audit_log` as `script_download:link`. A missing file gives the link back and returns 404. The file is `<activity title> - <pupil name>.pdf` (or `.jpg` / `.png`), with characters a file system refuses taken out.
+
+**Input:** `{ activity_id, pupil_id }`  
+**Output:** `{ link: { download_url, expires_at, activity_id, activity_title, pupil_id, script_id, front_sheet_check, page_count, file_name, instructions } | null }`
+
 #### `create_assessment_activity_class_feedback_link`
 Returns a one-time link to **one PDF of a whole class's feedback** on an assessment-paper activity, downloaded with a plain `curl` GET and no credentials, like `get_lesson_file_download_link` (single use, 15 minutes, only a SHA-256 hash stored in `mcp_download_links` with `kind: "assessment_class_feedback"`, migration 137). The PDF is built when the link is used, so it always has the latest marks. The download is logged in `mcp_audit_log` as `class_feedback_download:link`, attributed to the teacher who asked for the link. A failed build gives the link back for a retry.
 

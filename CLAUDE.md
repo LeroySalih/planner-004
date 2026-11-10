@@ -417,6 +417,17 @@ Over MCP, `set_assessment_activity_questions` takes `marking` and `depends_on`
 `get_assessment_activity_result` each question's answer as read. Tests:
 `tests/assessment-paper/mark-scheme-split.check.ts`.
 
+MCP `set_assessment_activity_question_marks` marks one question (label or id)
+on a pupil's latest submission as the results page does, through the same
+store functions: a corrected transcription, then per criterion marks and/or a
+comment, then *Confirm*. Every input is checked before anything is written.
+MCP `create_assessment_activity_script_download_link` returns a one-time link
+(`kind = 'assessment_script'`, `script_id`, migration 140) to the pupil's
+newest script on their latest submission, the original PDF with its front
+sheet, held or not: a teacher copy that no model sees. A replacement upload
+deletes the script row and the link with it (`ON DELETE CASCADE`). Tests:
+`tests/assessment-paper/question-marks-mcp.check.ts`.
+
 MCP `create_assessment_activity_class_feedback_link` (class, unit, activity by
 id or exact name) returns a one-time `mcp_download_links` link
 (`kind = 'assessment_class_feedback'`, migration 137) to one PDF of a class's
