@@ -1633,6 +1633,8 @@ export type PlannerAssignment = z.infer<typeof PlannerAssignmentSchema>;
 export const PlannerAssignmentWithUnitSchema = PlannerAssignmentSchema.extend({
   unit_id: z.string(),
   lesson_title: z.string(),
+  /** The lesson's position in its unit, so a slot lists its lessons in unit order. */
+  lesson_order: z.number().nullable().default(null),
   /** Withheld from pupils. A property of the lesson, so it holds for every class. */
   hidden_from_pupils: z.boolean().default(false),
 });

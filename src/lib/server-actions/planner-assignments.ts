@@ -134,13 +134,14 @@ export async function readPlannerAssignmentsForWeekAction(
       return AssignmentsWithUnitResult.parse({ data: null, error: 'weekStartDate must be ISO YYYY-MM-DD' })
     }
     const { rows } = await query<Record<string, unknown>>(
-      `SELECT pa.*, l.unit_id, l.title AS lesson_title, l.hidden_from_pupils
+      `SELECT pa.*, l.unit_id, l.title AS lesson_title, l.order_by AS lesson_order, l.hidden_from_pupils
        FROM planner_assignments pa
        JOIN lessons l ON l.lesson_id = pa.lesson_id
        JOIN timetable_slot_groups tsg
          ON tsg.teacher_id = $1 AND tsg.day = pa.day AND tsg.period = pa.period
          AND tsg.group_id = pa.group_id
-       WHERE pa.week_start_date = $2`,
+       WHERE pa.week_start_date = $2
+       ORDER BY l.unit_id, l.order_by NULLS LAST, l.title`,
       [targetTeacherId, weekStartDate],
     )
     const data = rows.map((row) =>
@@ -148,6 +149,7 @@ export async function readPlannerAssignmentsForWeekAction(
         ...toAssignment(row),
         unit_id: row.unit_id,
         lesson_title: row.lesson_title,
+        lesson_order: row.lesson_order ?? null,
         hidden_from_pupils: row.hidden_from_pupils ?? false,
       }),
     )

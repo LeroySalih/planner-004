@@ -23,7 +23,7 @@ import { SidePanel } from './SidePanel'
 import { WeekNavigator } from './WeekNavigator'
 import { WeekNotes } from './WeekNotes'
 import { TIMETABLE_SLOTS } from './timetable-config'
-import { slotKey, emptyCellState, getTodaySunday, shiftWeek } from './types'
+import { slotKey, emptyCellState, getTodaySunday, shiftWeek, sortByUnitOrder } from './types'
 import type { WeeklyPlannerState, CellState, SlotLesson, Day } from './types'
 import type { Unit, Group, LessonWithObjectives } from '@/types'
 
@@ -152,6 +152,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
           lessonId: pa.lesson_id,
           unitId: pa.unit_id,
           lessonTitle: pa.lesson_title,
+          lessonOrder: pa.lesson_order,
           assignmentId: pa.id,
           feedbackVisible: pa.feedback_visible,
           locked: pa.locked,
@@ -332,14 +333,16 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
       // Find unitId and lessonTitle from cache
       let unitId = ''
       let lessonTitle = ''
+      let lessonOrder: number | null = null
       for (const [uid, lessons] of lessonCache) {
         const found = lessons.find((l) => l.lesson_id === newLessonId)
-        if (found) { unitId = uid; lessonTitle = found.title; break }
+        if (found) { unitId = uid; lessonTitle = found.title; lessonOrder = found.order_by ?? null; break }
       }
       const newLesson: SlotLesson = {
         lessonId: data.lesson_id,
         unitId,
         lessonTitle,
+        lessonOrder,
         assignmentId: data.id,
         feedbackVisible: data.feedback_visible,
         locked: data.locked,
@@ -366,21 +369,23 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
     if (data) {
       let unitId = ''
       let lessonTitle = ''
+      let lessonOrder: number | null = null
       for (const [uid, lessons] of lessonCache) {
         const found = lessons.find((l) => l.lesson_id === newLessonId)
-        if (found) { unitId = uid; lessonTitle = found.title; break }
+        if (found) { unitId = uid; lessonTitle = found.title; lessonOrder = found.order_by ?? null; break }
       }
       const newLesson: SlotLesson = {
         lessonId: data.lesson_id,
         unitId,
         lessonTitle,
+        lessonOrder,
         assignmentId: data.id,
         feedbackVisible: data.feedback_visible,
         locked: data.locked,
         hiddenFromPupils: false,
         lessonNotes: '',
       }
-      updateSlot(day, period, (s) => ({ ...s, lessons: [...s.lessons, newLesson] }))
+      updateSlot(day, period, (s) => ({ ...s, lessons: sortByUnitOrder([...s.lessons, newLesson]) }))
     }
     return Boolean(data)
   }, [updateSlot, plannerState, lessonCache, commit])

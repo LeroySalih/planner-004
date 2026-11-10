@@ -20,6 +20,8 @@ export type SlotLesson = {
   lessonId: string
   unitId: string
   lessonTitle: string
+  /** Position in the unit; a slot lists its lessons in unit order. */
+  lessonOrder: number | null
   assignmentId: string
   feedbackVisible: boolean
   /** Read-only for this class's pupils. */
@@ -74,4 +76,12 @@ export function formatWeekRange(weekKey: string): string {
 
 export function emptyCellState(): CellState {
   return { groupId: null, lessons: [], issueFlag: false, issueNote: '' }
+}
+
+/** A slot's lessons in the order they appear in their unit. */
+export function sortByUnitOrder(lessons: SlotLesson[]): SlotLesson[] {
+  return [...lessons].sort((a, b) =>
+    a.unitId.localeCompare(b.unitId)
+    || (a.lessonOrder ?? Infinity) - (b.lessonOrder ?? Infinity)
+    || a.lessonTitle.localeCompare(b.lessonTitle))
 }
