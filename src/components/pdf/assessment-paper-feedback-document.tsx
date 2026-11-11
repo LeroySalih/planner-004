@@ -9,7 +9,7 @@ import type { FeedbackPdfCriterion, FeedbackPdfData, FeedbackPdfQuestion } from 
  * first, then a table with a row per question in paper order: the question,
  * the pupil's answer, the mark scheme when the paper allows it, the marks and
  * how to improve. The class document puts a cover in front of several pupils'
- * pages.
+ * pages, and is a teacher copy: it adds the AI's marks against the teacher's.
  */
 
 const BORDER = "#d4d4d8"
@@ -47,12 +47,18 @@ const styles = StyleSheet.create({
   coverHeadRow: { borderBottomColor: MUTED },
   coverName: { flex: 3 },
   coverMarks: { flex: 1, textAlign: "right" },
-  coverStatus: { flex: 2 },
+  coverStatus: { flex: 2, paddingLeft: 8 },
+  changes: { marginBottom: 10, padding: 8, borderWidth: 1, borderColor: BORDER, borderRadius: 3 },
   footer: { position: "absolute", bottom: 16, left: 36, right: 36, flexDirection: "row", justifyContent: "space-between", fontSize: 7, color: MUTED },
 })
 
 function marks(awarded: number | null, available: number) {
   return `${awarded === null ? "—" : awarded} / ${available}`
+}
+
+/** A change in marks: +2, -1 or 0. */
+function signed(value: number) {
+  return value > 0 ? `+${value}` : `${value}`
 }
 
 /** What the pupil should do next: the teacher's comment, else the marker's advice. */
@@ -126,6 +132,34 @@ function QuestionTable({ questions }: { questions: FeedbackPdfQuestion[] }) {
   )
 }
 
+/**
+ * Teacher copy only (the class document): the questions where the teacher
+ * changed the AI's marks. Absent from a pupil's own PDF, which never carries
+ * teacherChanges, and omitted when no AI mark is on record.
+ */
+function TeacherChangesBox({ changes, maxMarks }: { changes: FeedbackPdfData["teacherChanges"]; maxMarks: number }) {
+  if (!changes?.recorded) return null
+  return (
+    <View style={styles.changes} wrap={false}>
+      <Text style={styles.label}>Teacher changes</Text>
+      <Text style={styles.muted}>
+        {`AI ${changes.aiMarks} / ${maxMarks} -> Final ${changes.finalMarks} / ${maxMarks} (${signed(changes.change)})`}
+      </Text>
+      {changes.changedQuestions.length === 0 ? <Text>No changes to the AI&apos;s marks.</Text> : null}
+      {changes.changedQuestions.map((question) => (
+        <Text key={question.label}>
+          {`${question.label}: AI ${question.aiAwarded}/${question.available} -> Teacher ${question.finalAwarded}/${question.available}`}
+        </Text>
+      ))}
+      {changes.teacherOnlyLabels.length > 0 ? (
+        <Text style={styles.small}>
+          {`Marked by the teacher alone (no AI mark, same in both totals): ${changes.teacherOnlyLabels.join(", ")}`}
+        </Text>
+      ) : null}
+    </View>
+  )
+}
+
 /** One pupil's pages: also a section of the class document. */
 function PupilFeedbackPage({ data }: { data: FeedbackPdfData }) {
   return (
@@ -144,6 +178,8 @@ function PupilFeedbackPage({ data }: { data: FeedbackPdfData }) {
           {data.marksAwarded === null ? "Not marked yet" : `${data.marksAwarded} / ${data.maxMarks} marks`}
         </Text>
       </View>
+
+      <TeacherChangesBox changes={data.teacherChanges} maxMarks={data.maxMarks} />
 
       {data.overallFeedback ? (
         <View style={styles.overall}>
@@ -205,18 +241,31 @@ export function AssessmentPaperClassFeedbackDocument({ data }: { data: ClassFeed
         <View style={styles.coverTable}>
           <View style={[styles.coverRow, styles.coverHeadRow]} fixed>
             <Text style={[styles.coverName, styles.label]}>Pupil</Text>
-            <Text style={[styles.coverMarks, styles.label]}>Marks</Text>
+            <Text style={[styles.coverMarks, styles.label]}>AI mark</Text>
+            <Text style={[styles.coverMarks, styles.label]}>Final mark</Text>
+            <Text style={[styles.coverMarks, styles.label]}>Change</Text>
             <Text style={[styles.coverStatus, styles.label]}>Status</Text>
           </View>
           {data.roster.length === 0 ? <Text style={[styles.block, styles.muted]}>This class has no pupils.</Text> : null}
           {data.roster.map((row, index) => (
             <View key={index} style={styles.coverRow} wrap={false}>
               <Text style={styles.coverName}>{row.pupilName}</Text>
+              <Text style={styles.coverMarks}>{row.aiMarks === null ? "—" : marks(row.aiMarks, data.maxMarks)}</Text>
               <Text style={styles.coverMarks}>{row.status === "not sat" ? "—" : marks(row.marksAwarded, data.maxMarks)}</Text>
+              <Text style={styles.coverMarks}>{row.change === null ? "—" : signed(row.change)}</Text>
               <Text style={[styles.coverStatus, row.status === "marked" ? {} : styles.muted]}>{STATUS_LABEL[row.status]}</Text>
             </View>
           ))}
         </View>
+
+        <Text style={[styles.block, styles.muted]}>
+          {data.changes.comparable === 0
+            ? "No AI marks on record to compare with the final marks."
+            : `Teacher changed marks for ${data.changes.changed} of ${data.changes.comparable} AI-marked pupil${data.changes.comparable === 1 ? "" : "s"}; net change ${signed(data.changes.net)} mark${Math.abs(data.changes.net) === 1 ? "" : "s"}.`}
+        </Text>
+        <Text style={[styles.small, styles.muted]}>
+          AI mark: the paper&apos;s marks with every teacher change taken out (marks the teacher gave alone count the same in both). — where none is on record.
+        </Text>
 
         <Footer paperTitle={data.paperTitle} />
       </Page>

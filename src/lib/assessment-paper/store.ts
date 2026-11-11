@@ -434,6 +434,9 @@ async function moveMarksToAllocations(db: Queryable, activityId: string): Promis
      update submission_question_criterion_marks m
         set awarded = case when m.awarded >= m.available then t.available
                            else least(m.awarded, t.available - 1) end,
+            ai_awarded = case when m.ai_awarded is null then null
+                              when m.ai_awarded >= m.available then t.available
+                              else least(m.ai_awarded, t.available - 1) end,
             available = t.available,
             updated_at = timezone('utc', now())
        from target t
@@ -545,15 +548,20 @@ async function writeCriterionMarks(
     // A teacher's mark is never overwritten by the marker. Under a teacher's
     // mark the marker's comments are kept while the mark is the one they
     // explain, and dropped once the teacher changes it; teacher_feedback sits
-    // beside them (see effectiveQuestionCriterionFeedback).
+    // beside them (see effectiveQuestionCriterionFeedback). ai_awarded keeps
+    // the marker's own mark (migration 141): set by every marker write, never
+    // by a teacher's, so a teacher row made with no marker row before it
+    // leaves it null.
     await db.query(
       `insert into submission_question_criterion_marks
          (submission_id, question_id, success_criteria_id, awarded, available,
-          why_not_awarded, how_to_improve, teacher_feedback, provenance)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          why_not_awarded, how_to_improve, teacher_feedback, provenance, ai_awarded)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, case when $9 = 'ai' then $4::int end)
        on conflict (submission_id, question_id, success_criteria_id) do update
          set awarded = excluded.awarded,
              available = excluded.available,
+             ai_awarded = case when $9 = 'ai' then excluded.awarded
+                               else submission_question_criterion_marks.ai_awarded end,
              why_not_awarded = case when $9 <> 'teacher' then excluded.why_not_awarded
                                     when submission_question_criterion_marks.awarded = excluded.awarded
                                     then submission_question_criterion_marks.why_not_awarded end,

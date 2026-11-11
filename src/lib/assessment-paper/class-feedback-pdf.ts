@@ -16,13 +16,18 @@ import { AssessmentPaperClassFeedbackDocument } from "@/components/pdf/assessmen
 // paper is, then each pupil's feedback exactly as their own PDF has it
 // (feedback-pdf.ts). Built when it is downloaded, from each pupil's latest
 // attempt. Teacher-only, so the pupil-facing feedback visibility does not
-// apply.
+// apply, and it shows the AI's marks against the teacher's
+// (summariseTeacherChanges): never on a pupil's own PDF.
 
 export type ClassFeedbackStatus = "marked" | "not yet marked" | "held" | "not sat"
 
 export type ClassFeedbackRosterRow = {
   pupilName: string
   marksAwarded: number | null
+  /** The AI's marks before the teacher's changes; null when not recorded. */
+  aiMarks: number | null
+  /** marksAwarded - aiMarks; null when not recorded. */
+  change: number | null
   status: ClassFeedbackStatus
 }
 
@@ -35,6 +40,8 @@ export type ClassFeedbackPdfData = {
   maxMarks: number
   /** Every pupil of the class, by last name then first name. */
   roster: ClassFeedbackRosterRow[]
+  /** Pupils with an AI mark on record, how many of them the teacher changed, and the net change. */
+  changes: { comparable: number; changed: number; net: number }
   /** The pupils with a submission, in roster order. */
   pupils: FeedbackPdfData[]
 }
@@ -101,10 +108,14 @@ export async function readClassFeedbackPdfData(activityId: string, groupId: stri
   )
 
   const pupils: FeedbackPdfData[] = []
+  const changesOf = new Map<string, NonNullable<FeedbackPdfData["teacherChanges"]>>()
   for (const row of rows) {
     if (!row.submission_id) continue
-    pupils.push({ ...(await readAssessmentFeedbackPdfData(activityId, row.pupil_id)), className: groupId })
+    const pupil = await readAssessmentFeedbackPdfData(activityId, row.pupil_id, { teacherCopy: true })
+    if (pupil.teacherChanges) changesOf.set(row.pupil_id, pupil.teacherChanges)
+    pupils.push({ ...pupil, className: groupId })
   }
+  const comparable = Array.from(changesOf.values()).filter((c) => c.recorded)
 
   return {
     paperTitle: paperTitleOf(activity.title),
@@ -115,8 +126,15 @@ export async function readClassFeedbackPdfData(activityId: string, groupId: stri
     roster: rows.map((row) => ({
       pupilName: [row.first_name, row.last_name].filter(Boolean).join(" ") || "Pupil",
       marksAwarded: row.marks === null ? null : Number(row.marks),
+      aiMarks: changesOf.get(row.pupil_id)?.aiMarks ?? null,
+      change: changesOf.get(row.pupil_id)?.recorded ? changesOf.get(row.pupil_id)!.change : null,
       status: rosterStatus(row),
     })),
+    changes: {
+      comparable: comparable.length,
+      changed: comparable.filter((c) => c.changedQuestions.length > 0).length,
+      net: comparable.reduce((sum, c) => sum + c.change, 0),
+    },
     pupils,
   }
 }

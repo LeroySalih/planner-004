@@ -8,6 +8,8 @@ import {
   pupilFeedbackVisible,
   readAssessmentPaperResult,
   readOverallTeacherFeedback,
+  summariseTeacherChanges,
+  type TeacherChangeSummary,
 } from "@/lib/assessment-paper/results"
 import { effectiveQuestionCriterionFeedback, type AnswerKind, type AnswerStatus } from "@/lib/assessment-paper/store"
 import { readFeedbackVisibility } from "@/lib/mcp/pupil-feedback"
@@ -58,6 +60,11 @@ export type FeedbackPdfData = {
   /** Folded in from the old assessments module: marks and feedback only. */
   folded: boolean
   questions: FeedbackPdfQuestion[]
+  /**
+   * The AI's marks against the teacher's (summariseTeacherChanges). Only in
+   * the teacher copy (the class PDF); never set on a pupil's own PDF.
+   */
+  teacherChanges?: TeacherChangeSummary
 }
 
 /**
@@ -80,7 +87,12 @@ function needsImages(kind: AnswerKind, status: AnswerStatus) {
   return status === "unreadable" || kind === "sketch" || kind === "mixed"
 }
 
-export async function readAssessmentFeedbackPdfData(activityId: string, pupilId: string): Promise<FeedbackPdfData> {
+/** `teacherCopy` adds the AI-against-teacher marks; only the class PDF passes it. */
+export async function readAssessmentFeedbackPdfData(
+  activityId: string,
+  pupilId: string,
+  options: { teacherCopy?: boolean } = {},
+): Promise<FeedbackPdfData> {
   const result = await readAssessmentPaperResult(activityId, pupilId)
 
   const [{ rows: activityRows }, { rows: profileRows }, visibility, overallFeedback] = await Promise.all([
@@ -136,6 +148,7 @@ export async function readAssessmentFeedbackPdfData(activityId: string, pupilId:
     marksAwarded: result.marksAwarded,
     overallFeedback,
     folded,
+    ...(options.teacherCopy ? { teacherChanges: summariseTeacherChanges(result) } : {}),
     questions: result.questions.map((q) => {
       const isLegacy = q.criteria.length > 0 && q.criteria.every((c) => c.provenance === "legacy")
       const answer = !folded && q.answer

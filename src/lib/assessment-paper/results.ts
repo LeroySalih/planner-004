@@ -35,6 +35,12 @@ export type AssessmentResultCriterion = {
   howToImprove: string | null
   teacherFeedback: string | null
   provenance: QuestionMarkProvenance | null
+  /**
+   * The AI marker's own mark (migration 141), kept when a teacher changes
+   * `awarded`. Null when the AI never marked it or its mark is not known.
+   * Teacher views only: never pass it to a pupil.
+   */
+  aiAwarded: number | null
 }
 
 export type AssessmentResultQuestion = {
@@ -152,9 +158,10 @@ export async function readAssessmentPaperResult(
       how_to_improve: string | null
       teacher_feedback: string | null
       provenance: QuestionMarkProvenance
+      ai_awarded: number | null
     }>(
       `select question_id, success_criteria_id, awarded, available, why_not_awarded, how_to_improve,
-              teacher_feedback, provenance
+              teacher_feedback, provenance, ai_awarded
          from submission_question_criterion_marks where submission_id = $1`,
       [resolvedSubmissionId],
     ),
@@ -247,11 +254,88 @@ export async function readAssessmentPaperResult(
             howToImprove: row?.how_to_improve ?? null,
             teacherFeedback: row?.teacher_feedback ?? null,
             provenance: row?.provenance ?? null,
+            aiAwarded: row?.ai_awarded === null || row?.ai_awarded === undefined ? null : Number(row.ai_awarded),
           }
         }),
       }
     }),
   }
+}
+
+export type TeacherChangedQuestion = {
+  label: string
+  /** The question's mark with the teacher's changes taken out. */
+  aiAwarded: number
+  finalAwarded: number
+  available: number
+}
+
+/** A pupil's marks before (AI) and after the teacher's changes. Teacher copy only. */
+export type TeacherChangeSummary = {
+  /** False when no criterion has an AI mark on record: legacy marks only, or teacher marks alone. */
+  recorded: boolean
+  /** Null when not recorded or not marked. */
+  aiMarks: number | null
+  finalMarks: number | null
+  /** finalMarks - aiMarks; 0 when not recorded. */
+  change: number
+  /** Questions where a criterion's mark differs from the AI's, in paper order. */
+  changedQuestions: TeacherChangedQuestion[]
+  /** Questions with a teacher mark the AI never gave (or that is not known), counted the same in both totals. */
+  teacherOnlyLabels: string[]
+}
+
+/**
+ * The AI mark against the final mark, from criterion rows (teacher views only):
+ *
+ *   change   = Σ (awarded − ai_awarded) over criterion rows whose ai_awarded is known
+ *   final    = the submission's marks (what every report shows)
+ *   AI mark  = final − change: what the paper would score with no teacher change
+ *
+ * So an 'ai' row counts the same in both; a teacher row the AI never marked
+ * (teacher-only question, teacher marked first, mark not recovered) counts its
+ * teacher mark in both and is listed in teacherOnlyLabels; a legacy row (folded
+ * from the old module) counts in both. With no ai_awarded anywhere there is
+ * nothing to compare: not recorded, shown as "—".
+ */
+export function summariseTeacherChanges(
+  result: Pick<AssessmentPaperResult, "marksAwarded" | "questions">,
+): TeacherChangeSummary {
+  let recorded = false
+  let change = 0
+  const changedQuestions: TeacherChangedQuestion[] = []
+  const teacherOnlyLabels: string[] = []
+  for (const question of result.questions) {
+    let questionChange = 0
+    let differs = false
+    let teacherOnly = false
+    for (const criterion of question.criteria) {
+      if (criterion.awarded === null) continue
+      if (criterion.aiAwarded === null) {
+        if (criterion.provenance === "teacher") teacherOnly = true
+        continue
+      }
+      recorded = true
+      questionChange += criterion.awarded - criterion.aiAwarded
+      if (criterion.awarded !== criterion.aiAwarded) differs = true
+    }
+    change += questionChange
+    if (teacherOnly) teacherOnlyLabels.push(question.label)
+    if (differs) {
+      const finalAwarded = question.awarded ?? 0
+      changedQuestions.push({
+        label: question.label,
+        aiAwarded: finalAwarded - questionChange,
+        finalAwarded,
+        available: question.available,
+      })
+    }
+  }
+  const finalMarks = result.marksAwarded
+  if (!recorded || finalMarks === null) {
+    return { recorded: false, aiMarks: null, finalMarks, change: 0, changedQuestions: [], teacherOnlyLabels: [] }
+  }
+  return { recorded, aiMarks: finalMarks - change, finalMarks, change, changedQuestions, teacherOnlyLabels }
 }
 
 export type PupilAssessmentPaperFeedback = {

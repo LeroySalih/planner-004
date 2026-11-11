@@ -329,9 +329,10 @@ export async function getAssessmentActivityResult(activityId: string, pupilId: s
     how_to_improve: string | null
     teacher_feedback: string | null
     provenance: string
+    ai_awarded: number | null
   }>(
     `select question_id, success_criteria_id, awarded, available, why_not_awarded, how_to_improve,
-            teacher_feedback, provenance
+            teacher_feedback, provenance, ai_awarded
        from submission_question_criterion_marks where submission_id = $1`,
     [submissionId],
   )
@@ -418,6 +419,9 @@ export async function getAssessmentActivityResult(activityId: string, pupilId: s
             how_to_improve: row?.how_to_improve ?? null,
             teacher_feedback: row?.teacher_feedback ?? null,
             provenance: row?.provenance ?? null,
+            // The AI marker's own mark, kept when a teacher changes it
+            // (migration 141); null when the AI never marked it or it is not known.
+            ai_awarded: row?.ai_awarded === null || row?.ai_awarded === undefined ? null : Number(row.ai_awarded),
           }
         }),
       }

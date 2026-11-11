@@ -428,6 +428,18 @@ sheet, held or not: a teacher copy that no model sees. A replacement upload
 deletes the script row and the link with it (`ON DELETE CASCADE`). Tests:
 `tests/assessment-paper/question-marks-mcp.check.ts`.
 
+`submission_question_criterion_marks.ai_awarded` (migration 141) keeps the
+marker's own mark: every AI write sets it, a teacher's write (mark, comment,
+confirm, transcription) never touches it, and the marker never writes over a
+teacher's row, so it is null on rows the AI never marked (teacher-only, or the
+teacher marked first). The migration backfilled it from finished `ai_mark` jobs'
+`model_response.criteria`, teacher rows still carrying the marker's comment,
+and blank answers. `summariseTeacherChanges` (results.ts) turns it into AI
+mark / final mark / change. **Teacher copy only**: the class feedback PDF
+passes `teacherCopy` to `readAssessmentFeedbackPdfData` and MCP
+`get_assessment_activity_result` returns `ai_awarded`; no pupil view or pupil
+PDF shows it.
+
 MCP `create_assessment_activity_class_feedback_link` (class, unit, activity by
 id or exact name) returns a one-time `mcp_download_links` link
 (`kind = 'assessment_class_feedback'`, migration 137) to one PDF of a class's

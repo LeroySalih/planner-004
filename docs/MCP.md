@@ -1025,7 +1025,7 @@ This is a dry run and **saves nothing**. It sends the activity's uploaded mark s
 
 #### `get_assessment_activity_result`
 **Input:** `{ activity_id, pupil_id }`
-**Output:** `{ result: { activity_id, pupil_id, first_name, last_name, submission_id, mark_status, mark_error, marks_awarded | null, max_marks, script: { script_id, page_count, uploaded_at, front_sheet_check } | null, overall_feedback: { teacher, ai }, questions: [{ question_id, label, marking, depends_on, has_mark_scheme, awarded | null, available, provenance, answer: { status, kind, transcription, pages, provenance } | null, criteria: [{ success_criteria_id, description, awarded | null, available, why_not_awarded, how_to_improve, teacher_feedback, provenance }] }] } }`. All figures come from the pupil's latest attempt. `answer` is what the reader found, and is null until the script is read:
+**Output:** `{ result: { activity_id, pupil_id, first_name, last_name, submission_id, mark_status, mark_error, marks_awarded | null, max_marks, script: { script_id, page_count, uploaded_at, front_sheet_check } | null, overall_feedback: { teacher, ai }, questions: [{ question_id, label, marking, depends_on, has_mark_scheme, awarded | null, available, provenance, answer: { status, kind, transcription, pages, provenance } | null, criteria: [{ success_criteria_id, description, awarded | null, available, why_not_awarded, how_to_improve, teacher_feedback, provenance, ai_awarded | null }] }] } }`. All figures come from the pupil's latest attempt. `answer` is what the reader found, and is null until the script is read:
 - `status`: `answered`, `blank`, `unreadable` or `continued`.
 - `kind`: `text`, `sketch` or `mixed`. A sketch is described, not transcribed.
 - `pages`: the script pages (2 onwards) the answer is on.
@@ -1035,6 +1035,8 @@ The marks' `provenance` is one of:
 - `teacher`: set by a teacher, and never overwritten by the marker.
 - `ai`: set by the marker.
 - `legacy`: carried over from an old paper.
+
+`ai_awarded` is the AI marker's own mark on the criterion (migration 141), kept when a teacher changes `awarded` or confirms it. It is null when the AI never marked the criterion (teacher-only question, teacher marked first, legacy) or its mark was not recovered when the column was added. Teacher tools only: no pupil view shows it.
 
 #### `set_assessment_activity_question_marks`
 A teacher's marking of **one question** on a pupil's latest submission, the same as on the results page and through the same store functions, so the rules match. Give the question by `label` (case-insensitive, e.g. `"q3"`) or `question_id`, and at least one of:
@@ -1059,8 +1061,8 @@ Returns a one-time link to **one PDF of a whole class's feedback** on an assessm
 Give `class` (group id), `unit` (id or title) and `activity` (id or title). Each is matched by exact id first, then by case-insensitive exact name. A name that matches more than one is an error listing the candidates with their ids: retry with the id. The activity must be an `assessment-paper` in one of the unit's standard lessons, and the class must be set that lesson.
 
 The PDF (A4) has:
-- a cover: paper title, class, unit, date generated (DD-MM-YYYY), and every pupil of the class (staff never), by last name then first name, with marks awarded / max and a status: `Marked`, `Not yet marked`, `Held` (front sheet check failed) or `Not sat` (no submission). From each pupil's latest attempt;
-- then each pupil who has a submission on their own pages, with exactly their own feedback PDF's content: overall marks, the teacher's comment, and every question with the answer, the mark scheme (if the paper shows it to pupils) and each criterion's marks and feedback. Answer images are markable pages only, never page 1. The page header names the pupil and class.
+- a cover: paper title, class, unit, date generated (DD-MM-YYYY), and every pupil of the class (staff never), by last name then first name, with the AI mark, the final mark (marks awarded / max), the change (`+n`, `-n`, `0`) and a status: `Marked`, `Not yet marked`, `Held` (front sheet check failed) or `Not sat` (no submission). From each pupil's latest attempt. Below the table: "Teacher changed marks for N of M AI-marked pupils; net change +x marks." The AI mark is the final mark with every teacher change taken out: change = Σ(awarded − `ai_awarded`) over criteria whose `ai_awarded` is known. A mark the teacher gave alone (no `ai_awarded`) counts the same in both. With no `ai_awarded` on record (legacy marks only) the AI mark and change are `—`;
+- then each pupil who has a submission on their own pages, with their own feedback PDF's content: overall marks, the teacher's comment, and every question with the answer, the mark scheme (if the paper shows it to pupils) and each criterion's marks and feedback. Answer images are markable pages only, never page 1. The page header names the pupil and class. Above the questions, a *Teacher changes* box lists each question where a criterion's mark differs from the AI's (`Q3: AI 2/4 -> Teacher 3/4`, question totals), or "No changes to the AI's marks.", and any questions marked by the teacher alone. The box is left out when no AI mark is on record. It is only in this teacher copy: a pupil's own PDF never has it.
 
 This is a teacher's copy: the pupils' feedback visibility does not apply. The file is `<paper-title>-<class>-feedback.pdf`, slugified.
 

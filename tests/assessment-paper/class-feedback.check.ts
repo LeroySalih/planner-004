@@ -249,7 +249,9 @@ async function main() {
     const pages = Number.parseInt(info.stdout.match(/^Pages:\s+(\d+)/m)?.[1] ?? '0', 10)
     check('a valid PDF: the cover plus a page per pupil who sat it', buffer.subarray(0, 5).toString() === '%PDF-' && pages === 4, String(pages))
     const cover = await pageText(file, 1)
-    check('cover page lists the statuses', ['Marked', 'Not sat', 'Held', 'Not yet marked', '3 / 4'].every((s) => cover.includes(s)) && cover.includes(GROUP))
+    check('cover page lists the statuses', ['Marked', 'Not sat', 'Held', 'Not yet marked'].every((s) => cover.includes(s)) && /3\s*\/\s*4/.test(cover) && cover.includes(GROUP))
+    // Marked by the teacher alone: no AI mark on record to compare with.
+    check('cover has AI mark, final mark and change columns, — where not recorded', ['AI MARK', 'FINAL MARK', 'CHANGE'].every((s) => cover.includes(s)) && data.roster.every((r) => r.aiMarks === null && r.change === null) && cover.includes('No AI marks on record'))
     const p2 = await pageText(file, 2)
     const p3 = await pageText(file, 3)
     const p4 = await pageText(file, 4)
