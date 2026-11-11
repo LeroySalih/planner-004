@@ -18,6 +18,7 @@ import { readPlannerSowUnitsAction,
   upsertPlannerWeekNoteAction,
   setLessonHiddenFromPupilsAction,
 } from '@/lib/server-updates'
+import { cn } from '@/lib/utils'
 import { PlannerGrid } from './PlannerGrid'
 import { SidePanel } from './SidePanel'
 import { WeekNavigator } from './WeekNavigator'
@@ -665,7 +666,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
 
   return (
     <>
-      <div className="max-w-[95%] mx-auto mb-6 flex items-center gap-4">
+      <div className="max-w-[95%] mx-auto mb-6 flex flex-wrap items-center gap-x-4 gap-y-2">
         <h1 className="text-xl font-medium text-[var(--color-text-primary)] m-0">
           Weekly planner
         </h1>
@@ -687,8 +688,11 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
       </div>
 
       <div
-        className="w-[95%] mx-auto rounded-[12px] bg-[var(--color-background-tertiary)] p-4 transition-[padding-right] duration-200"
-        style={{ paddingRight: selectedSlot ? 'calc(320px + 1rem)' : undefined }}
+        className={cn(
+          'w-[95%] mx-auto rounded-[12px] bg-[var(--color-background-tertiary)] p-2 sm:p-4 transition-[padding-right] duration-200',
+          // Room for the side panel beside the grid; on small screens it covers the page instead.
+          selectedSlot && 'md:pr-[calc(320px+1rem)]',
+        )}
       >
         <WeekNavigator
           currentWeek={currentWeek}

@@ -73,111 +73,156 @@ export function PlannerGrid({
 }: PlannerGridProps) {
   // Build a map from group_id → subject for fast lookup
   const groupSubjectMap = new Map(groups.map((g) => [g.group_id, g.subject]))
+
+  const renderCell = (day: Day, period: number) => {
+    const key = slotKey(day, period)
+    const state: CellState = plannerState.get(key) ?? emptyCellState()
+    const groupSubject = state.groupId ? groupSubjectMap.get(state.groupId) : undefined
+    const cellUnits = groupSubject
+      ? units.filter((u) => u.subject === groupSubject && u.active !== false)
+      : []
+
+    return (
+      <PlannerCell
+        key={key}
+        day={day}
+        period={period}
+        cellState={state}
+        isSelected={selectedSlot === key}
+        units={cellUnits}
+        sowUnitIds={state.groupId ? sowUnits?.get(state.groupId) : undefined}
+        lessonCache={lessonCache}
+        lessonScores={lessonScores}
+        lastWeek={lastWeekBySlot.get(key) ?? null}
+        onCellClick={onCellClick}
+        onUnitSelect={onUnitSelect}
+        onLessonChange={onLessonChange}
+        onFeedbackToggle={onFeedbackToggle}
+        onLockToggle={onLockToggle}
+        readOnly={readOnly}
+      />
+    )
+  }
+
+  // Offered only when there is something to archive — the route 404s on an
+  // empty day, and a link that downloads nothing is worse than no link.
+  const renderPlansLink = (day: Day) =>
+    [...plannerState.entries()].some(
+      ([key, state]) => key.startsWith(`${day}-`) && state.lessons.length > 0,
+    ) ? (
+      <a
+        href={`/api/lesson-plans/day?day=${day}&week=${encodeURIComponent(currentWeek)}&teacherId=${encodeURIComponent(teacherId)}`}
+        download
+        className="mt-0.5 text-[10px] text-[var(--color-text-tertiary)] underline-offset-2 hover:text-[var(--color-text-primary)] hover:underline"
+        title={`Download every lesson plan for ${DAY_LABELS[day]} as a zip`}
+      >
+        Plans
+      </a>
+    ) : null
+
   return (
     <div className="text-[13px]">
-      {/* Period header row */}
-      <div className="grid gap-[4px] mb-[4px]" style={{ gridTemplateColumns: GRID_TEMPLATE }}>
-        <div />
-        {COLUMNS.map((col, i) => {
-          if (col.kind === 'break') {
-            return (
-              <div
-                key={`hbreak-${i}`}
-                className="flex items-end justify-center pb-1 text-[9px] text-[var(--color-text-tertiary)] opacity-60 tracking-wide leading-tight text-center"
-              >
-                {col.row.label}
-              </div>
-            )
-          }
-          return (
-            <div
-              key={`hperiod-${col.row.period}`}
-              className="text-center px-1 py-1.5"
-            >
-              <div className="text-[12px] font-medium text-[var(--color-text-secondary)]">
-                {col.row.label}
-              </div>
-              {col.row.startTime && (
-                <div className="text-[10px] text-[var(--color-text-tertiary)] leading-tight">
-                  {col.row.startTime}
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
-
-      {/* Day rows */}
-      <div className="flex flex-col gap-[4px]">
+      {/* Small screens: one column, each day a heading over its periods */}
+      <div className="flex flex-col gap-4 md:hidden">
         {DAYS.map((day) => (
-          <div
-            key={day}
-            className="grid gap-[4px]"
-            style={{ gridTemplateColumns: GRID_TEMPLATE }}
-          >
-            {/* Day label, and the day's plans as one download */}
-            <div className="flex flex-col items-end justify-center pr-2">
-              <span className="font-medium text-[12px] text-[var(--color-text-secondary)]">
+          <section key={day} className="flex flex-col gap-[4px]">
+            <div className="flex items-baseline justify-between px-1 pb-1">
+              <h2 className="m-0 font-medium text-[14px] text-[var(--color-text-primary)]">
                 {DAY_LABELS[day]}
-              </span>
-              {/* Offered only when there is something to archive — the route
-                  404s on an empty day, and a link that downloads nothing is
-                  worse than no link. */}
-              {[...plannerState.entries()].some(
-                ([key, state]) => key.startsWith(`${day}-`) && state.lessons.length > 0,
-              ) ? (
-                <a
-                  href={`/api/lesson-plans/day?day=${day}&week=${encodeURIComponent(currentWeek)}&teacherId=${encodeURIComponent(teacherId)}`}
-                  download
-                  className="mt-0.5 text-[10px] text-[var(--color-text-tertiary)] underline-offset-2 hover:text-[var(--color-text-primary)] hover:underline"
-                  title={`Download every lesson plan for ${DAY_LABELS[day]} as a zip`}
-                >
-                  Plans
-                </a>
-              ) : null}
+              </h2>
+              {renderPlansLink(day)}
             </div>
-
-            {/* Period cells */}
             {COLUMNS.map((col, i) => {
               if (col.kind === 'break') {
                 return (
                   <div
-                    key={`break-${day}-${i}`}
-                    className="rounded-[6px] bg-[var(--color-background-secondary)] opacity-40"
-                  />
+                    key={`mbreak-${day}-${i}`}
+                    className="text-center text-[10px] text-[var(--color-text-tertiary)] opacity-60 tracking-wide"
+                  >
+                    {col.row.label}
+                  </div>
                 )
               }
-
-              const key = slotKey(day, col.row.period)
-              const state: CellState = plannerState.get(key) ?? emptyCellState()
-              const groupSubject = state.groupId ? groupSubjectMap.get(state.groupId) : undefined
-              const cellUnits = groupSubject
-                ? units.filter((u) => u.subject === groupSubject && u.active !== false)
-                : []
-
               return (
-                <PlannerCell
-                  key={key}
-                  day={day}
-                  period={col.row.period}
-                  cellState={state}
-                  isSelected={selectedSlot === key}
-                  units={cellUnits}
-                  sowUnitIds={state.groupId ? sowUnits?.get(state.groupId) : undefined}
-                  lessonCache={lessonCache}
-                  lessonScores={lessonScores}
-                  lastWeek={lastWeekBySlot.get(key) ?? null}
-                  onCellClick={onCellClick}
-                  onUnitSelect={onUnitSelect}
-                  onLessonChange={onLessonChange}
-                  onFeedbackToggle={onFeedbackToggle}
-                  onLockToggle={onLockToggle}
-                  readOnly={readOnly}
-                />
+                <div key={`mperiod-${day}-${col.row.period}`} className="grid grid-cols-[52px_minmax(0,1fr)] gap-[4px]">
+                  <div className="flex flex-col items-center justify-center">
+                    <span className="text-[12px] font-medium text-[var(--color-text-secondary)]">{col.row.label}</span>
+                    {col.row.startTime && (
+                      <span className="text-[10px] text-[var(--color-text-tertiary)] leading-tight">{col.row.startTime}</span>
+                    )}
+                  </div>
+                  {renderCell(day, col.row.period)}
+                </div>
               )
             })}
-          </div>
+          </section>
         ))}
+      </div>
+
+      <div className="hidden md:block">
+        {/* Period header row */}
+        <div className="grid gap-[4px] mb-[4px]" style={{ gridTemplateColumns: GRID_TEMPLATE }}>
+          <div />
+          {COLUMNS.map((col, i) => {
+            if (col.kind === 'break') {
+              return (
+                <div
+                  key={`hbreak-${i}`}
+                  className="flex items-end justify-center pb-1 text-[9px] text-[var(--color-text-tertiary)] opacity-60 tracking-wide leading-tight text-center"
+                >
+                  {col.row.label}
+                </div>
+              )
+            }
+            return (
+              <div
+                key={`hperiod-${col.row.period}`}
+                className="text-center px-1 py-1.5"
+              >
+                <div className="text-[12px] font-medium text-[var(--color-text-secondary)]">
+                  {col.row.label}
+                </div>
+                {col.row.startTime && (
+                  <div className="text-[10px] text-[var(--color-text-tertiary)] leading-tight">
+                    {col.row.startTime}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Day rows */}
+        <div className="flex flex-col gap-[4px]">
+          {DAYS.map((day) => (
+            <div
+              key={day}
+              className="grid gap-[4px]"
+              style={{ gridTemplateColumns: GRID_TEMPLATE }}
+            >
+              {/* Day label, and the day's plans as one download */}
+              <div className="flex flex-col items-end justify-center pr-2">
+                <span className="font-medium text-[12px] text-[var(--color-text-secondary)]">
+                  {DAY_LABELS[day]}
+                </span>
+                {renderPlansLink(day)}
+              </div>
+
+              {/* Period cells */}
+              {COLUMNS.map((col, i) => {
+                if (col.kind === 'break') {
+                  return (
+                    <div
+                      key={`break-${day}-${i}`}
+                      className="rounded-[6px] bg-[var(--color-background-secondary)] opacity-40"
+                    />
+                  )
+                }
+                return renderCell(day, col.row.period)
+              })}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )

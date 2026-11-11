@@ -88,7 +88,7 @@ export function SidePanel({
   const addUnitLessons = lessonCache.get(addUnitId) ?? []
 
   return (
-    <div className="fixed right-0 top-[80px] h-[calc(100vh-80px)] w-[320px] bg-[var(--color-background-primary)] border-l border-[var(--color-border-tertiary)] p-5 overflow-y-auto z-40 flex flex-col gap-3.5">
+    <div className="fixed right-0 top-[80px] h-[calc(100vh-80px)] w-full sm:w-[320px] bg-[var(--color-background-primary)] border-l border-[var(--color-border-tertiary)] p-5 overflow-y-auto z-40 flex flex-col gap-3.5">
 
       {/* Header */}
       <div className="flex items-center justify-between">
