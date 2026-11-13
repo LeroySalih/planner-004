@@ -332,6 +332,30 @@ towards progress, migration 129); `enqueueMarkingTasks` clears its status.
 - The prompt must state that **0 is a valid score**. Without it the model
   anchors to the lowest descriptor and silently inflates every mark.
 
+### Upload File marked by AI
+
+An `upload-file` is teacher-marked unless its **Mark with AI** switch is on
+(`body_data.aiMarking`, with the switch's *Marking prompt* in
+`body_data.markingGuidance`; migration 142 routes it like `upload-code`). The
+editor and MCP (`ai_marking`, `marking_prompt`) refuse the switch without a
+prompt; old bodies without either still parse (`UploadFileActivityBodySchema`).
+On, every upload (pupil or teacher dropzone, `/api/pupil-submission/upload`)
+goes through `enqueueMarkingTasks`, one job per criterion as usual, and drops
+the queued jobs of the pupil's earlier attempts. The route takes the client's
+`groupAssignmentId` only when it names the activity's lesson and a class the
+pupil is in, otherwise `self__study`. The pupil's **current** files
+(a replaced file is a past version, `file-versions.ts`) go to the model:
+images (png, jpeg, webp, gif) and PDFs as attachments, text files (txt, csv,
+md, py, html, css, js, json) in the prompt (`src/lib/ai/upload-file-marking.ts`,
+with size caps). Files of any other type are skipped and named in the prompt
+as not shown, so the model marks only what it sees and flags the rest. When no
+current file is readable, no model is called: the submission is set to
+`marking-error` with *AI can't read .docx files; mark this yourself.*, at
+enqueue and again, as a permanent error, in the worker. Anything
+that acts on an activity rather than listing the AI-marked types must ask
+`isAiMarkedActivity(type, body_data)`, not `isAiMarkedActivityType`, or every
+upload-file is treated as AI-marked. Tests: `tests/upload-file/ai-marking.check.ts`.
+
 ### Assessment paper marking
 
 **Stand-alone assessment papers are retired.** `ASSESSMENT_PAPERS_ENABLED` in `src/dino.config.ts` is `false`: the *Assessments* and *My Assessments* menu links are hidden and the stand-alone paper MCP tools (`list_assessment_papers`, `create_assessment_paper`, `record_assessment_paper_result`, `*_assessment_paper_file*` …) are not registered. The pages, code and tables are kept. Everything below is the assessment-paper **activity**, which the flag does not touch.

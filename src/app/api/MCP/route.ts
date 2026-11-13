@@ -93,7 +93,7 @@ import {
   updateIntervention,
   type InterventionSummary,
 } from '@/lib/interventions/store'
-import { ACTIVITY_TYPES, ActivityBodyDataError, listActivitiesForLesson, getActivity, createActivity, updateActivity, setActivityMaxMarks, addSuccessCriterionToActivity, removeSuccessCriterionFromActivity, removeActivity, reorderActivities, uploadActivityFile, removeActivityFile, uploadActivityImage, moveInlineImagesToFiles, type ActivityUpdate } from '@/lib/mcp/activities'
+import { ACTIVITY_TYPES, ActivityBodyDataError, listActivitiesForLesson, getActivity, createActivity, updateActivity, uploadFileMarkingFields, mcpBoolean, setActivityMaxMarks, addSuccessCriterionToActivity, removeSuccessCriterionFromActivity, removeActivity, reorderActivities, uploadActivityFile, removeActivityFile, uploadActivityImage, moveInlineImagesToFiles, type ActivityUpdate } from '@/lib/mcp/activities'
 
 // Force Node.js runtime — MCP SDK is not compatible with the Edge runtime.
 export const runtime = 'nodejs'
@@ -1603,7 +1603,7 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
     {
       title: 'Get an activity',
       description: 'Return one activity in full, including its body_data (the text of a Display Text activity, a question and model answer, '
-        + 'MCQ options, flashcards, …), teacher notes, max marks and linked success criteria. '
+        + 'MCQ options, flashcards, an upload-file\'s aiMarking switch and markingGuidance (its marking prompt), …), teacher notes, max marks and linked success criteria. '
         + 'To change part of body_data, pass only those fields to update_activity (question, model_answer, mcq_options, correct_option_id or body_data_patch) rather than resending it.',
       inputSchema: {
         activity_id: z.string().min(1).describe('Activity identifier (from get_activities_for_lesson).'),
@@ -1685,6 +1685,7 @@ function createMcpServer(caller: McpCaller, baseUrl = ''): McpServer {
 - display-webpage: body_data { "url"?: "https://…" } for a link. To show an HTML page, create the activity, then upload one .html file to it; the upload sets body_data.htmlFile.
 - upload-code: body_data { "task": "<what to write>", "markingGuidance": "<what earns the marks>", "language"?: "python", "starterCode"?: "…" }. Required: the AI marker cannot mark without task and markingGuidance.
 - upload-spreadsheet: body_data { "task", "markingGuidance" }, both required.
+- upload-file: body_data { "instructions": "<what to upload>" }. Teacher-marked unless ai_marking is true: then each success criterion is marked by AI from the pupil's files when they upload, against marking_prompt (required with ai_marking; stored as body_data aiMarking / markingGuidance). The AI reads images (png, jpeg, webp, gif), PDFs and text files (txt, csv, md, py, html, css, js, json); other files are skipped (named to the model as not shown), and work with no readable file is left for the teacher, with a note on the submission. An activity with no success criteria is not sent for marking.
 - assessment-paper: a written paper marked per question. body_data { "instructions"?: "…" } or none; then set_assessment_activity_questions and the files, question paper first, its page 1 the front sheet (see get_assessment_activity). Its max_marks is the sum of its questions, never set by hand.
 - All other types: use body_data for any extra JSON payload.
 max_marks sets the marks the activity is out of, e.g. 6 for a "(6 marks)" question. Omitted, a short-text-question is out of 3 and every other type out of 1. It is refused for non-scorable types and for matcher and group-items, which are worth one mark per pair or item. Linking success criteria later replaces it with the marks the criteria are worth.
@@ -1706,6 +1707,8 @@ A body_data over a limit is refused with isError and error.code LIMIT_EXCEEDED (
         ).optional().describe('Answer options — required for multiple-choice-question. Provide 2–4 items.'),
         correct_option_id: z.string().optional().describe('id of the correct option — required for multiple-choice-question.'),
         body_data: z.record(z.string(), z.unknown()).optional().describe('Generic body JSON for other activity types.'),
+        ai_marking: mcpBoolean.optional().describe('upload-file only: true marks pupils\' uploads with AI (needs marking_prompt), false leaves them to the teacher. Default false.'),
+        marking_prompt: z.string().optional().describe('upload-file only: what the AI should look for in the pupil\'s files and what earns the marks. Required when ai_marking is true. Not shown to pupils.'),
         is_summative: z.boolean().optional().describe('Mark as summative assessment (scorable types only).'),
         max_marks: z.coerce.number().int().min(1).optional().describe('Marks available (scorable types only, not matcher or group-items). Defaults: short-text-question 3, others 1.'),
       }),
@@ -1722,9 +1725,11 @@ A body_data over a limit is refused with isError and error.code LIMIT_EXCEEDED (
         error: activityBodyErrorShape.optional(),
       }),
     },
-    async ({ lesson_id, type, title, question, model_answer, mcq_options, correct_option_id, body_data, is_summative, max_marks }) => {
+    async ({ lesson_id, type, title, question, model_answer, mcq_options, correct_option_id, body_data, ai_marking, marking_prompt, is_summative, max_marks }) => {
       try {
         let resolvedBodyData: Record<string, unknown> | null = body_data ?? null
+        const markingFields = uploadFileMarkingFields(type, { aiMarking: ai_marking, markingPrompt: marking_prompt })
+        if (Object.keys(markingFields).length > 0) resolvedBodyData = { ...resolvedBodyData, ...markingFields }
 
         if (type === 'short-text-question') {
           if (!question?.trim()) return { content: [{ type: 'text' as const, text: 'Error: question is required for short-text-question' }], structuredContent: { activity: null } }
@@ -1758,6 +1763,7 @@ A body_data over a limit is refused with isError and error.code LIMIT_EXCEEDED (
 - title, is_summative: as on create_activity.
 - Patch body_data without resending it: question, model_answer (short-text-question), mcq_options, correct_option_id (multiple-choice-question) set those fields; body_data_patch sets any other top-level fields of body_data, and a field set to null is removed. Everything else in body_data, such as images, is kept.
 - body_data replaces the stored object as a whole; it cannot be combined with the patch fields.
+- ai_marking, marking_prompt (upload-file): turn AI marking of pupils' uploads on or off and set its marking prompt (body_data aiMarking / markingGuidance). Turning it on needs a marking prompt, passed here or already stored; turning it off keeps the prompt.
 - type changes the activity's type, refused once pupils have submitted work for it. The body must suit the new type: pass it in the same call (e.g. text → show-video with body_data { "fileUrl": "https://…" }). max_marks resets to the new type's default, or to what its success criteria are worth.
 The result is checked as create_activity checks it; a body over a limit is refused with isError and error.code LIMIT_EXCEEDED.`,
       inputSchema: z.object({
@@ -1777,6 +1783,8 @@ The result is checked as create_activity checks it; a body over a limit is refus
         correct_option_id: z.string().min(1).optional().describe('id of the correct option (multiple-choice-question).'),
         body_data_patch: z.record(z.string(), z.unknown()).optional().describe('Top-level body_data fields to set; null removes a field.'),
         body_data: z.record(z.string(), z.unknown()).nullable().optional().describe('Replacement body data, as a whole (pass null to clear)'),
+        ai_marking: mcpBoolean.optional().describe('upload-file only: true marks pupils\' uploads with AI (needs a marking prompt, given or stored), false leaves them to the teacher.'),
+        marking_prompt: z.string().optional().describe('upload-file only: what the AI should look for in the pupil\'s files and what earns the marks. Not shown to pupils.'),
         is_summative: z.boolean().optional().describe('Mark or unmark as summative assessment (scorable types only)'),
       }),
       outputSchema: z.object({
@@ -1792,7 +1800,7 @@ The result is checked as create_activity checks it; a body over a limit is refus
         error: activityBodyErrorShape.optional(),
       }),
     },
-    async ({ activity_id, title, type, question, model_answer, mcq_options, correct_option_id, body_data_patch, body_data, is_summative }) => {
+    async ({ activity_id, title, type, question, model_answer, mcq_options, correct_option_id, body_data_patch, body_data, ai_marking, marking_prompt, is_summative }) => {
       try {
         const patch: Record<string, unknown> = { ...body_data_patch }
         if (question !== undefined) patch.question = question.trim()
@@ -1806,6 +1814,9 @@ The result is checked as create_activity checks it; a body over a limit is refus
         if (body_data !== undefined) fields.bodyData = body_data
         if (Object.keys(patch).length > 0) fields.bodyPatch = patch
         if (is_summative !== undefined) fields.isSummative = is_summative
+        if (ai_marking !== undefined || marking_prompt !== undefined) {
+          fields.uploadFileMarking = { aiMarking: ai_marking, markingPrompt: marking_prompt }
+        }
 
         const activity = await updateActivity(activity_id, fields)
         return {

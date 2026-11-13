@@ -13,8 +13,9 @@ const UPLOAD_ENDPOINTS: Record<string, string> = {
   "mark-worksheet": "/api/pupil-submission/mark-worksheet",
 }
 
-// These types auto-enqueue AI marking server-side when a groupAssignmentId is sent.
-const AI_MARKED_TYPES = new Set(["upload-spreadsheet", "upload-worksheet", "mark-worksheet"])
+// These types auto-enqueue AI marking server-side when a groupAssignmentId is
+// sent (upload-file only when its "Mark with AI" switch is on).
+const AI_MARKED_TYPES = new Set(["upload-file", "upload-spreadsheet", "upload-worksheet", "mark-worksheet"])
 
 type TeacherSubmissionDropzoneProps = {
   enabled: boolean

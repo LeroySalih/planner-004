@@ -9,6 +9,8 @@ import { createLocalStorageClient } from "@/lib/storage/local-storage"
 import { emitSubmissionEvent } from "@/lib/sse/topics"
 import { logActivitySubmissionEvent } from "@/lib/activity-logging"
 import { clearResubmitRequest, getNextAttemptNumber } from "@/lib/server-actions/submission-attempts"
+import { enqueueMarkingTasks, triggerQueueProcessor } from "@/lib/ai/marking-queue"
+import { uploadFileAiMarkingEnabled } from "@/lib/upload-file/ai-marking"
 
 const LESSON_FILES_BUCKET = "lessons"
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
@@ -46,6 +48,16 @@ async function resolvePupilStorageKey(pupilId: string): Promise<string> {
   return email && email.length > 0 ? email : pupilId
 }
 
+async function markingAssignmentId(groupAssignmentId: string | null, lessonId: string, pupilId: string) {
+  const [groupId, assignmentLessonId] = groupAssignmentId?.split("__") ?? []
+  if (!groupId || assignmentLessonId !== lessonId) return null
+  const { rows } = await query(
+    `select 1 from group_membership where group_id = $1 and user_id = $2 limit 1`,
+    [groupId, pupilId],
+  )
+  return rows.length > 0 ? groupAssignmentId : null
+}
+
 export async function POST(request: Request) {
   const startedAt = Date.now()
   const requestId = crypto.randomUUID().slice(0, 8)
@@ -71,6 +83,9 @@ export async function POST(request: Request) {
   const activityId = formData.get("activityId")
   const pupilId = formData.get("pupilId")
   const file = formData.get("file")
+  const groupAssignmentIdRaw = formData.get("groupAssignmentId")
+  const groupAssignmentId =
+    typeof groupAssignmentIdRaw === "string" && groupAssignmentIdRaw.trim() !== "" ? groupAssignmentIdRaw : null
 
   if (typeof lessonId !== "string" || lessonId.trim() === "") {
     console.warn(`${tag} Missing lessonId`)
@@ -275,6 +290,44 @@ export async function POST(request: Request) {
     })
   } catch (err) {
     console.error(`${tag} SSE emit failed (non-fatal)`, err)
+  }
+
+  // With "Mark with AI" on, every upload sends the pupil's current files for
+  // marking, as the other AI-marked upload types do. Off, nothing is queued.
+  if (submissionId) {
+    try {
+      const { rows: activityRows } = await query<{ body_data: unknown; lesson_id: string }>(
+        `select body_data, lesson_id from activities where activity_id = $1 and type = 'upload-file'`,
+        [activityId],
+      )
+      if (uploadFileAiMarkingEnabled(activityRows[0]?.body_data)) {
+        // As mark-worksheet: the assignment when there is one, otherwise a
+        // synthetic id that still decodes ("__") so the mark is applied. The
+        // id comes from the client, so it is used only when it names this
+        // activity's lesson and a class the pupil is in.
+        await enqueueMarkingTasks(
+          (await markingAssignmentId(groupAssignmentId, activityRows[0].lesson_id, userId)) ?? "self__study",
+          [{ submissionId }],
+        )
+        // Not queued when the activity has no criteria or the AI cannot read
+        // the files; the queue has already recorded and announced why.
+        const { rows: statusRows } = await query<{ mark_status: string | null }>(
+          `select mark_status from submissions where submission_id = $1`,
+          [submissionId],
+        )
+        if (statusRows[0]?.mark_status === "waiting") {
+          void triggerQueueProcessor()
+          void emitSubmissionEvent("submission.updated", {
+            submissionId,
+            activityId,
+            pupilId: userId,
+            markStatus: "waiting",
+          })
+        }
+      }
+    } catch (err) {
+      console.error(`${tag} Failed to enqueue AI marking (non-fatal)`, err)
+    }
   }
 
   const totalMs = Date.now() - startedAt

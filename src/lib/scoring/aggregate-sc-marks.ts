@@ -173,6 +173,9 @@ export async function recordCriterionMark(
          set body = (
            coalesce(body::jsonb, '{}'::jsonb) || jsonb_build_object(
              'ai_model_score', $2::numeric,
+             -- Read by the types compute_submission_base_score does not send
+             -- to ai_model_score, such as upload-file, as recomputeSubmissionAggregate does.
+             'score', $2::numeric,
              'ai_marks', $3::int,
              'marks', $3::int,
              'sc_marks_awarded', $3::int,

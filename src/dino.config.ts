@@ -100,14 +100,18 @@ export function isMothballedActivityType(type: string | null | undefined): boole
 }
 
 // Activity types marked by a model rather than deterministically in-app. These
-// are exactly the types listed in the AI branch of
-// compute_submission_base_score (see 086-upload-code-activity-score.sql) — keep
-// the two in step, or a type will be marked but read back as unscored.
+// are the types listed in the AI branch of compute_submission_base_score (see
+// 086-upload-code-activity-score.sql) — keep the two in step, or a type will
+// be marked but read back as unscored.
 // Used by /admin/ai-models to decide which types can be routed to a model.
 //
-// assessment-paper is the exception: it is not in that SQL branch, and need
-// not be, because recomputeAssessmentSubmission writes `score` and
-// `ai_model_score` with the same value.
+// Two exceptions are not in that SQL branch, and need not be, because their
+// score is written to `score` as well as `ai_model_score`:
+// - assessment-paper: recomputeAssessmentSubmission writes both.
+// - upload-file: per-criterion marking writes both (aggregate-sc-marks.ts).
+//   It is AI-marked only when the activity's "Mark with AI" switch is on
+//   (body_data.aiMarking), so anything that acts on an activity rather than
+//   listing the types must ask isAiMarkedActivity, not isAiMarkedActivityType.
 export const AI_MARKED_ACTIVITY_TYPES = Object.freeze([
   "short-text-question",
   "upload-code",
@@ -115,11 +119,22 @@ export const AI_MARKED_ACTIVITY_TYPES = Object.freeze([
   "mark-worksheet",
   "upload-spreadsheet",
   "assessment-paper",
+  "upload-file",
 ]);
+
+/** Types that are AI-marked only when their body_data turns it on. */
+const OPT_IN_AI_MARKED_ACTIVITY_TYPES = Object.freeze(["upload-file"]);
 
 export function isAiMarkedActivityType(type: string | null | undefined): boolean {
   const normalized = normalizeActivityType(type);
   return normalized.length > 0 && AI_MARKED_ACTIVITY_TYPES.includes(normalized);
+}
+
+/** Whether this activity is marked by a model: its type is, and an opt-in type has it turned on. */
+export function isAiMarkedActivity(type: string | null | undefined, bodyData: unknown): boolean {
+  if (!isAiMarkedActivityType(type)) return false;
+  if (!OPT_IN_AI_MARKED_ACTIVITY_TYPES.includes(normalizeActivityType(type))) return true;
+  return typeof bodyData === "object" && bodyData !== null && (bodyData as { aiMarking?: unknown }).aiMarking === true;
 }
 
 export const NON_SCORABLE_ACTIVITY_TYPES = Object.freeze([

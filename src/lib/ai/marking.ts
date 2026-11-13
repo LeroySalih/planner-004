@@ -28,7 +28,7 @@ export interface MarkingRequest {
   maxMarks: number
   /** Set when this call assesses a single success criterion. */
   criterion?: CriterionContext | null
-  /** Images for vision marking (mark-worksheet). Data URIs. */
+  /** Images for vision marking (mark-worksheet), and PDFs (upload-file). Data URIs. */
   images?: Array<{ dataUrl: string; fileName: string }>
 }
 
@@ -47,8 +47,9 @@ export interface MarkingCallRecord {
     model: string
     system: string
     prompt: string
-    /** Image metadata only. The base64 payload is deliberately excluded — a
-     *  worksheet request carries several MB of it and would bloat the queue. */
+    /** Image (and PDF) metadata only. The base64 payload is deliberately
+     *  excluded — a worksheet request carries several MB of it and would bloat
+     *  the queue. */
     images: Array<{ fileName: string; mimeType: string; bytes: number }>
     maxMarks: number
     successCriteriaId: string | null
@@ -270,14 +271,15 @@ export function stripSolutionCode(feedback: string): string {
 }
 
 /**
- * Mark one submission — against a single success criterion when `criterion` is
- * set, otherwise against the activity as a whole.
- *
- * Returns whole marks clamped to 0..maxMarks. The response schema constrains
- * the model to an integer, and this clamps as a second line of defence: a
- * levelled criterion with 3 descriptors can only ever yield 0, 1, 2 or 3.
+ * The prompt and parts one marking call sends, without sending it. Split from
+ * markWithModel so the request can be checked without calling a model.
  */
-export async function markWithModel(request: MarkingRequest): Promise<MarkingResult> {
+export function buildMarkingCall(request: MarkingRequest): {
+  maxMarks: number
+  prompt: string
+  parts: ModelPart[]
+  imageMeta: MarkingCallRecord["request"]["images"]
+} {
   const maxMarks = Math.max(1, Math.floor(request.maxMarks))
 
   const instruction = [
@@ -295,7 +297,7 @@ export async function markWithModel(request: MarkingRequest): Promise<MarkingRes
     `MARKING GUIDANCE:\n${fieldOrNotSet(request.markingGuidance)}`,
     request.code
       ? `PUPIL SUBMISSION (${request.code.language}):\n\`\`\`${request.code.language}\n${request.code.source || "(no code submitted)"}\n\`\`\``
-      : request.images?.length
+      : request.images?.length && !request.pupilAnswer
       ? "PUPIL ANSWER: see the attached images."
       : `PUPIL ANSWER:\n${request.pupilAnswer || "(no answer given)"}`,
   ].join("\n\n")
@@ -315,6 +317,20 @@ export async function markWithModel(request: MarkingRequest): Promise<MarkingRes
       bytes: Math.floor((match[2].length * 3) / 4),
     })
   }
+
+  return { maxMarks, prompt, parts, imageMeta }
+}
+
+/**
+ * Mark one submission — against a single success criterion when `criterion` is
+ * set, otherwise against the activity as a whole.
+ *
+ * Returns whole marks clamped to 0..maxMarks. The response schema constrains
+ * the model to an integer, and this clamps as a second line of defence: a
+ * levelled criterion with 3 descriptors can only ever yield 0, 1, 2 or 3.
+ */
+export async function markWithModel(request: MarkingRequest): Promise<MarkingResult> {
+  const { maxMarks, prompt, parts, imageMeta } = buildMarkingCall(request)
 
   const model = request.model ?? defaultMarkingModel()
 

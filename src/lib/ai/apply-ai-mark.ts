@@ -30,12 +30,16 @@ const UPLOAD_SPREADSHEET_ACTIVITY_TYPE = "upload-spreadsheet";
 const UPLOAD_WORKSHEET_ACTIVITY_TYPE = "upload-worksheet";
 const MARK_WORKSHEET_ACTIVITY_TYPE = "mark-worksheet";
 const UPLOAD_CODE_ACTIVITY_TYPE = "upload-code";
+// AI-marked only with its "Mark with AI" switch on; the queue never sends one
+// that is off, so a result for it is always one that was asked for.
+const UPLOAD_FILE_ACTIVITY_TYPE = "upload-file";
 const AI_MARKABLE_ACTIVITY_TYPES = new Set([
   SHORT_TEXT_ACTIVITY_TYPE,
   UPLOAD_SPREADSHEET_ACTIVITY_TYPE,
   UPLOAD_WORKSHEET_ACTIVITY_TYPE,
   MARK_WORKSHEET_ACTIVITY_TYPE,
   UPLOAD_CODE_ACTIVITY_TYPE,
+  UPLOAD_FILE_ACTIVITY_TYPE,
 ]);
 // Types whose submission is never synthesised from an inbound mark: the pupil
 // must have submitted first. upload-code belongs here even though its source is
@@ -46,6 +50,7 @@ const FILE_SUBMISSION_ACTIVITY_TYPES = new Set([
   UPLOAD_WORKSHEET_ACTIVITY_TYPE,
   MARK_WORKSHEET_ACTIVITY_TYPE,
   UPLOAD_CODE_ACTIVITY_TYPE,
+  UPLOAD_FILE_ACTIVITY_TYPE,
 ]);
 const SHORT_TEXT_CORRECTNESS_THRESHOLD = 0.8;
 

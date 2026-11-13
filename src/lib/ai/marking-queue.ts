@@ -13,6 +13,7 @@ import {
   UploadWorksheetSubmissionBodySchema,
 } from "@/types";
 import { markWithModel, type CriterionContext, type MarkingRequest } from "@/lib/ai/marking";
+import { UploadFileMarkingError, buildUploadFileMarkingRequest, uploadFileQueueDecision } from "@/lib/ai/upload-file-marking";
 import { resolveModelRoute } from "@/lib/ai/model-routing";
 import { applyAiMarkPayload } from "@/lib/ai/apply-ai-mark";
 import { applyRevisionMarkPayload } from "@/lib/ai/apply-revision-mark";
@@ -102,13 +103,35 @@ export async function enqueueMarkingTasks(
   );
 
   for (const task of tasks) {
-    const { rows: typeRows } = await query<{ type: string | null }>(
-      `select a.type from submissions s join activities a on a.activity_id = s.activity_id
+    const { rows: typeRows } = await query<{
+      type: string | null;
+      activity_body: unknown;
+      submission_body: unknown;
+    }>(
+      `select a.type, a.body_data as activity_body, s.body as submission_body
+       from submissions s join activities a on a.activity_id = s.activity_id
        where s.submission_id = $1`,
       [task.submissionId],
     );
     if (isQuestionMarkedActivityType(typeRows[0]?.type)) {
       await enqueueAssessmentPaperSubmission(task.submissionId, assignmentId, delaySecs);
+      continue;
+    }
+
+    // An upload-file is AI-marked only with its "Mark with AI" switch on;
+    // otherwise it stays the teacher's to mark, as it always was.
+    const uploadFileDecision = typeRows[0]?.type === "upload-file"
+      ? uploadFileQueueDecision(typeRows[0].activity_body, typeRows[0].submission_body)
+      : null;
+    if (uploadFileDecision && "skip" in uploadFileDecision) {
+      await query(
+        `update submissions set mark_status=null, mark_error=null where submission_id=$1`,
+        [task.submissionId],
+      );
+      await logQueueEvent(
+        "info",
+        `Skipped submission ${task.submissionId}: AI marking is off for this upload-file activity`,
+      );
       continue;
     }
 
@@ -140,6 +163,18 @@ export async function enqueueMarkingTasks(
       continue;
     }
 
+    // Only the latest attempt is scored, so an earlier one's queued marking
+    // is wasted whether or not this one can be marked.
+    if (typeRows[0]?.type === "upload-file") {
+      await supersedeEarlierAttempts(task.submissionId);
+    }
+    // Work the model can read none of (only a .docx, say) is refused here,
+    // before any job exists, with the reason where the teacher sees it.
+    if (uploadFileDecision && "refuse" in uploadFileDecision) {
+      await holdUploadFileSubmission(task.submissionId, uploadFileDecision.refuse);
+      continue;
+    }
+
     await query(
       `update submissions set mark_status='waiting', mark_error=null where submission_id=$1`,
       [task.submissionId],
@@ -161,6 +196,69 @@ export async function enqueueMarkingTasks(
       "info",
       `Fanned out ${criteriaIds.length} criterion jobs for submission ${task.submissionId}`,
     );
+  }
+}
+
+/**
+ * Leave an upload-file submission unmarked because the AI cannot read it: any
+ * open job is closed and the submission shows `marking-error` with the reason,
+ * so the teacher knows to mark it and it is never left in 'marking'.
+ */
+async function holdUploadFileSubmission(submissionId: string, reason: string) {
+  await query(
+    `update external_jobs set status='error', last_error=$2, updated_at=now()
+     where job_type='ai_mark' and status in ('pending','processing')
+       and payload->>'submissionId' = $1`,
+    [submissionId, reason],
+  );
+  const { rows } = await query<{ activity_id: string; user_id: string }>(
+    `update submissions set mark_status='marking-error', mark_error=$2 where submission_id=$1
+     returning activity_id, user_id`,
+    [submissionId, reason],
+  );
+  await logQueueEvent("info", `Not enqueued: upload-file submission ${submissionId}`, { reason });
+  void emitSubmissionEvent("submission.updated", {
+    submissionId,
+    activityId: rows[0]?.activity_id ?? "",
+    pupilId: rows[0]?.user_id ?? "",
+    markStatus: "marking-error",
+    markError: reason,
+  });
+}
+
+/**
+ * Every upload-file upload is a new attempt carrying all the pupil's files,
+ * and only the latest attempt is scored. A pupil uploading three files in a
+ * row would otherwise have three markings queued; the earlier, not yet
+ * started, are dropped.
+ */
+async function supersedeEarlierAttempts(submissionId: string) {
+  const { rows } = await query<{ submission_id: string }>(
+    `select earlier.submission_id
+       from submissions s
+       join submissions earlier
+         on earlier.activity_id = s.activity_id and earlier.user_id = s.user_id
+        and earlier.submission_id <> s.submission_id
+        and earlier.attempt_number < s.attempt_number
+      where s.submission_id = $1`,
+    [submissionId],
+  );
+  const earlier = rows.map((row) => row.submission_id);
+  if (earlier.length === 0) return;
+  const { rowCount } = await query(
+    `update external_jobs set status='error', last_error='Superseded by a later upload', updated_at=now()
+     where job_type='ai_mark' and status='pending' and payload->>'submissionId' = any($1::text[])`,
+    [earlier],
+  );
+  // 'marking' too: a sibling already claimed can finish, but the dropped ones
+  // never will, so the set never completes and nothing would move it on.
+  await query(
+    `update submissions set mark_status=null
+     where submission_id = any($1::text[]) and mark_status in ('waiting','marking')`,
+    [earlier],
+  );
+  if (rowCount) {
+    await logQueueEvent("info", `Dropped ${rowCount} queued jobs superseded by submission ${submissionId}`);
   }
 }
 
@@ -520,7 +618,7 @@ async function processSingleItem(
       return;
     }
 
-    const SUPPORTED_TYPES = new Set(["short-text-question", "upload-spreadsheet", "upload-code", "upload-worksheet", "mark-worksheet"]);
+    const SUPPORTED_TYPES = new Set(["short-text-question", "upload-spreadsheet", "upload-code", "upload-worksheet", "mark-worksheet", "upload-file"]);
     if (!SUPPORTED_TYPES.has(context.type as string)) {
       await logQueueEvent(
         "warn",
@@ -651,6 +749,27 @@ async function processSingleItem(
         maxMarks: effectiveMaxMarks,
         criterion: criterionContext,
       };
+    } else if (context.type === "upload-file") {
+      // The pupil's current files go to the model as images, PDFs or text,
+      // and any it cannot read are left out and named in the prompt. Work
+      // with no readable file was refused at enqueue, and is refused again
+      // here (as a permanent error) in case the files changed since.
+      const storage = createLocalStorageClient("lessons");
+      markingRequest = await buildUploadFileMarkingRequest({
+        activityBody: context.activity_body,
+        submissionBody: context.submission_body,
+        maxMarks: effectiveMaxMarks,
+        criterion: criterionContext,
+        readFile: async (path) => {
+          const { stream, error: streamError } = await storage.getFileStream(path);
+          if (streamError || !stream) {
+            throw new Error(`Failed to read uploaded file at ${path}: ${streamError?.message ?? "no stream"}`);
+          }
+          const chunks: Buffer[] = [];
+          for await (const chunk of stream) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+          return Buffer.concat(chunks);
+        },
+      });
     } else if (context.type === "mark-worksheet") {
       // Mark Worksheet: no OCR step. The pupil's images go to the vision model
       // alongside the teacher's blank worksheet and answer sheet.
@@ -849,7 +968,11 @@ async function processSingleItem(
           [item.submission_id],
         );
       } else {
-        const failureNote = item.job_type === "ai_read"
+        // An upload-file refusal is written for the teacher and is the same
+        // for every criterion, so it is shown as it is.
+        const failureNote = error instanceof UploadFileMarkingError
+          ? errorMessage
+          : item.job_type === "ai_read"
           ? `Reading the script: ${errorMessage}`
           : item.question_id
             ? `${await questionLabel(item.question_id)}: ${errorMessage}`

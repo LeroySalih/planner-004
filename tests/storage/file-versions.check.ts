@@ -42,6 +42,20 @@ check(
   JSON.stringify(past(['notes', 'notes_01-02-2025_00-00-00'])) === JSON.stringify(['notes_01-02-2025_00-00-00']),
 )
 check('plain names are never past', past(['a.pdf', 'b.pdf', 'Slides.pptx']).length === 0)
+check(
+  'a pupil upload stamp with milliseconds strips to its base',
+  currentFileName('photo_07-11-2026_14-05-09-123.png') === 'photo.png',
+  currentFileName('photo_07-11-2026_14-05-09-123.png'),
+)
+check(
+  '…and is past when its current copy is listed',
+  JSON.stringify(past(['photo.png', 'photo_07-11-2026_14-05-09-123.png'])) ===
+    JSON.stringify(['photo_07-11-2026_14-05-09-123.png']),
+)
+check(
+  'other digit runs after the stamp are not milliseconds',
+  ['photo_07-11-2026_14-05-09-12.png', 'photo_07-11-2026_14-05-09-1234.png'].every((name) => currentFileName(name) === name),
+)
 
 const otherDates = [
   'Report_2026-11-07.pdf',

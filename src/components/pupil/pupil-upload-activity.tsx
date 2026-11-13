@@ -13,6 +13,8 @@ import {
   updatePupilSubmissionInstructionsAction,
 } from "@/lib/server-updates"
 import { getRichTextMarkup } from "@/components/lessons/activity-view/utils"
+import { triggerFeedbackRefresh } from "@/lib/feedback-events"
+import { uploadFileAiMarkingEnabled } from "@/lib/upload-file/ai-marking"
 import { Button } from "@/components/ui/button"
 import {
   Select,
@@ -100,6 +102,8 @@ export function PupilUploadActivity({
   const uploadInProgress = useRef(false)
 
   const hasInstructions = instructions.trim().length > 0
+  // Marked by AI on every upload when the activity's "Mark with AI" switch is on.
+  const aiMarked = uploadFileAiMarkingEnabled(activity.body_data)
 
   const uploadDisabled = !canUpload || isPending
 
@@ -160,6 +164,9 @@ export function PupilUploadActivity({
           formData.append("activityId", activity.activity_id)
           formData.append("pupilId", pupilId)
           formData.append("file", file)
+          if (aiMarked && feedbackAssignmentIds.length > 0) {
+            formData.append("groupAssignmentId", feedbackAssignmentIds[0])
+          }
 
           let result: { success: boolean; error?: string }
           try {
@@ -182,6 +189,8 @@ export function PupilUploadActivity({
           }
 
           toast.success(`Uploaded ${file.name}`)
+          // The earlier mark no longer applies; the new one arrives when marked.
+          if (aiMarked) triggerFeedbackRefresh(lessonId, activity.activity_id)
 
           const optimisticEntry: ActivityFileInfo = {
             name: file.name,
@@ -202,7 +211,7 @@ export function PupilUploadActivity({
         }
       })
     },
-    [activity.activity_id, lessonId, onSubmissionsChange, pupilId, refreshSubmissions],
+    [activity.activity_id, aiMarked, feedbackAssignmentIds, lessonId, onSubmissionsChange, pupilId, refreshSubmissions],
   )
 
   const handleFileChange = useCallback(
@@ -496,7 +505,9 @@ export function PupilUploadActivity({
             <p className="text-xs text-pa-muted-3">Uploading: {selectedFileName}</p>
           ) : null}
           <p className="text-xs text-pa-muted-3">
-            Files are stored securely so your teacher can review them later.
+            {aiMarked
+              ? "Your files are marked by AI each time you upload, and your teacher can review them."
+              : "Files are stored securely so your teacher can review them later."}
           </p>
         </div>
       ) : (

@@ -31,6 +31,7 @@ import {
   uploadWorksheetTeacherFileAction,
 } from "@/lib/server-updates"
 import { parseActivitiesMarkdown } from "@/lib/parse-activities-markdown"
+import { uploadFileAiMarkingEnabled, uploadFileAiMarkingError } from "@/lib/upload-file/ai-marking"
 import { Badge } from "@/components/ui/badge"
 import { PastVersionBadge, PastVersionsSwitch } from "@/components/lessons/past-versions-switch"
 import { Button } from "@/components/ui/button"
@@ -2174,6 +2175,20 @@ function extractUploadInstructions(activity: LessonActivity): string {
   return typeof value === "string" ? value : ""
 }
 
+type UploadFileMarking = { aiMarking: boolean; markingGuidance: string }
+
+function createDefaultUploadFileMarking(): UploadFileMarking {
+  return { aiMarking: false, markingGuidance: "" }
+}
+
+function getUploadFileMarking(activity: LessonActivity): UploadFileMarking {
+  const record = (activity.body_data ?? {}) as Record<string, unknown>
+  return {
+    aiMarking: uploadFileAiMarkingEnabled(record),
+    markingGuidance: typeof record.markingGuidance === "string" ? record.markingGuidance : "",
+  }
+}
+
 
 function extractFlashcardsText(activity: LessonActivity): string {
   if (!activity.body_data || typeof activity.body_data !== "object") {
@@ -2372,6 +2387,9 @@ function LessonActivityEditorSheet({
   const [uploadCodeBody, setUploadCodeBody] = useState<UploadCodeActivityBody>(() =>
     createDefaultUploadCodeBody(),
   )
+  const [uploadFileMarking, setUploadFileMarking] = useState<UploadFileMarking>(() =>
+    createDefaultUploadFileMarking(),
+  )
   const [uploadWorksheetBody, setUploadWorksheetBody] = useState<UploadWorksheetActivityBody>(() =>
     createDefaultUploadWorksheetBody(),
   )
@@ -2432,6 +2450,10 @@ function LessonActivityEditorSheet({
     if (!normalizedUploadCodeBody.markingGuidance) return "Add marking guidance so the AI can mark it."
     return null
   }, [normalizedUploadCodeBody])
+  const uploadFileMarkingValidationMessage = useMemo(
+    () => uploadFileAiMarkingError(uploadFileMarking),
+    [uploadFileMarking],
+  )
 
   const uploadSpreadsheetValidationMessage = useMemo(
     () => validateUploadSpreadsheetBody(normalizedUploadSpreadsheetBody),
@@ -3377,6 +3399,7 @@ function LessonActivityEditorSheet({
       setShortTextBody(createDefaultShortTextBody())
       setUploadSpreadsheetBody(createDefaultUploadSpreadsheetBody())
       setUploadCodeBody(createDefaultUploadCodeBody())
+      setUploadFileMarking(createDefaultUploadFileMarking())
       setUploadWorksheetBody(createDefaultUploadWorksheetBody())
       setMarkWorksheetBody(createDefaultMarkWorksheetBody())
       setPendingWorksheetFiles([])
@@ -3422,6 +3445,9 @@ function LessonActivityEditorSheet({
       } else {
         setActivityFiles([])
       }
+      setUploadFileMarking(
+        ensuredType === "upload-file" ? getUploadFileMarking(activity) : createDefaultUploadFileMarking(),
+      )
       if (ensuredType === "display-image") {
         applyImageFromActivity(activity)
       } else {
@@ -3770,9 +3796,11 @@ function LessonActivityEditorSheet({
     if (type === "upload-file") {
       if (activity) {
         setText(extractUploadInstructions(activity))
+        setUploadFileMarking(getUploadFileMarking(activity))
         void refreshActivityFiles(activity.activity_id)
       } else {
         setText("")
+        setUploadFileMarking(createDefaultUploadFileMarking())
         setActivityFiles([])
       }
       return
@@ -4428,6 +4456,23 @@ function LessonActivityEditorSheet({
         fallback: fallbackBody,
         displayType,
       })
+
+      if (type === "upload-file") {
+        if (uploadFileMarkingValidationMessage) {
+          toast.error(uploadFileMarkingValidationMessage)
+          return
+        }
+        const rest = { ...((bodyData ?? {}) as Record<string, unknown>) }
+        delete rest.aiMarking
+        delete rest.markingGuidance
+        const markingGuidance = uploadFileMarking.markingGuidance.trim()
+        bodyData = {
+          ...rest,
+          ...(uploadFileMarking.aiMarking ? { aiMarking: true } : {}),
+          // Kept when the switch is turned off, so turning it back on restores it.
+          ...(markingGuidance ? { markingGuidance } : {}),
+        }
+      }
     }
 
     const sanitizedSuccessCriteriaIds = successCriteriaOptions
@@ -4465,6 +4510,7 @@ function LessonActivityEditorSheet({
     (type === "short-text-question" && shortTextValidationMessage !== null) ||
     (type === "upload-spreadsheet" && uploadSpreadsheetValidationMessage !== null) ||
     (type === "upload-code" && uploadCodeValidationMessage !== null) ||
+    (type === "upload-file" && uploadFileMarkingValidationMessage !== null) ||
     (type === "upload-worksheet" && uploadWorksheetValidationMessage !== null)
 
   return (
@@ -4673,6 +4719,49 @@ function LessonActivityEditorSheet({
                 }
                 disabled={isPending}
               />
+            </div>
+          ) : null}
+
+          {type === "upload-file" ? (
+            <div className="space-y-3 rounded-md border border-border bg-muted/20 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <Label htmlFor="upload-file-ai-marking">Mark with AI</Label>
+                <Switch
+                  id="upload-file-ai-marking"
+                  checked={uploadFileMarking.aiMarking}
+                  onCheckedChange={(checked) =>
+                    setUploadFileMarking((current) => ({ ...current, aiMarking: checked }))
+                  }
+                  disabled={isPending}
+                />
+              </div>
+              {uploadFileMarking.aiMarking ? (
+                <div className="space-y-2">
+                  <Label className="text-xs font-medium text-muted-foreground" htmlFor="upload-file-marking-prompt">
+                    Marking prompt
+                  </Label>
+                  <Textarea
+                    id="upload-file-marking-prompt"
+                    value={uploadFileMarking.markingGuidance}
+                    onChange={(event) =>
+                      setUploadFileMarking((current) => ({ ...current, markingGuidance: event.target.value }))
+                    }
+                    placeholder="What the AI should look for in the pupil's files, and what earns the marks"
+                    rows={5}
+                    disabled={isPending}
+                    className="text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Each success criterion is marked from the pupil&apos;s files when they upload. The AI reads
+                    images (PNG, JPEG, WebP, GIF), PDFs and text files (TXT, CSV, MD, PY, HTML, CSS, JS, JSON);
+                    other files are skipped, and work with none it can read is left for you to mark. The prompt is
+                    not shown to pupils.
+                  </p>
+                  {uploadFileMarkingValidationMessage ? (
+                    <p className="text-xs text-destructive">{uploadFileMarkingValidationMessage}</p>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           ) : null}
 

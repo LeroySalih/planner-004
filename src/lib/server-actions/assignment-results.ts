@@ -29,7 +29,7 @@ import {
   fetchActivitySuccessCriteriaIds,
   normaliseSuccessCriteriaScores,
 } from "@/lib/scoring/success-criteria";
-import { isScorableActivityType } from "@/dino.config";
+import { isAiMarkedActivity, isScorableActivityType } from "@/dino.config";
 import { countsForProgress } from "@/lib/scoring/counts-for-progress";
 import {
   extractScoreFromSubmission,
@@ -685,6 +685,7 @@ export async function readAssignmentResultsAction(
             markingGuidance: guidance?.markingGuidance ?? null,
             subjectGuidance,
             markingGuidanceId: guidance?.markingGuidanceId ?? null,
+            aiMarked: isAiMarkedActivity(activity.type, activity.body_data),
             maxMarks: typeof activity.max_marks === "number"
               ? activity.max_marks
               : Number(activity.max_marks) || 1,

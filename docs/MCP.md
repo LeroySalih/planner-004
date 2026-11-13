@@ -490,8 +490,15 @@ Setting `is_summative = true` on a non-scorable type returns an error without wr
 
 `max_marks` sets the marks the activity is out of, for example 6 for a "(6 marks)" question. If it is left out, a `short-text-question` is out of 3 and every other type out of 1, the same defaults as the app's form. It is refused for non-scorable types and for `matcher` and `group-items`, which are always worth one mark per pair or item. Linking success criteria afterwards replaces it with the marks the criteria are worth.
 
-**Input:** `{ lesson_id: string, type: ActivityType, title?: string, body_data?: object, is_summative?: boolean, max_marks?: number }`  
+**Input:** `{ lesson_id: string, type: ActivityType, title?: string, body_data?: object, ai_marking?: boolean, marking_prompt?: string, is_summative?: boolean, max_marks?: number }`  
 **Output:** `{ activity: { activity_id, lesson_id, title, type, order_index, is_summative, active } | null }`
+
+##### Upload File (`upload-file`) and AI marking
+`body_data` is `{ "instructions": "<what to upload>" }`. An upload-file is marked by the teacher unless `ai_marking` is `true`. Then every upload by a pupil (or by a teacher for them) queues one AI mark per success criterion of the pupil's current files, against `marking_prompt`. They are stored as `body_data.aiMarking` and `body_data.markingGuidance`, which `get_activity` returns. `ai_marking` and `marking_prompt` are for upload-file only; MCP may send `ai_marking` as the string `"true"` or `"false"`.
+
+- `ai_marking: true` needs a marking prompt, given in the same call or already stored. Without one it is refused with `INVALID_BODY_DATA` (`body_data.markingGuidance`) and nothing is written. `ai_marking: false` keeps the stored prompt.
+- The AI reads images (png, jpeg, webp, gif), PDFs and text files (txt, csv, md, py, html, css, js, json). Other types (docx, pptx, zip …) are skipped: the readable files are marked and the prompt names the skipped ones as not shown, so the feedback can flag work the AI could not see. Only when no current file is readable is no model called; the submission then shows `marking-error` with *AI can't read .docx files; mark this yourself.*
+- An activity with no success criteria is not sent for marking.
 
 ##### Flashcard body_data format
 `display-flashcards` stores card content as a `lines` string. Each line with `**answer**` syntax becomes one card:
@@ -543,9 +550,11 @@ Updates an existing activity. Only provided fields are changed. Setting `is_summ
 - **Replace `body_data`** as a whole with `body_data`. It cannot be combined with the patch fields.
 - **Change `type`.** This is refused once pupils have submitted work for the activity. The body must suit the new type, so pass it in the same call. For example, a text activity holding a video link becomes `type: "show-video"` with `body_data: { fileUrl: "https://…" }`. A patch keeps the old type's fields, so pass `body_data` to drop them. `max_marks` resets to the new type's default (short-text-question 3, others 1), or to what its success criteria, pairs or items are worth. A change to a non-scorable type clears `is_summative`.
 
+- **AI marking of an upload-file:** `ai_marking` and `marking_prompt` set `body_data.aiMarking` and `body_data.markingGuidance` (see *Upload File and AI marking* under `create_activity`). They can be combined with a patch or a replacement body.
+
 The resulting body is checked as `create_activity` checks it. A short-text-question needs `question` and `modelAnswer`; a multiple-choice question needs `question`, 2–4 options and a `correctOptionId` naming one of them; a show-video needs an http(s) `fileUrl`. An upload-code or upload-spreadsheet activity needs `task` and `markingGuidance`, on create as well as update, because the AI marker cannot mark without them; an activity created without them used to fail every pupil submission.
 
-**Input:** `{ activity_id: string, title?: string | null, type?: string, question?: string, model_answer?: string, mcq_options?: [{ id, text, imageUrl? }], correct_option_id?: string, body_data_patch?: object, body_data?: object | null, is_summative?: boolean }`  
+**Input:** `{ activity_id: string, title?: string | null, type?: string, question?: string, model_answer?: string, mcq_options?: [{ id, text, imageUrl? }], correct_option_id?: string, body_data_patch?: object, body_data?: object | null, ai_marking?: boolean, marking_prompt?: string, is_summative?: boolean }`  
 **Output:** `{ activity: { activity_id, lesson_id, title, type, order_index, is_summative, active } | null }`
 
 A new `body_data` on a `matcher` or `group-items` also resets `max_marks` to the new pair or item count, as in the app.

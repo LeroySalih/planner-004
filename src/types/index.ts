@@ -837,6 +837,24 @@ export type LongTextSubmissionBody = z.infer<
     typeof LongTextSubmissionBodySchema
 >;
 
+/**
+ * UploadFile: pupils upload one or more files. Teacher-marked unless
+ * `aiMarking` is on, when each success criterion is marked by a model from the
+ * pupil's current files against `markingGuidance` (the editor's "Marking
+ * prompt"; src/lib/upload-file/ai-marking.ts). Both are optional so older
+ * activities still parse; the editor and MCP refuse aiMarking without a
+ * marking prompt (uploadFileAiMarkingError).
+ */
+export const UploadFileActivityBodySchema = z
+    .object({
+        instructions: z.string().nullable().optional(),
+        aiMarking: z.boolean().optional(),
+        markingGuidance: z.string().optional(),
+    })
+    .passthrough();
+
+export type UploadFileActivityBody = z.infer<typeof UploadFileActivityBodySchema>;
+
 export const UploadUrlActivityBodySchema = z
     .object({
         question: z.string().min(1),
@@ -1304,6 +1322,9 @@ export const AssignmentResultActivitySchema = z.object({
     markingGuidance: z.string().nullable().optional(),
     subjectGuidance: z.string().nullable().optional(),
     markingGuidanceId: z.string().nullable().optional(),
+    // Whether a model marks it: true for every AI-marked type, and for an
+    // upload-file only when its "Mark with AI" switch is on (isAiMarkedActivity).
+    aiMarked: z.boolean().default(false),
     maxMarks: z.number().int().min(1).default(1),
     // False for an activity without success criteria: it stays a column in the
     // results grid but is left out of every average (see countsForProgress).

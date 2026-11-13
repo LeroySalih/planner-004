@@ -42,6 +42,7 @@ MIGRATIONS=(
   "139-profile-active.sql|select exists (select 1 from information_schema.columns where table_name = 'profiles' and column_name = 'active')"
   "140-mcp-script-download-links.sql|select exists (select 1 from information_schema.columns where table_name = 'mcp_download_links' and column_name = 'script_id')"
   "141-ai-awarded.sql|select exists (select 1 from information_schema.columns where table_name = 'submission_question_criterion_marks' and column_name = 'ai_awarded')"
+  "142-upload-file-ai-route.sql|select exists (select 1 from ai_model_routes where activity_type = 'upload-file')"
 )
 
 YES=false

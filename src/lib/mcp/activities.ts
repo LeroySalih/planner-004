@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { z } from 'zod'
 
 import { query, withDbClient } from '@/lib/db'
 import { SCORABLE_ACTIVITY_TYPES, NON_SCORABLE_ACTIVITY_TYPES, isLegacyActivityType, isMothballedActivityType, isQuestionMarkedActivityType, legacyActivityTypeMessage } from '@/dino.config'
@@ -7,6 +8,7 @@ import { MCP_UPLOAD_MAX_BYTES } from '@/lib/mcp/file-input'
 import { assertScAllowedForActivity } from '@/lib/curriculum/unit-curriculum-guard'
 import { recalculateActivityMaxMarks, recalculateGroupItemsMaxMarks, recalculateMatcherMaxMarks, rescaleStoredMarks } from '@/lib/scoring/derive-max-marks'
 import { createLocalStorageClient } from '@/lib/storage/local-storage'
+import { uploadFileAiMarkingError } from '@/lib/upload-file/ai-marking'
 import { AssessmentPaperActivityBodySchema, GroupItemsActivityBodySchema, MatcherActivityBodySchema, McqActivityBodySchema, SequenceActivityBodySchema, ShortTextActivityBodySchema, UploadCodeActivityBodySchema, UploadSpreadsheetActivityBodySchema } from '@/types'
 
 export const ACTIVITY_TYPES = [...SCORABLE_ACTIVITY_TYPES, ...NON_SCORABLE_ACTIVITY_TYPES] as const
@@ -129,7 +131,46 @@ const MARKED_TASK_BODY_SCHEMAS = {
   'upload-spreadsheet': UploadSpreadsheetActivityBodySchema,
 } as const
 
+/** MCP clients may send a boolean as a string: "true" and "false" become booleans, anything else is refused. */
+export const mcpBoolean = z.preprocess(
+  (value) => (typeof value === 'string' ? ({ true: true, false: false } as Record<string, unknown>)[value.trim().toLowerCase()] ?? value : value),
+  z.boolean(),
+)
+
+/**
+ * The body_data fields set by create_activity / update_activity's ai_marking
+ * and marking_prompt, which only an upload-file takes. Checked with the rest
+ * of the body by validateBodyDataForType.
+ */
+export function uploadFileMarkingFields(
+  type: string,
+  input: { aiMarking?: boolean; markingPrompt?: string },
+): Record<string, unknown> {
+  const fields: Record<string, unknown> = {}
+  if (input.aiMarking !== undefined) fields.aiMarking = input.aiMarking
+  if (input.markingPrompt !== undefined) fields.markingGuidance = input.markingPrompt.trim()
+  if (Object.keys(fields).length > 0 && type !== 'upload-file') {
+    throw new ActivityBodyDataError(
+      'INVALID_BODY_DATA',
+      input.aiMarking !== undefined ? 'ai_marking' : 'marking_prompt',
+      `ai_marking and marking_prompt are for upload-file activities only, not ${type}`,
+    )
+  }
+  return fields
+}
+
 export function validateBodyDataForType(type: string, bodyData: unknown): void {
+  if (type === 'upload-file') {
+    const problem = uploadFileAiMarkingError(bodyData)
+    if (problem) {
+      throw new ActivityBodyDataError(
+        'INVALID_BODY_DATA',
+        'body_data.markingGuidance',
+        `${problem} Over MCP: pass marking_prompt with ai_marking true (body_data { "instructions"?: "…", "aiMarking"?: true, "markingGuidance": "…" }).`,
+      )
+    }
+    return
+  }
   if (type in MARKED_TASK_BODY_SCHEMAS) {
     const parsed = MARKED_TASK_BODY_SCHEMAS[type as keyof typeof MARKED_TASK_BODY_SCHEMAS].safeParse(bodyData ?? {})
     if (!parsed.success) {
@@ -663,6 +704,8 @@ export type ActivityUpdate = {
   bodyPatch?: Record<string, unknown>
   isSummative?: boolean
   type?: ActivityType
+  /** upload-file only: aiMarking / markingGuidance, merged into the resulting body. */
+  uploadFileMarking?: { aiMarking?: boolean; markingPrompt?: string }
 }
 
 export async function updateActivity(activityId: string, fields: ActivityUpdate): Promise<ActivitySummary> {
@@ -691,8 +734,11 @@ export async function updateActivity(activityId: string, fields: ActivityUpdate)
         }
       }
 
-      const bodyChanged = 'bodyData' in fields || Boolean(fields.bodyPatch)
+      const markingFields = fields.uploadFileMarking ? uploadFileMarkingFields(type, fields.uploadFileMarking) : {}
+      const markingChanged = Object.keys(markingFields).length > 0
+      const bodyChanged = 'bodyData' in fields || Boolean(fields.bodyPatch) || markingChanged
       let body = 'bodyData' in fields ? fields.bodyData ?? null : fields.bodyPatch ? patchBody(current.body_data, fields.bodyPatch) : current.body_data
+      if (markingChanged) body = patchBody(body, markingFields)
       // An assessment paper's file paths are owned by the upload: whatever
       // body is sent, they stay as stored.
       if (bodyChanged && isQuestionMarkedActivityType(type) && body && typeof body === 'object' && !Array.isArray(body)) {

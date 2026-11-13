@@ -273,6 +273,13 @@ function extractAudioUrl(activity: { body_data: unknown; type?: string | null })
   return null
 }
 
+function withoutMarkingGuidance<T>(bodyData: T): T {
+  if (!bodyData || typeof bodyData !== "object") return bodyData
+  const rest = { ...(bodyData as Record<string, unknown>) }
+  delete rest.markingGuidance
+  return rest as T
+}
+
 function extractUploadInstructions(activity: { body_data: unknown }) {
   const bodyData = activity.body_data
   if (typeof bodyData !== "object" || bodyData === null) {
@@ -1232,7 +1239,8 @@ export default async function PupilLessonFriendlyPage({
         return frame(
           <PupilUploadActivity
             lessonId={lesson.lesson_id}
-            activity={activity}
+            // The marking prompt is for the AI, not the pupil.
+            activity={{ ...activity, body_data: withoutMarkingGuidance(activity.body_data) }}
             pupilId={pupilId}
             instructions={extractUploadInstructions(activity)}
             initialSubmissions={submissionMap.get(activity.activity_id) ?? []}

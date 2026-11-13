@@ -63,7 +63,7 @@ import {
 import { extractScoreFromSubmission, selectLatestSubmission } from "@/lib/scoring/activity-scores"
 import { SketchRenderFeedbackView } from "@/components/assignment-results/sketch-render-feedback-view"
 import { TeacherSubmissionDropzone } from "@/components/assignment-results/teacher-submission-dropzone"
-import { DETERMINISTIC_ACTIVITY_TYPES, isAiMarkedActivityType, isQuestionMarkedActivityType, type MarkStatus } from "@/dino.config"
+import { DETERMINISTIC_ACTIVITY_TYPES, isQuestionMarkedActivityType, type MarkStatus } from "@/dino.config"
 import { refreshActivityCriteriaAction, updateActivityFeedbackAction } from "@/lib/server-actions/sc-marks"
 import { markStatusLabel } from "@/lib/mark-status"
 
@@ -3220,7 +3220,7 @@ export function AssignmentResultsDashboard({
                                     pupilId: selection.row.pupil.userId,
                                     onCreated: handleCriteriaSubmissionCreated,
                                   }}
-                                  aiMarked={isAiMarkedActivityType(selection.activity.type)}
+                                  aiMarked={selection.activity.aiMarked}
                                   onAggregateChange={handleCriteriaAggregateChange}
                                 />
                               </div>
@@ -4488,7 +4488,7 @@ export function AssignmentResultsDashboard({
                                       pupilId: selection.row.pupil.userId,
                                       onCreated: handleCriteriaSubmissionCreated,
                                     }}
-                                    aiMarked={isAiMarkedActivityType(selection.activity.type)}
+                                    aiMarked={selection.activity.aiMarked}
                                     onAggregateChange={handleCriteriaAggregateChange}
                                   />
                                 </div>
@@ -4921,7 +4921,7 @@ export function AssignmentResultsDashboard({
                       ) : (
                       <CriterionMarksPanel
                         submissionId={viewingAttempt.submission_id}
-                        aiMarked={isAiMarkedActivityType(selection?.activity.type)}
+                        aiMarked={selection?.activity.aiMarked ?? false}
                         onLoaded={setAttemptCriterionCount}
                         // A criterion override changes the submission total, so
                         // pull the matrix again — otherwise the grid and the
