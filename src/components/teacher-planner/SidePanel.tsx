@@ -4,6 +4,8 @@ import { useState } from 'react'
 import Link from 'next/link'
 import type { CellState, SlotLesson, Day, TimetableSlot } from './types'
 import { SowPanel } from './SowPanel'
+import { LessonPicker } from './LessonPicker'
+import { UnitOptions } from './UnitOptions'
 import type { Unit, Group, LessonWithObjectives } from '@/types'
 
 type SidePanelProps = {
@@ -14,6 +16,8 @@ type SidePanelProps = {
   currentWeek: string
   sowRefreshKey: string
   units: Unit[]
+  /** group id -> units in that group's scheme of work for this half-term. */
+  sowUnits?: Map<string, Set<string>>
   lessonCache: Map<string, LessonWithObjectives[]>
   groups: Group[]
   onClose: () => void
@@ -39,6 +43,7 @@ export function SidePanel({
   currentWeek,
   sowRefreshKey,
   units,
+  sowUnits,
   lessonCache,
   groups,
   onClose,
@@ -66,6 +71,7 @@ export function SidePanel({
   // Filter units to those matching the group's subject
   const groupSubject = groupId ? groups.find((g) => g.group_id === groupId)?.subject : undefined
   const filteredUnits = groupSubject ? units.filter((u) => u.subject === groupSubject && u.active !== false) : units
+  const sowUnitIds = groupId ? sowUnits?.get(groupId) : undefined
 
   const handleGroupChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     onGroupChange(day, period, e.target.value)
@@ -159,6 +165,7 @@ export function SidePanel({
               day={day}
               period={period}
               units={filteredUnits}
+              sowUnitIds={sowUnitIds}
               lessonCache={lessonCache}
               onUnitSelect={onUnitSelect}
               onSwapLesson={onSwapLesson}
@@ -184,22 +191,18 @@ export function SidePanel({
               onChange={handleAddUnitChange}
             >
               <option value="">Unit…</option>
-              {filteredUnits.map((u) => (
-                <option key={u.unit_id} value={u.unit_id}>{u.title}</option>
-              ))}
+              <UnitOptions units={filteredUnits} sowUnitIds={sowUnitIds} />
             </select>
             {addUnitId && (
               <>
-                <select
-                  className="w-full text-xs rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-2 py-1"
+                <LessonPicker
+                  unitId={addUnitId}
+                  groupId={groupId!}
+                  lessons={addUnitLessons.map((l) => ({ lessonId: l.lesson_id, title: l.title }))}
                   value={addLessonId}
-                  onChange={(e) => setAddLessonId(e.target.value)}
-                >
-                  <option value="">Lesson…</option>
-                  {addUnitLessons.map((l) => (
-                    <option key={l.lesson_id} value={l.lesson_id}>{l.title}</option>
-                  ))}
-                </select>
+                  onSelect={setAddLessonId}
+                  onPrefetch={() => onUnitSelect(addUnitId)}
+                />
                 <button
                   className="text-xs px-3 py-1 rounded bg-[var(--color-primary)] text-white disabled:opacity-40"
                   disabled={!addLessonId}
@@ -226,6 +229,7 @@ type LessonCardProps = {
   day: Day
   period: number
   units: Unit[]
+  sowUnitIds?: Set<string>
   lessonCache: Map<string, LessonWithObjectives[]>
   onUnitSelect: (unitId: string) => void
   onSwapLesson: (day: Day, period: number, oldLessonId: string, newLessonId: string) => void
@@ -243,6 +247,7 @@ function LessonCard({
   day,
   period,
   units,
+  sowUnitIds,
   lessonCache,
   onUnitSelect,
   onSwapLesson,
@@ -263,8 +268,7 @@ function LessonCard({
     onUnitSelect(uid)
   }
 
-  const handleSwapLesson = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newId = e.target.value
+  const handleSwapLesson = (newId: string) => {
     if (!newId || newId === lesson.lessonId) return
     setSwapUnitId(lesson.unitId)
     onSwapLesson(day, period, lesson.lessonId, newId)
@@ -272,6 +276,12 @@ function LessonCard({
 
   const lessonDropdownValue =
     swapUnitId !== lesson.unitId ? '' : lesson.lessonId
+
+  // The card's own lesson stays on offer while its unit's lessons load.
+  const pickerLessons =
+    swapLessons.length === 0 && swapUnitId === lesson.unitId
+      ? [{ lessonId: lesson.lessonId, title: lesson.lessonTitle }]
+      : swapLessons.map((l) => ({ lessonId: l.lesson_id, title: l.title }))
 
   return (
     <div className="rounded-[8px] bg-[var(--color-background-secondary)] p-3">
@@ -316,25 +326,19 @@ function LessonCard({
           disabled={readOnly}
         >
           <option value="">Unit…</option>
-          {units.map((u) => (
-            <option key={u.unit_id} value={u.unit_id}>{u.title}</option>
-          ))}
+          <UnitOptions units={units} sowUnitIds={sowUnitIds} />
         </select>
         {swapUnitId && (
-          <select
-            className="w-full text-xs rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-2 py-1 disabled:opacity-60"
+          <LessonPicker
+            unitId={swapUnitId}
+            groupId={groupId}
+            lessons={pickerLessons}
             value={lessonDropdownValue}
-            onChange={handleSwapLesson}
+            onSelect={handleSwapLesson}
+            // Until the unit is changed, only the card's own lesson is loaded.
+            onPrefetch={() => onUnitSelect(swapUnitId)}
             disabled={readOnly}
-          >
-            <option value="">Lesson…</option>
-            {swapLessons.length === 0 && swapUnitId === lesson.unitId && (
-              <option value={lesson.lessonId}>{lesson.lessonTitle}</option>
-            )}
-            {swapLessons.map((l) => (
-              <option key={l.lesson_id} value={l.lesson_id}>{l.title}</option>
-            ))}
-          </select>
+          />
         )}
       </div>
 

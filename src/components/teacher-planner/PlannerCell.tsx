@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Lock, LockOpen } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { LessonPicker } from './LessonPicker'
+import { UnitOptions } from './UnitOptions'
 import type { CellState, Day } from './types'
 import type { Unit, LessonWithObjectives } from '@/types'
 
@@ -54,8 +55,6 @@ export function PlannerCell({
 }: PlannerCellProps) {
   const [pendingUnitId, setPendingUnitId] = useState<string>('')
 
-  const schemeUnits = sowUnitIds ? units.filter((u) => sowUnitIds.has(u.unit_id)) : []
-  const otherUnits = sowUnitIds ? units.filter((u) => !sowUnitIds.has(u.unit_id)) : units
 
   const { groupId, lessons, issueFlag, issueNote: _issueNote } = cellState
   const hasGroup = !!groupId
@@ -153,29 +152,7 @@ export function PlannerCell({
             disabled={readOnly}
           >
             <option value="">Unit…</option>
-            {/* Scheme-of-work units first, in their own labelled section: with
-                40-odd units in a subject, the two or three actually planned for
-                this half-term are otherwise buried alphabetically. The rest stay
-                selectable — a teacher covering a colleague, or deviating from the
-                plan, must not be blocked by it. */}
-            {schemeUnits.length > 0 ? (
-              <>
-                <optgroup label="This half-term's plan">
-                  {schemeUnits.map((u) => (
-                    <option key={u.unit_id} value={u.unit_id}>{u.title}</option>
-                  ))}
-                </optgroup>
-                <optgroup label="Other units">
-                  {otherUnits.map((u) => (
-                    <option key={u.unit_id} value={u.unit_id}>{u.title}</option>
-                  ))}
-                </optgroup>
-              </>
-            ) : (
-              units.map((u) => (
-                <option key={u.unit_id} value={u.unit_id}>{u.title}</option>
-              ))
-            )}
+            <UnitOptions units={units} sowUnitIds={sowUnitIds} />
           </select>
           {effectiveUnitId && (
             <LessonPicker

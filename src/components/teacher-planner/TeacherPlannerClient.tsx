@@ -737,6 +737,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
         currentWeek={currentWeek}
         sowRefreshKey={sowRefreshKey}
         units={units}
+        sowUnits={sowUnits}
         lessonCache={lessonCache}
         groups={groups}
         onClose={() => setSelectedSlot(null)}
