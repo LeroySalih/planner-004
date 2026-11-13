@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { Lock, LockOpen } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { LessonPicker } from './LessonPicker'
 import type { CellState, Day } from './types'
 import type { Unit, LessonWithObjectives } from '@/types'
 
@@ -98,11 +99,17 @@ export function PlannerCell({
     onUnitSelect(uid)
   }
 
-  const handleLessonSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    if (!e.target.value) return
+  const handleLessonSelect = (lessonId: string) => {
+    if (!lessonId) return
     setPendingUnitId('')
-    onLessonChange(day, period, e.target.value)
+    onLessonChange(day, period, lessonId)
   }
+
+  // The lesson in the slot stays on offer while its unit's lessons load.
+  const pickerLessons =
+    effectiveLessons.length === 0 && currentLesson && effectiveUnitId === currentUnitId
+      ? [{ lessonId: currentLesson.lessonId, title: currentLesson.lessonTitle }]
+      : effectiveLessons.map((l) => ({ lessonId: l.lesson_id, title: l.title }))
 
   return (
     <div
@@ -134,7 +141,9 @@ export function PlannerCell({
         <span className="text-xs text-[var(--color-text-tertiary)]">No class</span>
       )}
 
-      {/* 0 or 1 lesson — unit + lesson pickers (unit always editable) */}
+      {/* 0 or 1 lesson — unit + lesson pickers (unit always editable). Clicks
+          stop here, so using a picker never opens the side panel. React events
+          from the lesson picker's portalled list bubble here too. */}
       {hasGroup && lessonCount <= 1 && (
         <div className="flex flex-col gap-1" onClick={(e) => e.stopPropagation()}>
           <select
@@ -169,20 +178,16 @@ export function PlannerCell({
             )}
           </select>
           {effectiveUnitId && (
-            <select
-              className="text-xs w-full rounded border border-[var(--color-border)] bg-[var(--color-background-primary)] px-1 py-0.5 disabled:opacity-60"
+            <LessonPicker
+              unitId={effectiveUnitId}
+              groupId={groupId}
+              lessons={pickerLessons}
               value={lessonDropdownValue}
-              onChange={handleLessonSelect}
+              onSelect={handleLessonSelect}
+              // Until the unit is changed, only the slot's own lesson is loaded.
+              onPrefetch={() => onUnitSelect(effectiveUnitId)}
               disabled={readOnly}
-            >
-              <option value="">Lesson…</option>
-              {effectiveLessons.length === 0 && currentLesson && effectiveUnitId === currentUnitId && (
-                <option value={currentLesson.lessonId}>{currentLesson.lessonTitle}</option>
-              )}
-              {effectiveLessons.map((l) => (
-                <option key={l.lesson_id} value={l.lesson_id}>{l.title}</option>
-              ))}
-            </select>
+            />
           )}
         </div>
       )}

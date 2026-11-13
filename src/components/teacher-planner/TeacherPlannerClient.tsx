@@ -23,6 +23,7 @@ import { PlannerGrid } from './PlannerGrid'
 import { SidePanel } from './SidePanel'
 import { WeekNavigator } from './WeekNavigator'
 import { WeekNotes } from './WeekNotes'
+import { invalidatePlannerUnitOverview } from './unit-overview-cache'
 import { TIMETABLE_SLOTS } from './timetable-config'
 import { slotKey, emptyCellState, getTodaySunday, shiftWeek, sortByUnitOrder } from './types'
 import type { WeeklyPlannerState, CellState, SlotLesson, Day } from './types'
@@ -319,6 +320,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
         'Could not remove the previous lesson',
       )
       if (!ok) return
+      invalidatePlannerUnitOverview(cell.groupId!)
       updateSlot(day, period, (s) => ({ ...s, lessons: [] }))
     }
 
@@ -331,6 +333,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
       'Could not add the lesson',
     )
     if (data) {
+      invalidatePlannerUnitOverview(cell.groupId)
       // Find unitId and lessonTitle from cache
       let unitId = ''
       let lessonTitle = ''
@@ -368,6 +371,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
       'Could not add the lesson',
     )
     if (data) {
+      invalidatePlannerUnitOverview(cell.groupId)
       let unitId = ''
       let lessonTitle = ''
       let lessonOrder: number | null = null
@@ -402,6 +406,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
       'Could not remove the lesson',
     )
     if (!ok) return false
+    invalidatePlannerUnitOverview(cell.groupId)
     updateSlot(day, period, (s) => ({ ...s, lessons: s.lessons.filter((l) => l.lessonId !== lessonId) }))
     return true
   }, [updateSlot, plannerState, commit])
@@ -556,6 +561,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
           'Could not clear the lessons from the previous class',
         )
         if (!ok) return
+        invalidatePlannerUnitOverview(existing.groupId)
       }
       updateSlot(day, period, (s) => ({ ...s, lessons: [] }))
     }
@@ -571,6 +577,7 @@ export function TeacherPlannerClient({ units, groups, teachers, currentTeacherId
           'Could not move the lessons to the new class',
         )
         if (!ok) return
+        invalidatePlannerUnitOverview(resolvedGroupId)
       }
     }
 

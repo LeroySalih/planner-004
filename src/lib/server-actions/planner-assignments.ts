@@ -2,7 +2,9 @@
 
 import { z } from 'zod'
 import { query } from '@/lib/db'
-import { requireTeacherProfile, requireTeacherOrAdminAccess } from '@/lib/auth'
+import { requireRole, requireTeacherProfile, requireTeacherOrAdminAccess } from '@/lib/auth'
+import { withTelemetry } from '@/lib/telemetry'
+import { PlannerUnitOverviewSchema, readPlannerUnitOverview } from '@/lib/teacher-planner/unit-overview'
 import {
   PlannerAssignmentSchema,
   PlannerAssignmentWithUnitSchema,
@@ -373,4 +375,38 @@ export async function upsertPlannerWeekNoteAction(
     const message = error instanceof Error ? error.message : 'Failed to save week note'
     return WeekNoteResult.parse({ data: null, error: message })
   }
+}
+
+const UnitOverviewInput = z.object({
+  unitId: z.string().min(1),
+  groupId: z.string().min(1),
+})
+
+const UnitOverviewResult = z.object({
+  data: PlannerUnitOverviewSchema.nullable(),
+  error: z.string().nullable(),
+})
+
+/**
+ * The planner's lesson dropdown: the unit's lessons by sub unit, each with
+ * the latest date it is planned for one class.
+ */
+export async function readPlannerUnitOverviewAction(
+  input: z.infer<typeof UnitOverviewInput>,
+): Promise<z.infer<typeof UnitOverviewResult>> {
+  return withTelemetry(
+    { routeTag: 'planner', functionName: 'readPlannerUnitOverviewAction', params: input },
+    async () => {
+      await requireRole('teacher')
+      try {
+        const { unitId, groupId } = UnitOverviewInput.parse(input)
+        const data = await readPlannerUnitOverview(unitId, groupId)
+        if (!data) return UnitOverviewResult.parse({ data: null, error: 'Unit not found' })
+        return UnitOverviewResult.parse({ data, error: null })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to load the unit'
+        return UnitOverviewResult.parse({ data: null, error: message })
+      }
+    },
+  )
 }
