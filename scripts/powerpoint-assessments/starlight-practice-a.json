@@ -1,0 +1,770 @@
+{
+  "lesson_id": "fab6587c-16cf-44c1-9dfe-c2a2ead1bca0",
+  "title": "Hand in STARLIGHT SCREEN, PDFs and EVIDENCE",
+  "upload_slots": [
+    {
+      "key": "presentation",
+      "label": "STARLIGHT SCREEN",
+      "kind": "pptx",
+      "required": true
+    },
+    {
+      "key": "handouts",
+      "label": "HANDOUTS",
+      "kind": "pdf",
+      "required": false
+    },
+    {
+      "key": "notes",
+      "label": "NOTES",
+      "kind": "pdf",
+      "required": false
+    },
+    {
+      "key": "full-page",
+      "label": "FULL PAGE",
+      "kind": "pdf",
+      "required": false
+    },
+    {
+      "key": "evidence",
+      "label": "EVIDENCE",
+      "kind": "docx",
+      "required": false
+    }
+  ],
+  "data_activity_id": "28937c2f-ef48-49fc-aaa1-d2244870f29c",
+  "supplied_images": [
+    "BACKGROUND.png",
+    "CUPCAKE.jpg",
+    "LOGO.png",
+    "MAP.png",
+    "MOON.jpg",
+    "ROCKET.jpg",
+    "SATURN.jpg",
+    "TELESCOPE.jpg"
+  ],
+  "activity_files": [
+    "EVIDENCE.docx",
+    "STARLIGHT TEXT.docx"
+  ],
+  "evidence_template_file": "EVIDENCE.docx",
+  "question_paper": "lessons/fab6587c-16cf-44c1-9dfe-c2a2ead1bca0/activities/f0d264ac-3f57-4e2d-8e1f-2a700aa3df93/6.2 PRESENTATION PRACTICE ASSESSMENT.pdf",
+  "mark_scheme": "lessons/fab6587c-16cf-44c1-9dfe-c2a2ead1bca0/6.2 PRESENTATION PRACTICE ASSESSMENT MARK SCHEME.pdf",
+  "copy_mapping": "scripts/powerpoint-mappings/starlight-practice-1.json",
+  "questions": [
+    {
+      "label": "1a",
+      "max_marks": 1,
+      "question_text": "Change the slide size to 16:10. Take a screenshot of the Slide Size window and paste it into EVIDENCE at 1a.",
+      "mark_scheme": "Award the mark for: Slide size 16:10 shown in the screenshot.\nCheck / do not accept: Screenshot must be readable. 16:9 not accepted.",
+      "marking": "ai",
+      "success_criteria_id": "74fbb28a-dddd-44ec-9d59-ac482924eea5",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "1a",
+          "want": "screenshots",
+          "required": true
+        },
+        {
+          "source": "presentation",
+          "slot": "presentation",
+          "sections": [
+            "presentation"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "1b",
+      "max_marks": 1,
+      "question_text": "Set the background to the BACKGROUND image at 30% transparency.",
+      "mark_scheme": "Award the mark for: BACKGROUND image on all slides at 30% transparency.\nCheck / do not accept: Accept 25–35%. Image applied slide by slide but at 30% on every slide: accept.",
+      "marking": "ai",
+      "success_criteria_id": "bb299818-872c-47c0-a733-a214ed8b844a",
+      "evidence": [
+        {
+          "source": "presentation",
+          "slot": "presentation",
+          "sections": [
+            "master",
+            "layouts",
+            "slides",
+            "supplied-images"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "1c",
+      "max_marks": 1,
+      "question_text": "Set the title text colour to white so that it has high contrast with the dark background.",
+      "mark_scheme": "Award the mark for: White title text with high contrast against the dark background.\nCheck / do not accept: Dark or grey title text not accepted.",
+      "marking": "ai",
+      "success_criteria_id": "bb299818-872c-47c0-a733-a214ed8b844a",
+      "evidence": [
+        {
+          "source": "presentation",
+          "slot": "presentation",
+          "sections": [
+            "master",
+            "slides"
+          ]
+        },
+        {
+          "source": "slide_images",
+          "slot": "presentation"
+        }
+      ]
+    },
+    {
+      "label": "1d",
+      "max_marks": 1,
+      "question_text": "Make all slide titles bold and underlined.",
+      "mark_scheme": "Award the mark for: All titles bold and underlined.\nCheck / do not accept: Must be on every slide title.",
+      "marking": "ai",
+      "success_criteria_id": "e20dace1-01e7-4941-822d-539a491bc39d",
+      "evidence": [
+        {
+          "source": "presentation",
+          "slot": "presentation",
+          "sections": [
+            "master",
+            "slides"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "1e",
+      "max_marks": 1,
+      "question_text": "Insert the LOGO in the top left corner so that it appears on every slide.",
+      "mark_scheme": "Award the mark for: LOGO top left on every slide.\nCheck / do not accept: Logo copied onto each slide in the same place: accept.",
+      "marking": "ai",
+      "success_criteria_id": "e20dace1-01e7-4941-822d-539a491bc39d",
+      "evidence": [
+        {
+          "source": "presentation",
+          "slot": "presentation",
+          "sections": [
+            "master",
+            "layouts",
+            "slides",
+            "supplied-images"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "1f",
+      "max_marks": 1,
+      "question_text": "Add the footer text Starlight Planetarium – Visitor Guide in the centre of the footer, and a date that updates automatically.",
+      "mark_scheme": "Award the mark for: Footer text Starlight Planetarium – Visitor Guide centred, and an automatically updating date.\nCheck / do not accept: Both needed. A fixed typed date not accepted.",
+      "marking": "ai",
+      "success_criteria_id": "e3ab95c4-c230-47d9-b4ee-5afc647a7994",
+      "evidence": [
+        {
+          "source": "presentation",
+          "slot": "presentation",
+          "sections": [
+            "master",
+            "layouts",
+            "slides"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "1g",
+      "max_marks": 1,
+      "question_text": "Add a slide number on the right. Do not show the footer or slide number on the title slide.",
+      "mark_scheme": "Award the mark for: Slide number on the right, and no footer or slide number on slide 1.\nCheck / do not accept: Both needed.",
+      "marking": "ai",
+      "success_criteria_id": "e3ab95c4-c230-47d9-b4ee-5afc647a7994",
+      "evidence": [
+        {
+          "source": "presentation",
+          "slot": "presentation",
+          "sections": [
+            "master",
+            "layouts",
+            "slides"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "1h",
+      "max_marks": 1,
+      "question_text": "Hide the date placeholder on the Two Content layout master.",
+      "mark_scheme": "Award the mark for: No date on slides 3 and 6 (Two Content), date shown on slides 2, 4 and 5.\nCheck / do not accept: Date deleted from individual slides instead of the layout master: do not accept if the screenshot shows it is still on the layout.",
+      "marking": "ai",
+      "success_criteria_id": "43c6c324-18bb-4318-9604-b4191f5286a2",
+      "evidence": [
+        {
+          "source": "presentation",
+          "slot": "presentation",
+          "sections": [
+            "layouts",
+            "slides"
+          ]
+        },
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "1j",
+          "want": "screenshots"
+        }
+      ]
+    },
+    {
+      "label": "1i",
+      "max_marks": 1,
+      "question_text": "Add a picture placeholder to the Title Only layout master.",
+      "mark_scheme": "Award the mark for: Picture placeholder on the Title Only layout (slide 2 image sits in a picture placeholder).\nCheck / do not accept: Image inserted with Insert > Pictures on slide 2 only: not accepted.",
+      "marking": "ai",
+      "success_criteria_id": "43c6c324-18bb-4318-9604-b4191f5286a2",
+      "evidence": [
+        {
+          "source": "presentation",
+          "slot": "presentation",
+          "sections": [
+            "layouts",
+            "slides:2"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "1j",
+      "max_marks": 1,
+      "question_text": "Take a screenshot of Slide Master view that shows the slide master and the layout masters. Paste it into EVIDENCE at 1j. Close Slide Master view before you add any content.",
+      "mark_scheme": "Award the mark for: Screenshot of Slide Master view showing the slide master and the layout masters, with house style applied; no slide content added to the master.\nCheck / do not accept: Normal view screenshot not accepted.",
+      "marking": "ai",
+      "success_criteria_id": "3c226afb-6374-462b-a1d7-e5bab509c3e3",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "1j",
+          "want": "screenshots",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "2a",
+      "max_marks": 1,
+      "question_text": "Add every slide using New Slide and the layout shown in the table, so that every slide uses the master slide.",
+      "mark_scheme": "Award the mark for: All six slides use the stated layouts and the master (background, logo, footer appear on every slide).\nCheck / do not accept: Blank slides with drawn text boxes not accepted.",
+      "marking": "ai",
+      "success_criteria_id": "9e0dd053-d80d-4ccf-b24f-bbd1430959da",
+      "evidence": [
+        {
+          "source": "presentation",
+          "slot": "presentation",
+          "sections": [
+            "layouts",
+            "slides"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "2b",
+      "max_marks": 1,
+      "question_text": "Select text from STARLIGHT TEXT and enter it into the placeholders as short bullet points. Do not paste whole paragraphs.",
+      "mark_scheme": "Award the mark for: Text selected from STARLIGHT TEXT as short bullet points on slides 3 and 4.\nCheck / do not accept: Whole paragraphs pasted, or café/gift shop text included: not accepted.",
+      "marking": "ai",
+      "success_criteria_id": "d5098eb1-77d5-42a8-9102-58c7c28549c8",
+      "evidence": [
+        {
+          "source": "presentation",
+          "slot": "presentation",
+          "sections": [
+            "slides:3,4"
+          ]
+        },
+        {
+          "source": "reference_file",
+          "fileName": "STARLIGHT TEXT.docx"
+        }
+      ]
+    },
+    {
+      "label": "2c",
+      "max_marks": 1,
+      "question_text": "Insert the images into the placeholders. Every image must be relevant to the planetarium.",
+      "mark_scheme": "Award the mark for: Images in placeholders: SATURN (slide 3), ROCKET (slide 6) and a relevant image on slide 2.\nCheck / do not accept: CUPCAKE used anywhere: no mark.",
+      "marking": "ai",
+      "success_criteria_id": "beb3f436-447c-4f52-80c7-73a982f3e0ee",
+      "evidence": [
+        {
+          "source": "presentation",
+          "slot": "presentation",
+          "sections": [
+            "slides",
+            "supplied-images"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "2d",
+      "max_marks": 1,
+      "question_text": "The directions in STARLIGHT TEXT are too long for a slide. On slide 5, replace the directions with the MAP image so that the slide gives the same information with less reading.",
+      "mark_scheme": "Award the mark for: Slide 5 shows the MAP image instead of the directions paragraph.\nCheck / do not accept: A short caption is fine. Directions paragraph still present: not accepted.",
+      "marking": "ai",
+      "success_criteria_id": "1db0a4d9-6183-4310-b9e5-5df5d6721bd2",
+      "evidence": [
+        {
+          "source": "presentation",
+          "slot": "presentation",
+          "sections": [
+            "slides:5",
+            "supplied-images"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "2e",
+      "max_marks": 1,
+      "question_text": "Resize the SATURN image on slide 3 and the ROCKET image on slide 6 to exactly 12 cm wide and 9 cm high.",
+      "mark_scheme": "Award the mark for: SATURN and ROCKET both 12 cm × 9 cm.\nCheck / do not accept: Check Picture Format > Size in the file. Accept ±0.1 cm.",
+      "marking": "ai",
+      "success_criteria_id": "e0d71221-86de-41d5-9961-47094600025d",
+      "evidence": [
+        {
+          "source": "presentation",
+          "slot": "presentation",
+          "sections": [
+            "slides:3,6",
+            "supplied-images"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "2f",
+      "max_marks": 1,
+      "question_text": "Make sure your slides are fit for purpose for visitors: easy to read, with no text or images overlapping and no stretched images.",
+      "mark_scheme": "Award the mark for: Fit for purpose: readable font size, clear hierarchy, nothing overlapping or cut off, no distorted images.\nCheck / do not accept: Holistic judgement across all slides.",
+      "marking": "ai",
+      "success_criteria_id": "cc762170-90e7-4fa3-b666-0d3df2d1c525",
+      "evidence": [
+        {
+          "source": "presentation",
+          "slot": "presentation",
+          "sections": [
+            "slides"
+          ]
+        },
+        {
+          "source": "slide_images",
+          "slot": "presentation"
+        }
+      ]
+    },
+    {
+      "label": "3a",
+      "max_marks": 1,
+      "question_text": "On slide 3, apply the same entrance effect to each show name only. Do not animate the title, the image or the logo.",
+      "mark_scheme": "Award the mark for: The same entrance effect on each of the three show names on slide 3, and nothing else animated.\nCheck / do not accept: Title, image or logo animated: no mark. Different effects: no mark.",
+      "marking": "ai",
+      "success_criteria_id": "59022448-0f5e-4220-b55b-f4f2c182e5e2",
+      "evidence": [
+        {
+          "source": "presentation",
+          "slot": "presentation",
+          "sections": [
+            "slides:3"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "3b",
+      "max_marks": 1,
+      "question_text": "Use the Animation Pane so that the show names appear one after another, each starting After Previous.",
+      "mark_scheme": "Award the mark for: Animation Pane order matches the list, each starting After Previous.\nCheck / do not accept: On Click or With Previous not accepted.",
+      "marking": "ai",
+      "success_criteria_id": "5583c54e-4c65-4db5-b8e4-e3da4cca6251",
+      "evidence": [
+        {
+          "source": "presentation",
+          "slot": "presentation",
+          "sections": [
+            "slides:3"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "3c",
+      "max_marks": 1,
+      "question_text": "Set the duration of each show name animation to 1.5 seconds.",
+      "mark_scheme": "Award the mark for: Duration 1.5 seconds on each show name animation.\nCheck / do not accept: Delay of 1.5 s instead of duration: not accepted.",
+      "marking": "ai",
+      "success_criteria_id": "5583c54e-4c65-4db5-b8e4-e3da4cca6251",
+      "evidence": [
+        {
+          "source": "presentation",
+          "slot": "presentation",
+          "sections": [
+            "slides:3"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "3d",
+      "max_marks": 1,
+      "question_text": "On slide 1, add a transition that moves to slide 2 automatically after 4 seconds, not on mouse click.",
+      "mark_scheme": "Award the mark for: Slide 1 transition: After 00:04.00 ticked and On Mouse Click unticked.\nCheck / do not accept: Both settings needed.",
+      "marking": "ai",
+      "success_criteria_id": "bac1f12c-6ff6-4296-b906-14325a49cbbe",
+      "evidence": [
+        {
+          "source": "presentation",
+          "slot": "presentation",
+          "sections": [
+            "slides:1"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "3e",
+      "max_marks": 1,
+      "question_text": "Take a screenshot of the Animation Pane for slide 3 and a screenshot of the Transitions tab for slide 1. Paste them into EVIDENCE at 3e.",
+      "mark_scheme": "Award the mark for: Both screenshots present and readable (Animation Pane for slide 3, Transitions tab for slide 1).\nCheck / do not accept: Both needed.",
+      "marking": "ai",
+      "success_criteria_id": "bac1f12c-6ff6-4296-b906-14325a49cbbe",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "3e",
+          "want": "screenshots",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "4a",
+      "max_marks": 1,
+      "question_text": "On slide 2, add a hyperlink from the text Our Shows to slide 3.",
+      "mark_scheme": "Award the mark for: Our Shows on slide 2 links to slide 3.\nCheck / do not accept: Test in Slide Show view.",
+      "marking": "ai",
+      "success_criteria_id": "b1ae239e-64b1-4ad7-ae1b-54c3a414df3d",
+      "evidence": [
+        {
+          "source": "presentation",
+          "slot": "presentation",
+          "sections": [
+            "slides:2"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "4b",
+      "max_marks": 1,
+      "question_text": "Add hyperlinks from the other three menu items to slides 4, 5 and 6, so that every menu item works.",
+      "mark_scheme": "Award the mark for: The other three menu items link to slides 4, 5 and 6.\nCheck / do not accept: All three must work.",
+      "marking": "ai",
+      "success_criteria_id": "0c731019-3d94-4bd0-9107-89a1e8a4317d",
+      "evidence": [
+        {
+          "source": "presentation",
+          "slot": "presentation",
+          "sections": [
+            "slides:2"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "4c",
+      "max_marks": 1,
+      "question_text": "On slides 3, 4, 5 and 6, add a Home action button that links to slide 2 (Menu). The button must be in the same position on every slide.",
+      "mark_scheme": "Award the mark for: Home action button on slides 3–6, linked to slide 2, in the same position on every slide.\nCheck / do not accept: Linked to Next Slide or First Slide: not accepted. Text hyperlink instead of an action button: not accepted.",
+      "marking": "ai",
+      "success_criteria_id": "776f6300-4a21-488a-a93c-dcc0896339ce",
+      "evidence": [
+        {
+          "source": "presentation",
+          "slot": "presentation",
+          "sections": [
+            "slides:3,4,5,6",
+            "action-buttons"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "4d",
+      "max_marks": 1,
+      "question_text": "Take a screenshot of the Action Settings window for the Home action button. Paste it into EVIDENCE at 4d.",
+      "mark_scheme": "Award the mark for: Screenshot of Action Settings showing Hyperlink to: slide 2 (Menu).\nCheck / do not accept: Must be readable.",
+      "marking": "ai",
+      "success_criteria_id": "776f6300-4a21-488a-a93c-dcc0896339ce",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "4d",
+          "want": "screenshots",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "4e",
+      "max_marks": 1,
+      "question_text": "On slide 6, add a hyperlink to the website http://www.starlightplanetarium.service and a hyperlink to the email address shows@starlightplanetarium.service",
+      "mark_scheme": "Award the mark for: Website link http://www.starlightplanetarium.service and email link mailto:shows@starlightplanetarium.service on slide 6.\nCheck / do not accept: Both needed. Check spelling.",
+      "marking": "ai",
+      "success_criteria_id": "43f3473f-3c86-41a1-9e52-6d91064ede2a",
+      "evidence": [
+        {
+          "source": "presentation",
+          "slot": "presentation",
+          "sections": [
+            "slides:6"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "4f",
+      "max_marks": 1,
+      "question_text": "On slide 4, add a hyperlink from the text See all ticket prices to the file TICKET PRICES.",
+      "mark_scheme": "Award the mark for: See all ticket prices on slide 4 links to the TICKET PRICES file.\nCheck / do not accept: Link to a web address not accepted.",
+      "marking": "ai",
+      "success_criteria_id": "43f3473f-3c86-41a1-9e52-6d91064ede2a",
+      "evidence": [
+        {
+          "source": "presentation",
+          "slot": "presentation",
+          "sections": [
+            "slides:4"
+          ]
+        }
+      ]
+    },
+    {
+      "label": "5a",
+      "max_marks": 1,
+      "question_text": "Add the speaker notes from STARLIGHT TEXT to slide 3.",
+      "mark_scheme": "Award the mark for: Speaker notes from STARLIGHT TEXT on slide 3.\nCheck / do not accept: Check NOTES PDF or the file.",
+      "marking": "ai",
+      "success_criteria_id": "bed76af2-0ad8-49d9-8f80-ab06c5f23dbf",
+      "evidence": [
+        {
+          "source": "presentation",
+          "slot": "presentation",
+          "sections": [
+            "slides:3"
+          ]
+        },
+        {
+          "source": "file",
+          "slot": "notes"
+        }
+      ]
+    },
+    {
+      "label": "5b",
+      "max_marks": 1,
+      "question_text": "Enter your name and class in the Notes and Handouts footer.",
+      "mark_scheme": "Award the mark for: Name and class in the Notes and Handouts footer, visible on HANDOUTS or NOTES.\nCheck / do not accept: Typed on the slide footer instead: not accepted.",
+      "marking": "ai",
+      "success_criteria_id": "eb8eda2b-52f0-4ab0-ac85-e9fcbe6bd91e",
+      "evidence": [
+        {
+          "source": "presentation",
+          "slot": "presentation",
+          "sections": [
+            "notes"
+          ]
+        },
+        {
+          "source": "file",
+          "slot": "handouts"
+        },
+        {
+          "source": "file",
+          "slot": "notes"
+        }
+      ]
+    },
+    {
+      "label": "5c",
+      "max_marks": 1,
+      "question_text": "Print all slides as handouts with 2 slides per page. Print to PDF and name the file HANDOUTS.",
+      "mark_scheme": "Award the mark for: HANDOUTS PDF: 2 slides per page, all six slides (3 pages).\nCheck / do not accept: Other layouts not accepted.",
+      "marking": "ai",
+      "success_criteria_id": "3e3347c1-02cf-4fb7-a88f-c37895f8e063",
+      "evidence": [
+        {
+          "source": "file",
+          "slot": "handouts",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "5d",
+      "max_marks": 1,
+      "question_text": "Print the notes page for slide 3 only. Print to PDF and name the file NOTES.",
+      "mark_scheme": "Award the mark for: NOTES PDF: notes page for slide 3 showing the slide and its notes.\nCheck / do not accept: Notes page for a different slide not accepted.",
+      "marking": "ai",
+      "success_criteria_id": "3e3347c1-02cf-4fb7-a88f-c37895f8e063",
+      "evidence": [
+        {
+          "source": "file",
+          "slot": "notes",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "5e",
+      "max_marks": 1,
+      "question_text": "Print slide 1 as a full page slide. Print to PDF and name the file FULL PAGE.",
+      "mark_scheme": "Award the mark for: FULL PAGE PDF: slide 1 as one full page slide.",
+      "marking": "ai",
+      "success_criteria_id": "3e3347c1-02cf-4fb7-a88f-c37895f8e063",
+      "evidence": [
+        {
+          "source": "file",
+          "slot": "full-page",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "S1",
+      "max_marks": 2,
+      "question_text": "The planetarium will add more slides to the presentation next year. Explain one benefit of having used a master slide.",
+      "mark_scheme": "Award the mark for: One benefit with expansion, e.g. new slides already have the background, logo and footer (1) so they are quicker to make / follow the house style (1); OR every slide looks the same (1) so the presentation is consistent and professional (1); OR a change to the master updates every slide (1) so only one edit is needed (1).\nCheck / do not accept: Accept placeholders fix where content goes (1) so layout stays consistent (1). Benefit without expansion: 1 mark.",
+      "marking": "ai",
+      "success_criteria_id": "1f7687f8-d1f3-4504-a62e-880fcb3beb70",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "S1",
+          "want": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "S2",
+      "max_marks": 1,
+      "question_text": "State one reason why slides should not contain long paragraphs of text.",
+      "mark_scheme": "Award the mark for: Visitors read instead of listening / looking; slides should show only key points; long text is hard to read on a screen.",
+      "marking": "ai",
+      "success_criteria_id": "bd91f30e-0d07-4c60-8c60-f1de13d908f4",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "S2",
+          "want": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "S3",
+      "max_marks": 1,
+      "question_text": "A Fly In effect is added to a bullet point. State whether this is an animation or a transition, and give a reason.",
+      "mark_scheme": "Award the mark for: Animation, because it is applied to an object (text) on a slide, not to moving between slides.\nCheck / do not accept: Answer and reason both needed.",
+      "marking": "ai",
+      "success_criteria_id": "1654fc3b-b133-45ec-8283-142074a35ebd",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "S3",
+          "want": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "S4",
+      "max_marks": 2,
+      "question_text": "Describe how transitions can improve the information-screen presentation, and why using a different transition on every slide is not a good idea.",
+      "mark_scheme": "Award the mark for: Transitions show visitors that a new slide / section is starting, or make the change between slides smooth (1). Different transitions on every slide distract the visitor, look unprofessional or lose impact (1).",
+      "marking": "ai",
+      "success_criteria_id": "5c6c1837-b7af-43fa-b750-7b159a52983b",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "S4",
+          "want": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "S5",
+      "max_marks": 2,
+      "question_text": "The information screen is run in kiosk mode. Explain why action buttons are used to move between slides.",
+      "mark_scheme": "Award the mark for: There is no presenter or keyboard at the screen (1) so action buttons let visitors choose and control which slide they see (1).\nCheck / do not accept: Accept: On Mouse Click is turned off, so only the buttons move the show (1).",
+      "marking": "ai",
+      "success_criteria_id": "2398e032-177d-4c6f-9954-4aef79be6b5d",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "S5",
+          "want": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "S6",
+      "max_marks": 3,
+      "question_text": "A teacher is giving a talk about the planetarium to a class. State which print layout should be used for each purpose: (i) a copy for each pupil with space to write notes (ii) a script for the teacher (iii) a poster of one slide for the classroom wall.",
+      "mark_scheme": "Award the mark for: (i) Handouts, 3 slides per page (1). (ii) Notes pages (1). (iii) Full page slides (1).\nCheck / do not accept: (i) Handouts without 3 per page: accept.",
+      "marking": "ai",
+      "success_criteria_id": "eb731e2a-570c-4b78-9785-5964778de868",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "S6",
+          "want": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "label": "S7",
+      "max_marks": 2,
+      "question_text": "Describe two ways Presenter View can help the teacher during the talk.",
+      "mark_scheme": "Award the mark for: Any two: shows the speaker notes on the teacher's screen (1); previews the next slide (1); shows a timer to keep track of time (1); no need to print notes pages (1).",
+      "marking": "ai",
+      "success_criteria_id": "9f685b9a-8dc2-4b91-a404-1d635b94279b",
+      "evidence": [
+        {
+          "source": "evidence_section",
+          "slot": "evidence",
+          "heading": "S7",
+          "want": "text",
+          "required": true
+        }
+      ]
+    }
+  ]
+}

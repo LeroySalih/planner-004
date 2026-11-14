@@ -1,24 +1,66 @@
 {
-  "target_activity_id": "43d42e8f-8c04-4cfb-a1d5-b9577bdadebc",
+  "target": {
+    "lesson_id": "8abcea02-f443-4c1e-833f-7e72dc4b741a",
+    "title": "Hand in PEARL KIOSK, PDFs and EVIDENCE"
+  },
   "sources": [
     {
       "activity_id": "fdb61fc0-dfa5-4124-bb01-9ee3a2eb427e",
       "slots": [
-        { "slot": "presentation", "extensions": ["pptx", "ppt"] }
+        {
+          "slot": "presentation",
+          "extensions": [
+            "pptx",
+            "ppt"
+          ]
+        }
       ]
     },
     {
       "activity_id": "4ed152cb-cd7a-417b-a015-3d852bfadf9c",
       "slots": [
-        { "slot": "handouts", "extensions": ["pdf"], "name_contains": ["handout"] },
-        { "slot": "notes", "extensions": ["pdf"], "name_contains": ["note"] },
-        { "slot": "full-page", "extensions": ["pdf"], "name_contains": ["full page", "fullpage", "full_page", "full-page"] }
+        {
+          "slot": "handouts",
+          "extensions": [
+            "pdf"
+          ],
+          "name_contains": [
+            "handout"
+          ]
+        },
+        {
+          "slot": "notes",
+          "extensions": [
+            "pdf"
+          ],
+          "name_contains": [
+            "note"
+          ]
+        },
+        {
+          "slot": "full-page",
+          "extensions": [
+            "pdf"
+          ],
+          "name_contains": [
+            "full page",
+            "fullpage",
+            "full_page",
+            "full-page"
+          ]
+        }
       ]
     },
     {
       "activity_id": "f53176cd-8858-4e2e-ab05-301d2364f368",
       "slots": [
-        { "slot": "evidence", "extensions": ["docx", "doc"] }
+        {
+          "slot": "evidence",
+          "extensions": [
+            "docx",
+            "doc"
+          ]
+        }
       ]
     }
   ]

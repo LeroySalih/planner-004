@@ -1,24 +1,66 @@
 {
-  "target_activity_id": "505a00af-36bf-435a-9e26-13801c2d00b1",
+  "target": {
+    "lesson_id": "fab6587c-16cf-44c1-9dfe-c2a2ead1bca0",
+    "title": "Hand in STARLIGHT SCREEN, PDFs and EVIDENCE"
+  },
   "sources": [
     {
       "activity_id": "b6dc73b7-1e43-467b-80ac-e8ba6715462e",
       "slots": [
-        { "slot": "presentation", "extensions": ["pptx", "ppt"] }
+        {
+          "slot": "presentation",
+          "extensions": [
+            "pptx",
+            "ppt"
+          ]
+        }
       ]
     },
     {
       "activity_id": "a2521a50-4c9c-44a4-af28-e4081f8ba2ca",
       "slots": [
-        { "slot": "handouts", "extensions": ["pdf"], "name_contains": ["handout"] },
-        { "slot": "notes", "extensions": ["pdf"], "name_contains": ["note"] },
-        { "slot": "full-page", "extensions": ["pdf"], "name_contains": ["full page", "fullpage", "full_page", "full-page"] }
+        {
+          "slot": "handouts",
+          "extensions": [
+            "pdf"
+          ],
+          "name_contains": [
+            "handout"
+          ]
+        },
+        {
+          "slot": "notes",
+          "extensions": [
+            "pdf"
+          ],
+          "name_contains": [
+            "note"
+          ]
+        },
+        {
+          "slot": "full-page",
+          "extensions": [
+            "pdf"
+          ],
+          "name_contains": [
+            "full page",
+            "fullpage",
+            "full_page",
+            "full-page"
+          ]
+        }
       ]
     },
     {
       "activity_id": "ed66b4e0-007a-4af7-a498-70749ad6a7e1",
       "slots": [
-        { "slot": "evidence", "extensions": ["docx", "doc"] }
+        {
+          "slot": "evidence",
+          "extensions": [
+            "docx",
+            "doc"
+          ]
+        }
       ]
     }
   ]

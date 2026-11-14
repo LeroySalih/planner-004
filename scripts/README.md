@@ -106,7 +106,7 @@ Press Ctrl+C to stop all servers.
 Copies pupils' files from old Upload File activities into a PowerPoint assessment's upload slots, as a teacher, through the same checks an upload gets. The mapping is data in `scripts/powerpoint-mappings/<name>.json`:
 
 ```json
-{ "target_activity_id": "...", "uploaded_by": "<teacher profile id, optional>",
+{ "target": { "lesson_id": "...", "title": "..." }, "uploaded_by": "<teacher profile id, optional>",
   "sources": [ { "activity_id": "...", "slots": [ { "slot": "notes", "extensions": ["pdf"], "name_contains": ["note"] } ] } ] }
 ```
 
@@ -119,7 +119,21 @@ bash scripts/copy-uploads-to-powerpoint-assessment.sh scripts/powerpoint-mapping
 #   --files-root D   the app's files dir (default ./files); --fallback-root D  read-only second source (e.g. ~/prod-mirror/files)
 ```
 
-Per slot it takes the source's latest attempt's current files (past versions dropped) whose extension is listed (earlier extensions preferred; listing `ppt`/`doc` gets those reported with the reader's refusal) and whose name contains a `name_contains` entry (case and separators ignored), most recent first; extra matches are reported as ambiguities, other file types as "not copied". `uploaded_by` defaults to a teacher of the pupil's class among the classes the lesson is set to (lowest id), then any teacher of those classes. Prints a table of ids only; the full result goes to `powerpoint-copy-results/`. Re-running copies nothing twice.
+Per slot it takes the source's latest attempt's current files (past versions dropped) whose extension is listed (earlier extensions preferred; listing `ppt`/`doc` gets those reported with the reader's refusal) and whose name contains a `name_contains` entry (case and separators ignored), most recent first; extra matches are reported as ambiguities, other file types as "not copied". `uploaded_by` defaults to a teacher of the pupil's class among the classes the lesson is set to (lowest id), then any teacher of those classes. Prints a table of ids only; the full result goes to `powerpoint-copy-results/`. Re-running copies nothing twice. The target is named by lesson and title (so one mapping works on dev and production), or by `"target_activity_id"`.
+
+### `setup-powerpoint-assessment.sh`
+
+Creates PowerPoint assessment activities from specs in `scripts/powerpoint-assessments/<name>.json`: upload slots, supplied images and activity files (from the lesson's data activity), question paper, mark scheme, and the questions with their mark scheme rows, success criteria and evidence sources. The 6.5 Presentation lessons have one each: `starlight-practice-a`, `pearl-practice-b` and `horizon-assessment`.
+
+```bash
+bash scripts/setup-powerpoint-assessment.sh scripts/powerpoint-assessments/*.json                    # dry run: checks everything
+bash scripts/setup-powerpoint-assessment.sh scripts/powerpoint-assessments/*.json --apply            # create the activities
+bash scripts/setup-powerpoint-assessment.sh scripts/powerpoint-assessments/*.json --apply --copy     # ...and copy old uploads in
+#   --hand-in        with --copy: hand in pupils whose required slots are filled (queues REAL AI marking; asks "yes")
+#   --yes, --files-root D, --fallback-root D   as for the copy script
+```
+
+The dry run checks the lesson, the data files, the papers, the success criteria, every evidence source and the EVIDENCE template's headings, and lists what `--apply` would do. The activity is found by lesson and title, so re-running reuses it, adds only what is missing and never rewrites questions once set. `--copy` runs `copy-uploads-to-powerpoint-assessment.sh` with each spec's `copy_mapping` (in a dry run it reports "create it first" for an activity not made yet). Results go to `powerpoint-copy-results/`.
 
 ## Complete Workflow Example
 

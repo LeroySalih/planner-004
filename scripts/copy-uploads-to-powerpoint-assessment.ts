@@ -8,7 +8,7 @@
 // it beside the app as the app's own user. The mapping is data
 // (scripts/powerpoint-mappings/*.json):
 //
-//   { "target_activity_id": "...",
+//   { "target_activity_id": "...",                    or "target": { "lesson_id": "...", "title": "..." }
 //     "uploaded_by": "<teacher profile id>",          optional
 //     "sources": [ { "activity_id": "...",
 //                    "slots": [ { "slot": "notes", "extensions": ["pdf"], "name_contains": ["note"] } ] } ] }
@@ -61,7 +61,8 @@ import { PowerPointAssessmentActivityBodySchema, type PowerPointUploadSlot } fro
 
 type MappingSlot = { slot: string; extensions: string[]; name_contains?: string[] }
 type MappingSource = { activity_id: string; slots: MappingSlot[] }
-type Mapping = { target_activity_id: string; uploaded_by?: string; sources: MappingSource[] }
+type MappingTarget = { lesson_id: string; title: string }
+type Mapping = { target_activity_id?: string; target?: MappingTarget; uploaded_by?: string; sources: MappingSource[] }
 
 type Args = {
   mapping: string
@@ -95,8 +96,10 @@ function parseArgs(argv: string[]): Args {
 
 function parseMapping(raw: unknown): Mapping {
   const m = raw as Mapping
-  if (!m || typeof m.target_activity_id !== "string" || !Array.isArray(m.sources) || m.sources.length === 0) {
-    throw new Error("The mapping needs target_activity_id and at least one source")
+  const hasId = typeof m?.target_activity_id === "string"
+  const hasTarget = typeof m?.target?.lesson_id === "string" && typeof m?.target?.title === "string"
+  if (!m || hasId === hasTarget || !Array.isArray(m.sources) || m.sources.length === 0) {
+    throw new Error("The mapping needs target_activity_id or target {lesson_id, title} (not both), and at least one source")
   }
   if (m.uploaded_by !== undefined && typeof m.uploaded_by !== "string") throw new Error("uploaded_by must be a profile id")
   for (const source of m.sources) {
@@ -240,10 +243,23 @@ async function defaultTeacherFor(lessonId: string, pupilId: string): Promise<str
   return anyTeacher[0]?.user_id ?? null
 }
 
+/** The mapping names the target by id, or by lesson and title so one mapping works on every install. */
+async function resolveTarget(mapping: Mapping): Promise<string> {
+  if (mapping.target_activity_id) return mapping.target_activity_id
+  const { lesson_id: lessonId, title } = mapping.target as MappingTarget
+  const { rows } = await query<{ activity_id: string }>(
+    "select activity_id from activities where lesson_id = $1 and title = $2 and type = 'powerpoint-assessment' and active is not false",
+    [lessonId, title],
+  )
+  if (rows.length === 0) throw new Error(`No PowerPoint assessment "${title}" in lesson ${lessonId}; create it first`)
+  if (rows.length > 1) throw new Error(`${rows.length} PowerPoint assessments named "${title}" in lesson ${lessonId}`)
+  return rows[0].activity_id
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2))
   const mapping = parseMapping(JSON.parse(await readFile(args.mapping, "utf8")))
-  const targetId = mapping.target_activity_id
+  const targetId = await resolveTarget(mapping)
 
   const { rows: targetRows } = await query<{ lesson_id: string; type: string | null; body_data: unknown }>(
     "select lesson_id, type, body_data from activities where activity_id = $1",
