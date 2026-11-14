@@ -220,7 +220,7 @@ export default function AiQueuePage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Pupil</TableHead>
-                  <TableHead>Activity</TableHead>
+                  <TableHead>Unit › Lesson / Activity</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Attempts</TableHead>
                   <TableHead>Created</TableHead>
@@ -241,8 +241,23 @@ export default function AiQueuePage() {
                       <TableCell className="font-medium">
                         {item.first_name} {item.last_name}
                       </TableCell>
-                      <TableCell className="max-w-[200px] truncate" title={item.activity_title}>
-                        {item.activity_title}
+                      <TableCell className="max-w-[240px]">
+                        {(() => {
+                          const place = [item.unit_title, item.lesson_title].filter(Boolean).join(" › ")
+                          const activity = item.activity_label || "—"
+                          return (
+                            <div className="min-w-0">
+                              {place ? (
+                                <p className="truncate text-xs text-muted-foreground" title={place}>
+                                  {place}
+                                </p>
+                              ) : null}
+                              <p className="truncate" title={activity}>
+                                {activity}
+                              </p>
+                            </div>
+                          )
+                        })()}
                       </TableCell>
                       <TableCell>{getStatusBadge(item.mark_status)}</TableCell>
                       <TableCell>{item.attempts}</TableCell>

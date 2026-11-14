@@ -24,7 +24,14 @@ export async function readAiMarkingQueueAction() {
         q.updated_at,
         COALESCE(p.first_name, rp.first_name) as first_name,
         COALESCE(p.last_name, rp.last_name) as last_name,
-        COALESCE(a.title, ra_act.title) as activity_title,
+        u.title as unit_title,
+        l.title as lesson_title,
+        -- An untitled activity is named by its place in the lesson, counted as
+        -- the lesson editor lists them (active only, order_by then title).
+        CASE
+          WHEN NULLIF(btrim(act.title), '') IS NOT NULL THEN act.title
+          WHEN act_pos.pos IS NOT NULL THEN 'Activity ' || act_pos.pos
+        END as activity_label,
         CASE WHEN q.payload->>'assignmentId' = 'revision' THEN 'Revision' ELSE 'Lesson' END as source_type,
         s.mark_status,
         s.mark_error
@@ -39,6 +46,23 @@ export async function readAiMarkingQueueAction() {
       LEFT JOIN revisions r ON r.revision_id = ra.revision_id
       LEFT JOIN profiles rp ON rp.user_id = r.pupil_id
       LEFT JOIN activities ra_act ON ra_act.activity_id = ra.activity_id
+
+      -- Whichever of the two the job reached, then its lesson and unit
+      LEFT JOIN activities act ON act.activity_id = COALESCE(a.activity_id, ra_act.activity_id)
+      LEFT JOIN lessons l ON l.lesson_id = act.lesson_id
+      LEFT JOIN units u ON u.unit_id = l.unit_id
+      LEFT JOIN LATERAL (
+        SELECT ranked.pos
+        FROM (
+          SELECT sib.activity_id,
+                 row_number() OVER (
+                   ORDER BY sib.order_by ASC NULLS LAST, COALESCE(sib.title, '') ASC, sib.activity_id
+                 ) as pos
+          FROM activities sib
+          WHERE sib.lesson_id = act.lesson_id AND sib.active = true
+        ) ranked
+        WHERE ranked.activity_id = act.activity_id
+      ) act_pos ON NULLIF(btrim(act.title), '') IS NULL
 
       WHERE q.job_type IN ('ai_mark', 'ai_read')
       -- Unfinished jobs first, so the rows the counters describe are always on
