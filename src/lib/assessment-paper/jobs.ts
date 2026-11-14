@@ -26,7 +26,6 @@ import { PermanentAssessmentMarkingError, markAssessmentQuestion } from "@/lib/a
 
 /** Surface key of the read in ai_model_routes (migration 135). */
 export const ASSESSMENT_READ_SURFACE = "surface:assessment-read"
-const ASSESSMENT_PAPER_TYPE = "assessment-paper"
 
 export interface AssessmentJob {
   jobId: string
@@ -34,7 +33,8 @@ export interface AssessmentJob {
   assignmentId: string
 }
 
-async function recordCall(jobId: string, call: { request: unknown; response: unknown; durationMs: number }) {
+/** Record a job's call (or, for a read with no model, what it read) on its row. No base64. */
+export async function recordCall(jobId: string, call: { request: unknown; response: unknown; durationMs: number }) {
   await query(
     `update external_jobs
         set model_request = $2::jsonb, model_response = $3::jsonb, duration_ms = $4, updated_at = now()
@@ -43,18 +43,21 @@ async function recordCall(jobId: string, call: { request: unknown; response: unk
   )
 }
 
-async function activityOf(submissionId: string): Promise<string> {
-  const { rows } = await query<{ activity_id: string }>(
-    "select activity_id from submissions where submission_id = $1",
+/** The submission's activity and its type: the type is the mark's route key in ai_model_routes. */
+export async function activityOf(submissionId: string): Promise<{ activityId: string; type: string }> {
+  const { rows } = await query<{ activity_id: string; type: string }>(
+    `select s.activity_id, a.type
+       from submissions s join activities a on a.activity_id = s.activity_id
+      where s.submission_id = $1`,
     [submissionId],
   )
   if (!rows[0]) throw new PermanentAssessmentMarkingError(`Submission ${submissionId} not found.`)
-  return rows[0].activity_id
+  return { activityId: rows[0].activity_id, type: rows[0].type }
 }
 
 /** Read one script, store its answers, and queue the questions to mark. */
 export async function runAssessmentReadJob(job: AssessmentJob, call?: ModelJsonCall): Promise<ReadCompletion> {
-  const activityId = await activityOf(job.submissionId)
+  const { activityId } = await activityOf(job.submissionId)
   const route = await resolveModelRoute(ASSESSMENT_READ_SURFACE, null)
   await logQueueEvent("info", `Reading assessment paper submission ${job.submissionId}`, {
     provider: route.provider,
@@ -89,10 +92,10 @@ export async function runAssessmentMarkJob(
   job: AssessmentJob & { questionId: string },
   call?: ModelJsonCall,
 ): Promise<{ totals: AssessmentSubmissionTotals | null; complete: boolean }> {
-  const activityId = await activityOf(job.submissionId)
+  const { activityId, type } = await activityOf(job.submissionId)
   // Allocations, not the criterion's own type, set the marks on a paper, so
-  // the activity-wide route applies.
-  const route = await resolveModelRoute(ASSESSMENT_PAPER_TYPE, null)
+  // the activity-wide route of the activity's own type applies.
+  const route = await resolveModelRoute(type, null)
   await logQueueEvent("info", `Marking assessment paper submission ${job.submissionId}`, {
     questionId: job.questionId,
     provider: route.provider,

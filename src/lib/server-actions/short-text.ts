@@ -12,9 +12,10 @@ import { fetchActivitySuccessCriteriaIds, normaliseSuccessCriteriaScores } from 
 import { getActivityLessonId, logActivitySubmissionEvent } from "@/lib/activity-logging"
 import { emitSubmissionEvent } from "@/lib/sse/topics"
 import { enqueueMarkingTasks, triggerQueueProcessor } from "@/lib/ai/marking-queue"
-import { hasRole, requireAuthenticatedProfile } from "@/lib/auth"
+import { hasRole, requireAuthenticatedProfile, requireRole } from "@/lib/auth"
 import { query } from "@/lib/db"
 import { pupilWorkLockedMessage } from "@/lib/lesson-lock"
+import { powerPointNotQueuedReason } from "@/lib/powerpoint-assessment/files"
 import {
   clearResubmitRequest,
   getNextAttemptNumber,
@@ -181,9 +182,14 @@ export async function saveShortTextAnswerAction(input: z.infer<typeof ShortTextA
 }
 
 export async function triggerManualAiMarkingAction(input: z.infer<typeof ManualAiMarkingInputSchema>) {
+  await requireRole("teacher")
   const payload = ManualAiMarkingInputSchema.parse(input)
 
   await enqueueMarkingTasks(payload.assignmentId, [{ submissionId: payload.submissionId }]);
+  // PowerPoint work is sent only once handed in with its required files;
+  // the teacher is told why when it was not.
+  const notQueued = await powerPointNotQueuedReason(payload.submissionId)
+  if (notQueued) return { success: false, error: notQueued }
   void triggerQueueProcessor();
 
   void emitSubmissionEvent("submission.updated", {
@@ -193,10 +199,11 @@ export async function triggerManualAiMarkingAction(input: z.infer<typeof ManualA
     markStatus: "waiting",
   })
 
-  return { success: true }
+  return { success: true, error: null }
 }
 
 export async function triggerBulkAiMarkingAction(input: z.infer<typeof BulkAiMarkingInputSchema>) {
+  await requireRole("teacher")
   const payload = BulkAiMarkingInputSchema.parse(input)
   
   await enqueueMarkingTasks(payload.assignmentId, payload.submissions);
@@ -206,6 +213,7 @@ export async function triggerBulkAiMarkingAction(input: z.infer<typeof BulkAiMar
 }
 
 export async function listShortTextSubmissionsAction(activityId: string) {
+  await requireRole("teacher")
   try {
     const { rows } = await query(
       `
@@ -238,6 +246,7 @@ export async function listShortTextSubmissionsAction(activityId: string) {
 export async function overrideShortTextSubmissionScoreAction(
   input: z.infer<typeof OverrideShortTextScoreSchema>,
 ) {
+  await requireRole("teacher")
   const payload = OverrideShortTextScoreSchema.parse(input)
 
   try {

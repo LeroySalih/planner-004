@@ -17,6 +17,7 @@ export const SCORABLE_ACTIVITY_TYPES = Object.freeze([
   "voice",
   "sequence",
   "assessment-paper",
+  "powerpoint-assessment",
 ]);
 
 // Activity types marked question by question, each question splitting its
@@ -25,11 +26,27 @@ export const SCORABLE_ACTIVITY_TYPES = Object.freeze([
 // src/lib/assessment-paper/store.ts, so the per-criterion machinery
 // (refresh_criterion_marks, the activity_success_criteria trigger, teacher
 // criterion marks, whole-activity overrides) must leave them alone.
-// Mirrored in SQL by is_question_marked_activity_type (migration 132).
-export const QUESTION_MARKED_ACTIVITY_TYPES = Object.freeze(["assessment-paper"]);
+// Mirrored in SQL by is_question_marked_activity_type (migrations 132, 143).
+//
+// The question machinery is shared, but each type hands its work in its own
+// way: an assessment-paper as a scanned script (front sheet, markable pages),
+// a powerpoint-assessment as named files (presentation, PDFs, evidence
+// document). Anything that touches scripts, front sheets or pages must ask
+// isAssessmentPaperType, not isQuestionMarkedActivityType.
+export const QUESTION_MARKED_ACTIVITY_TYPES = Object.freeze(["assessment-paper", "powerpoint-assessment"]);
 
 export function isQuestionMarkedActivityType(type: string | null | undefined): boolean {
   return QUESTION_MARKED_ACTIVITY_TYPES.includes(normalizeActivityType(type));
+}
+
+/** An assessment paper: a scanned script read page by page. */
+export function isAssessmentPaperType(type: string | null | undefined): boolean {
+  return normalizeActivityType(type) === "assessment-paper";
+}
+
+/** A PowerPoint assessment: pupils hand in named files, read without a model, then marked per question. */
+export function isPowerPointAssessmentType(type: string | null | undefined): boolean {
+  return normalizeActivityType(type) === "powerpoint-assessment";
 }
 
 // Activity types scored deterministically in-app from a single right/wrong
@@ -108,6 +125,9 @@ export function isMothballedActivityType(type: string | null | undefined): boole
 // Two exceptions are not in that SQL branch, and need not be, because their
 // score is written to `score` as well as `ai_model_score`:
 // - assessment-paper: recomputeAssessmentSubmission writes both.
+// - powerpoint-assessment: likewise. It is listed so /admin/ai-models can route
+//   its per-question mark (migration 143); its files are read in-app, with no
+//   model, so only the mark uses the route.
 // - upload-file: per-criterion marking writes both (aggregate-sc-marks.ts).
 //   It is AI-marked only when the activity's "Mark with AI" switch is on
 //   (body_data.aiMarking), so anything that acts on an activity rather than
@@ -119,6 +139,7 @@ export const AI_MARKED_ACTIVITY_TYPES = Object.freeze([
   "mark-worksheet",
   "upload-spreadsheet",
   "assessment-paper",
+  "powerpoint-assessment",
   "upload-file",
 ]);
 

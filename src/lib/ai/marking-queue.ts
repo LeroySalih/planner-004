@@ -3,6 +3,7 @@ import type { z } from "zod";
 import { query, withDbClient } from "@/lib/db";
 import {
   MarkWorksheetActivityBodySchema,
+  PowerPointAssessmentActivityBodySchema,
   ShortTextActivityBodySchema,
   ShortTextSubmissionBodySchema,
   UploadCodeActivityBodySchema,
@@ -21,8 +22,9 @@ import { parseSpreadsheet, type ParsedSheet } from "@/lib/spreadsheet/parse-xlsx
 import { createLocalStorageClient } from "@/lib/storage/local-storage";
 import { emitSubmissionEvent } from "@/lib/sse/topics";
 import { logQueueEvent } from "@/lib/ai/marking-log";
+import { joinLabels } from "@/lib/utils";
 import { fetchCriterionForMarking } from "@/lib/scoring/success-criteria";
-import { isQuestionMarkedActivityType } from "@/dino.config";
+import { isAssessmentPaperType, isPowerPointAssessmentType, isQuestionMarkedActivityType } from "@/dino.config";
 import { insertPupilActivityFeedbackEntry } from "@/lib/feedback/pupil-activity-feedback";
 
 /** Job types the marking worker claims for submissions: an assessment paper's read, and every mark. */
@@ -113,7 +115,11 @@ export async function enqueueMarkingTasks(
        where s.submission_id = $1`,
       [task.submissionId],
     );
-    if (isQuestionMarkedActivityType(typeRows[0]?.type)) {
+    if (isPowerPointAssessmentType(typeRows[0]?.type)) {
+      await enqueuePowerPointSubmission(task.submissionId, assignmentId, delaySecs);
+      continue;
+    }
+    if (isAssessmentPaperType(typeRows[0]?.type)) {
       await enqueueAssessmentPaperSubmission(task.submissionId, assignmentId, delaySecs);
       continue;
     }
@@ -306,6 +312,60 @@ async function enqueueAssessmentPaperSubmission(submissionId: string, assignment
     return;
   }
 
+  await queueQuestionMarkedRead(submissionId, assignmentId, delaySecs);
+  await logQueueEvent("info", `Queued the read of assessment paper submission ${submissionId}`);
+}
+
+/**
+ * A PowerPoint assessment is sent when the pupil hands in (submission_status
+ * 'submitted'); before that nothing is done. With a required upload slot
+ * empty it is held, naming the slots. Otherwise one `ai_read` job reads the
+ * files, without a model (src/lib/powerpoint-assessment/reading.ts), and the
+ * read queues one `ai_mark` job per question to mark (completeAssessmentRead).
+ * Any open job for the submission is replaced.
+ */
+async function enqueuePowerPointSubmission(submissionId: string, assignmentId: string, delaySecs: number) {
+  const { rows } = await query<{ submission_status: string | null; body_data: unknown }>(
+    `select s.submission_status, a.body_data
+       from submissions s join activities a on a.activity_id = s.activity_id
+      where s.submission_id = $1`,
+    [submissionId],
+  );
+  const row = rows[0];
+  if (!row || row.submission_status !== "submitted") {
+    await logQueueEvent("info", `Not enqueued: PowerPoint assessment submission ${submissionId} is not handed in`);
+    return;
+  }
+
+  const body = PowerPointAssessmentActivityBodySchema.safeParse(row.body_data ?? {});
+  if (!body.success) {
+    const reason = "Not marked: this PowerPoint assessment's upload slots are not set up. Set them up in the lesson editor, then send the work again.";
+    await holdAssessmentSubmission(submissionId, reason);
+    await logQueueEvent("warn", `Not enqueued: PowerPoint assessment submission ${submissionId}`, { reason });
+    return;
+  }
+  const { rows: files } = await query<{ slot_key: string }>(
+    "select slot_key from practical_submission_files where submission_id = $1",
+    [submissionId],
+  );
+  const handedIn = new Set(files.map((file) => file.slot_key));
+  const missing = body.data.uploadSlots.filter((slot) => slot.required && !handedIn.has(slot.key));
+  if (missing.length > 0) {
+    const reason = `Not marked: no ${joinLabels(missing.map((slot) => slot.label))} handed in.`;
+    await holdAssessmentSubmission(submissionId, reason);
+    await logQueueEvent("warn", `Not enqueued: PowerPoint assessment submission ${submissionId}`, { reason });
+    return;
+  }
+
+  await queueQuestionMarkedRead(submissionId, assignmentId, delaySecs);
+  await logQueueEvent("info", `Queued the read of PowerPoint assessment submission ${submissionId}`);
+}
+
+/**
+ * In one transaction under the submission's row lock: drop its open read and
+ * mark jobs, queue one `ai_read`, and set it waiting.
+ */
+async function queueQuestionMarkedRead(submissionId: string, assignmentId: string, delaySecs: number) {
   await withDbClient(async (client) => {
     await client.query("BEGIN");
     try {
@@ -332,11 +392,10 @@ async function enqueueAssessmentPaperSubmission(submissionId: string, assignment
       throw error;
     }
   });
-  await logQueueEvent("info", `Queued the read of assessment paper submission ${submissionId}`);
 }
 
 /**
- * Leave an assessment paper submission unsent: any open job is closed and
+ * Leave a question-marked submission unsent: any open job is closed and
  * mark_status is null with the reason in mark_error, so the results page says
  * why it is not being marked.
  */
@@ -542,7 +601,8 @@ function parseActivityBody<T extends z.ZodType>(schema: T, body: unknown): z.inf
   );
 }
 
-async function processSingleItem(
+/** Run one claimed job (status 'processing'). Exported for the checks; the worker claims through processNextQueueItem. */
+export async function processSingleItem(
   item: {
     submission_id: string;
     assignment_id: string;
@@ -611,9 +671,10 @@ async function processSingleItem(
     }
 
     if (isQuestionMarkedActivityType(context.type as string)) {
-      await processAssessmentPaperItem(item, {
+      await processQuestionMarkedItem(item, {
         activityId: context.activity_id as string,
         pupilId: context.pupil_id as string,
+        type: context.type as string,
       });
       return;
     }
@@ -953,6 +1014,16 @@ async function processSingleItem(
        returning attempts, max_attempts`,
       [errorMessage, item.job_id],
     );
+    if (bumped.length === 0) {
+      // The job has gone: the work was sent again while it ran (a new
+      // hand-in or upload replaces the open jobs). The submission and its
+      // other jobs are the newer run's, so nothing here is touched.
+      await logQueueEvent("info", `Superseded job ${item.job_id} failed after it was replaced; ignored`, {
+        submissionId: item.submission_id,
+        error: errorMessage,
+      });
+      return;
+    }
     const attemptsNow = bumped[0]?.attempts ?? 3;
     const maxAttempts = bumped[0]?.max_attempts ?? 3;
     const isRevision = item.assignment_id === "revision";
@@ -973,7 +1044,7 @@ async function processSingleItem(
         const failureNote = error instanceof UploadFileMarkingError
           ? errorMessage
           : item.job_type === "ai_read"
-          ? `Reading the script: ${errorMessage}`
+          ? `${await readFailurePrefix(item.submission_id)}: ${errorMessage}`
           : item.question_id
             ? `${await questionLabel(item.question_id)}: ${errorMessage}`
             : criterionId
@@ -1031,6 +1102,15 @@ async function processSingleItem(
   }
 }
 
+/** What a failed read was reading, for its failure note. */
+async function readFailurePrefix(submissionId: string): Promise<string> {
+  const { rows } = await query<{ type: string | null }>(
+    "select a.type from submissions s join activities a on a.activity_id = s.activity_id where s.submission_id = $1",
+    [submissionId],
+  );
+  return isPowerPointAssessmentType(rows[0]?.type) ? "Reading the files" : "Reading the script";
+}
+
 /** "Question 3", for a failure note; the id when the question has gone. */
 async function questionLabel(questionId: string): Promise<string> {
   const { rows } = await query<{ label: string }>(
@@ -1041,19 +1121,32 @@ async function questionLabel(questionId: string): Promise<string> {
 }
 
 /**
- * Run one assessment paper job: the script's read (`ai_read`) or one
- * question's mark (`ai_mark` with a questionId). The store closes the job in
- * the same transaction as its result (see completeAssessmentRead), so
+ * Run one job of a question-marked activity: the read (`ai_read`) or one
+ * question's mark (`ai_mark` with a questionId). An assessment paper's read
+ * is of its script (src/lib/assessment-paper/jobs.ts); a PowerPoint
+ * assessment's is of the pupil's files, with no model
+ * (src/lib/powerpoint-assessment/jobs.ts). The store closes the job in the
+ * same transaction as its result (see completeAssessmentRead), so
  * resolveQueueItem is not called. Errors propagate to processSingleItem's
  * retry and failure handling.
  */
-async function processAssessmentPaperItem(
+async function processQuestionMarkedItem(
   item: { submission_id: string; assignment_id: string; question_id?: string | null; job_type?: string; job_id: string },
-  context: { activityId: string; pupilId: string },
+  context: { activityId: string; pupilId: string; type: string },
 ) {
-  // Loaded on demand: the jobs pull in the script file store (sharp,
-  // pdftoppm), which every other importer of this queue can do without.
-  const { runAssessmentMarkJob, runAssessmentReadJob } = await import("@/lib/assessment-paper/jobs");
+  // Loaded on demand: the jobs pull in the file stores and readers (sharp,
+  // poppler, the Office readers), which every other importer of this queue
+  // can do without.
+  const powerPoint = isPowerPointAssessmentType(context.type);
+  const { runMarkJob, runReadJob } = powerPoint
+    ? await import("@/lib/powerpoint-assessment/jobs").then((m) => ({
+      runReadJob: m.runPowerPointReadJob,
+      runMarkJob: m.runPowerPointMarkJob,
+    }))
+    : await import("@/lib/assessment-paper/jobs").then((m) => ({
+      runReadJob: m.runAssessmentReadJob,
+      runMarkJob: m.runAssessmentMarkJob,
+    }));
 
   void emitSubmissionEvent("submission.updated", {
     submissionId: item.submission_id,
@@ -1065,12 +1158,14 @@ async function processAssessmentPaperItem(
   const job = { jobId: item.job_id, submissionId: item.submission_id, assignmentId: item.assignment_id };
   let outcome: { totals: { awarded: number; available: number; score: number } | null; complete: boolean };
   if (item.job_type === "ai_read") {
-    outcome = await runAssessmentReadJob(job);
+    outcome = await runReadJob(job);
   } else if (item.question_id) {
-    outcome = await runAssessmentMarkJob({ ...job, questionId: item.question_id });
+    outcome = await runMarkJob({ ...job, questionId: item.question_id });
   } else {
     throw new PermanentMarkingError(
-      "An assessment paper is read, then marked per question; this job names no question. Send the script again.",
+      powerPoint
+        ? "A PowerPoint assessment is read, then marked per question; this job names no question. Send the work again."
+        : "An assessment paper is read, then marked per question; this job names no question. Send the work again.",
     );
   }
 
@@ -1091,7 +1186,7 @@ async function processAssessmentPaperItem(
       feedbackText: null,
       createdBy: null,
     });
-    await logQueueEvent("info", `Assessment paper submission ${item.submission_id} fully marked`, {
+    await logQueueEvent("info", `${powerPoint ? "PowerPoint assessment" : "Assessment paper"} submission ${item.submission_id} fully marked`, {
       awarded: outcome.totals?.awarded ?? null,
       available: outcome.totals?.available ?? null,
     });

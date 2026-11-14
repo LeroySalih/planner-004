@@ -572,6 +572,15 @@ export async function readAssignmentResultsAction(
               question = normaliseRichText(parsedBody.data.question);
               correctAnswer = normaliseRichText(parsedBody.data.modelAnswer) ??
                 parsedBody.data.modelAnswer?.trim() ?? null;
+              // An optional mark scheme on the body (passthrough), which the
+              // marker is given and the results panel shows before the model answer.
+              const stqGuidance = (parsedBody.data as { markingGuidance?: unknown }).markingGuidance;
+              if (typeof stqGuidance === "string" && stqGuidance.trim()) {
+                activityGuidanceMetadata.set(activity.activity_id, {
+                  markingGuidance: stqGuidance.trim(),
+                  markingGuidanceId: null,
+                });
+              }
             }
           } else if (
             type === "text-question" || type === "long-text-question"

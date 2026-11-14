@@ -11,6 +11,13 @@ import type {
 } from "@/lib/assessment-paper/results"
 import { assessmentFeedbackPdfUrl } from "@/lib/assessment-paper/urls"
 import {
+  EvidenceThumbnails,
+  formatUploadedAt,
+  MarkerEvidenceNote,
+  PowerPointFilesBlock,
+} from "@/components/assignment-results/powerpoint-evidence"
+import { MarkedAgainst, MarkerReason, MarkRowLabel } from "@/components/assignment-results/marking-reference"
+import {
   confirmAssessmentQuestionAction,
   readAssessmentPaperMarkingAction,
   setAssessmentAnswerTranscriptionAction,
@@ -25,8 +32,11 @@ interface AssessmentPaperMarksPanelProps {
   submissionId?: string | null
   /** Called after a mark changes the paper's total. */
   onAggregateChange?: (aggregate: { awarded: number; available: number } | null) => void
-  /** Reports whether the pupil has a script, once loaded. */
-  onLoaded?: (state: { hasScript: boolean }) => void
+  /**
+   * Reports, once loaded, whether there is work to mark: a script (assessment
+   * paper) or handed-in files (PowerPoint assessment).
+   */
+  onLoaded?: (state: { hasWork: boolean }) => void
 }
 
 const MARK_STATUS_LABELS: Record<string, string> = {
@@ -98,10 +108,18 @@ function ProvenanceBadge({ provenance }: { provenance: string | null }) {
   return null
 }
 
+/** A PowerPoint task the reader answers with the pupil's typed text, which a teacher may correct. */
+function readsTypedText(question: AssessmentResultQuestion) {
+  return question.evidenceSources.some((source) => source.source === "evidence_section" && source.want === "text")
+}
+
 /**
  * An assessment paper for one pupil, as the results sidebar shows it: their
  * script (original and markable pages), and each question with what the
- * reader found (editable), its mark and its criteria. A teacher marks a
+ * reader found (editable), its mark and its criteria. A PowerPoint
+ * assessment shows the pupil's files instead, and per task the evidence the
+ * marker was given, its pictures and the marker's note; only a task read
+ * from typed text has an editable answer. A teacher marks a
  * criterion within its question out of its allocation (on a one-criterion
  * question, the question's mark is that criterion's); the question and the
  * paper are recomputed from those marks. A criterion's comment overrides the
@@ -131,7 +149,9 @@ export function AssessmentPaperMarksPanel({
     setResult(response.data ?? null)
     setError(response.error ?? null)
     setLoading(false)
-    onLoadedRef.current?.({ hasScript: Boolean(response.data?.script) })
+    onLoadedRef.current?.({
+      hasWork: Boolean(response.data?.script) || Boolean(response.data?.powerpoint?.handedIn),
+    })
   }, [activityId, pupilId, submissionId])
 
   useEffect(() => {
@@ -255,18 +275,18 @@ export function AssessmentPaperMarksPanel({
   }
 
   const canMark = Boolean(result.submissionId)
+  const powerPoint = result.powerpoint
+  const work = powerPoint ? "work" : "script"
 
   const renderComment = (questionId: string, criterion: AssessmentResultCriterion) => {
     const key = `${questionId}|${criterion.successCriteriaId}`
     const marked = criterion.awarded !== null
+    const short = criterion.awarded !== null && criterion.awarded < criterion.available
     return (
       <>
-        {/* The marker's comment, shown while it still explains the mark. */}
-        {!criterion.teacherFeedback && (criterion.whyNotAwarded || criterion.howToImprove) ? (
-          <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
-            {criterion.whyNotAwarded ? <p>Why not awarded: {criterion.whyNotAwarded}</p> : null}
-            {criterion.howToImprove ? <p>How to improve: {criterion.howToImprove}</p> : null}
-          </div>
+        {/* The marker's reason, shown while it still explains a mark short of full. */}
+        {!criterion.teacherFeedback && short ? (
+          <MarkerReason whyNotAwarded={criterion.whyNotAwarded} howToImprove={criterion.howToImprove} />
         ) : null}
 
         {criterion.provenance === "teacher" && !criterion.teacherFeedback && !criterion.whyNotAwarded &&
@@ -312,70 +332,84 @@ export function AssessmentPaperMarksPanel({
           Feedback PDF
         </a>
       ) : null}
-      <div className="rounded-md border border-border/60 bg-muted/40 p-3 text-sm">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Script</p>
-        {result.script ? (
-          <div className="mt-1 space-y-1">
-            <p className="text-xs text-muted-foreground">
-              Uploaded {new Date(result.script.uploadedAt).toLocaleString()} · {result.script.pageCount} page
-              {result.script.pageCount === 1 ? "" : "s"}
-            </p>
-            <div className="flex flex-wrap gap-x-3 gap-y-1">
-              <a
-                href={result.script.originalUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs font-medium text-primary hover:underline"
-              >
-                Original script
-              </a>
-              {result.script.pages.map((page) => (
+      {powerPoint ? (
+        <PowerPointFilesBlock
+          activityId={activityId}
+          pupilId={pupilId}
+          files={powerPoint}
+          markStatusLine={
+            result.markStatus
+              ? `${MARK_STATUS_LABELS[result.markStatus] ?? result.markStatus}${result.markError ? `: ${result.markError}` : ""}`
+              : result.markError
+          }
+          onChanged={load}
+        />
+      ) : (
+        <div className="rounded-md border border-border/60 bg-muted/40 p-3 text-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Script</p>
+          {result.script ? (
+            <div className="mt-1 space-y-1">
+              <p className="text-xs text-muted-foreground">
+                Uploaded {formatUploadedAt(result.script.uploadedAt)} · {result.script.pageCount} page
+                {result.script.pageCount === 1 ? "" : "s"}
+              </p>
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
                 <a
-                  key={page.url}
-                  href={page.url}
+                  href={result.script.originalUrl}
                   target="_blank"
                   rel="noreferrer"
                   className="text-xs font-medium text-primary hover:underline"
-                  title="What the marker sees"
                 >
-                  p{page.pageNumber}
+                  Original script
                 </a>
-              ))}
+                {result.script.pages.map((page) => (
+                  <a
+                    key={page.url}
+                    href={page.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs font-medium text-primary hover:underline"
+                    title="What the marker sees"
+                  >
+                    p{page.pageNumber}
+                  </a>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {result.script.frontSheetCheck === "passed"
+                  ? "Front sheet check passed: pages 2 onwards can be marked."
+                  : result.script.frontSheetCheck
+                    ? `Front sheet check failed. ${result.script.frontSheetCheck}`
+                    : "Front sheet not checked: this script is never sent for marking."}
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground">
-              {result.script.frontSheetCheck === "passed"
-                ? "Front sheet check passed: pages 2 onwards can be marked."
-                : result.script.frontSheetCheck
-                  ? `Front sheet check failed. ${result.script.frontSheetCheck}`
-                  : "Front sheet not checked: this script is never sent for marking."}
+          ) : (
+            <p className="mt-1 text-sm text-foreground">No script uploaded.</p>
+          )}
+          {result.markStatus ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {MARK_STATUS_LABELS[result.markStatus] ?? result.markStatus}
+              {result.markError ? `: ${result.markError}` : ""}
             </p>
-          </div>
-        ) : (
-          <p className="mt-1 text-sm text-foreground">No script uploaded.</p>
-        )}
-        {result.markStatus ? (
-          <p className="mt-1 text-xs text-muted-foreground">
-            {MARK_STATUS_LABELS[result.markStatus] ?? result.markStatus}
-            {result.markError ? `: ${result.markError}` : ""}
-          </p>
-        ) : result.markError && (!result.script || result.markError !== result.script.frontSheetCheck) ? (
-          // e.g. a folded paper, or no script
-          <p className="mt-1 text-xs text-muted-foreground">{result.markError}</p>
-        ) : null}
-      </div>
+          ) : result.markError && (!result.script || result.markError !== result.script.frontSheetCheck) ? (
+            // e.g. a folded paper, or no script
+            <p className="mt-1 text-xs text-muted-foreground">{result.markError}</p>
+          ) : null}
+        </div>
+      )}
 
       {result.awaitingCheckCount > 0 || result.paperAwaitingCheck.questions > 0 ? (
         <div className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs text-foreground">
           {result.awaitingCheckCount > 0 ? (
             <p className="font-medium">
-              {result.awaitingCheckCount} question{result.awaitingCheckCount === 1 ? "" : "s"} on this script
+              {result.awaitingCheckCount} question{result.awaitingCheckCount === 1 ? "" : "s"} on this {work}
               {result.awaitingCheckCount === 1 ? " awaits" : " await"} your check.
             </p>
           ) : null}
           <p className="text-muted-foreground">
-            Across the paper: {result.paperAwaitingCheck.questions} question
+            Across the {powerPoint ? "assessment" : "paper"}: {result.paperAwaitingCheck.questions} question
             {result.paperAwaitingCheck.questions === 1 ? "" : "s"} on {result.paperAwaitingCheck.pupils} pupil
-            {result.paperAwaitingCheck.pupils === 1 ? "'s script" : "s' scripts"} to check.
+            {result.paperAwaitingCheck.pupils === 1 ? `'s ${work}` : `s' ${work}${powerPoint ? "" : "s"}`} to check.
           </p>
         </div>
       ) : null}
@@ -393,7 +427,9 @@ export function AssessmentPaperMarksPanel({
 
       {!canMark && result.questions.length > 0 ? (
         <p className="text-xs text-muted-foreground">
-          Marks can be given once the pupil&apos;s script has been uploaded.
+          {powerPoint
+            ? "Marks can be given once the pupil has uploaded their files."
+            : "Marks can be given once the pupil's script has been uploaded."}
         </p>
       ) : null}
 
@@ -440,10 +476,18 @@ export function AssessmentPaperMarksPanel({
                 </p>
               ) : null}
 
+              {/* Question-marked types have no model answer: mark scheme, else the criteria. */}
+              <MarkedAgainst
+                markScheme={question.markScheme}
+                criteria={question.criteria.map((c) => c.description)}
+              />
+
               {question.awaitingCheck ? (
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded border border-amber-500/40 bg-amber-500/5 px-2 py-1">
                   <span className="text-xs text-muted-foreground">
-                    {answer?.kind === "sketch"
+                    {powerPoint
+                      ? "Set for you to check: confirm the AI's marks or change them."
+                      : answer?.kind === "sketch"
                       ? "A sketch: check the AI's marks against the page."
                       : answer?.status === "unreadable"
                         ? "The reader could not read this answer: check the AI's marks against the page."
@@ -460,7 +504,17 @@ export function AssessmentPaperMarksPanel({
                 </div>
               ) : null}
 
-              {answer ? (
+              {powerPoint ? (
+                <PowerPointAnswer
+                  question={question}
+                  transcription={transcription}
+                  disabled={isPending || !canMark}
+                  onDraft={(value) => setTranscriptionDrafts((prev) => ({ ...prev, [question.questionId]: value }))}
+                  onSave={(value) => saveTranscription(question.questionId, value)}
+                />
+              ) : null}
+
+              {answer && !powerPoint ? (
                 <div className="mt-2 space-y-1">
                   <div className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
                     <span>Pupil&apos;s answer:</span>
@@ -511,9 +565,6 @@ export function AssessmentPaperMarksPanel({
               {single ? (
                 // One criterion: the question's mark is that criterion's mark.
                 <div className="mt-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="flex-1 text-xs text-foreground">{single.description}</p>
-                  </div>
                   <MarkButtons
                     max={single.allocation}
                     selected={selectedLevel(single)}
@@ -524,12 +575,17 @@ export function AssessmentPaperMarksPanel({
                 </div>
               ) : (
                 <ul className="mt-2 space-y-2">
-                  {question.criteria.map((criterion) => {
+                  {question.criteria.map((criterion, index) => {
                     const key = `${question.questionId}|${criterion.successCriteriaId}`
                     return (
                       <li key={key} className="border-l-2 border-border pl-2">
                         <div className="flex items-start justify-between gap-2">
-                          <p className="flex-1 text-xs text-foreground">{criterion.description}</p>
+                          <MarkRowLabel
+                            index={index}
+                            count={question.criteria.length}
+                            max={criterion.allocation}
+                            description={criterion.description}
+                          />
                           <div className="flex shrink-0 items-center gap-1">
                             {criterion.awarded !== null ? <ProvenanceBadge provenance={criterion.provenance} /> : null}
                             <span className="text-xs font-medium text-foreground">
@@ -553,6 +609,63 @@ export function AssessmentPaperMarksPanel({
           )
         })}
       </ul>
+    </div>
+  )
+}
+
+/**
+ * One PowerPoint task's evidence: what the reader found (a digest, or the
+ * pupil's typed answer, which a teacher may correct when the task reads typed
+ * text), the pictures the marker was given, and the marker's note.
+ */
+function PowerPointAnswer({
+  question,
+  transcription,
+  disabled,
+  onDraft,
+  onSave,
+}: {
+  question: AssessmentResultQuestion
+  transcription: string
+  disabled: boolean
+  onDraft: (value: string) => void
+  onSave: (value: string) => void
+}) {
+  const answer = question.answer
+  // Only a typed answer the reader found can be corrected; a blank or a digest
+  // of other evidence is shown as it is.
+  const editable =
+    readsTypedText(question) && answer !== null && answer.kind === "text" && answer.status !== "blank"
+  return (
+    <div className="mt-2 space-y-1">
+      {answer ? (
+        <div className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+          <span>{editable ? "Pupil's typed answer:" : "Evidence:"}</span>
+          <span>{ANSWER_STATUS_LABELS[answer.status] ?? answer.status}</span>
+          {answer.provenance === "teacher" ? <Badge variant="secondary" className="text-[10px]">Edited</Badge> : null}
+        </div>
+      ) : question.marking !== "teacher" ? (
+        <p className="text-xs text-muted-foreground">Not read yet.</p>
+      ) : null}
+      {editable ? (
+        <textarea
+          value={transcription}
+          disabled={disabled}
+          placeholder="What the pupil typed"
+          rows={Math.min(8, Math.max(2, transcription.split("\n").length))}
+          aria-label={`Typed answer for ${question.label}`}
+          onChange={(event) => onDraft(event.target.value)}
+          onBlur={(event) => {
+            const next = event.target.value.trim()
+            if (next !== (answer.transcription ?? "")) onSave(next)
+          }}
+          className="w-full rounded-md border border-border bg-background px-2 py-1 font-mono text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+        />
+      ) : answer?.transcription ? (
+        <p className="whitespace-pre-line text-xs text-foreground">{answer.transcription}</p>
+      ) : null}
+      <EvidenceThumbnails images={question.evidenceImages} />
+      {question.markerEvidence ? <MarkerEvidenceNote text={question.markerEvidence} /> : null}
     </div>
   )
 }

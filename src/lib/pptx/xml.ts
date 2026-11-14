@@ -68,20 +68,31 @@ function decodeCharacterReferences(xml: string) {
   })
 }
 
-export function parseXml(xml: string, part: string): XmlElement {
+// What a refusal says, and the error it is raised as. PowerPoint's wording by
+// default; openOfficePackage passes its own for other file kinds.
+export type XmlRefusal = {
+  notThisType: string
+  damaged: string
+  error: (message: string, detail: string) => Error
+}
+
+const PPTX_REFUSAL: XmlRefusal = {
+  notThisType: "This is not a PowerPoint .pptx file.",
+  damaged: "This PowerPoint file is damaged and could not be read.",
+  error: (message, detail) => new PptxInspectError(message, detail),
+}
+
+export function parseXml(xml: string, part: string, refusal: XmlRefusal = PPTX_REFUSAL): XmlElement {
   if (/<!DOCTYPE|<!ENTITY/i.test(xml)) {
-    throw new PptxInspectError("This is not a PowerPoint .pptx file.", `DOCTYPE in ${part}`)
+    throw refusal.error(refusal.notThisType, `DOCTYPE in ${part}`)
   }
   let root: XmlElement | undefined
   try {
     root = build(parser.parse(decodeCharacterReferences(xml)) as OrderedNode[])[0]
   } catch (error) {
-    throw new PptxInspectError(
-      "This PowerPoint file is damaged and could not be read.",
-      `${part}: ${error instanceof Error ? error.message : String(error)}`,
-    )
+    throw refusal.error(refusal.damaged, `${part}: ${error instanceof Error ? error.message : String(error)}`)
   }
-  if (!root) throw new PptxInspectError("This PowerPoint file is damaged and could not be read.", `${part} is empty`)
+  if (!root) throw refusal.error(refusal.damaged, `${part} is empty`)
   return root
 }
 

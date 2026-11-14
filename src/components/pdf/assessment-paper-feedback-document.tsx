@@ -74,8 +74,9 @@ function questionImprovements(question: FeedbackPdfQuestion): string[] {
   return [...new Set(texts.filter((text): text is string => Boolean(text)))]
 }
 
-function AnswerCell({ answer }: { answer: FeedbackPdfQuestion["answer"] }) {
-  if (!answer) return <Text style={styles.muted}>—</Text>
+function AnswerCell({ answer, powerPoint }: { answer: FeedbackPdfQuestion["answer"]; powerPoint: boolean }) {
+  // A PowerPoint task's work is in the pupil's files, not on a script.
+  if (!answer) return <Text style={styles.muted}>{powerPoint ? "In your files" : "—"}</Text>
   if (answer.status === "blank") return <Text style={{ color: RED }}>{NO_ANSWER}</Text>
   return (
     <>
@@ -91,12 +92,12 @@ function AnswerCell({ answer }: { answer: FeedbackPdfQuestion["answer"] }) {
   )
 }
 
-function QuestionTable({ questions }: { questions: FeedbackPdfQuestion[] }) {
+function QuestionTable({ questions, powerPoint }: { questions: FeedbackPdfQuestion[]; powerPoint: boolean }) {
   const showMarkScheme = questions.some((question) => question.markScheme)
   return (
     <View style={styles.table}>
       <View style={[styles.row, styles.headRow]} wrap={false}>
-        <Text style={[styles.cell, styles.colQuestion, styles.label]}>Question</Text>
+        <Text style={[styles.cell, styles.colQuestion, styles.label]}>{powerPoint ? "Task" : "Question"}</Text>
         <Text style={[styles.cell, styles.colAnswer, styles.label]}>Your answer</Text>
         {showMarkScheme ? <Text style={[styles.cell, styles.colMarkScheme, styles.label]}>Mark scheme</Text> : null}
         <Text style={[styles.cell, styles.colMarks, styles.label]}>Marks</Text>
@@ -109,7 +110,7 @@ function QuestionTable({ questions }: { questions: FeedbackPdfQuestion[] }) {
             {question.questionText?.trim() ? <Text style={styles.small}>{question.questionText.trim()}</Text> : null}
           </View>
           <View style={[styles.cell, styles.colAnswer]}>
-            <AnswerCell answer={question.answer} />
+            <AnswerCell answer={question.answer} powerPoint={powerPoint} />
           </View>
           {showMarkScheme ? (
             <View style={[styles.cell, styles.colMarkScheme]}>
@@ -188,8 +189,10 @@ function PupilFeedbackPage({ data }: { data: FeedbackPdfData }) {
         </View>
       ) : null}
 
-      {data.questions.length === 0 ? <Text style={styles.muted}>This paper has no questions yet.</Text> : null}
-      {data.questions.length > 0 ? <QuestionTable questions={data.questions} /> : null}
+      {data.questions.length === 0 ? (
+        <Text style={styles.muted}>{data.powerPoint ? "This assessment has no tasks yet." : "This paper has no questions yet."}</Text>
+      ) : null}
+      {data.questions.length > 0 ? <QuestionTable questions={data.questions} powerPoint={data.powerPoint} /> : null}
 
       <Footer paperTitle={data.paperTitle} />
     </Page>
@@ -218,6 +221,14 @@ const STATUS_LABEL: Record<ClassFeedbackStatus, string> = {
   "not yet marked": "Not yet marked",
   held: "Held (front sheet check failed)",
   "not sat": "Not sat",
+}
+
+/** A PowerPoint assessment has no front sheet, and is handed in rather than sat. */
+const POWERPOINT_STATUS_LABEL: Record<ClassFeedbackStatus, string> = {
+  marked: "Marked",
+  "not yet marked": "Not yet marked",
+  held: "Held",
+  "not sat": "Not handed in",
 }
 
 /**
@@ -253,7 +264,7 @@ export function AssessmentPaperClassFeedbackDocument({ data }: { data: ClassFeed
               <Text style={styles.coverMarks}>{row.aiMarks === null ? "—" : marks(row.aiMarks, data.maxMarks)}</Text>
               <Text style={styles.coverMarks}>{row.status === "not sat" ? "—" : marks(row.marksAwarded, data.maxMarks)}</Text>
               <Text style={styles.coverMarks}>{row.change === null ? "—" : signed(row.change)}</Text>
-              <Text style={[styles.coverStatus, row.status === "marked" ? {} : styles.muted]}>{STATUS_LABEL[row.status]}</Text>
+              <Text style={[styles.coverStatus, row.status === "marked" ? {} : styles.muted]}>{(data.powerPoint ? POWERPOINT_STATUS_LABEL : STATUS_LABEL)[row.status]}</Text>
             </View>
           ))}
         </View>
@@ -264,7 +275,7 @@ export function AssessmentPaperClassFeedbackDocument({ data }: { data: ClassFeed
             : `Teacher changed marks for ${data.changes.changed} of ${data.changes.comparable} AI-marked pupil${data.changes.comparable === 1 ? "" : "s"}; net change ${signed(data.changes.net)} mark${Math.abs(data.changes.net) === 1 ? "" : "s"}.`}
         </Text>
         <Text style={[styles.small, styles.muted]}>
-          AI mark: the paper&apos;s marks with every teacher change taken out (marks the teacher gave alone count the same in both). — where none is on record.
+          AI mark: the {data.powerPoint ? "assessment" : "paper"}&apos;s marks with every teacher change taken out (marks the teacher gave alone count the same in both). — where none is on record.
         </Text>
 
         <Footer paperTitle={data.paperTitle} />

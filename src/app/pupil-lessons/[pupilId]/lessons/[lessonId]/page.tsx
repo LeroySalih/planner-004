@@ -19,14 +19,22 @@ import {
   readLessonSubmissionSummariesAction,
   getActivityFileDownloadUrlAction,
 } from "@/lib/server-updates"
-import { isQuestionMarkedActivityType, isScorableActivityType } from "@/dino.config"
+import { isAssessmentPaperType, isPowerPointAssessmentType, isScorableActivityType } from "@/dino.config"
 import { readPupilAssessmentPaperView, type PupilAssessmentPaperView } from "@/lib/assessment-paper/results"
+import { readPupilPowerPointView, type PupilPowerPointView } from "@/lib/powerpoint-assessment/pupil-view"
 import { countsForProgress } from "@/lib/scoring/counts-for-progress"
 import { cn } from "@/lib/utils"
 import { findLessonResources } from "@/lib/lesson-resources"
-import { loadCourseUnits, loadLessonPosition, loadSubmittedActivityIds } from "@/lib/pupil-lesson-article-data"
+import {
+  doneActivityIds,
+  isAwaitingMarking,
+  loadCourseUnits,
+  loadLessonPosition,
+  loadSubmittedActivityIds,
+} from "@/lib/pupil-lesson-article-data"
 import { PupilUploadActivity } from "@/components/pupil/pupil-upload-activity"
 import { PupilAssessmentPaperActivity } from "@/components/pupil/pupil-assessment-paper-activity"
+import { PupilPowerPointAssessmentActivity } from "@/components/pupil/pupil-powerpoint-assessment-activity"
 import { PupilUploadCodeActivity } from "@/components/pupil/pupil-upload-code-activity"
 import { highlightCode, renderTaskMarkup } from "@/lib/code-highlight"
 import { PupilUploadSpreadsheetActivity } from "@/components/pupil/pupil-upload-spreadsheet-activity"
@@ -999,7 +1007,7 @@ export default async function PupilLessonFriendlyPage({
   const assessmentPaperViewMap = new Map<string, PupilAssessmentPaperView>(
     await Promise.all(
       activities
-        .filter((activity) => isQuestionMarkedActivityType(activity.type))
+        .filter((activity) => isAssessmentPaperType(activity.type))
         .map(async (activity) => {
           const view = await readPupilAssessmentPaperView(activity.activity_id, pupilId, isTeacher).catch((error) => {
             console.error("[pupil-lessons] failed to load assessment paper", error)
@@ -1008,6 +1016,28 @@ export default async function PupilLessonFriendlyPage({
           return [activity.activity_id, view] as const
         }),
     ),
+  )
+
+  // PowerPoint assessments: built for the pupil on the server, so the client
+  // never gets the activity's body (mark scheme path, upload slot setup,
+  // evidence specs) or a question's mark scheme; the loader checks the lock
+  // and the pupil's feedback visibility again.
+  const powerPointViewMap = new Map<string, PupilPowerPointView | null>(
+    await Promise.all(
+      activities
+        .filter((activity) => isPowerPointAssessmentType(activity.type))
+        .map(async (activity) => {
+          const view = await readPupilPowerPointView(activity.activity_id, pupilId, isTeacher).catch((error) => {
+            console.error("[pupil-lessons] failed to load PowerPoint assessment", error)
+            return null
+          })
+          return [activity.activity_id, view] as const
+        }),
+    ),
+  )
+
+  const powerPointHandedIn = new Map(
+    [...powerPointViewMap].map(([activityId, view]) => [activityId, view?.handedIn === true] as const),
   )
 
   const lessonLinks = lesson.lesson_links ?? []
@@ -1041,7 +1071,7 @@ export default async function PupilLessonFriendlyPage({
 
   const countable = ordered.filter((activity) => isCountable(activity.type))
   const countableIds = countable.map((activity) => activity.activity_id)
-  const [submittedIds, position, courseUnits, understanding] = await Promise.all([
+  const [anySubmittedIds, position, courseUnits, understanding] = await Promise.all([
     loadSubmittedActivityIds(pupilId, countableIds),
     unit ? loadLessonPosition(unit.unit_id, lesson.lesson_id, groupId) : Promise.resolve(null),
     groupId ? loadCourseUnits(groupId, pupilId, unit?.unit_id ?? null) : Promise.resolve([]),
@@ -1055,6 +1085,9 @@ export default async function PupilLessonFriendlyPage({
   const awarded = releasedToViewer
     ? marked.reduce((sum, activity) => sum + (activityMarksMap.get(activity.activity_id)?.marksAwarded ?? 0), 0)
     : null
+  // A PowerPoint assessment has a submission from its first upload, but is
+  // done only once it is handed in.
+  const submittedIds = doneActivityIds(anySubmittedIds, powerPointHandedIn)
   const remainingWork = countableIds.filter((id) => !submittedIds.includes(id)).length
   const dueTone = dueDateTone(dueDate, remainingWork)
 
@@ -1108,6 +1141,8 @@ export default async function PupilLessonFriendlyPage({
         inputId?: string
         flag?: { submissionId: string; isFlagged: boolean }
         ownFeedback?: boolean
+        /** Overrides "awaiting marking" (unmarked submission) where a submission is not yet handed in. */
+        pendingMarking?: boolean
       },
     ) => (
       <ArticleActivity
@@ -1125,7 +1160,7 @@ export default async function PupilLessonFriendlyPage({
         maxMarks={activity.max_marks ?? 1}
         scoreLabel={formatScoreLabel(rawScore, activity.activity_id)}
         isMarked={typeof rawScore === "number"}
-        isPendingMarking={rawScore === null}
+        isPendingMarking={opts.pendingMarking ?? rawScore === null}
         feedbackText={feedbackText}
         modelAnswer={activityModelAnswerMap.get(activity.activity_id)}
         viewerIsTeacher={isTeacher}
@@ -1147,6 +1182,31 @@ export default async function PupilLessonFriendlyPage({
             }
           />,
           { variant: "task", title: activity.title || "Assessment paper", ownFeedback: true },
+        )
+      }
+      case "powerpoint-assessment": {
+        const view = powerPointViewMap.get(activity.activity_id)
+        return frame(
+          view ? (
+            <PupilPowerPointAssessmentActivity
+              activityId={activity.activity_id}
+              pupilId={pupilId}
+              viewerIsTeacher={isTeacher}
+              canWork={canWork}
+              groupAssignmentId={assignmentIds[0] ?? null}
+              initialView={view}
+            />
+          ) : (
+            <p className="rounded-xl border border-dashed border-la-input p-6 text-sm text-la-muted">
+              This task isn&apos;t available right now. Please let your teacher know.
+            </p>
+          ),
+          {
+            variant: "task",
+            title: activity.title || "PowerPoint assessment",
+            ownFeedback: true,
+            pendingMarking: Boolean(view?.handedIn) && rawScore === null,
+          },
         )
       }
       case "short-text-question": {
@@ -1633,7 +1693,7 @@ export default async function PupilLessonFriendlyPage({
         title: activityTitle(activity),
         scoreLabel:
           releasedToViewer && typeof rawScore === "number" ? formatScoreLabel(rawScore, activity.activity_id) : undefined,
-        marking: rawScore === null,
+        marking: isAwaitingMarking(activity.activity_id, rawScore, powerPointHandedIn),
       }
     })
 

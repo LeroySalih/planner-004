@@ -26,6 +26,7 @@ async function heicToJpeg(input: Buffer): Promise<Buffer> {
 import { getAuthenticatedProfile, hasRole } from "@/lib/auth"
 import { pupilMayOpenAssessmentFile } from "@/lib/assessments/store"
 import { ASSESSMENT_SCRIPTS_BUCKET, pupilMayOpenAssessmentPaperFile } from "@/lib/assessment-paper/files"
+import { pupilMayOpenPracticalFile } from "@/lib/powerpoint-assessment/files"
 import { query } from "@/lib/db"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 import { isLessonLockedForUser, LESSON_LOCKED_MESSAGE } from "@/lib/lesson-lock"
@@ -101,9 +102,14 @@ export async function GET(
   // An assessment-paper activity's files are for teachers. A pupil may open
   // the question paper once they have sat it, and the original of their own
   // script once the lesson's feedback is visible; never the mark scheme or
-  // the markable pages.
+  // the markable pages. A PowerPoint assessment's pupil files
+  // ({activityId}/practical/...): a pupil may open the original of a file they
+  // handed in, never what the reader extracted from it.
   if (bucket === ASSESSMENT_SCRIPTS_BUCKET && !hasRole(profile, "teacher")) {
-    if (!(await pupilMayOpenAssessmentPaperFile(profile.userId, decodedSegments))) {
+    const allowed = decodedSegments[1] === "practical"
+      ? await pupilMayOpenPracticalFile(decodedSegments, profile)
+      : await pupilMayOpenAssessmentPaperFile(profile.userId, decodedSegments)
+    if (!allowed) {
       return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 })
     }
   }

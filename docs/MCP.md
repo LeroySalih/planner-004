@@ -481,7 +481,7 @@ To change part of `body_data`, pass only the changed fields to `update_activity`
 #### `create_activity`
 Creates an activity under a lesson.
 
-Scorable types: `multiple-choice-question`, `short-text-question`, `text-question`, `long-text-question`, `upload-file`, `upload-url`, `feedback`, `sketch-render`, `group-items`, `matcher`, `sequence`, `assessment-paper` (see *Assessment paper activities*)  
+Scorable types: `multiple-choice-question`, `short-text-question`, `text-question`, `long-text-question`, `upload-file`, `upload-url`, `feedback`, `sketch-render`, `group-items`, `matcher`, `sequence`, `assessment-paper` (see *Assessment paper activities*), `powerpoint-assessment` (see *PowerPoint assessment activities*)  
 Non-scorable types: `text`, `display-image`, `display-webpage`, `display-flashcards`, `file-download`, `show-video`, `voice`, `share-my-work`, `review-others-work`, `display-section`
 
 `do-flashcards` is a legacy type. Asking for one returns an error and nothing is written. Existing do-flashcards activities still work. The list of legacy types is `LEGACY_ACTIVITY_TYPES` in `src/dino.config.ts`.
@@ -1003,7 +1003,7 @@ If the questions have no mark scheme text (most folded papers), `split_assessmen
 
 #### `get_assessment_activity`
 **Input:** `{ activity_id }`
-**Output:** `{ assessment_activity: { activity: { activity_id, lesson_id, title, max_marks }, body: { has_question_paper, has_mark_scheme, instructions }, questions: [{ question_id, label, max_marks, question_text, mark_scheme, has_mark_scheme, marking, depends_on, criteria: [{ success_criteria_id, description, max_marks }] }], scripts_count, front_sheet_checks: { passed, failed, unchecked }, pupils: [{ pupil_id, first_name, last_name, submission_id, script_uploaded, script_uploaded_at, front_sheet_check | null, marks_awarded | null, max_marks, mark_status, mark_error, progress | null }] } }`. `marking` is `"ai"`, `"ai_check"` or `"teacher"`; `depends_on` is the label of the earlier question the marker also sees, or null. `front_sheet_check` is `"passed"`, the reason the script was held, or null (no script, or a folded paper's). `pupils` lists the roster pupils of the classes the lesson is set to, plus anyone who already has a submission. Each pupil's figures come from their latest attempt. `marks_awarded` is null until the paper is marked, but an unmarked paper still counts as 0 towards progress.
+**Output:** `{ assessment_activity: { kind: "assessment-paper", activity: { activity_id, lesson_id, title, type, max_marks }, body: { has_question_paper, has_mark_scheme, instructions }, questions: [{ question_id, label, max_marks, question_text, mark_scheme, has_mark_scheme, marking, depends_on, criteria: [{ success_criteria_id, description, max_marks }] }], scripts_count, front_sheet_checks: { passed, failed, unchecked }, pupils: [{ pupil_id, first_name, last_name, submission_id, script_uploaded, script_uploaded_at, front_sheet_check | null, marks_awarded | null, max_marks, mark_status, mark_error, progress | null }] } }`. `marking` is `"ai"`, `"ai_check"` or `"teacher"`; `depends_on` is the label of the earlier question the marker also sees, or null. `front_sheet_check` is `"passed"`, the reason the script was held, or null (no script, or a folded paper's). `pupils` lists the roster pupils of the classes the lesson is set to, plus anyone who already has a submission. Each pupil's figures come from their latest attempt. `marks_awarded` is null until the paper is marked, but an unmarked paper still counts as 0 towards progress.
 
 `progress` (null with no submission) is `{ read_done, questions_marked, questions_to_mark, questions_held, questions_awaiting_check }`:
 - `read_done`: the script has been read and no read is queued or running.
@@ -1013,16 +1013,17 @@ If the questions have no mark scheme text (most folded papers), `split_assessmen
 - `questions_awaiting_check`: AI-marked questions waiting for the teacher to confirm.
 
 #### `set_assessment_activity_questions`
-**Input:** `{ activity_id, questions: [{ label, max_marks, question_text?, mark_scheme?, marking?, depends_on?, criteria: [{ success_criteria_id, max_marks }] }] }`
+**Input:** `{ activity_id, questions: [{ label, max_marks, question_text?, mark_scheme?, marking?, depends_on?, evidence?, criteria: [{ success_criteria_id, max_marks }] }] }`
 Send the full list every time. Questions are matched by label, and list order sets their position. A label left out is deleted, unless pupils already have marks on it, which is an error. Marks already given follow a change of allocation: a full mark stays full, and any other mark is capped one below the new full mark.
 - `marking`: `"ai"` (marked by the model; the default for a new question), `"ai_check"` (marked by the model, then listed for the teacher to confirm) or `"teacher"` (never sent). If you leave it out, the current setting is kept.
 - `depends_on`: error carried forward. Give the label of an **earlier** question on the paper, and the marker also sees that question's answer. Use `null` or `""` for none. If you leave it out, the current value is kept. A later question, the question itself or an unknown label is refused.
-- `questions` and each `criteria` may be sent as JSON strings.
+- `evidence` (PowerPoint assessments only; refused on a paper): the question's evidence sources, see *PowerPoint assessment activities*. If you leave it out, the current sources are kept; `[]` clears them.
+- `questions`, each `criteria` and each `evidence` may be sent as JSON strings.
 **Output:** `{ assessment_activity }`, the same shape as `get_assessment_activity`.
 
 #### `create_assessment_activity_file_upload_link`
-This works like the other one-time upload links: the link can be used once, lasts 15 minutes and takes one file of up to 25 MB, with no credentials. Migration 133 adds target `assessment-activity` with `upload_kind`.
-**Input:** `{ activity_id, kind: "question_paper" | "mark_scheme" | "script", pupil_id? }`. `pupil_id` is required for `script` and refused for the other two kinds. For a script, the pupil and the question paper (which must be uploaded first) are checked when the link is made; on upload the pupil is checked again, and a script for a paper with no question paper is stored but held.
+This works like the other one-time upload links: the link can be used once, lasts 15 minutes and takes one file of up to 25 MB (10 MB for a supplied image), with no credentials. Migration 133 adds target `assessment-activity` with `upload_kind`.
+**Input:** `{ activity_id, kind: "question_paper" | "mark_scheme" | "script" | "supplied_image" | "practical_file", pupil_id?, slot?, image_name? }`. `pupil_id` is required for `script` and `practical_file` and refused for the other kinds; `slot` is required for `practical_file` only. `supplied_image` and `practical_file` are for PowerPoint assessments (see below), `script` for papers only. For a script, the pupil and the question paper (which must be uploaded first) are checked when the link is made; on upload the pupil is checked again, and a script for a paper with no question paper is stored but held.
 `question_paper` / `mark_scheme`: a PDF, which replaces any earlier one and sets `body_data.questionPaperPath` / `markSchemePath`. Those keys cannot be set or removed through `create_activity` or `update_activity`.
 `script`: a PDF. The upload replies `{ success, file: { script_id, submission_id, page_count, replaced_scripts, front_sheet_check, marking: "queued" | "held", message } }`. With `held` the message says why: the front sheet check, or the reason the queue gave.
 **Output:** `{ link: { upload_url, expires_at, max_bytes, instructions } }`
@@ -1034,7 +1035,7 @@ This is a dry run and **saves nothing**. It sends the activity's uploaded mark s
 
 #### `get_assessment_activity_result`
 **Input:** `{ activity_id, pupil_id }`
-**Output:** `{ result: { activity_id, pupil_id, first_name, last_name, submission_id, mark_status, mark_error, marks_awarded | null, max_marks, script: { script_id, page_count, uploaded_at, front_sheet_check } | null, overall_feedback: { teacher, ai }, questions: [{ question_id, label, marking, depends_on, has_mark_scheme, awarded | null, available, provenance, answer: { status, kind, transcription, pages, provenance } | null, criteria: [{ success_criteria_id, description, awarded | null, available, why_not_awarded, how_to_improve, teacher_feedback, provenance, ai_awarded | null }] }] } }`. All figures come from the pupil's latest attempt. `answer` is what the reader found, and is null until the script is read:
+**Output:** `{ result: { activity_id, type, pupil_id, first_name, last_name, submission_id, mark_status, mark_error, marks_awarded | null, max_marks, powerpoint: null, script: { script_id, page_count, uploaded_at, front_sheet_check } | null, overall_feedback: { teacher, ai }, questions: [{ question_id, label, marking, depends_on, has_mark_scheme, awarded | null, available, provenance, answer: { status, kind, transcription, pages, provenance } | null, criteria: [{ success_criteria_id, description, awarded | null, available, why_not_awarded, how_to_improve, teacher_feedback, provenance, ai_awarded | null }] }] } }`. All figures come from the pupil's latest attempt. `answer` is what the reader found, and is null until the script is read:
 - `status`: `answered`, `blank`, `unreadable` or `continued`.
 - `kind`: `text`, `sketch` or `mixed`. A sketch is described, not transcribed.
 - `pages`: the script pages (2 onwards) the answer is on.
@@ -1059,15 +1060,15 @@ They are applied in that order: transcription, criteria, confirm. Everything is 
 **Output:** `{ marks: { activity_id, pupil_id, submission_id, marks_awarded, max_marks, mark_status, question } | null }`. `question` has the same shape as one entry of `get_assessment_activity_result`'s `questions`.
 
 #### `create_assessment_activity_script_download_link`
-Returns a one-time link to **one pupil's original uploaded script**, the PDF exactly as uploaded, including the front sheet (page 1, with the pupil's name). This is a teacher's copy; it is never sent to a model. The script is the newest on the pupil's latest submission, and held scripts (front sheet check failed) are included. It is refused if the activity is not an assessment paper, or the pupil has no submission or no script. Like the other download links it is single use, lasts 15 minutes, and only a SHA-256 hash is stored in `mcp_download_links`, here with `kind: "assessment_script"` and the `script_id` (migration 140). Uploading a replacement script deletes the script row and the link with it. The download is sent as an `application/pdf` attachment (a script folded in from the old assessments module may be a JPEG or PNG, sent as `image/jpeg` or `image/png`) and logged in `mcp_audit_log` as `script_download:link`. A missing file gives the link back and returns 404. The file is `<activity title> - <pupil name>.pdf` (or `.jpg` / `.png`), with characters a file system refuses taken out.
+Returns a one-time link to **one pupil's original uploaded script**, the PDF exactly as uploaded, including the front sheet (page 1, with the pupil's name). This is a teacher's copy; it is never sent to a model. The script is the newest on the pupil's latest submission, and held scripts (front sheet check failed) are included. It is refused if the activity is not an assessment paper (a PowerPoint assessment has none: "PowerPoint assessments have no scripts; use get_practical_assessment_evidence or the results page"), or the pupil has no submission or no script. Like the other download links it is single use, lasts 15 minutes, and only a SHA-256 hash is stored in `mcp_download_links`, here with `kind: "assessment_script"` and the `script_id` (migration 140). Uploading a replacement script deletes the script row and the link with it. The download is sent as an `application/pdf` attachment (a script folded in from the old assessments module may be a JPEG or PNG, sent as `image/jpeg` or `image/png`) and logged in `mcp_audit_log` as `script_download:link`. A missing file gives the link back and returns 404. The file is `<activity title> - <pupil name>.pdf` (or `.jpg` / `.png`), with characters a file system refuses taken out.
 
 **Input:** `{ activity_id, pupil_id }`  
 **Output:** `{ link: { download_url, expires_at, activity_id, activity_title, pupil_id, script_id, front_sheet_check, page_count, file_name, instructions } | null }`
 
 #### `create_assessment_activity_class_feedback_link`
-Returns a one-time link to **one PDF of a whole class's feedback** on an assessment-paper activity, downloaded with a plain `curl` GET and no credentials, like `get_lesson_file_download_link` (single use, 15 minutes, only a SHA-256 hash stored in `mcp_download_links` with `kind: "assessment_class_feedback"`, migration 137). The PDF is built when the link is used, so it always has the latest marks. The download is logged in `mcp_audit_log` as `class_feedback_download:link`, attributed to the teacher who asked for the link. A failed build gives the link back for a retry.
+Returns a one-time link to **one PDF of a whole class's feedback** on an assessment-paper or PowerPoint assessment activity, downloaded with a plain `curl` GET and no credentials, like `get_lesson_file_download_link` (single use, 15 minutes, only a SHA-256 hash stored in `mcp_download_links` with `kind: "assessment_class_feedback"`, migration 137). The PDF is built when the link is used, so it always has the latest marks. The download is logged in `mcp_audit_log` as `class_feedback_download:link`, attributed to the teacher who asked for the link. A failed build gives the link back for a retry.
 
-Give `class` (group id), `unit` (id or title) and `activity` (id or title). Each is matched by exact id first, then by case-insensitive exact name. A name that matches more than one is an error listing the candidates with their ids: retry with the id. The activity must be an `assessment-paper` in one of the unit's standard lessons, and the class must be set that lesson.
+Give `class` (group id), `unit` (id or title) and `activity` (id or title). Each is matched by exact id first, then by case-insensitive exact name. A name that matches more than one is an error listing the candidates with their ids: retry with the id. The activity must be an `assessment-paper` or `powerpoint-assessment` in one of the unit's standard lessons, and the class must be set that lesson. On a PowerPoint assessment *Not sat* means not handed in, and only pupils who handed in get pages.
 
 The PDF (A4) has:
 - a cover: paper title, class, unit, date generated (DD-MM-YYYY), and every pupil of the class (staff never), by last name then first name, with the AI mark, the final mark (marks awarded / max), the change (`+n`, `-n`, `0`) and a status: `Marked`, `Not yet marked`, `Held` (front sheet check failed) or `Not sat` (no submission). From each pupil's latest attempt. Below the table: "Teacher changed marks for N of M AI-marked pupils; net change +x marks." The AI mark is the final mark with every teacher change taken out: change = Σ(awarded − `ai_awarded`) over criteria whose `ai_awarded` is known. A mark the teacher gave alone (no `ai_awarded`) counts the same in both. With no `ai_awarded` on record (legacy marks only) the AI mark and change are `—`;
@@ -1077,6 +1078,67 @@ This is a teacher's copy: the pupils' feedback visibility does not apply. The fi
 
 **Input:** `{ class: string, unit: string, activity: string }`  
 **Output:** `{ link: { download_url, expires_at, group_id, unit_id, activity_id, activity_title, file_name, instructions } | null }`
+
+### PowerPoint assessment activities
+
+A practical task set **inside a lesson** as a `powerpoint-assessment` activity
+(migration 143): each pupil uploads a presentation (`.pptx`) and any printouts
+(PDF) and evidence document (`.docx`) into named upload slots, then hands in.
+It is marked like an assessment paper, per question and per criterion, with
+the same tools (`set_assessment_activity_questions`, `get_assessment_activity`,
+`get_assessment_activity_result`, `set_assessment_activity_question_marks`,
+`split_assessment_activity_mark_scheme`, the class feedback link). There are
+no scripts and no front sheet. Other file types (spreadsheets, databases) are
+separate activity types.
+
+**Workflow**
+
+1. `create_activity` with `type: "powerpoint-assessment"`. `body_data` is required: `{ "instructions"?: "…", "uploadSlots": [{ "key": "presentation", "label": "…", "kind": "pptx" | "pdf" | "docx", "required": true, "hint"?: "…" }, …], "evidenceTemplateFile"?: "<an activity file, the blank evidence .docx>", "showMarkSchemeToPupils"?: false }`. 1–8 slots with unique keys (`a-z0-9-`), exactly one `pptx` slot, which is required. `update_activity` may rename a slot's key in place (one removed and one of the same kind added); a slot a question's evidence reads cannot be removed or change kind.
+2. `create_assessment_activity_file_upload_link` with `kind: "mark_scheme"` (and `"question_paper"` if pupils should see one), and once per supplied image with `kind: "supplied_image"`.
+3. `set_assessment_activity_questions`: every question with its criteria, `mark_scheme` text and `evidence`.
+4. Pupils upload and press *Hand in*; marking starts then. A teacher can upload for a pupil with `kind: "practical_file"` and hand in with `hand_in_powerpoint_assessment`.
+5. `get_assessment_activity`, `get_assessment_activity_result` and `get_practical_assessment_evidence` to check; `set_assessment_activity_question_marks` to correct or confirm.
+
+**Evidence sources** (`evidence` per question). The marker of a question is given only what its sources name:
+- `{ source: "presentation", slot, sections?, required? }`: the inspector's report of the pptx slot. `sections` from `presentation`, `master`, `layouts`, `slides`, `slides:3,6`, `action-buttons`, `notes`, `supplied-images`, `media`, `warnings`; default all but `media`.
+- `{ source: "slide_images", slot, slides? }`: those slides drawn by LibreOffice, for visual judgements (contrast, fit for purpose). If they cannot be drawn the marker is told so.
+- `{ source: "file", slot, required? }`: a PDF slot, attached whole with its page count.
+- `{ source: "evidence_section", slot, heading?, want: "screenshots" | "text" | "both", required? }`: what the pupil put under that heading of their evidence `.docx` (`heading` defaults to the question's label).
+- `{ source: "reference_file", fileName }`: the text of one of the activity's own files. Never a question's only source.
+
+A question not marked by the teacher needs at least one source; slots must exist and suit the source. With `required: true`, a missing source (no file, no heading, no screenshot under it) makes the answer blank: 0 with a reason, and no model call. A required screenshot missing under its heading is always 0. A heading holding only pictures that cannot be shown (EMF, WMF …) holds the question for the teacher instead.
+
+**Rules**
+
+- **Hand-in.** Refused while a required slot is empty. After hand-in a pupil cannot change their files; a teacher's upload clears what was marked (teacher marks kept) and sends the work again.
+- **The read** runs with no model: every file is read once (cached on its content), and a file that cannot be read (a `.ppt`, a password, a damaged file) holds the whole submission with the reason in `mark_error`.
+- **Pupil file names never reach a model or a job log.** Pupils never get the mark scheme PDF; `marker_evidence` and `ai_awarded` are teacher-only.
+- **Arrays as JSON.** Every array input also accepts a JSON-encoded string.
+
+`get_assessment_activity` on this type returns `kind: "powerpoint-assessment"`, `body: { has_question_paper, has_mark_scheme, instructions, upload_slots, evidence_template_file, show_mark_scheme_to_pupils, problem }`, `supplied_images: [{ name, file_name, width, height, uploaded_at }]` (no fingerprints), questions with `evidence`, `handed_in_count`, and per pupil `handed_in`, `handed_in_at`, `files: [{ slot_key, label, kind, required, file: { file_id, file_name, bytes, uploaded_at, reader_status, reader_error } | null }]` and `missing_required`, beside the paper's `marks_awarded`, `mark_status`, `mark_error` and `progress`. An assessment paper returns `kind: "assessment-paper"`.
+
+`get_assessment_activity_result` on this type has `script: null` and `powerpoint: { handed_in, files: [{ slot_key, label, kind, required, file_name, uploaded_at, reader_status, reader_error }], missing_headings, warnings, unplaced_pictures }`, and each question also has `evidence_sources` and `marker_evidence` (the marker's note on what it was given).
+
+Upload link kinds for this type (target `assessment-activity`, migration 143 adds `slot_key` to `mcp_upload_links`):
+- `supplied_image`: PNG, JPEG, GIF or WebP, max 10 MB, fingerprinted so the reader names it in a pupil's slides. `image_name` is its name (default: the file's name without extension); the same name replaces it. The upload replies `{ success, file: { name, file_name, width, height, replaced, warnings } }`; `warnings` name any image it looks very like.
+- `practical_file`: one pupil's file for one slot, max 25 MB, with `pupil_id` and `slot`. It must be the slot's kind (a `.pptx` name for the pptx slot). It replaces the slot's file and does **not** hand in. The upload replies `{ success, file: { file_id, submission_id, slot_key, file_name, bytes, replaced_file_id, requeued } }`; a refused file is a 422 and the link can be used again.
+
+#### `get_practical_assessment_evidence`
+What the reader stored from one pupil's files (latest submission), to audit what the marker saw. Per slot: `file` (`file_id`, `file_name`, `bytes`, `uploaded_at`) or null, and `read` (null until read): `{ status: "error", kind, error, too_large }`, or `status: "ok"` with `read_at`, `cache_key`, `warnings` and
+- presentation: `slide_count`, `sections: [{ key, title, text }]` (the description exactly as a presentation source gives it; narrow with `sections`), `slide_images: { status: "ok", slide_count, rendered: [{ slide, width, height, bytes }], not_rendered } | { status: "unavailable", reason } | null`;
+- PDF: `page_count`, `text_chars`, `text_truncated`;
+- evidence document: `sections: [{ label, heading, text, images, image_sizes, not_shown }]`, `unplaced: { text, images, not_shown }` (outside every heading: kept for the teacher, never marked), `missing_headings`, `template`.
+
+No picture data, paths or fingerprints are returned.
+
+**Input:** `{ activity_id, pupil_id, slot?, sections? }`. An unknown `sections` selector is refused, listing the valid ones.  
+**Output:** `{ evidence: { activity_id, pupil_id, first_name, last_name, submission_id, mark_status, mark_error, slots: [{ slot_key, label, kind, required, file, read }] } | null }`
+
+#### `hand_in_powerpoint_assessment`
+A teacher's *Hand in* for one pupil, as the pupil's button: marking starts (one read, then one AI mark per question; feedback stays hidden until released). Refused, naming them, while a required slot is empty. Handing in again does nothing.
+
+**Input:** `{ activity_id, pupil_id }`  
+**Output:** `{ hand_in: { activity_id, pupil_id, submission_id, already_handed_in, handed_in, mark_status } | null }`
 
 ---
 
@@ -1090,7 +1152,7 @@ Returns one pupil's work and feedback on a lesson's marked activities, or on one
 - `status` (`override` means a teacher set the mark), plus `score` and `marks_awarded` out of `max_marks`. A missing answer has `status: "missing"` and `marks_awarded: 0`, because missing work counts as 0 everywhere in DINO. When `submission_id` is null the pupil didn't answer; when it's set, the answer hasn't been marked yet;
 - the overall `teacher_feedback` and `auto_feedback`;
 - per success criterion: the mark, the comment the pupil is shown, the AI's comment, the teacher's comment and `provenance`;
-- for an `assessment-paper` activity, `assessment_paper` as well: `script_uploaded`, `mark_status`, and `questions`, each with its `label`, `awarded` (null until marked) out of `available`, `provenance`, and its `criteria`. Each criterion row has its `allocation` (its share of the question's marks), `awarded` out of `available`, `feedback` (what the pupil is shown: the teacher's comment if set; nothing if a teacher changed the mark without commenting; otherwise the AI's), `why_not_awarded`, `how_to_improve`, `teacher_feedback` and `provenance`. On a paper the activity-level `criteria` are the roll-up of these rows across questions.
+- for an `assessment-paper` or `powerpoint-assessment` activity, `assessment_paper` as well: `script_uploaded` (a paper) or `handed_in` (a PowerPoint assessment), `mark_status`, and `questions`, each with its `label`, `awarded` (null until marked) out of `available`, `provenance`, and its `criteria`. Each criterion row has its `allocation` (its share of the question's marks), `awarded` out of `available`, `feedback` (what the pupil is shown: the teacher's comment if set; nothing if a teacher changed the mark without commenting; otherwise the AI's), `why_not_awarded`, `how_to_improve`, `teacher_feedback` and `provenance`. On a paper the activity-level `criteria` are the roll-up of these rows across questions.
 
 `feedback_visibility` lists the pupil's class assignments and interventions for the lesson, and says whether feedback is switched on for any of them.
 

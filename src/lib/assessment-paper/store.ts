@@ -1,9 +1,10 @@
 import "server-only"
 
 import { query, withDbClient } from "@/lib/db"
-import { isQuestionMarkedActivityType } from "@/dino.config"
+import { isAssessmentPaperType, isPowerPointAssessmentType, isQuestionMarkedActivityType } from "@/dino.config"
 import { assertScAllowedForActivity, type Queryable } from "@/lib/curriculum/unit-curriculum-guard"
 import { recalculateAssessmentPaperMaxMarks } from "@/lib/scoring/derive-max-marks"
+import { validateQuestionEvidence, type QuestionEvidence } from "@/lib/powerpoint-assessment/evidence-spec"
 
 // An assessment paper is marked question by question. Each question splits
 // its marks across the success criteria it tests (Q3 = 4 -> SC-A 2 + SC-B 2),
@@ -54,6 +55,13 @@ export interface SubmissionQuestionAnswerInput {
   transcription: string | null
   pages: number[]
   status: AnswerStatus
+  /**
+   * A blank answer only: why it is blank, in plain words for the pupil (a
+   * PowerPoint assessment's reader says which file, slide or heading was
+   * missing). It is the 0's comment instead of NO_ANSWER_COMMENT. Never
+   * stored with the answer.
+   */
+  blankReason?: string
 }
 
 /** The comment a blank answer gets with its 0. */
@@ -76,6 +84,8 @@ export interface AssessmentQuestion {
   marking: QuestionMarking
   /** Error carried forward: the earlier question whose answer the marker also sees. */
   dependsOnQuestionId: string | null
+  /** PowerPoint assessment: where the question's evidence comes from. Always [] on an assessment paper. */
+  evidence: QuestionEvidence[]
   criteria: AssessmentQuestionCriterion[]
 }
 
@@ -88,6 +98,12 @@ export interface AssessmentQuestionInput {
   marking?: QuestionMarking
   /** The label of an earlier question on the paper, or null for none. Omitted: unchanged. */
   dependsOn?: string | null
+  /**
+   * PowerPoint assessment: the question's evidence sources
+   * (src/lib/powerpoint-assessment/evidence-spec.ts). Omitted: unchanged (a
+   * new question gets none). An assessment paper takes none.
+   */
+  evidence?: unknown[]
   criteria: Array<{ successCriteriaId: string; maxMarks: number }>
 }
 
@@ -119,10 +135,11 @@ async function readQuestions(db: Queryable, activityId: string): Promise<Assessm
     mark_scheme: string | null
     marking: QuestionMarking
     depends_on_question_id: string | null
+    evidence: QuestionEvidence[] | null
     criteria: AssessmentQuestionCriterion[] | null
   }>(
     `select q.question_id, q.label, q.position, q.max_marks, q.question_text, q.mark_scheme,
-            q.marking, q.depends_on_question_id,
+            q.marking, q.depends_on_question_id, q.evidence,
             (select jsonb_agg(jsonb_build_object(
                       'successCriteriaId', c.success_criteria_id,
                       'maxMarks', c.max_marks,
@@ -144,6 +161,7 @@ async function readQuestions(db: Queryable, activityId: string): Promise<Assessm
     markScheme: row.mark_scheme,
     marking: row.marking,
     dependsOnQuestionId: row.depends_on_question_id,
+    evidence: row.evidence ?? [],
     criteria: row.criteria ?? [],
   }))
 }
@@ -211,6 +229,45 @@ function validateQuestions(questions: AssessmentQuestionInput[]): AssessmentQues
 }
 
 /**
+ * The evidence each question will have once saved, checked as a whole: what
+ * the input gives, else what is stored. A PowerPoint assessment's are
+ * validated against the activity's upload slots; an assessment paper takes
+ * none. Throws every problem at once, before anything is written.
+ */
+async function checkQuestionEvidence(
+  client: Queryable,
+  activityId: string,
+  activity: { type: string | null; body_data: unknown },
+  questions: AssessmentQuestionInput[],
+): Promise<QuestionEvidence[][]> {
+  if (!isPowerPointAssessmentType(activity.type)) {
+    const given = questions.filter((q) => q.evidence !== undefined && (!Array.isArray(q.evidence) || q.evidence.length > 0))
+    if (given.length > 0) {
+      throw new Error(
+        `Question ${given.map((q) => `"${q.label}"`).join(", ")}: an assessment paper's questions take no evidence sources; the marker reads the pupil's script.`,
+      )
+    }
+    return questions.map(() => [])
+  }
+
+  const { rows: stored } = await client.query<{ label: string; marking: QuestionMarking; evidence: unknown }>(
+    "select label, marking, evidence from activity_questions where activity_id = $1",
+    [activityId],
+  )
+  const byLabel = new Map(stored.map((row) => [row.label, row]))
+  const { errors, evidence } = validateQuestionEvidence(
+    questions.map((q) => ({
+      label: q.label,
+      marking: q.marking ?? byLabel.get(q.label)?.marking ?? "ai",
+      evidence: q.evidence ?? byLabel.get(q.label)?.evidence ?? [],
+    })),
+    activity.body_data,
+  )
+  if (errors.length > 0) throw new Error(errors.join(" "))
+  return evidence
+}
+
+/**
  * Replace an assessment paper's questions with `questions` (matched to the
  * existing ones by label), in one transaction. Then:
  *   - the activity's criteria become the union of the questions' criteria
@@ -220,7 +277,9 @@ function validateQuestions(questions: AssessmentQuestionInput[]): AssessmentQues
  *     full, anything else is capped below the new full mark, as migration 130
  *     does for criteria), and every submission is recomputed.
  *
- * A question with pupils' marks cannot be removed.
+ * A question with pupils' marks cannot be removed. A PowerPoint assessment's
+ * questions are refused, all together, when their evidence does not fit the
+ * activity's upload slots (checkQuestionEvidence).
  */
 export async function setAssessmentQuestions(
   activityId: string,
@@ -231,14 +290,15 @@ export async function setAssessmentQuestions(
   return withDbClient(async (client) => {
     await client.query("BEGIN")
     try {
-      const { rows: activityRows } = await client.query<{ type: string | null }>(
-        "select type from activities where activity_id = $1 for update",
+      const { rows: activityRows } = await client.query<{ type: string | null; body_data: unknown }>(
+        "select type, body_data from activities where activity_id = $1 for update",
         [activityId],
       )
       if (!activityRows[0]) throw new Error(`Activity ${activityId} not found.`)
       if (!isQuestionMarkedActivityType(activityRows[0].type)) {
         throw new Error(`Activity ${activityId} is not an assessment paper.`)
       }
+      const evidence = await checkQuestionEvidence(client, activityId, activityRows[0], questions)
       // Locked up front, before any marks move, in the same order a marking
       // write takes them (submission first), so the two cannot deadlock.
       const { rows: submissions } = await client.query<{ submission_id: string }>(
@@ -283,19 +343,22 @@ export async function setAssessmentQuestions(
       for (const [position, question] of questions.entries()) {
         const { rows: saved } = await client.query<{ question_id: string }>(
           `with upserted as (
-             insert into activity_questions (activity_id, label, position, max_marks, question_text, mark_scheme, marking)
-             values ($1, $2, $3, $4, $5, $6, coalesce($7, 'ai'))
+             insert into activity_questions
+               (activity_id, label, position, max_marks, question_text, mark_scheme, marking, evidence)
+             values ($1, $2, $3, $4, $5, $6, coalesce($7, 'ai'), coalesce($8::jsonb, '[]'::jsonb))
              on conflict (activity_id, label) do update
                set position = excluded.position, max_marks = excluded.max_marks,
                    question_text = excluded.question_text, mark_scheme = excluded.mark_scheme,
                    marking = coalesce($7, activity_questions.marking),
+                   evidence = coalesce($8::jsonb, activity_questions.evidence),
                    updated_at = timezone('utc', now())
                where (activity_questions.position, activity_questions.max_marks,
                       activity_questions.question_text, activity_questions.mark_scheme,
-                      activity_questions.marking)
+                      activity_questions.marking, activity_questions.evidence)
                      is distinct from (excluded.position, excluded.max_marks,
                                        excluded.question_text, excluded.mark_scheme,
-                                       coalesce($7, activity_questions.marking))
+                                       coalesce($7, activity_questions.marking),
+                                       coalesce($8::jsonb, activity_questions.evidence))
              returning question_id
            )
            select question_id from upserted
@@ -310,6 +373,7 @@ export async function setAssessmentQuestions(
             question.questionText?.trim() || null,
             question.markScheme?.trim() || null,
             question.marking ?? null,
+            question.evidence === undefined ? null : JSON.stringify(evidence[position]),
           ],
         )
         const questionId = saved[0].question_id
@@ -448,6 +512,11 @@ async function moveMarksToAllocations(db: Queryable, activityId: string): Promis
 }
 
 /** Lock a submission of an assessment paper; returns its activity id. */
+async function isPowerPointActivity(db: Queryable, activityId: string): Promise<boolean> {
+  const { rows } = await db.query<{ type: string | null }>("select type from activities where activity_id = $1", [activityId])
+  return isPowerPointAssessmentType(rows[0]?.type)
+}
+
 async function lockAssessmentSubmission(db: Queryable, submissionId: string): Promise<string> {
   const { rows } = await db.query<{ activity_id: string; type: string | null }>(
     `select s.activity_id, a.type
@@ -619,19 +688,54 @@ async function countOpenAssessmentJobs(db: Queryable, submissionId: string, jobI
 }
 
 /**
- * Questions of a read script that the marker cannot be sent: no mark scheme
- * text, not teacher-only, not blank, and not already marked by anyone. The
- * reason goes in mark_error so the results page says what is waiting.
+ * PowerPoint assessment questions whose reference_file sources name a file
+ * that is not among the activity's files (lessons bucket,
+ * {lessonId}/activities/{activityId}/{fileName}), with the missing names.
+ * Such a question cannot be marked as set, so it is held like one with no
+ * mark scheme. An assessment paper's questions have no evidence, so none.
+ */
+async function missingReferenceFiles(db: Queryable, activityId: string): Promise<Map<string, string[]>> {
+  const { rows } = await db.query<{ question_id: string; missing: string[] }>(
+    `select q.question_id, array_agg(distinct e->>'fileName' order by e->>'fileName') as missing
+       from activity_questions q
+       join activities a on a.activity_id = q.activity_id
+      cross join lateral jsonb_array_elements(q.evidence) e
+      where q.activity_id = $1 and e->>'source' = 'reference_file'
+        and not exists (select 1 from stored_files f
+                         where f.bucket = 'lessons'
+                           and f.scope_path = a.lesson_id || '/activities/' || a.activity_id
+                           and f.file_name = e->>'fileName')
+      group by q.question_id`,
+    [activityId],
+  )
+  return new Map(rows.map((row) => [row.question_id, row.missing]))
+}
+
+/**
+ * Questions of a read submission that the marker cannot be sent: no mark
+ * scheme text, or (a PowerPoint assessment) a reference file that is not
+ * among the activity's files or a required screenshot DINO cannot show (the
+ * answer's transcription says which); not teacher-only, not blank, and not already
+ * marked by anyone. The reason goes in mark_error so the results page says
+ * what is waiting.
  */
 async function heldQuestionsMessage(db: Queryable, submissionId: string): Promise<string | null> {
-  const { rows } = await db.query<{ label: string }>(
-    `select q.label
+  const { rows } = await db.query<{
+    question_id: string
+    label: string
+    activity_id: string
+    no_mark_scheme: boolean
+    unshowable: string | null
+  }>(
+    `select q.question_id, q.label, q.activity_id,
+            nullif(btrim(coalesce(q.mark_scheme, '')), '') is null as no_mark_scheme,
+            case when a.status = 'unreadable' and x.type = 'powerpoint-assessment' then a.transcription end as unshowable
        from submissions s
+       join activities x on x.activity_id = s.activity_id
        join activity_questions q on q.activity_id = s.activity_id
        join submission_question_answers a on a.submission_id = s.submission_id and a.question_id = q.question_id
       where s.submission_id = $1
         and q.marking <> 'teacher' and a.status <> 'blank'
-        and nullif(btrim(coalesce(q.mark_scheme, '')), '') is null
         and not exists (select 1 from submission_question_criterion_marks m
                          where m.submission_id = s.submission_id and m.question_id = q.question_id
                            and m.provenance <> 'legacy')
@@ -639,8 +743,31 @@ async function heldQuestionsMessage(db: Queryable, submissionId: string): Promis
     [submissionId],
   )
   if (rows.length === 0) return null
-  const labels = rows.map((row) => row.label).join(", ")
-  return `Not sent for marking: question${rows.length === 1 ? "" : "s"} ${labels} ${rows.length === 1 ? "has" : "have"} no mark scheme text. Add it in the lesson editor, or mark ${rows.length === 1 ? "it" : "them"} yourself.`
+  const messages: string[] = []
+  const noScheme = rows.filter((row) => row.no_mark_scheme)
+  if (noScheme.length > 0) {
+    const labels = noScheme.map((row) => row.label).join(", ")
+    messages.push(
+      `Not sent for marking: question${noScheme.length === 1 ? "" : "s"} ${labels} ${noScheme.length === 1 ? "has" : "have"} no mark scheme text. Add it in the lesson editor, or mark ${noScheme.length === 1 ? "it" : "them"} yourself.`,
+    )
+  }
+  for (const row of rows) {
+    if (row.no_mark_scheme || !row.unshowable) continue
+    messages.push(`Not sent for marking: question ${row.label}: ${row.unshowable}`)
+  }
+  const withScheme = rows.filter((row) => !row.no_mark_scheme)
+  if (withScheme.length > 0) {
+    const missing = await missingReferenceFiles(db, withScheme[0].activity_id)
+    for (const row of withScheme) {
+      const names = missing.get(row.question_id)
+      if (!names) continue
+      const files = names.map((name) => `"${name}"`).join(", ")
+      messages.push(
+        `Not sent for marking: question ${row.label} reads the reference file${names.length === 1 ? "" : "s"} ${files}, which ${names.length === 1 ? "is" : "are"} not among the activity's files. Upload ${names.length === 1 ? "it" : "them"} to the activity, or mark the question yourself.`,
+      )
+    }
+  }
+  return messages.length > 0 ? messages.join(" ") : null
 }
 
 /**
@@ -654,6 +781,16 @@ async function heldQuestionsMessage(db: Queryable, submissionId: string): Promis
  * (a sibling failed permanently) or recovered: its rows are still written, as
  * they are correct, but it does not complete the submission.
  */
+/**
+ * The job's status, read inside the caller's transaction after the
+ * submission's row lock (which a new hand-in or upload also takes before it
+ * replaces the jobs), or null when the job has gone: it was superseded.
+ */
+async function assessmentJobStatus(db: Queryable, jobId: string): Promise<string | null> {
+  const { rows } = await db.query<{ status: string }>("select status from external_jobs where job_id = $1", [jobId])
+  return rows[0]?.status ?? null
+}
+
 async function closeAssessmentJob(db: Queryable, submissionId: string, jobId: string): Promise<boolean> {
   const closed = await db.query(
     `update external_jobs set status = 'done', updated_at = now()
@@ -675,7 +812,7 @@ async function closeAssessmentJob(db: Queryable, submissionId: string, jobId: st
 export type ReadCompletion = {
   /** Questions sent to the marker, one ai_mark job each. */
   queuedQuestionIds: string[]
-  /** Blank answers given 0 with NO_ANSWER_COMMENT. */
+  /** Blank answers given 0 with NO_ANSWER_COMMENT (or the reader's blankReason). */
   blankQuestionIds: string[]
   /** Teacher-only questions, left for the teacher. */
   teacherQuestionIds: string[]
@@ -683,6 +820,8 @@ export type ReadCompletion = {
   heldQuestionIds: string[]
   totals: AssessmentSubmissionTotals | null
   complete: boolean
+  /** The read job was no longer this run's (a newer hand-in replaced it): nothing was written. */
+  superseded?: boolean
 }
 
 /**
@@ -691,14 +830,22 @@ export type ReadCompletion = {
  *
  *   - each answer is stored (provenance ai), except where a teacher has
  *     already edited that question's answer, which is kept;
- *   - a blank answer scores 0 on every criterion with NO_ANSWER_COMMENT;
+ *   - a blank answer scores 0 on every criterion with NO_ANSWER_COMMENT,
+ *     or the reader's blankReason when it gave one;
  *   - a teacher-only question is left for the teacher;
- *   - a question with no mark scheme text is held, and named in mark_error;
+ *   - a question with no mark scheme text, or (a PowerPoint assessment) whose
+ *     reference file is not among the activity's files, is held, and named
+ *     in mark_error;
  *   - a question whose every criterion a teacher has marked is not re-sent;
  *   - every other question gets one ai_mark job, {submissionId, questionId}.
  *
  * Then the read job is closed, and if nothing is left open the submission is
- * marked.
+ * marked. A read job that is no longer 'processing' (deleted when the work
+ * was sent again) writes nothing: its answers are of files since replaced.
+ *
+ * On a PowerPoint assessment an 'unreadable' answer (a required screenshot
+ * that is only pictures DINO cannot show) is held for the teacher, its
+ * transcription saying why, like a question with no mark scheme.
  */
 export async function completeAssessmentRead(input: {
   submissionId: string
@@ -709,6 +856,18 @@ export async function completeAssessmentRead(input: {
   const { submissionId, jobId } = input
   return inTransaction(async (client) => {
     const activityId = await lockAssessmentSubmission(client, submissionId)
+    if ((await assessmentJobStatus(client, jobId)) !== "processing") {
+      return {
+        queuedQuestionIds: [],
+        blankQuestionIds: [],
+        teacherQuestionIds: [],
+        heldQuestionIds: [],
+        totals: null,
+        complete: false,
+        superseded: true,
+      }
+    }
+    const powerPoint = await isPowerPointActivity(client, activityId)
     const questions = await readQuestions(client, activityId)
     const questionIds = new Set(questions.map((q) => q.questionId))
 
@@ -742,6 +901,13 @@ export async function completeAssessmentRead(input: {
       [submissionId, activityId],
     )
     const fullyTeacherMarked = new Set(teacherMarked.map((row) => row.question_id))
+    const missingReference = await missingReferenceFiles(client, activityId)
+
+    const blankReasons = new Map(
+      input.answers.flatMap((answer) =>
+        answer.status === "blank" && answer.blankReason?.trim() ? [[answer.questionId, answer.blankReason.trim()] as const] : [],
+      ),
+    )
 
     const result: ReadCompletion = {
       queuedQuestionIds: [],
@@ -761,18 +927,24 @@ export async function completeAssessmentRead(input: {
       }
       if (answer?.status === "blank") {
         result.blankQuestionIds.push(question.questionId)
+        // The reader's reason, unless a teacher's edited answer stands instead.
+        const why = (answer.provenance === "ai" ? blankReasons.get(question.questionId) : undefined) ?? NO_ANSWER_COMMENT
         for (const criterion of question.criteria) {
           zeroRows.push({
             questionId: question.questionId,
             successCriteriaId: criterion.successCriteriaId,
             awarded: 0,
-            whyNotAwarded: NO_ANSWER_COMMENT,
+            whyNotAwarded: why,
             howToImprove: null,
           })
         }
         continue
       }
-      if (!question.markScheme?.trim()) {
+      if (
+        !question.markScheme?.trim() ||
+        missingReference.has(question.questionId) ||
+        (powerPoint && answer?.status === "unreadable")
+      ) {
         result.heldQuestionIds.push(question.questionId)
         continue
       }
@@ -818,18 +990,33 @@ export async function completeAssessmentRead(input: {
  * completion, in one transaction under the submission's row lock. Rows are
  * written as 'ai' and never replace a teacher's (writeCriterionMarks). With no
  * rows (the question became teacher-only, or lost its mark scheme, after the
- * job was queued) the job is just closed.
+ * job was queued) the job is just closed. A job that has gone (the work was
+ * sent again) writes nothing. `markerEvidence` (a PowerPoint
+ * assessment's marker's note on the evidence, teacher-only) is stored on the
+ * question's answer as marker_evidence; an assessment paper passes none.
  */
 export async function completeAssessmentQuestionMark(input: {
   submissionId: string
   jobId: string
   rows: QuestionCriterionMarkInput[]
-}): Promise<{ totals: AssessmentSubmissionTotals | null; complete: boolean }> {
+  markerEvidence?: { questionId: string; text: string | null }
+}): Promise<{ totals: AssessmentSubmissionTotals | null; complete: boolean; superseded?: boolean }> {
   return inTransaction(async (client) => {
-    if (input.rows.length > 0) {
-      await writeCriterionMarks(client, input.submissionId, input.rows, "ai")
-    } else {
-      await lockAssessmentSubmission(client, input.submissionId)
+    await lockAssessmentSubmission(client, input.submissionId)
+    // Gone, or back in the queue: the work was sent again since this job was
+    // claimed, so its marks are of files since replaced. An abandoned job
+    // ('error', a sibling failed) still writes: its marks are correct.
+    const status = await assessmentJobStatus(client, input.jobId)
+    if (status !== "processing" && status !== "error") {
+      return { totals: await readTotals(client, input.submissionId), complete: false, superseded: true }
+    }
+    if (input.rows.length > 0) await writeCriterionMarks(client, input.submissionId, input.rows, "ai")
+    if (input.markerEvidence) {
+      await client.query(
+        `update submission_question_answers set marker_evidence = $3, updated_at = timezone('utc', now())
+          where submission_id = $1 and question_id = $2`,
+        [input.submissionId, input.markerEvidence.questionId, input.markerEvidence.text],
+      )
     }
     const complete = await closeAssessmentJob(client, input.submissionId, input.jobId)
     return { totals: await readTotals(client, input.submissionId), complete }
@@ -839,20 +1026,44 @@ export async function completeAssessmentQuestionMark(input: {
 /**
  * Questions held at the read for want of a mark scheme that can now be sent:
  * on pupils' latest submissions (or `submissionId` alone) whose read is
- * complete (the question has an answer row, no read job is open) and whose
- * newest script passed the front sheet check; the question is not
- * teacher-only, its answer is not blank, it has mark scheme text now, nobody
- * has marked it (no ai or teacher rows) and no mark job is open for it. Never
- * on a folded paper.
+ * complete (the question has an answer row, no read job is open); the
+ * question is not teacher-only, its answer is not blank, it has mark scheme
+ * text now, nobody has marked it (no ai or teacher rows) and no mark job is
+ * open for it. Per type, what "read complete" also needs:
+ *
+ *   assessment paper     the newest script passed the front sheet check;
+ *                        never a folded paper.
+ *   PowerPoint           handed in, and no file the reader refused (such a
+ *                        submission is held whole: send the work again). An
+ *                        answer held for pictures DINO cannot show
+ *                        ('unreadable') stays with the teacher, and so does a
+ *                        question whose reference file is missing.
  */
 async function selectHeldQuestionsToSend(
   db: Queryable,
   activityId: string,
   submissionId: string | null,
 ): Promise<Array<{ submissionId: string; pupilId: string; questionId: string }>> {
+  const { rows: typeRows } = await db.query<{ type: string | null }>(
+    "select type from activities where activity_id = $1",
+    [activityId],
+  )
+  const powerPoint = isPowerPointAssessmentType(typeRows[0]?.type)
+  if (!powerPoint && !isAssessmentPaperType(typeRows[0]?.type)) return []
+  const typeCondition = powerPoint
+    ? `l.submission_status = 'submitted' and a.status <> 'unreadable'
+        and not exists (select 1 from practical_submission_evidence e
+                         where e.submission_id = l.submission_id and e.status = 'error')`
+    : `not exists (select 1 from activities x
+                    where x.activity_id = $1 and coalesce(x.body_data ? 'foldedFromAssessmentIds', false))
+        and exists (select 1 from (select sc.front_sheet_check, sc.page_paths from assessment_scripts sc
+                                    where sc.submission_id = l.submission_id
+                                    order by sc.uploaded_at desc, sc.script_id desc
+                                    limit 1) script
+                     where script.front_sheet_check = 'passed' and cardinality(script.page_paths) > 0)`
   const { rows } = await db.query<{ submission_id: string; user_id: string; question_id: string }>(
     `with latest as (
-       select distinct on (s.user_id) s.submission_id, s.user_id
+       select distinct on (s.user_id) s.submission_id, s.user_id, s.submission_status
          from submissions s
         where s.activity_id = $1
         order by s.user_id, s.attempt_number desc, s.submitted_at desc nulls last, s.submission_id desc
@@ -861,16 +1072,8 @@ async function selectHeldQuestionsToSend(
        from latest l
        join activity_questions q on q.activity_id = $1
        join submission_question_answers a on a.submission_id = l.submission_id and a.question_id = q.question_id
-       join lateral (
-         select sc.front_sheet_check, sc.page_paths from assessment_scripts sc
-          where sc.submission_id = l.submission_id
-          order by sc.uploaded_at desc, sc.script_id desc
-          limit 1
-       ) script on true
       where ($2::text is null or l.submission_id = $2)
-        and not exists (select 1 from activities x
-                         where x.activity_id = $1 and x.body_data ? 'foldedFromAssessmentIds')
-        and script.front_sheet_check = 'passed' and cardinality(script.page_paths) > 0
+        and ${typeCondition}
         and q.marking <> 'teacher' and a.status <> 'blank'
         and nullif(btrim(coalesce(q.mark_scheme, '')), '') is not null
         and not exists (select 1 from submission_question_criterion_marks m
@@ -886,7 +1089,10 @@ async function selectHeldQuestionsToSend(
       order by l.user_id, q.position, q.label`,
     [activityId, submissionId],
   )
-  return rows.map((row) => ({ submissionId: row.submission_id, pupilId: row.user_id, questionId: row.question_id }))
+  const missingReference = powerPoint ? await missingReferenceFiles(db, activityId) : new Map<string, string[]>()
+  return rows
+    .filter((row) => !missingReference.has(row.question_id))
+    .map((row) => ({ submissionId: row.submission_id, pupilId: row.user_id, questionId: row.question_id }))
 }
 
 /** The held questions that can be sent now (see selectHeldQuestionsToSend). */

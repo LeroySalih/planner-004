@@ -101,6 +101,26 @@ Runs development servers from all worktrees simultaneously on different ports.
 
 Press Ctrl+C to stop all servers.
 
+### `copy-uploads-to-powerpoint-assessment.sh`
+
+Copies pupils' files from old Upload File activities into a PowerPoint assessment's upload slots, as a teacher, through the same checks an upload gets. The mapping is data in `scripts/powerpoint-mappings/<name>.json`:
+
+```json
+{ "target_activity_id": "...", "uploaded_by": "<teacher profile id, optional>",
+  "sources": [ { "activity_id": "...", "slots": [ { "slot": "notes", "extensions": ["pdf"], "name_contains": ["note"] } ] } ] }
+```
+
+```bash
+bash scripts/copy-uploads-to-powerpoint-assessment.sh scripts/powerpoint-mappings/x.json            # dry run
+bash scripts/copy-uploads-to-powerpoint-assessment.sh scripts/powerpoint-mappings/x.json --apply    # copy
+#   --hand-in        hand in pupils whose required slots are filled (queues REAL AI marking; asks "yes")
+#   --replace        replace differing files in filled slots, and touch handed-in pupils (re-queues marking)
+#   --yes            skip the prompt
+#   --files-root D   the app's files dir (default ./files); --fallback-root D  read-only second source (e.g. ~/prod-mirror/files)
+```
+
+Per slot it takes the source's latest attempt's current files (past versions dropped) whose extension is listed (earlier extensions preferred; listing `ppt`/`doc` gets those reported with the reader's refusal) and whose name contains a `name_contains` entry (case and separators ignored), most recent first; extra matches are reported as ambiguities, other file types as "not copied". `uploaded_by` defaults to a teacher of the pupil's class among the classes the lesson is set to (lowest id), then any teacher of those classes. Prints a table of ids only; the full result goes to `powerpoint-copy-results/`. Re-running copies nothing twice.
+
 ## Complete Workflow Example
 
 ```bash

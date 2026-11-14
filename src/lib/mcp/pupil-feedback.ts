@@ -66,12 +66,15 @@ export type ActivityFeedback = {
   criteria: CriterionFeedback[]
   /** False when the activity has no success criteria, so it is left out of totals. */
   counts_for_progress: boolean
-  /** Assessment papers only: the marks question by question. */
+  /** Assessment papers and PowerPoint assessments only: the marks question by question. */
   assessment_paper?: AssessmentPaperFeedback
 }
 
 export type AssessmentPaperFeedback = {
-  script_uploaded: boolean
+  /** Assessment papers: whether the pupil's script is uploaded. */
+  script_uploaded?: boolean
+  /** PowerPoint assessments: whether the pupil's files are handed in. */
+  handed_in?: boolean
   mark_status: string | null
   questions: Array<{
     question_id: string
@@ -100,7 +103,7 @@ export type AssessmentPaperFeedback = {
 async function readAssessmentPaperFeedback(activityId: string, pupilId: string): Promise<AssessmentPaperFeedback> {
   const result = await readAssessmentPaperResult(activityId, pupilId)
   return {
-    script_uploaded: Boolean(result.script),
+    ...(result.powerpoint ? { handed_in: result.powerpoint.handedIn } : { script_uploaded: Boolean(result.script) }),
     mark_status: result.markStatus,
     questions: result.questions.map((q) => ({
       question_id: q.questionId,

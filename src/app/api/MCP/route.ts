@@ -58,7 +58,6 @@ import {
   listAssessmentFiles,
   linkAssessmentFileToPupil,
   removeAssessmentFile,
-  ASSESSMENT_UPLOAD_MAX_BYTES,
 } from '@/lib/assessments/store'
 import {
   AssessmentFileSchema,
@@ -69,15 +68,17 @@ import {
   RecordAssessmentResultSchema,
   type AssessmentPaper,
 } from '@/types'
-import { MCP_UPLOAD_MAX_BYTES, decodeBase64File, fetchFileFromUrl } from '@/lib/mcp/file-input'
-import { createUploadLink, type AssessmentActivityUploadKind } from '@/lib/mcp/upload-links'
-import { ASSESSMENT_PAPER_UPLOAD_MAX_BYTES, MAX_SCRIPT_PAGES } from '@/lib/assessment-paper/files'
+import { decodeBase64File, fetchFileFromUrl } from '@/lib/mcp/file-input'
+import { createUploadLink, uploadLinkMaxBytes, type AssessmentActivityUploadKind } from '@/lib/mcp/upload-links'
+import { MAX_SCRIPT_PAGES } from '@/lib/assessment-paper/files'
 import { setAssessmentQuestions as setAssessmentActivityQuestions } from '@/lib/assessment-paper/store'
 import {
   AssessmentActivityQuestionsInput,
   AssessmentQuestionMarksCriteriaInput,
   getAssessmentActivity,
   getAssessmentActivityResult,
+  getPracticalAssessmentEvidence,
+  handInPowerPointAssessmentForPupil,
   setAssessmentActivityQuestionMarks,
   toAssessmentQuestionInputs,
 } from '@/lib/mcp/assessment-activities'
@@ -2062,12 +2063,14 @@ The result is checked as create_activity checks it; a body over a limit is refus
     target:
       | { lessonId: string; activityId: string | null }
       | { assessmentId: string; pupilId: string | null }
-      | { assessmentActivityId: string; uploadKind: AssessmentActivityUploadKind; pupilId: string | null },
+      | { assessmentActivityId: string; uploadKind: AssessmentActivityUploadKind; pupilId: string | null; slotKey?: string | null },
     fileName: string | undefined,
   ) => {
-    const maxBytes = 'assessmentId' in target
-      ? ASSESSMENT_UPLOAD_MAX_BYTES
-      : 'assessmentActivityId' in target ? ASSESSMENT_PAPER_UPLOAD_MAX_BYTES : MCP_UPLOAD_MAX_BYTES
+    const maxBytes = uploadLinkMaxBytes({
+      target: 'assessmentId' in target ? 'assessment' : 'assessmentActivityId' in target ? 'assessment-activity' : 'activity',
+      assessment_id: 'assessmentId' in target ? target.assessmentId : null,
+      upload_kind: 'assessmentActivityId' in target ? target.uploadKind : null,
+    })
     const maxLabel = `${maxBytes / (1024 * 1024)} MB`
     try {
       const { token, expiresAt } = await createUploadLink(caller, { ...target, fileName: fileName ?? null })
@@ -3239,6 +3242,15 @@ The result is checked as create_activity checks it; a body over a limit is refus
     + '(5) get_assessment_activity / get_assessment_activity_result to check; set_assessment_activity_question_marks to correct or confirm a question as the teacher, '
     + 'and create_assessment_activity_script_download_link to read a pupil\'s original script. Totals are always computed — never send them.'
 
+  const POWERPOINT_ASSESSMENT_WORKFLOW =
+    'A "powerpoint-assessment" activity is a practical task: each pupil hands in a presentation (.pptx) plus any printouts (PDF) and evidence document (.docx), '
+    + 'and it is marked per question and per criterion like an assessment paper, from the evidence each question names. '
+    + 'Workflow: (1) create_activity type "powerpoint-assessment" with body_data.uploadSlots (exactly one required pptx slot); '
+    + '(2) create_assessment_activity_file_upload_link kind mark_scheme / question_paper (PDF) and kind supplied_image for each image the task gives pupils; '
+    + '(3) set_assessment_activity_questions with each question\'s criteria, mark_scheme text and evidence sources; '
+    + '(4) pupils upload and press Hand in (a teacher can upload for a pupil with kind practical_file and hand in with hand_in_powerpoint_assessment); marking starts on hand-in; '
+    + '(5) get_assessment_activity / get_assessment_activity_result to check, get_practical_assessment_evidence to see what the reader took from each file, '
+    + 'set_assessment_activity_question_marks to correct or confirm. There are no scripts.'
   const assessmentActivityTool = async <T,>(key: string, action: () => Promise<T>, describe: (value: T) => string) => {
     try {
       const value = await action()
@@ -3252,40 +3264,52 @@ The result is checked as create_activity checks it; a body over a limit is refus
   srv.registerTool(
     'get_assessment_activity',
     {
-      title: 'Get an assessment-paper activity',
+      title: 'Get an assessment-paper or PowerPoint assessment activity',
       description:
-        'Return an assessment-paper activity: whether the question paper and mark scheme are attached, '
+        'Return an assessment-paper (kind "assessment-paper") or PowerPoint assessment (kind "powerpoint-assessment") activity. '
+        + 'A PowerPoint assessment returns, instead of scripts and front sheet checks: body.upload_slots, body.evidence_template_file, supplied_images (name, file_name, size), '
+        + 'each question\'s evidence sources, handed_in_count, and per pupil handed_in, files (each slot with its file, reader_status "ok" | "error" | null and reader_error) '
+        + 'and missing_required, beside marks, mark_status, mark_error and progress. '
+        + 'An assessment paper returns whether the question paper and mark scheme are attached, '
         + 'its questions with each criterion\'s share of the marks, marking ("ai" | "ai_check" | "teacher"), depends_on (label of an earlier question, or null) and has_mark_scheme, '
         + 'how many scripts passed or failed the front sheet check, and every pupil who sits it '
         + '(roster pupils of the classes the lesson is set to, plus anyone with a submission) with script uploaded, front_sheet_check '
         + '("passed", the reason it was held, or null), marks / max, mark_status, mark_error and progress on their latest submission '
         + '(read_done, questions_marked, questions_to_mark = mark jobs queued or running, questions_held = read but not sent, usually for want of a mark scheme, '
-        + `questions_awaiting_check = AI marks for the teacher to confirm). ${ASSESSMENT_ACTIVITY_WORKFLOW}`,
-      inputSchema: { activity_id: z.string().min(1).describe('The assessment-paper activity id.') },
+        + `questions_awaiting_check = AI marks for the teacher to confirm). ${ASSESSMENT_ACTIVITY_WORKFLOW} ${POWERPOINT_ASSESSMENT_WORKFLOW}`,
+      inputSchema: { activity_id: z.string().min(1).describe('The assessment-paper or PowerPoint assessment activity id.') },
       outputSchema: { assessment_activity: z.record(z.string(), z.unknown()).nullable() },
     },
     async ({ activity_id }) =>
       assessmentActivityTool('assessment_activity', () => getAssessmentActivity(activity_id), (a) =>
         `${a.activity.title ?? a.activity.activity_id}: ${a.questions.length} questions, ${a.activity.max_marks} marks, `
-        + `question paper ${a.body.has_question_paper ? 'attached' : 'missing'}, `
-        + `mark scheme ${a.body.has_mark_scheme ? 'attached' : 'missing'}, ${a.scripts_count}/${a.pupils.length} scripts uploaded `
-        + `(front sheet check: ${a.front_sheet_checks.passed} passed, ${a.front_sheet_checks.failed} held, ${a.front_sheet_checks.unchecked} not checked).`),
+        + `mark scheme ${a.body.has_mark_scheme ? 'attached' : 'missing'}, `
+        + (a.kind === 'powerpoint-assessment'
+          ? `${a.body.upload_slots.length} upload slots, ${a.supplied_images.length} supplied images, ${a.handed_in_count}/${a.pupils.length} handed in.`
+          : `question paper ${a.body.has_question_paper ? 'attached' : 'missing'}, ${a.scripts_count}/${a.pupils.length} scripts uploaded `
+            + `(front sheet check: ${a.front_sheet_checks.passed} passed, ${a.front_sheet_checks.failed} held, ${a.front_sheet_checks.unchecked} not checked).`)),
   )
 
   srv.registerTool(
     'set_assessment_activity_questions',
     {
-      title: 'Set an assessment-paper activity\'s questions',
+      title: 'Set an assessment-paper or PowerPoint assessment activity\'s questions',
       description:
-        'Replace the questions of an assessment-paper activity, matched by label; list order becomes position. Send the FULL list every time: '
+        'Replace the questions of an assessment-paper or PowerPoint assessment activity, matched by label; list order becomes position. Send the FULL list every time: '
         + 'a label left out is deleted, unless pupils already have marks on it (error). Each question lists the success criteria it tests and how many of its '
         + 'marks each one carries; those must add up to the question\'s max_marks (Q3 = 4 -> SC-A 2 + SC-B 2). The activity\'s criteria and max_marks follow the questions. '
         + 'Criteria must come from the unit\'s curriculum. Marks already given move with a change of allocation. '
         + 'Per question, marking ("ai" | "ai_check" | "teacher") and depends_on (an earlier question\'s label, for error carried forward) are kept when omitted. '
+        + 'PowerPoint assessments: per question, evidence — the sources the marker is given for that question and nothing else, kept when omitted: '
+        + '{ source: "presentation", slot, sections? } (the inspector\'s report of the pptx slot; sections from presentation, master, layouts, slides, slides:3,6, action-buttons, notes, supplied-images, media, warnings; default all but media), '
+        + '{ source: "slide_images", slot, slides? } (slides drawn as pictures, for visual judgements), { source: "file", slot } (a PDF slot attached whole), '
+        + '{ source: "evidence_section", slot, heading?, want: "screenshots" | "text" | "both" } (what the pupil put under that heading of their .docx; heading defaults to the question label), '
+        + '{ source: "reference_file", fileName } (the text of one of the activity\'s own files). "required": true makes a missing source score 0 ("No answer submitted") with no model call. '
+        + 'A question not marked by the teacher needs at least one source other than reference_file; slots must exist and suit the source. All questions are checked together and nothing is saved if one is refused. '
         + 'Arrays may be sent as JSON strings.',
       inputSchema: {
-        activity_id: z.string().min(1).describe('The assessment-paper activity id.'),
-        questions: AssessmentActivityQuestionsInput.describe('Every question, in paper order.'),
+        activity_id: z.string().min(1).describe('The assessment-paper or PowerPoint assessment activity id.'),
+        questions: AssessmentActivityQuestionsInput.describe('Every question, in paper order. May be a JSON string.'),
       },
       outputSchema: { assessment_activity: z.record(z.string(), z.unknown()).nullable() },
     },
@@ -3338,39 +3362,49 @@ The result is checked as create_activity checks it; a body over a limit is refus
   srv.registerTool(
     'create_assessment_activity_file_upload_link',
     {
-      title: 'Create a one-time upload link for an assessment-paper activity',
+      title: 'Create a one-time upload link for an assessment-paper or PowerPoint assessment activity',
       description:
-        'Upload the question paper, the mark scheme or one pupil\'s script to an assessment-paper activity. Returns a single-use link, valid 15 minutes, '
-        + 'that accepts one file (max 25 MB) with a plain curl POST — no credentials, no base64. '
-        + 'kind "question_paper" / "mark_scheme": a PDF, teacher-only; a new upload replaces the old one. The question paper\'s page 1 must be its blank front sheet. '
-        + `kind "script": one pupil's paper as a PDF (up to ${MAX_SCRIPT_PAGES} pages), with that pupil's pupil_id from get_assessment_activity; the question paper must be uploaded first. `
+        'Upload the question paper, the mark scheme or one pupil\'s script to an assessment-paper activity, or the mark scheme, question paper, a supplied image or one pupil\'s file to a PowerPoint assessment. '
+        + 'Returns a single-use link, valid 15 minutes, that accepts one file with a plain curl POST — no credentials, no base64. '
+        + 'kind "question_paper" / "mark_scheme": a PDF (max 25 MB), teacher-only; a new upload replaces the old one. On an assessment paper the question paper\'s page 1 must be its blank front sheet. '
+        + `kind "script" (assessment papers): one pupil's paper as a PDF (max 25 MB, up to ${MAX_SCRIPT_PAGES} pages), with that pupil's pupil_id from get_assessment_activity; the question paper must be uploaded first. `
         + 'On arrival the script\'s page 1 is compared with the front sheet and its page count with the paper\'s. If both pass, pages 2 onwards are kept for marking (page 1 is never sent to a model); '
         + 'if not, the script is stored but held, with the reason in front_sheet_check (get_assessment_activity) — fix the page order and upload it again. '
         + 'Uploading another script for the same pupil replaces theirs: the AI marks are cleared, a teacher\'s marks are kept. '
-        + 'The pupil can open their original script once the lesson\'s feedback is visible to them. Call once per file.',
+        + 'The pupil can open their original script once the lesson\'s feedback is visible to them. '
+        + 'kind "supplied_image" (PowerPoint assessments): an image the task gives pupils (PNG, JPEG, GIF or WebP, max 10 MB), fingerprinted so the reader can name it in a pupil\'s slides; '
+        + 'image_name is its name (default: the uploaded file\'s name without extension); the same name replaces the image. The reply\'s warnings name any image it looks very like. '
+        + 'kind "practical_file" (PowerPoint assessments): one pupil\'s file for one upload slot (max 25 MB), with pupil_id and slot (a key of body_data.uploadSlots); '
+        + 'it must be the slot\'s kind (a .pptx file name for a pptx slot, a PDF, or a .docx) and replaces the slot\'s file. It does NOT hand in (hand_in_powerpoint_assessment does); '
+        + 'if the pupil had already handed in, what was marked is cleared (teacher marks kept) and the work is sent for marking again. Call once per file.',
       inputSchema: z.object({
-        activity_id: z.string().min(1).describe('The assessment-paper activity id.'),
-        kind: z.enum(['question_paper', 'mark_scheme', 'script']).describe('What the file is.'),
-        pupil_id: z.string().optional().describe('Required for kind "script": the pupil whose script it is. Omit for the question paper and mark scheme.'),
+        activity_id: z.string().min(1).describe('The assessment-paper or PowerPoint assessment activity id.'),
+        kind: z.enum(['question_paper', 'mark_scheme', 'script', 'supplied_image', 'practical_file']).describe('What the file is.'),
+        pupil_id: z.string().optional().describe('Required for kind "script" and "practical_file": the pupil whose work it is. Omit otherwise.'),
+        slot: z.string().optional().describe('Required for kind "practical_file": the upload slot key, e.g. "presentation". Omit otherwise.'),
+        image_name: z.string().optional().describe('kind "supplied_image" only: the image\'s name as the task calls it.'),
       }),
       outputSchema: z.object({ link: uploadLinkOutput }),
     },
-    async ({ activity_id, kind, pupil_id }) =>
-      uploadLinkTool({ assessmentActivityId: activity_id, uploadKind: kind, pupilId: pupil_id ?? null }, undefined),
+    async ({ activity_id, kind, pupil_id, slot, image_name }) =>
+      uploadLinkTool({ assessmentActivityId: activity_id, uploadKind: kind, pupilId: pupil_id ?? null, slotKey: slot ?? null }, image_name),
   )
 
   srv.registerTool(
     'get_assessment_activity_result',
     {
-      title: 'Get a pupil\'s assessment-paper activity result',
+      title: 'Get a pupil\'s assessment-paper or PowerPoint assessment result',
       description:
-        'Return one pupil\'s result on an assessment-paper activity, from their latest attempt: total marks, mark_status, their script, the overall feedback, '
+        'Return one pupil\'s result on an assessment-paper or PowerPoint assessment activity, from their latest attempt: total marks, mark_status, their script, the overall feedback, '
         + 'and every question with marking, depends_on, has_mark_scheme, awarded / available (null = not marked; it still counts 0), '
         + 'the answer the reader found (status answered | blank | unreadable | continued, kind text | sketch | mixed, transcription — a sketch is described — '
         + 'pages, and provenance "teacher" when a teacher corrected it; null until read) and each criterion within it with why_not_awarded, '
-        + 'how_to_improve, teacher_feedback and provenance ("teacher" = set by a teacher, never overwritten by the marker; "legacy" = carried over from an old paper).',
+        + 'how_to_improve, teacher_feedback, provenance ("teacher" = set by a teacher, never overwritten by the marker; "legacy" = carried over from an old paper) and ai_awarded (the AI marker\'s own mark). '
+        + 'A PowerPoint assessment has script null and powerpoint { handed_in, files: [{ slot_key, label, kind, required, file_name, uploaded_at, reader_status, reader_error }], missing_headings, warnings, unplaced_pictures }, '
+        + 'and each question also has evidence_sources and marker_evidence (the marker\'s note on the evidence it was given; teacher-only, never shown to pupils). '
+        + 'For a typed answer the transcription is the pupil\'s text; otherwise it is a short digest of the evidence.',
       inputSchema: {
-        activity_id: z.string().min(1).describe('The assessment-paper activity id.'),
+        activity_id: z.string().min(1).describe('The assessment-paper or PowerPoint assessment activity id.'),
         pupil_id: z.string().min(1).describe('Pupil user id from get_assessment_activity.'),
       },
       outputSchema: { result: z.record(z.string(), z.unknown()).nullable() },
@@ -3380,16 +3414,19 @@ The result is checked as create_activity checks it; a body over a limit is refus
         const name = `${r.first_name ?? ''} ${r.last_name ?? ''}`.trim() || pupil_id
         const marked = r.questions.filter((q) => q.awarded !== null).length
         return `${name}: ${r.marks_awarded ?? 0}/${r.max_marks}, ${marked}/${r.questions.length} questions marked, `
-          + `script ${r.script ? 'uploaded' : 'not uploaded'}${r.mark_status ? `, ${r.mark_status}` : ''}.`
+          + (r.powerpoint
+            ? `${r.powerpoint.handed_in ? 'handed in' : 'not handed in'}`
+            : `script ${r.script ? 'uploaded' : 'not uploaded'}`)
+          + `${r.mark_status ? `, ${r.mark_status}` : ''}.`
       }),
   )
 
   srv.registerTool(
     'set_assessment_activity_question_marks',
     {
-      title: 'Mark one question of a pupil\'s assessment-paper activity as the teacher',
+      title: 'Mark one question of a pupil\'s assessment-paper or PowerPoint assessment as the teacher',
       description:
-        'A teacher\'s marking of one question on a pupil\'s latest submission of an assessment-paper activity, as on the results page. '
+        'A teacher\'s marking of one question on a pupil\'s latest submission of an assessment-paper or PowerPoint assessment activity, as on the results page. '
         + 'Give the question by label (case-insensitive, e.g. "q3") or question_id, and any of: '
         + 'criteria — per success criterion of that question, marks (0 to its share of the question) and/or feedback (the teacher\'s comment; "" clears it, omitted keeps it; '
         + 'feedback alone needs the criterion to be marked already); transcription — replaces what the reader found for the question ("" clears it); '
@@ -3400,10 +3437,10 @@ The result is checked as create_activity checks it; a body over a limit is refus
         + 'If the lesson\'s feedback is visible to the pupil, they see the change at once. '
         + 'Returns the question in get_assessment_activity_result\'s shape and the paper\'s marks_awarded / max_marks. Arrays may be sent as JSON strings.',
       inputSchema: {
-        activity_id: z.string().min(1).describe('The assessment-paper activity id.'),
+        activity_id: z.string().min(1).describe('The assessment-paper or PowerPoint assessment activity id.'),
         pupil_id: z.string().min(1).describe('Pupil user id from get_assessment_activity.'),
         question: z.string().min(1).describe('The question\'s label (e.g. "Q3", case-insensitive) or its question_id.'),
-        criteria: AssessmentQuestionMarksCriteriaInput.optional().describe('Per criterion: success_criteria_id with marks and/or feedback.'),
+        criteria: AssessmentQuestionMarksCriteriaInput.optional().describe('Per criterion: success_criteria_id with marks and/or feedback. May be a JSON string.'),
         transcription: z.string().optional().describe('The corrected transcription of the pupil\'s answer; "" clears it.'),
         confirm: z.boolean().optional().describe('true: stamp the question\'s remaining AI marks as the teacher\'s, unchanged.'),
       },
@@ -3423,7 +3460,7 @@ The result is checked as create_activity checks it; a body over a limit is refus
       title: 'Get a one-time download link for a pupil\'s assessment-paper script',
       description: 'The pupil\'s original uploaded PDF of an assessment-paper activity, exactly as uploaded, including the front sheet (page 1, with their name): '
         + 'a teacher copy, never sent to a model (a script folded in from the old assessments module may be a JPEG or PNG; file_name has its extension). The newest script on the pupil\'s latest submission; works for held scripts too (front_sheet_check not "passed"). '
-        + 'Refused if the activity is not an assessment paper, or the pupil has no submission or no script. '
+        + 'Refused if the activity is not an assessment paper (a PowerPoint assessment has no scripts: use get_practical_assessment_evidence or the results page), or the pupil has no submission or no script. '
         + 'Returns a single-use link, valid 15 minutes, that downloads the file with a plain curl GET — no credentials. '
         + 'Uploading a replacement script cancels the link.',
       inputSchema: z.object({
@@ -3483,16 +3520,16 @@ The result is checked as create_activity checks it; a body over a limit is refus
   srv.registerTool(
     'create_assessment_activity_class_feedback_link',
     {
-      title: 'Get a one-time download link for a class\'s assessment-paper feedback PDF',
-      description: 'One PDF of a class\'s feedback on an assessment-paper activity: a cover listing every pupil with marks and status '
-        + '(marked, not yet marked, held, not sat), then each pupil who sat it on their own pages with their full feedback. '
+      title: 'Get a one-time download link for a class\'s assessment-paper or PowerPoint assessment feedback PDF',
+      description: 'One PDF of a class\'s feedback on an assessment-paper or PowerPoint assessment activity: a cover listing every pupil with marks and status '
+        + '(marked, not yet marked, held, not sat; on a PowerPoint assessment "not sat" = not handed in), then each pupil who sat it (handed in) on their own pages with their full feedback. '
         + 'Give the class, unit and activity by id or exact name (case-insensitive); a name that matches more than one is an error listing the ids. '
         + 'Returns a single-use link, valid 15 minutes, that downloads the PDF with a plain curl GET — no credentials. '
         + 'The PDF is built when the link is used, so it has the latest marks.',
       inputSchema: z.object({
         class: z.string().min(1).describe('Class (group) id, e.g. 26-10-DT. See list_groups.'),
         unit: z.string().min(1).describe('Unit id or exact title.'),
-        activity: z.string().min(1).describe('Assessment-paper activity id or exact title, in a lesson of the unit.'),
+        activity: z.string().min(1).describe('Assessment-paper or PowerPoint assessment activity id or exact title, in a lesson of the unit.'),
       }),
       outputSchema: z.object({
         link: z.object({
@@ -3537,6 +3574,63 @@ The result is checked as create_activity checks it; a body over a limit is refus
         return { content: [{ type: 'text' as const, text: `Error: ${message}` }], structuredContent: { link: null } }
       }
     },
+  )
+
+  srv.registerTool(
+    'get_practical_assessment_evidence',
+    {
+      title: 'See what the reader took from a pupil\'s PowerPoint assessment files',
+      description:
+        'What DINO\'s reader stored from one pupil\'s handed-in files on a PowerPoint assessment (their latest submission), slot by slot, to audit what the marker saw. '
+        + 'Per slot: the file (name, size, uploaded_at) or null, and read (null until read): status "error" with the reason the file could not be read, or status "ok" with, '
+        + 'for the presentation, slide_count, sections (the inspector\'s description, key / title / text, exactly as the marker is given it; narrow with sections) and slide_images (slides drawn as pictures: numbers and sizes only, or why they are unavailable); '
+        + 'for a PDF, page_count, text_chars and text_truncated; for an evidence document, each heading found with its text and how many pictures are under it (and any picture that cannot be shown), '
+        + 'what is outside every heading (kept for the teacher, never marked), missing_headings and the template used; and the warnings. No picture data is returned. '
+        + 'Each question is given only the parts its evidence sources name (get_assessment_activity). Arrays may be sent as JSON strings.',
+      inputSchema: {
+        activity_id: z.string().min(1).describe('The PowerPoint assessment activity id.'),
+        pupil_id: z.string().min(1).describe('Pupil user id from get_assessment_activity.'),
+        slot: z.string().optional().describe('One upload slot key; omit for every slot.'),
+        sections: z
+          .preprocess((v) => (typeof v === 'string' ? (v.trim().startsWith('[') ? JSON.parse(v) : [v]) : v), z.array(z.string()))
+          .optional()
+          .describe('Presentation sections to return, as a presentation source names them (e.g. ["master", "slides:3"]); omit for all but media.'),
+      },
+      outputSchema: { evidence: z.record(z.string(), z.unknown()).nullable() },
+    },
+    async ({ activity_id, pupil_id, slot, sections }) =>
+      assessmentActivityTool(
+        'evidence',
+        () => getPracticalAssessmentEvidence({ activityId: activity_id, pupilId: pupil_id, slot, sections }),
+        (e) => {
+          const filled = e.slots.filter((s) => s.file).length
+          const read = e.slots.filter((s) => s.read?.status === 'ok').length
+          const errors = e.slots.filter((s) => s.read?.status === 'error').length
+          return `${e.slots.length} slots: ${filled} with a file, ${read} read${errors ? `, ${errors} could not be read` : ''}${e.mark_status ? `; ${e.mark_status}` : ''}.`
+        },
+      ),
+  )
+
+  srv.registerTool(
+    'hand_in_powerpoint_assessment',
+    {
+      title: 'Hand in a pupil\'s PowerPoint assessment',
+      description:
+        'A teacher\'s Hand in for one pupil on a PowerPoint assessment, as the pupil\'s own button does: marking starts at once (one read, then one AI mark per question; '
+        + 'feedback stays hidden until released). Refused, naming them, while a required upload slot is empty. '
+        + 'Handing in again does nothing (already_handed_in: true). After hand-in the pupil can no longer change their files; a teacher can (create_assessment_activity_file_upload_link kind practical_file), which sends the work for marking again.',
+      inputSchema: {
+        activity_id: z.string().min(1).describe('The PowerPoint assessment activity id.'),
+        pupil_id: z.string().min(1).describe('Pupil user id from get_assessment_activity.'),
+      },
+      outputSchema: { hand_in: z.record(z.string(), z.unknown()).nullable() },
+    },
+    async ({ activity_id, pupil_id }) =>
+      assessmentActivityTool(
+        'hand_in',
+        () => handInPowerPointAssessmentForPupil({ activityId: activity_id, pupilId: pupil_id, teacherId: caller.userId }),
+        (h) => (h.already_handed_in ? 'Already handed in; nothing changed.' : `Handed in${h.mark_status ? `; ${h.mark_status}` : ''}.`),
+      ),
   )
 
   // ---------------------------------------------------------------------------
@@ -3620,7 +3714,7 @@ The result is checked as create_activity checks it; a body over a limit is refus
       description: 'Return one pupil\'s work and feedback on a lesson\'s marked activities, as the assignment results page shows it: '
         + 'their answer, score and status (override = a teacher set the mark), the overall teacher and automatic feedback, and per success criterion '
         + 'the mark, the AI\'s comment, the teacher\'s comment and provenance ("teacher" = set by a teacher, kept on re-mark). '
-        + 'An assessment-paper activity also has assessment_paper: script_uploaded, mark_status and its questions (label, awarded/available, '
+        + 'An assessment-paper or powerpoint-assessment activity also has assessment_paper: script_uploaded (a paper) or handed_in (a PowerPoint assessment), mark_status and its questions (label, awarded/available, '
         + 'and each criterion within the question with its allocation, mark, the comment the pupil is shown, the AI\'s and the teacher\'s comments). '
         + 'A missing answer counts as 0: it has status "missing" and marks_awarded 0 (submission_id null = not answered; set = answered, not yet marked). '
         + 'totals gives the lesson score on the same baseline as every DINO report: marks over the full max of every marked activity with success criteria '

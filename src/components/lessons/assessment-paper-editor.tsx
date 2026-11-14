@@ -15,6 +15,15 @@ import {
   type MarkSchemeProposal,
 } from "@/lib/server-updates"
 import { AssessmentMarkSchemeToggle } from "@/components/lessons/assessment-mark-scheme-toggle"
+import {
+  QuestionEvidenceEditor,
+  fromDraftSources,
+  newDraftSource,
+  toDraftSources,
+  type DraftEvidenceSource,
+} from "@/components/lessons/question-evidence-editor"
+import { validateQuestionEvidence } from "@/lib/powerpoint-assessment/evidence-spec"
+import type { PowerPointUploadSlot } from "@/types"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -27,6 +36,10 @@ import { cn } from "@/lib/utils"
 // each one's marks split across its success criteria, and how the uploaded
 // scripts fared in the front sheet check. Each part saves on its own; the
 // sheet's Save button only saves the title and instructions.
+//
+// A PowerPoint assessment's questions are edited here too (`powerPoint`): each
+// question also has its evidence sources, checked against the saved upload
+// slots before saving, and there are pupils' files instead of scripts.
 
 export interface AssessmentPaperCriterionOption {
   successCriteriaId: string
@@ -59,6 +72,8 @@ interface DraftQuestion {
   /** Key of the earlier draft question this one builds on, or null. */
   dependsOnKey: string | null
   criteria: DraftCriterion[]
+  /** PowerPoint assessment only. */
+  evidence: DraftEvidenceSource[]
 }
 
 // Server actions above ~12 MB are rejected before they reach the action
@@ -82,7 +97,25 @@ function toDraft(setup: AssessmentPaperSetup): DraftQuestion[] {
     marking: q.marking,
     dependsOnKey: q.dependsOn ? keyOfLabel.get(q.dependsOn) ?? null : null,
     criteria: q.criteria.map((c) => ({ successCriteriaId: c.successCriteriaId, maxMarks: String(c.maxMarks) })),
+    evidence: toDraftSources(q.evidence ?? []),
   }))
+}
+
+/**
+ * A save's or check's sentences, by the question they name ("Question "1a",
+ * …"). Sentences naming no question are under the empty label.
+ */
+function problemsByLabel(errors: string[]): Map<string, string[]> {
+  const byLabel = new Map<string, string[]>()
+  for (const error of errors) {
+    for (const part of error.split(/(?=Question ")/)) {
+      const text = part.trim()
+      if (!text) continue
+      const label = /^Question "([^"]*)"/.exec(text)?.[1] ?? ""
+      byLabel.set(label, [...(byLabel.get(label) ?? []), text])
+    }
+  }
+  return byLabel
 }
 
 function parseWhole(value: string): number | null {
@@ -127,9 +160,22 @@ interface AssessmentPaperEditorProps {
   lessonCriteria: AssessmentPaperCriterionOption[]
   /** Called after anything is saved, so the lesson can refresh when the sheet closes. */
   onSaved?: () => void
+  /**
+   * PowerPoint assessment: its saved upload slots and the activity's own
+   * files, for each question's evidence sources.
+   */
+  powerPoint?: { slots: PowerPointUploadSlot[]; referenceFiles: string[] }
+  /** Called after the questions are saved. */
+  onQuestionsSaved?: () => void
 }
 
-export function AssessmentPaperEditor({ activityId, lessonCriteria, onSaved }: AssessmentPaperEditorProps) {
+export function AssessmentPaperEditor({
+  activityId,
+  lessonCriteria,
+  onSaved,
+  powerPoint,
+  onQuestionsSaved,
+}: AssessmentPaperEditorProps) {
   const [setup, setSetup] = useState<AssessmentPaperSetup | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -212,7 +258,22 @@ export function AssessmentPaperEditor({ activityId, lessonCriteria, onSaved }: A
     () => questions.map((q, index) => questionProblem(q, labels, new Set(questions.slice(0, index).map((e) => e.key)))),
     [questions, labels],
   )
-  const questionsValid = problems.every((p) => p === null)
+  // A PowerPoint assessment's evidence, checked as the store will check it.
+  const evidenceCheck = useMemo(() => {
+    if (!powerPoint) return null
+    const { errors } = validateQuestionEvidence(
+      questions.map((q) => ({
+        label: q.label.trim(),
+        marking: q.marking,
+        evidence: fromDraftSources(q.evidence, q.label),
+      })),
+      { uploadSlots: powerPoint.slots },
+    )
+    return problemsByLabel(errors)
+  }, [powerPoint, questions])
+  const serverProblems = useMemo(() => problemsByLabel(questionsError ? [questionsError] : []), [questionsError])
+  const questionsValid =
+    problems.every((p) => p === null) && (!evidenceCheck || evidenceCheck.size === 0)
   const draftTotal = useMemo(
     () => questions.reduce((sum, q) => sum + (parseWhole(q.maxMarks) ?? 0), 0),
     [questions],
@@ -250,6 +311,8 @@ export function AssessmentPaperEditor({ activityId, lessonCriteria, onSaved }: A
         marking: "ai",
         dependsOnKey: null,
         criteria: [],
+        // A new question reads the presentation until told otherwise.
+        evidence: powerPoint ? [newDraftSource("presentation", powerPoint.slots, powerPoint.referenceFiles)] : [],
       },
     ])
   }
@@ -318,6 +381,7 @@ export function AssessmentPaperEditor({ activityId, lessonCriteria, onSaved }: A
           successCriteriaId: c.successCriteriaId,
           maxMarks: parseWhole(c.maxMarks) ?? 0,
         })),
+        ...(powerPoint ? { evidence: fromDraftSources(q.evidence, q.label) } : {}),
       }))
       const result = await saveAssessmentQuestionsAction(activityId, payload)
       if (result.error || !result.data) {
@@ -326,8 +390,11 @@ export function AssessmentPaperEditor({ activityId, lessonCriteria, onSaved }: A
         return
       }
       applySetup(result.data)
-      toast.success("Questions saved", { description: `The paper is out of ${result.data.maxMarks}.` })
+      toast.success("Questions saved", {
+        description: `The ${powerPoint ? "assessment" : "paper"} is out of ${result.data.maxMarks}.`,
+      })
       onSaved?.()
+      onQuestionsSaved?.()
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to save the questions."
       setQuestionsError(message)
@@ -433,8 +500,12 @@ export function AssessmentPaperEditor({ activityId, lessonCriteria, onSaved }: A
       }
       applySetup(result.data.setup, { keepQuestions: questionsDirty })
       onSaved?.()
+      const { sent, pupils } = result.data
+      const questionsSent = `${sent} question${sent === 1 ? "" : "s"}`
       toast.success(
-        `${result.data.sent} question${result.data.sent === 1 ? "" : "s"} on ${result.data.pupils} script${result.data.pupils === 1 ? "" : "s"} sent for marking`,
+        result.data.setup.powerpoint
+          ? `${questionsSent} for ${pupils} pupil${pupils === 1 ? "" : "s"} sent for marking`
+          : `${questionsSent} on ${pupils} script${pupils === 1 ? "" : "s"} sent for marking`,
       )
     } catch (error) {
       toast.error("Questions not sent", { description: error instanceof Error ? error.message : "Please try again." })
@@ -444,18 +515,24 @@ export function AssessmentPaperEditor({ activityId, lessonCriteria, onSaved }: A
   }
 
   const handleSendUnmarked = async () => {
+    const notSent = setup?.powerpoint ? "Work not sent" : "Scripts not sent"
     setIsSending(true)
     try {
       const result = await sendUnmarkedAssessmentScriptsAction(activityId)
       if (result.error || !result.data) {
-        toast.error("Scripts not sent", { description: result.error ?? "Please try again." })
+        toast.error(notSent, { description: result.error ?? "Please try again." })
         return
       }
       applySetup(result.data.setup, { keepQuestions: questionsDirty })
       onSaved?.()
-      toast.success(`${result.data.sent} script${result.data.sent === 1 ? "" : "s"} sent for marking`)
+      const sent = result.data.sent
+      toast.success(
+        result.data.setup.powerpoint
+          ? `${sent} pupil${sent === 1 ? "'s" : "s'"} work sent for marking`
+          : `${sent} script${sent === 1 ? "" : "s"} sent for marking`,
+      )
     } catch (error) {
-      toast.error("Scripts not sent", { description: error instanceof Error ? error.message : "Please try again." })
+      toast.error(notSent, { description: error instanceof Error ? error.message : "Please try again." })
     } finally {
       setIsSending(false)
     }
@@ -489,19 +566,34 @@ export function AssessmentPaperEditor({ activityId, lessonCriteria, onSaved }: A
           <span className="text-muted-foreground">Questions: </span>
           <span className="font-semibold text-foreground">{setup.questions.length}</span>
         </span>
-        <span>
-          <span className="text-muted-foreground">Scripts uploaded: </span>
-          <span className="font-semibold text-foreground">{setup.scriptsCount}</span>
-        </span>
+        {setup.powerpoint ? (
+          <span>
+            <span className="text-muted-foreground">Pupils with files: </span>
+            <span className="font-semibold text-foreground">{setup.powerpoint.pupilsWithFiles}</span>
+            <span className="text-muted-foreground"> ({setup.powerpoint.handedIn} handed in)</span>
+          </span>
+        ) : (
+          <span>
+            <span className="text-muted-foreground">Scripts uploaded: </span>
+            <span className="font-semibold text-foreground">{setup.scriptsCount}</span>
+          </span>
+        )}
       </div>
 
       {/* Paper files */}
       <section className="space-y-2">
         <h3 className="text-sm font-semibold text-foreground">Question paper and mark scheme</h3>
-        <p className="text-xs text-muted-foreground">
-          Page 1 of the question paper must be its blank front sheet, the only place pupils write their name. Each
-          script&apos;s page 1 is checked against it and is never sent to the marker.
-        </p>
+        {powerPoint ? (
+          <p className="text-xs text-muted-foreground">
+            Pupils can open the question paper; the mark scheme is only for you and the marker. Split it by question
+            to fill each question&apos;s mark scheme extract.
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Page 1 of the question paper must be its blank front sheet, the only place pupils write their name. Each
+            script&apos;s page 1 is checked against it and is never sent to the marker.
+          </p>
+        )}
         {(
           [
             { kind: "question_paper", label: "Question paper", path: setup.questionPaperPath, ref: questionPaperInputRef },
@@ -860,11 +952,40 @@ export function AssessmentPaperEditor({ activityId, lessonCriteria, onSaved }: A
                       <p className="text-xs text-destructive">{problem}</p>
                     ) : null}
                   </div>
+
+                  {powerPoint ? (
+                    <div className="space-y-1">
+                      <QuestionEvidenceEditor
+                        questionKey={question.key}
+                        questionLabel={question.label}
+                        sources={question.evidence}
+                        slots={powerPoint.slots}
+                        referenceFiles={powerPoint.referenceFiles}
+                        disabled={isSavingQuestions}
+                        onChange={(evidence) => updateQuestion(question.key, { evidence })}
+                      />
+                      {[
+                        ...(evidenceCheck?.get(question.label.trim()) ?? []),
+                        ...(serverProblems.get(question.label.trim()) ?? []).filter(
+                          (text) => !(evidenceCheck?.get(question.label.trim()) ?? []).includes(text),
+                        ),
+                      ].map((text) => (
+                        <p key={text} className="text-xs text-destructive">
+                          {text}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
                 </li>
               )
             })}
           </ol>
         )}
+        {evidenceCheck?.get("")?.map((text) => (
+          <p key={text} className="text-sm text-destructive">
+            {text}
+          </p>
+        ))}
         {questionsError ? <p className="text-sm text-destructive">{questionsError}</p> : null}
         <div className="flex items-center justify-end gap-2">
           {questionsDirty ? (
@@ -894,10 +1015,16 @@ export function AssessmentPaperEditor({ activityId, lessonCriteria, onSaved }: A
         </div>
       </section>
 
-      {/* Scripts */}
+      {/* Scripts, or a PowerPoint assessment's pupils' files */}
       <section className="space-y-2">
-        <h3 className="text-sm font-semibold text-foreground">Scripts</h3>
-        {setup.scriptsCount === 0 ? (
+        <h3 className="text-sm font-semibold text-foreground">{setup.powerpoint ? "Pupils' files" : "Scripts"}</h3>
+        {setup.powerpoint ? (
+          <p className="text-sm text-muted-foreground">
+            {setup.powerpoint.pupilsWithFiles === 0
+              ? "No pupil has uploaded files yet."
+              : `${setup.powerpoint.pupilsWithFiles} pupil${setup.powerpoint.pupilsWithFiles === 1 ? " has" : "s have"} uploaded files; ${setup.powerpoint.handedIn} handed in. Marking starts when a pupil hands in.`}
+          </p>
+        ) : setup.scriptsCount === 0 ? (
           <p className="text-sm text-muted-foreground">No scripts uploaded yet.</p>
         ) : (
           <p className="text-sm text-muted-foreground">
@@ -909,7 +1036,10 @@ export function AssessmentPaperEditor({ activityId, lessonCriteria, onSaved }: A
         {setup.awaitingCheck.questions > 0 ? (
           <p className="text-sm text-muted-foreground">
             {setup.awaitingCheck.questions} marked question{setup.awaitingCheck.questions === 1 ? "" : "s"} on{" "}
-            {setup.awaitingCheck.pupils} pupil{setup.awaitingCheck.pupils === 1 ? "'s script" : "s' scripts"}{" "}
+            {setup.awaitingCheck.pupils} pupil
+            {setup.awaitingCheck.pupils === 1
+              ? setup.powerpoint ? "'s work" : "'s script"
+              : setup.powerpoint ? "s' work" : "s' scripts"}{" "}
             {setup.awaitingCheck.questions === 1 ? "awaits" : "await"} your check on the results page.
           </p>
         ) : null}
@@ -917,7 +1047,8 @@ export function AssessmentPaperEditor({ activityId, lessonCriteria, onSaved }: A
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2">
             <span className="text-sm text-muted-foreground">
               {setup.heldToSend.questions} question{setup.heldToSend.questions === 1 ? "" : "s"} on{" "}
-              {setup.heldToSend.pupils} script{setup.heldToSend.pupils === 1 ? " was" : "s were"} held for want of a
+              {setup.heldToSend.pupils} {setup.powerpoint ? "pupil" : "script"}
+              {setup.heldToSend.pupils === 1 ? (setup.powerpoint ? "'s work was" : " was") : setup.powerpoint ? "s' work was" : "s were"} held for want of a
               mark scheme and can be marked now.
             </span>
             <Button
@@ -935,13 +1066,15 @@ export function AssessmentPaperEditor({ activityId, lessonCriteria, onSaved }: A
         {setup.unmarkedScriptsCount > 0 ? (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2">
             <span className="text-sm text-muted-foreground">
-              {setup.unmarkedScriptsCount} script{setup.unmarkedScriptsCount === 1 ? " has" : "s have"} not been
-              marked yet.
+              {setup.powerpoint
+                ? `${setup.unmarkedScriptsCount} pupil${setup.unmarkedScriptsCount === 1 ? "'s" : "s'"} handed-in work has not been marked yet.`
+                : `${setup.unmarkedScriptsCount} script${setup.unmarkedScriptsCount === 1 ? " has" : "s have"} not been marked yet.`}
             </span>
             <Button type="button" size="sm" onClick={handleSendUnmarked} disabled={isSending}>
               {isSending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
-              Send {setup.unmarkedScriptsCount} unmarked script{setup.unmarkedScriptsCount === 1 ? "" : "s"} for
-              marking
+              {setup.powerpoint
+                ? `Send ${setup.unmarkedScriptsCount} pupil${setup.unmarkedScriptsCount === 1 ? "'s" : "s'"} work for marking`
+                : `Send ${setup.unmarkedScriptsCount} unmarked script${setup.unmarkedScriptsCount === 1 ? "" : "s"} for marking`}
             </Button>
           </div>
         ) : null}

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, useTransition } from "react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
+import { MarkedAgainst, MarkerReason, MarkRowLabel } from "@/components/assignment-results/marking-reference"
 import {
   readActivityCriteriaForMarkingAction,
   readSubmissionScMarksAction,
@@ -30,6 +31,13 @@ interface CriterionMarksPanelProps {
   onLoaded?: (count: number) => void
   /** The activity is marked by AI, so a teacher's mark replaces the AI's. */
   aiMarked?: boolean
+  /**
+   * What the answer is marked against (short-text questions). When given, the
+   * panel shows it in place of each criterion's description, labels the marks
+   * compactly, and sets out the AI's reason under any mark short of full, as
+   * the question-marked card does. Teacher views only.
+   */
+  reference?: { markScheme: string | null; modelAnswer: string | null }
 }
 
 /**
@@ -46,6 +54,7 @@ export function CriterionMarksPanel({
   onAggregateChange,
   onLoaded,
   aiMarked = true,
+  reference,
 }: CriterionMarksPanelProps) {
   const [marks, setMarks] = useState<ScMarkRow[] | null>(null)
   const [loading, setLoading] = useState(true)
@@ -191,11 +200,23 @@ export function CriterionMarksPanel({
         </span>
       </div>
 
+      {reference ? (
+        <MarkedAgainst
+          markScheme={reference.markScheme}
+          modelAnswer={reference.modelAnswer}
+          criteria={marks.map((mark) => mark.description)}
+        />
+      ) : null}
+
       <ul className="space-y-3">
-        {marks.map((mark) => (
+        {marks.map((mark, index) => (
           <li key={mark.success_criteria_id} className="rounded-md border border-border p-3">
             <div className="flex items-start justify-between gap-3">
-              <p className="flex-1 text-sm text-foreground">{mark.description}</p>
+              {reference ? (
+                <MarkRowLabel index={index} count={marks.length} max={mark.available} description={mark.description} />
+              ) : (
+                <p className="flex-1 text-sm text-foreground">{mark.description}</p>
+              )}
               <div className="flex shrink-0 items-center gap-2">
                 {!mark.marked ? (
                   <Badge variant="outline" className="text-[10px]">Not marked</Badge>
@@ -247,7 +268,13 @@ export function CriterionMarksPanel({
             {/* The AI's comment, shown only while the teacher has not taken
                 over this criterion. effectiveCriterionFeedback already
                 suppresses it once the mark is overridden. */}
-            {!mark.teacher_feedback && mark.feedback ? (
+            {reference ? (
+              // The AI writes one comment per criterion: its reason, shown under
+              // a mark short of full.
+              !mark.teacher_feedback && mark.feedback && mark.marked && mark.awarded < mark.available ? (
+                <MarkerReason whyNotAwarded={mark.feedback} />
+              ) : null
+            ) : !mark.teacher_feedback && mark.feedback ? (
               <p className="mt-2 border-l-2 border-border pl-2 text-xs text-muted-foreground">
                 {mark.feedback}
               </p>

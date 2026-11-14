@@ -472,6 +472,104 @@ pupil's own feedback pages, built on download
 (`src/lib/assessment-paper/class-feedback-pdf.ts`). Teacher copy: feedback
 visibility does not apply. Tests: `tests/assessment-paper/class-feedback.check.ts`.
 
+### PowerPoint assessments
+
+A `powerpoint-assessment` (migration 143) is a practical task marked like an
+assessment paper: it is in `QUESTION_MARKED_ACTIVITY_TYPES`, so questions,
+per-criterion marks, `ai_awarded`, Check/Confirm, results and feedback PDFs are
+the paper's machinery (`src/lib/assessment-paper/store.ts`). Only the hand-in,
+the read and the mark are its own (`src/lib/powerpoint-assessment/`). Test the
+type with `isPowerPointAssessmentType` / `isAssessmentPaperType`, never
+`isQuestionMarkedActivityType`, wherever scripts or files are involved. It is
+the generic **PowerPoint** flow: nothing in code knows a particular paper;
+slots, headings, sections and images are the teacher's data. Spreadsheets,
+databases and other file types will be separate activity types, not readers
+added here.
+
+- **Upload slots** (`body_data.uploadSlots`, `PowerPointAssessmentActivityBodySchema`):
+  1–8, exactly one `pptx` slot (the presentation, required); `pdf` printouts
+  and a `docx` evidence document are supporting. One file per slot per
+  submission (`practical_submission_files`, assessment-scripts bucket,
+  `{activityId}/practical/{fileId}/original.*`), checked on upload
+  (`checkSlotFile`: `.ppt`, `.doc`, a password or a damaged file refused with
+  the reader's message). *Hand in* (refused while a required slot is empty)
+  sets `submission_status = 'submitted'` and queues the read: marking starts
+  on hand-in. After it a pupil cannot change files; a teacher can, which
+  clears the AI marks (teacher rows kept) and re-queues after 120 s.
+- **Supplied images** (`practical_supplied_images`, lessons bucket, generated
+  file names) are fingerprinted (`src/lib/pptx/known-images.ts`) so the
+  inspector names them in a pupil's slides; a likeness of
+  `MATCH_THRESHOLD_PERCENT` (72%) counts as a match, and an upload that close
+  to another supplied image is warned about.
+- **Evidence sources** (`activity_questions.evidence`, `evidence-spec.ts`,
+  checked by `validateQuestionEvidence` in `setAssessmentQuestions`):
+  `presentation` (report sections: `presentation`, `master`, `layouts`,
+  `slides`, `slides:3,6`, `action-buttons`, `notes`, `supplied-images`,
+  `media`, `warnings`; default all but media; `PRESENTATION_SECTION_KEYS`
+  mirrors `describe.ts`), `slide_images`, `file` (a PDF attached whole),
+  `evidence_section` (a `.docx` heading; `want` screenshots/text/both) and
+  `reference_file` (an activity file's text, never a question's only source).
+- **Read** (`ai_read`, `reading.ts`, no model): pptx by the inspector
+  (`inspectPptx` + `describePresentationSections`); the EVIDENCE `.docx` by
+  heading (`src/lib/docx/evidence.ts`: a heading is a paragraph starting with
+  the label; the blank template's paragraphs removed; pictures normalised and
+  stored teacher-only under `evidence/`; pictures outside every heading kept
+  as *unplaced*, never marked); PDFs by poppler (`src/lib/pdf/poppler.ts`:
+  page count, text capped). A pptx some question reads as `slide_images` is
+  drawn by LibreOffice via Gotenberg then `pdftoppm` (≤ 40 slides); if that
+  fails the read records a warning and the marker is told, nothing is held.
+  Each file's result is stored once per cache key (file sha256 + the reader's
+  inputs, i.e. supplied images, headings, template, render version +
+  `READER_VERSION`) in `practical_submission_evidence`. A file that cannot be
+  read holds the **whole** submission (`mark_status` null, reason in
+  `mark_error`).
+- **Blank**: a `required` source missing, or no source with anything, is
+  blank → 0 with no model call; the comment is the reader's reason ("You did
+  not hand in …", "Slide 6 is not in your presentation.", "There is no 1j
+  section in your …") or "No answer submitted". **A missing required
+  screenshot is always 0** (teacher decision); unplaced pictures never stand
+  in for it. A required heading holding only pictures DINO cannot show (EMF,
+  WMF …) is not blank: the question is held for the teacher, named, never
+  sent.
+- **Mark** (`ai_mark` per question, `marking.ts`, route
+  `('powerpoint-assessment', NULL)`): the model gets that question's own
+  sources only, under caps (10 images, 3 PDFs, 20 MB, 60 000 chars;
+  overflow is a permanent error naming the question). `POWERPOINT_MARK_SYSTEM`:
+  the mark scheme is the only standard and criteria are filing labels; report
+  facts are exact, screenshots count only when readable, never infer an
+  unseen setting; every comment names its slide, file or heading; never the
+  pupil's name. The reply's `evidence_note` is stored as
+  `submission_question_answers.marker_evidence`: **teacher-only**, like
+  `ai_awarded`.
+- **Privacy**: no pupil file name reaches a model, a job row or
+  `ai_marking_logs` (slot label + file id + extension instead; the upload
+  link's audit row logs only the extension). Pupils never get the mark scheme
+  PDF (`showMarkSchemeToPupils` only governs the feedback PDF's per-question
+  text). A locked lesson blocks a pupil's uploads, hand-in and downloads,
+  never staff's.
+- **Views**: the results panel shows *Pupil's files* (reader status, missing
+  headings, warnings, unplaced pictures), each question's evidence and
+  screenshots, the marker's note, and a teacher *Hand in*. The pupil's
+  activity (`pupil-powerpoint-assessment-activity.tsx`, `pupil-view.ts`) has
+  the downloads, a dropzone per slot and *Hand in*, then per-task feedback
+  once released, never `ai_awarded` or `marker_evidence`.
+- **MCP**: `set_assessment_activity_questions` takes `evidence`;
+  `get_assessment_activity` / `get_assessment_activity_result` report slots,
+  files, hand-in and the marker's note; `create_assessment_activity_file_upload_link`
+  kinds `supplied_image` (10 MB) and `practical_file` (pupil + slot, 25 MB,
+  does not hand in); `get_practical_assessment_evidence` (what the reader
+  stored, no picture data); `hand_in_powerpoint_assessment`. The script link
+  is refused for this type. See `docs/MCP.md`.
+- **Migration 143**: the type in `is_question_marked_activity_type` and
+  `is_scorable_activity_type`, `activity_questions.evidence`,
+  `practical_supplied_images`, `practical_submission_files`,
+  `practical_submission_evidence`, `submission_question_answers.marker_evidence`,
+  `mcp_upload_links.slot_key` with the two upload kinds, and the route row.
+- **Copying old Upload File work in**: `scripts/copy-uploads-to-powerpoint-assessment.sh <scripts/powerpoint-mappings/x.json> [--apply] [--hand-in] [--replace] [--fallback-root <dir>]` (dry run by default; the mapping says which source activity's files fill which slot by extension and `name_contains`). Latest attempt, current files only, stored through `storePracticalFile` as a teacher; filled slots and handed-in pupils are left alone unless `--replace`; `--hand-in` queues real marking and asks first. Results in `powerpoint-copy-results/` (gitignored, has pupils' file names).
+- Tests: `tests/powerpoint-assessment/*.check.ts` (questions, evidence-doc,
+  files, reading, read-guards, blank-reasons, marking, results, pupil-view,
+  editor, mcp), plus `tests/pptx/inspect.check.ts`.
+
 ### Choosing the model per activity
 
 Which model marks which activity is configured at **`/admin/ai-models`**, not in
@@ -599,7 +697,7 @@ row before deciding whether the set is complete.
 
 For per-activity rows, read the `pupil_activity_scores` view. For per-criterion ratings (LO/SC reports, 0–1, mean of rows), read `pupil_criterion_scores`. Don't re-derive the rules. `is_scorable_activity_type()` in SQL mirrors `SCORABLE_ACTIVITY_TYPES`, so keep the two in step.
 
-On assessment papers, a question with no mark is likewise 0 and stays in the total. "Save as assessment" records missing answers as 0 with "No answer submitted".
+On assessment papers, a question with no mark is likewise 0 and stays in the total.
 
 **Scorable activity types** are defined in `src/dino.config.ts` as `SCORABLE_ACTIVITY_TYPES`. Use `isScorableActivityType()` from that module when filtering in TypeScript, and pass the same array as a parameter when filtering in SQL.
 

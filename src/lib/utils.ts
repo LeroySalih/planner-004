@@ -5,6 +5,12 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+/** "A", "A and B", "A, B and C". */
+export function joinLabels(labels: string[]): string {
+  if (labels.length <= 1) return labels.join("")
+  return `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`
+}
+
 export function toSlug(input: string): string {
   return input
     .toLowerCase()

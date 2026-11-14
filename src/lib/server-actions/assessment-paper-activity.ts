@@ -18,6 +18,8 @@ import {
   storePaperFile,
 } from "@/lib/assessment-paper/files"
 import { proposeMarkSchemeSplit } from "@/lib/assessment-paper/mark-scheme-split"
+import { listUnmarkedPowerPointSubmissions } from "@/lib/powerpoint-assessment/files"
+import { isPowerPointAssessmentType } from "@/dino.config"
 import { enqueueMarkingTasks, triggerQueueProcessor } from "@/lib/ai/marking-queue"
 import { withTelemetry } from "@/lib/telemetry"
 
@@ -36,6 +38,12 @@ const QuestionInputSchema = z.object({
   marking: z.enum(["ai", "ai_check", "teacher"]).optional(),
   /** Label of an earlier question on the paper (error carried forward), or null. */
   dependsOn: z.string().trim().min(1).nullable().optional(),
+  /**
+   * PowerPoint assessment only: the question's evidence sources, checked by
+   * the store against the activity's upload slots. Omitted: unchanged (an
+   * assessment paper's editor never sends it).
+   */
+  evidence: z.array(z.unknown()).max(20).optional(),
   criteria: z
     .array(z.object({ successCriteriaId: z.string().min(1), maxMarks: z.number().int().min(1) }))
     .min(1),
@@ -131,7 +139,9 @@ export async function uploadAssessmentPaperFileAction(formData: FormData) {
 /**
  * Send every script that passed the front sheet check and has never been
  * read or marked. Folded legacy papers and anything already marked are left
- * alone (see listUnmarkedScriptSubmissions).
+ * alone (see listUnmarkedScriptSubmissions). On a PowerPoint assessment, the
+ * handed-in work that has never been read or marked, whose read is queued
+ * again (see listUnmarkedPowerPointSubmissions).
  */
 export async function sendUnmarkedAssessmentScriptsAction(activityId: string) {
   return withTelemetry(
@@ -140,7 +150,13 @@ export async function sendUnmarkedAssessmentScriptsAction(activityId: string) {
       await requireRole("teacher")
       try {
         const id = z.string().min(1).parse(activityId)
-        const submissions = await listUnmarkedScriptSubmissions(id)
+        const { rows: typeRows } = await query<{ type: string | null }>(
+          "select type from activities where activity_id = $1",
+          [id],
+        )
+        const submissions = isPowerPointAssessmentType(typeRows[0]?.type)
+          ? await listUnmarkedPowerPointSubmissions(id)
+          : await listUnmarkedScriptSubmissions(id)
         // Grouped by the marking assignment id, as the other marking paths
         // pass it; a pupil who has left the class still gets marked.
         const byAssignment = new Map<string, Array<{ submissionId: string }>>()

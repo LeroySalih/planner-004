@@ -47,7 +47,6 @@ import {
   readActivityMarkingGuidanceAction,
   updateActivityMarkingGuidanceAction,
   editWorksheetTextAction,
-  createAssessmentFromAssignmentAction,
 } from "@/lib/server-updates"
 import { resolveScoreTone } from "@/lib/results/colors"
 import {
@@ -63,7 +62,12 @@ import {
 import { extractScoreFromSubmission, selectLatestSubmission } from "@/lib/scoring/activity-scores"
 import { SketchRenderFeedbackView } from "@/components/assignment-results/sketch-render-feedback-view"
 import { TeacherSubmissionDropzone } from "@/components/assignment-results/teacher-submission-dropzone"
-import { DETERMINISTIC_ACTIVITY_TYPES, isQuestionMarkedActivityType, type MarkStatus } from "@/dino.config"
+import {
+  DETERMINISTIC_ACTIVITY_TYPES,
+  isPowerPointAssessmentType,
+  isQuestionMarkedActivityType,
+  type MarkStatus,
+} from "@/dino.config"
 import { refreshActivityCriteriaAction, updateActivityFeedbackAction } from "@/lib/server-actions/sc-marks"
 import { markStatusLabel } from "@/lib/mark-status"
 
@@ -521,6 +525,32 @@ async function convertImageBlobToPng(blob: Blob): Promise<Blob> {
 // listed/signed via listPupilActivitySubmissionsAction / getPupilActivitySubmissionUrlAction.
 const UPLOAD_LISTING_ACTIVITY_TYPES = new Set(["upload-file", "upload-spreadsheet", "upload-worksheet", "mark-worksheet"])
 
+// The columns "Mark all with AI" sends: short text answers, and Upload File
+// activities whose "Mark with AI" switch is on (`aiMarked`, isAiMarkedActivity).
+function isBulkAiMarkedActivity(activity: AssignmentResultActivity): boolean {
+  return activity.type === "short-text-question" || (activity.type === "upload-file" && activity.aiMarked)
+}
+
+// A cell "Mark all with AI" sends: the latest attempt, unmarked. An upload
+// must be unmarked on the server (status "missing"), so an upload a teacher
+// marked 0 is never re-sent; short text keeps the needsMarking rule.
+function cellNeedsBulkAiMark(activity: AssignmentResultActivity, cell: AssignmentResultCell | undefined): boolean {
+  if (!cell?.submissionId || !cell.needsMarking) return false
+  return activity.type === "upload-file" ? cell.status === "missing" : true
+}
+
+/** An assessment paper's or PowerPoint assessment's pupil response, when there is a submission. */
+function questionMarkedWorkText(type: string): string {
+  return isPowerPointAssessmentType(type)
+    ? "The pupil's files and marks are under Marking below."
+    : "The pupil's script and marks are under Marking below."
+}
+
+/** The same when there is nothing to mark: no script, or no files handed in. */
+function noQuestionMarkedWorkText(type: string, consequence = ""): string {
+  return `${isPowerPointAssessmentType(type) ? "No files handed in" : "No script uploaded"}${consequence}.`
+}
+
 function isUploadListingActivityType(type: string): boolean {
   return UPLOAD_LISTING_ACTIVITY_TYPES.has(type)
 }
@@ -782,7 +812,6 @@ export function AssignmentResultsDashboard({
   const [feedbackTogglePending, startFeedbackToggleTransition] = useTransition()
   const [flagPending, startFlagTransition] = useTransition()
   const [resubmitPending, startResubmitTransition] = useTransition()
-  const [assessmentPending, startAssessmentTransition] = useTransition()
   const [resubmitNote, setResubmitNote] = useState("")
   const router = useRouter()
   const matrixStateRef = useRef(matrixState)
@@ -1012,14 +1041,14 @@ export function AssignmentResultsDashboard({
     })
   }, [selectedActivity, activities, groupedRows, matrixState.assignmentId, startAiMarkTransition])
 
-  // Whether the selected pupil has a script on the selected assessment paper,
-  // as its marks panel last reported. Keyed so a stale answer for another
-  // cell is never used.
-  const [paperScript, setPaperScript] = useState<{ key: string; hasScript: boolean } | null>(null)
+  // Whether the selected pupil has work to mark on the selected assessment
+  // paper (a script) or PowerPoint assessment (handed-in files), as its marks
+  // panel last reported. Keyed so a stale answer for another cell is never used.
+  const [paperWork, setPaperWork] = useState<{ key: string; hasWork: boolean } | null>(null)
   const selectionKey = selection ? `${selection.activity.activityId}:${selection.row.pupil.userId}` : null
   const handlePaperLoaded = useCallback(
-    ({ hasScript }: { hasScript: boolean }) => {
-      if (selectionKey) setPaperScript({ key: selectionKey, hasScript })
+    ({ hasWork }: { hasWork: boolean }) => {
+      if (selectionKey) setPaperWork({ key: selectionKey, hasWork })
     },
     [selectionKey],
   )
@@ -1033,19 +1062,20 @@ export function AssignmentResultsDashboard({
     if (!selection.cell.submissionId) {
       toast.error(
         isQuestionMarkedActivityType(selection.activity.type)
-          ? "No script uploaded."
+          ? noQuestionMarkedWorkText(selection.activity.type)
           : "No submission available to mark.",
       )
       return
     }
 
-    // A paper is marked from its script; without one there is nothing to read.
+    // A paper is marked from its script, a PowerPoint assessment from the
+    // files handed in; without them there is nothing to read.
     if (
       isQuestionMarkedActivityType(selection.activity.type) &&
-      paperScript?.key === `${selection.activity.activityId}:${selection.row.pupil.userId}` &&
-      !paperScript.hasScript
+      paperWork?.key === `${selection.activity.activityId}:${selection.row.pupil.userId}` &&
+      !paperWork.hasWork
     ) {
-      toast.error("No script uploaded, so there is nothing to mark.")
+      toast.error(noQuestionMarkedWorkText(selection.activity.type, ", so there is nothing to mark"))
       return
     }
 
@@ -1066,14 +1096,14 @@ export function AssignmentResultsDashboard({
         if (result.success) {
           toast.success("AI marking queued.")
         } else {
-          toast.error("Failed to queue AI marking.")
+          toast.error("AI marking not queued.", { description: result.error ?? undefined })
         }
       } catch (error) {
         console.error("[assignment-results] Manual AI marking trigger failed", error)
         toast.error("An error occurred while requesting AI marking.")
       }
     })
-  }, [selection, matrixState.assignmentId, startAiMarkTransition, paperScript])
+  }, [selection, matrixState.assignmentId, startAiMarkTransition, paperWork])
 
   const handleCopyToLlm = useCallback(() => {
     if (!selection) {
@@ -1297,11 +1327,14 @@ export function AssignmentResultsDashboard({
   const handleColumnAiMark = useCallback((activityIndex: number) => {
     const activity = activities[activityIndex]
     if (!activity) return
+    // An upload column sends only unmarked uploads: each is a model call on
+    // the pupil's files, and a teacher's mark is never re-sent.
+    const uploadColumn = activity.type === "upload-file"
 
     const submissionsToMark = groupedRows
       .map((row) => {
         const cell = row.cells[activityIndex]
-        if (cell && cell.submissionId) {
+        if (cell && cell.submissionId && (!uploadColumn || cellNeedsBulkAiMark(activity, cell))) {
           return {
             pupilId: row.pupil.userId,
             submissionId: cell.submissionId,
@@ -1312,7 +1345,7 @@ export function AssignmentResultsDashboard({
       .filter((entry): entry is { pupilId: string; submissionId: string } => entry !== null)
 
     if (submissionsToMark.length === 0) {
-      toast.info("No submissions found in this column to mark.")
+      toast.info(uploadColumn ? "Nothing to mark: every upload in this column has been marked." : "No submissions found in this column to mark.")
       return
     }
 
@@ -1372,75 +1405,31 @@ export function AssignmentResultsDashboard({
     })
   }, [groupedRows, activities, matrixState.assignmentId, startAiMarkTransition])
 
-  const handleCreateAssessment = useCallback(() => {
-    startAssessmentTransition(async () => {
-      try {
-        const result = await createAssessmentFromAssignmentAction(matrixState.assignmentId)
-        if (!result.data) {
-          toast.error(result.error ?? "Unable to create the assessment.")
-          return
-        }
-        const { assessmentId, created, pupilsRecorded, pupilErrors } = result.data
-        const message = `${created ? "Assessment created" : "Assessment updated"} with results for ${pupilsRecorded} pupil${pupilsRecorded === 1 ? "" : "s"}.`
-        const open = { label: "Open", onClick: () => router.push(`/assessments/${encodeURIComponent(assessmentId)}`) }
-        if (pupilErrors.length > 0) {
-          toast.warning(`${message} Not recorded: ${pupilErrors.join("; ")}`, { action: open, duration: 15000 })
-        } else {
-          toast.success(message, { action: open })
-        }
-      } catch (error) {
-        console.error("[assignment-results] Create assessment failed", error)
-        toast.error("Unable to create the assessment.")
-      }
-    })
-  }, [matrixState.assignmentId, router])
-
   const handleMarkAll = useCallback(() => {
-    // 1. Filter for short-text activities
-    const shortTextActivityIndices = activities
-      .map((activity, index) => (activity.type === "short-text-question" ? index : -1))
+    // Short text answers, and uploads with "Mark with AI" on. The server
+    // skips any activity without success criteria and refuses uploads the
+    // model cannot read (marking-error), so neither costs a model call.
+    const markedActivityIndices = activities
+      .map((activity, index) => (isBulkAiMarkedActivity(activity) ? index : -1))
       .filter((index) => index !== -1)
 
-    if (shortTextActivityIndices.length === 0) {
-      toast.info("No short text question activities found in this assignment.")
+    if (markedActivityIndices.length === 0) {
+      toast.info("There are no short text questions or AI-marked uploads in this lesson.")
       return
     }
 
-    // 2. Find submissions that need marking
     const submissionsToMark: { submissionId: string }[] = []
-
-    console.group("[handleMarkAll] Debug")
-    console.log("Activity Indices:", shortTextActivityIndices)
-    
-    let checkedCount = 0
-    let matchCount = 0
-
     for (const row of groupedRows) {
-      for (const activityIndex of shortTextActivityIndices) {
+      for (const activityIndex of markedActivityIndices) {
         const cell = row.cells[activityIndex]
-        if (!cell || !cell.submissionId) {
-          continue
-        }
-        
-        checkedCount++
-        
-        // We use needsMarking which drives the UI "new/unmarked" state.
-        // This is robust against cases where status might be ambiguous but the UI shows it as needing attention.
-        if (cell.needsMarking) {
-            matchCount++
-            submissionsToMark.push({ submissionId: cell.submissionId })
-        } else {
-             // Debug why it was skipped if it has a submission
-             console.log(`Skipping submission ${cell.submissionId}: status=${cell.status}, needsMarking=${cell.needsMarking}`)
+        if (cellNeedsBulkAiMark(activities[activityIndex], cell)) {
+          submissionsToMark.push({ submissionId: cell.submissionId! })
         }
       }
     }
-    
-    console.log(`Checked ${checkedCount} cells, found ${matchCount} matches.`)
-    console.groupEnd()
 
     if (submissionsToMark.length === 0) {
-      toast.info("All short text submissions have already been marked.")
+      toast.info("Nothing to mark: every short text answer and AI-marked upload has been marked.")
       return
     }
 
@@ -1452,7 +1441,9 @@ export function AssignmentResultsDashboard({
         })
 
         if (result.success) {
-          toast.success(`AI marking queued for ${submissionsToMark.length} submissions.`)
+          toast.success(
+            `Queued ${submissionsToMark.length} submission${submissionsToMark.length === 1 ? "" : "s"} for AI marking.`,
+          )
         } else {
           toast.error("Failed to queue AI marking.")
         }
@@ -1577,6 +1568,19 @@ export function AssignmentResultsDashboard({
         : selection.cell.submissionId
           ? "criteria"
           : "criteria-new"
+
+  // A short-text question's criterion panel shows what it is marked against
+  // (its mark scheme if the body has one, else the model answer), so the
+  // context's "Correct answer" box is not repeated above it.
+  const stqReference =
+    selection && selection.activity.type === "short-text-question"
+      ? {
+          markScheme: selection.activity.markingGuidance ?? null,
+          modelAnswer: selection.cell.correctAnswer ?? null,
+        }
+      : undefined
+  const stqShowsReference =
+    Boolean(stqReference) && (overrideMarking === "criteria" || overrideMarking === "criteria-new")
 
   // The criterion panel recorded a submission for a pupil who had none; point
   // the selected cell at it so later saves (the overall comment) use it.
@@ -2933,7 +2937,7 @@ export function AssignmentResultsDashboard({
                     </p>
                   </div>
 
-                  {selection.cell.correctAnswer ? (
+                  {selection.cell.correctAnswer && !stqShowsReference ? (
                     <div className="rounded-md border border-emerald-300/70 bg-emerald-100/40 p-3">
                       <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
                         Correct answer
@@ -3030,8 +3034,8 @@ export function AssignmentResultsDashboard({
                     {isQuestionMarkedActivityType(selection.activity.type) ? (
                       <p className="text-sm text-foreground">
                         {selection.cell.submissionId
-                          ? "The pupil's script and marks are under Marking below."
-                          : "No script uploaded."}
+                          ? questionMarkedWorkText(selection.activity.type)
+                          : noQuestionMarkedWorkText(selection.activity.type)}
                       </p>
                     ) : isUploadListingActivityType(selection.activity.type) ? (
                       <p className="text-sm text-foreground">
@@ -3221,6 +3225,7 @@ export function AssignmentResultsDashboard({
                                     onCreated: handleCriteriaSubmissionCreated,
                                   }}
                                   aiMarked={selection.activity.aiMarked}
+                                  reference={stqReference}
                                   onAggregateChange={handleCriteriaAggregateChange}
                                 />
                               </div>
@@ -3589,9 +3594,9 @@ export function AssignmentResultsDashboard({
                 </div>
                 <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border/60 bg-muted/40 px-3 py-3">
                   <div className="space-y-1">
-                    <p className="text-sm font-semibold text-foreground">Mark all short text answers</p>
+                    <p className="text-sm font-semibold text-foreground">Mark all with AI</p>
                     <p className="text-xs text-muted-foreground">
-                      Send all unmarked short text submissions to the marking queue.
+                      Send all unmarked short text answers and AI-marked uploads to the marking queue.
                     </p>
                   </div>
                   <Button 
@@ -3601,23 +3606,6 @@ export function AssignmentResultsDashboard({
                     disabled={aiMarkPending}
                   >
                     {aiMarkPending ? "Queueing..." : "Mark All"}
-                  </Button>
-                </div>
-                <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border/60 bg-muted/40 px-3 py-3">
-                  <div className="space-y-1">
-                    <p className="text-sm font-semibold text-foreground">Save as assessment</p>
-                    <p className="text-xs text-muted-foreground">
-                      Copy the scores, learning objectives and feedback into an assessment paper.
-                      Running it again updates the same paper.
-                    </p>
-                  </div>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={handleCreateAssessment}
-                    disabled={assessmentPending || !matrixState.assignment}
-                  >
-                    {assessmentPending ? "Saving..." : "Save"}
                   </Button>
                 </div>
                 <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-3">
@@ -3732,7 +3720,9 @@ export function AssignmentResultsDashboard({
         </div>
 
         <div className="overflow-hidden rounded-lg border border-border">
-          <div className="scrollbar-always-x relative w-full">
+          {/* Capped below the 80px sticky top bar so the horizontal scrollbar
+              stays on screen; the header row and pupil column stick inside it. */}
+          <div className="scrollbar-always-x relative max-h-[calc(100dvh-7rem)] w-full overflow-y-auto">
             <table className="w-full min-w-[720px] border-collapse text-sm">
               <thead>
                 <tr>
@@ -3774,35 +3764,13 @@ export function AssignmentResultsDashboard({
                               {activity.type.replace(/-/g, " ")}
                             </span>
                           </div>
-                          {activity.successCriteria.length > 0 ? (
-                            <div className="flex flex-wrap gap-1">
-                              {activity.successCriteria.map((criterion) => {
-                                const label =
-                                  criterion.title?.trim() && criterion.title.trim().length > 0
-                                    ? criterion.title.trim()
-                                    : criterion.description?.trim() && criterion.description.trim().length > 0
-                                      ? criterion.description.trim()
-                                      : criterion.successCriteriaId
-                                return (
-                                  <span
-                                    key={criterion.successCriteriaId}
-                                    className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground transition group-hover:bg-muted/80"
-                                  >
-                                    {label}
-                                  </span>
-                                )
-                              })}
-                            </div>
-                          ) : (
-                            <span className="text-[10px] text-muted-foreground">No linked success criteria</span>
-                          )}
                           <div className="flex flex-col text-xs text-muted-foreground">
                             <span className="font-semibold text-foreground">
                               Score {formatPercent(activitySummariesById[activity.activityId]?.average ?? null)}
                             </span>
                           </div>
                         </button>
-                          {activity.type === "short-text-question" && (
+                          {isBulkAiMarkedActivity(activity) && (
                             <Button
                               variant="outline"
                               size="sm"
@@ -4171,7 +4139,7 @@ export function AssignmentResultsDashboard({
                       </p>
                     </div>
 
-                    {selection.cell.correctAnswer ? (
+                    {selection.cell.correctAnswer && !stqShowsReference ? (
                       <div className="rounded-md border border-emerald-300/70 bg-emerald-100/40 p-3">
                         <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
                           Correct answer
@@ -4277,8 +4245,8 @@ export function AssignmentResultsDashboard({
                       {isQuestionMarkedActivityType(selection.activity.type) ? (
                         <p className="text-sm text-foreground">
                           {selection.cell.submissionId
-                            ? "The pupil's script and marks are under Marking below."
-                            : "No script uploaded."}
+                            ? questionMarkedWorkText(selection.activity.type)
+                            : noQuestionMarkedWorkText(selection.activity.type)}
                         </p>
                       ) : isUploadListingActivityType(selection.activity.type) ? (
                         <p className="text-sm text-foreground">
@@ -4489,6 +4457,7 @@ export function AssignmentResultsDashboard({
                                       onCreated: handleCriteriaSubmissionCreated,
                                     }}
                                     aiMarked={selection.activity.aiMarked}
+                                    reference={stqReference}
                                     onAggregateChange={handleCriteriaAggregateChange}
                                   />
                                 </div>
@@ -4922,6 +4891,7 @@ export function AssignmentResultsDashboard({
                       <CriterionMarksPanel
                         submissionId={viewingAttempt.submission_id}
                         aiMarked={selection?.activity.aiMarked ?? false}
+                        reference={stqReference}
                         onLoaded={setAttemptCriterionCount}
                         // A criterion override changes the submission total, so
                         // pull the matrix again — otherwise the grid and the

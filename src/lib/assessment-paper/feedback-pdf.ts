@@ -3,6 +3,7 @@ import "server-only"
 import sharp from "sharp"
 
 import { query } from "@/lib/db"
+import { isPowerPointAssessmentType } from "@/dino.config"
 import { pupilHasSatAssessment, readMarkablePages } from "@/lib/assessment-paper/files"
 import {
   pupilFeedbackVisible,
@@ -11,7 +12,14 @@ import {
   summariseTeacherChanges,
   type TeacherChangeSummary,
 } from "@/lib/assessment-paper/results"
-import { effectiveQuestionCriterionFeedback, type AnswerKind, type AnswerStatus } from "@/lib/assessment-paper/store"
+import {
+  effectiveQuestionCriterionFeedback,
+  type AnswerKind,
+  type AnswerStatus,
+  type SubmissionQuestionAnswer,
+} from "@/lib/assessment-paper/store"
+import { isLessonLockedForUser } from "@/lib/lesson-lock"
+import { powerPointMarkState, powerPointQuestionShownToPupil } from "@/lib/powerpoint-assessment/pupil-view"
 import { readFeedbackVisibility } from "@/lib/mcp/pupil-feedback"
 import { AssessmentPaperActivityBodySchema } from "@/types"
 
@@ -59,6 +67,8 @@ export type FeedbackPdfData = {
   overallFeedback: string | null
   /** Folded in from the old assessments module: marks and feedback only. */
   folded: boolean
+  /** A PowerPoint assessment: the pupil's work is their files, not a script. */
+  powerPoint: boolean
   questions: FeedbackPdfQuestion[]
   /**
    * The AI's marks against the teacher's (summariseTeacherChanges). Only in
@@ -69,8 +79,12 @@ export type FeedbackPdfData = {
 
 /**
  * Who may download a pupil's feedback PDF: a teacher, for any pupil; the
- * pupil, for their own, once they have sat the paper and the lesson's
- * feedback is visible to them: the same rule as opening their own script.
+ * pupil, for their own, once they have sat the paper (a PowerPoint
+ * assessment: handed in their work, not still waiting to be marked, when
+ * held only once a teacher has marked a question, and the lesson is not
+ * locked for them, as for their other downloads: the rule their lesson page
+ * follows) and the lesson's feedback is visible to them: the same rule as
+ * opening their own script.
  */
 export async function mayDownloadAssessmentFeedback(
   viewer: { userId: string; isTeacher: boolean },
@@ -79,8 +93,30 @@ export async function mayDownloadAssessmentFeedback(
 ): Promise<boolean> {
   if (viewer.isTeacher) return true
   if (viewer.userId !== pupilId) return false
-  if (!(await pupilHasSatAssessment(activityId, pupilId))) return false
+  const { rows } = await query<{ type: string | null; lesson_id: string }>(
+    "select type, lesson_id from activities where activity_id = $1",
+    [activityId],
+  )
+  if (!rows[0]) return false
+  if (isPowerPointAssessmentType(rows[0].type)) {
+    if (!(await powerPointFeedbackReady(activityId, pupilId))) return false
+    if (await isLessonLockedForUser(pupilId, rows[0].lesson_id)) return false
+  } else if (!(await pupilHasSatAssessment(activityId, pupilId))) {
+    return false
+  }
   return pupilFeedbackVisible(activityId, pupilId)
+}
+
+/**
+ * Whether a pupil's PowerPoint work has feedback to show them, as their
+ * lesson page decides (pupil-view.ts): handed in, not waiting to be marked,
+ * and when held, at least one question a teacher has marked.
+ */
+async function powerPointFeedbackReady(activityId: string, pupilId: string): Promise<boolean> {
+  const result = await readAssessmentPaperResult(activityId, pupilId)
+  const markState = powerPointMarkState(Boolean(result.powerpoint?.handedIn), result.markStatus)
+  if (markState === "not-handed-in" || markState === "waiting") return false
+  return result.questions.some((question) => powerPointQuestionShownToPupil(markState, question))
 }
 
 function needsImages(kind: AnswerKind, status: AnswerStatus) {
@@ -110,10 +146,17 @@ export async function readAssessmentFeedbackPdfData(
   const body = AssessmentPaperActivityBodySchema.safeParse(rawBody)
   const showMarkScheme = !body.success || body.data.showMarkSchemeToPupils !== false
   const folded = Array.isArray(rawBody.foldedFromAssessmentIds)
+  const powerPoint = result.powerpoint !== null
+  // The pupil's copy of PowerPoint work not yet marked shows only what a
+  // teacher has marked, as their lesson page does; the teacher copy shows all.
+  const markState = powerPoint ? powerPointMarkState(Boolean(result.powerpoint?.handedIn), result.markStatus) : null
+  const shown = (question: { provenance: string | null }) =>
+    !markState || options.teacherCopy || powerPointQuestionShownToPupil(markState, question)
+  const allShown = result.questions.every(shown)
 
   // Only the pages an answer needs, loaded once for the whole paper.
   const wanted = new Set<number>()
-  if (!folded) {
+  if (!folded && !powerPoint) {
     for (const q of result.questions) {
       if (q.answer && needsImages(q.answer.kind, q.answer.status)) q.answer.pages.forEach((p) => wanted.add(p))
     }
@@ -141,17 +184,23 @@ export async function readAssessmentFeedbackPdfData(
   )
 
   return {
-    paperTitle: activityRows[0]?.title?.trim() || "Assessment paper",
+    paperTitle: activityRows[0]?.title?.trim() || (powerPoint ? "PowerPoint assessment" : "Assessment paper"),
     pupilName: [profile?.first_name, profile?.last_name].filter(Boolean).join(" ") || "Pupil",
     className: classNames.length > 0 ? classNames.join(", ") : null,
     maxMarks: result.maxMarks,
-    marksAwarded: result.marksAwarded,
+    marksAwarded: allShown
+      ? result.marksAwarded
+      : result.questions.filter(shown).reduce((sum, q) => sum + (q.awarded ?? 0), 0),
     overallFeedback,
     folded,
+    powerPoint,
     ...(options.teacherCopy ? { teacherChanges: summariseTeacherChanges(result) } : {}),
     questions: result.questions.map((q) => {
+      const marksShown = shown(q)
       const isLegacy = q.criteria.length > 0 && q.criteria.every((c) => c.provenance === "legacy")
-      const answer = !folded && q.answer
+      const answer = powerPoint
+        ? powerPointAnswer(q.answer)
+        : !folded && q.answer
         ? {
             kind: q.answer.kind,
             status: q.answer.status,
@@ -168,19 +217,31 @@ export async function readAssessmentFeedbackPdfData(
         label: q.label,
         questionText: q.questionText,
         maxMarks: q.available,
-        awarded: q.awarded,
+        awarded: marksShown ? q.awarded : null,
         answer,
         // A legacy mark is the question's, repeated on every criterion with
         // the same comment, so it is shown once.
-        legacy: isLegacy ? { feedback: effectiveQuestionCriterionFeedback(q.criteria[0]) } : null,
+        legacy: isLegacy && marksShown ? { feedback: effectiveQuestionCriterionFeedback(q.criteria[0]) } : null,
         criteria: q.criteria.map((c) => ({
           description: c.description,
-          awarded: c.awarded,
+          awarded: marksShown ? c.awarded : null,
           available: c.allocation,
-          feedback: effectiveQuestionCriterionFeedback(c),
+          feedback: marksShown ? effectiveQuestionCriterionFeedback(c) : null,
         })),
         markScheme: showMarkScheme ? q.markScheme : null,
       }
     }),
   }
+}
+
+/**
+ * A PowerPoint task's answer as its PDF shows it: blank, or the typed answer
+ * of a task that reads only typed text. Anything else (the reader's digest
+ * of the files) is not the pupil's answer and is left out.
+ */
+function powerPointAnswer(answer: SubmissionQuestionAnswer | null): FeedbackPdfQuestion["answer"] {
+  if (!answer) return null
+  if (answer.status === "blank") return { kind: answer.kind, status: "blank", transcription: null, images: [] }
+  if (answer.kind !== "text" || !answer.transcription?.trim()) return null
+  return { kind: "text", status: answer.status, transcription: answer.transcription, images: [] }
 }

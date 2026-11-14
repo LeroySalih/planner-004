@@ -113,6 +113,30 @@ export async function loadLessonPosition(unitId: string, lessonId: string, group
   }
 }
 
+/**
+ * The activities the pupil has done, from those they have submitted anything
+ * for. A PowerPoint assessment (keyed in `handedIn`, by whether its work is
+ * handed in) has a submission from its first upload, but is done only once
+ * handed in.
+ */
+export function doneActivityIds(submittedIds: string[], handedIn: ReadonlyMap<string, boolean>): string[] {
+  return submittedIds.filter((id) => !handedIn.has(id) || handedIn.get(id) === true)
+}
+
+/**
+ * Whether an activity shows as awaiting marking: submitted with no score yet
+ * (rawScore null; undefined is no submission). A PowerPoint assessment only
+ * once handed in.
+ */
+export function isAwaitingMarking(
+  activityId: string,
+  rawScore: number | null | undefined,
+  handedIn: ReadonlyMap<string, boolean>,
+): boolean {
+  if (handedIn.has(activityId)) return handedIn.get(activityId) === true && rawScore === null
+  return rawScore === null
+}
+
 /** Activities the pupil has submitted anything for. */
 export async function loadSubmittedActivityIds(pupilId: string, activityIds: string[]): Promise<string[]> {
   if (activityIds.length === 0) return []

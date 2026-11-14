@@ -28,9 +28,44 @@ import {
   rescaleStoredMarks,
 } from "@/lib/scoring/derive-max-marks";
 import { withTelemetry } from "@/lib/telemetry";
-import { isLegacyActivityType, isQuestionMarkedActivityType, isScorableActivityType, legacyActivityTypeMessage } from "@/dino.config";
+import {
+  isLegacyActivityType,
+  isPowerPointAssessmentType,
+  isQuestionMarkedActivityType,
+  isScorableActivityType,
+  legacyActivityTypeMessage,
+} from "@/dino.config";
+import {
+  defaultPowerPointAssessmentBody,
+  powerPointBodyProblem,
+} from "@/lib/powerpoint-assessment/evidence-spec";
+import { applyUploadSlotChange } from "@/lib/powerpoint-assessment/slot-changes";
 import { enqueueLessonMutationJob } from "@/lib/lesson-job-runner";
 import { requireRole } from "@/lib/auth";
+
+/** Set by the paper file upload and the fold, never by a body save. */
+const PAPER_OWNED_BODY_KEYS = ["questionPaperPath", "markSchemePath", "foldedFromAssessmentIds"] as const;
+
+/**
+ * An assessment paper's or PowerPoint assessment's body as a body save leaves
+ * it: the stored body with the given one over it, the paper-owned keys as
+ * stored (set or absent), and (a PowerPoint assessment) a setting sent as
+ * null cleared.
+ */
+function mergeQuestionMarkedBody(type: string, storedBody: unknown, given: Record<string, unknown>) {
+  const stored = (storedBody && typeof storedBody === "object" ? storedBody : {}) as Record<string, unknown>;
+  const next: Record<string, unknown> = { ...stored, ...given };
+  for (const key of PAPER_OWNED_BODY_KEYS) {
+    if (stored[key] !== undefined) next[key] = stored[key];
+    else delete next[key];
+  }
+  if (isPowerPointAssessmentType(type)) {
+    for (const [key, value] of Object.entries(next)) {
+      if (value === null) delete next[key];
+    }
+  }
+  return next;
+}
 
 const ActivityByIdReturnValue = z.object({
   data: z
@@ -208,16 +243,36 @@ export async function createLessonActivityAction(
   lessonId: string,
   input: z.infer<typeof CreateActivityInputSchema>,
 ) {
+  await requireRole("teacher");
   const payload = CreateActivityInputSchema.parse(input);
 
   if (isLegacyActivityType(payload.type)) {
     return { success: false, error: legacyActivityTypeMessage(payload.type), data: null };
   }
 
-  const normalizedBody = normalizeActivityBody(payload.type, payload.bodyData);
+  const normalizedBody = isPowerPointAssessmentType(payload.type) && payload.bodyData == null
+    ? { success: true as const, bodyData: {} as unknown }
+    : normalizeActivityBody(payload.type, payload.bodyData);
 
   if (!normalizedBody.success) {
     return { success: false, error: normalizedBody.error, data: null };
+  }
+
+  // A PowerPoint assessment cannot exist without its upload slots: one that
+  // arrives without any starts with the presentation alone. Its paper files
+  // are set by their upload, never by a body.
+  if (isPowerPointAssessmentType(payload.type)) {
+    const given = normalizedBody.bodyData && typeof normalizedBody.bodyData === "object" &&
+        !Array.isArray(normalizedBody.bodyData)
+      ? { ...(normalizedBody.bodyData as Record<string, unknown>) }
+      : {};
+    for (const key of PAPER_OWNED_BODY_KEYS) delete given[key];
+    if (given.uploadSlots === undefined) {
+      given.uploadSlots = defaultPowerPointAssessmentBody().uploadSlots;
+    }
+    const problem = powerPointBodyProblem(given);
+    if (problem) return { success: false, error: problem, data: null };
+    normalizedBody.bodyData = given;
   }
 
   const successCriteriaIds = normalizeSuccessCriteriaIds(
@@ -406,6 +461,7 @@ export async function updateLessonActivityAction(
   activityId: string,
   input: z.infer<typeof UpdateActivityInputSchema>,
 ) {
+  await requireRole("teacher");
   const payload = UpdateActivityInputSchema.parse(input);
   const updates: Record<string, unknown> = {};
 
@@ -468,22 +524,27 @@ export async function updateLessonActivityAction(
     return { success: false, error: normalizedBody.error, data: null };
   }
 
-  // Questions, scripts and question marks belong to the paper; neither side of
-  // a type change could keep them coherent.
-  if (isQuestionMarkedActivityType(finalType) !== isQuestionMarkedActivityType(existing.type)) {
+  // Questions, pupils' files and question marks belong to the activity; neither
+  // side of a type change could keep them coherent, nor could a change between
+  // an assessment paper and a PowerPoint assessment.
+  if (
+    finalType !== existing.type &&
+    (isQuestionMarkedActivityType(finalType) || isQuestionMarkedActivityType(existing.type))
+  ) {
     return {
       success: false,
-      error: "An activity cannot be changed to or from an assessment paper. Create a new activity instead.",
+      error: "An activity cannot be changed to or from an assessment paper or PowerPoint assessment. Create a new activity instead.",
       data: null,
     };
   }
 
+  let givenQuestionMarkedBody: Record<string, unknown> | null = null;
   if (isQuestionMarkedActivityType(finalType)) {
-    // An assessment paper is out of the sum of its questions.
+    // An assessment paper or PowerPoint assessment is out of the sum of its questions.
     if (payload.maxMarks !== undefined && payload.maxMarks !== existing.max_marks) {
       return {
         success: false,
-        error: "An assessment paper's marks are the sum of its questions. Change the questions instead.",
+        error: "This activity's marks are the sum of its questions. Change the questions instead.",
         data: null,
       };
     }
@@ -491,18 +552,19 @@ export async function updateLessonActivityAction(
     // settings are saved from the editor and kept. The paper files and the
     // fold marker are saved by their own paths. A body saved from the editor,
     // possibly opened before an upload, neither drops nor sets them: the
-    // stored values always win.
+    // stored values always win. A PowerPoint assessment's editor clears a
+    // setting (the evidence template) by sending it as null. Merged here to
+    // check it, and again from the locked row when it is written, so an upload
+    // landing in between is kept.
     if (normalizedBody.bodyData && typeof normalizedBody.bodyData === "object") {
-      const stored = (existing.body_data && typeof existing.body_data === "object"
-        ? existing.body_data
-        : {}) as Record<string, unknown>;
-      const next = { ...stored, ...(normalizedBody.bodyData as Record<string, unknown>) };
-      for (const key of ["questionPaperPath", "markSchemePath", "foldedFromAssessmentIds"]) {
-        if (stored[key] !== undefined) next[key] = stored[key];
-        else delete next[key];
-      }
-      normalizedBody.bodyData = next;
+      givenQuestionMarkedBody = normalizedBody.bodyData as Record<string, unknown>;
+      normalizedBody.bodyData = mergeQuestionMarkedBody(finalType, existing.body_data, givenQuestionMarkedBody);
     }
+  }
+
+  if (isPowerPointAssessmentType(finalType) && payload.bodyData !== undefined) {
+    const problem = powerPointBodyProblem(normalizedBody.bodyData);
+    if (problem) return { success: false, error: problem, data: null };
   }
 
   if (payload.title !== undefined) {
@@ -535,24 +597,60 @@ export async function updateLessonActivityAction(
     const setFragments: string[] = [];
     const values: unknown[] = [];
     let idx = 1;
+    let bodyIndex = -1;
     for (const [key, value] of Object.entries(updates)) {
+      if (key === "body_data") bodyIndex = values.length;
       setFragments.push(`${key} = $${idx++}`);
       values.push(value);
     }
     values.push(activityId);
     values.push(lessonId);
 
+    const updateSql = `
+      update activities
+      set ${setFragments.join(", ")}
+      where activity_id = $${idx} and lesson_id = $${idx + 1}
+      returning *
+    `;
     try {
-      const { rows } = await query(
-        `
-          update activities
-          set ${setFragments.join(", ")}
-          where activity_id = $${idx} and lesson_id = $${idx + 1}
-          returning *
-        `,
-        values,
-      );
-      updatedActivityRow = rows[0] ?? updatedActivityRow;
+      if (givenQuestionMarkedBody && bodyIndex >= 0) {
+        // Written from the row as it is now, locked: a paper or mark scheme
+        // uploaded since it was read above is kept. On a PowerPoint
+        // assessment the questions' evidence names the upload slots: a slot
+        // it reads cannot go or change kind, and a rename is carried into the
+        // evidence and the pupils' files, all with the save.
+        const given = givenQuestionMarkedBody;
+        const slotProblem = await withDbClient(async (client) => {
+          await client.query("begin");
+          try {
+            const { rows: locked } = await client.query<{ body_data: unknown }>(
+              "select body_data from activities where activity_id = $1 and lesson_id = $2 for update",
+              [activityId, lessonId],
+            );
+            const lockedBody = locked[0] ? locked[0].body_data : existing.body_data;
+            const body = mergeQuestionMarkedBody(finalType, lockedBody, given);
+            values[bodyIndex] = body;
+            if (isPowerPointAssessmentType(finalType)) {
+              const { errors } = await applyUploadSlotChange(client, activityId, lockedBody, body, { rename: true });
+              if (errors.length > 0) {
+                await client.query("rollback");
+                return `These upload slots no longer fit the questions' evidence: ${errors.join(" ")} Change those questions' evidence first.`;
+              }
+            }
+            const { rows } = await client.query(updateSql, values);
+            updatedActivityRow = rows[0] ?? updatedActivityRow;
+            await client.query("commit");
+            return null;
+          } catch (error) {
+            await client.query("rollback");
+            throw error;
+          }
+        });
+        if (slotProblem) return { success: false, error: slotProblem, data: null };
+      } else {
+        const { rows } = await query(updateSql, values);
+        updatedActivityRow = rows[0] ?? updatedActivityRow;
+      }
     } catch (error) {
       console.error("[v0] Failed to update lesson activity:", error);
       const message = error instanceof Error
@@ -708,6 +806,7 @@ export async function reorderLessonActivitiesAction(
   lessonId: string,
   input: z.infer<typeof ReorderActivityInputSchema>,
 ) {
+  await requireRole("teacher");
   const payload = ReorderActivityInputSchema.parse(input);
 
   if (payload.length === 0) {
@@ -783,6 +882,7 @@ export async function deleteLessonActivityAction(
   lessonId: string,
   activityId: string,
 ) {
+  await requireRole("teacher");
   try {
     await withDbClient(async (client) => {
       await client.query(

@@ -83,3 +83,4 @@ dino_schema_*.sql
 backups/
 recovery/
 /fold-results
+/powerpoint-copy-results

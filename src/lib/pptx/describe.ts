@@ -2,6 +2,7 @@
 // read instead of XML. Facts only: it never says whether a mark is earned.
 
 import { describeMatch } from "./known-images"
+import { DEFAULT_PRESENTATION_SECTIONS } from "./section-selectors"
 import type {
   AnimationInfo,
   BackgroundInfo,
@@ -205,12 +206,38 @@ function imageUse(u: ImageUse) {
   return `${u.where} ${useKind(u)}${size} (${how}${crop})`
 }
 
+// One section of the description: PRESENTATION, SLIDE MASTER n, LAYOUT
+// MASTERS, SLIDE n, ACTION BUTTONS, NOTES MASTER, HANDOUT MASTER, SUPPLIED
+// IMAGES, MEDIA or WARNINGS. `text` starts with the title line.
+export type PresentationSection = {
+  key: string
+  title: string
+  text: string
+}
+
+/** The whole description. Its sections joined by a blank line. */
 export function describePresentation(report: PresentationReport): string {
-  const out: string[] = []
+  return describePresentationSections(report).map((section) => section.text).join("\n\n")
+}
+
+/**
+ * The description section by section, in the order describePresentation
+ * writes them. Keys: "presentation", "master:<n>", "layouts", "slide:<n>",
+ * "action-buttons" (only when there are any), "notes-master",
+ * "handout-master", "supplied-images" (only when images were supplied),
+ * "media", "warnings" (only when there are any).
+ */
+export function describePresentationSections(report: PresentationReport): PresentationSection[] {
+  const sections: { key: string; title: string; lines: string[] }[] = []
+  let out: string[] = []
+  const start = (key: string, title: string) => {
+    out = [title]
+    sections.push({ key, title, lines: out })
+  }
   const p = report.presentation
   const size = p.slideSize
 
-  out.push("PRESENTATION")
+  start("presentation", "PRESENTATION")
   out.push(`  Saved by: ${p.application ?? "unknown"}${p.appVersion ? ` ${p.appVersion}` : ""}`)
   out.push(`  Slides: ${p.slideCount}; hidden slides: ${p.hiddenSlides.length ? p.hiddenSlides.join(", ") : "none"}`)
   out.push(`  Slide size: ${n2(size.widthCm)} × ${n2(size.heightCm)} cm, ratio ${size.ratio} (${size.exactNamedRatio ? "" : "nearest "}${size.nearestNamedRatio})`)
@@ -218,8 +245,7 @@ export function describePresentation(report: PresentationReport): string {
   out.push(`  Macros: ${p.hasMacros ? "YES (not run)" : "none"}`)
 
   for (const m of report.masters) {
-    out.push("")
-    out.push(`SLIDE MASTER ${m.number}${m.name ? ` "${m.name}"` : ""}`)
+    start(`master:${m.number}`, `SLIDE MASTER ${m.number}${m.name ? ` "${m.name}"` : ""}`)
     out.push(`  Background: ${background(m.background)}`)
     out.push(`  Title style: ${runStyle(m.titleStyle)}`)
     out.push(`  Body text style (level 1): ${runStyle(m.bodyStyle)}`)
@@ -230,8 +256,7 @@ export function describePresentation(report: PresentationReport): string {
     out.push(`  ${headerFooter(m.headerFooter)}`)
   }
 
-  out.push("")
-  out.push("LAYOUT MASTERS")
+  start("layouts", "LAYOUT MASTERS")
   for (const l of report.layouts) {
     const used = l.usedBySlides.length ? `used by slide${l.usedBySlides.length > 1 ? "s" : ""} ${l.usedBySlides.join(", ")}` : "not used"
     out.push(`  Layout "${l.name ?? l.part}" (type ${l.type ?? "custom"}; ${used})`)
@@ -257,8 +282,7 @@ export function describePresentation(report: PresentationReport): string {
   }
 
   for (const s of report.slides) {
-    out.push("")
-    out.push(`SLIDE ${s.number} (layout: ${s.layoutName ?? "none"})${s.title ? ` ${quote(s.title)}` : " (no title)"}${s.hidden ? " — HIDDEN" : ""}`)
+    start(`slide:${s.number}`, `SLIDE ${s.number} (layout: ${s.layoutName ?? "none"})${s.title ? ` ${quote(s.title)}` : " (no title)"}${s.hidden ? " — HIDDEN" : ""}`)
     if (s.titleStyle) {
       const overrides = s.titleStyle.overridesOnSlide.length ? `; set on this slide: ${s.titleStyle.overridesOnSlide.join(", ")}` : "; no formatting set on the slide"
       out.push(`  Title formatting: ${runStyle(s.titleStyle)}${overrides}`)
@@ -326,8 +350,7 @@ export function describePresentation(report: PresentationReport): string {
   // Action buttons compared across slides.
   const buttons = report.slides.flatMap((s) => s.actionButtons)
   if (buttons.length) {
-    out.push("")
-    out.push("ACTION BUTTONS")
+    start("action-buttons", "ACTION BUTTONS")
     const byKind = new Map<string, typeof buttons>()
     for (const b of buttons) byKind.set(b.geometry, [...(byKind.get(b.geometry) ?? []), b])
     for (const [geometry, list] of byKind) {
@@ -339,8 +362,7 @@ export function describePresentation(report: PresentationReport): string {
 
   for (const nm of [report.notesMaster, report.handoutMaster]) {
     if (!nm) continue
-    out.push("")
-    out.push(nm.kind.toUpperCase())
+    start(nm.kind === "notes master" ? "notes-master" : "handout-master", nm.kind.toUpperCase())
     for (const item of nm.placeholders) out.push(`  ${footerItem(item)}`)
     out.push(`  ${headerFooter(nm.headerFooter)}`)
     if (nm.kind === "notes master") {
@@ -350,17 +372,14 @@ export function describePresentation(report: PresentationReport): string {
     }
   }
   if (!report.notesMaster) {
-    out.push("")
-    out.push("NOTES MASTER: none in the file")
+    start("notes-master", "NOTES MASTER: none in the file")
   }
   if (!report.handoutMaster) {
-    out.push("")
-    out.push("HANDOUT MASTER: none in the file")
+    start("handout-master", "HANDOUT MASTER: none in the file")
   }
 
   if (report.suppliedImages) {
-    out.push("")
-    out.push(`SUPPLIED IMAGES (each picture compared with the ${report.suppliedImages.length} images supplied)`)
+    start("supplied-images", `SUPPLIED IMAGES (each picture compared with the ${report.suppliedImages.length} images supplied)`)
     for (const image of report.suppliedImages) {
       out.push(`  ${image.name}: ${image.uses.length ? image.uses.map(imageUse).join("; ") : "not used"}`)
     }
@@ -372,17 +391,38 @@ export function describePresentation(report: PresentationReport): string {
     }
   }
 
-  out.push("")
-  out.push("MEDIA")
+  start("media", "MEDIA")
   for (const m of report.media) {
     const px = m.pixelWidth && m.pixelHeight ? `${m.pixelWidth} × ${m.pixelHeight} px` : "size unknown"
     out.push(`  ${m.part}: ${m.format ?? "?"}, ${px}, ${m.bytes} bytes, sha256 ${m.sha256 ?? "not hashed"}; used by ${m.usedBy.length ? m.usedBy.join("; ") : "nothing"}`)
   }
 
   if (report.warnings.length) {
-    out.push("")
-    out.push("WARNINGS")
+    start("warnings", "WARNINGS")
     for (const w of report.warnings) out.push(`  ${w}`)
   }
-  return out.join("\n")
+  return sections.map((section) => ({ key: section.key, title: section.title, text: section.lines.join("\n") }))
+}
+
+export { isPresentationSectionSelector } from "./section-selectors"
+
+function selects(selector: string, key: string): boolean {
+  if (selector === "master") return key.startsWith("master:")
+  if (selector === "slides") return key.startsWith("slide:")
+  if (selector === "notes") return key === "notes-master" || key === "handout-master"
+  const slides = selector.match(/^slides:(\d+(?:,\d+)*)$/)
+  if (slides) return slides[1].split(",").some((n) => key === `slide:${Number.parseInt(n, 10)}`)
+  return selector === key
+}
+
+/**
+ * The sections the selectors name, in description order (never repeated).
+ * An unknown selector, or a slide the file does not have, selects nothing.
+ */
+export function filterPresentationSections(
+  sections: PresentationSection[],
+  selectors?: readonly string[] | null,
+): PresentationSection[] {
+  const chosen = selectors && selectors.length > 0 ? selectors : DEFAULT_PRESENTATION_SECTIONS
+  return sections.filter((section) => chosen.some((selector) => selects(selector.trim(), section.key)))
 }

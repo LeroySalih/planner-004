@@ -30,6 +30,9 @@ export interface Corruption {
     | "stray-backslash"
     | "lone-linebreak"
     | "stray-quote"
+    | "trailing-digit"
+    | "unmatched-quote"
+    | "html-tag"
   /** A short window around the damage, to make the log actionable. */
   excerpt: string
 }
@@ -47,6 +50,13 @@ export interface Corruption {
  * own "\n", which would trip stray-backslash. None of the sampled code feedback
  * did. That costs a retry and, at worst, one submission surfacing as
  * marking-error for a teacher — cheaper than sending a pupil mangled text.
+ *
+ * trailing-digit, unmatched-quote and html-tag were added in November 2026
+ * after Sonnet 5 marking let "…automatically.4", "…presentation.'" and a
+ * "</br>" through. Run over every stored AI comment and marker note in the dev
+ * database (9 843 texts, all activity types), they matched 24 pupil comments
+ * and one note, every one of them damaged in the same ways, and nothing
+ * healthy.
  */
 /** A "\uXXXX" that survived as literal characters instead of being decoded. */
 const LITERAL_UNICODE_ESCAPE = /\\u[0-9a-fA-F]{4}/
@@ -58,8 +68,43 @@ const STRAY_BACKSLASH = /\\/
 const LONE_LINEBREAK = /(?<!\n)\n(?!\n)/
 /** An isolated double-quote surrounded by whitespace, seen replacing an em dash. */
 const STRAY_QUOTE = /\s"\s/
+/**
+ * A digit stuck straight onto the end of a sentence, as in "…automatically.4":
+ * seen on Sonnet 5 marking (November 2026). The character before the stop must
+ * not be a digit, so "version 2.4" and "7.5 cm" pass; it must be followed by
+ * whitespace or the end, so a decimal like "x.5cm" mid-word is not a sentence.
+ */
+const TRAILING_DIGIT = /(?<=[A-Za-z)\]'"’”])[.!?]\d+(?=\s|$)/
+/**
+ * A closing quote at the very end with no quote opened before it, as in
+ * "…presentation.'" (Sonnet 5, November 2026). Checked by `unmatchedEndQuote`.
+ */
+const END_QUOTE = /([.!?,;:]?)(['"’”])\s*$/
+/**
+ * Formatting tags a model leaks into prose, such as "</br>". Named elements
+ * only, so "a < b", "<3", "->" and placeholder text such as "<your name>" pass.
+ */
+const HTML_TAG = /<\/?(?:br|p|b|i|u|em|strong|span|div|ul|ol|li|sup|sub|a|h[1-6]|hr|table|tr|td|th|code|pre)(?:\s+[a-z-]+(?:=(?:"[^"]*"|'[^']*'|[^\s>]+))?)*\s*\/?>/i
 /** `code spans` and one-line "string literals", which code feedback quotes. */
 const QUOTED_CODE = /`[^`\n]*`|"[^"\n]*"/g
+
+/**
+ * The text ends in a closing quote that nothing opened. A double quote counts
+ * as unmatched when the text has an odd number of them; a single (or curly)
+ * quote when it follows sentence punctuation and no quote of its kind opens
+ * earlier, at the start or after a space or bracket. A lone apostrophe ending a
+ * word ("the pupils'") is left alone: it is not after punctuation.
+ */
+function unmatchedEndQuote(text: string): RegExpExecArray | null {
+  const match = END_QUOTE.exec(text)
+  if (!match) return null
+  const [, punctuation, quote] = match
+  const before = text.slice(0, match.index + punctuation.length)
+  if (quote === '"') return (before.match(/"/g)?.length ?? 0) % 2 === 0 ? match : null
+  if (quote === "”") return before.includes("“") ? null : match
+  if (!punctuation) return null
+  return /(?:^|[\s(\[])['‘](?=\S)/.test(before) ? null : match
+}
 
 function excerptAround(text: string, index: number): string {
   return text.slice(Math.max(0, index - 40), index + 40).replace(/[\r\n]/g, "⏎")
@@ -84,12 +129,29 @@ function excerptAround(text: string, index: number): string {
  * and OCR transcription is multi-line by definition. Applying the strict set
  * there rejects perfectly good replies.
  *
+ * `note` is `lenient` plus `trailing-digit` and `html-tag`, for teacher-facing prose that may run
+ * to several sentences, lines and quoted slide text, such as a marker's
+ * evidence note. The tag check is not part of `lenient` itself because the
+ * other lenient surfaces may carry HTML honestly: a chat about a web-design
+ * lesson, a transcription of a pupil's handwritten HTML, a mark scheme that
+ * names tags (and a transcription can hold "P.78", which trailing-digit would
+ * take for damage). A marker's note describes evidence in words; a "</br>" in
+ * one is the model's formatting leaking, not content. Quote checks stay out of
+ * `note`: a note quotes slide text freely. The damage is rejected, not
+ * stripped, as everywhere in this guard: a reply that leaked markup was not
+ * emitted cleanly, and a retry re-rolls it, where stripping would keep the rest
+ * of a damaged reply and hide that it happened.
+ *
  * The asymmetry is deliberate. A false positive on marking costs a retry; a
  * false negative sends a pupil mangled feedback. A false positive on chat
  * breaks the feature outright, while a false negative shows a teacher some
  * garbled text they can see and retry. So marking is strict and chat is not.
  */
-export type GuardMode = "strict" | "lenient"
+export type GuardMode = "strict" | "lenient" | "note"
+
+type Signature = [Corruption["kind"], (text: string) => RegExpExecArray | null]
+
+const pattern = (re: RegExp) => (text: string) => re.exec(text)
 
 export function findTextCorruption(
   text: string | null | undefined,
@@ -97,26 +159,34 @@ export function findTextCorruption(
 ): Corruption | null {
   if (!text) return null
 
-  const strict = (options.mode ?? "strict") === "strict"
-  const signatures = [
-    ["literal-unicode-escape", LITERAL_UNICODE_ESCAPE],
-    ["replacement-char", REPLACEMENT_CHAR],
-    ...(strict
-      ? ([
-          ["stray-backslash", STRAY_BACKSLASH],
-          ["lone-linebreak", LONE_LINEBREAK],
-          ["stray-quote", STRAY_QUOTE],
-        ] as const)
-      : []),
-  ] as const
-
+  const mode = options.mode ?? "strict"
   // Feedback on a pupil's code quotes it: sep=" " is a whole string literal,
-  // not a quote that replaced an em dash. Paired quotes are blanked (keeping
-  // offsets) so only an unpaired quote counts as stray.
+  // not a quote that replaced an em dash, and "<br>" in backticks names the
+  // pupil's tag. Paired quotes are blanked (keeping offsets) so only what is
+  // outside them is checked.
   const quoteChecked = options.quotesCode ? text.replace(QUOTED_CODE, (m) => " ".repeat(m.length)) : text
+  const outsideQuotes = (re: RegExp) => () => re.exec(quoteChecked)
 
-  for (const [kind, pattern] of signatures) {
-    const match = pattern.exec(kind === "stray-quote" ? quoteChecked : text)
+  const signatures: Signature[] = [
+    ["literal-unicode-escape", pattern(LITERAL_UNICODE_ESCAPE)],
+    ["replacement-char", pattern(REPLACEMENT_CHAR)],
+  ]
+  if (mode === "strict") {
+    signatures.push(
+      ["stray-backslash", pattern(STRAY_BACKSLASH)],
+      ["lone-linebreak", pattern(LONE_LINEBREAK)],
+      ["stray-quote", outsideQuotes(STRAY_QUOTE)],
+      ["trailing-digit", pattern(TRAILING_DIGIT)],
+      ["unmatched-quote", unmatchedEndQuote],
+      ["html-tag", outsideQuotes(HTML_TAG)],
+    )
+  }
+  if (mode === "note") {
+    signatures.push(["trailing-digit", pattern(TRAILING_DIGIT)], ["html-tag", pattern(HTML_TAG)])
+  }
+
+  for (const [kind, find] of signatures) {
+    const match = find(text)
     if (match) {
       return { kind, excerpt: excerptAround(text, match.index) }
     }

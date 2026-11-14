@@ -10,11 +10,14 @@ export function isGotenbergConfigured(): boolean {
  * Convert an office document (e.g. .pptx) to PDF via a Gotenberg service.
  * Requires GOTENBERG_URL (and optionally GOTENBERG_USERNAME/PASSWORD for basic
  * auth). Gotenberg picks the converter from the file extension, so `fileName`
- * must keep its real extension. Returns the PDF bytes or a friendly error.
+ * must keep its real extension. `fields` are extra form fields (Gotenberg's
+ * LibreOffice options, e.g. exportHiddenSlides). Returns the PDF bytes or a
+ * friendly error.
  */
 export async function convertToPdfViaGotenberg(
   fileBuffer: Buffer,
   fileName: string,
+  options: { timeoutMs?: number; fields?: Record<string, string> } = {},
 ): Promise<{ pdf: Buffer | null; error: string | null }> {
   const baseUrl = process.env.GOTENBERG_URL
   if (!baseUrl) {
@@ -35,9 +38,15 @@ export async function convertToPdfViaGotenberg(
 
   const form = new FormData()
   form.append("files", new Blob([new Uint8Array(fileBuffer)]), fileName)
+  for (const [name, value] of Object.entries(options.fields ?? {})) form.append(name, value)
 
   try {
-    const response = await fetch(url, { method: "POST", headers, body: form })
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: form,
+      ...(options.timeoutMs ? { signal: AbortSignal.timeout(options.timeoutMs) } : {}),
+    })
     if (!response.ok) {
       const detail = await response.text().catch(() => "")
       console.error(

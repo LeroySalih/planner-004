@@ -56,9 +56,11 @@ const AVAILABLE_MARKS_SUBQUERY = `
     -- item count, not from their criteria, and their stored marks are
     -- recomputed from the pupil's answers rather than rescaled.
     -- recalculateMatcherMaxMarks and recalculateGroupItemsMaxMarks own them.
-    -- An assessment paper's marks are the sum of its questions, whatever its
-    -- criteria are worth elsewhere: recalculateAssessmentPaperMaxMarks.
-    and act.type not in ('matcher', 'group-items', 'assessment-paper')
+    -- A question-marked activity's marks are the sum of its questions,
+    -- whatever its criteria are worth elsewhere:
+    -- recalculateAssessmentPaperMaxMarks.
+    and act.type not in ('matcher', 'group-items')
+    and not is_question_marked_activity_type(act.type)
 `
 
 /**
@@ -110,7 +112,8 @@ function recalculateStatement(filter: string): string {
 
 /**
  * Recalculate max_marks for a single activity from its linked criteria, or,
- * for an assessment paper, from its questions. No-op for activities with no
+ * for a question-marked activity (assessment paper, PowerPoint assessment),
+ * from its questions. No-op for activities with no
  * criteria.
  */
 export async function recalculateActivityMaxMarks(
@@ -125,8 +128,9 @@ export async function recalculateActivityMaxMarks(
 }
 
 /**
- * An assessment paper is out of the sum of its questions' marks (raw marks, no
- * scaling). No-op for any other type, and for a paper with no questions yet.
+ * A question-marked activity (assessment paper, PowerPoint assessment) is out of
+ * the sum of its questions' marks (raw marks, no scaling). No-op for any other
+ * type, and for one with no questions yet.
  *
  * Stored marks are not rescaled: a question's marks are absolute, so the
  * pupils' totals do not move, only the denominator. setAssessmentQuestions
@@ -146,7 +150,7 @@ export async function recalculateAssessmentPaperMaxMarks(
        group by q.activity_id
      ) totals
      where a.activity_id = totals.activity_id
-       and a.type = 'assessment-paper'
+       and is_question_marked_activity_type(a.type)
        and a.max_marks is distinct from totals.max_marks`,
     [activityId],
   )

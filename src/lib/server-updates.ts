@@ -478,7 +478,6 @@ export {
   mapAssessmentObjectiveAction,
   readMyAssessmentsAction,
   readMyAssessmentAction,
-  createAssessmentFromAssignmentAction,
   deleteAssessmentAction,
   linkAssessmentFileAction,
   listAssessmentFilesAction,
@@ -495,6 +494,26 @@ export {
   splitAssessmentMarkSchemeAction,
   uploadAssessmentPaperFileAction,
 } from './server-actions/assessment-paper-activity'
+
+export {
+  handInPowerPointAssessmentAction,
+  readMyPowerPointAssessmentViewAction,
+  readPowerPointAssessmentSlotsAction,
+  removePracticalFileAction,
+  removeSuppliedImageAction,
+  uploadSuppliedImageAction,
+} from './server-actions/powerpoint-assessment'
+
+export type { PracticalSlotState, PracticalSlotsState, SuppliedImage } from './powerpoint-assessment/files'
+export type { PupilPowerPointView } from './powerpoint-assessment/pupil-view'
+
+export {
+  checkEvidenceTemplateAction,
+  listSuppliedImagesAction,
+  renameSuppliedImageAction,
+} from './server-actions/powerpoint-assessment-editor'
+
+export type { EvidenceTemplateCheck } from './powerpoint-assessment/editor'
 
 export type { AssessmentPaperSetup, AssessmentPaperSetupQuestion } from './assessment-paper/setup'
 export type { MarkSchemeProposal, MarkSchemeSplit } from './assessment-paper/mark-scheme-split'

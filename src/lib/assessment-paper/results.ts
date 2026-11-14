@@ -1,7 +1,7 @@
 import "server-only"
 
 import { query } from "@/lib/db"
-import { isQuestionMarkedActivityType } from "@/dino.config"
+import { isAssessmentPaperType, isPowerPointAssessmentType, isQuestionMarkedActivityType } from "@/dino.config"
 import {
   listQuestionsAwaitingCheck,
   readAssessmentQuestions,
@@ -14,7 +14,20 @@ import { ASSESSMENT_SCRIPTS_BUCKET, pupilHasSatAssessment } from "@/lib/assessme
 import { assessmentFeedbackPdfUrl } from "@/lib/assessment-paper/urls"
 import { fetchPupilActivityFeedbackMap, selectLatestFeedbackEntry } from "@/lib/feedback/pupil-activity-feedback"
 import { readFeedbackVisibility } from "@/lib/mcp/pupil-feedback"
-import { AssessmentPaperActivityBodySchema } from "@/types"
+import { evidenceHeading, type QuestionEvidence } from "@/lib/powerpoint-assessment/evidence-spec"
+import {
+  evidenceFromRow,
+  evidenceLabelKey,
+  evidenceWarnings,
+  type EvidenceKind,
+  type SlotEvidence,
+  type StoredEvidenceImage,
+} from "@/lib/powerpoint-assessment/reading"
+import {
+  AssessmentPaperActivityBodySchema,
+  PowerPointAssessmentActivityBodySchema,
+  type PowerPointUploadSlotKind,
+} from "@/types"
 
 // One pupil's result on an assessment paper, question by question, as the
 // results page (teacher) and the feedback PDF read it, and the little the
@@ -62,6 +75,55 @@ export type AssessmentResultQuestion = {
   available: number
   provenance: QuestionMarkProvenance | null
   criteria: AssessmentResultCriterion[]
+  /**
+   * PowerPoint assessment: where the question's evidence comes from
+   * (evidence-spec.ts). [] on an assessment paper. Teacher views only.
+   */
+  evidenceSources: QuestionEvidence[]
+  /**
+   * PowerPoint assessment: the pictures the marker is given for this
+   * question, from the files read: the screenshots under its evidence
+   * headings and the slides drawn for it. Teacher views only.
+   */
+  evidenceImages: AssessmentEvidenceImage[]
+  /** PowerPoint assessment: the marker's note on the evidence. Teacher views only: never pass it to a pupil. */
+  markerEvidence: string | null
+}
+
+/** A picture the reader stored from a pupil's file (teacher-only /api/files URL). */
+export type AssessmentEvidenceImage = {
+  url: string
+  caption: string
+  width: number
+  height: number
+}
+
+/** One upload slot of a PowerPoint assessment and the pupil's file in it. */
+export type PowerPointResultFile = {
+  slotKey: string
+  label: string
+  kind: PowerPointUploadSlotKind
+  required: boolean
+  /** The rest are null while the slot is empty. */
+  name: string | null
+  /** /api/files URL of the file as handed in. */
+  url: string | null
+  uploadedAt: string | null
+  /** Null until the reader has read it. */
+  evidenceStatus: "ok" | "error" | null
+  evidenceError: string | null
+}
+
+/** A PowerPoint assessment's files on one submission, in place of a script. Teacher views only. */
+export type PowerPointResultFiles = {
+  handedIn: boolean
+  files: PowerPointResultFile[]
+  /** Evidence headings the questions read that are not in the pupil's evidence document. */
+  missingHeadings: string[]
+  /** What the reader noticed, each starting with its slot's label. */
+  warnings: string[]
+  /** Pictures outside every heading of an evidence document: kept for the teacher, never marked. */
+  unplacedImages: AssessmentEvidenceImage[]
 }
 
 export type AssessmentScriptFiles = {
@@ -88,6 +150,8 @@ export type AssessmentPaperResult = {
   /** Null until any question is marked. */
   marksAwarded: number | null
   script: AssessmentScriptFiles | null
+  /** A PowerPoint assessment's files; null on an assessment paper. */
+  powerpoint: PowerPointResultFiles | null
   questions: AssessmentResultQuestion[]
   /** Questions awaiting a teacher's check on this pupil's script. */
   awaitingCheckCount: number
@@ -119,14 +183,16 @@ export async function readAssessmentPaperResult(
   if (!activity) throw new Error("Activity not found.")
   if (!isQuestionMarkedActivityType(activity.type)) throw new Error("This activity is not an assessment paper.")
   const body = AssessmentPaperActivityBodySchema.safeParse(activity.body_data ?? {})
+  const isPowerPoint = isPowerPointAssessmentType(activity.type)
 
   const { rows: submissionRows } = await query<{
     submission_id: string
     marks: number | null
     mark_status: string | null
     mark_error: string | null
+    submission_status: string | null
   }>(
-    `select submission_id, (body::jsonb ->> 'marks')::int as marks, mark_status, mark_error
+    `select submission_id, (body::jsonb ->> 'marks')::int as marks, mark_status, mark_error, submission_status
        from submissions
       where activity_id = $1 and user_id = $2 and ($3::text is null or submission_id = $3)
       order by attempt_number desc, submitted_at desc nulls last, submission_id desc
@@ -140,7 +206,7 @@ export async function readAssessmentPaperResult(
   const questions = await readAssessmentQuestions(activityId)
   const criterionIds = Array.from(new Set(questions.flatMap((q) => q.criteria.map((c) => c.successCriteriaId))))
 
-  const [descriptionRows, questionMarkRows, criterionMarkRows, scriptRows, answers, awaitingOnPaper] = await Promise.all([
+  const [descriptionRows, questionMarkRows, criterionMarkRows, scriptRows, answers, awaitingOnPaper, powerPointRead] = await Promise.all([
     query<{ success_criteria_id: string; description: string | null }>(
       "select success_criteria_id, description from success_criteria where success_criteria_id = any($1::text[])",
       [criterionIds],
@@ -165,7 +231,7 @@ export async function readAssessmentPaperResult(
          from submission_question_criterion_marks where submission_id = $1`,
       [resolvedSubmissionId],
     ),
-    resolvedSubmissionId
+    resolvedSubmissionId && !isPowerPoint
       ? query<{
           script_id: string
           page_count: number
@@ -186,6 +252,7 @@ export async function readAssessmentPaperResult(
       ? readSubmissionAnswers(resolvedSubmissionId)
       : Promise.resolve(new Map<string, SubmissionQuestionAnswer>()),
     listQuestionsAwaitingCheck(activityId),
+    isPowerPoint ? readPowerPointEvidence(resolvedSubmissionId) : Promise.resolve(null),
   ])
   const awaitingHere = new Set(
     awaitingOnPaper.filter((row) => row.submissionId === resolvedSubmissionId).map((row) => row.questionId),
@@ -222,6 +289,9 @@ export async function readAssessmentPaperResult(
           })),
         }
       : null,
+    powerpoint: isPowerPoint
+      ? powerPointFiles(activity.body_data, submission?.submission_status === "submitted", powerPointRead!, questions)
+      : null,
     awaitingCheckCount: awaitingHere.size,
     paperAwaitingCheck: {
       questions: awaitingOnPaper.length,
@@ -257,9 +327,170 @@ export async function readAssessmentPaperResult(
             aiAwarded: row?.ai_awarded === null || row?.ai_awarded === undefined ? null : Number(row.ai_awarded),
           }
         }),
+        evidenceSources: isPowerPoint ? q.evidence : [],
+        evidenceImages: isPowerPoint ? questionEvidenceImages(q, powerPointRead!) : [],
+        markerEvidence: powerPointRead?.markerEvidence.get(q.questionId) ?? null,
       }
     }),
   }
+}
+
+type PowerPointEvidenceRead = {
+  files: Array<{
+    fileId: string
+    slotKey: string
+    name: string
+    storagePath: string
+    uploadedAt: string
+    evidence: SlotEvidence | null
+  }>
+  markerEvidence: Map<string, string>
+}
+
+/** A PowerPoint submission's files with what the reader made of each, and the marker's notes. */
+async function readPowerPointEvidence(submissionId: string | null): Promise<PowerPointEvidenceRead> {
+  if (!submissionId) return { files: [], markerEvidence: new Map() }
+  const [{ rows: fileRows }, { rows: noteRows }] = await Promise.all([
+    query<{
+      file_id: string
+      slot_key: string
+      original_name: string
+      storage_path: string
+      uploaded_at: Date | string
+      kind: EvidenceKind | null
+      status: "ok" | "error" | null
+      error: string | null
+      cache_key: string | null
+      report: unknown
+      description: string | null
+    }>(
+      `select f.file_id::text as file_id, f.slot_key, f.original_name, f.storage_path, f.uploaded_at,
+              e.kind, e.status, e.error, e.cache_key, e.report, null::text as description
+         from practical_submission_files f
+         left join practical_submission_evidence e on e.file_id = f.file_id
+        where f.submission_id = $1
+        order by f.slot_key`,
+      [submissionId],
+    ),
+    query<{ question_id: string; marker_evidence: string }>(
+      `select question_id, marker_evidence from submission_question_answers
+        where submission_id = $1 and nullif(btrim(coalesce(marker_evidence, '')), '') is not null`,
+      [submissionId],
+    ),
+  ])
+  return {
+    files: fileRows.map((row) => ({
+      fileId: row.file_id,
+      slotKey: row.slot_key,
+      name: row.original_name,
+      storagePath: row.storage_path,
+      uploadedAt: new Date(row.uploaded_at).toISOString(),
+      evidence:
+        row.kind && row.status
+          ? evidenceFromRow(row.kind, {
+              status: row.status,
+              error: row.error,
+              cache_key: row.cache_key ?? "",
+              report: row.report,
+              description: row.description,
+            })
+          : null,
+    })),
+    markerEvidence: new Map(noteRows.map((row) => [row.question_id, row.marker_evidence.trim()])),
+  }
+}
+
+function evidenceImage(image: Pick<StoredEvidenceImage, "path" | "width" | "height">, caption: string): AssessmentEvidenceImage {
+  return { url: assessmentScriptUrl(image.path), caption, width: image.width, height: image.height }
+}
+
+function powerPointFiles(
+  bodyData: unknown,
+  handedIn: boolean,
+  read: PowerPointEvidenceRead,
+  questions: Array<{ label: string; evidence: QuestionEvidence[] }>,
+): PowerPointResultFiles {
+  const body = PowerPointAssessmentActivityBodySchema.safeParse(bodyData ?? {})
+  const slots = body.success ? body.data.uploadSlots : []
+  const fileOf = new Map(read.files.map((file) => [file.slotKey, file]))
+  const labelOf = (slotKey: string) => slots.find((slot) => slot.key === slotKey)?.label ?? slotKey
+
+  const warnings: string[] = []
+  const missingHeadings: string[] = []
+  const unplacedImages: AssessmentEvidenceImage[] = []
+  for (const file of read.files) {
+    const evidence = file.evidence
+    if (!evidence || evidence.status !== "ok") continue
+    for (const warning of evidenceWarnings(evidence)) warnings.push(`${labelOf(file.slotKey)}: ${warning}`)
+    if (evidence.kind !== "evidence_doc") continue
+    // Only the headings some question still reads from this slot.
+    const headingsRead = new Set(
+      questions.flatMap((q) =>
+        q.evidence.flatMap((source) =>
+          source.source === "evidence_section" && source.slot === file.slotKey
+            ? [evidenceLabelKey(evidenceHeading(source, q.label))]
+            : [],
+        ),
+      ),
+    )
+    missingHeadings.push(
+      ...evidence.report.missingHeadings.filter((heading) => headingsRead.has(evidenceLabelKey(heading))),
+    )
+    evidence.report.unplaced.images.forEach((image, index) =>
+      unplacedImages.push(evidenceImage(image, `${labelOf(file.slotKey)}: outside every heading, picture ${index + 1}`)),
+    )
+  }
+
+  return {
+    handedIn,
+    files: slots.map((slot) => {
+      const file = fileOf.get(slot.key)
+      return {
+        slotKey: slot.key,
+        label: slot.label,
+        kind: slot.kind,
+        required: slot.required,
+        name: file?.name ?? null,
+        url: file ? assessmentScriptUrl(file.storagePath) : null,
+        uploadedAt: file?.uploadedAt ?? null,
+        evidenceStatus: file?.evidence?.status ?? null,
+        evidenceError: file?.evidence?.status === "error" ? file.evidence.error : null,
+      }
+    }),
+    missingHeadings,
+    warnings,
+    unplacedImages,
+  }
+}
+
+/**
+ * The pictures one question's sources give the marker, as the marker
+ * assembles them (src/lib/powerpoint-assessment/marking.ts): each
+ * screenshot under an evidence heading it reads for pictures, and each
+ * slide drawn that it reads as slide_images.
+ */
+function questionEvidenceImages(
+  question: { label: string; evidence: QuestionEvidence[] },
+  read: PowerPointEvidenceRead,
+): AssessmentEvidenceImage[] {
+  const images: AssessmentEvidenceImage[] = []
+  for (const source of question.evidence) {
+    if (source.source !== "evidence_section" && source.source !== "slide_images") continue
+    const evidence = read.files.find((file) => file.slotKey === source.slot)?.evidence
+    if (!evidence || evidence.status !== "ok") continue
+    if (source.source === "evidence_section" && source.want !== "text" && evidence.kind === "evidence_doc") {
+      const heading = evidenceHeading(source, question.label)
+      const section = evidence.report.sections.find((s) => evidenceLabelKey(s.label) === evidenceLabelKey(heading))
+      section?.images.forEach((image, index) => images.push(evidenceImage(image, `${heading}, screenshot ${index + 1}`)))
+    }
+    if (source.source === "slide_images" && evidence.kind === "presentation" && evidence.slideImages?.status === "ok") {
+      const wanted = source.slides ? new Set(source.slides) : null
+      for (const image of evidence.slideImages.images) {
+        if (!wanted || wanted.has(image.slide)) images.push(evidenceImage(image, `Slide ${image.slide}`))
+      }
+    }
+  }
+  return images
 }
 
 export type TeacherChangedQuestion = {
@@ -391,7 +622,7 @@ export async function readPupilAssessmentPaperView(
   )
   const activity = rows[0]
   if (!activity) throw new Error("Activity not found.")
-  if (!isQuestionMarkedActivityType(activity.type)) throw new Error("This activity is not an assessment paper.")
+  if (!isAssessmentPaperType(activity.type)) throw new Error("This activity is not an assessment paper.")
   if (!(await pupilHasSatAssessment(activityId, pupilId))) return { sat: false, questionPaperUrl: null, feedback: null }
 
   const body = AssessmentPaperActivityBodySchema.safeParse(activity.body_data ?? {})

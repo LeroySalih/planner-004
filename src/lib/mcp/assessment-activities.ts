@@ -1,8 +1,9 @@
 import { z } from 'zod'
 
 import { query } from '@/lib/db'
-import { isQuestionMarkedActivityType } from '@/dino.config'
+import { isPowerPointAssessmentType, isQuestionMarkedActivityType } from '@/dino.config'
 import { countFrontSheetChecks } from '@/lib/assessment-paper/files'
+import { readAssessmentPaperResult } from '@/lib/assessment-paper/results'
 import {
   QUESTION_MARKINGS,
   confirmAssessmentQuestionMarks,
@@ -15,14 +16,20 @@ import {
   type QuestionMarking,
 } from '@/lib/assessment-paper/store'
 import { fetchPupilActivityFeedbackMap, selectLatestFeedbackEntry } from '@/lib/feedback/pupil-activity-feedback'
+import { describePresentationSections, filterPresentationSections } from '@/lib/pptx/describe'
+import { PRESENTATION_SECTION_KEYS, isPresentationSectionSelector } from '@/lib/pptx/section-selectors'
+import type { QuestionEvidence } from '@/lib/powerpoint-assessment/evidence-spec'
+import { handInPowerPointAssessment, listSuppliedImages } from '@/lib/powerpoint-assessment/files'
+import { evidenceFromRow, evidenceWarnings, type EvidenceKind, type SlotEvidence } from '@/lib/powerpoint-assessment/reading'
 import { pupilMembershipSql } from '@/lib/roles/pupil-membership'
-import { AssessmentPaperActivityBodySchema } from '@/types'
+import { AssessmentPaperActivityBodySchema, PowerPointAssessmentActivityBodySchema, type PowerPointUploadSlot } from '@/types'
 
-// MCP reads and settings for assessment-paper activities. The questions are
-// set through setAssessmentQuestions and the files through the upload links;
-// this is the rest: the questions' input shape, the overview, one pupil's
-// result, a teacher's marks on one question, and the script behind a script
-// download link.
+// MCP reads and settings for assessment-paper and PowerPoint assessment
+// activities. The questions are set through setAssessmentQuestions and the
+// files through the upload links; this is the rest: the questions' input
+// shape, the overview, one pupil's result, a teacher's marks on one question,
+// the script behind a script download link, and (PowerPoint) what the reader
+// made of a pupil's files and a teacher's hand-in for a pupil.
 
 // The MCP SDK sends every parameter as a string, and z.array() does not
 // coerce one, so arrays are parsed first (CLAUDE.md, MCP gotchas).
@@ -49,6 +56,14 @@ export const AssessmentActivityQuestionsInput = jsonArray(
       .nullable()
       .optional()
       .describe('Error carried forward: the label of an EARLIER question whose answer the marker also sees. null or "" for none; omit to keep the current one.'),
+    evidence: jsonArray(z.record(z.string(), z.unknown()))
+      .optional()
+      .describe(
+        'PowerPoint assessments only: where the marker finds this question\'s evidence, a list of sources '
+        + '({ source: "presentation", slot, sections?, required? } | { source: "slide_images", slot, slides? } | { source: "file", slot, required? } '
+        + '| { source: "evidence_section", slot, heading?, want: "screenshots" | "text" | "both", required? } | { source: "reference_file", fileName }). '
+        + 'Omit to keep the current sources; [] clears them. Refused on an assessment paper.',
+      ),
     criteria: jsonArray(
       z.object({
         success_criteria_id: z.string().min(1).describe('A success criterion the question tests.'),
@@ -69,21 +84,55 @@ export function toAssessmentQuestionInputs(
     markScheme: q.mark_scheme ?? null,
     ...(q.marking === undefined ? {} : { marking: q.marking }),
     ...(q.depends_on === undefined ? {} : { dependsOn: q.depends_on?.trim() || null }),
+    ...(q.evidence === undefined ? {} : { evidence: q.evidence }),
     criteria: q.criteria.map((c) => ({ successCriteriaId: c.success_criteria_id, maxMarks: c.max_marks })),
   }))
 }
 
-type ActivityRow = { activity_id: string; lesson_id: string; title: string | null; max_marks: number | null; body_data: unknown }
+type ActivityRow = { activity_id: string; lesson_id: string; title: string | null; type: string | null; max_marks: number | null; body_data: unknown }
 
 async function readActivity(activityId: string): Promise<ActivityRow> {
-  const { rows } = await query<ActivityRow & { type: string | null }>(
+  const { rows } = await query<ActivityRow>(
     'select activity_id, lesson_id, title, type, max_marks, body_data from activities where activity_id = $1',
     [activityId],
   )
   const row = rows[0]
   if (!row) throw new Error(`Activity ${activityId} not found`)
-  if (!isQuestionMarkedActivityType(row.type)) throw new Error(`Activity ${activityId} is not an assessment paper`)
+  if (!isQuestionMarkedActivityType(row.type)) throw new Error(`Activity ${activityId} is not an assessment paper or PowerPoint assessment`)
   return row
+}
+
+async function readPowerPointActivity(activityId: string): Promise<ActivityRow> {
+  const row = await readActivity(activityId)
+  if (!isPowerPointAssessmentType(row.type)) throw new Error(`Activity ${activityId} is not a PowerPoint assessment`)
+  return row
+}
+
+function uploadSlotsOf(bodyData: unknown): PowerPointUploadSlot[] {
+  const parsed = PowerPointAssessmentActivityBodySchema.safeParse(bodyData ?? {})
+  return parsed.success ? parsed.data.uploadSlots : []
+}
+
+function describePowerPointBody(bodyData: unknown) {
+  const parsed = PowerPointAssessmentActivityBodySchema.safeParse(bodyData ?? {})
+  const body = parsed.success ? parsed.data : null
+  return {
+    has_question_paper: Boolean(body?.questionPaperPath),
+    has_mark_scheme: Boolean(body?.markSchemePath),
+    instructions: body?.instructions ?? null,
+    upload_slots: (body?.uploadSlots ?? []).map((slot) => ({
+      key: slot.key,
+      label: slot.label,
+      kind: slot.kind,
+      required: slot.required,
+      hint: slot.hint ?? null,
+    })),
+    evidence_template_file: body?.evidenceTemplateFile ?? null,
+    /** Absent means shown. */
+    show_mark_scheme_to_pupils: body?.showMarkSchemeToPupils !== false,
+    /** Why the body cannot be read (no upload slots set up), or null. */
+    problem: parsed.success ? null : 'The upload slots are not set up.',
+  }
 }
 
 function describeBody(bodyData: unknown) {
@@ -96,7 +145,7 @@ function describeBody(bodyData: unknown) {
   }
 }
 
-async function readQuestionsWithCriteria(activityId: string) {
+async function readQuestionsWithCriteria(activityId: string, options?: { evidence?: boolean }) {
   const questions = await readAssessmentQuestions(activityId)
   const ids = Array.from(new Set(questions.flatMap((q) => q.criteria.map((c) => c.successCriteriaId))))
   const { rows } = await query<{ success_criteria_id: string; description: string | null }>(
@@ -114,6 +163,7 @@ async function readQuestionsWithCriteria(activityId: string) {
     has_mark_scheme: Boolean(q.markScheme?.trim()),
     marking: q.marking,
     depends_on: q.dependsOnQuestionId ? labelOf.get(q.dependsOnQuestionId) ?? null : null,
+    ...(options?.evidence ? { evidence: q.evidence as QuestionEvidence[] } : {}),
     criteria: q.criteria.map((c) => ({
       success_criteria_id: c.successCriteriaId,
       description: descriptions.get(c.successCriteriaId) ?? '',
@@ -122,16 +172,12 @@ async function readQuestionsWithCriteria(activityId: string) {
   }))
 }
 
-export type AssessmentActivityPupil = {
+type AssessmentActivityPupilBase = {
   pupil_id: string
   first_name: string | null
   last_name: string | null
   submission_id: string | null
-  script_uploaded: boolean
-  script_uploaded_at: string | null
-  /** 'passed', why the script is held, or null (no script, or a folded paper's, never checked). */
-  front_sheet_check: string | null
-  /** Null until marked; a missing paper still counts 0 towards progress. */
+  /** Null until marked; missing work still counts 0 towards progress. */
   marks_awarded: number | null
   max_marks: number
   mark_status: string | null
@@ -139,9 +185,46 @@ export type AssessmentActivityPupil = {
   progress: AssessmentActivityPupilProgress | null
 }
 
-/** Where one pupil's latest script is in read-then-mark. Null with no submission. */
+/** A pupil on an assessment paper. */
+export type AssessmentPaperActivityPupil = AssessmentActivityPupilBase & {
+  script_uploaded: boolean
+  script_uploaded_at: string | null
+  /** 'passed', why the script is held, or null (no script, or a folded paper's, never checked). */
+  front_sheet_check: string | null
+}
+
+/** One upload slot and the pupil's file in it. */
+export type PowerPointPupilSlot = {
+  slot_key: string
+  label: string
+  kind: string
+  required: boolean
+  /** Null while the slot is empty. */
+  file: {
+    file_id: string
+    file_name: string
+    bytes: number
+    uploaded_at: string
+    /** What the reader made of it: null until read, then "ok" or "error" (the file could not be read; the work is held). */
+    reader_status: 'ok' | 'error' | null
+    reader_error: string | null
+  } | null
+}
+
+/** A pupil on a PowerPoint assessment. */
+export type PowerPointActivityPupil = AssessmentActivityPupilBase & {
+  handed_in: boolean
+  handed_in_at: string | null
+  files: PowerPointPupilSlot[]
+  /** Labels of required slots with no file. */
+  missing_required: string[]
+}
+
+export type AssessmentActivityPupil = AssessmentPaperActivityPupil | PowerPointActivityPupil
+
+/** Where one pupil's latest work is in read-then-mark. Null with no submission. */
 export type AssessmentActivityPupilProgress = {
-  /** The script has been read (answers stored) and no read is queued or running. */
+  /** The script (or the handed-in files) has been read (answers stored) and no read is queued or running. */
   read_done: boolean
   /** Questions with marks from anyone (AI, teacher, or carried over from an old paper). */
   questions_marked: number
@@ -161,7 +244,7 @@ export type AssessmentActivityPupilProgress = {
  */
 export async function getAssessmentActivity(activityId: string) {
   const activity = await readActivity(activityId)
-  const questions = await readQuestionsWithCriteria(activityId)
+  const questions = await readQuestionsWithCriteria(activityId, { evidence: isPowerPointAssessmentType(activity.type) })
   const maxMarks = Number(activity.max_marks) || 0
 
   const { rows: pupils } = await query<{
@@ -174,6 +257,8 @@ export async function getAssessmentActivity(activityId: string) {
     uploaded_at: Date | null
     front_sheet_check: string | null
     mark_error: string | null
+    submission_status: string | null
+    submitted_at: Date | null
     answers: number
     read_open: boolean
     questions_marked: number
@@ -192,13 +277,15 @@ export async function getAssessmentActivity(activityId: string) {
        select s.user_id from submissions s where s.activity_id = $1
      ),
      latest as (
-       select distinct on (s.user_id) s.user_id, s.submission_id, s.body, s.mark_status, s.mark_error
+       select distinct on (s.user_id) s.user_id, s.submission_id, s.body, s.mark_status, s.mark_error,
+              s.submission_status, s.submitted_at
          from submissions s
         where s.activity_id = $1
         order by s.user_id, s.attempt_number desc, s.submitted_at desc nulls last, s.submission_id desc
      )
      select p.user_id as pupil_id, p.first_name, p.last_name,
             l.submission_id, (l.body::jsonb ->> 'marks')::int as marks, l.mark_status, l.mark_error,
+            l.submission_status, l.submitted_at,
             sc.uploaded_at, sc.front_sheet_check,
             coalesce(progress.answers, 0) as answers,
             coalesce(progress.read_open, false) as read_open,
@@ -246,40 +333,132 @@ export async function getAssessmentActivity(activityId: string) {
     awaitingCheck.set(row.submissionId, (awaitingCheck.get(row.submissionId) ?? 0) + 1)
   }
 
+  const activitySummary = {
+    activity_id: activity.activity_id,
+    lesson_id: activity.lesson_id,
+    title: activity.title,
+    type: activity.type,
+    max_marks: maxMarks,
+  }
+  const common = (p: (typeof pupils)[number]): AssessmentActivityPupilBase => ({
+    pupil_id: p.pupil_id,
+    first_name: p.first_name,
+    last_name: p.last_name,
+    submission_id: p.submission_id,
+    marks_awarded: p.marks === null ? null : Number(p.marks),
+    max_marks: maxMarks,
+    mark_status: p.mark_status,
+    mark_error: p.mark_error,
+    progress: p.submission_id
+      ? {
+          read_done: Number(p.answers) > 0 && !p.read_open,
+          questions_marked: Number(p.questions_marked),
+          questions_to_mark: Number(p.questions_to_mark),
+          questions_held: Number(p.questions_held),
+          questions_awaiting_check: awaitingCheck.get(p.submission_id) ?? 0,
+        }
+      : null,
+  })
+
+  if (isPowerPointAssessmentType(activity.type)) {
+    const slots = uploadSlotsOf(activity.body_data)
+    const filesBySubmission = await readPowerPointFilesBySubmission(
+      pupils.flatMap((p) => (p.submission_id ? [p.submission_id] : [])),
+    )
+    const powerPointPupils = pupils.map((p): PowerPointActivityPupil => {
+      const handedIn = p.submission_status === 'submitted'
+      const files = powerPointSlots(slots, filesBySubmission.get(p.submission_id ?? '') ?? [])
+      return {
+        ...common(p),
+        handed_in: handedIn,
+        handed_in_at: handedIn && p.submitted_at ? new Date(p.submitted_at).toISOString() : null,
+        files,
+        missing_required: files.filter((slot) => slot.required && !slot.file).map((slot) => slot.label),
+      }
+    })
+    return {
+      kind: 'powerpoint-assessment' as const,
+      activity: activitySummary,
+      body: describePowerPointBody(activity.body_data),
+      // The task's images, as teachers and pupils see them (the reader's fingerprints are left out).
+      supplied_images: (await listSuppliedImages(activityId)).map((image) => ({
+        name: image.name,
+        file_name: image.file_name,
+        width: image.width,
+        height: image.height,
+        uploaded_at: image.uploaded_at,
+      })),
+      questions,
+      handed_in_count: powerPointPupils.filter((p) => p.handed_in).length,
+      pupils: powerPointPupils as AssessmentActivityPupil[],
+    }
+  }
+
   return {
-    activity: {
-      activity_id: activity.activity_id,
-      lesson_id: activity.lesson_id,
-      title: activity.title,
-      max_marks: maxMarks,
-    },
+    kind: 'assessment-paper' as const,
+    activity: activitySummary,
     body: describeBody(activity.body_data),
     questions,
     scripts_count: pupils.filter((p) => p.uploaded_at).length,
     front_sheet_checks: await countFrontSheetChecks(activityId),
     pupils: pupils.map((p): AssessmentActivityPupil => ({
-      pupil_id: p.pupil_id,
-      first_name: p.first_name,
-      last_name: p.last_name,
-      submission_id: p.submission_id,
+      ...common(p),
       script_uploaded: Boolean(p.uploaded_at),
       script_uploaded_at: p.uploaded_at ? new Date(p.uploaded_at).toISOString() : null,
       front_sheet_check: p.front_sheet_check,
-      marks_awarded: p.marks === null ? null : Number(p.marks),
-      max_marks: maxMarks,
-      mark_status: p.mark_status,
-      mark_error: p.mark_error,
-      progress: p.submission_id
-        ? {
-            read_done: Number(p.answers) > 0 && !p.read_open,
-            questions_marked: Number(p.questions_marked),
-            questions_to_mark: Number(p.questions_to_mark),
-            questions_held: Number(p.questions_held),
-            questions_awaiting_check: awaitingCheck.get(p.submission_id) ?? 0,
-          }
-        : null,
     })),
   }
+}
+
+type PowerPointFileRow = {
+  submission_id: string
+  file_id: string
+  slot_key: string
+  original_name: string
+  bytes: number
+  uploaded_at: Date
+  status: 'ok' | 'error' | null
+  error: string | null
+}
+
+/** The files on these submissions, with the reader's status of each, by submission. */
+async function readPowerPointFilesBySubmission(submissionIds: string[]): Promise<Map<string, PowerPointFileRow[]>> {
+  const out = new Map<string, PowerPointFileRow[]>()
+  if (submissionIds.length === 0) return out
+  const { rows } = await query<PowerPointFileRow>(
+    `select f.submission_id, f.file_id::text as file_id, f.slot_key, f.original_name, f.bytes, f.uploaded_at,
+            e.status, e.error
+       from practical_submission_files f
+       left join practical_submission_evidence e on e.file_id = f.file_id
+      where f.submission_id = any($1::text[])`,
+    [submissionIds],
+  )
+  for (const row of rows) out.set(row.submission_id, [...(out.get(row.submission_id) ?? []), row])
+  return out
+}
+
+/** Every upload slot, in the activity's order, with the file in it. */
+function powerPointSlots(slots: PowerPointUploadSlot[], files: PowerPointFileRow[]): PowerPointPupilSlot[] {
+  const fileOf = new Map(files.map((file) => [file.slot_key, file]))
+  return slots.map((slot) => {
+    const file = fileOf.get(slot.key)
+    return {
+      slot_key: slot.key,
+      label: slot.label,
+      kind: slot.kind,
+      required: slot.required,
+      file: file
+        ? {
+            file_id: file.file_id,
+            file_name: file.original_name,
+            bytes: Number(file.bytes),
+            uploaded_at: new Date(file.uploaded_at).toISOString(),
+            reader_status: file.status,
+            reader_error: file.status === 'error' ? file.error : null,
+          }
+        : null,
+    }
+  })
 }
 
 /**
@@ -362,9 +541,16 @@ export async function getAssessmentActivityResult(activityId: string, pupilId: s
   const { data: feedbackMap } = await fetchPupilActivityFeedbackMap({ activityIds: [activityId], pupilIds: [pupilId] })
   const feedbackRows = feedbackMap?.get(`${pupilId}::${activityId}`)
 
+  // A PowerPoint assessment's files and the marker's notes, as the results page reads them.
+  const powerPoint = isPowerPointAssessmentType(activity.type)
+    ? await readAssessmentPaperResult(activityId, pupilId, submissionId)
+    : null
+  const powerPointQuestion = new Map((powerPoint?.questions ?? []).map((q) => [q.questionId, q]))
+
   const maxMarks = Number(activity.max_marks) || 0
   return {
     activity_id: activityId,
+    type: activity.type,
     pupil_id: pupilId,
     first_name: pupil.first_name,
     last_name: pupil.last_name,
@@ -373,6 +559,26 @@ export async function getAssessmentActivityResult(activityId: string, pupilId: s
     mark_error: submission?.mark_error ?? null,
     marks_awarded: submission?.marks ?? null,
     max_marks: maxMarks,
+    // PowerPoint assessment: whether the pupil (or a teacher for them) handed in, and every
+    // upload slot with its file and what the reader made of it. Null on an assessment paper.
+    powerpoint: powerPoint?.powerpoint
+      ? {
+          handed_in: powerPoint.powerpoint.handedIn,
+          files: powerPoint.powerpoint.files.map((file) => ({
+            slot_key: file.slotKey,
+            label: file.label,
+            kind: file.kind,
+            required: file.required,
+            file_name: file.name,
+            uploaded_at: file.uploadedAt,
+            reader_status: file.evidenceStatus,
+            reader_error: file.evidenceError,
+          })),
+          missing_headings: powerPoint.powerpoint.missingHeadings,
+          warnings: powerPoint.powerpoint.warnings,
+          unplaced_pictures: powerPoint.powerpoint.unplacedImages.length,
+        }
+      : null,
     script: scriptRows[0]
       ? {
           script_id: scriptRows[0].script_id,
@@ -397,6 +603,14 @@ export async function getAssessmentActivityResult(activityId: string, pupilId: s
         awarded: mark ? Number(mark.awarded) : null,
         available: q.max_marks,
         provenance: mark?.provenance ?? null,
+        ...(powerPoint
+          ? {
+              // Where the marker finds the question's evidence.
+              evidence_sources: powerPointQuestion.get(q.question_id)?.evidenceSources ?? [],
+              // The marker's note on the evidence it was given. Teacher-only: no pupil view shows it.
+              marker_evidence: powerPointQuestion.get(q.question_id)?.markerEvidence ?? null,
+            }
+          : {}),
         // What the reader found; null until the script is read. provenance
         // "teacher" = corrected by a teacher, kept on a re-read.
         answer: answer
@@ -470,7 +684,11 @@ export async function setAssessmentActivityQuestionMarks(input: AssessmentQuesti
   await readPupil(input.pupilId)
   const submission = await readLatestSubmission(input.activityId, input.pupilId)
   if (!submission) {
-    throw new Error(`Pupil ${input.pupilId} has no submission on this paper. Upload their script first.`)
+    throw new Error(
+      isPowerPointAssessmentType(activity.type)
+        ? `Pupil ${input.pupilId} has no submission on this activity. Upload their files first.`
+        : `Pupil ${input.pupilId} has no submission on this paper. Upload their script first.`,
+    )
   }
   const submissionId = submission.submission_id
 
@@ -593,6 +811,9 @@ export function scriptFileName(
  */
 export async function resolveLatestScript(activityId: string, pupilId: string): Promise<LatestScript> {
   const activity = await readActivity(activityId)
+  if (isPowerPointAssessmentType(activity.type)) {
+    throw new Error('PowerPoint assessments have no scripts; use get_practical_assessment_evidence or the results page.')
+  }
   const pupil = await readPupil(pupilId)
   const submission = await readLatestSubmission(activityId, pupilId)
   if (!submission) throw new Error(`Pupil ${pupilId} has no submission on this paper.`)
@@ -663,10 +884,10 @@ function onlyMatch<T>(what: string, given: string, matches: T[], describe: (matc
 }
 
 /**
- * The class, unit and assessment-paper activity a class feedback PDF is for,
- * each given by id or by name (exact id first, then a case-insensitive exact
- * name). The activity must be an assessment paper in one of the unit's
- * standard lessons, and the class must be set that lesson.
+ * The class, unit and assessment-paper or PowerPoint assessment activity a
+ * class feedback PDF is for, each given by id or by name (exact id first,
+ * then a case-insensitive exact name). The activity must be in one of the
+ * unit's standard lessons, and the class must be set that lesson.
  */
 export async function resolveClassFeedbackTarget(input: {
   class: string
@@ -722,7 +943,7 @@ export async function resolveClassFeedbackTarget(input: {
     ` in a lesson of unit ${unit.unit_id}`,
   )
   if (!isQuestionMarkedActivityType(activity.type)) {
-    throw new Error(`Activity ${activity.activity_id} is a ${activity.type ?? 'untyped'} activity, not an assessment paper.`)
+    throw new Error(`Activity ${activity.activity_id} is a ${activity.type ?? 'untyped'} activity, not an assessment paper or PowerPoint assessment.`)
   }
 
   const { rows: assigned } = await query(
@@ -730,7 +951,7 @@ export async function resolveClassFeedbackTarget(input: {
     [groupId, activity.lesson_id],
   )
   if (!assigned[0]) {
-    throw new Error(`Class ${groupId} is not set the lesson "${activity.lesson_title ?? activity.lesson_id}" that holds this paper.`)
+    throw new Error(`Class ${groupId} is not set the lesson "${activity.lesson_title ?? activity.lesson_id}" that holds this activity.`)
   }
 
   return {
@@ -740,5 +961,202 @@ export async function resolveClassFeedbackTarget(input: {
     lessonId: activity.lesson_id,
     activityId: activity.activity_id,
     activityTitle: activity.title,
+  }
+}
+
+// ------------------------------------------------------- PowerPoint assessments
+
+/** What get_practical_assessment_evidence reports of one slot's reading. */
+function describeSlotEvidence(evidence: SlotEvidence, sections: readonly string[] | null) {
+  if (evidence.status === 'error') {
+    return { status: 'error' as const, kind: evidence.kind, error: evidence.error, too_large: evidence.tooLarge === true }
+  }
+  const warnings = evidenceWarnings(evidence)
+  if (evidence.kind === 'presentation') {
+    const slides = evidence.slideImages
+    return {
+      status: 'ok' as const,
+      kind: evidence.kind,
+      slide_count: evidence.report.presentation.slideCount,
+      // The presentation description section by section, as the marker is given it.
+      sections: filterPresentationSections(describePresentationSections(evidence.report), sections).map((section) => ({
+        key: section.key,
+        title: section.title,
+        text: section.text,
+      })),
+      // The slides drawn as pictures (for slide_images sources): slide numbers and sizes, never the pictures.
+      slide_images: slides === null
+        ? null
+        : slides.status === 'ok'
+          ? {
+              status: 'ok' as const,
+              slide_count: slides.slideCount,
+              rendered: slides.images.map((image) => ({ slide: image.slide, width: image.width, height: image.height, bytes: image.bytes })),
+              not_rendered: slides.notRendered,
+            }
+          : { status: 'unavailable' as const, reason: slides.reason },
+      warnings,
+    }
+  }
+  if (evidence.kind === 'pdf') {
+    return {
+      status: 'ok' as const,
+      kind: evidence.kind,
+      page_count: evidence.report.pageCount,
+      text_chars: evidence.report.chars,
+      text_truncated: evidence.report.truncated,
+      warnings,
+    }
+  }
+  const pictures = (images: { width: number; height: number; bytes: number }[]) =>
+    images.map((image) => ({ width: image.width, height: image.height, bytes: image.bytes }))
+  return {
+    status: 'ok' as const,
+    kind: evidence.kind,
+    // Each heading the questions read that the pupil's document has: its text and how many pictures are under it.
+    sections: evidence.report.sections.map((section) => ({
+      label: section.label,
+      heading: section.heading,
+      text: section.text,
+      images: section.images.length,
+      image_sizes: pictures(section.images),
+      not_shown: section.notShown,
+    })),
+    // Outside every heading: kept for the teacher, never marked.
+    unplaced: {
+      text: evidence.report.unplaced.text,
+      images: evidence.report.unplaced.images.length,
+      not_shown: evidence.report.unplaced.notShown,
+    },
+    missing_headings: evidence.report.missingHeadings,
+    template: evidence.report.template ? { file_name: evidence.report.template.fileName, used: evidence.report.template.used } : null,
+    warnings,
+  }
+}
+
+/**
+ * What the reader stored from one pupil's files on a PowerPoint assessment
+ * (their latest submission), slot by slot: a presentation's description by
+ * section and which slides were drawn, a PDF's page count and text length,
+ * an evidence document's sections (text and picture counts) — never the
+ * pictures themselves — and the warnings. `slot` narrows it to one slot;
+ * `sections` narrows a presentation's description as a presentation
+ * source's `sections` would.
+ */
+export async function getPracticalAssessmentEvidence(input: {
+  activityId: string
+  pupilId: string
+  slot?: string | null
+  sections?: string[] | null
+}) {
+  const activity = await readPowerPointActivity(input.activityId)
+  const pupil = await readPupil(input.pupilId)
+  const slots = uploadSlotsOf(activity.body_data)
+  const slotKey = input.slot?.trim() || null
+  if (slotKey && !slots.some((slot) => slot.key === slotKey)) {
+    throw new Error(`No upload slot "${slotKey}" on this activity. Its slots are: ${slots.map((slot) => slot.key).join(', ') || 'none'}.`)
+  }
+  const sections = input.sections?.map((selector) => selector.trim()) ?? null
+  const unknown = (sections ?? []).filter((selector) => !isPresentationSectionSelector(selector))
+  if (unknown.length > 0) {
+    throw new Error(
+      `Unknown presentation section${unknown.length === 1 ? '' : 's'}: ${unknown.map((u) => `"${u}"`).join(', ')}. `
+      + `Use ${PRESENTATION_SECTION_KEYS.join(', ')}, or slides:N (e.g. slides:3,6).`,
+    )
+  }
+  const submission = await readLatestSubmission(input.activityId, input.pupilId)
+  const { rows } = submission
+    ? await query<{
+        file_id: string
+        slot_key: string
+        original_name: string
+        bytes: number
+        uploaded_at: Date
+        kind: EvidenceKind | null
+        status: 'ok' | 'error' | null
+        error: string | null
+        cache_key: string | null
+        report: unknown
+        extracted_at: Date | null
+      }>(
+        `select f.file_id::text as file_id, f.slot_key, f.original_name, f.bytes, f.uploaded_at,
+                e.kind, e.status, e.error, e.cache_key, e.report, e.extracted_at
+           from practical_submission_files f
+           left join practical_submission_evidence e on e.file_id = f.file_id
+          where f.submission_id = $1`,
+        [submission.submission_id],
+      )
+    : { rows: [] }
+  const fileOf = new Map(rows.map((row) => [row.slot_key, row]))
+
+  return {
+    activity_id: activity.activity_id,
+    pupil_id: input.pupilId,
+    first_name: pupil.first_name,
+    last_name: pupil.last_name,
+    submission_id: submission?.submission_id ?? null,
+    mark_status: submission?.mark_status ?? null,
+    mark_error: submission?.mark_error ?? null,
+    slots: slots
+      .filter((slot) => !slotKey || slot.key === slotKey)
+      .map((slot) => {
+        const row = fileOf.get(slot.key)
+        return {
+          slot_key: slot.key,
+          label: slot.label,
+          kind: slot.kind,
+          required: slot.required,
+          file: row
+            ? {
+                file_id: row.file_id,
+                file_name: row.original_name,
+                bytes: Number(row.bytes),
+                uploaded_at: new Date(row.uploaded_at).toISOString(),
+              }
+            : null,
+          // Null until the reader has read the file.
+          read: row?.kind && row.status
+            ? {
+                read_at: row.extracted_at ? new Date(row.extracted_at).toISOString() : null,
+                cache_key: row.cache_key,
+                ...describeSlotEvidence(
+                  evidenceFromRow(row.kind, {
+                    status: row.status,
+                    error: row.error,
+                    cache_key: row.cache_key ?? '',
+                    report: row.report,
+                    description: null,
+                  }),
+                  sections,
+                ),
+              }
+            : null,
+        }
+      }),
+  }
+}
+
+export type PracticalAssessmentEvidence = Awaited<ReturnType<typeof getPracticalAssessmentEvidence>>
+
+/**
+ * A teacher's Hand in for a pupil, as the app's hand-in action takes it from
+ * a teacher: refused while a required slot is empty; marking starts. A
+ * locked lesson does not stop staff (lesson-lock.ts). Handing in again does
+ * nothing.
+ */
+export async function handInPowerPointAssessmentForPupil(input: { activityId: string; pupilId: string; teacherId: string | null }) {
+  await readPowerPointActivity(input.activityId)
+  await readPupil(input.pupilId)
+  const result = await handInPowerPointAssessment(input.activityId, input.pupilId, {
+    userId: input.teacherId ?? 'mcp',
+    isTeacher: true,
+  })
+  return {
+    activity_id: input.activityId,
+    pupil_id: input.pupilId,
+    submission_id: result.submissionId,
+    already_handed_in: result.alreadyHandedIn,
+    handed_in: result.state.handedIn,
+    mark_status: result.state.markStatus,
   }
 }

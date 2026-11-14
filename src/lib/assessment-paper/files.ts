@@ -1,18 +1,15 @@
 import "server-only"
 
-import { execFile } from "node:child_process"
 import { randomUUID } from "node:crypto"
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import path from "node:path"
-import { promisify } from "node:util"
 import sharp from "sharp"
 
 import { query, withDbClient } from "@/lib/db"
-import { isQuestionMarkedActivityType } from "@/dino.config"
+import { pdfPageCount, pdfToPngPages } from "@/lib/pdf/poppler"
+import { isAssessmentPaperType, isPowerPointAssessmentType, isQuestionMarkedActivityType } from "@/dino.config"
 import { enqueueMarkingTasks, triggerQueueProcessor } from "@/lib/ai/marking-queue"
 import { recomputeAssessmentSubmission } from "@/lib/assessment-paper/store"
 import { NO_FRONT_SHEET_MESSAGE, checkFrontSheet } from "@/lib/assessment-paper/front-sheet"
+import { isLessonLockedForUser } from "@/lib/lesson-lock"
 import { readFeedbackVisibility } from "@/lib/mcp/pupil-feedback"
 import { pupilMembershipSql } from "@/lib/roles/pupil-membership"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
@@ -42,9 +39,6 @@ const RENDER_DPI = 150
 // A page is never rendered larger than this on its long side, so a PDF with
 // an outsized page box cannot produce a huge image.
 const MAX_PAGE_PIXELS = 3000
-const PDF_TOOL_TIMEOUT_MS = 120_000
-
-const execFileAsync = promisify(execFile)
 
 export type PaperFileKind = "question_paper" | "mark_scheme"
 type FileKind = "pdf" | "jpeg" | "png"
@@ -79,14 +73,20 @@ function assertUploadSize(bytes: Buffer) {
   }
 }
 
-async function readAssessmentActivity(activityId: string) {
+/**
+ * A question-marked activity, for what every such type shares (its paper
+ * files, who sits it). `scripts` narrows it to an assessment paper, for
+ * anything that stores or reads a scanned script.
+ */
+async function readAssessmentActivity(activityId: string, options?: { scripts?: boolean }) {
   const { rows } = await query<{ activity_id: string; lesson_id: string; type: string | null; body_data: unknown }>(
     "select activity_id, lesson_id, type, body_data from activities where activity_id = $1",
     [activityId],
   )
   const row = rows[0]
   if (!row) throw new Error(`Activity ${activityId} not found.`)
-  if (!isQuestionMarkedActivityType(row.type)) throw new Error(`Activity ${activityId} is not an assessment paper.`)
+  const allowed = options?.scripts ? isAssessmentPaperType(row.type) : isQuestionMarkedActivityType(row.type)
+  if (!allowed) throw new Error(`Activity ${activityId} is not an assessment paper.`)
   const parsed = AssessmentPaperActivityBodySchema.safeParse(row.body_data ?? {})
   return { activityId: row.activity_id, lessonId: row.lesson_id, body: parsed.success ? parsed.data : {} }
 }
@@ -177,44 +177,17 @@ async function rasterisePdf(
   bytes: Buffer,
   options: { firstPageOnly?: boolean } = {},
 ): Promise<{ pages: Buffer[]; pageCount: number }> {
-  const dir = await mkdtemp(path.join(tmpdir(), "assessment-script-"))
-  const pdfPath = path.join(dir, "script.pdf")
-  try {
-    await writeFile(pdfPath, bytes)
-
-    let pageCount = 0
-    try {
-      const { stdout } = await execFileAsync("pdfinfo", [pdfPath], { timeout: PDF_TOOL_TIMEOUT_MS })
-      pageCount = Number.parseInt(stdout.match(/^Pages:\s+(\d+)/m)?.[1] ?? "0", 10)
-    } catch {
-      throw new Error("Could not read the PDF. Is it a valid PDF file?")
-    }
-    if (pageCount === 0) throw new Error("The PDF has no pages.")
-    if (!options.firstPageOnly && pageCount > MAX_SCRIPT_PAGES) {
-      throw new Error(`The PDF has ${pageCount} pages; a script may have at most ${MAX_SCRIPT_PAGES}.`)
-    }
-
-    try {
-      const range = options.firstPageOnly ? ["-f", "1", "-l", "1"] : []
-      await execFileAsync("pdftoppm", [...range, "-r", String(RENDER_DPI), "-png", pdfPath, path.join(dir, "page")], {
-        timeout: PDF_TOOL_TIMEOUT_MS,
-      })
-    } catch {
-      throw new Error("Failed to convert the PDF to images.")
-    }
-
-    // pdftoppm names pages page-<n>.png, zero-padded to the page count's
-    // width, so they are sorted by number rather than by name.
-    const pages = (await readdir(dir))
-      .map((name) => ({ name, index: Number.parseInt(name.match(/^page-(\d+)\.png$/)?.[1] ?? "", 10) }))
-      .filter((entry) => Number.isFinite(entry.index))
-      .sort((a, b) => a.index - b.index)
-    if (pages.length !== (options.firstPageOnly ? 1 : pageCount)) throw new Error("Failed to convert every page of the PDF.")
-    const rendered = await Promise.all(pages.map(async (entry) => normalisePage(await readFile(path.join(dir, entry.name)))))
-    return { pages: rendered, pageCount }
-  } finally {
-    await rm(dir, { recursive: true, force: true }).catch(() => {})
+  const pageCount = await pdfPageCount(bytes)
+  if (pageCount === 0) throw new Error("The PDF has no pages.")
+  if (!options.firstPageOnly && pageCount > MAX_SCRIPT_PAGES) {
+    throw new Error(`The PDF has ${pageCount} pages; a script may have at most ${MAX_SCRIPT_PAGES}.`)
   }
+
+  const range = options.firstPageOnly ? { firstPage: 1, lastPage: 1 } : {}
+  const pages = await pdfToPngPages(bytes, { dpi: RENDER_DPI, ...range })
+  if (pages.length !== (options.firstPageOnly ? 1 : pageCount)) throw new Error("Failed to convert every page of the PDF.")
+  const rendered = await Promise.all(pages.map((page) => normalisePage(page)))
+  return { pages: rendered, pageCount }
 }
 
 /**
@@ -306,7 +279,7 @@ export async function storeScript(input: {
     throw new Error("A script must be a PDF: its page 1 (the front sheet) is checked against the question paper.")
   }
 
-  const { body } = await readAssessmentActivity(activityId)
+  const { body } = await readAssessmentActivity(activityId, { scripts: true })
   const { assignmentId } = await assertPupilSitsAssessment(activityId, pupilId)
 
   const { pages, pageCount } = await rasterisePdf(bytes)
@@ -443,16 +416,10 @@ export async function storeScript(input: {
 /** How many pages a script has, without rendering it. */
 async function countScriptPages(bytes: Buffer, kind: FileKind): Promise<number> {
   if (kind !== "pdf") return 1
-  const dir = await mkdtemp(path.join(tmpdir(), "assessment-script-"))
-  const pdfPath = path.join(dir, "script.pdf")
   try {
-    await writeFile(pdfPath, bytes)
-    const { stdout } = await execFileAsync("pdfinfo", [pdfPath], { timeout: PDF_TOOL_TIMEOUT_MS })
-    return Number.parseInt(stdout.match(/^Pages:\s+(\d+)/m)?.[1] ?? "0", 10)
+    return await pdfPageCount(bytes)
   } catch {
     throw new Error("Could not read the PDF. Is it a valid PDF file?")
-  } finally {
-    await rm(dir, { recursive: true, force: true }).catch(() => {})
   }
 }
 
@@ -476,7 +443,7 @@ export async function attachLegacyScript(input: {
   const kind = sniffFileKind(bytes)
   if (!kind) throw new Error(`${input.fileName}: a script must be a PDF, JPEG or PNG.`)
 
-  await readAssessmentActivity(activityId)
+  await readAssessmentActivity(activityId, { scripts: true })
   const { rows: owner } = await query<{ submission_id: string }>(
     "select submission_id from submissions where submission_id = $1 and activity_id = $2 and user_id = $3",
     [submissionId, activityId, pupilId],
@@ -573,8 +540,9 @@ export async function listUnmarkedScriptSubmissions(
      )
      select l.submission_id, l.user_id
        from latest l
-      where not exists (select 1 from activities a
-                         where a.activity_id = $1 and a.body_data ? 'foldedFromAssessmentIds')
+      where exists (select 1 from activities a
+                     where a.activity_id = $1 and a.type = 'assessment-paper'
+                       and not coalesce(a.body_data ? 'foldedFromAssessmentIds', false))
         and exists (select 1 from assessment_scripts sc
                      where sc.submission_id = l.submission_id and sc.front_sheet_check = 'passed'
                        and cardinality(sc.page_paths) > 0)
@@ -630,7 +598,10 @@ export async function pupilHasSatAssessment(activityId: string, pupilId: string)
  * Whether a non-teacher may open a file in the assessment-scripts bucket: the
  * question paper once they have sat it (pupilHasSatAssessment), and the
  * original of their own script once the lesson's feedback is visible to them.
- * The mark scheme and the markable pages are for teachers.
+ * The mark scheme and the markable pages are for teachers. A PowerPoint
+ * assessment's paper files follow pupilMayOpenPowerPointPaperFile; its pupils'
+ * files ({activityId}/practical/...) are checked by pupilMayOpenPracticalFile
+ * (src/lib/powerpoint-assessment/files.ts), never here.
  */
 export async function pupilMayOpenAssessmentPaperFile(pupilId: string, segments: string[]): Promise<boolean> {
   const [activityId, folder] = segments
@@ -641,13 +612,41 @@ export async function pupilMayOpenAssessmentPaperFile(pupilId: string, segments:
       "select type, body_data from activities where activity_id = $1",
       [activityId],
     )
-    if (!rows[0] || !isQuestionMarkedActivityType(rows[0].type)) return false
+    if (!rows[0]) return false
     const body = AssessmentPaperActivityBodySchema.safeParse(rows[0].body_data ?? {})
+    const path = segments.join("/")
+    if (isPowerPointAssessmentType(rows[0].type)) {
+      return pupilMayOpenPowerPointPaperFile(activityId, pupilId, path, body.success ? body.data : {})
+    }
+    if (!isAssessmentPaperType(rows[0].type)) return false
     const questionPaperPath = body.success ? body.data.questionPaperPath : undefined
-    if (!questionPaperPath || questionPaperPath !== segments.join("/")) return false
+    if (!questionPaperPath || questionPaperPath !== path) return false
     return pupilHasSatAssessment(activityId, pupilId)
   }
   return pupilMayOpenOwnScript(pupilId, segments)
+}
+
+/**
+ * A PowerPoint assessment is done in class with its question paper open, so
+ * a pupil the lesson is set to may open the question paper at any time, but
+ * not while the lesson is locked for them (a locked lesson allows no
+ * downloads). The mark scheme PDF is never served to a pupil, as for an
+ * assessment paper; showMarkSchemeToPupils only decides whether the feedback
+ * includes each question's mark scheme text.
+ */
+async function pupilMayOpenPowerPointPaperFile(
+  activityId: string,
+  pupilId: string,
+  path: string,
+  body: { questionPaperPath?: string },
+): Promise<boolean> {
+  if (!body.questionPaperPath || body.questionPaperPath !== path) return false
+  const sits = await assertPupilSitsAssessment(activityId, pupilId).then(
+    (sitting) => sitting,
+    () => null,
+  )
+  if (!sits) return false
+  return !(await isLessonLockedForUser(pupilId, sits.lessonId))
 }
 
 async function pupilMayOpenOwnScript(pupilId: string, segments: string[]): Promise<boolean> {

@@ -2,12 +2,13 @@ import { type NextRequest, NextResponse } from 'next/server'
 
 import { query } from '@/lib/db'
 import { recordMcpCall } from '@/lib/mcp/audit'
-import { MCP_UPLOAD_MAX_BYTES, cleanFileName } from '@/lib/mcp/file-input'
+import { cleanFileName } from '@/lib/mcp/file-input'
 import { uploadActivityFile } from '@/lib/mcp/activities'
 import { uploadLessonFile } from '@/lib/mcp/lessons'
-import { ASSESSMENT_UPLOAD_MAX_BYTES, storeAssessmentFile } from '@/lib/assessments/store'
-import { claimUploadLink, releaseUploadLink, type UploadLink } from '@/lib/mcp/upload-links'
-import { ASSESSMENT_PAPER_UPLOAD_MAX_BYTES, storePaperFile, storeScript } from '@/lib/assessment-paper/files'
+import { storeAssessmentFile } from '@/lib/assessments/store'
+import { claimUploadLink, releaseUploadLink, uploadLinkMaxBytes, type UploadLink } from '@/lib/mcp/upload-links'
+import { storePaperFile, storeScript } from '@/lib/assessment-paper/files'
+import { PracticalFileRefusal, storePracticalFile, storeSuppliedImage } from '@/lib/powerpoint-assessment/files'
 
 // The token in the path is the whole credential: a one-time link from
 // create_activity_file_upload_link / create_lesson_file_upload_link /
@@ -49,14 +50,62 @@ async function readFile(request: NextRequest, maxBytes: number): Promise<{ buffe
   }
 }
 
-/** An assessment-paper activity's question paper, mark scheme or one pupil's script. */
-async function storeAssessmentActivityFile(link: UploadLink, buffer: Buffer) {
+/**
+ * An assessment-paper activity's question paper, mark scheme or one pupil's
+ * script; or a PowerPoint assessment's supplied image or one pupil's file in
+ * a slot (stored as a teacher's upload: allowed after hand-in, which it does
+ * not do itself).
+ */
+async function storeAssessmentActivityFile(link: UploadLink, buffer: Buffer, fileName: string) {
   const activityId = link.activity_id!
-  if (link.upload_kind === 'script') {
-    return storeScript({ activityId, pupilId: link.pupil_id!, bytes: buffer, uploadedBy: link.caller.userId })
-  }
-  if (link.upload_kind === 'question_paper' || link.upload_kind === 'mark_scheme') {
-    return storePaperFile(activityId, link.upload_kind, buffer, link.caller.userId)
+  try {
+    if (link.upload_kind === 'script') {
+      return await storeScript({ activityId, pupilId: link.pupil_id!, bytes: buffer, uploadedBy: link.caller.userId })
+    }
+    if (link.upload_kind === 'question_paper' || link.upload_kind === 'mark_scheme') {
+      return await storePaperFile(activityId, link.upload_kind, buffer, link.caller.userId)
+    }
+    if (link.upload_kind === 'supplied_image') {
+      const { image, replaced, warnings } = await storeSuppliedImage({
+        activityId,
+        fileName,
+        name: link.file_name ?? undefined,
+        bytes: buffer,
+        uploadedBy: link.caller.userId,
+      })
+      return {
+        name: image.name,
+        file_name: image.file_name,
+        width: image.width,
+        height: image.height,
+        replaced,
+        warnings,
+      }
+    }
+    if (link.upload_kind === 'practical_file') {
+      const stored = await storePracticalFile({
+        activityId,
+        pupilId: link.pupil_id!,
+        slotKey: link.slot_key!,
+        bytes: buffer,
+        originalName: fileName,
+        uploadedBy: link.caller.userId,
+        byTeacher: true,
+      })
+      return {
+        file_id: stored.file_id,
+        submission_id: stored.submission_id,
+        slot_key: stored.slot_key,
+        file_name: stored.original_name,
+        bytes: stored.bytes,
+        replaced_file_id: stored.replaced_file_id,
+        requeued: stored.requeued,
+      }
+    }
+  } catch (error) {
+    // A refusal is about the file, not the server.
+    if (error instanceof PracticalFileRefusal) throw new UploadError(422, error.message)
+    throw error
   }
   throw new UploadError(400, 'This upload link does not say what the file is')
 }
@@ -86,18 +135,27 @@ async function handle(request: NextRequest, { params }: Params): Promise<Respons
     assessment_id: link.assessment_id,
     upload_kind: link.upload_kind,
     pupil_id: link.pupil_id,
+    slot_key: link.slot_key,
   }
-  const maxBytes = link.assessment_id
-    ? ASSESSMENT_UPLOAD_MAX_BYTES
-    : link.target === 'assessment-activity' ? ASSESSMENT_PAPER_UPLOAD_MAX_BYTES : MCP_UPLOAD_MAX_BYTES
+  const maxBytes = uploadLinkMaxBytes(link)
   try {
     const { buffer, name, type } = await readFile(request, maxBytes)
     if (buffer.byteLength === 0) throw new UploadError(400, 'The upload was empty')
     if (buffer.byteLength > maxBytes) {
       throw new UploadError(413, `File exceeds the ${limitLabel(maxBytes)} limit (${buffer.byteLength} bytes)`)
     }
-    const fileName = cleanFileName(link.file_name || name || 'upload')
-    Object.assign(args, { file_name: fileName, size_bytes: buffer.byteLength, content_type: type })
+    // A supplied image's link holds the image's name, not its file's.
+    const fileName = cleanFileName(
+      (link.upload_kind === 'supplied_image' ? name || link.file_name : link.file_name || name) || 'upload',
+    )
+    // A pupil's own file name stays out of the audit log: its type is enough.
+    Object.assign(
+      args,
+      link.upload_kind === 'practical_file'
+        ? { file_ext: fileName.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() ?? null }
+        : { file_name: fileName },
+      { size_bytes: buffer.byteLength, content_type: type },
+    )
     // A display-webpage's page is the exception: it is only ever opened
     // through the sandboxed /api/activity-webpage route.
     const htmlAllowed = link.activity_id !== null && (await isWebpageActivity(link.activity_id))
@@ -107,7 +165,7 @@ async function handle(request: NextRequest, { params }: Params): Promise<Respons
     }
 
     const file = link.target === 'assessment-activity'
-      ? await storeAssessmentActivityFile(link, buffer)
+      ? await storeAssessmentActivityFile(link, buffer, fileName)
       : link.assessment_id
       ? await storeAssessmentFile(link.assessment_id, fileName, buffer, { contentType: type, uploadedBy: link.caller.userId, pupilId: link.pupil_id })
       : link.activity_id

@@ -816,6 +816,76 @@ export type AssessmentPaperActivityBody = z.infer<
     typeof AssessmentPaperActivityBodySchema
 >;
 
+// PowerPoint assessment — marked question by question like an assessment
+// paper, but a pupil hands in named files, one per upload slot, instead of a
+// scanned script. Exactly one slot is the presentation ('pptx', required);
+// 'pdf' slots take printouts and 'docx' slots evidence documents. Each
+// question's `evidence` (activity_questions.evidence,
+// src/lib/powerpoint-assessment/evidence-spec.ts) names the slots it is
+// marked from.
+export const POWERPOINT_UPLOAD_SLOT_KINDS = ["pptx", "pdf", "docx"] as const;
+export type PowerPointUploadSlotKind = (typeof POWERPOINT_UPLOAD_SLOT_KINDS)[number];
+
+export const PowerPointUploadSlotSchema = z
+    .object({
+        key: z
+            .string()
+            .regex(/^[a-z0-9-]+$/, "a slot key uses only lower-case letters, digits and hyphens"),
+        label: z.string().trim().min(1, "every upload slot needs a label"),
+        kind: z.enum(POWERPOINT_UPLOAD_SLOT_KINDS),
+        required: z.boolean(),
+        hint: z.string().optional(),
+    })
+    .strict();
+
+export type PowerPointUploadSlot = z.infer<typeof PowerPointUploadSlotSchema>;
+
+export const PowerPointAssessmentActivityBodySchema = z
+    .object({
+        instructions: z.string().optional(),
+        uploadSlots: z
+            .array(PowerPointUploadSlotSchema)
+            .min(1, "a PowerPoint assessment needs at least one upload slot")
+            .max(8, "a PowerPoint assessment has at most 8 upload slots")
+            .superRefine((slots, ctx) => {
+                const seen = new Set<string>();
+                slots.forEach((slot, index) => {
+                    if (seen.has(slot.key)) {
+                        ctx.addIssue({
+                            code: "custom",
+                            path: [index, "key"],
+                            message: `the slot key "${slot.key}" is used twice; slot keys must be unique`,
+                        });
+                    }
+                    seen.add(slot.key);
+                });
+                const presentations = slots.filter((slot) => slot.kind === "pptx");
+                if (presentations.length !== 1) {
+                    ctx.addIssue({
+                        code: "custom",
+                        message: `a PowerPoint assessment needs exactly one pptx slot (the presentation), not ${presentations.length}`,
+                    });
+                } else if (!presentations[0].required) {
+                    ctx.addIssue({
+                        code: "custom",
+                        path: [slots.indexOf(presentations[0]), "required"],
+                        message: "the pptx slot (the presentation) must be required",
+                    });
+                }
+            }),
+        /** The name of an ordinary activity file: the blank evidence document, whose paragraphs are not the pupil's. */
+        evidenceTemplateFile: z.string().min(1).optional(),
+        questionPaperPath: z.string().min(1).optional(),
+        markSchemePath: z.string().min(1).optional(),
+        /** Whether the pupil's feedback includes each question's mark scheme. Absent means yes. */
+        showMarkSchemeToPupils: z.boolean().optional(),
+    })
+    .passthrough();
+
+export type PowerPointAssessmentActivityBody = z.infer<
+    typeof PowerPointAssessmentActivityBodySchema
+>;
+
 export const LongTextActivityBodySchema = z
     .object({
         question: z.string().min(1),

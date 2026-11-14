@@ -6,6 +6,7 @@ import { ActivityImagePreview } from "@/components/lessons/activity-image-previe
 import {
   AssessmentPaperPresentView,
   AssessmentPaperShortView,
+  PowerPointAssessmentShortView,
 } from "@/components/lessons/activity-view/assessment-paper-summary"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -396,6 +397,8 @@ function ActivityShortView({
     )
   } else if (activity.type === "assessment-paper") {
     content = <AssessmentPaperShortView activity={activity} />
+  } else if (activity.type === "powerpoint-assessment") {
+    content = <PowerPointAssessmentShortView activity={activity} />
   } else if (activity.type === "mark-worksheet") {
     const markWorksheet = getMarkWorksheetBody(activity)
     content = (
@@ -1399,7 +1402,7 @@ function ActivityPresentView({
     )
   }
 
-  if (activity.type === "assessment-paper") {
+  if (activity.type === "assessment-paper" || activity.type === "powerpoint-assessment") {
     return wrap(<AssessmentPaperPresentView activity={activity} />)
   }
 

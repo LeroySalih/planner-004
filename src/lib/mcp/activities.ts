@@ -2,14 +2,15 @@ import { createHash } from 'node:crypto'
 import { z } from 'zod'
 
 import { query, withDbClient } from '@/lib/db'
-import { SCORABLE_ACTIVITY_TYPES, NON_SCORABLE_ACTIVITY_TYPES, isLegacyActivityType, isMothballedActivityType, isQuestionMarkedActivityType, legacyActivityTypeMessage } from '@/dino.config'
+import { SCORABLE_ACTIVITY_TYPES, NON_SCORABLE_ACTIVITY_TYPES, isLegacyActivityType, isMothballedActivityType, isPowerPointAssessmentType, isQuestionMarkedActivityType, legacyActivityTypeMessage } from '@/dino.config'
 import { assertLessonExists } from '@/lib/mcp/guards'
 import { MCP_UPLOAD_MAX_BYTES } from '@/lib/mcp/file-input'
 import { assertScAllowedForActivity } from '@/lib/curriculum/unit-curriculum-guard'
 import { recalculateActivityMaxMarks, recalculateGroupItemsMaxMarks, recalculateMatcherMaxMarks, rescaleStoredMarks } from '@/lib/scoring/derive-max-marks'
 import { createLocalStorageClient } from '@/lib/storage/local-storage'
 import { uploadFileAiMarkingError } from '@/lib/upload-file/ai-marking'
-import { AssessmentPaperActivityBodySchema, GroupItemsActivityBodySchema, MatcherActivityBodySchema, McqActivityBodySchema, SequenceActivityBodySchema, ShortTextActivityBodySchema, UploadCodeActivityBodySchema, UploadSpreadsheetActivityBodySchema } from '@/types'
+import { AssessmentPaperActivityBodySchema, GroupItemsActivityBodySchema, PowerPointAssessmentActivityBodySchema, MatcherActivityBodySchema, McqActivityBodySchema, SequenceActivityBodySchema, ShortTextActivityBodySchema, UploadCodeActivityBodySchema, UploadSpreadsheetActivityBodySchema } from '@/types'
+import { applyUploadSlotChange } from '@/lib/powerpoint-assessment/slot-changes'
 
 export const ACTIVITY_TYPES = [...SCORABLE_ACTIVITY_TYPES, ...NON_SCORABLE_ACTIVITY_TYPES] as const
 export type ActivityType = typeof ACTIVITY_TYPES[number]
@@ -179,6 +180,20 @@ export function validateBodyDataForType(type: string, bodyData: unknown): void {
         'INVALID_BODY_DATA',
         field,
         `${field}: an ${type} activity needs body_data { "task": "…", "markingGuidance": "…"${type === 'upload-code' ? ', "language"?: "python", "starterCode"?: "…"' : ''} }, or the AI marker cannot mark pupils' work`,
+      )
+    }
+    return
+  }
+  // A PowerPoint assessment needs its upload slots, so its body is required.
+  if (isPowerPointAssessmentType(type)) {
+    const parsed = PowerPointAssessmentActivityBodySchema.safeParse(bodyData ?? {})
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0]
+      const field = fieldName(issue.path)
+      throw new ActivityBodyDataError(
+        'INVALID_BODY_DATA',
+        field,
+        `${field}: ${issue.message} (a ${type} takes body_data { "instructions"?: "…", "uploadSlots": [{ "key": "presentation", "label": "…", "kind": "pptx" | "pdf" | "docx", "required": true, "hint"?: "…" }, …], "evidenceTemplateFile"?: "…", "showMarkSchemeToPupils"?: true }, with exactly one required pptx slot)`,
       )
     }
     return
@@ -693,8 +708,8 @@ function patchBody(existing: unknown, patch: Record<string, unknown>): Record<st
   return base
 }
 
-/** Set by the assessment-paper upload (src/lib/assessment-paper/files.ts). */
-const PAPER_FILE_BODY_KEYS = ['questionPaperPath', 'markSchemePath'] as const
+/** Set by the paper file upload (src/lib/assessment-paper/files.ts) and the fold, never by a body save. */
+const PAPER_FILE_BODY_KEYS = ['questionPaperPath', 'markSchemePath', 'foldedFromAssessmentIds'] as const
 
 export type ActivityUpdate = {
   title?: string | null
@@ -732,6 +747,14 @@ export async function updateActivity(activityId: string, fields: ActivityUpdate)
         if (work[0].n > 0) {
           throw new Error(`Activity ${activityId} has ${work[0].n} pupil submission(s) as a ${current.type}; its type cannot change. Create a new activity instead.`)
         }
+        // Questions belong to their type: a paper's read the script, a
+        // PowerPoint assessment's name its upload slots.
+        if (isQuestionMarkedActivityType(type) || isQuestionMarkedActivityType(current.type)) {
+          const { rows: questions } = await client.query<{ n: number }>('select count(*)::int as n from activity_questions where activity_id = $1', [activityId])
+          if (questions[0].n > 0) {
+            throw new Error('An activity cannot be changed to or from an assessment paper or PowerPoint assessment. Create a new activity instead.')
+          }
+        }
       }
 
       const markingFields = fields.uploadFileMarking ? uploadFileMarkingFields(type, fields.uploadFileMarking) : {}
@@ -740,17 +763,29 @@ export async function updateActivity(activityId: string, fields: ActivityUpdate)
       let body = 'bodyData' in fields ? fields.bodyData ?? null : fields.bodyPatch ? patchBody(current.body_data, fields.bodyPatch) : current.body_data
       if (markingChanged) body = patchBody(body, markingFields)
       // An assessment paper's file paths are owned by the upload: whatever
-      // body is sent, they stay as stored.
+      // body is sent, they stay as stored. `current` is the row locked above
+      // (select … for update), so a paper uploaded while this runs waits for
+      // the commit and then writes its path over the saved body.
       if (bodyChanged && isQuestionMarkedActivityType(type) && body && typeof body === 'object' && !Array.isArray(body)) {
         const stored = (current.body_data ?? {}) as Record<string, unknown>
         const next = { ...(body as Record<string, unknown>) }
         for (const key of PAPER_FILE_BODY_KEYS) {
-          if (typeof stored[key] === 'string') next[key] = stored[key]
+          if (stored[key] !== undefined) next[key] = stored[key]
           else delete next[key]
         }
         body = next
       }
       if (bodyChanged || typeChanged) validateActivityBody(type, body)
+      // A PowerPoint assessment's questions name its upload slots: a slot
+      // their evidence reads cannot be removed or change kind under them. One
+      // key removed and one of the same kind added is a rename, carried into
+      // the questions' evidence and the pupils' files.
+      if (bodyChanged && isPowerPointAssessmentType(type)) {
+        const { errors } = await applyUploadSlotChange(client, activityId, current.body_data, body, { rename: !typeChanged })
+        if (errors.length > 0) {
+          throw new ActivityBodyDataError('INVALID_BODY_DATA', 'body_data.uploadSlots', `body_data.uploadSlots no longer fits the questions' evidence: ${errors.join(' ')} Move the questions' evidence to another slot first (set_assessment_activity_questions), or rename the slot's key in place: remove one key and add one of the same kind in the same update.`)
+        }
+      }
 
       if (fields.isSummative === true && !scorable) {
         throw new Error(`Only scorable activity types can be marked as summative. "${type}" is non-scorable.`)
