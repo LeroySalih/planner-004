@@ -115,6 +115,13 @@ export function ArticleActivity({
   const marked = !reanswering && (isMarked || Boolean(live))
   // A new live result remounts the breakdown; show the spinner until it reloads.
   const liveKey = live?.receivedAt ?? "server"
+  // A live mark is a new attempt, so flag that one rather than the attempt the
+  // page loaded with. A first answer has no server-side flag yet.
+  const flagTarget = live
+    ? live.submissionId && (flag || scorable)
+      ? { submissionId: live.submissionId, isFlagged: false }
+      : undefined
+    : flag
   useEffect(() => setCriteriaLoaded(false), [liveKey])
   const pending = reanswering ? false : live ? false : isPendingMarking
   const released = scorable && (currentVisible || viewerIsTeacher) && marked && !pending
@@ -240,7 +247,7 @@ export function ArticleActivity({
                   <div dangerouslySetInnerHTML={{ __html: modelAnswerMarkup }} />
                 </div>
               ) : null}
-              {flag && !viewerIsTeacher && !live ? <FlagForReview {...flag} /> : null}
+              {flagTarget && !viewerIsTeacher ? <FlagForReview key={flagTarget.submissionId} {...flagTarget} /> : null}
             </div>
           ) : null}
           {feedbackOpen ? (

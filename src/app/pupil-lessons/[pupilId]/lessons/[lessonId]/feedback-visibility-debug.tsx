@@ -7,6 +7,8 @@ import { triggerMarkingComplete } from "@/lib/feedback-events"
 type SseStatus = "idle" | "connecting" | "connected" | "error" | "disconnected"
 
 export type MarkingResult = {
+  /** The marked attempt, so the pupil can flag it without a reload. */
+  submissionId: string | null
   score: number | null
   feedbackText: string | null
   receivedAt: string
@@ -63,9 +65,15 @@ export function FeedbackVisibilityProvider({
   }, [initialVisible])
 
   const handleMarkingResult = useCallback(
-    (activityId: string, pupilId: string, score: number | null, feedbackText: string | null) => {
+    (
+      activityId: string,
+      pupilId: string,
+      submissionId: string | null,
+      score: number | null,
+      feedbackText: string | null,
+    ) => {
       const receivedAt = new Date().toISOString()
-      const result: MarkingResult = { score, feedbackText, receivedAt }
+      const result: MarkingResult = { submissionId, score, feedbackText, receivedAt }
 
       console.log("[MarkingResults] state updated", {
         activityId,
@@ -130,6 +138,7 @@ export function FeedbackVisibilityProvider({
         const p = payload as {
           activityId?: string
           pupilId?: string
+          submissionId?: string | null
           aiScore?: number | null
           aiFeedback?: string | null
         }
@@ -143,6 +152,7 @@ export function FeedbackVisibilityProvider({
           handleMarkingResult(
             p.activityId,
             p.pupilId,
+            typeof p.submissionId === "string" ? p.submissionId : null,
             typeof p.aiScore === "number" ? p.aiScore : null,
             typeof p.aiFeedback === "string" ? p.aiFeedback : null,
           )
