@@ -16,6 +16,7 @@ import {
   storeSuppliedImage,
 } from "@/lib/powerpoint-assessment/files"
 import { readPupilPowerPointView } from "@/lib/powerpoint-assessment/pupil-view"
+import { reopenPowerPointAssessmentForTeacher } from "@/lib/powerpoint-assessment/reopen"
 import { withTelemetry } from "@/lib/telemetry"
 
 // A PowerPoint assessment's files: the pupil's slots and Hand in, and the
@@ -121,6 +122,29 @@ export async function handInPowerPointAssessmentAction(
       } catch (error) {
         console.error("[powerpoint-assessment] failed to hand in", error)
         return { data: null, error: errorMessage(error, "Unable to hand in.") }
+      }
+    },
+  )
+}
+
+/**
+ * Undo a pupil's hand-in (teachers only), so the pupil can change their files
+ * and hand in again. Open question flags on the work are cleared as this
+ * teacher, since the marks they were about are gone.
+ */
+export async function reopenPowerPointAssessmentAction(activityId: string, pupilId: string) {
+  return withTelemetry(
+    { routeTag: ROUTE_TAG, functionName: "reopenPowerPointAssessmentAction", params: { activityId, pupilId } },
+    async () => {
+      const profile = await requireRole("teacher")
+      try {
+        const activity = IdSchema.parse(activityId)
+        const pupil = IdSchema.parse(pupilId)
+        const result = await reopenPowerPointAssessmentForTeacher(activity, pupil, profile.userId)
+        return { data: result, error: null }
+      } catch (error) {
+        console.error("[powerpoint-assessment] failed to undo a hand-in", error)
+        return { data: null, error: errorMessage(error, "Unable to undo the hand-in.") }
       }
     },
   )

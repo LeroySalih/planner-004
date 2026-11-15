@@ -20,7 +20,7 @@ import {
   setTeacherQuestionCriterionComment,
   setTeacherQuestionCriterionMark,
 } from '@/lib/assessment-paper/store'
-import { readPupilAssessmentPaperView } from '@/lib/assessment-paper/results'
+import { readPupilAssessmentPaperView } from '@/lib/assessment-paper/pupil-feedback'
 import { mayDownloadAssessmentFeedback, readAssessmentFeedbackPdfData } from '@/lib/assessment-paper/feedback-pdf'
 import { AssessmentPaperFeedbackDocument } from '@/components/pdf/assessment-paper-feedback-document'
 import { createLocalStorageClient } from '@/lib/storage/local-storage'
@@ -195,7 +195,7 @@ async function main() {
     check(
       'feedback on: the page shows the paper, 2 / 5, the PDF and the script',
       on.questionPaperUrl !== null && on.feedback?.marksAwarded === 2 && on.feedback.maxMarks === 5 &&
-        Boolean(on.feedback.feedbackPdfUrl) && on.feedback.scriptUrl !== null,
+        Boolean(on.feedback.feedbackPdfUrl) && on.scriptUrl !== null,
       JSON.stringify(on.feedback),
     )
 

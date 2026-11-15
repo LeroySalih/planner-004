@@ -496,7 +496,13 @@ export {
 } from './server-actions/assessment-paper-activity'
 
 export {
+  clearAssessmentQuestionFlagAction,
+  setAssessmentQuestionFlagAction,
+} from './server-actions/assessment-paper-results'
+
+export {
   handInPowerPointAssessmentAction,
+  reopenPowerPointAssessmentAction,
   readMyPowerPointAssessmentViewAction,
   readPowerPointAssessmentSlotsAction,
   removePracticalFileAction,

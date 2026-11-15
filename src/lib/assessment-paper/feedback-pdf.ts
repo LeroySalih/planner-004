@@ -19,7 +19,7 @@ import {
   type SubmissionQuestionAnswer,
 } from "@/lib/assessment-paper/store"
 import { isLessonLockedForUser } from "@/lib/lesson-lock"
-import { powerPointMarkState, powerPointQuestionShownToPupil } from "@/lib/powerpoint-assessment/pupil-view"
+import { powerPointMarkState, powerPointQuestionShownToPupil } from "@/lib/assessment-paper/pupil-feedback"
 import { readFeedbackVisibility } from "@/lib/mcp/pupil-feedback"
 import { AssessmentPaperActivityBodySchema } from "@/types"
 

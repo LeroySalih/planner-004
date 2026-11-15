@@ -16,6 +16,8 @@ import { hasRole, requireAuthenticatedProfile, requireRole } from "@/lib/auth"
 import { query } from "@/lib/db"
 import { pupilWorkLockedMessage } from "@/lib/lesson-lock"
 import { powerPointNotQueuedReason } from "@/lib/powerpoint-assessment/files"
+import { isQuestionMarkedActivityType } from "@/dino.config"
+import { resolveAssessmentQuestionFlags } from "@/lib/assessment-paper/question-flags"
 import {
   clearResubmitRequest,
   getNextAttemptNumber,
@@ -350,14 +352,35 @@ export async function toggleSubmissionFlagAction(input: z.infer<typeof ToggleSub
   const profile = await requireAuthenticatedProfile()
 
   try {
-    const { rows: owner } = await query<{ activity_id: string; user_id: string }>(
-      "select activity_id, user_id from submissions where submission_id = $1",
+    const { rows: owner } = await query<{ activity_id: string; user_id: string; type: string | null }>(
+      `select s.activity_id, s.user_id, a.type
+         from submissions s left join activities a on a.activity_id = s.activity_id
+        where s.submission_id = $1`,
       [payload.submissionId],
     )
     if (!owner[0]) return { success: false, error: "Submission not found." }
+    const isTeacher = hasRole(profile, "teacher")
     // A pupil flags their own work; a teacher can clear or set any flag.
-    if (owner[0].user_id !== profile.userId && !hasRole(profile, "teacher")) {
+    if (owner[0].user_id !== profile.userId && !isTeacher) {
       return { success: false, error: "You can only flag your own work." }
+    }
+    // A question-marked activity is flagged question by question (migration
+    // 144). A teacher clearing the whole submission resolves every open
+    // question flag on it, which also clears is_flagged.
+    if (isQuestionMarkedActivityType(owner[0].type)) {
+      if (!isTeacher) return { success: false, error: "Flag a question in your feedback instead." }
+      if (payload.isFlagged) return { success: false, error: "Only a pupil can flag a question." }
+      const resolved = await resolveAssessmentQuestionFlags(payload.submissionId, profile.userId)
+      void emitSubmissionEvent("submission.updated", {
+        submissionId: payload.submissionId,
+        activityId: resolved.activityId,
+        pupilId: resolved.pupilId,
+        submittedAt: resolved.submittedAt,
+        body: resolved.body,
+        isFlagged: resolved.isFlagged,
+      })
+      if (payload.path) revalidatePath(payload.path)
+      return { success: true, error: null }
     }
     if (owner[0].user_id === profile.userId) {
       // Only the latest attempt's feedback can be flagged; a resubmission

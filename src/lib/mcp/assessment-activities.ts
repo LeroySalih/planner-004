@@ -4,6 +4,7 @@ import { query } from '@/lib/db'
 import { isPowerPointAssessmentType, isQuestionMarkedActivityType } from '@/dino.config'
 import { countFrontSheetChecks } from '@/lib/assessment-paper/files'
 import { readAssessmentPaperResult } from '@/lib/assessment-paper/results'
+import { readQuestionFlags, type QuestionFlagState } from '@/lib/assessment-paper/question-flags'
 import {
   QUESTION_MARKINGS,
   confirmAssessmentQuestionMarks,
@@ -234,6 +235,8 @@ export type AssessmentActivityPupilProgress = {
   questions_held: number
   /** AI-marked questions waiting for the teacher to confirm (ai_check, sketches, unreadable answers). */
   questions_awaiting_check: number
+  /** Questions the pupil has flagged for the teacher to check, not yet cleared (migration 144). */
+  questions_flagged: number
 }
 
 /**
@@ -264,6 +267,7 @@ export async function getAssessmentActivity(activityId: string) {
     questions_marked: number
     questions_to_mark: number
     questions_held: number
+    questions_flagged: number
   }>(
     `with sitting as (
        select gm.user_id as pupil_id
@@ -291,7 +295,8 @@ export async function getAssessmentActivity(activityId: string) {
             coalesce(progress.read_open, false) as read_open,
             coalesce(progress.questions_marked, 0) as questions_marked,
             coalesce(progress.questions_to_mark, 0) as questions_to_mark,
-            coalesce(progress.questions_held, 0) as questions_held
+            coalesce(progress.questions_held, 0) as questions_held,
+            coalesce(progress.questions_flagged, 0) as questions_flagged
        from sitting
        join profiles p on p.user_id = sitting.pupil_id
        left join latest l on l.user_id = p.user_id
@@ -322,7 +327,10 @@ export async function getAssessmentActivity(activityId: string) {
                     and not exists (select 1 from external_jobs j
                                      where j.job_type = 'ai_mark' and j.status in ('pending', 'processing')
                                        and j.payload->>'submissionId' = l.submission_id
-                                       and j.payload->>'questionId' = q.question_id::text)) as questions_held
+                                       and j.payload->>'questionId' = q.question_id::text)) as questions_held,
+                (select count(*)::int from submission_question_flags f
+                  where f.submission_id = l.submission_id
+                    and f.withdrawn_at is null and f.resolved_at is null) as questions_flagged
           where l.submission_id is not null
        ) progress on true
       order by p.last_name nulls last, p.first_name nulls last, p.user_id`,
@@ -356,6 +364,7 @@ export async function getAssessmentActivity(activityId: string) {
           questions_to_mark: Number(p.questions_to_mark),
           questions_held: Number(p.questions_held),
           questions_awaiting_check: awaitingCheck.get(p.submission_id) ?? 0,
+          questions_flagged: Number(p.questions_flagged),
         }
       : null,
   })
@@ -547,6 +556,8 @@ export async function getAssessmentActivityResult(activityId: string, pupilId: s
     : null
   const powerPointQuestion = new Map((powerPoint?.questions ?? []).map((q) => [q.questionId, q]))
 
+  const flags = await readQuestionFlags(submissionId)
+
   const maxMarks = Number(activity.max_marks) || 0
   return {
     activity_id: activityId,
@@ -603,6 +614,10 @@ export async function getAssessmentActivityResult(activityId: string, pupilId: s
         awarded: mark ? Number(mark.awarded) : null,
         available: q.max_marks,
         provenance: mark?.provenance ?? null,
+        // The pupil's flags on this question (migration 144): the open one and
+        // those that ended, newest first. outcome is derived from the marks
+        // snapshotted when it was flagged and when it was cleared.
+        flag: questionFlagReport(flags.get(q.question_id)),
         ...(powerPoint
           ? {
               // Where the marker finds the question's evidence.
@@ -640,6 +655,21 @@ export async function getAssessmentActivityResult(activityId: string, pupilId: s
         }),
       }
     }),
+  }
+}
+
+function questionFlagReport(state: QuestionFlagState | undefined) {
+  return {
+    open: Boolean(state?.open),
+    flagged_at: state?.open?.flaggedAt ?? null,
+    history: (state?.history ?? []).map((entry) => ({
+      flagged_at: entry.flaggedAt,
+      resolved_at: entry.resolvedAt,
+      withdrawn_at: entry.withdrawnAt,
+      awarded_at_flag: entry.awardedAtFlag,
+      awarded_at_resolve: entry.awardedAtResolve,
+      outcome: entry.outcome,
+    })),
   }
 }
 

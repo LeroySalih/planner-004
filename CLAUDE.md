@@ -495,7 +495,15 @@ added here.
   the reader's message). *Hand in* (refused while a required slot is empty)
   sets `submission_status = 'submitted'` and queues the read: marking starts
   on hand-in. After it a pupil cannot change files; a teacher can, which
-  clears the AI marks (teacher rows kept) and re-queues after 120 s.
+  clears the AI marks (teacher rows kept) and re-queues after 120 s. A
+  teacher's *Undo hand in* in the results panel (`reopenPowerPointAssessment`,
+  `reopenPowerPointAssessmentAction`) sets the work back to `inprogress` on the
+  same attempt: files kept, open read/mark jobs dropped, AI marks cleared
+  (teacher rows kept), open question flags cleared as that teacher; the pupil
+  can change files and hand in again. **Request Resubmission** on a
+  PowerPoint assessment does the same (`requestResubmissionAction`, through
+  `reopenPowerPointAssessmentForTeacher` in `reopen.ts`); the pupil sees the
+  teacher's note above their slots, and handing in clears the request.
 - **Supplied images** (`practical_supplied_images`, lessons bucket, generated
   file names) are fingerprinted (`src/lib/pptx/known-images.ts`) so the
   inspector names them in a pupil's slides; a likeness of
@@ -570,6 +578,42 @@ added here.
 - Tests: `tests/powerpoint-assessment/*.check.ts` (questions, evidence-doc,
   files, reading, read-guards, blank-reasons, marking, results, pupil-view,
   editor, mcp), plus `tests/pptx/inspect.check.ts`.
+
+### Pupil feedback and per-question flags (both question-marked types)
+
+Both pupil views (assessment paper and PowerPoint assessment) show feedback the
+same way, through one component, `AssessmentQuestionFeedback`
+(`src/components/pupil/assessment-question-feedback.tsx`). Its data comes from
+one builder, `buildPupilAssessmentFeedback` (`src/lib/assessment-paper/pupil-feedback.ts`):
+the total, the teacher's comment, the PDF, then per question the mark, the
+effective comments and the pupil's flag. It never carries `ai_awarded`,
+`marker_evidence`, the mark scheme, the transcription or `mark_error`. Each type
+says which questions show their marks: PowerPoint keeps
+`powerPointQuestionShownToPupil`; a paper shows a question once the paper is
+`marked`, or earlier when a teacher (or legacy) mark is on it
+(`assessmentPaperQuestionShownToPupil`). Both are released by
+`pupilFeedbackVisible`. `readPupilAssessmentPaperView` lives in the same file.
+
+A pupil flags **one question** for their teacher to check
+(`setAssessmentQuestionFlagAction`). It is refused, by `pupilQuestionFlagRefusal`,
+unless it is their own latest attempt, feedback is released, the question shows
+them a mark, and the lesson is not locked. It is refused for teachers.
+`submission_question_flags` (migration 144) keeps one row per flag. At most one
+is open per question. A flag ends `withdrawn_at` (the pupil unflagged it) or
+`resolved_at` / `resolved_by` (a teacher cleared it). The question's marks are
+snapshotted at flag and at resolve, and the outcome (changed / unchanged /
+withdrawn) is **derived** from the snapshots (`flagOutcome`, `question-flags.ts`),
+never stored. `submissions.is_flagged` is kept equal to "has an open question
+flag", so the results grid's flag icon works unchanged. The grid's **Clear
+flag** (`toggleSubmissionFlagAction` with `false`) resolves every open question
+flag on the submission as that teacher. A pupil calling that action on a
+question-marked activity is refused, and so is a teacher setting a flag. A new
+attempt closes the earlier attempts' open flags as withdrawn (trigger
+`submission_question_flags_close_earlier`). A PowerPoint question cannot be
+flagged before hand-in. The results panel shows *Flagged by pupil*,
+a *Clear flag* bar per question (`clearAssessmentQuestionFlagAction`) and each
+question's flag history. MCP reports `flag` per question and `questions_flagged`
+per pupil. Tests: `tests/assessment-paper/question-flags.check.ts`.
 
 ### Choosing the model per activity
 

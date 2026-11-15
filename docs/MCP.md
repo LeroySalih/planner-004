@@ -1005,12 +1005,13 @@ If the questions have no mark scheme text (most folded papers), `split_assessmen
 **Input:** `{ activity_id }`
 **Output:** `{ assessment_activity: { kind: "assessment-paper", activity: { activity_id, lesson_id, title, type, max_marks }, body: { has_question_paper, has_mark_scheme, instructions }, questions: [{ question_id, label, max_marks, question_text, mark_scheme, has_mark_scheme, marking, depends_on, criteria: [{ success_criteria_id, description, max_marks }] }], scripts_count, front_sheet_checks: { passed, failed, unchecked }, pupils: [{ pupil_id, first_name, last_name, submission_id, script_uploaded, script_uploaded_at, front_sheet_check | null, marks_awarded | null, max_marks, mark_status, mark_error, progress | null }] } }`. `marking` is `"ai"`, `"ai_check"` or `"teacher"`; `depends_on` is the label of the earlier question the marker also sees, or null. `front_sheet_check` is `"passed"`, the reason the script was held, or null (no script, or a folded paper's). `pupils` lists the roster pupils of the classes the lesson is set to, plus anyone who already has a submission. Each pupil's figures come from their latest attempt. `marks_awarded` is null until the paper is marked, but an unmarked paper still counts as 0 towards progress.
 
-`progress` (null with no submission) is `{ read_done, questions_marked, questions_to_mark, questions_held, questions_awaiting_check }`:
+`progress` (null with no submission) is `{ read_done, questions_marked, questions_to_mark, questions_held, questions_awaiting_check, questions_flagged }`:
 - `read_done`: the script has been read and no read is queued or running.
 - `questions_marked`: questions with marks from anyone (AI, teacher or legacy).
 - `questions_to_mark`: questions with a mark job queued or running.
 - `questions_held`: questions that were read but not sent: not blank, not teacher-only, unmarked, no job. Usually they have no mark scheme yet.
 - `questions_awaiting_check`: AI-marked questions waiting for the teacher to confirm.
+- `questions_flagged`: questions the pupil has flagged for the teacher to check that no teacher has cleared yet (migration 144).
 
 #### `set_assessment_activity_questions`
 **Input:** `{ activity_id, questions: [{ label, max_marks, question_text?, mark_scheme?, marking?, depends_on?, evidence?, criteria: [{ success_criteria_id, max_marks }] }] }`
@@ -1035,7 +1036,7 @@ This is a dry run and **saves nothing**. It sends the activity's uploaded mark s
 
 #### `get_assessment_activity_result`
 **Input:** `{ activity_id, pupil_id }`
-**Output:** `{ result: { activity_id, type, pupil_id, first_name, last_name, submission_id, mark_status, mark_error, marks_awarded | null, max_marks, powerpoint: null, script: { script_id, page_count, uploaded_at, front_sheet_check } | null, overall_feedback: { teacher, ai }, questions: [{ question_id, label, marking, depends_on, has_mark_scheme, awarded | null, available, provenance, answer: { status, kind, transcription, pages, provenance } | null, criteria: [{ success_criteria_id, description, awarded | null, available, why_not_awarded, how_to_improve, teacher_feedback, provenance, ai_awarded | null }] }] } }`. All figures come from the pupil's latest attempt. `answer` is what the reader found, and is null until the script is read:
+**Output:** `{ result: { activity_id, type, pupil_id, first_name, last_name, submission_id, mark_status, mark_error, marks_awarded | null, max_marks, powerpoint: null, script: { script_id, page_count, uploaded_at, front_sheet_check } | null, overall_feedback: { teacher, ai }, questions: [{ question_id, label, marking, depends_on, has_mark_scheme, awarded | null, available, provenance, flag: { open, flagged_at | null, history: [{ flagged_at, resolved_at | null, withdrawn_at | null, awarded_at_flag | null, awarded_at_resolve | null, outcome }] }, answer: { status, kind, transcription, pages, provenance } | null, criteria: [{ success_criteria_id, description, awarded | null, available, why_not_awarded, how_to_improve, teacher_feedback, provenance, ai_awarded | null }] }] } }`. All figures come from the pupil's latest attempt. `answer` is what the reader found, and is null until the script is read:
 - `status`: `answered`, `blank`, `unreadable` or `continued`.
 - `kind`: `text`, `sketch` or `mixed`. A sketch is described, not transcribed.
 - `pages`: the script pages (2 onwards) the answer is on.
@@ -1047,6 +1048,8 @@ The marks' `provenance` is one of:
 - `legacy`: carried over from an old paper.
 
 `ai_awarded` is the AI marker's own mark on the criterion (migration 141), kept when a teacher changes `awarded` or confirms it. It is null when the AI never marked the criterion (teacher-only question, teacher marked first, legacy) or its mark was not recovered when the column was added. Teacher tools only: no pupil view shows it.
+
+`flag` is the pupil's flags on the question (migration 144): `open` and `flagged_at` for a flag no one has dealt with yet, and `history`, newest first, for the ones that ended. A flag ends when the pupil withdraws it (`withdrawn_at`, `outcome: "withdrawn"`) or a teacher clears it (`resolved_at`). `awarded_at_flag` and `awarded_at_resolve` are the question's mark at each end; `outcome` is `"changed"` when the question's mark or any criterion's mark differs between the two, otherwise `"unchanged"`. It is derived, never stored.
 
 #### `set_assessment_activity_question_marks`
 A teacher's marking of **one question** on a pupil's latest submission, the same as on the results page and through the same store functions, so the rules match. Give the question by `label` (case-insensitive, e.g. `"q3"`) or `question_id`, and at least one of:

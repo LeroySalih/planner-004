@@ -30,8 +30,10 @@ import {
   removeSuppliedImage,
   storePracticalFile,
   storeSuppliedImage,
+  reopenPowerPointAssessment,
 } from '@/lib/powerpoint-assessment/files'
 import { DOCX_MESSAGES, PPTX_MESSAGES } from '@/lib/pptx/package'
+import { getResubmitRequest, setResubmitRequest } from '@/lib/server-actions/submission-attempts'
 import { createLocalStorageClient } from '@/lib/storage/local-storage'
 
 // A PowerPoint assessment's files: slot validation (unknown slot, wrong file
@@ -119,6 +121,7 @@ async function tearDown() {
   await rm(path.join(process.cwd(), 'files', ASSESSMENT_SCRIPTS_BUCKET, PPT), { recursive: true, force: true })
   await rm(path.join(process.cwd(), 'files', LESSONS_BUCKET, LESSON), { recursive: true, force: true })
   await query("delete from external_jobs where payload->>'submissionId' in (select submission_id from submissions where user_id = any($1::text[]))", [[PUPIL, OTHER]])
+  await query('delete from submission_resubmit_requests where user_id = any($1::text[])', [[PUPIL, OTHER]])
   await query('delete from submissions where user_id = any($1::text[])', [[PUPIL, OTHER]])
   await query('delete from planner_assignments where lesson_id = $1', [LESSON])
   await query('delete from activities where lesson_id = $1', [LESSON])
@@ -291,6 +294,37 @@ async function main() {
     const slots = await readPracticalSlots(PPT, PUPIL)
     check('a teacher can remove a file after hand-in', removed.removed && removed.requeued && slots.slots.find((s) => s.key === 'handouts')?.file === null)
     check('the removed stored file is gone', !(await storedExists(ASSESSMENT_SCRIPTS_BUCKET, handouts.storage_path)))
+
+    // --- A teacher undoes the hand-in ------------------------------------------
+    await recordQuestionCriterionMarks(handedIn.submissionId, [
+      { questionId: q1.questionId, successCriteriaId: A, awarded: 1, whyNotAwarded: null, howToImprove: null },
+    ], 'ai')
+    await query("update submissions set mark_status = 'marked' where submission_id = $1", [handedIn.submissionId])
+    const filesAtReopen = (await listPracticalFiles(handedIn.submissionId)).length
+    await setResubmitRequest({ activityId: PPT, userId: PUPIL, note: 'Fix slide 3.', requestedBy: TEACHER })
+    const reopened = await reopenPowerPointAssessment(PPT, PUPIL)
+    const { rows: [afterReopen] } = await query<{ submission_status: string; mark_status: string | null }>(
+      'select submission_status, mark_status from submissions where submission_id = $1', [handedIn.submissionId])
+    check('undo hand-in reopens the work', reopened.reopened && afterReopen?.submission_status === 'inprogress' && !reopened.state.handedIn, JSON.stringify(afterReopen))
+    check('…it no longer reads as marked', afterReopen?.mark_status === null, String(afterReopen?.mark_status))
+    const { rows: openJobs } = await query<{ n: number }>(
+      "select count(*)::int as n from external_jobs where job_type in ('ai_read','ai_mark') and status in ('pending','processing') and payload->>'submissionId' = $1",
+      [handedIn.submissionId],
+    )
+    check('…its queued marking is dropped', openJobs[0]?.n === 0, String(openJobs[0]?.n))
+    const { rows: marksAfterReopen } = await query<{ success_criteria_id: string; provenance: string }>(
+      'select success_criteria_id, provenance from submission_question_criterion_marks where submission_id = $1',
+      [handedIn.submissionId],
+    )
+    check('…the marker\'s rows are cleared', !marksAfterReopen.some((m) => m.success_criteria_id === A), JSON.stringify(marksAfterReopen))
+    check('…the teacher\'s rows are kept', marksAfterReopen.some((m) => m.success_criteria_id === B && m.provenance === 'teacher'))
+    check('…the files stay', (await listPracticalFiles(handedIn.submissionId)).length === filesAtReopen)
+    check('undoing work not handed in does nothing', !(await reopenPowerPointAssessment(PPT, PUPIL)).reopened)
+    const resent = await store('handouts', pdfBytes('resubmitted'), 'Handouts again.pdf')
+    check('the pupil can upload again', resent.submission_id === handedIn.submissionId && !resent.requeued)
+    const handedInAgain = await handInPowerPointAssessment(PPT, PUPIL, { userId: PUPIL, isTeacher: false })
+    check('the pupil can hand in again on the same attempt', !handedInAgain.alreadyHandedIn && handedInAgain.submissionId === handedIn.submissionId)
+    check('handing in again clears the teacher\'s resubmission request', (await getResubmitRequest(PPT, PUPIL)) === null)
 
     // --- Who may open what -----------------------------------------------------
     const own = third.storage_path

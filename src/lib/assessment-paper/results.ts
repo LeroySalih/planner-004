@@ -1,7 +1,7 @@
 import "server-only"
 
 import { query } from "@/lib/db"
-import { isAssessmentPaperType, isPowerPointAssessmentType, isQuestionMarkedActivityType } from "@/dino.config"
+import { isPowerPointAssessmentType, isQuestionMarkedActivityType } from "@/dino.config"
 import {
   listQuestionsAwaitingCheck,
   readAssessmentQuestions,
@@ -10,8 +10,7 @@ import {
   type QuestionMarkProvenance,
   type SubmissionQuestionAnswer,
 } from "@/lib/assessment-paper/store"
-import { ASSESSMENT_SCRIPTS_BUCKET, pupilHasSatAssessment } from "@/lib/assessment-paper/files"
-import { assessmentFeedbackPdfUrl } from "@/lib/assessment-paper/urls"
+import { ASSESSMENT_SCRIPTS_BUCKET } from "@/lib/assessment-paper/files"
 import { fetchPupilActivityFeedbackMap, selectLatestFeedbackEntry } from "@/lib/feedback/pupil-activity-feedback"
 import { readFeedbackVisibility } from "@/lib/mcp/pupil-feedback"
 import { evidenceHeading, type QuestionEvidence } from "@/lib/powerpoint-assessment/evidence-spec"
@@ -30,10 +29,8 @@ import {
 } from "@/types"
 
 // One pupil's result on an assessment paper, question by question, as the
-// results page (teacher) and the feedback PDF read it, and the little the
-// pupil's lesson page shows: the question paper once sat, then the overall
-// marks and links. The question-by-question detail reaches a pupil only
-// through the feedback PDF (feedback-pdf.ts).
+// results page (teacher) and the feedback PDF read it. What a pupil's lesson
+// page shows of it is built from this in pupil-feedback.ts.
 
 export type AssessmentResultCriterion = {
   successCriteriaId: string
@@ -569,28 +566,6 @@ export function summariseTeacherChanges(
   return { recorded, aiMarks: finalMarks - change, finalMarks, change, changedQuestions, teacherOnlyLabels }
 }
 
-export type PupilAssessmentPaperFeedback = {
-  maxMarks: number
-  /** Null until any question is marked. */
-  marksAwarded: number | null
-  /** The pupil's own script as uploaded, never the markable pages. Null on a folded paper with no script. */
-  scriptUrl: string | null
-  /** The feedback PDF, built when it is downloaded. */
-  feedbackPdfUrl: string
-  /** The teacher's overall comment, also printed in the PDF. */
-  teacherComment: string | null
-}
-
-/** An assessment paper on the pupil's lesson page. */
-export type PupilAssessmentPaperView = {
-  /** The pupil has sat the paper (pupilHasSatAssessment). */
-  sat: boolean
-  /** Only once sat: before then the paper stays hidden. */
-  questionPaperUrl: string | null
-  /** Only once sat and the lesson's feedback is visible to the viewer. */
-  feedback: PupilAssessmentPaperFeedback | null
-}
-
 /**
  * Whether the viewer may read this pupil's feedback: a teacher always; the
  * pupil only their own, once the lesson's feedback is visible to them, the
@@ -602,61 +577,6 @@ export async function pupilFeedbackVisible(activityId: string, pupilId: string):
   ])
   if (!rows[0]) return false
   return (await readFeedbackVisibility(pupilId, rows[0].lesson_id)).visible_to_pupil
-}
-
-/**
- * What the pupil's lesson page shows: nothing but the title until they have
- * sat the paper; then the question paper; once feedback is visible, the
- * overall marks and links to the feedback PDF and their own script. The
- * per-question detail is only in the PDF. `viewerIsTeacher` skips the
- * visibility check (teachers preview).
- */
-export async function readPupilAssessmentPaperView(
-  activityId: string,
-  pupilId: string,
-  viewerIsTeacher: boolean,
-): Promise<PupilAssessmentPaperView> {
-  const { rows } = await query<{ type: string | null; max_marks: number | null; body_data: unknown }>(
-    "select type, max_marks, body_data from activities where activity_id = $1",
-    [activityId],
-  )
-  const activity = rows[0]
-  if (!activity) throw new Error("Activity not found.")
-  if (!isAssessmentPaperType(activity.type)) throw new Error("This activity is not an assessment paper.")
-  if (!(await pupilHasSatAssessment(activityId, pupilId))) return { sat: false, questionPaperUrl: null, feedback: null }
-
-  const body = AssessmentPaperActivityBodySchema.safeParse(activity.body_data ?? {})
-  const questionPaperPath = body.success ? body.data.questionPaperPath ?? null : null
-  const questionPaperUrl = questionPaperPath ? assessmentScriptUrl(questionPaperPath) : null
-  if (!viewerIsTeacher && !(await pupilFeedbackVisible(activityId, pupilId))) {
-    return { sat: true, questionPaperUrl, feedback: null }
-  }
-
-  const { rows: latest } = await query<{ marks: number | null; original_path: string | null }>(
-    `select (s.body::jsonb ->> 'marks')::int as marks,
-            (select sc.original_path from assessment_scripts sc
-              where sc.activity_id = s.activity_id and sc.pupil_id = s.user_id and sc.submission_id = s.submission_id
-              order by sc.uploaded_at desc, sc.script_id desc limit 1) as original_path
-       from submissions s
-      where s.activity_id = $1 and s.user_id = $2
-      order by s.attempt_number desc, s.submitted_at desc nulls last, s.submission_id desc
-      limit 1`,
-    [activityId, pupilId],
-  )
-  const submission = latest[0]
-  return {
-    sat: true,
-    questionPaperUrl,
-    feedback: submission
-      ? {
-          maxMarks: Number(activity.max_marks) || 0,
-          marksAwarded: submission.marks === null ? null : Number(submission.marks),
-          scriptUrl: submission.original_path ? assessmentScriptUrl(submission.original_path) : null,
-          feedbackPdfUrl: assessmentFeedbackPdfUrl(activityId, pupilId),
-          teacherComment: await readOverallTeacherFeedback(activityId, pupilId),
-        }
-      : null,
-  }
 }
 
 /** The teacher's latest overall comment on the activity, if any. */

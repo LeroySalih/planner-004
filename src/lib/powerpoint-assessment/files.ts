@@ -28,6 +28,7 @@ import {
   type KnownImage,
 } from "@/lib/pptx/known-images"
 import { isLessonLockedForUser } from "@/lib/lesson-lock"
+import { clearResubmitRequest } from "@/lib/server-actions/submission-attempts"
 import { createLocalStorageClient } from "@/lib/storage/local-storage"
 import { joinLabels } from "@/lib/utils"
 import {
@@ -648,6 +649,8 @@ export async function handInPowerPointAssessment(
   })
 
   if (!outcome.already) {
+    // A teacher's request to change the files is answered by handing in.
+    await clearResubmitRequest(activityId, pupilId)
     await resendForMarking(outcome.submissionId, activityId, pupilId, options?.groupAssignmentId)
   }
   return {
@@ -655,6 +658,45 @@ export async function handInPowerPointAssessment(
     alreadyHandedIn: outcome.already,
     state: await readPracticalSlots(activityId, pupilId),
   }
+}
+
+/**
+ * A teacher undoes a pupil's hand-in, so the pupil can change their files and
+ * hand in again on the same attempt. The files stay. Queued reads and marks
+ * are dropped (a read already running finds its job gone and writes nothing),
+ * and what the marker wrote is cleared as for a replacement: the teacher's
+ * own marks and comments are kept. Undoing work not handed in does nothing.
+ */
+export async function reopenPowerPointAssessment(
+  activityId: string,
+  pupilId: string,
+): Promise<{ submissionId: string | null; reopened: boolean; state: PracticalSlotsState }> {
+  const outcome = await withDbClient(async (client) => {
+    await client.query("BEGIN")
+    try {
+      const latest = await lockLatestSubmission(client, activityId, pupilId, { create: false })
+      if (!latest || latest.submission_status !== "submitted") {
+        await client.query("COMMIT")
+        return { submissionId: latest?.submission_id ?? null, reopened: false }
+      }
+      await client.query(
+        `delete from external_jobs
+          where job_type in ('ai_read', 'ai_mark') and status in ('pending', 'processing')
+            and payload->>'submissionId' = $1`,
+        [latest.submission_id],
+      )
+      await clearMarkedWork(client, latest.submission_id)
+      await client.query("update submissions set submission_status = 'inprogress' where submission_id = $1", [
+        latest.submission_id,
+      ])
+      await client.query("COMMIT")
+      return { submissionId: latest.submission_id, reopened: true }
+    } catch (error) {
+      await client.query("ROLLBACK")
+      throw error
+    }
+  })
+  return { ...outcome, state: await readPracticalSlots(activityId, pupilId) }
 }
 
 /** A teacher's "Mark with AI" on PowerPoint work the pupil has not handed in. */

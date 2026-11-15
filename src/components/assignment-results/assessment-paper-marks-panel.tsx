@@ -1,14 +1,13 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState, useTransition } from "react"
+import { format, parseISO } from "date-fns"
+import { Flag } from "lucide-react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
-import type {
-  AssessmentPaperResult,
-  AssessmentResultCriterion,
-  AssessmentResultQuestion,
-} from "@/lib/assessment-paper/results"
+import type { QuestionFlagHistoryEntry } from "@/lib/assessment-paper/question-flags"
+import type { AssessmentResultCriterion, AssessmentResultQuestion } from "@/lib/assessment-paper/results"
 import { assessmentFeedbackPdfUrl } from "@/lib/assessment-paper/urls"
 import {
   EvidenceThumbnails,
@@ -18,11 +17,13 @@ import {
 } from "@/components/assignment-results/powerpoint-evidence"
 import { MarkedAgainst, MarkerReason, MarkRowLabel } from "@/components/assignment-results/marking-reference"
 import {
+  clearAssessmentQuestionFlagAction,
   confirmAssessmentQuestionAction,
   readAssessmentPaperMarkingAction,
   setAssessmentAnswerTranscriptionAction,
   setAssessmentQuestionCriterionCommentAction,
   setAssessmentQuestionCriterionMarkAction,
+  type AssessmentPaperMarking,
 } from "@/lib/server-actions/assessment-paper-results"
 
 interface AssessmentPaperMarksPanelProps {
@@ -37,6 +38,8 @@ interface AssessmentPaperMarksPanelProps {
    * paper) or handed-in files (PowerPoint assessment).
    */
   onLoaded?: (state: { hasWork: boolean }) => void
+  /** The grid's flag for this pupil; the panel reads its flags again when it changes. */
+  flagged?: boolean
 }
 
 const MARK_STATUS_LABELS: Record<string, string> = {
@@ -108,6 +111,26 @@ function ProvenanceBadge({ provenance }: { provenance: string | null }) {
   return null
 }
 
+function formatDay(iso: string) {
+  try {
+    return format(parseISO(iso), "dd-MM-yyyy")
+  } catch {
+    return iso
+  }
+}
+
+/** One ended flag, in a line: what the teacher did with it, or that the pupil withdrew it. */
+function flagHistoryLine(entry: QuestionFlagHistoryEntry) {
+  if (entry.outcome === "withdrawn") {
+    return `Flagged ${formatDay(entry.flaggedAt)}: the pupil withdrew the flag${entry.withdrawnAt ? ` ${formatDay(entry.withdrawnAt)}` : ""}.`
+  }
+  const cleared = `Flag cleared ${entry.resolvedAt ? formatDay(entry.resolvedAt) : ""}`.trim()
+  const mark = (value: number | null) => (value === null ? "unmarked" : String(value))
+  return entry.outcome === "changed"
+    ? `${cleared}: mark changed ${mark(entry.awardedAtFlag)} → ${mark(entry.awardedAtResolve)}.`
+    : `${cleared}: mark unchanged (${mark(entry.awardedAtResolve)}).`
+}
+
 /** A PowerPoint task the reader answers with the pupil's typed text, which a teacher may correct. */
 function readsTypedText(question: AssessmentResultQuestion) {
   return question.evidenceSources.some((source) => source.source === "evidence_section" && source.want === "text")
@@ -131,8 +154,9 @@ export function AssessmentPaperMarksPanel({
   submissionId,
   onAggregateChange,
   onLoaded,
+  flagged,
 }: AssessmentPaperMarksPanelProps) {
-  const [result, setResult] = useState<AssessmentPaperResult | null>(null)
+  const [result, setResult] = useState<AssessmentPaperMarking | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [isPending, startTransition] = useTransition()
@@ -157,6 +181,15 @@ export function AssessmentPaperMarksPanel({
   useEffect(() => {
     void load()
   }, [load])
+
+  // The grid's flag changes when the pupil flags a question or a teacher
+  // clears them all from the grid; read the flags back so the panel agrees.
+  const flaggedRef = useRef(flagged)
+  useEffect(() => {
+    if (flaggedRef.current === flagged) return
+    flaggedRef.current = flagged
+    void load()
+  }, [flagged, load])
 
   const setAwarded = (questionId: string, criterion: AssessmentResultCriterion, awarded: number) => {
     const target = result?.submissionId
@@ -225,6 +258,20 @@ export function AssessmentPaperMarksPanel({
     })
   }
 
+  const clearFlag = (questionId: string) => {
+    const target = result?.submissionId
+    if (!target) return
+    startTransition(async () => {
+      const response = await clearAssessmentQuestionFlagAction({ submissionId: target, questionId })
+      if (response.error) {
+        toast.error(response.error)
+        return
+      }
+      await load()
+      toast.success("Flag cleared.")
+    })
+  }
+
   const saveComment = (questionId: string, criterion: AssessmentResultCriterion, feedback: string) => {
     const target = result?.submissionId
     if (!target) return
@@ -275,6 +322,7 @@ export function AssessmentPaperMarksPanel({
   }
 
   const canMark = Boolean(result.submissionId)
+  const flaggedCount = Object.values(result.questionFlags).filter((flag) => flag.open).length
   const powerPoint = result.powerpoint
   const work = powerPoint ? "work" : "script"
 
@@ -398,6 +446,13 @@ export function AssessmentPaperMarksPanel({
         </div>
       )}
 
+      {flaggedCount > 0 ? (
+        <div className="flex items-center gap-1.5 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-xs font-medium text-foreground">
+          <Flag className="h-3.5 w-3.5 text-destructive" aria-hidden="true" />
+          {flaggedCount} question{flaggedCount === 1 ? "" : "s"} flagged by the pupil.
+        </div>
+      ) : null}
+
       {result.awaitingCheckCount > 0 || result.paperAwaitingCheck.questions > 0 ? (
         <div className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs text-foreground">
           {result.awaitingCheckCount > 0 ? (
@@ -438,10 +493,13 @@ export function AssessmentPaperMarksPanel({
           const single = question.criteria.length === 1 ? question.criteria[0] : null
           const answer = question.answer
           const transcription = transcriptionDrafts[question.questionId] ?? answer?.transcription ?? ""
+          const flags = result.questionFlags[question.questionId]
           return (
             <li
               key={question.questionId}
-              className={`rounded-md border p-3 ${question.awaitingCheck ? "border-amber-500/60" : "border-border"}`}
+              className={`rounded-md border p-3 ${
+                flags?.open ? "border-destructive/60" : question.awaitingCheck ? "border-amber-500/60" : "border-border"
+              }`}
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="flex flex-1 flex-wrap items-center gap-1">
@@ -449,6 +507,12 @@ export function AssessmentPaperMarksPanel({
                   <Badge variant="outline" className="text-[10px]">{MARKING_LABELS[question.marking]}</Badge>
                   {question.awaitingCheck ? (
                     <Badge className="bg-amber-500 text-[10px] text-white hover:bg-amber-500">Check</Badge>
+                  ) : null}
+                  {flags?.open ? (
+                    <Badge variant="destructive" className="gap-1 text-[10px]">
+                      <Flag className="h-3 w-3" aria-hidden="true" />
+                      Flagged by pupil
+                    </Badge>
                   ) : null}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
@@ -481,6 +545,29 @@ export function AssessmentPaperMarksPanel({
                 markScheme={question.markScheme}
                 criteria={question.criteria.map((c) => c.description)}
               />
+
+              {flags?.open ? (
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded border border-destructive/40 bg-destructive/5 px-2 py-1">
+                  <span className="text-xs text-muted-foreground">
+                    The pupil asked you to check this mark ({formatDay(flags.open.flaggedAt)}).
+                  </span>
+                  <button
+                    type="button"
+                    disabled={isPending || !canMark}
+                    onClick={() => clearFlag(question.questionId)}
+                    className="rounded border border-destructive bg-destructive px-2 py-0.5 text-xs text-white disabled:opacity-50"
+                  >
+                    Clear flag
+                  </button>
+                </div>
+              ) : null}
+              {flags && flags.history.length > 0 ? (
+                <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+                  {flags.history.map((entry) => (
+                    <li key={entry.flagId}>{flagHistoryLine(entry)}</li>
+                  ))}
+                </ul>
+              ) : null}
 
               {question.awaitingCheck ? (
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded border border-amber-500/40 bg-amber-500/5 px-2 py-1">

@@ -7,7 +7,7 @@ import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
-import { handInPowerPointAssessmentAction } from "@/lib/server-updates"
+import { handInPowerPointAssessmentAction, reopenPowerPointAssessmentAction } from "@/lib/server-updates"
 import type {
   AssessmentEvidenceImage,
   PowerPointResultFile,
@@ -38,7 +38,8 @@ const ACCEPT: Record<PowerPointResultFile["kind"], string> = {
  * and a teacher's upload or replacement of a slot's file. After hand-in a
  * replacement clears what was marked from the old file (the teacher's own
  * marks are kept) and sends the work for marking again. Before hand-in, once
- * every required slot has a file, the teacher can hand in for the pupil.
+ * every required slot has a file, the teacher can hand in for the pupil;
+ * after it, Undo hand in lets the pupil change their files and hand in again.
  */
 export function PowerPointFilesBlock({
   activityId,
@@ -56,6 +57,7 @@ export function PowerPointFilesBlock({
 }) {
   const [busySlot, setBusySlot] = useState<string | null>(null)
   const [handingIn, setHandingIn] = useState(false)
+  const [reopening, setReopening] = useState(false)
   const inputs = useRef<Record<string, HTMLInputElement | null>>({})
   const canHandIn = !files.handedIn && files.files.every((slot) => !slot.required || Boolean(slot.name))
 
@@ -78,6 +80,34 @@ export function PowerPointFilesBlock({
       toast.error("Not handed in", { description: error instanceof Error ? error.message : "Please try again." })
     } finally {
       setHandingIn(false)
+    }
+  }
+
+  const reopen = async () => {
+    if (
+      !window.confirm(
+        "Undo this pupil's hand-in? Their files stay, the AI's marks are cleared (yours are kept) and the pupil can change their files and hand in again.",
+      )
+    ) {
+      return
+    }
+    setReopening(true)
+    try {
+      const result = await reopenPowerPointAssessmentAction(activityId, pupilId)
+      if (result.error || !result.data) {
+        toast.error("Hand-in not undone", { description: result.error ?? "Please try again." })
+        return
+      }
+      toast.success(
+        result.data.reopened
+          ? "Hand-in undone. The pupil can change their files and hand in again."
+          : "The pupil had not handed in.",
+      )
+      await onChanged()
+    } catch (error) {
+      toast.error("Hand-in not undone", { description: error instanceof Error ? error.message : "Please try again." })
+    } finally {
+      setReopening(false)
     }
   }
 
@@ -200,6 +230,18 @@ export function PowerPointFilesBlock({
         >
           {handingIn ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : null}
           Hand in for pupil
+        </button>
+      ) : null}
+      {files.handedIn ? (
+        <button
+          type="button"
+          disabled={reopening || busySlot !== null}
+          onClick={() => void reopen()}
+          className="mt-2 inline-flex items-center gap-1 rounded border border-border bg-background px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted disabled:opacity-50"
+          title="Undo the hand-in so the pupil can change their files and hand in again"
+        >
+          {reopening ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : null}
+          Undo hand in
         </button>
       ) : null}
       {markStatusLine ? <p className="mt-2 text-xs text-muted-foreground">{markStatusLine}</p> : null}

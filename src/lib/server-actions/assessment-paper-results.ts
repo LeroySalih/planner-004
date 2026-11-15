@@ -9,7 +9,17 @@ import {
   setTeacherQuestionCriterionComment,
   setTeacherQuestionCriterionMark,
 } from "@/lib/assessment-paper/store"
-import { readAssessmentPaperResult, readPupilAssessmentPaperView } from "@/lib/assessment-paper/results"
+import {
+  flagAssessmentQuestion,
+  readQuestionFlags,
+  resolveAssessmentQuestionFlags,
+  withdrawAssessmentQuestionFlag,
+  type FlaggedSubmission,
+  type QuestionFlagState,
+} from "@/lib/assessment-paper/question-flags"
+import { pupilQuestionFlagRefusal, readPupilAssessmentPaperView } from "@/lib/assessment-paper/pupil-feedback"
+import { readAssessmentPaperResult, type AssessmentPaperResult } from "@/lib/assessment-paper/results"
+import { emitSubmissionEvent } from "@/lib/sse/topics"
 import { withTelemetry } from "@/lib/telemetry"
 
 // Marking an assessment paper on the results page, and the pupil's own view
@@ -51,6 +61,34 @@ const ConfirmInputSchema = z.object({
   questionId: z.string().uuid(),
 })
 
+const FlagInputSchema = z.object({
+  submissionId: z.string().min(1),
+  questionId: z.string().uuid(),
+  flagged: z.boolean(),
+})
+
+const ClearFlagInputSchema = z.object({
+  submissionId: z.string().min(1),
+  questionId: z.string().uuid(),
+})
+
+/** The results sidebar's paper, with the pupil's flags on its questions by question id. */
+export type AssessmentPaperMarking = AssessmentPaperResult & {
+  questionFlags: Record<string, QuestionFlagState>
+}
+
+/** The results grid's flag follows the submission's open question flags. */
+function emitFlagChange(submission: FlaggedSubmission) {
+  void emitSubmissionEvent("submission.updated", {
+    submissionId: submission.submissionId,
+    activityId: submission.activityId,
+    pupilId: submission.pupilId,
+    submittedAt: submission.submittedAt,
+    body: submission.body,
+    isFlagged: submission.isFlagged,
+  })
+}
+
 function errorMessage(error: unknown, fallback: string) {
   if (error instanceof z.ZodError) return error.issues[0]?.message ?? fallback
   return error instanceof Error ? error.message : fallback
@@ -64,7 +102,9 @@ export async function readAssessmentPaperMarkingAction(input: z.infer<typeof Rea
       await requireRole("teacher")
       try {
         const parsed = ReadInputSchema.parse(input)
-        const data = await readAssessmentPaperResult(parsed.activityId, parsed.pupilId, parsed.submissionId)
+        const result = await readAssessmentPaperResult(parsed.activityId, parsed.pupilId, parsed.submissionId)
+        const flags = await readQuestionFlags(result.submissionId)
+        const data: AssessmentPaperMarking = { ...result, questionFlags: Object.fromEntries(flags) }
         return { data, error: null }
       } catch (error) {
         console.error("[assessment-paper] failed to read marking", error)
@@ -176,6 +216,61 @@ export async function confirmAssessmentQuestionAction(input: z.infer<typeof Conf
       } catch (error) {
         console.error("[assessment-paper] failed to confirm question", error)
         return { data: null, error: errorMessage(error, "Unable to confirm the marks.") }
+      }
+    },
+  )
+}
+
+/**
+ * A pupil flags one marked question of their latest attempt for their
+ * teacher to check, or takes the flag back. Only once its mark is shown to
+ * them (pupilQuestionFlagRefusal); a teacher clears flags instead.
+ */
+export async function setAssessmentQuestionFlagAction(input: z.infer<typeof FlagInputSchema>) {
+  return withTelemetry(
+    {
+      routeTag: "/pupil-lessons:assessment-question-flag",
+      functionName: "setAssessmentQuestionFlagAction",
+      params: { submissionId: input.submissionId, questionId: input.questionId, flagged: input.flagged },
+    },
+    async () => {
+      const profile = await requireAuthenticatedProfile()
+      try {
+        const parsed = FlagInputSchema.parse(input)
+        if (hasRole(profile, "teacher")) return { data: null, error: "Pupils flag questions; clear a flag on the results page." }
+        const refusal = await pupilQuestionFlagRefusal(parsed.submissionId, parsed.questionId, profile.userId)
+        if ("error" in refusal) return { data: null, error: refusal.error }
+        const submission = parsed.flagged
+          ? await flagAssessmentQuestion(parsed.submissionId, parsed.questionId, profile.userId)
+          : await withdrawAssessmentQuestionFlag(parsed.submissionId, parsed.questionId)
+        emitFlagChange(submission)
+        return { data: { flagged: parsed.flagged, isFlagged: submission.isFlagged }, error: null }
+      } catch (error) {
+        console.error("[assessment-paper] failed to set question flag", error)
+        return { data: null, error: errorMessage(error, "Unable to update the flag.") }
+      }
+    },
+  )
+}
+
+/** A teacher has dealt with the pupil's flag on one question: it is resolved with the marks as they now stand. */
+export async function clearAssessmentQuestionFlagAction(input: z.infer<typeof ClearFlagInputSchema>) {
+  return withTelemetry(
+    {
+      routeTag: ROUTE_TAG,
+      functionName: "clearAssessmentQuestionFlagAction",
+      params: { submissionId: input.submissionId, questionId: input.questionId },
+    },
+    async () => {
+      const profile = await requireRole("teacher")
+      try {
+        const parsed = ClearFlagInputSchema.parse(input)
+        const submission = await resolveAssessmentQuestionFlags(parsed.submissionId, profile.userId, parsed.questionId)
+        emitFlagChange(submission)
+        return { data: { resolved: submission.resolved, isFlagged: submission.isFlagged }, error: null }
+      } catch (error) {
+        console.error("[assessment-paper] failed to clear question flag", error)
+        return { data: null, error: errorMessage(error, "Unable to clear the flag.") }
       }
     },
   )

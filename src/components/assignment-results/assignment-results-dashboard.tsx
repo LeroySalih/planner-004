@@ -3199,6 +3199,7 @@ export function AssignmentResultsDashboard({
                                 pupilId={selection.row.pupil.userId}
                                 onAggregateChange={handleCriteriaAggregateChange}
                                 onLoaded={handlePaperLoaded}
+                                flagged={selection.cell.isFlagged}
                               />
                             ) : overrideMarking === "criteria" || overrideMarking === "criteria-new" ? (
                               <div className="space-y-2">
@@ -4431,6 +4432,7 @@ export function AssignmentResultsDashboard({
                                   pupilId={selection.row.pupil.userId}
                                   onAggregateChange={handleCriteriaAggregateChange}
                                   onLoaded={handlePaperLoaded}
+                                  flagged={selection.cell.isFlagged}
                                 />
                               ) : overrideMarking === "criteria" || overrideMarking === "criteria-new" ? (
                                 <div className="space-y-2">

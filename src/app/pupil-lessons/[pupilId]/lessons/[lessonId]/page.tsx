@@ -20,7 +20,7 @@ import {
   getActivityFileDownloadUrlAction,
 } from "@/lib/server-updates"
 import { isAssessmentPaperType, isPowerPointAssessmentType, isScorableActivityType } from "@/dino.config"
-import { readPupilAssessmentPaperView, type PupilAssessmentPaperView } from "@/lib/assessment-paper/results"
+import { readPupilAssessmentPaperView, type PupilAssessmentPaperView } from "@/lib/assessment-paper/pupil-feedback"
 import { readPupilPowerPointView, type PupilPowerPointView } from "@/lib/powerpoint-assessment/pupil-view"
 import { countsForProgress } from "@/lib/scoring/counts-for-progress"
 import { cn } from "@/lib/utils"
@@ -59,6 +59,8 @@ import { LessonFooter } from "@/components/lesson-article/lesson-footer"
 import { LessonObjectives } from "@/components/lesson-article/lesson-objectives"
 import { LessonProgressProvider } from "@/components/lesson-article/lesson-progress"
 import { LessonViewSwitch } from "@/components/lesson-article/lesson-view-switch"
+import { LessonMusic } from "@/components/lesson-article/lesson-music"
+import { getResubmitRequest } from "@/lib/server-actions/submission-attempts"
 import { ResourceCards } from "@/components/lesson-article/resource-cards"
 import { ActivitySidebar, type ActivitySidebarItem } from "@/components/lessons/activity-sidebar"
 import { ActivityKeyboardNav } from "@/components/lessons/activity-keyboard-nav"
@@ -1011,7 +1013,7 @@ export default async function PupilLessonFriendlyPage({
         .map(async (activity) => {
           const view = await readPupilAssessmentPaperView(activity.activity_id, pupilId, isTeacher).catch((error) => {
             console.error("[pupil-lessons] failed to load assessment paper", error)
-            return { sat: false, questionPaperUrl: null, feedback: null } satisfies PupilAssessmentPaperView
+            return { sat: false, questionPaperUrl: null, scriptUrl: null, feedback: null } satisfies PupilAssessmentPaperView
           })
           return [activity.activity_id, view] as const
         }),
@@ -1033,6 +1035,16 @@ export default async function PupilLessonFriendlyPage({
           })
           return [activity.activity_id, view] as const
         }),
+    ),
+  )
+
+  // A teacher's request to change the files (Request Resubmission), with its note.
+  const powerPointResubmit = new Map(
+    await Promise.all(
+      [...powerPointViewMap.keys()].map(async (activityId) => {
+        const request = await getResubmitRequest(activityId, pupilId).catch(() => null)
+        return [activityId, request?.requested ? { note: request.note } : null] as const
+      }),
     ),
   )
 
@@ -1177,8 +1189,9 @@ export default async function PupilLessonFriendlyPage({
             activityId={activity.activity_id}
             pupilId={pupilId}
             viewerIsTeacher={isTeacher}
+            canWork={canWork}
             initialView={
-              assessmentPaperViewMap.get(activity.activity_id) ?? { sat: false, questionPaperUrl: null, feedback: null }
+              assessmentPaperViewMap.get(activity.activity_id) ?? { sat: false, questionPaperUrl: null, scriptUrl: null, feedback: null }
             }
           />,
           { variant: "task", title: activity.title || "Assessment paper", ownFeedback: true },
@@ -1195,6 +1208,7 @@ export default async function PupilLessonFriendlyPage({
               canWork={canWork}
               groupAssignmentId={assignmentIds[0] ?? null}
               initialView={view}
+              resubmitRequest={powerPointResubmit.get(activity.activity_id) ?? null}
             />
           ) : (
             <p className="rounded-xl border border-dashed border-la-input p-6 text-sm text-la-muted">
@@ -1629,7 +1643,12 @@ export default async function PupilLessonFriendlyPage({
     </span>,
   ].filter(Boolean)
 
-  const viewSwitch = <LessonViewSwitch mode={profile.lessonViewMode} />
+  const viewSwitch = (
+    <div className="flex items-center gap-2">
+      <LessonMusic />
+      <LessonViewSwitch mode={profile.lessonViewMode} />
+    </div>
+  )
 
   const lockedNotice = isLocked ? (
     <p

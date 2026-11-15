@@ -44,6 +44,7 @@ MIGRATIONS=(
   "141-ai-awarded.sql|select exists (select 1 from information_schema.columns where table_name = 'submission_question_criterion_marks' and column_name = 'ai_awarded')"
   "142-upload-file-ai-route.sql|select exists (select 1 from ai_model_routes where activity_type = 'upload-file')"
   "143-powerpoint-assessment.sql|select exists (select 1 from information_schema.tables where table_name = 'practical_submission_files')"
+  "144-assessment-question-flags.sql|select exists (select 1 from information_schema.tables where table_name = 'submission_question_flags')"
 )
 
 YES=false

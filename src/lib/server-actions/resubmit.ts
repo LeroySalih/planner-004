@@ -9,6 +9,8 @@ import { requireTeacherProfile } from "@/lib/auth";
 import { withTelemetry } from "@/lib/telemetry";
 import { insertPupilActivityFeedbackEntry } from "@/lib/feedback/pupil-activity-feedback";
 import { setResubmitRequest } from "@/lib/server-actions/submission-attempts";
+import { isPowerPointAssessmentType } from "@/dino.config";
+import { reopenPowerPointAssessmentForTeacher } from "@/lib/powerpoint-assessment/reopen";
 
 const RequestResubmissionInputSchema = z.object({
   assignmentId: z.string().min(3),
@@ -52,8 +54,8 @@ export async function requestResubmissionAction(
       }
 
       try {
-        const { rows: activityRows } = await query(
-          "select activity_id from activities where activity_id = $1 limit 1",
+        const { rows: activityRows } = await query<{ activity_id: string; type: string | null }>(
+          "select activity_id, type from activities where activity_id = $1 limit 1",
           [parsed.data.activityId],
         );
         if (!activityRows?.[0]) {
@@ -87,6 +89,16 @@ export async function requestResubmissionAction(
           note: parsed.data.note?.trim() || null,
           requestedBy: teacherProfile.userId,
         });
+
+        // A handed-in PowerPoint assessment is reopened, so the pupil can
+        // change their files and hand in again; handing in clears the request.
+        if (isPowerPointAssessmentType(activityRows[0].type)) {
+          await reopenPowerPointAssessmentForTeacher(
+            parsed.data.activityId,
+            parsed.data.pupilId,
+            teacherProfile.userId,
+          );
+        }
 
         // Record feedback entry for audit trail
         await insertPupilActivityFeedbackEntry({

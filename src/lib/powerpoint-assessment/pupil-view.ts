@@ -4,12 +4,13 @@ import { query } from "@/lib/db"
 import { isPowerPointAssessmentType } from "@/dino.config"
 import { assertPupilSitsAssessment } from "@/lib/assessment-paper/files"
 import {
-  assessmentScriptUrl,
-  pupilFeedbackVisible,
-  readAssessmentPaperResult,
-  readOverallTeacherFeedback,
-} from "@/lib/assessment-paper/results"
-import { effectiveQuestionCriterionFeedback } from "@/lib/assessment-paper/store"
+  buildPupilAssessmentFeedback,
+  powerPointMarkState,
+  powerPointQuestionShownToPupil,
+  type PupilAssessmentFeedback,
+  type PupilPowerPointMarkState,
+} from "@/lib/assessment-paper/pupil-feedback"
+import { assessmentScriptUrl, pupilFeedbackVisible, readAssessmentPaperResult } from "@/lib/assessment-paper/results"
 import { assessmentFeedbackPdfUrl } from "@/lib/assessment-paper/urls"
 import { isLessonLockedForUser } from "@/lib/lesson-lock"
 import { LESSONS_BUCKET, listSuppliedImages, readPracticalSlots } from "@/lib/powerpoint-assessment/files"
@@ -28,16 +29,6 @@ import { PowerPointAssessmentActivityBodySchema, type PowerPointUploadSlotKind }
 // mark_error (it is written for the teacher and can name questions and their
 // mark schemes). A file the reader refused shows its reader message, which is
 // written for whoever uploaded the file.
-
-export type PupilPowerPointMarkState =
-  /** Not handed in yet (files may be uploaded). */
-  | "not-handed-in"
-  /** Handed in, marking queued or under way. */
-  | "waiting"
-  /** Every question marked. */
-  | "marked"
-  /** Handed in but stopped: a file could not be read, or the teacher has something to look at. */
-  | "held"
 
 export type PupilPowerPointSlot = {
   key: string
@@ -58,31 +49,6 @@ export type PupilPowerPointSlot = {
 
 export type PupilPowerPointDownload = { name: string; url: string }
 
-export type PupilPowerPointCriterionComment =
-  | { source: "teacher"; text: string }
-  | { source: "ai"; whyNotAwarded: string | null; howToImprove: string | null }
-
-export type PupilPowerPointQuestionFeedback = {
-  label: string
-  questionText: string | null
-  /** Null when this question has no mark yet. */
-  awarded: number | null
-  available: number
-  /** One per criterion that has something to say, in criterion order. */
-  comments: PupilPowerPointCriterionComment[]
-}
-
-export type PupilPowerPointFeedback = {
-  maxMarks: number
-  /** Null until any question is marked. */
-  marksAwarded: number | null
-  /** The teacher's overall comment on the activity. */
-  teacherComment: string | null
-  /** The feedback PDF, built when it is downloaded; null while downloads are blocked (locked lesson). */
-  feedbackPdfUrl: string | null
-  questions: PupilPowerPointQuestionFeedback[]
-}
-
 export type PupilPowerPointView = {
   activityId: string
   pupilId: string
@@ -102,32 +68,9 @@ export type PupilPowerPointView = {
   /** Some file could not be read (shown on its slot). */
   hasReadError: boolean
   /** Only once handed in, marked (or marked by the teacher) and visible to the viewer. */
-  feedback: PupilPowerPointFeedback | null
+  feedback: PupilAssessmentFeedback | null
   /** The activity is not set up for pupils yet (no upload slots). */
   notSetUp: boolean
-}
-
-const IN_FLIGHT = new Set(["waiting", "marking", "queued", "pending"])
-
-/** Where a pupil's PowerPoint work has got to, as they see it (and as their feedback PDF follows). */
-export function powerPointMarkState(handedIn: boolean, markStatus: string | null): PupilPowerPointMarkState {
-  if (!handedIn) return "not-handed-in"
-  if (markStatus === "marked") return "marked"
-  if (markStatus && IN_FLIGHT.has(markStatus)) return "waiting"
-  // null after hand-in (held with a reason), 'marking-error', 'reading-error'.
-  return "held"
-}
-
-/**
- * Whether a pupil sees a question's marks: all of them once the work is
- * marked; on held work only a question with a teacher's mark on it
- * (question provenance 'teacher'), never the marker's marks or 0s on the rest.
- */
-export function powerPointQuestionShownToPupil(
-  markState: PupilPowerPointMarkState,
-  question: { provenance: string | null },
-): boolean {
-  return markState === "marked" || question.provenance === "teacher"
 }
 
 /** The activity's own files (current versions only), as the lesson's file-download activities list them. */
@@ -254,7 +197,7 @@ async function readFeedback(
   viewerIsTeacher: boolean,
   markState: PupilPowerPointMarkState,
   downloadsBlocked: boolean,
-): Promise<PupilPowerPointFeedback | null> {
+): Promise<PupilAssessmentFeedback | null> {
   // Never half-marked work while the marker is still going.
   if (markState === "waiting") return null
   if (!viewerIsTeacher && !(await pupilFeedbackVisible(activityId, pupilId))) return null
@@ -262,31 +205,10 @@ async function readFeedback(
   const result = await readAssessmentPaperResult(activityId, pupilId)
   // Held work shows only what a teacher has marked, and nothing at all until
   // there is one (powerPointQuestionShownToPupil).
-  const held = markState !== "marked"
-  const shown = (question: (typeof result.questions)[number]) => powerPointQuestionShownToPupil(markState, question)
-  if (held && !result.questions.some(shown)) return null
-  const marksAwarded = held
-    ? result.questions.filter(shown).reduce((sum, question) => sum + (question.awarded ?? 0), 0)
-    : result.marksAwarded
-
-  return {
-    maxMarks: result.maxMarks,
-    marksAwarded,
-    teacherComment: await readOverallTeacherFeedback(activityId, pupilId),
+  const shown = (question: { provenance: string | null }) => powerPointQuestionShownToPupil(markState, question)
+  if (markState !== "marked" && !result.questions.some(shown)) return null
+  return buildPupilAssessmentFeedback(result, {
+    shown,
     feedbackPdfUrl: downloadsBlocked ? null : assessmentFeedbackPdfUrl(activityId, pupilId),
-    questions: result.questions.map((question) => ({
-      label: question.label,
-      questionText: question.questionText,
-      awarded: shown(question) ? question.awarded : null,
-      available: question.available,
-      comments: !shown(question) ? [] : question.criteria.flatMap((criterion): PupilPowerPointCriterionComment[] => {
-        const shown = effectiveQuestionCriterionFeedback(criterion)
-        if (!shown) return []
-        // Only the fields a pupil reads, whatever the helper returns.
-        return shown.source === "teacher"
-          ? [{ source: "teacher", text: shown.text }]
-          : [{ source: "ai", whyNotAwarded: shown.whyNotAwarded, howToImprove: shown.howToImprove }]
-      }),
-    })),
-  }
+  })
 }

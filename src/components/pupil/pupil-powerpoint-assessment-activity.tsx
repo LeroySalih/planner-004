@@ -16,11 +16,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import type {
-  PupilPowerPointCriterionComment,
-  PupilPowerPointSlot,
-  PupilPowerPointView,
-} from "@/lib/powerpoint-assessment/pupil-view"
+import { AssessmentQuestionFeedback } from "@/components/pupil/assessment-question-feedback"
+import type { PupilPowerPointSlot, PupilPowerPointView } from "@/lib/powerpoint-assessment/pupil-view"
 import {
   handInPowerPointAssessmentAction,
   readMyPowerPointAssessmentViewAction,
@@ -37,6 +34,8 @@ interface PupilPowerPointAssessmentActivityProps {
   groupAssignmentId: string | null
   /** Loaded on the server (readPupilPowerPointView); feedback only when visible to the viewer. */
   initialView: PupilPowerPointView
+  /** The teacher asked for the files to be changed (Request Resubmission). */
+  resubmitRequest?: { note: string | null } | null
 }
 
 /** Mirrors PRACTICAL_UPLOAD_MAX_BYTES; the server checks again. */
@@ -95,6 +94,7 @@ export function PupilPowerPointAssessmentActivity({
   canWork,
   groupAssignmentId,
   initialView,
+  resubmitRequest = null,
 }: PupilPowerPointAssessmentActivityProps) {
   const { currentVisible } = useFeedbackVisibility()
   const visible = currentVisible || viewerIsTeacher
@@ -203,6 +203,12 @@ export function PupilPowerPointAssessmentActivity({
 
   return (
     <div className="space-y-5 text-[15px] leading-relaxed text-la-ink">
+      {resubmitRequest && !view.handedIn ? (
+        <p role="status" className="rounded-[10px] border border-la-amber bg-la-amber-bg p-3 text-sm text-la-amber">
+          <span className="font-semibold">Your teacher has asked you to change your files and hand in again.</span>
+          {resubmitRequest.note ? <span className="mt-1 block whitespace-pre-line">{resubmitRequest.note}</span> : null}
+        </p>
+      ) : null}
       {view.instructions ? <p className="whitespace-pre-line">{view.instructions}</p> : null}
 
       {hasDownloads ? (
@@ -313,70 +319,13 @@ export function PupilPowerPointAssessmentActivity({
       {loadingFeedback && !feedback ? <p className="text-sm text-la-muted">Loading your feedback…</p> : null}
 
       {feedback ? (
-        <section
-          aria-label="Your feedback"
-          className="space-y-3 rounded-[10px] border border-la-border bg-la-green-pale/60 p-4"
-        >
-          {viewerIsTeacher && !currentVisible ? (
-            <p className="text-sm font-semibold text-la-amber">
-              Preview: pupils can&apos;t see this until you release feedback.
-            </p>
-          ) : null}
-          <p className="font-semibold">
-            {feedback.marksAwarded === null
-              ? "Not marked yet"
-              : `${feedback.marksAwarded} / ${feedback.maxMarks} marks`}
-          </p>
-          {feedback.teacherComment ? <p className="whitespace-pre-line">{feedback.teacherComment}</p> : null}
-          {feedback.feedbackPdfUrl ? (
-            <a href={feedback.feedbackPdfUrl} className={LINK_CLASS}>
-              Download your feedback (PDF)
-            </a>
-          ) : null}
-          <ol className="divide-y divide-la-border border-t border-la-border">
-            {feedback.questions.map((question) => (
-              <li key={question.label} className="py-3">
-                <div className="flex items-baseline justify-between gap-4">
-                  <p className="font-semibold">
-                    {question.label}
-                    {question.questionText ? (
-                      <span className="ml-2 font-normal text-la-muted">{question.questionText}</span>
-                    ) : null}
-                  </p>
-                  <span className="flex-none text-sm font-semibold">
-                    {question.awarded === null ? "Not marked" : `${question.awarded} / ${question.available}`}
-                  </span>
-                </div>
-                {question.comments.length > 0 ? (
-                  <ul className="mt-1 space-y-1 text-sm">
-                    {question.comments.map((comment, index) => (
-                      <CommentLine key={index} comment={comment} />
-                    ))}
-                  </ul>
-                ) : null}
-              </li>
-            ))}
-          </ol>
-        </section>
+        <AssessmentQuestionFeedback
+          feedback={feedback}
+          canFlag={canWork && !viewerIsTeacher}
+          preview={viewerIsTeacher && !currentVisible}
+        />
       ) : null}
     </div>
-  )
-}
-
-function CommentLine({ comment }: { comment: PupilPowerPointCriterionComment }) {
-  if (comment.source === "teacher") {
-    return <li className="whitespace-pre-line">{comment.text}</li>
-  }
-  return (
-    <li className="space-y-0.5">
-      {comment.whyNotAwarded ? <p className="whitespace-pre-line">{comment.whyNotAwarded}</p> : null}
-      {comment.howToImprove ? (
-        <p className="whitespace-pre-line">
-          <span className="font-semibold">To improve: </span>
-          {comment.howToImprove}
-        </p>
-      ) : null}
-    </li>
   )
 }
 
